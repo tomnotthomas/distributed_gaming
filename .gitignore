@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# gstack local session state (browse daemon, ports, tokens)
+.gstack/
+
+# editors
+.vscode/
+.idea/
+
+# logs
+*.log
+
+# dependencies
+node_modules/

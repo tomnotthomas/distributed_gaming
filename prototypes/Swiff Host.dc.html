@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-7f9ebc72-1e8b-4371-8dee-7bf629d884d4/styles.css">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="_ds/nocturne-7f9ebc72-1e8b-4371-8dee-7bf629d884d4/_ds_bundle.js"></script>
+  <style>
+    :root{--color-section:var(--color-presence);--color-accent-2:var(--color-accent)}
+    .card{background:var(--glass);border:1px solid var(--glass-edge);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);box-shadow:var(--glass-hi)}
+    .btn-primary{background:linear-gradient(180deg,color-mix(in srgb,#5388BC 45%,transparent),color-mix(in srgb,#24557E 55%,transparent));border-color:color-mix(in srgb,var(--color-accent) 70%,transparent);color:#EAF6FD;backdrop-filter:blur(14px);box-shadow:var(--glass-hi)}
+    .btn-primary:hover{background:linear-gradient(180deg,color-mix(in srgb,#57ACD9 45%,transparent),color-mix(in srgb,#5388BC 60%,transparent));border-color:var(--color-accent)}
+    .btn-secondary{background:var(--glass);border-color:var(--glass-edge);backdrop-filter:blur(14px)}
+    .tag-accent{background:color-mix(in srgb,var(--color-accent) 22%,transparent);color:var(--color-accent-200);border:1px solid color-mix(in srgb,var(--color-accent) 45%,transparent)}
+    .tag-neutral,.tag-outline{background:var(--glass);border:1px solid var(--glass-edge);color:var(--color-neutral-200)}
+    .seg,.input{background:var(--glass);border-color:var(--glass-edge);backdrop-filter:blur(14px)}
+    html,body{height:100%;background:var(--color-bg)}
+    .swiff-scroll{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,#75798c 45%,transparent) transparent}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-400)}
+    input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;cursor:pointer;margin:0}
+    input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--color-accent) var(--p,50%),color-mix(in srgb,#FFFFFF 14%,transparent) 0)}
+    input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:color-mix(in srgb,#FFFFFF 14%,transparent)}
+    input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--color-accent)}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;margin-top:-7.5px;background:#EAF6FD;border:2px solid var(--color-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--color-accent) 20%,transparent),0 4px 14px rgba(0,0,0,.5)}
+    input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#EAF6FD;border:2px solid var(--color-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--color-accent) 20%,transparent)}
+    input[type=range]:focus-visible{outline:none}
+    input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 6px color-mix(in srgb,var(--color-accent) 35%,transparent)}
+    @keyframes host-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+    @keyframes host-drift{0%{transform:translate(-6%,-4%) scale(1)}50%{transform:translate(5%,4%) scale(1.15)}100%{transform:translate(-6%,-4%) scale(1)}}
+    @keyframes host-pop{0%{transform:scale(.985);opacity:.7}100%{transform:scale(1);opacity:1}}
+    @keyframes host-fade{from{opacity:0}to{opacity:1}}
+    @keyframes host-slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+    @keyframes host-spin{to{transform:rotate(360deg)}}
+    @keyframes host-breathe{0%,100%{box-shadow:0 0 36px color-mix(in srgb,var(--color-accent) 26%,transparent)}50%{box-shadow:0 0 64px color-mix(in srgb,var(--color-accent) 48%,transparent)}}
+    @keyframes host-odo{from{transform:translateY(.55em);opacity:0}to{transform:none;opacity:1}}
+    @keyframes host-tick{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+    @keyframes host-blackout{0%{opacity:0}35%{opacity:1}100%{opacity:0}}
+    @keyframes host-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+    @keyframes host-live{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.6);opacity:0}}
+  </style>
+</helmet>
+<div data-screen-label="Share your PC" style="min-height:100vh;display:flex;flex-direction:column;font-family:var(--font-body);color:var(--color-text);position:relative;background:var(--color-bg)">
+  <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none"><div style="position:absolute;left:-10%;top:-30%;width:70vw;height:70vw;max-width:1100px;max-height:1100px;filter:blur(60px);opacity:.55">{{ ambient }}</div></div>
+
+  <nav style="position:relative;z-index:5;height:60px;display:flex;align-items:center;justify-content:space-between;gap:var(--space-6);padding:0 var(--space-8);border-bottom:1px solid var(--color-divider);background:color-mix(in srgb,var(--color-bg) 60%,transparent);backdrop-filter:blur(14px)">
+    <div style="display:flex;align-items:center;gap:var(--space-6)">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 14px var(--color-accent)"></span>Swiff<span style="color:var(--color-neutral-500);font-weight:400">· Share your PC</span></div>
+      <div style="display:flex;align-items:center;gap:var(--space-2)">
+        <sc-for list="{{ steps }}" as="st" hint-placeholder-count="3">
+          <button onClick="{{ st.go }}" style="{{ st.style }}" style-hover="color:var(--color-text)"><span style="{{ st.dot }}">{{ st.n }}</span>{{ st.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--color-neutral-400)"><span style="{{ liveDot }}"></span>{{ machineLine }}</div>
+  </nav>
+
+  <!-- 1 · EARNINGS -->
+  <sc-if value="{{ isCalc }}" hint-placeholder-val="{{ true }}">
+  <main data-screen-label="Earnings" style="position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(18px,4vh,40px);padding:clamp(16px,4vh,48px) var(--space-8) var(--space-8);max-width:760px;width:100%;margin:0 auto;text-align:center;animation:host-rise .5s ease both">
+    <div style="{{ stageGlow }}"></div>
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:clamp(8px,1.6vh,14px)">
+      <div style="font-size:clamp(16px,min(1.6vw,3.2vh),22px);line-height:1.3;color:var(--color-neutral-300)">{{ idleLine }}</div>
+      <div style="display:flex;align-items:baseline;justify-content:center;gap:12px">
+        <h1 style="display:flex;font-size:clamp(88px,min(15vw,24vh),176px);letter-spacing:-.06em;line-height:.9;font-variant-numeric:tabular-nums;text-shadow:0 0 80px color-mix(in srgb,var(--color-accent) 35%,transparent)"><sc-for list="{{ odo }}" as="d" hint-placeholder-count="3"><span style="{{ d.style }}">{{ d.ch }}</span></sc-for></h1>
+      </div>
+      <div style="font-size:clamp(16px,min(1.6vw,3.2vh),22px);line-height:1.3;color:var(--color-text);text-wrap:balance">{{ earnVerb }}</div>
+    </div>
+    <sc-if value="{{ notInstalled }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
+          <sc-for list="{{ gpuChips }}" as="ch" hint-placeholder-count="4"><button onClick="{{ ch.pick }}" style="{{ ch.style }}" style-hover="border-color:color-mix(in srgb,var(--color-text) 35%,transparent);color:var(--color-text)">{{ ch.label }}<span style="margin-left:10px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--color-neutral-500)">{{ ch.rate }}</span></button></sc-for>
+        </div>
+        <div style="font-size:12px;line-height:16px;color:var(--color-neutral-400)">{{ rigExamples }} · <span style="color:var(--color-neutral-500)">exact rate set after install</span></div>
+      </div>
+    </sc-if>
+    <div style="font-size:13px;line-height:18px;color:var(--color-neutral-400)">Only while you're away · Sandboxed · Stop any time</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <button onClick="{{ startFlow }}" class="btn btn-primary" style="min-height:clamp(48px,8vh,58px);padding:0 44px;font-size:17px;gap:10px;animation:host-breathe 2.4s ease-in-out infinite">{{ ctaLabel }}</button>
+      <div style="font-size:12px;line-height:16px;color:var(--color-neutral-500)">First payout 1 Oct · <button onClick="{{ openSheet }}" style="background:transparent;border:0;padding:0;color:var(--color-neutral-400);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--color-text) 25%,transparent)" style-hover="color:var(--color-text)">how we got this number</button></div>
+    </div>
+  </main>
+
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSheet }}" style="position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--color-recessed) 55%,transparent);backdrop-filter:blur(6px);animation:host-fade .2s ease both"></div>
+    <aside data-screen-label="How we got this number" class="card" style="position:fixed;top:0;right:0;bottom:0;z-index:21;width:min(420px,100%);border-radius:0;border-width:0 0 0 1px;padding:var(--space-8) var(--space-6);gap:var(--space-6);overflow-y:auto;background:color-mix(in srgb,var(--color-surface) 92%,transparent);animation:host-slide .28s cubic-bezier(.2,.8,.2,1) both">
+      <div style="display:flex;align-items:center;justify-content:space-between"><h2 style="font-size:22px;letter-spacing:-.02em">How we got {{ netMonth }}</h2><button onClick="{{ closeSheet }}" aria-label="Close" class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:50%"><svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M205.7 194.3a8.1 8.1 0 0 1-11.4 11.4L128 139.3l-66.3 66.4a8.1 8.1 0 0 1-11.4-11.4l66.4-66.3-66.4-66.3a8.1 8.1 0 0 1 11.4-11.4l66.3 66.4 66.3-66.4a8.1 8.1 0 0 1 11.4 11.4L139.3 128Z"/></svg></button></div>
+      <div style="display:flex;flex-direction:column;gap:var(--space-3);font-size:13px;line-height:18px">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--color-neutral-400)">{{ idleSource }}</span><span style="font-variant-numeric:tabular-nums">{{ idleHours }} h</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--color-neutral-400)">Typical demand near you</span><span style="font-variant-numeric:tabular-nums">55% of idle hours booked</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--color-neutral-400)">Your rate per hour, set by Swiff from</span><span style="font-variant-numeric:tabular-nums">{{ rateLabel }}</span></div>
+          <sc-for list="{{ rateParts }}" as="rp" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:12px;padding-left:12px;font-size:12px"><span style="color:var(--color-neutral-500)">{{ rp.k }} <span style="color:var(--color-neutral-300)">{{ rp.v }}</span></span><span style="font-variant-numeric:tabular-nums;color:var(--color-neutral-400)">{{ rp.share }}</span></div></sc-for>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--color-neutral-400)">Electricity at {{ priceLabel }}, {{ drawLabel }}</span><span style="font-variant-numeric:tabular-nums;color:var(--color-time)">−{{ powerMonth }}</span></div>
+        <div style="height:1px;background:var(--color-divider)"></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;font-weight:500"><span>A month, after electricity</span><span style="font-variant-numeric:tabular-nums">{{ netMonth }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;color:var(--color-neutral-400)"><span>Quiet to busy months</span><span style="font-variant-numeric:tabular-nums">{{ loMonth }} – {{ hiMonth }}</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300)">Try a different week</div>
+        <div style="display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>Hours away per day</span><span style="font-variant-numeric:tabular-nums">{{ hoursLabel }}</span></div><input type="range" min="1" max="16" step="1" value="{{ hours }}" onChange="{{ setHours }}" style="{{ hoursTrack }}"></div>
+        <div style="display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>Days per week</span><span style="font-variant-numeric:tabular-nums">{{ days }}</span></div><input type="range" min="1" max="7" step="1" value="{{ days }}" onChange="{{ setDays }}" style="{{ daysTrack }}"></div>
+        <div style="display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>Electricity price</span><span style="font-variant-numeric:tabular-nums">{{ priceLabel }}</span></div><input type="range" min="0.10" max="0.60" step="0.01" value="{{ price }}" onChange="{{ setPrice }}" style="{{ priceTrack }}"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--space-3);font-size:13px;line-height:18px;color:var(--color-neutral-300)">
+        <sc-for list="{{ trust }}" as="tr" hint-placeholder-count="3"><div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--color-accent-300);flex:none;margin-top:1px">{{ tr.icon }}</span><div><div style="color:var(--color-text)">{{ tr.title }}</div><div style="font-size:12px;color:var(--color-neutral-400)">{{ tr.sub }}</div></div></div></sc-for>
+      </div>
+      <div style="font-size:12px;line-height:16px;color:var(--color-neutral-500)">Based on {{ sessionsLine }} in your area over the last 90 days. <span style="color:var(--color-neutral-300)">1 204 hosts</span> share on Swiff; a {{ tierName }} averaged {{ avgLine }} last month. Hosts keep 100% of the tier rate. Your own play time is never shared.</div>
+    </aside>
+  </sc-if>
+  </sc-if>
+
+  <!-- 2 · INSTALL -->
+  <sc-if value="{{ isInstall }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Install" style="position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(18px,4vh,40px);padding:clamp(16px,4vh,48px) var(--space-8) var(--space-8);max-width:720px;width:100%;margin:0 auto;text-align:center;animation:host-rise .5s ease both">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:clamp(8px,1.6vh,14px)">
+      <h1 style="font-size:clamp(34px,min(4.4vw,7vh),60px)">Install Swiff on the PC that will earn.</h1>
+      <div style="font-size:clamp(15px,min(1.4vw,3vh),19px);line-height:1.4;color:var(--color-neutral-300);max-width:46ch;text-wrap:balance">A small app reads your GPU, CPU, memory and connection to set your exact rate, then streams your games while you're away and pauses the moment you come back.</div>
+    </div>
+
+    <sc-if value="{{ phaseIdle }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+        <button onClick="{{ startDownload }}" class="btn btn-primary" style="min-height:clamp(48px,8vh,58px);padding:0 36px;font-size:17px;gap:12px;box-shadow:0 0 48px color-mix(in srgb,var(--color-accent) 34%,transparent)"><svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor"><path d="M224 152v56a16 16 0 0 1-16 16H48a16 16 0 0 1-16-16v-56a8 8 0 0 1 16 0v56h160v-56a8 8 0 0 1 16 0Zm-101.7 5.7a8.1 8.1 0 0 0 11.4 0l40-40a8.1 8.1 0 0 0-11.4-11.4L136 132.7V40a8 8 0 0 0-16 0v92.7l-26.3-26.4a8.1 8.1 0 0 0-11.4 11.4Z"/></svg>Download for {{ thisOs }}</button>
+        <div style="font-size:12px;line-height:16px;color:var(--color-neutral-500)">{{ dmgName }} · also for <a href="#" style="color:var(--color-neutral-400)">{{ otherOs }}</a> · <a href="#" style="color:var(--color-neutral-400)">not at that PC? email me the link</a></div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ phaseDl }}" hint-placeholder-val="{{ false }}">
+      <div style="width:min(420px,100%);display:flex;flex-direction:column;gap:12px;align-items:center">
+        <div style="font-size:clamp(40px,7vh,56px);font-weight:500;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums">{{ dlPct }}</div>
+        <div style="display:flex;gap:3px;width:100%"><sc-for list="{{ dlSegs }}" as="sg" hint-placeholder-count="24"><span style="{{ sg.style }}"></span></sc-for></div>
+        <div style="font-size:12px;color:var(--color-neutral-500);font-variant-numeric:tabular-nums">{{ dmgName }}</div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ phaseOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-4);animation:host-rise .3s ease both">
+        <div style="display:grid;grid-template-columns:repeat(3,auto);gap:var(--space-6);align-items:center;font-size:13px;color:var(--color-neutral-300)">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--glass);border:1px solid var(--glass-edge);font-weight:500">1</span>Run the installer</div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--glass);border:1px solid var(--glass-edge);font-weight:500">2</span>Let it read your hardware</div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--glass);border:1px solid var(--glass-edge);font-weight:500">3</span>Done · this page continues</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--color-neutral-300)"><span style="position:relative;width:16px;height:16px"><span style="position:absolute;inset:0;border-radius:50%;border:2px solid color-mix(in srgb,var(--color-accent) 20%,transparent);border-top-color:var(--color-accent);animation:host-spin 1s linear infinite"></span></span>Waiting for the app to connect…</div>
+        <button onClick="{{ openedApp }}" style="background:transparent;border:0;padding:0;color:var(--color-neutral-500);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px" style-hover="color:var(--color-text)">Already running? Connect manually</button>
+      </div>
+    </sc-if>
+    <sc-if value="{{ phaseWait }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);animation:host-rise .3s ease both">
+        <div style="position:relative;width:56px;height:56px"><span style="position:absolute;inset:0;border-radius:50%;border:2px solid color-mix(in srgb,var(--color-accent) 20%,transparent);border-top-color:var(--color-accent);animation:host-spin 1s linear infinite"></span></div>
+        <div style="font-size:15px">Reading your PC…</div>
+        <div class="card" style="width:min(360px,100%);padding:var(--space-4) var(--space-6);gap:4px;border-radius:var(--radius-lg);text-align:left"><sc-for list="{{ detectRows }}" as="dr" hint-placeholder-count="5"><div style="{{ dr.style }}"><span>{{ dr.k }}</span><span style="font-variant-numeric:tabular-nums">{{ dr.v }}</span></div></sc-for></div>
+      </div>
+    </sc-if>
+
+    <div style="font-size:13px;line-height:18px;color:var(--color-neutral-400)">Signed installer · Windows 10/11 or Linux · Uninstall any time</div>
+  </main>
+  </sc-if>
+
+  <!-- 4 · SHARE NOW -->
+  <sc-if value="{{ isSchedule }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Share now" style="position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(18px,4vh,40px);padding:clamp(16px,4vh,48px) var(--space-8) var(--space-8);max-width:760px;width:100%;margin:0 auto;text-align:center;animation:host-rise .5s ease both">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:clamp(8px,1.6vh,14px)">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--color-neutral-400)"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-live);box-shadow:0 0 8px var(--color-live);flex:none"></span><span style="white-space:nowrap">{{ detectedLine }}</span></div>
+      <h1 style="font-size:clamp(34px,min(4.4vw,7vh),60px);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;justify-content:center">{{ machineName }} is ready to earn <span style="color:var(--color-accent-300);text-shadow:0 0 40px color-mix(in srgb,var(--color-accent) 45%,transparent)">{{ rateLabel }}</span><span class="tag tag-accent" style="font-size:12px;align-self:center">{{ tierLabel }}</span></h1>
+      <div style="font-size:clamp(15px,min(1.4vw,3vh),19px);line-height:1.4;color:var(--color-neutral-300);max-width:44ch;text-wrap:balance">Share it now, or whenever you step away. Players stream your games until the time is up or you sit back down.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
+        <sc-for list="{{ durChips }}" as="ch" hint-placeholder-count="4"><button onClick="{{ ch.pick }}" style="{{ ch.style }}" style-hover="border-color:color-mix(in srgb,var(--color-text) 35%,transparent);color:var(--color-text)">{{ ch.label }}</button></sc-for>
+      </div>
+      
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <button onPointerDown="{{ holdStart }}" onPointerUp="{{ holdEnd }}" onPointerLeave="{{ holdEnd }}" class="btn btn-primary" style="position:relative;overflow:hidden;min-height:clamp(52px,9vh,62px);padding:0 48px;font-size:17px;gap:10px;animation:host-breathe 2.4s ease-in-out infinite;user-select:none"><span style="position:relative;z-index:1">{{ holdLabel }}</span><span style="{{ holdFill }}"></span></button>
+      <div style="font-size:12px;line-height:16px;color:var(--color-neutral-500)">Hold to go live · no account needed yet</div>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ blackout }}" hint-placeholder-val="{{ false }}"><div style="position:fixed;inset:0;z-index:30;background:var(--color-recessed);pointer-events:none;animation:host-blackout 1.1s ease both"></div></sc-if>
+
+  <!-- 3 · LIVE · PAYOUT -->
+  <sc-if value="{{ isLive }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Payout" class="swiff-scroll" style="position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.7fr);gap:var(--space-6) var(--space-8);padding:0 var(--space-8) var(--space-8);max-width:1200px;width:100%;margin:0 auto;align-content:start;animation:host-rise .5s ease both">
+    <header style="grid-column:1/-1;min-height:calc(100vh - 60px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:clamp(10px,2vh,18px);position:relative">
+      <div style="{{ stageGlow }}"></div>
+      <div style="position:relative;width:72px;height:72px;display:grid;place-items:center"><span style="{{ liveRing }}"></span><span style="{{ liveCore }}"></span></div>
+      <h1 style="position:relative;font-size:clamp(40px,min(5vw,9vh),72px)">{{ liveTitle }}</h1>
+      <div style="position:relative;display:flex;font-size:clamp(64px,min(11vw,18vh),132px);letter-spacing:-.055em;line-height:.95;font-variant-numeric:tabular-nums;text-shadow:0 0 80px color-mix(in srgb,var(--color-accent) 40%,transparent)"><sc-for list="{{ liveOdo }}" as="d" hint-placeholder-count="5"><span style="{{ d.style }}">{{ d.ch }}</span></sc-for></div>
+      <div style="position:relative;font-size:14px;line-height:20px;color:var(--color-neutral-300);max-width:50ch">{{ liveSub }}</div>
+      <div style="position:relative;display:flex;gap:var(--space-3);margin-top:6px"><button onClick="{{ pause }}" class="btn btn-secondary" style="min-height:44px">{{ pauseLabel }}</button></div>
+      <div style="position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600)">earnings · payout · sharing ↓</div>
+    </header>
+
+    <section style="display:flex;flex-direction:column;gap:var(--space-6)">
+      <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300)">Earnings</div>
+        <div class="card" style="padding:var(--space-6);gap:var(--space-4);border-radius:var(--radius-lg)">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4)">
+            <div><div style="font-size:12px;color:var(--color-neutral-500)">This month so far</div><div style="font-size:44px;font-weight:500;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;margin-top:4px">{{ soFar }}</div></div>
+            <div style="text-align:right"><div style="font-size:12px;color:var(--color-neutral-500)">Next payout</div><div style="font-size:16px;font-weight:500;margin-top:4px">{{ nextPayout }}</div></div>
+          </div>
+          <div style="position:relative;display:flex;gap:3px;align-items:flex-end;height:64px">
+            <sc-for list="{{ bars }}" as="b" hint-placeholder-count="30"><div title="{{ b.title }}" style="{{ b.style }}"></div></sc-for>
+            <sc-if value="{{ chartEmpty }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--color-neutral-500);pointer-events:none">first session lands here</div></sc-if>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-neutral-500)"><span>1 Sep</span><span>Today · 6 Sep</span></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300)">Payout history</div>
+        <sc-if value="{{ hasHistory }}" hint-placeholder-val="{{ true }}">
+          <div class="card" style="padding:0;gap:0;overflow:hidden;border-radius:var(--radius-lg)">
+            <sc-for list="{{ history }}" as="hrow" hint-placeholder-count="3">
+              <div style="{{ hrow.style }}">
+                <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:14px;font-weight:500">{{ hrow.month }}</div><div style="font-size:12px;color:var(--color-neutral-400)">{{ hrow.meta }}</div></div>
+                <div style="margin-left:auto;font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">{{ hrow.amount }}</div>
+                <span class="{{ hrow.tagCls }}">{{ hrow.status }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noHistory }}" hint-placeholder-val="{{ false }}">
+          <div class="card" style="padding:var(--space-6);border-radius:var(--radius-lg);color:var(--color-neutral-400);font-size:13px;line-height:20px"><span>{{ firstPayoutLine }}</span></div>
+        </sc-if>
+      </div>
+    </section>
+
+    <aside style="display:flex;flex-direction:column;gap:var(--space-6)">
+      <sc-if value="{{ noAccount }}" hint-placeholder-val="{{ true }}">
+        <div class="card" style="padding:var(--space-6);gap:var(--space-4);border-radius:var(--radius-lg);border-color:color-mix(in srgb,var(--color-accent) 45%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--color-accent) 14%,transparent),color-mix(in srgb,var(--color-presence) 30%,transparent));box-shadow:0 0 48px color-mix(in srgb,var(--color-accent) 22%,transparent),var(--glass-hi)">
+          <div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:20px;font-weight:500;letter-spacing:-.02em">{{ claimTitle }}</div><div style="font-size:13px;line-height:18px;color:var(--color-neutral-300)">Claim it with an email. We send a sign‑in link, no password. Payout details can wait until the 1st.</div></div>
+          <div style="display:flex;gap:8px">
+            <input class="input" type="email" placeholder="you@example.com" value="{{ email }}" onChange="{{ setEmail }}" style="flex:1;min-height:44px">
+            <button onClick="{{ createAccount }}" disabled="{{ emailNotOk }}" class="btn btn-primary" style="min-height:44px;padding:0 18px">Claim</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-neutral-500)"><span>or</span><sc-for list="{{ oauth }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.go }}" class="btn btn-ghost" style="min-height:28px;padding:0 10px;font-size:12px;color:var(--color-neutral-300)">{{ o.name }}</button></sc-for></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ hasAccount }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300)">Paid to</div>
+        <div class="card" style="padding:var(--space-4);gap:var(--space-3);border-radius:var(--radius-lg)">
+          <div style="display:flex;gap:var(--space-2)">
+            <sc-for list="{{ methods }}" as="mth" hint-placeholder-count="3"><button onClick="{{ mth.pick }}" class="{{ mth.cls }}" style="cursor:pointer;font:inherit;font-size:12px;padding:6px 12px">{{ mth.name }}</button></sc-for>
+          </div>
+          <div class="field" style="margin:0"><label style="font-size:12px">{{ methodLabel }}</label><input class="input" value="{{ methodValue }}" onChange="{{ setMethodValue }}" placeholder="{{ methodPlaceholder }}"></div>
+          <div style="font-size:12px;line-height:16px;color:var(--color-neutral-500)">Paid on the 1st, from €5, no fees. Signed in as {{ accountLabel }}.</div>
+        </div>
+      </div>
+      </sc-if>
+      <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300)">Sharing</div>
+        <div class="card" style="padding:var(--space-4);gap:var(--space-3);border-radius:var(--radius-lg);font-size:13px">
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-400)">Rate</span><span style="font-variant-numeric:tabular-nums">{{ rateLabel }} · {{ tierLabel }} rig</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-400)">Sharing until</span><span>{{ untilLabel }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-400)">Games offered</span><span>4 installed</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-400)">Reclaim</span><span>30 s, any time</span></div>
+          <button onClick="{{ goSchedule }}" class="btn btn-ghost" style="align-self:flex-start;padding:0;min-height:24px;font-size:13px;color:var(--color-accent-300)">Change duration</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;rig&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;entry&quot;,&quot;solid&quot;,&quot;high&quot;,&quot;enthusiast&quot;],&quot;default&quot;:&quot;high&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Machine&quot;},&quot;machineName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Nova-01&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Machine&quot;},&quot;platform&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;windows&quot;,&quot;linux&quot;],&quot;default&quot;:&quot;windows&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Machine&quot;},&quot;showHistory&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;States&quot;}}">
+class Component extends DCLogic {
+  state = { step: 'calc', sheet: false, anim: 0, hours: 6, days: 5, util: 0.55, price: 0.30, sched: null, paused: false, method: 'Bank', methodValue: '' };
+  tiers = {
+    entry:      { name: 'Entry',      examples: 'RTX 3060 · RX 6600 · Ryzen 5 / i5 · 16 GB',       rate: 0.45, draw: 0.30, price: 900,  tier: 'Entry',      avg: 29, gpu: 'RTX 3060',    cpu: 'Ryzen 5 5600',     ram: '16 GB', net: '100 Mbit' },
+    solid:      { name: 'Solid',      examples: 'RTX 3080 · RX 6800 XT · Ryzen 7 / i7 · 16 GB',    rate: 0.65, draw: 0.38, price: 1300, tier: 'Solid',      avg: 41, gpu: 'RTX 3080',    cpu: 'Ryzen 7 5800X',    ram: '16 GB', net: '250 Mbit' },
+    high:       { name: 'High‑end',   examples: 'RTX 4080 · RX 7900 XTX · Ryzen 7 X3D / i7 · 32 GB', rate: 1.00, draw: 0.42, price: 2200, tier: 'High‑end',   avg: 71, gpu: 'RTX 4080',    cpu: 'Ryzen 7 7800X3D',  ram: '32 GB', net: '500 Mbit' },
+    enthusiast: { name: 'Enthusiast', examples: 'RTX 4090 / 5090 · Ryzen 9 / i9 · 64 GB',         rate: 1.30, draw: 0.55, price: 3200, tier: 'Enthusiast', avg: 98, gpu: 'RTX 4090',    cpu: 'Ryzen 9 7950X3D',  ram: '64 GB', net: '1 Gbit' },
+  };
+  days7 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  eur(v, dec) { return '€' + v.toLocaleString('de-DE', { minimumFractionDigits: dec ?? 0, maximumFractionDigits: dec ?? 0 }); }
+  fromSliders(hours, days) {
+    const start = ((20 - Math.max(0, hours - 6)) % 24 + 24) % 24;
+    return this.days7.map((d, i) => { const on = days >= 7 || (days >= 5 ? i < days : (i >= 7 - days)); const row = new Array(24).fill(false); if (on) for (let k = 0; k < hours; k++) row[(start + k) % 24] = true; return row; });
+  }
+  schedule() { return this.state.sched || this.fromSliders(this.state.hours, this.state.days); }
+  weekHours() { return this.schedule().reduce((a, r) => a + r.filter(Boolean).length, 0); }
+  calc(util) {
+    const t = this.tiers[(this.state.installed ? null : this.state.gpuPick) || this.props.rig || 'high'];
+    const wk = this.weekHours(), streamed = wk * 4.33 * (util ?? this.state.util);
+    const gross = streamed * t.rate, power = streamed * t.draw * this.state.price, net = Math.max(0, gross - power);
+    return { t, wk, streamed, gross, power, net, payoff: net > 0 ? Math.ceil(t.price / net) : Infinity };
+  }
+  clockIn(hrs) { const d = new Date(Date.now() + hrs * 3600000); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  untilLabel() { const v = this.state.dur || 'back'; return v === 'back' ? 'you\'re back' : v === 'night' ? '07:00' : this.clockIn(v); }
+  roll() { cancelAnimationFrame(this.raf); const t0 = performance.now(); const tick = () => { const k = Math.min(1, (performance.now() - t0) / 700); this.setState({ anim: 1 - Math.pow(1 - k, 3) }); if (k < 1) this.raf = requestAnimationFrame(tick); }; this.raf = requestAnimationFrame(tick); }
+  beep(kind) { try { const ctx = this.actx || (this.actx = new (window.AudioContext || window.webkitAudioContext)()); const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); const t = ctx.currentTime; if (kind === 'launch') { o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(70, t + .3); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.16, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + .34); o.start(t); o.stop(t + .36); } else { o.type = 'sine'; o.frequency.setValueAtTime(1400, t); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.04, t + .005); g.gain.exponentialRampToValueAtTime(.0001, t + .06); o.start(t); o.stop(t + .07); } } catch (e) {} }
+  componentDidMount() { this.tk = setInterval(() => (this.state.step === 'live' || this.state.installPhase === 'downloading') && this.forceUpdate(), 250); this.roll(); }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); clearInterval(this.tk); }
+  chip(on) { return 'height:34px;padding:0 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer;transition:border-color .2s,background .2s,color .2s;border:1px solid ' + (on ? 'var(--color-accent)' : 'var(--glass-edge)') + ';background:' + (on ? 'color-mix(in srgb,var(--color-accent) 16%,transparent)' : 'var(--glass)') + ';color:' + (on ? 'var(--color-text)' : 'var(--color-neutral-200)'); }
+  svg(d) { return React.createElement('svg', { width: 15, height: 15, viewBox: '0 0 256 256', fill: 'currentColor' }, React.createElement('path', { d })); }
+  renderVals() {
+    const s = this.state, c = this.calc(), t = c.t, lo = this.calc(0.35), hi = this.calc(0.75);
+    const track = (v, min, max) => '--p:' + Math.round((v - min) / (max - min) * 100) + '%';
+    const sched = this.schedule();
+    const setCell = (d, h, to) => { const next = sched.map(r => [...r]); next[d][h] = to; this.setState({ sched: next }); };
+    const stepDefs = [['calc', 'Earnings'], ['install', 'Install'], ['live', 'Live']];
+    const idx = stepDefs.findIndex(x => x[0] === (s.step === 'schedule' ? 'live' : s.step));
+    const name = this.props.machineName ?? 'Nova-01';
+    const payoffLine = c.net <= 0 ? 'Add a few hours to get past your electricity bill.' : c.payoff <= 36 ? 'A rig like this pays for itself in ' + c.payoff + ' months.' : 'That is ' + Math.max(1, Math.floor(c.net * 12 / 60)) + ' full‑price games a year, paid for by your PC.';
+    const seed = 7; const hist = !!(this.props.showHistory ?? false); const bars = Array.from({ length: 30 }, (_, i) => ({ d: i + 1, v: hist && i < 6 ? (Math.abs(Math.sin((i + 1) * seed)) * 0.9 + 0.2) * (c.net / 30) * 1.4 : 0 }));
+    const maxV = Math.max(0.01, ...bars.map(b => b.v));
+    const methodDefs = { Bank: ['IBAN', 'DE00 0000 0000 0000 0000 00'], PayPal: ['PayPal email', 'you@example.com'], 'Steam wallet': ['Steam account', 'kai_nx'] };
+    const live = s.step === 'live' && !s.paused;
+    return {
+      ambient: React.createElement('div', { style: { position: 'absolute', inset: 0, borderRadius: '50%', background: 'radial-gradient(circle,color-mix(in srgb,' + (live ? 'var(--color-accent)' : s.step === 'install' || s.step === 'schedule' ? 'var(--color-accent-hover)' : 'var(--color-presence)') + ' ' + (live ? 80 : s.step === 'calc' ? 60 : 70) + '%,transparent),transparent 62%)', animation: 'host-drift 22s ease-in-out infinite', transition: 'background 1.2s ease' } }),
+      stageGlow: 'position:absolute;left:50%;top:50%;width:min(70vw,720px);height:min(40vh,320px);transform:translate(-50%,-55%);pointer-events:none;border-radius:50%;filter:blur(70px);background:radial-gradient(ellipse,color-mix(in srgb,var(--color-accent) ' + Math.round(18 + t.rate * 22) + '%,transparent),transparent 70%);transition:background .6s ease',
+      steps: stepDefs.map(([id, label], i) => ({ n: i + 1, label, go: () => (i <= idx || (id === 'live' && s.installed)) && this.setState({ step: id }),
+        style: 'display:flex;align-items:center;gap:8px;height:28px;padding:0 10px 0 4px;border:0;border-radius:999px;background:' + (i === idx ? 'color-mix(in srgb,var(--color-text) 8%,transparent)' : 'transparent') + ';color:' + (i === idx ? 'var(--color-text)' : i < idx ? 'var(--color-neutral-300)' : 'var(--color-neutral-500)') + ';font:inherit;font-size:13px;cursor:pointer',
+        dot: 'width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:500;' + (i < idx ? 'background:var(--color-accent);color:#EAF6FD' : i === idx ? 'border:1px solid var(--color-accent);color:var(--color-accent-200)' : 'border:1px solid var(--color-divider);color:var(--color-neutral-500)') })),
+      machineLine: s.installed ? name + ' · ' + this.eur(t.rate, 2) + '/h' : 'Not installed yet', machineName: s.installed ? name : 'your PC',
+      liveDot: 'width:7px;height:7px;border-radius:50%;background:' + (live ? 'var(--color-live);box-shadow:0 0 8px var(--color-live)' : 'var(--color-neutral-600)'),
+      detectedLine: 'Detected · ' + t.gpu + ' · ' + t.cpu + ' · ' + t.ram + ' · ' + t.net,
+      ctaLabel: s.installed ? 'Share now' : 'Get Swiff for ' + ((this.props.platform ?? 'windows') === 'windows' ? 'Windows' : 'Linux'),
+      startFlow: () => this.setState({ step: !s.installed ? 'install' : 'schedule', sched }),
+      isInstall: s.step === 'install',
+      installPhase: s.installPhase || 'idle', phaseIdle: (s.installPhase || 'idle') === 'idle', phaseDl: s.installPhase === 'downloading', phaseOpen: s.installPhase === 'open', phaseWait: s.installPhase === 'waiting',
+      trayLine: 'Your PC · ' + (s.dl ? 'sharing · ' + this.eur((s.dl || 0) * 0.37, 2) + ' today' : 'not sharing · €0,00 today'),
+      dlSegs: Array.from({ length: 24 }, (_, i) => ({ style: 'flex:1;height:8px;border-radius:2px;background:' + (i / 24 < (s.dl || 0) ? 'var(--color-accent);box-shadow:0 0 8px color-mix(in srgb,var(--color-accent) 60%,transparent)' : 'color-mix(in srgb,#FFFFFF 10%,transparent)') + ';transition:background .12s' })),
+      detectRows: (() => { const d = this.tiers[this.props.rig || 'high']; return [['GPU', d.gpu], ['CPU', d.cpu], ['Memory', d.ram], ['Connection', d.net], ['Rate', this.eur(d.rate, 2) + '/h']]; })().map(([k, v], i) => ({ k, v, style: 'display:flex;justify-content:space-between;gap:24px;font-size:13px;line-height:20px;animation:host-tick .3s ease both;animation-delay:' + (i * 480) + 'ms;opacity:0;animation-fill-mode:forwards' + (i === 4 ? ';color:var(--color-text);font-weight:500;border-top:1px solid var(--color-divider);padding-top:6px;margin-top:2px' : ';color:var(--color-neutral-300)') })),
+      dlPct: Math.round((s.dl || 0) * 100) + '%', dlBar: 'width:' + Math.round((s.dl || 0) * 100) + '%',
+      startDownload: () => { this.setState({ installPhase: 'downloading', dl: 0 }); const t0 = performance.now(); const tick = () => { const k = Math.min(1, (performance.now() - t0) / 2600); this.setState({ dl: k }); if (k < 1) requestAnimationFrame(tick); else setTimeout(() => this.setState({ installPhase: 'open' }), 300); }; requestAnimationFrame(tick); },
+      openedApp: () => { this.setState({ installPhase: 'waiting' }); setTimeout(() => this.setState({ installed: true, installPhase: 'idle', step: 'schedule' }), 3200); },
+      emailNotOk: !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email || ''), detectedShort: t.gpu + ' · ' + t.cpu, email: s.email || '', setEmail: e => this.setState({ email: e.target.value }),
+      emailOk: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email || ''),
+      createAccount: () => this.setState({ account: { email: s.email } }),
+      oauth: ['Google', 'Discord', 'Apple'].map(n => ({ name: n, go: () => this.setState({ account: { via: n } }) })),
+      noAccount: !s.account, hasAccount: !!s.account, accountLabel: s.account ? (s.account.email || s.account.via) : '',
+      claimTitle: (s.paused || !s.liveSince ? '€0,00' : this.eur((Date.now() - s.liveSince) / 3600000 * t.rate * 0.55, 2)) + ' so far. Where should it go?',
+      otherOs: (this.props.platform ?? 'windows') === 'windows' ? 'Linux' : 'Windows', thisOs: (this.props.platform ?? 'windows') === 'windows' ? 'Windows' : 'Linux', dmgName: (this.props.platform ?? 'windows') === 'windows' ? 'SwiffSetup.exe · 92 MB' : 'swiff.AppImage · 88 MB',
+      isCalc: s.step === 'calc', isSchedule: s.step === 'schedule', isLive: s.step === 'live',
+      goCalc: () => this.setState({ step: 'calc' }), goSchedule: () => this.setState({ step: 'schedule', sched }), goLive: () => this.setState({ step: 'live', paused: false, liveSince: Date.now() }),
+      netKey: Math.round(c.net), netMonth: this.eur(c.net), netYear: this.eur(c.net * 12), grossMonth: this.eur(c.gross), powerMonth: this.eur(c.power), streamedMonth: Math.round(c.streamed),
+      rangeLine: 'Quiet months ' + this.eur(lo.net) + ' · busy months up to ' + this.eur(hi.net) + '. Payout is fixed per tier, so only your hours and demand move it.',
+      rateLabel: this.eur(t.rate, 2) + '/h', drawLabel: Math.round(t.draw * 1000) + ' W', tierLabel: t.tier, payoffLine, payoffShort: c.payoff <= 36 && c.net > 0 ? 'Your rig is paid off in ' + c.payoff + ' months.' : '',
+      sessionsLine: (312 + Math.round(t.rate * 100)) + ' sessions', avgLine: this.eur(t.avg) + ' after electricity', tierName: t.name + ' rig',
+      trust: [
+        { title: 'Only while you\'re away', sub: 'Sharing pauses the moment you touch the keyboard; the player is told, not you.', icon: this.svg('M128 24a104 104 0 1 0 104 104A104.1 104.1 0 0 0 128 24Zm0 192a88 88 0 1 1 88-88 88.1 88.1 0 0 1-88 88Zm64-88a8 8 0 0 1-8 8h-56a8 8 0 0 1-8-8V72a8 8 0 0 1 16 0v48h48a8 8 0 0 1 8 8Z') },
+        { title: 'Sandboxed sessions', sub: 'Every session runs in an isolated account with no access to your desktop, drives or logins.', icon: this.svg('M208 80h-32V56a48 48 0 0 0-96 0v24H48a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V96a16 16 0 0 0-16-16ZM96 56a32 32 0 0 1 64 0v24H96Zm112 152H48V96h160v112Z') },
+        { title: 'Paid monthly, no fees', sub: 'Bank, PayPal or Steam wallet. Every session is itemised in your history.', icon: this.svg('M216 64H56a8 8 0 0 1 0-16h136a8 8 0 0 0 0-16H56a24 24 0 0 0-24 24v128a24 24 0 0 0 24 24h160a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16Zm-36 80a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z') },
+      ],
+      loMonth: this.eur(lo.net), hiMonth: this.eur(hi.net),
+      notInstalled: !s.installed, earnVerb: s.installed ? 'it could have earned you, after electricity.' : 'a month it could earn you, after electricity.',
+      gpuChips: ['entry', 'solid', 'high', 'enthusiast'].map(id => [id, this.tiers[id]]).map(([id, tr]) => ({ label: tr.name, rate: this.eur(tr.rate, 2) + '/h', pick: () => { this.beep(); this.setState({ gpuPick: id, anim: 0 }); this.roll(); }, style: this.chip(t.name === tr.name) })),
+      rigExamples: t.examples,
+      rateParts: [['GPU', t.gpu, .6], ['CPU', t.cpu, .2], ['Memory', t.ram, .1], ['Connection', t.net, .1]].map(([k, v, w]) => ({ k, v, share: this.eur(t.rate * w, 2) })),
+      idleHours: c.wk, idleSource: s.installed ? name + ' idle last week' : 'Idle hours, typical gaming PC', idleLine: s.installed ? name + ' was idle ' + c.wk + ' hours last week.' : 'Away from your PC ' + s.hours + ' hours a night, ' + s.days + ' nights a week?',
+      countUp: this.eur(c.net * s.anim),
+      odo: this.eur(c.net * s.anim).split('').map((ch, i) => ({ ch, k: i + ':' + ch, style: 'display:inline-block;animation:host-odo .28s cubic-bezier(.2,.8,.2,1) both;animation-delay:' + (i * 18) + 'ms' })),
+      sheetOpen: s.sheet, openSheet: () => this.setState({ sheet: true }), closeSheet: () => this.setState({ sheet: false }),
+      hours: s.hours, hoursLabel: s.hours + ' h', hoursHint: s.hours <= 4 ? 'a couple of evenings' : s.hours <= 8 ? 'evenings and nights' : 'most of the day', hoursTrack: track(s.hours, 1, 16), setHours: e => this.setState({ hours: +e.target.value, sched: null }),
+      days: s.days, daysTrack: track(s.days, 1, 7), setDays: e => this.setState({ days: +e.target.value, sched: null }),
+      uLow: s.util === 0.35, uMid: s.util === 0.55, uHigh: s.util === 0.75, setULow: () => this.setState({ util: 0.35 }), setUMid: () => this.setState({ util: 0.55 }), setUHigh: () => this.setState({ util: 0.75 }),
+      price: s.price, priceLabel: this.eur(s.price, 2) + '/kWh', priceTrack: track(s.price, 0.10, 0.60), setPrice: e => this.setState({ price: +e.target.value }),
+      hourLabels: Array.from({ length: 24 }, (_, h) => h % 3 === 0 ? String(h).padStart(2, '0') : ''),
+      grid: sched.map((row, d) => ({ day: this.days7[d], cells: row.map((on, h) => ({
+        style: 'height:clamp(14px,2.6vh,22px);border-radius:4px;cursor:pointer;transition:background .15s,box-shadow .15s;background:' + (on ? 'linear-gradient(180deg,color-mix(in srgb,var(--color-accent) 70%,transparent),color-mix(in srgb,var(--color-accent-hover) 80%,transparent))' : 'color-mix(in srgb,#FFFFFF 5%,transparent)') + (on ? ';box-shadow:inset 0 1px 0 color-mix(in srgb,#FFFFFF 25%,transparent)' : '') + (h >= 20 || h < 2 ? ';outline:1px solid color-mix(in srgb,var(--color-live) 14%,transparent);outline-offset:-1px' : ''),
+        down: e => { e.preventDefault(); this.paintTo = !on; this.painting = true; setCell(d, h, !on); },
+        enter: () => { if (this.painting) setCell(d, h, this.paintTo); },
+      })) })),
+      paintEnd: () => { this.painting = false; },
+      presets: [['Weeknights 20–02', () => this.days7.map((_, i) => { const r = new Array(24).fill(false); if (i < 5) for (const h of [20, 21, 22, 23, 0, 1]) r[h] = true; return r; })], ['Weekends', () => this.days7.map((_, i) => new Array(24).fill(false).map((_, h) => i >= 5 && h >= 10))], ['While I sleep', () => this.days7.map(() => new Array(24).fill(false).map((_, h) => h >= 23 || h < 7))], ['Clear', () => this.days7.map(() => new Array(24).fill(false))]].map(([label, fn]) => ({ name: label, cls: 'tag tag-outline', apply: () => this.setState({ sched: fn() }) })),
+      weekHours: c.wk, noHours: c.wk === 0, scheduleHint: c.wk === 0 ? 'Paint at least one block to go live.' : c.wk < 15 ? 'Add evening hours: they book fastest.' : 'Good coverage. Sessions end automatically at the edge of a window.',
+      holdLabel: s.holding ? 'Going live…' : 'Go live', holdFill: 'position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:left;background:color-mix(in srgb,var(--color-accent) 55%,transparent);transform:scaleX(' + (s.holding ? 1 : 0) + ');transition:transform ' + (s.holding ? '.7s linear' : '.15s ease') + ';pointer-events:none',
+      holdStart: () => { if (this.holdT) return; this.setState({ holding: true }); this.holdT = setTimeout(() => { this.holdT = null; this.beep('launch'); this.setState({ holding: false, blackout: true }); setTimeout(() => this.setState({ step: 'live', paused: false, liveSince: Date.now() }), 380); setTimeout(() => this.setState({ blackout: false }), 1100); }, 720); },
+      holdEnd: () => { if (this.holdT) { clearTimeout(this.holdT); this.holdT = null; } if (s.holding) this.setState({ holding: false }); },
+      blackout: !!s.blackout,
+      liveTitle: s.paused ? name + ' is paused.' : name + ' is live.', pause: () => this.setState({ paused: !s.paused }), pauseLabel: s.paused ? 'Resume sharing' : 'Pause sharing',
+      liveRing: 'position:absolute;inset:0;border-radius:50%;border:1px solid var(--color-live);' + (live ? 'animation:host-live ' + (3.4 - t.rate).toFixed(1) + 's ease-out infinite' : 'opacity:0'),
+      liveCore: 'width:14px;height:14px;border-radius:50%;background:' + (live ? 'var(--color-live);box-shadow:0 0 22px var(--color-live)' : 'var(--color-neutral-600)'),
+      firstPayoutLine: 'Your first payout arrives on 1 Oct. Every session shows up here within a minute of ending.',
+      soFar: this.eur(hist ? c.net * 0.19 : (s.paused ? 0 : (s.liveSince ? (Date.now() - s.liveSince) / 3600000 * t.rate * 0.55 : 0))),
+      sessionEarned: this.eur(s.paused || !s.liveSince ? 0 : (Date.now() - s.liveSince) / 3600000 * t.rate * 0.55, 2),
+      liveOdo: (() => { const v = s.paused || !s.liveSince ? 0 : (Date.now() - s.liveSince) / 3600000 * t.rate * 0.55; return this.eur(v, v < 0.1 ? 3 : 2); })().split('').map((ch, i) => ({ ch, k: i + ':' + ch, style: 'display:inline-block;animation:host-odo .22s cubic-bezier(.2,.8,.2,1) both' })),
+      liveSub: s.paused ? 'Nobody can start a session until you resume.' : 'Players can stream your games until ' + this.untilLabel() + '. It stops the moment you sit back down.',
+      untilLabel: this.untilLabel(),
+      durKey: s.dur, durHint: ({ back: 'Swiff shares until it sees you at the keyboard.', 2: 'Ends at ' + this.clockIn(2) + '. You get a nudge 5 minutes before.', 4: 'Ends at ' + this.clockIn(4) + '. You get a nudge 5 minutes before.', night: 'Ends at 07:00. Your PC sleeps afterwards if it usually does.' })[s.dur || 'back'],
+      durChips: [['back', 'Until I\'m back'], [2, '2 hours'], [4, '4 hours'], ['night', 'Overnight']].map(([v, label]) => { const on = (s.dur || 'back') === v; return { label: on && v !== 'back' ? label + ' · until ' + (v === 'night' ? '07:00' : this.clockIn(v)) : label, pick: () => { this.beep(); this.setState({ dur: v }); }, style: this.chip(on) }; }), nextPayout: '1 Oct',
+      bars: bars.map((b, i) => { const today = i === 5; const liveV = today && !hist && s.liveSince && !s.paused ? Math.min(64, 6 + (Date.now() - s.liveSince) / 1000 * 0.6) : 0; return { title: b.d + ' Sep · ' + this.eur(b.v, 2), style: 'flex:1;min-width:0;border-radius:2px 2px 0 0;transform-origin:bottom;height:' + (b.v > 0 ? Math.max(6, Math.round(b.v / maxV * 64)) + 'px' : liveV ? Math.round(liveV) + 'px' : '1px') + ';background:' + (b.v > 0 || liveV ? 'linear-gradient(180deg,var(--color-accent),color-mix(in srgb,var(--color-accent-hover) 80%,transparent))' : 'color-mix(in srgb,#FFFFFF 10%,transparent)') + (liveV ? ';box-shadow:0 0 12px color-mix(in srgb,var(--color-accent) 50%,transparent);transition:height 1s linear' : '') }; }),
+      chartEmpty: !hist && !s.liveSince,
+      hasHistory: hist, noHistory: !hist,
+      history: [['August', '61 sessions · 132 h', c.net * 1.04, 'Paid'], ['July', '48 sessions · 104 h', c.net * 0.82, 'Paid'], ['June', '17 sessions · 39 h', c.net * 0.31, 'Paid']].map(([month, meta, amt, status], i, arr) => ({ month, meta, amount: this.eur(amt), status, tagCls: 'tag tag-neutral', style: 'display:flex;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-4)' + (i < arr.length - 1 ? ';border-bottom:1px solid var(--color-divider)' : '') })),
+      methods: Object.keys(methodDefs).map(n => ({ name: n, cls: s.method === n ? 'tag tag-accent' : 'tag tag-outline', pick: () => this.setState({ method: n, methodValue: '' }) })),
+      methodLabel: methodDefs[s.method][0], methodPlaceholder: methodDefs[s.method][1], methodValue: s.methodValue, setMethodValue: e => this.setState({ methodValue: e.target.value }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+:root{
+  --font-body:"Inter",system-ui,sans-serif;
+  --font-heading:"Inter",system-ui,sans-serif;
+  --font-heading-weight:500;
+  --display-track:-.04em;
+  /* scale: 12 / 14 / 17 / 22 / 34 / 56 / display */
+  --text-12:12px; --text-14:14px; --text-17:17px; --text-22:22px; --text-34:34px; --text-56:56px;
+  --lh-16:16px; --lh-20:20px; --lh-24:24px; --lh-28:28px;
+  --display-lh:.9;
+}
+body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:var(--text-14);line-height:var(--lh-20)}
+h1,h2,h3{font-family:var(--font-heading);font-weight:var(--font-heading-weight);letter-spacing:var(--display-track);line-height:var(--display-lh);margin:0}
