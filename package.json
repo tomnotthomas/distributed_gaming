@@ -1,13 +1,26 @@
 {
   "name": "swiff",
   "private": true,
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "build": "npm run build -w @swiff/web && npm run build -w @swiff/server",
     "start": "npm start -w @swiff/server",
     "dev": "npm run build && npm start",
     "dev:web": "npm run dev -w @swiff/web",
-    "test": "npm test -w @swiff/server",
-    "typecheck": "npm run typecheck -w @swiff/server && npm run typecheck -w @swiff/web"
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p web/tsconfig.test.json && tsc -p e2e/tsconfig.json",
+    "test": "npm test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "test:e2e:web": "playwright test --project web",
+    "test:e2e:desktop": "playwright test --project desktop",
+    "test:coverage": "npm run test:coverage -w @swiff/web",
+    "ci": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,12 @@
+{
+  // Typechecks the tests the app build deliberately skips. They run under node
+  // (spawning a server, reading paths) and use the jsdom matchers, so they need
+  // ambient types the browser bundle has no business carrying.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@testing-library/jest-dom"],
+    "noEmit": true
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts"],
+  "exclude": []
+}
