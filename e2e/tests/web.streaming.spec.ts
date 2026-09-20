@@ -113,10 +113,14 @@ test.describe("host to renter streaming", () => {
       )
       .toBeGreaterThan(0);
 
-    const playedSeconds = await renter
-      .locator("video.stream")
-      .evaluate((v: HTMLVideoElement) => v.currentTime);
-    expect(playedSeconds, "video should be playing, not parked at 0").toBeGreaterThan(0);
+    // Polled, not read once: currentTime is still exactly 0 at the instant the
+    // first frame decodes, and only advances as playback actually runs.
+    await expect
+      .poll(
+        () => renter.locator("video.stream").evaluate((v: HTMLVideoElement) => v.currentTime),
+        { timeout: 15_000, message: "video decoded a frame but never started playing" },
+      )
+      .toBeGreaterThan(0);
 
     // And the status line resolved which ICE path actually won, rather than
     // sitting on "unknown" — that is what makes a real srflx/relay run
