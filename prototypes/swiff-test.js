@@ -27,11 +27,31 @@
   // for screenshots. Every event it produces carries demo:true so it can be
   // filtered out of the funnel.
   const DEMO = /[?&]steamdemo\b/.test(location.search);
+  // The id PostHog gave this visitor before they left for Steam, handed back
+  // on the fragment. Read synchronously, before anything can clear the hash.
+  const RESUMED_ID = (/[#&]did=([A-Za-z0-9_-]{8,64})(?:&|$)/.exec(location.hash || "") || [])[1] || "";
 
   // ---------------------------------------------------------------- analytics
 
-  // Cookieless: no banner to show, nothing persisted between visits. Costs us
-  // returning-visitor stitching, which a landing-page test does not need.
+  // Cookieless: no banner to show, and nothing written to cookies, local or
+  // session storage. Identity lives only as long as the page does.
+  //
+  // That is a real cost at exactly one point: Steam sign-in navigates away and
+  // back, so the return would otherwise be a new anonymous person and
+  // steam_connect_started -> steam_connected could never join. Rather than
+  // give up and store something, the id rides out through the redirect and
+  // comes home on the fragment; bootstrap seeds it back before the first
+  // event, so it stays one person throughout.
+  //
+  // Seeding rather than identify() is deliberate. identify() would merge two
+  // persons, but it also marks the visitor identified, and PostHog ignores a
+  // later identify() with a different id -- which would silently break the
+  // email capture, the one place a real identity actually matters.
+  // The id this visit started with, captured once at init inside loadPostHog
+  // and deliberately never refreshed. Declared here so it is in scope before
+  // the script's onload can assign it.
+  let anonId = "";
+
   function loadPostHog() {
     if (!TOKEN) {
       console.warn("[swiff] no PostHog token, events log to console only");
@@ -50,11 +70,21 @@
       window.posthog.init(TOKEN, {
         api_host: HOST,
         persistence: "memory",
+        ...(RESUMED_ID ? { bootstrap: { distinctID: RESUMED_ID } } : null),
         autocapture: false,
         capture_pageview: false,
         capture_pageleave: true,
       });
       window.posthog.register({ side: SIDE, prototype: CFG.name || document.title });
+      // Grab the anonymous id now and keep it. get_distinct_id() is not stable
+      // over a visit: captureEmail calls identify(email), after which it
+      // returns the email address -- which is the wrong thing to hand a
+      // redirect, and fails the id shape check anyway, so the visitor would
+      // split exactly where this is meant to stop them splitting. Reachable
+      // ordering: play a free title, end the session, leave an email, then
+      // click Connect Steam. The anonymous id stays valid either way, because
+      // identify() merges the two persons rather than replacing one.
+      anonId = (window.posthog.get_distinct_id && window.posthog.get_distinct_id()) || "";
       for (const [m, a] of stub) window.posthog[m](...a);
     };
     s.onerror = () => console.warn("[swiff] PostHog blocked or offline");
@@ -169,9 +199,21 @@
       if (bar) bar.style.width = "100%";
     });
     const back = location.pathname + location.search;
-    setTimeout(() => {
-      location.href = "/auth/steam?return=" + encodeURIComponent(back);
-    }, 650);
+    // Wait for the id rather than guessing at a delay. array.js loads async,
+    // so a flat timeout fails whenever the network is slow -- which is mobile,
+    // which is most of the traffic if this ever goes near Reddit. Those
+    // visitors would split silently, making the ones we drop from the funnel a
+    // biased sample rather than a random one. The overlay is already on screen,
+    // so waiting a little longer costs nothing anyone can see. Floor keeps the
+    // animation from snapping; ceiling means a blocked PostHog never strands
+    // anyone on this card.
+    const startedAt = Date.now();
+    (function go() {
+      const waited = Date.now() - startedAt;
+      if (waited < 650 || (!anonId && waited < 1500)) return setTimeout(go, 50);
+      location.href = "/auth/steam?return=" + encodeURIComponent(back) +
+        (anonId ? "&did=" + encodeURIComponent(anonId) : "");
+    })();
   }
 
   // Subscribers that want the profile whenever it lands, in either order.

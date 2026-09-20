@@ -57,7 +57,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", origin);
   try {
     if (url.pathname === "/auth/steam") {
-      return redirect(res, loginUrl({ origin, returnTo: url.searchParams.get("return") }));
+      return redirect(res, loginUrl({ origin, returnTo: url.searchParams.get("return"), did: url.searchParams.get("did") }));
     }
     if (url.pathname === "/auth/steam/return") {
       return redirect(res, await returnUrl({ origin, searchParams: url.searchParams, apiKey: API_KEY }));
