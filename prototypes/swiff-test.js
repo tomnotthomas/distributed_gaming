@@ -30,8 +30,13 @@
 
   // ---------------------------------------------------------------- analytics
 
-  // Cookieless: no banner to show, nothing persisted between visits. Costs us
-  // returning-visitor stitching, which a landing-page test does not need.
+  // Cookieless: no banner to show, and nothing is written to cookies, local or
+  // session storage. Identity is a privacy-preserving hash PostHog derives on
+  // its own servers from the request, which rotates daily. That is what keeps
+  // a funnel intact across the Steam round trip: plain memory persistence gave
+  // every page load a fresh id, so anyone returning from steamcommunity.com
+  // counted as a new person and the conversion rate read as a floor.
+  // Requires "Cookieless server hash mode" on in project settings; it is on.
   function loadPostHog() {
     if (!TOKEN) {
       console.warn("[swiff] no PostHog token, events log to console only");
@@ -49,7 +54,7 @@
     s.onload = () => {
       window.posthog.init(TOKEN, {
         api_host: HOST,
-        persistence: "memory",
+        cookieless_mode: "always",
         autocapture: false,
         capture_pageview: false,
         capture_pageleave: true,
