@@ -192,8 +192,18 @@
   // A plausible library, used only by ?steamdemo. Never reaches PostHog as a
   // real conversion because every demo event is tagged.
   const DEMO_PROFILE = {
-    id: "0000", persona: "demo_player", avatar: "", hours: 612, size: 5, lib: true,
+    id: "0000", persona: "demo_player", avatar: "", hours: 1840, size: 412, lib: true,
+    // Curated wall titles the player owns: [appid, hours]
     owned: [[730, 301], [1245620, 61], [1091500, 22], [1086940, 9]],
+    // Their other most-played games: [appid, name, hours]
+    games: [
+      [570, "Dota 2", 412], [440, "Team Fortress 2", 188], [271590, "Grand Theft Auto V", 96],
+      [292030, "The Witcher 3: Wild Hunt", 74], [1174180, "Red Dead Redemption 2", 58],
+      [620, "Portal 2", 31], [648800, "Raft", 27], [413150, "Stardew Valley", 22],
+      [359550, "Tom Clancy's Rainbow Six Siege", 19], [252490, "Rust", 16],
+      [582010, "Monster Hunter: World", 14], [1966720, "Lethal Company", 11],
+      [322330, "Don't Starve Together", 8], [739630, "Phasmophobia", 6],
+    ],
   };
 
   function b64urlDecode(v) {

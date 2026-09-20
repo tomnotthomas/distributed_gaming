@@ -6,16 +6,21 @@
  * instead: the server holds nothing between requests, and the same code runs
  * on a laptop, a Worker or a Vercel function.
  *
- * What comes back is deliberately tiny — persona, avatar, total hours, library
- * size, and which of the wall's appids the player owns. The full library never
- * leaves this function, so the payload stays a few hundred bytes.
+ * What comes back is deliberately small: persona, avatar, total hours, library
+ * size, which of the wall's appids the player owns, and their most-played
+ * games with names so the wall can render real titles. The library is capped
+ * at LIBRARY_CAP entries because the whole payload has to fit in a URL
+ * fragment — a 4000-game account must not produce a 200 KB URL.
  *
  * Nothing is written down anywhere. There is no database, no cookie, no file.
  */
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
-/** The nine titles on the wall. Only these are reported back. */
+/** How many of the player's own games ride home in the fragment. */
+export const LIBRARY_CAP = 14;
+
+/** The nine hand-authored titles on the wall, which keep their own copy. */
 export const WALL_APPIDS = [
   1245620, // Elden Ring
   2073850, // THE FINALS
@@ -84,7 +89,7 @@ async function steamApi(apiKey, path, params) {
  * the page needs. The full library is discarded here and never stored.
  */
 export async function readProfile(apiKey, steamid) {
-  const out = { id: steamid.slice(-4), persona: "", avatar: "", hours: 0, size: 0, owned: [], lib: false };
+  const out = { id: steamid.slice(-4), persona: "", avatar: "", hours: 0, size: 0, owned: [], games: [], lib: false };
   if (!apiKey) return out;
 
   const summaries = await steamApi(apiKey, "ISteamUser/GetPlayerSummaries/v2/", {
@@ -98,7 +103,7 @@ export async function readProfile(apiKey, steamid) {
 
   const owned = await steamApi(apiKey, "IPlayerService/GetOwnedGames/v1/", {
     steamid,
-    include_appinfo: "0",
+    include_appinfo: "1",
     include_played_free_games: "1",
   }).catch(() => null);
 
@@ -108,9 +113,16 @@ export async function readProfile(apiKey, steamid) {
     out.size = list.length;
     out.hours = Math.round(list.reduce((a, g) => a + (g.playtime_forever || 0), 0) / 60);
     const wall = new Set(WALL_APPIDS);
+    // The curated nine keep their hand-written copy, so they only need hours.
     out.owned = list
       .filter((g) => wall.has(g.appid))
       .map((g) => [g.appid, Math.round((g.playtime_forever || 0) / 60)]);
+    // Everything else needs a name, because nothing on the client knows it.
+    out.games = list
+      .filter((g) => !wall.has(g.appid) && g.name)
+      .sort((a, b) => (b.playtime_forever || 0) - (a.playtime_forever || 0))
+      .slice(0, LIBRARY_CAP)
+      .map((g) => [g.appid, String(g.name).slice(0, 48), Math.round((g.playtime_forever || 0) / 60)]);
   }
   return out;
 }
@@ -130,7 +142,7 @@ export async function returnUrl({ origin, searchParams, apiKey }) {
   try {
     profile = await readProfile(apiKey, steamid);
   } catch {
-    profile = { id: steamid.slice(-4), persona: "", avatar: "", hours: 0, size: 0, owned: [], lib: false };
+    profile = { id: steamid.slice(-4), persona: "", avatar: "", hours: 0, size: 0, owned: [], games: [], lib: false };
   }
 
   dest.hash = "steam=" + b64urlEncode(profile);
