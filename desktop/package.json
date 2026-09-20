@@ -38,7 +38,8 @@
       "artifactName": "SwiffHost-${version}.exe"
     },
     "electronVersion": "33.4.11",
-    "npmRebuild": false
+    "npmRebuild": false,
+    "compression": "maximum"
   },
   "description": "Swiff host \u2014 shares this machine's screen with a renter.",
   "author": "Swiff"
