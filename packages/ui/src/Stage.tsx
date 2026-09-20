@@ -19,7 +19,9 @@ export const Stage = forwardRef<HTMLVideoElement, Props>(function Stage(
 ) {
   return (
     <div className={small ? "stage stage-sm" : "stage"}>
-      <video ref={ref} autoPlay playsInline muted={muted} />
+      {/* The e2e suite selects this by test id. It used to key off a styling
+          class, which a restructure like this one silently broke. */}
+      <video ref={ref} autoPlay playsInline muted={muted} data-testid="stage-video" />
       {empty ? <div className="stage-empty">{placeholder}</div> : null}
     </div>
   );
