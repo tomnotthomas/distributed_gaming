@@ -3,15 +3,9 @@
 //   [ Connect ] ──► join ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HOST_ID } from "./config";
-import { createPeerConnection } from "./peer";
-import { connectSignaling, type SignalMessage } from "./signaling";
-import { StatusLine } from "./StatusLine";
-import { Button } from "./ui/Button";
-import { Notice } from "./ui/Notice";
-import { PageShell } from "./ui/PageShell";
-import { Stage } from "./ui/Stage";
-import { Tag } from "./ui/Tag";
+import { createPeerConnection, connectSignaling, type SignalMessage } from "@swiff/rtc";
+import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
+import { HOST_ID, SIGNALING_URL } from "./config";
 
 export function Client() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
@@ -54,6 +48,7 @@ export function Client() {
     if (!connecting) return;
 
     const signaling = connectSignaling({
+      url: SIGNALING_URL,
       onOpen: (send) => send({ type: "join", hostId: HOST_ID }),
       onMessage: (msg, send) => {
         switch (msg.type) {

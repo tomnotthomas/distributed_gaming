@@ -1,133 +1,57 @@
-// The gaming PC. Captures the screen and offers it to whoever joins the room.
-//
-//   [ Start sharing ] ──► getDisplayMedia ──► constrain track ──► register
-//                                                                    │
-//                                                             peer-joined
-//                                                                    │
-//                                        addTrack ──► tune encoder ──┤
-//                                                                    │
-//                                              createOffer ──► send ─┘
-//                                                                    │
-//                                               answer ──► connected ┘
-//
-// The host creates the offer because the host owns the media track.
+// The browser host page. Kept as a dev convenience: it needs a human to click
+// Chrome's screen picker, which is exactly why the real gaming PC runs the
+// Electron app in desktop/ instead.
 //
 // PHASE 1 CAPTURES THE OWNER'S OWN DESKTOP. Phase 2 moves this inside a
-// separate Windows account (docs/diagrams/host-isolation.png) so a renter never
-// sees the owner's files. Until then, run only on a machine with nothing
-// private on it.
+// separate Windows account (docs/diagrams/host-isolation.png) so a renter
+// never sees the owner's files. Until then, run only on a machine with
+// nothing private on it.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CAPTURE, HOST_ID } from "./config";
-import { createPeerConnection } from "./peer";
-import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
-import { StatusLine } from "./StatusLine";
-import { Button } from "./ui/Button";
-import { Notice } from "./ui/Notice";
-import { PageShell } from "./ui/PageShell";
-import { Stage } from "./ui/Stage";
-import { Tag } from "./ui/Tag";
+import { useEffect, useRef, useState } from "react";
+import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
+import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
+import { HOST_ID, SIGNALING_URL } from "./config";
 
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [sharing, setSharing] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [peerHere, setPeerHere] = useState(false);
-
-  const streamRef = useRef<MediaStream | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const signalingRef = useRef<Signaling | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
 
-  /** Build the peer connection and push an offer. Runs once a renter is here. */
-  const offerTo = useCallback(async (send: (m: SignalMessage) => void) => {
-    const stream = streamRef.current;
-    if (!stream) return;
-
-    pcRef.current?.close();
-    const connection = createPeerConnection();
-    pcRef.current = connection;
-    setPc(connection);
-
-    connection.onicecandidate = (event) => {
-      if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
-    };
-
-    const [track] = stream.getVideoTracks();
-    const sender = connection.addTrack(track, stream);
-
-    // Each of these fails silently if omitted, and each costs real quality.
-    const params = sender.getParameters();
-    if (!params.encodings?.length) params.encodings = [{}];
-    params.degradationPreference = "maintain-resolution"; // else Chrome drops to 320x180 under load
-    params.encodings[0].maxBitrate = CAPTURE.maxBitrate; // else estimation saturates the link
-    await sender.setParameters(params);
-
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    send({ type: "offer", sdp: offer });
-  }, []);
-
-  const startSharing = useCallback(async () => {
+  const startSharing = async () => {
     setError(null);
     try {
       // Chrome IGNORES width/height/frameRate passed in here, so the returned
-      // track is whatever the monitor is — a 4K panel hands back a raw 4K
-      // track. Downscale afterwards.
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      const [track] = stream.getVideoTracks();
-      await track.applyConstraints({ width: CAPTURE.width, frameRate: CAPTURE.frameRate });
-      track.contentHint = "motion";
-
-      streamRef.current = stream;
-      if (previewRef.current) previewRef.current.srcObject = stream;
-      setSharing(true);
-
-      // The owner can stop sharing from Chrome's own bar; treat that as a stop.
-      track.addEventListener("ended", () => {
-        setSharing(false);
-        pcRef.current?.close();
-        pcRef.current = null;
-        setPc(null);
+      // track is whatever the monitor is. Downscale afterwards.
+      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const [track] = captured.getVideoTracks();
+      await track.applyConstraints({
+        width: DEFAULT_CAPTURE.width,
+        frameRate: DEFAULT_CAPTURE.frameRate,
       });
+      track.contentHint = "motion";
+      // The owner can stop sharing from Chrome's own bar; treat that as a stop.
+      track.addEventListener("ended", () => setStream(null));
+
+      if (previewRef.current) previewRef.current.srcObject = captured;
+      setStream(captured);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "could not start capture");
     }
-  }, []);
+  };
 
   useEffect(() => {
-    if (!sharing) return;
-
-    const signaling = connectSignaling({
-      onOpen: (send) => send({ type: "register", hostId: HOST_ID }),
-      onMessage: (msg, send) => {
-        switch (msg.type) {
-          case "peer-joined":
-            setPeerHere(true);
-            void offerTo(send);
-            break;
-          case "answer":
-            if (msg.sdp) void pcRef.current?.setRemoteDescription(msg.sdp);
-            break;
-          case "ice":
-            if (msg.candidate) void pcRef.current?.addIceCandidate(msg.candidate).catch(() => {});
-            break;
-          case "peer-left":
-            setPeerHere(false);
-            pcRef.current?.close();
-            pcRef.current = null;
-            setPc(null);
-            break;
-        }
-      },
+    if (!stream) return;
+    const session = startHostSession({
+      url: SIGNALING_URL,
+      hostId: HOST_ID,
+      stream,
+      onPeerHere: setPeerHere,
+      onPeerConnection: setPc,
     });
-    signalingRef.current = signaling;
-
-    return () => {
-      signaling.close();
-      signalingRef.current = null;
-    };
-  }, [sharing, offerTo]);
+    return () => session.stop();
+  }, [stream]);
 
   return (
     <PageShell
@@ -136,7 +60,7 @@ export function Host() {
       meta={<Tag label="Room" value={HOST_ID} />}
     >
       <div className="row">
-        {!sharing ? (
+        {!stream ? (
           <Button large onClick={() => void startSharing()}>
             Start sharing
           </Button>
@@ -147,9 +71,9 @@ export function Host() {
 
       {error ? <Notice>{error}</Notice> : null}
 
-      <StatusLine pc={pc} note={sharing ? undefined : "not capturing"} />
+      <StatusLine pc={pc} note={stream ? undefined : "not capturing"} />
 
-      <Stage ref={previewRef} muted small empty={!sharing} placeholder="not capturing" />
+      <Stage ref={previewRef} muted small empty={!stream} placeholder="not capturing" />
     </PageShell>
   );
 }

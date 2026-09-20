@@ -28,9 +28,9 @@
     },
     "baseUrl": "."
   },
-  "include": ["src", "vite.config.ts", "../packages/*/src"],
-  // The app build typechecks the app. Tests are node-flavoured and carry their
-  // own types; tsconfig.test.json covers them. The glob spans packages/ too,
-  // whose tests moved there with the code they cover.
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test", "src/integration"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "../packages/*/src"
+  ]
 }

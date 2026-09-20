@@ -1,0 +1,9 @@
+{
+  "name": "@swiff/ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./ui.css": "./src/ui.css" },
+  "peerDependencies": { "react": ">=18" },
+  "dependencies": { "@swiff/rtc": "*" }
+}

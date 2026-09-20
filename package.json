@@ -2,8 +2,10 @@
   "name": "swiff",
   "private": true,
   "workspaces": [
+    "packages/*",
     "server",
-    "web"
+    "web",
+    "desktop"
   ],
   "scripts": {
     "build": "npm run build -w @swiff/web && npm run build -w @swiff/server",
@@ -16,6 +18,9 @@
     "test:e2e:web": "playwright test --project web",
     "test:e2e:desktop": "playwright test --project desktop",
     "test:coverage": "npm run test:coverage -w @swiff/web",
+    "desktop": "npm start -w @swiff/desktop",
+    "desktop:build": "npm run build -w @swiff/desktop",
+    "desktop:pack": "npm run pack -w @swiff/desktop",
     "ci": "npm run typecheck && npm test && npm run build && npm run test:e2e"
   },
   "devDependencies": {

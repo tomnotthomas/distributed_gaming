@@ -23,3 +23,6 @@ coverage/
 .vitest/
 e2e/.report/
 e2e/.results/
+
+# Electron build output
+desktop/release/
