@@ -3,10 +3,11 @@
   "private": true,
   "workspaces": ["server", "web"],
   "scripts": {
-    "build": "npm run build -w @swiff/web",
+    "build": "npm run build -w @swiff/web && npm run build -w @swiff/server",
     "start": "npm start -w @swiff/server",
     "dev": "npm run build && npm start",
+    "dev:web": "npm run dev -w @swiff/web",
     "test": "npm test -w @swiff/server",
-    "dev:web": "npm run dev -w @swiff/web"
+    "typecheck": "npm run typecheck -w @swiff/server && npm run typecheck -w @swiff/web"
   }
 }

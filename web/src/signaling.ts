@@ -15,17 +15,15 @@
 
 import { SIGNALING_URL } from "./config";
 
+// The wire format lives with the server that relays it — one definition, so a
+// protocol change cannot land on one side only. Type-only import: nothing from
+// the server package ends up in the browser bundle.
+export type { SignalMessage } from "../../server/src/protocol";
+import type { SignalMessage } from "../../server/src/protocol";
+
 const PING_MS = 25_000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
-
-export type SignalMessage = {
-  type: string;
-  hostId?: string;
-  hostOnline?: boolean;
-  sdp?: RTCSessionDescriptionInit;
-  candidate?: RTCIceCandidateInit;
-};
 
 export type SignalingOptions = {
   onOpen: (send: (msg: SignalMessage) => void) => void;

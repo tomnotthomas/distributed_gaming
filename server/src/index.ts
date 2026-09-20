@@ -25,14 +25,17 @@
 // join. That is fine while both machines are ours and wrong the moment a
 // second machine exists. See docs/phase-1/plan.md, "Open questions".
 
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
+import { isRelayed, type SignalMessage } from "./protocol.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
-const STATIC_DIR = fileURLToPath(new URL("../web/dist/", import.meta.url));
+
+// Resolved from the COMPILED location: server/dist/index.js -> web/dist/
+const STATIC_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 
 // Cloudflare closes an idle WebSocket after 100s. Both peers ping every 25s;
 // this server drops a socket that misses two rounds so a crashed host does not
@@ -40,7 +43,7 @@ const STATIC_DIR = fileURLToPath(new URL("../web/dist/", import.meta.url));
 const HEARTBEAT_MS = 25_000;
 const HEARTBEAT_MISSES = 2;
 
-const MIME = {
+const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -50,10 +53,20 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-/** @type {Map<string, { host: import("ws").WebSocket | null, client: import("ws").WebSocket | null }>} */
-const rooms = new Map();
+type Role = "host" | "client";
 
-function roomFor(hostId) {
+/** A socket plus the room bookkeeping this server hangs off it. */
+type PeerSocket = WebSocket & {
+  hostId: string | null;
+  role: Role | null;
+  missedBeats: number;
+};
+
+type Room = { host: PeerSocket | null; client: PeerSocket | null };
+
+const rooms = new Map<string, Room>();
+
+function roomFor(hostId: string): Room {
   let room = rooms.get(hostId);
   if (!room) {
     room = { host: null, client: null };
@@ -63,21 +76,21 @@ function roomFor(hostId) {
 }
 
 /** The other socket in the same room, or null when the peer has not arrived. */
-function peerOf(ws) {
-  const room = rooms.get(ws.hostId);
+function peerOf(ws: PeerSocket): PeerSocket | null {
+  const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return null;
   return ws.role === "host" ? room.client : room.host;
 }
 
-function send(ws, message) {
+function send(ws: PeerSocket | null, message: SignalMessage): void {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
 
 // --- static files -----------------------------------------------------------
 
-async function serveStatic(req, res) {
+async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Both routes are the same SPA: "/" is the renter, "/host" is the gaming PC.
-  const urlPath = new URL(req.url, "http://localhost").pathname;
+  const urlPath = new URL(req.url ?? "/", "http://localhost").pathname;
   const candidate = urlPath === "/" || urlPath === "/host" ? "index.html" : urlPath.slice(1);
 
   // normalize() collapses ".." before we join, so a crafted path cannot escape
@@ -106,17 +119,24 @@ async function serveStatic(req, res) {
 const server = createServer(serveStatic);
 const wss = new WebSocketServer({ server });
 
-wss.on("connection", (ws) => {
+wss.on("connection", (socket) => {
+  const ws = socket as PeerSocket;
   ws.hostId = null;
   ws.role = null;
   ws.missedBeats = 0;
 
   ws.on("message", (raw) => {
-    let msg;
+    let msg: SignalMessage;
     try {
-      msg = JSON.parse(raw);
+      msg = JSON.parse(String(raw)) as SignalMessage;
     } catch {
       return; // garbage in, ignored — never crash the room over one bad frame
+    }
+
+    if (isRelayed(msg)) {
+      // Forwarded verbatim. The server does not read the payload.
+      send(peerOf(ws), msg);
+      return;
     }
 
     switch (msg.type) {
@@ -152,34 +172,27 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      case "offer":
-      case "answer":
-      case "ice": {
-        // Relayed verbatim. The server does not read the payload.
-        const peer = peerOf(ws);
-        if (peer) send(peer, msg);
-        return;
-      }
-
       default:
         return;
     }
   });
 
   ws.on("close", () => {
-    const room = rooms.get(ws.hostId);
+    const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
     if (!room) return;
+    const peer = peerOf(ws);
     if (room.host === ws) room.host = null;
     if (room.client === ws) room.client = null;
-    send(peerOf(ws), { type: "peer-left" });
-    if (!room.host && !room.client) rooms.delete(ws.hostId);
+    send(peer, { type: "peer-left" });
+    if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
   });
 });
 
 // Server-side liveness sweep. Without it a host whose machine slept keeps its
 // room and the next renter joins a socket that will never answer.
 const sweep = setInterval(() => {
-  for (const ws of wss.clients) {
+  for (const socket of wss.clients) {
+    const ws = socket as PeerSocket;
     if (ws.missedBeats >= HEARTBEAT_MISSES) {
       ws.terminate();
       continue;

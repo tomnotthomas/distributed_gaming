@@ -5,33 +5,41 @@
 // late host, replaced peer, ping/pong liveness, and peer-left on disconnect.
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
+import type { JoinedMessage, SignalMessage } from "../protocol.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8100 + Math.floor(Math.random() * 400);
-const URL_ = `ws://localhost:${PORT}`;
+const ORIGIN = `ws://localhost:${PORT}`;
 
-let server;
+/** A socket that records every message it receives, so tests can assert on order. */
+type RecordingSocket = WebSocket & { received: SignalMessage[] };
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const send = (ws, msg) => ws.send(JSON.stringify(msg));
+let server: ChildProcess | undefined;
 
-/** Opens a socket that records every message type it receives. */
-async function open() {
-  const ws = new WebSocket(URL_);
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const send = (ws: WebSocket, msg: SignalMessage) => ws.send(JSON.stringify(msg));
+const types = (ws: RecordingSocket) => ws.received.map((m) => m.type);
+
+function joinedMessage(ws: RecordingSocket): JoinedMessage {
+  const msg = ws.received.find((m): m is JoinedMessage => m.type === "joined");
+  assert.ok(msg, "expected a joined acknowledgement");
+  return msg;
+}
+
+async function open(): Promise<RecordingSocket> {
+  const ws = new WebSocket(ORIGIN) as RecordingSocket;
   ws.received = [];
-  ws.on("message", (raw) => ws.received.push(JSON.parse(raw)));
-  await new Promise((res, rej) => {
-    ws.once("open", res);
-    ws.once("error", rej);
+  ws.on("message", (raw) => ws.received.push(JSON.parse(String(raw)) as SignalMessage));
+  await new Promise<void>((resolve, reject) => {
+    ws.once("open", () => resolve());
+    ws.once("error", reject);
   });
   return ws;
 }
-
-const types = (ws) => ws.received.map((m) => m.type);
 
 before(async () => {
   server = spawn(process.execPath, [SERVER], {
@@ -64,9 +72,8 @@ describe("signaling", () => {
     await wait(100);
 
     assert.ok(types(host).includes("registered"), "host is registered");
-    assert.ok(types(client).includes("joined"), "client joined");
     assert.ok(types(host).includes("peer-joined"), "host was told a renter arrived");
-    assert.equal(client.received.find((m) => m.type === "joined").hostOnline, true);
+    assert.equal(joinedMessage(client).hostOnline, true);
 
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
     await wait(100);
@@ -94,11 +101,11 @@ describe("signaling", () => {
     const client = await open();
     send(client, { type: "join", hostId: `empty-${Date.now()}` });
     await wait(100);
-    assert.equal(client.received.find((m) => m.type === "joined").hostOnline, false);
+    assert.equal(joinedMessage(client).hostOnline, false);
     client.close();
   });
 
-  it("notifies a waiting client's host when the host registers late", async () => {
+  it("notifies a late-registering host that a renter is already waiting", async () => {
     const room = `late-${Date.now()}`;
     const client = await open();
     send(client, { type: "join", hostId: room });
@@ -108,7 +115,7 @@ describe("signaling", () => {
     send(host, { type: "register", hostId: room });
     await wait(100);
 
-    assert.ok(types(host).includes("peer-joined"), "late host learns a renter is already waiting");
+    assert.ok(types(host).includes("peer-joined"));
     host.close();
     client.close();
   });

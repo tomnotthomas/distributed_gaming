@@ -39,7 +39,10 @@ TURN exists for.
 ## Layout
 
 ```
-server/     Node + ws. Static files and signaling relay. No database.
-web/        Vite + React. Routes / (renter) and /host (gaming PC).
-docs/       Plan and architecture diagrams.
+server/src/          TypeScript. Node + ws — static files and signaling relay. No database.
+server/src/protocol.ts   The wire format. Imported by the web app too, so it is defined once.
+web/src/             Vite + React. Routes / (renter) and /host (gaming PC).
+docs/                Plan and architecture diagrams.
 ```
+
+Both packages are TypeScript and strict. `npm run typecheck` checks both without building.
