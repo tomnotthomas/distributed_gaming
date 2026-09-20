@@ -1,0 +1,12 @@
+{
+  "name": "swiff",
+  "private": true,
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "build": "npm run build -w @swiff/web",
+    "start": "npm start -w @swiff/server",
+    "dev": "npm run build && npm start",
+    "test": "npm test -w @swiff/server",
+    "dev:web": "npm run dev -w @swiff/web"
+  }
+}
