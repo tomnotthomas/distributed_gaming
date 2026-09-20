@@ -181,13 +181,95 @@ jobs:
             e2e/.results/
           retention-days: 14
 
+  # Builds something a human can actually download and run. Everything else
+  # here proves the code is correct; this is the only job that produces the
+  # product. Gated on desktop/ the same way the Electron tests are, so it
+  # lights up by itself when the host app lands.
+  #
+  # The artifacts are unsigned: there is no Apple Developer ID or Windows
+  # certificate yet, so macOS shows "unidentified developer" (right-click →
+  # Open gets past it) and Windows shows a SmartScreen warning. Fine for
+  # trying it on our own machines, not fine for handing to a renter.
+  package-desktop:
+    name: Package desktop app (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+            target: --mac dmg --arm64 --x64
+          - os: windows-latest
+            label: Windows
+            target: --win portable --x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the desktop app on this branch?
+        id: check
+        shell: bash
+        run: |
+          if [ -f desktop/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::desktop/ is not on this branch — nothing to package."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+        if: steps.check.outputs.present == 'true'
+
+      - name: Build the renderer
+        if: steps.check.outputs.present == 'true'
+        run: npm run build -w @swiff/desktop
+
+      - name: Package
+        if: steps.check.outputs.present == 'true'
+        working-directory: desktop
+        # Targets are passed on the command line rather than baked into the
+        # package.json script, which only knows how to build for Windows.
+        # CSC_IDENTITY_AUTO_DISCOVERY stops electron-builder hunting for a
+        # signing identity that does not exist and failing the build over it.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder ${{ matrix.target }} --publish never
+
+      - name: Fail if nothing installable came out
+        if: steps.check.outputs.present == 'true'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          found=(desktop/release/*.dmg desktop/release/*.exe)
+          if [ ${#found[@]} -eq 0 ]; then
+            echo "electron-builder produced no installer" >&2
+            ls -R desktop/release || true
+            exit 1
+          fi
+          printf 'built: %s\n' "${found[@]}"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.present == 'true'
+        with:
+          name: swiff-host-${{ matrix.label }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+          retention-days: 14
+          if-no-files-found: error
+
   # One green check to require in branch protection, so adding a job later does
   # not silently stop gating merges.
   ci:
     name: CI
     runs-on: ubuntu-latest
     if: always()
-    needs: [typecheck, test, build, e2e-web, e2e-desktop]
+    needs: [typecheck, test, build, e2e-web, e2e-desktop, package-desktop]
     steps:
       - name: Fail if anything upstream did not succeed
         run: |
@@ -196,4 +278,5 @@ jobs:
           echo "build:       ${{ needs.build.result }}"
           echo "e2e-web:     ${{ needs.e2e-web.result }}"
           echo "e2e-desktop: ${{ needs.e2e-desktop.result }}"
+          echo "package:     ${{ needs.package-desktop.result }}"
           [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
