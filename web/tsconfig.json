@@ -15,5 +15,8 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  // The app build typechecks the app. Tests are node-flavoured and carry their
+  // own types; tsconfig.test.json covers them.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test", "src/integration"]
 }

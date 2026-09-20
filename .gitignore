@@ -17,3 +17,9 @@ node_modules/
 # build output
 dist/
 *.tsbuildinfo
+
+# test output
+coverage/
+.vitest/
+e2e/.report/
+e2e/.results/
