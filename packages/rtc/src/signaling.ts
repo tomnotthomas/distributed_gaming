@@ -13,19 +13,20 @@
 // The 25s ping is not optional: Cloudflare closes an idle WebSocket after 100
 // seconds, and a host waiting for its first renter sends nothing at all.
 
-import { SIGNALING_URL } from "./config";
-
 // The wire format lives with the server that relays it — one definition, so a
 // protocol change cannot land on one side only. Type-only import: nothing from
 // the server package ends up in the browser bundle.
-export type { SignalMessage } from "../../server/src/protocol";
-import type { SignalMessage } from "../../server/src/protocol";
+export type { SignalMessage } from "../../../server/src/protocol";
+import type { SignalMessage } from "../../../server/src/protocol";
 
 const PING_MS = 25_000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
 
 export type SignalingOptions = {
+  /** ws:// or wss:// origin of the signaling server. The Electron host cannot
+   *  derive this from `location`, so every caller passes it in. */
+  url: string;
   onOpen: (send: (msg: SignalMessage) => void) => void;
   onMessage: (msg: SignalMessage, send: (msg: SignalMessage) => void) => void;
   onStatus?: (status: "connecting" | "open" | "closed") => void;
@@ -36,7 +37,7 @@ export type Signaling = {
   close: () => void;
 };
 
-export function connectSignaling({ onOpen, onMessage, onStatus }: SignalingOptions): Signaling {
+export function connectSignaling({ url, onOpen, onMessage, onStatus }: SignalingOptions): Signaling {
   let socket: WebSocket | null = null;
   let pingTimer: number | undefined;
   let retryTimer: number | undefined;
@@ -49,7 +50,7 @@ export function connectSignaling({ onOpen, onMessage, onStatus }: SignalingOptio
 
   const open = () => {
     onStatus?.("connecting");
-    socket = new WebSocket(SIGNALING_URL);
+    socket = new WebSocket(url);
 
     socket.onopen = () => {
       backoff = BACKOFF_MIN_MS;

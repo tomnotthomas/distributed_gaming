@@ -2,6 +2,7 @@
   "name": "swiff",
   "private": true,
   "workspaces": [
+    "packages/*",
     "server",
     "web"
   ],

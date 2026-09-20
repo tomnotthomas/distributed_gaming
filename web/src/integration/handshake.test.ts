@@ -12,19 +12,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { connectSignaling } from "@swiff/rtc";
 
-// Hoisted so the config mock below can see the port it has to advertise.
-const { PORT } = vi.hoisted(() => ({ PORT: 8500 + Math.floor(Math.random() * 400) }));
-
-// The real config reads `location`, which under jsdom points at nothing useful.
-// Everything else about the client stays real.
-vi.mock("../config", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../config")>()),
-  SIGNALING_URL: `ws://127.0.0.1:${PORT}`,
-}));
-
-const { connectSignaling } = await import("../signaling");
+const PORT = 8500 + Math.floor(Math.random() * 400);
+const SIGNALING_URL = `ws://127.0.0.1:${PORT}`;
 
 /**
  * The member of the protocol union carrying tag `T`.
@@ -39,8 +31,8 @@ type MessageOf<T extends SignalMessage["type"], M = SignalMessage> = M extends {
     : never
   : never;
 
-type SignalMessage = import("../signaling").SignalMessage;
-type Signaling = import("../signaling").Signaling;
+type SignalMessage = import("@swiff/rtc").SignalMessage;
+type Signaling = import("@swiff/rtc").Signaling;
 
 // The server is started through its own `npm start`, never by naming a source
 // file. Whether it is JavaScript today or compiled TypeScript tomorrow is the
@@ -73,6 +65,7 @@ function peer(hello: SignalMessage) {
   let send: (msg: SignalMessage) => void = () => {};
 
   const signaling = connectSignaling({
+    url: SIGNALING_URL,
     onOpen: (s) => {
       send = s;
       s(hello);

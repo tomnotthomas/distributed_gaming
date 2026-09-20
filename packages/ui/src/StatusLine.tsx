@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { selectedCandidateType, type CandidateType } from "./peer";
+import { selectedCandidateType, type CandidateType } from "@swiff/rtc";
 
 const CANDIDATE_MEANING: Record<CandidateType, string> = {
   host: "same local network — proves nothing about the internet path",

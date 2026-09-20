@@ -105,10 +105,14 @@ test.describe("host to renter streaming", () => {
     await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
     await expect(host.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
+    // One Stage per page, so the test id is unambiguous. Asserted rather than
+    // assumed: a silent second video would make the polls below meaningless.
+    await expect(renter.getByTestId("stage-video")).toHaveCount(1);
+
     // And frames are genuinely decoding, not just a negotiated-but-silent track.
     await expect
       .poll(
-        () => renter.locator("video.stream").evaluate((v: HTMLVideoElement) => v.videoWidth),
+        () => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.videoWidth),
         { timeout: 30_000, message: "renter never received a decoded frame" },
       )
       .toBeGreaterThan(0);
@@ -117,7 +121,7 @@ test.describe("host to renter streaming", () => {
     // first frame decodes, and only advances as playback actually runs.
     await expect
       .poll(
-        () => renter.locator("video.stream").evaluate((v: HTMLVideoElement) => v.currentTime),
+        () => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.currentTime),
         { timeout: 15_000, message: "video decoded a frame but never started playing" },
       )
       .toBeGreaterThan(0);

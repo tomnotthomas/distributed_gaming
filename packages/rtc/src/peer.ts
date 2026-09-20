@@ -1,13 +1,20 @@
 // Peer-connection helpers shared by the host and the renter.
 
-import { FORCE_RELAY, ICE_SERVERS } from "./config";
-
 export type CandidateType = "host" | "srflx" | "relay" | "prflx" | "unknown";
 
-export function createPeerConnection(): RTCPeerConnection {
+/** Google's public STUN. Free, and enough to discover a srflx candidate. */
+export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+
+export type IceConfig = {
+  iceServers?: RTCIceServer[];
+  /** Set on BOTH peers to prove the relay path. Needs TURN credentials above. */
+  forceRelay?: boolean;
+};
+
+export function createPeerConnection({ iceServers, forceRelay }: IceConfig = {}): RTCPeerConnection {
   return new RTCPeerConnection({
-    iceServers: ICE_SERVERS,
-    iceTransportPolicy: FORCE_RELAY ? "relay" : "all",
+    iceServers: iceServers ?? DEFAULT_ICE_SERVERS,
+    iceTransportPolicy: forceRelay ? "relay" : "all",
   });
 }
 
