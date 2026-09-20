@@ -15,6 +15,8 @@
  * Nothing is written down anywhere. There is no database, no cookie, no file.
  */
 
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
 /** How many of the player's own games ride home in the fragment. */
@@ -52,6 +54,58 @@ export function safeDid(v) {
   return v && DID.test(v) ? v : "";
 }
 
+/* Shape alone is not enough, because of an asymmetry between the two ways
+ * home.
+ *
+ * On the granted path the id is safe without any work from us: it travels
+ * inside openid.return_to, which Steam signs, so tampering invalidates the
+ * assertion and lands the request on the denied path instead. But the denied
+ * path is reached precisely BECAUSE verification failed, so by construction
+ * nothing there has been checked by anyone. A crafted link can name any
+ * well-shaped string, and every visitor who clicks it gets seeded with the
+ * same id -- merging them into one person, inflating its event count and
+ * deflating the unique-visitor denominator. Nothing is granted by this; the
+ * id only names a person in PostHog. But a branch whose entire purpose is a
+ * funnel number you can trust should not leave a way to skew that number.
+ *
+ * So we sign the id on the way out and check it on the way back, which makes
+ * the guarantee uniform and local instead of resting on Steam's signed field
+ * set. The secret falls back to the Steam key, already required and already
+ * stable across instances, so a deploy needs no second variable. With no
+ * secret at all, signing is a no-op and the denied path simply drops the id:
+ * the funnel loses abandonment attribution rather than accepting something
+ * unverified.
+ */
+const DID_SECRET = process.env.SWIFF_DID_SECRET || process.env.STEAM_API_KEY || "";
+
+function didSig(id) {
+  return createHmac("sha256", DID_SECRET).update(id).digest("base64url").slice(0, 27);
+}
+
+/** Stamp an id so we can recognise it as ours when it comes back. */
+export function signDid(v) {
+  const id = safeDid(v);
+  if (!id || !DID_SECRET) return id;
+  return id + "." + didSig(id);
+}
+
+/**
+ * Read an id back. A valid signature is accepted on any path; an unsigned or
+ * badly signed one only where Steam's own signature already vouched for it.
+ */
+export function readDid(v, { verified = false } = {}) {
+  if (!v) return "";
+  const dot = v.lastIndexOf(".");
+  const id = safeDid(dot < 0 ? v : v.slice(0, dot));
+  if (!id) return "";
+  if (dot >= 0 && DID_SECRET) {
+    const got = Buffer.from(v.slice(dot + 1));
+    const want = Buffer.from(didSig(id));
+    if (got.length === want.length && timingSafeEqual(got, want)) return id;
+  }
+  return verified ? id : "";
+}
+
 export function b64urlEncode(obj) {
   const json = JSON.stringify(obj);
   const b64 = Buffer.from(json, "utf8").toString("base64");
@@ -63,7 +117,7 @@ export function loginUrl({ origin, returnTo, did }) {
   const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
   const back = new URL("/auth/steam/return", origin);
   back.searchParams.set("to", safeReturn);
-  const id = safeDid(did);
+  const id = signDid(did);
   if (id) back.searchParams.set("did", id);
 
   const params = new URLSearchParams({
@@ -153,16 +207,18 @@ export async function returnUrl({ origin, searchParams, apiKey }) {
   const to = searchParams.get("to") || "/";
   const dest = new URL(to.startsWith("/") ? to : "/", origin);
 
-  // Kept on the denied path too, so an abandoned sign-in still lands on the
-  // person who started it rather than inventing a second one.
-  const did = safeDid(searchParams.get("did"));
-  const trail = did ? "&did=" + did : "";
+  const raw = searchParams.get("did");
+  const hand = (id) => (id ? "&did=" + id : "");
 
   const steamid = await verifyAssertion(searchParams).catch(() => null);
   if (!steamid) {
-    dest.hash = "steam=denied" + trail;
+    // Nothing verified this request, so only a signature we issued counts.
+    // When one is present the abandoned sign-in still joins to the person who
+    // started it, which is the whole reason to carry the id down this path.
+    dest.hash = "steam=denied" + hand(readDid(raw));
     return dest.toString();
   }
+  const trail = hand(readDid(raw, { verified: true }));
 
   let profile;
   try {

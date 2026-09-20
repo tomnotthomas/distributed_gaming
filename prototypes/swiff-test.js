@@ -185,15 +185,23 @@
       if (bar) bar.style.width = "100%";
     });
     const back = location.pathname + location.search;
-    setTimeout(() => {
-      // Read late: the library loads async, and 650ms in it is far likelier
-      // to be up. Without it the funnel still works, it just cannot join the
-      // two halves of this one visit.
+    // Wait for the id rather than guessing at a delay. array.js loads async,
+    // so a flat timeout fails whenever the network is slow -- which is mobile,
+    // which is most of the traffic if this ever goes near Reddit. Those
+    // visitors would split silently, making the ones we drop from the funnel a
+    // biased sample rather than a random one. The overlay is already on screen,
+    // so waiting a little longer costs nothing anyone can see. Floor keeps the
+    // animation from snapping; ceiling means a blocked PostHog never strands
+    // anyone on this card.
+    const startedAt = Date.now();
+    (function go() {
       const ph = window.posthog;
       const did = (ph && ph.get_distinct_id && ph.get_distinct_id()) || "";
+      const waited = Date.now() - startedAt;
+      if (waited < 650 || (!did && waited < 1500)) return setTimeout(go, 50);
       location.href = "/auth/steam?return=" + encodeURIComponent(back) +
         (did ? "&did=" + encodeURIComponent(did) : "");
-    }, 650);
+    })();
   }
 
   // Subscribers that want the profile whenever it lands, in either order.
