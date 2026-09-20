@@ -47,6 +47,11 @@
   // persons, but it also marks the visitor identified, and PostHog ignores a
   // later identify() with a different id -- which would silently break the
   // email capture, the one place a real identity actually matters.
+  // The id this visit started with, captured once at init inside loadPostHog
+  // and deliberately never refreshed. Declared here so it is in scope before
+  // the script's onload can assign it.
+  let anonId = "";
+
   function loadPostHog() {
     if (!TOKEN) {
       console.warn("[swiff] no PostHog token, events log to console only");
@@ -71,6 +76,15 @@
         capture_pageleave: true,
       });
       window.posthog.register({ side: SIDE, prototype: CFG.name || document.title });
+      // Grab the anonymous id now and keep it. get_distinct_id() is not stable
+      // over a visit: captureEmail calls identify(email), after which it
+      // returns the email address -- which is the wrong thing to hand a
+      // redirect, and fails the id shape check anyway, so the visitor would
+      // split exactly where this is meant to stop them splitting. Reachable
+      // ordering: play a free title, end the session, leave an email, then
+      // click Connect Steam. The anonymous id stays valid either way, because
+      // identify() merges the two persons rather than replacing one.
+      anonId = (window.posthog.get_distinct_id && window.posthog.get_distinct_id()) || "";
       for (const [m, a] of stub) window.posthog[m](...a);
     };
     s.onerror = () => console.warn("[swiff] PostHog blocked or offline");
@@ -195,12 +209,10 @@
     // anyone on this card.
     const startedAt = Date.now();
     (function go() {
-      const ph = window.posthog;
-      const did = (ph && ph.get_distinct_id && ph.get_distinct_id()) || "";
       const waited = Date.now() - startedAt;
-      if (waited < 650 || (!did && waited < 1500)) return setTimeout(go, 50);
+      if (waited < 650 || (!anonId && waited < 1500)) return setTimeout(go, 50);
       location.href = "/auth/steam?return=" + encodeURIComponent(back) +
-        (did ? "&did=" + encodeURIComponent(did) : "");
+        (anonId ? "&did=" + encodeURIComponent(anonId) : "");
     })();
   }
 
