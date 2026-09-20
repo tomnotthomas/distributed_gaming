@@ -25,6 +25,20 @@ vi.mock("../config", async (importOriginal) => ({
 }));
 
 const { connectSignaling } = await import("../signaling");
+
+/**
+ * The member of the protocol union carrying tag `T`.
+ *
+ * Not `Extract<SignalMessage, { type: T }>`: offer and answer share one type
+ * whose tag is `"offer" | "answer"`, which Extract rejects. Comparing the other
+ * way round — does the wanted tag fall inside the member's tag — handles both.
+ */
+type MessageOf<T extends SignalMessage["type"], M = SignalMessage> = M extends { type: infer U }
+  ? T extends U
+    ? M
+    : never
+  : never;
+
 type SignalMessage = import("../signaling").SignalMessage;
 type Signaling = import("../signaling").Signaling;
 
@@ -74,12 +88,21 @@ function peer(hello: SignalMessage) {
     signaling,
     send: (msg: SignalMessage) => send(msg),
     types: () => received.map((m) => m.type),
-    /** Resolve with the first message of `type`, or fail the test on timeout. */
-    async waitFor(type: string, timeoutMs = 5000): Promise<SignalMessage> {
+    /**
+     * Resolve with the first message of `type`, or fail the test on timeout.
+     *
+     * Generic over the tag so the caller gets the narrowed member of the union
+     * back — `waitFor("joined")` hands back something with `hostOnline` on it,
+     * and a typo in the tag is a compile error rather than a 5s timeout.
+     */
+    async waitFor<T extends SignalMessage["type"]>(
+      type: T,
+      timeoutMs = 5000,
+    ): Promise<MessageOf<T>> {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const hit = received.find((m) => m.type === type);
-        if (hit) return hit;
+        if (hit) return hit as MessageOf<T>;
         await wait(20);
       }
       throw new Error(`timed out waiting for "${type}"; got [${received.map((m) => m.type)}]`);
@@ -236,6 +259,51 @@ describe("web client against the real signaling server", () => {
     }
     throw new Error(`client did not re-register; inbox was [${host.types()}]`);
   }, 15_000);
+
+  // KNOWN BUG — marked `fails` so CI stays green while it is open, and turns
+  // red the moment somebody fixes it and forgets to delete this annotation.
+  //
+  // A displaced socket's close handler fires peer-left at whoever is in the
+  // room *now*, not at the peer it was actually talking to:
+  //
+  //   ws.on("close", () => {
+  //     ...
+  //     send(peerOf(ws), { type: "peer-left" });   // ← the CURRENT peer
+  //   });
+  //
+  // So when a renter refreshes, the new socket joins, the host is told
+  // "peer-joined" and starts negotiating — and then the old socket finishes
+  // closing and the host gets "peer-left" for a renter that already left. The
+  // host tears down the connection it just built, and the renter never gets a
+  // picture until the host restarts. See also the server's own "replaces a
+  // stale host socket" test, which covers the replacement but not the fallout.
+  //
+  // The fix is to ignore the close of a socket the room has already moved past:
+  // only notify the peer when `room.host === ws || room.client === ws`.
+  it.fails("does not tell the host a renter left when that renter was only replaced", async () => {
+    const room = `refresh-${Date.now()}`;
+    const host = peer({ type: "register", hostId: room });
+    await host.waitFor("registered");
+
+    const first = peer({ type: "join", hostId: room });
+    await first.waitFor("joined");
+    await host.waitFor("peer-joined");
+
+    // The renter hits refresh: a new socket joins the same room, and the old
+    // one is closed by the server a moment later.
+    const second = peer({ type: "join", hostId: room });
+    await second.waitFor("joined");
+    await wait(500);
+
+    const inbox = host.types();
+    const lastJoined = inbox.lastIndexOf("peer-joined");
+    const lastLeft = inbox.lastIndexOf("peer-left");
+
+    expect(
+      lastLeft < lastJoined,
+      `host saw [${inbox}] — a peer-left after the new renter joined kills the fresh connection`,
+    ).toBe(true);
+  });
 
   it("reports the connection status to the UI", async () => {
     const host = peer({ type: "register", hostId: `status-${Date.now()}` });

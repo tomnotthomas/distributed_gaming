@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a PR makes the previous run irrelevant. Main is never cancelled:
+# its runs are the record of what actually passed on the branch we deploy from.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # Types first and on its own: it is the fastest way to learn the tree is
+  # broken, and it covers the app, the tests and the e2e specs — Playwright and
+  # Vitest both transpile without checking, so nothing else would.
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  # Unit and integration tests for every workspace that has any. The web
+  # integration suite starts the real signaling server, so this is not purely
+  # unit-level despite being the fast job.
+  test:
+    name: Unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Coverage
+        run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: web/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Proves the thing the README tells a human to run actually produces a
+  # servable app, and hands the artifact to the e2e job so it is not rebuilt.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Fail if the web app produced no bundle
+        run: test -f web/dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          retention-days: 7
+
+  # The real product: two browsers, a real signaling server, real peer
+  # connections, and an assertion that decoded frames arrive.
+  e2e-web:
+    name: End-to-end (browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # Keyed on the Playwright version so a bump fetches fresh browsers
+      # instead of silently reusing incompatible ones.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+      - name: Install system deps for cached browser
+        run: npx playwright install-deps chromium
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+
+      - run: npm run test:e2e:web
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-web
+          path: |
+            e2e/.report/
+            e2e/.results/
+          retention-days: 14
+
+  # The Electron host app. It lives on its own branch for now, so this job is
+  # gated on the directory existing: it lights up by itself when desktop/ lands
+  # rather than sitting red on main in the meantime.
+  e2e-desktop:
+    name: End-to-end (Electron host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the desktop app on this branch?
+        id: check
+        run: |
+          if [ -f desktop/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::desktop/ is not on this branch — skipping the Electron end-to-end tests."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.present == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+        if: steps.check.outputs.present == 'true'
+      - name: Build the desktop renderer
+        if: steps.check.outputs.present == 'true'
+        run: npm run build -w @swiff/desktop
+
+      - name: Resolve Playwright version
+        if: steps.check.outputs.present == 'true'
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: steps.check.outputs.present == 'true'
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Playwright system dependencies
+        if: steps.check.outputs.present == 'true'
+        run: npx playwright install-deps chromium
+
+      # Electron needs a display, and getDisplayMedia needs that display to have
+      # a real size — a 0x0 root window hands back a dead track.
+      - name: Run Electron end-to-end tests under a virtual display
+        if: steps.check.outputs.present == 'true'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" npm run test:e2e:desktop
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.check.outputs.present == 'true'
+        with:
+          name: playwright-report-desktop
+          path: |
+            e2e/.report/
+            e2e/.results/
+          retention-days: 14
+
+  # One green check to require in branch protection, so adding a job later does
+  # not silently stop gating merges.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [typecheck, test, build, e2e-web, e2e-desktop]
+    steps:
+      - name: Fail if anything upstream did not succeed
+        run: |
+          echo "typecheck:   ${{ needs.typecheck.result }}"
+          echo "test:        ${{ needs.test.result }}"
+          echo "build:       ${{ needs.build.result }}"
+          echo "e2e-web:     ${{ needs.e2e-web.result }}"
+          echo "e2e-desktop: ${{ needs.e2e-desktop.result }}"
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]

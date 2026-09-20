@@ -88,7 +88,7 @@ describe("connectSignaling", () => {
   it("drops sends made before the socket is open instead of throwing", () => {
     const signaling = connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
 
-    signaling.send({ type: "offer" });
+    signaling.send({ type: "offer", sdp: { type: "offer", sdp: "v=0" } });
 
     expect(latest().sent).toEqual([]);
   });
@@ -120,10 +120,10 @@ describe("connectSignaling", () => {
     latest().accept();
 
     latest().deliver("not json at all");
-    latest().deliver({ type: "offer" });
+    latest().deliver({ type: "peer-joined" });
 
     expect(onMessage).toHaveBeenCalledOnce();
-    expect(onMessage.mock.calls[0][0]).toEqual({ type: "offer" });
+    expect(onMessage.mock.calls[0][0]).toEqual({ type: "peer-joined" });
   });
 
   it("pings every 25s so an idle socket survives the proxy", () => {

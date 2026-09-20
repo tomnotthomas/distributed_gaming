@@ -7,7 +7,7 @@
 // capturing and `getDisplayMedia` would otherwise sit waiting for a human.
 // Everything downstream of that track is the code that ships.
 
-import { expect, test, type BrowserContext, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 /**
  * Replace `getDisplayMedia` with an animated canvas.
@@ -64,11 +64,11 @@ test.describe.configure({ mode: "serial" });
 test.describe("host to renter streaming", () => {
   const contexts: BrowserContext[] = [];
 
-  /** A fresh browser context, closed automatically when the test ends. */
-  async function openPeer(browser: Browser): Promise<[BrowserContext, Page]> {
+  /** A peer in its own browser context, closed automatically after the test. */
+  async function openPeer(browser: Browser): Promise<Page> {
     const context = await browser.newContext();
     contexts.push(context);
-    return [context, await context.newPage()];
+    return context.newPage();
   }
 
   test.afterEach(async () => {
@@ -79,8 +79,8 @@ test.describe("host to renter streaming", () => {
   });
 
   test("carries the host's screen to the renter's video element", async ({ browser }) => {
-    const [, host] = await openPeer(browser);
-    const [, renter] = await openPeer(browser);
+    const host = await openPeer(browser);
+    const renter = await openPeer(browser);
 
     const hostErrors = failOnPageError(host, "host");
     const renterErrors = failOnPageError(renter, "renter");
@@ -118,28 +118,14 @@ test.describe("host to renter streaming", () => {
       .evaluate((v: HTMLVideoElement) => v.currentTime);
     expect(playedSeconds, "video should be playing, not parked at 0").toBeGreaterThan(0);
 
-    expect(hostErrors).toEqual([]);
-    expect(renterErrors).toEqual([]);
-  });
-
-  test("reports which ICE path won, so a green light can be trusted", async ({ browser }) => {
-    const [, host] = await openPeer(browser);
-    const [, renter] = await openPeer(browser);
-
-    await fakeScreenCapture(host);
-    await host.goto("/host");
-    await host.getByRole("button", { name: "Start sharing" }).click();
-    await renter.goto("/");
-    await renter.getByRole("button", { name: "Connect" }).click();
-
-    await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
-
-    // Both peers are the same machine, so this is a loopback `host` pair. The
-    // point of the assertion is that the status line resolves it at all rather
-    // than sitting on "unknown" — that is what makes a real srflx/relay run
-    // readable later.
+    // And the status line resolved which ICE path actually won, rather than
+    // sitting on "unknown" — that is what makes a real srflx/relay run
+    // readable later. Both peers are one machine here, so expect a local pair.
     await expect(renter.locator(".status")).not.toContainText("unknown", { timeout: 20_000 });
     await expect(renter.locator(".status")).toContainText(/host|srflx|relay|prflx/);
+
+    expect(hostErrors).toEqual([]);
+    expect(renterErrors).toEqual([]);
   });
 
   test("tells the renter the gaming PC is offline when nothing is sharing", async ({ page }) => {
@@ -150,18 +136,23 @@ test.describe("host to renter streaming", () => {
   });
 
   test("tells the renter when the host disappears mid-session", async ({ browser }) => {
-    const [hostCtx, host] = await openPeer(browser);
-    const [, renter] = await openPeer(browser);
+    const host = await openPeer(browser);
+    const renter = await openPeer(browser);
 
     await fakeScreenCapture(host);
     await host.goto("/host");
     await host.getByRole("button", { name: "Start sharing" }).click();
+    // Wait for the host to hold the room before the renter joins. Connecting
+    // into a room the host has not registered yet is a real race worth its own
+    // test; it is not what this one is about.
+    await expect(host.getByText("Waiting for a renter…")).toBeVisible();
+
     await renter.goto("/");
     await renter.getByRole("button", { name: "Connect" }).click();
     await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
     // The gaming PC goes away without saying goodbye.
-    await hostCtx.close();
+    await host.close();
 
     await expect(renter.getByText(/gaming PC disconnected/)).toBeVisible({ timeout: 20_000 });
   });
