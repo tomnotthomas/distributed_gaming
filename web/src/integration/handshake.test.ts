@@ -253,27 +253,10 @@ describe("web client against the real signaling server", () => {
     throw new Error(`client did not re-register; inbox was [${host.types()}]`);
   }, 15_000);
 
-  // KNOWN BUG — marked `fails` so CI stays green while it is open, and turns
-  // red the moment somebody fixes it and forgets to delete this annotation.
-  //
-  // A displaced socket's close handler fires peer-left at whoever is in the
-  // room *now*, not at the peer it was actually talking to:
-  //
-  //   ws.on("close", () => {
-  //     ...
-  //     send(peerOf(ws), { type: "peer-left" });   // ← the CURRENT peer
-  //   });
-  //
-  // So when a renter refreshes, the new socket joins, the host is told
-  // "peer-joined" and starts negotiating — and then the old socket finishes
-  // closing and the host gets "peer-left" for a renter that already left. The
-  // host tears down the connection it just built, and the renter never gets a
-  // picture until the host restarts. See also the server's own "replaces a
-  // stale host socket" test, which covers the replacement but not the fallout.
-  //
-  // The fix is to ignore the close of a socket the room has already moved past:
-  // only notify the peer when `room.host === ws || room.client === ws`.
-  it.fails("does not tell the host a renter left when that renter was only replaced", async () => {
+  // Regression: a displaced socket's close used to fire peer-left at whoever
+  // held the room next, so a renter who refreshed made the host tear down the
+  // connection it had just built for them — no picture until the host restarted.
+  it("does not tell the host a renter left when that renter was only replaced", async () => {
     const room = `refresh-${Date.now()}`;
     const host = peer({ type: "register", hostId: room });
     await host.waitFor("registered");

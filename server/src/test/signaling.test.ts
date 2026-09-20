@@ -120,6 +120,58 @@ describe("signaling", () => {
     client.close();
   });
 
+  it("does not announce peer-left for a renter that was only replaced", async () => {
+    // A renter refreshing the page: the new socket joins before the old one has
+    // finished closing. The stale close must not reach the host, which is by
+    // then already negotiating with the replacement — it would tear that fresh
+    // connection straight back down.
+    const room = `replace-client-${Date.now()}`;
+    const host = await open();
+    send(host, { type: "register", hostId: room });
+    await wait(100);
+
+    const first = await open();
+    send(first, { type: "join", hostId: room });
+    await wait(100);
+
+    const second = await open();
+    send(second, { type: "join", hostId: room });
+    await wait(250);
+
+    assert.equal(first.readyState, WebSocket.CLOSED, "the stale renter socket was closed");
+    const inbox = types(host);
+    assert.ok(
+      inbox.lastIndexOf("peer-left") < inbox.lastIndexOf("peer-joined"),
+      `host saw [${inbox}] — a peer-left after the new renter joined kills the fresh connection`,
+    );
+
+    host.close();
+    second.close();
+  });
+
+  it("does not announce peer-left for a host that was only replaced", async () => {
+    // The mirror case: a gaming PC reconnecting must not make the renter give
+    // up on the session the new host socket is about to serve.
+    const room = `replace-host-${Date.now()}`;
+    const renter = await open();
+    send(renter, { type: "join", hostId: room });
+    await wait(100);
+
+    const first = await open();
+    send(first, { type: "register", hostId: room });
+    await wait(100);
+
+    const second = await open();
+    send(second, { type: "register", hostId: room });
+    await wait(250);
+
+    assert.equal(first.readyState, WebSocket.CLOSED, "the stale host socket was closed");
+    assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
+
+    renter.close();
+    second.close();
+  });
+
   it("replaces a stale host socket instead of locking it out of its own room", async () => {
     const room = `replace-${Date.now()}`;
     const first = await open();
