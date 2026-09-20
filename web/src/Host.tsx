@@ -22,6 +22,11 @@ import { CAPTURE, HOST_ID } from "./config";
 import { createPeerConnection } from "./peer";
 import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
 import { StatusLine } from "./StatusLine";
+import { Button } from "./ui/Button";
+import { Notice } from "./ui/Notice";
+import { PageShell } from "./ui/PageShell";
+import { Stage } from "./ui/Stage";
+import { Tag } from "./ui/Tag";
 
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
@@ -125,21 +130,26 @@ export function Host() {
   }, [sharing, offerTo]);
 
   return (
-    <main>
-      <h1>Gaming PC</h1>
-      <p className="muted">Room: {HOST_ID}</p>
+    <PageShell
+      title="Gaming PC"
+      subtitle="Share this screen with whoever joins the room."
+      meta={<Tag label="Room" value={HOST_ID} />}
+    >
+      <div className="row">
+        {!sharing ? (
+          <Button large onClick={() => void startSharing()}>
+            Start sharing
+          </Button>
+        ) : (
+          <p className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</p>
+        )}
+      </div>
 
-      {!sharing ? (
-        <button onClick={() => void startSharing()}>Start sharing</button>
-      ) : (
-        <p className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</p>
-      )}
-
-      {error ? <p className="error">{error}</p> : null}
+      {error ? <Notice>{error}</Notice> : null}
 
       <StatusLine pc={pc} note={sharing ? undefined : "not capturing"} />
 
-      <video ref={previewRef} autoPlay muted playsInline className="preview" />
-    </main>
+      <Stage ref={previewRef} muted small empty={!sharing} placeholder="not capturing" />
+    </PageShell>
   );
 }
