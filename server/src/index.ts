@@ -180,6 +180,16 @@ wss.on("connection", (socket) => {
   ws.on("close", () => {
     const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
     if (!room) return;
+
+    // A socket that was already replaced is not in this room any more: a newer
+    // host or renter took its seat, and the close arriving now is the tail end
+    // of that handover. It must change nothing — above all it must not report
+    // "peer-left", because the peer it would reach is the surviving one, which
+    // is at that moment negotiating with the replacement. Telling it somebody
+    // left makes it tear down the connection it just built, and a renter who
+    // simply refreshed the page never gets a picture again.
+    if (room.host !== ws && room.client !== ws) return;
+
     const peer = peerOf(ws);
     if (room.host === ws) room.host = null;
     if (room.client === ws) room.client = null;
