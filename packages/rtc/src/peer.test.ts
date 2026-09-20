@@ -8,8 +8,7 @@
 // pinned here.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPeerConnection, selectedCandidateType } from "./peer";
-import { FORCE_RELAY, ICE_SERVERS } from "./config";
+import { createPeerConnection, selectedCandidateType, DEFAULT_ICE_SERVERS } from "./peer";
 
 /** A stats report is Map-like — `getStats` callers only ever use forEach. */
 function statsReport(reports: Record<string, unknown>[]) {
@@ -27,14 +26,24 @@ function pcWithStats(reports: Record<string, unknown>[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("createPeerConnection", () => {
-  it("passes the configured ICE servers through", () => {
+  it("falls back to the default STUN server", () => {
     const spy = vi.fn();
     vi.stubGlobal("RTCPeerConnection", spy);
 
     createPeerConnection();
 
     expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0].iceServers).toEqual(ICE_SERVERS);
+    expect(spy.mock.calls[0][0].iceServers).toEqual(DEFAULT_ICE_SERVERS);
+  });
+
+  it("passes caller-supplied ICE servers through", () => {
+    const spy = vi.fn();
+    vi.stubGlobal("RTCPeerConnection", spy);
+    const iceServers = [{ urls: "turn:example:3478", username: "u", credential: "p" }];
+
+    createPeerConnection({ iceServers });
+
+    expect(spy.mock.calls[0][0].iceServers).toEqual(iceServers);
   });
 
   it("leaves the transport policy open unless relay is forced", () => {
@@ -42,10 +51,10 @@ describe("createPeerConnection", () => {
     vi.stubGlobal("RTCPeerConnection", spy);
 
     createPeerConnection();
+    expect(spy.mock.calls[0][0].iceTransportPolicy).toBe("all");
 
-    // FORCE_RELAY is a build-time constant; assert the mapping either way so
-    // this test keeps its meaning when someone flips it to debug TURN.
-    expect(spy.mock.calls[0][0].iceTransportPolicy).toBe(FORCE_RELAY ? "relay" : "all");
+    createPeerConnection({ forceRelay: true });
+    expect(spy.mock.calls[1][0].iceTransportPolicy).toBe("relay");
   });
 });
 

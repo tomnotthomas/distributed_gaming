@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectSignaling, type SignalMessage } from "./signaling";
 
+const TEST_URL = "wss://signal.test";
 const PING_MS = 25_000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
@@ -76,7 +77,7 @@ afterEach(() => {
 describe("connectSignaling", () => {
   it("hands the caller a send function once the socket opens", () => {
     const onOpen = vi.fn((send: (m: SignalMessage) => void) => send({ type: "register", hostId: "pc-1" }));
-    connectSignaling({ onOpen, onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen, onMessage: vi.fn() });
 
     expect(onOpen).not.toHaveBeenCalled(); // nothing before the socket is up
     latest().accept();
@@ -86,7 +87,7 @@ describe("connectSignaling", () => {
   });
 
   it("drops sends made before the socket is open instead of throwing", () => {
-    const signaling = connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    const signaling = connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
 
     signaling.send({ type: "offer", sdp: { type: "offer", sdp: "v=0" } });
 
@@ -95,7 +96,7 @@ describe("connectSignaling", () => {
 
   it("forwards messages to onMessage", () => {
     const onMessage = vi.fn();
-    connectSignaling({ onOpen: vi.fn(), onMessage });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage });
     latest().accept();
 
     latest().deliver({ type: "peer-joined" });
@@ -106,7 +107,7 @@ describe("connectSignaling", () => {
 
   it("swallows pong so the keepalive never reaches the state machine", () => {
     const onMessage = vi.fn();
-    connectSignaling({ onOpen: vi.fn(), onMessage });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage });
     latest().accept();
 
     latest().deliver({ type: "pong" });
@@ -116,7 +117,7 @@ describe("connectSignaling", () => {
 
   it("ignores a malformed frame without tearing the connection down", () => {
     const onMessage = vi.fn();
-    connectSignaling({ onOpen: vi.fn(), onMessage });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage });
     latest().accept();
 
     latest().deliver("not json at all");
@@ -127,7 +128,7 @@ describe("connectSignaling", () => {
   });
 
   it("pings every 25s so an idle socket survives the proxy", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().accept();
 
     vi.advanceTimersByTime(PING_MS * 3);
@@ -136,7 +137,7 @@ describe("connectSignaling", () => {
   });
 
   it("stops pinging once the socket is gone", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     const first = latest();
     first.accept();
     first.drop();
@@ -147,7 +148,7 @@ describe("connectSignaling", () => {
   });
 
   it("reconnects after an unexpected close", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().accept();
     expect(FakeSocket.instances).toHaveLength(1);
 
@@ -158,7 +159,7 @@ describe("connectSignaling", () => {
   });
 
   it("doubles the backoff on each failure and caps it", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
 
     // Fail repeatedly without ever opening: 500, 1000, 2000, 4000, 8000, 10000…
     const expected = [500, 1000, 2000, 4000, 8000, 10_000, 10_000];
@@ -176,7 +177,7 @@ describe("connectSignaling", () => {
   });
 
   it("resets the backoff after a successful open", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
 
     latest().drop();
     vi.advanceTimersByTime(BACKOFF_MIN_MS);
@@ -193,7 +194,7 @@ describe("connectSignaling", () => {
   });
 
   it("never waits longer than the cap", () => {
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     for (let i = 0; i < 20; i++) {
       latest().drop();
       vi.advanceTimersByTime(BACKOFF_MAX_MS);
@@ -202,7 +203,7 @@ describe("connectSignaling", () => {
   });
 
   it("stops reconnecting once the caller closes on purpose", () => {
-    const signaling = connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    const signaling = connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().accept();
 
     signaling.close();
@@ -213,7 +214,7 @@ describe("connectSignaling", () => {
   });
 
   it("closes the underlying socket when the caller closes", () => {
-    const signaling = connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    const signaling = connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().accept();
 
     signaling.close();
@@ -222,7 +223,7 @@ describe("connectSignaling", () => {
   });
 
   it("cancels a pending retry when the caller closes mid-backoff", () => {
-    const signaling = connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn() });
+    const signaling = connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().drop();
 
     signaling.close();
@@ -233,7 +234,7 @@ describe("connectSignaling", () => {
 
   it("reports connecting, open and closed in order", () => {
     const onStatus = vi.fn();
-    connectSignaling({ onOpen: vi.fn(), onMessage: vi.fn(), onStatus });
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn(), onStatus });
 
     latest().accept();
     latest().drop();
