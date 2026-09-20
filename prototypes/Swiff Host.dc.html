@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.SWIFF_TEST={side:"host",name:"Swiff Host — providers",posthogKey:"phc_vgw65mbeXvA8wLrYL2JYMut4jvwzdoPAngxDdJyW2Zgt",posthogHost:"https://eu.i.posthog.com",debug:false};</script>
+<script src="./swiff-test.js"></script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -23,6 +25,12 @@
     html,body{height:100%;background:var(--color-bg)}
     .swiff-scroll{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,#75798c 45%,transparent) transparent}
     a{color:var(--color-accent)} a:hover{color:var(--color-accent-400)}
+    html,body{overflow-x:hidden}
+    @media (max-width:640px){
+      nav{padding:0 var(--space-4) !important;gap:var(--space-3) !important}
+      nav [data-w="tagline"],nav [data-w="navstatus"]{display:none !important}
+      nav button{font-size:12px !important}
+    }
     input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;cursor:pointer;margin:0}
     input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--color-accent) var(--p,50%),color-mix(in srgb,#FFFFFF 14%,transparent) 0)}
     input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:color-mix(in srgb,#FFFFFF 14%,transparent)}
@@ -50,14 +58,14 @@
 
   <nav style="position:relative;z-index:5;height:60px;display:flex;align-items:center;justify-content:space-between;gap:var(--space-6);padding:0 var(--space-8);border-bottom:1px solid var(--color-divider);background:color-mix(in srgb,var(--color-bg) 60%,transparent);backdrop-filter:blur(14px)">
     <div style="display:flex;align-items:center;gap:var(--space-6)">
-      <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 14px var(--color-accent)"></span>Swiff<span style="color:var(--color-neutral-500);font-weight:400">· Share your PC</span></div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 14px var(--color-accent)"></span>Swiff<span data-w="tagline" style="color:var(--color-neutral-500);font-weight:400">· Share your PC</span></div>
       <div style="display:flex;align-items:center;gap:var(--space-2)">
         <sc-for list="{{ steps }}" as="st" hint-placeholder-count="3">
           <button onClick="{{ st.go }}" style="{{ st.style }}" style-hover="color:var(--color-text)"><span style="{{ st.dot }}">{{ st.n }}</span>{{ st.label }}</button>
         </sc-for>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--color-neutral-400)"><span style="{{ liveDot }}"></span>{{ machineLine }}</div>
+    <div data-w="navstatus" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--color-neutral-400)"><span style="{{ liveDot }}"></span>{{ machineLine }}</div>
   </nav>
 
   <!-- 1 · EARNINGS -->
@@ -322,7 +330,7 @@ class Component extends DCLogic {
       liveDot: 'width:7px;height:7px;border-radius:50%;background:' + (live ? 'var(--color-live);box-shadow:0 0 8px var(--color-live)' : 'var(--color-neutral-600)'),
       detectedLine: 'Detected · ' + t.gpu + ' · ' + t.cpu + ' · ' + t.ram + ' · ' + t.net,
       ctaLabel: s.installed ? 'Share now' : 'Get Swiff for ' + ((this.props.platform ?? 'windows') === 'windows' ? 'Windows' : 'Linux'),
-      startFlow: () => this.setState({ step: !s.installed ? 'install' : 'schedule', sched }),
+      startFlow: () => { window.swiff.track('cta_clicked', { cta: 'get_swiff', tier: t.tier, projected_month: Math.round(c.net) }); window.swiff.step('install_started'); this.setState({ step: !s.installed ? 'install' : 'schedule', sched }); },
       isInstall: s.step === 'install',
       installPhase: s.installPhase || 'idle', phaseIdle: (s.installPhase || 'idle') === 'idle', phaseDl: s.installPhase === 'downloading', phaseOpen: s.installPhase === 'open', phaseWait: s.installPhase === 'waiting',
       trayLine: 'Your PC · ' + (s.dl ? 'sharing · ' + this.eur((s.dl || 0) * 0.37, 2) + ' today' : 'not sharing · €0,00 today'),
@@ -330,10 +338,10 @@ class Component extends DCLogic {
       detectRows: (() => { const d = this.tiers[this.props.rig || 'high']; return [['GPU', d.gpu], ['CPU', d.cpu], ['Memory', d.ram], ['Connection', d.net], ['Rate', this.eur(d.rate, 2) + '/h']]; })().map(([k, v], i) => ({ k, v, style: 'display:flex;justify-content:space-between;gap:24px;font-size:13px;line-height:20px;animation:host-tick .3s ease both;animation-delay:' + (i * 480) + 'ms;opacity:0;animation-fill-mode:forwards' + (i === 4 ? ';color:var(--color-text);font-weight:500;border-top:1px solid var(--color-divider);padding-top:6px;margin-top:2px' : ';color:var(--color-neutral-300)') })),
       dlPct: Math.round((s.dl || 0) * 100) + '%', dlBar: 'width:' + Math.round((s.dl || 0) * 100) + '%',
       startDownload: () => { this.setState({ installPhase: 'downloading', dl: 0 }); const t0 = performance.now(); const tick = () => { const k = Math.min(1, (performance.now() - t0) / 2600); this.setState({ dl: k }); if (k < 1) requestAnimationFrame(tick); else setTimeout(() => this.setState({ installPhase: 'open' }), 300); }; requestAnimationFrame(tick); },
-      openedApp: () => { this.setState({ installPhase: 'waiting' }); setTimeout(() => this.setState({ installed: true, installPhase: 'idle', step: 'schedule' }), 3200); },
+      openedApp: () => { window.swiff.step('installer_opened'); this.setState({ installPhase: 'waiting' }); setTimeout(() => { window.swiff.step('hardware_detected', { tier: t.tier }); this.setState({ installed: true, installPhase: 'idle', step: 'schedule' }); }, 3200); },
       emailNotOk: !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email || ''), detectedShort: t.gpu + ' · ' + t.cpu, email: s.email || '', setEmail: e => this.setState({ email: e.target.value }),
       emailOk: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email || ''),
-      createAccount: () => this.setState({ account: { email: s.email } }),
+      createAccount: () => { if (window.posthog && window.posthog.identify) window.posthog.identify(s.email, { email: s.email, side: 'host' }); window.swiff.track('email_submitted', { at: 'payout_claim' }); this.setState({ account: { email: s.email } }); },
       oauth: ['Google', 'Discord', 'Apple'].map(n => ({ name: n, go: () => this.setState({ account: { via: n } }) })),
       noAccount: !s.account, hasAccount: !!s.account, accountLabel: s.account ? (s.account.email || s.account.via) : '',
       claimTitle: (s.paused || !s.liveSince ? '€0,00' : this.eur((Date.now() - s.liveSince) / 3600000 * t.rate * 0.55, 2)) + ' so far. Where should it go?',
@@ -358,10 +366,10 @@ class Component extends DCLogic {
       countUp: this.eur(c.net * s.anim),
       odo: this.eur(c.net * s.anim).split('').map((ch, i) => ({ ch, k: i + ':' + ch, style: 'display:inline-block;animation:host-odo .28s cubic-bezier(.2,.8,.2,1) both;animation-delay:' + (i * 18) + 'ms' })),
       sheetOpen: s.sheet, openSheet: () => this.setState({ sheet: true }), closeSheet: () => this.setState({ sheet: false }),
-      hours: s.hours, hoursLabel: s.hours + ' h', hoursHint: s.hours <= 4 ? 'a couple of evenings' : s.hours <= 8 ? 'evenings and nights' : 'most of the day', hoursTrack: track(s.hours, 1, 16), setHours: e => this.setState({ hours: +e.target.value, sched: null }),
+      hours: s.hours, hoursLabel: s.hours + ' h', hoursHint: s.hours <= 4 ? 'a couple of evenings' : s.hours <= 8 ? 'evenings and nights' : 'most of the day', hoursTrack: track(s.hours, 1, 16), setHours: e => { window.swiff.step('calculator_adjusted', { control: 'hours' }); this.setState({ hours: +e.target.value, sched: null }); },
       days: s.days, daysTrack: track(s.days, 1, 7), setDays: e => this.setState({ days: +e.target.value, sched: null }),
       uLow: s.util === 0.35, uMid: s.util === 0.55, uHigh: s.util === 0.75, setULow: () => this.setState({ util: 0.35 }), setUMid: () => this.setState({ util: 0.55 }), setUHigh: () => this.setState({ util: 0.75 }),
-      price: s.price, priceLabel: this.eur(s.price, 2) + '/kWh', priceTrack: track(s.price, 0.10, 0.60), setPrice: e => this.setState({ price: +e.target.value }),
+      price: s.price, priceLabel: this.eur(s.price, 2) + '/kWh', priceTrack: track(s.price, 0.10, 0.60), setPrice: e => { window.swiff.step('calculator_adjusted', { control: 'price' }); this.setState({ price: +e.target.value }); },
       hourLabels: Array.from({ length: 24 }, (_, h) => h % 3 === 0 ? String(h).padStart(2, '0') : ''),
       grid: sched.map((row, d) => ({ day: this.days7[d], cells: row.map((on, h) => ({
         style: 'height:clamp(14px,2.6vh,22px);border-radius:4px;cursor:pointer;transition:background .15s,box-shadow .15s;background:' + (on ? 'linear-gradient(180deg,color-mix(in srgb,var(--color-accent) 70%,transparent),color-mix(in srgb,var(--color-accent-hover) 80%,transparent))' : 'color-mix(in srgb,#FFFFFF 5%,transparent)') + (on ? ';box-shadow:inset 0 1px 0 color-mix(in srgb,#FFFFFF 25%,transparent)' : '') + (h >= 20 || h < 2 ? ';outline:1px solid color-mix(in srgb,var(--color-live) 14%,transparent);outline-offset:-1px' : ''),
@@ -372,7 +380,7 @@ class Component extends DCLogic {
       presets: [['Weeknights 20–02', () => this.days7.map((_, i) => { const r = new Array(24).fill(false); if (i < 5) for (const h of [20, 21, 22, 23, 0, 1]) r[h] = true; return r; })], ['Weekends', () => this.days7.map((_, i) => new Array(24).fill(false).map((_, h) => i >= 5 && h >= 10))], ['While I sleep', () => this.days7.map(() => new Array(24).fill(false).map((_, h) => h >= 23 || h < 7))], ['Clear', () => this.days7.map(() => new Array(24).fill(false))]].map(([label, fn]) => ({ name: label, cls: 'tag tag-outline', apply: () => this.setState({ sched: fn() }) })),
       weekHours: c.wk, noHours: c.wk === 0, scheduleHint: c.wk === 0 ? 'Paint at least one block to go live.' : c.wk < 15 ? 'Add evening hours: they book fastest.' : 'Good coverage. Sessions end automatically at the edge of a window.',
       holdLabel: s.holding ? 'Going live…' : 'Go live', holdFill: 'position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:left;background:color-mix(in srgb,var(--color-accent) 55%,transparent);transform:scaleX(' + (s.holding ? 1 : 0) + ');transition:transform ' + (s.holding ? '.7s linear' : '.15s ease') + ';pointer-events:none',
-      holdStart: () => { if (this.holdT) return; this.setState({ holding: true }); this.holdT = setTimeout(() => { this.holdT = null; this.beep('launch'); this.setState({ holding: false, blackout: true }); setTimeout(() => this.setState({ step: 'live', paused: false, liveSince: Date.now() }), 380); setTimeout(() => this.setState({ blackout: false }), 1100); }, 720); },
+      holdStart: () => { if (this.holdT) return; this.setState({ holding: true }); this.holdT = setTimeout(() => { this.holdT = null; this.beep('launch'); this.setState({ holding: false, blackout: true }); window.swiff.step('went_live', { tier: t.tier, rate: t.rate }); setTimeout(() => this.setState({ step: 'live', paused: false, liveSince: Date.now() }), 380); setTimeout(() => this.setState({ blackout: false }), 1100); }, 720); },
       holdEnd: () => { if (this.holdT) { clearTimeout(this.holdT); this.holdT = null; } if (s.holding) this.setState({ holding: false }); },
       blackout: !!s.blackout,
       liveTitle: s.paused ? name + ' is paused.' : name + ' is live.', pause: () => this.setState({ paused: !s.paused }), pauseLabel: s.paused ? 'Resume sharing' : 'Pause sharing',
