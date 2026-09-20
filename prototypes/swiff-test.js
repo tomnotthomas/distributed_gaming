@@ -27,11 +27,26 @@
   // for screenshots. Every event it produces carries demo:true so it can be
   // filtered out of the funnel.
   const DEMO = /[?&]steamdemo\b/.test(location.search);
+  // The id PostHog gave this visitor before they left for Steam, handed back
+  // on the fragment. Read synchronously, before anything can clear the hash.
+  const RESUMED_ID = (/[#&]did=([A-Za-z0-9_-]{8,64})(?:&|$)/.exec(location.hash || "") || [])[1] || "";
 
   // ---------------------------------------------------------------- analytics
 
-  // Cookieless: no banner to show, nothing persisted between visits. Costs us
-  // returning-visitor stitching, which a landing-page test does not need.
+  // Cookieless: no banner to show, and nothing written to cookies, local or
+  // session storage. Identity lives only as long as the page does.
+  //
+  // That is a real cost at exactly one point: Steam sign-in navigates away and
+  // back, so the return would otherwise be a new anonymous person and
+  // steam_connect_started -> steam_connected could never join. Rather than
+  // give up and store something, the id rides out through the redirect and
+  // comes home on the fragment; bootstrap seeds it back before the first
+  // event, so it stays one person throughout.
+  //
+  // Seeding rather than identify() is deliberate. identify() would merge two
+  // persons, but it also marks the visitor identified, and PostHog ignores a
+  // later identify() with a different id -- which would silently break the
+  // email capture, the one place a real identity actually matters.
   function loadPostHog() {
     if (!TOKEN) {
       console.warn("[swiff] no PostHog token, events log to console only");
@@ -50,6 +65,7 @@
       window.posthog.init(TOKEN, {
         api_host: HOST,
         persistence: "memory",
+        ...(RESUMED_ID ? { bootstrap: { distinctID: RESUMED_ID } } : null),
         autocapture: false,
         capture_pageview: false,
         capture_pageleave: true,
@@ -170,7 +186,13 @@
     });
     const back = location.pathname + location.search;
     setTimeout(() => {
-      location.href = "/auth/steam?return=" + encodeURIComponent(back);
+      // Read late: the library loads async, and 650ms in it is far likelier
+      // to be up. Without it the funnel still works, it just cannot join the
+      // two halves of this one visit.
+      const ph = window.posthog;
+      const did = (ph && ph.get_distinct_id && ph.get_distinct_id()) || "";
+      location.href = "/auth/steam?return=" + encodeURIComponent(back) +
+        (did ? "&did=" + encodeURIComponent(did) : "");
     }, 650);
   }
 

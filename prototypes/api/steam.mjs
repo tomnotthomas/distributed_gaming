@@ -13,7 +13,11 @@ export default async function handler(req, res) {
   try {
     if (url.pathname === "/auth/steam") {
       res.writeHead(302, {
-        location: loginUrl({ origin, returnTo: url.searchParams.get("return") }),
+        location: loginUrl({
+          origin,
+          returnTo: url.searchParams.get("return"),
+          did: url.searchParams.get("did"),
+        }),
         "cache-control": "no-store",
       });
       return res.end();

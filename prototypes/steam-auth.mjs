@@ -33,6 +33,25 @@ export const WALL_APPIDS = [
   1716740, // Starfield
 ];
 
+/* PostHog's id for the visitor, threaded through the round trip.
+ *
+ * Steam sign-in is a full navigation away and back, so the browser returns as
+ * a brand new anonymous person unless something carries the id across. That
+ * split lands exactly on steam_connect_started -> steam_connected, the step
+ * the signup funnel is there to measure. Storing the id would fix it too, but
+ * storing anything is what the cookieless posture is avoiding, so it rides
+ * the URL alongside the profile instead.
+ *
+ * It arrives from the query string, so treat it as untrusted: a forged link
+ * could otherwise nominate any string as someone's analytics id. The shape
+ * check below is the whole defence, and it is enough, because the value is
+ * never used for anything but naming a person in PostHog.
+ */
+const DID = /^[A-Za-z0-9_-]{8,64}$/;
+export function safeDid(v) {
+  return v && DID.test(v) ? v : "";
+}
+
 export function b64urlEncode(obj) {
   const json = JSON.stringify(obj);
   const b64 = Buffer.from(json, "utf8").toString("base64");
@@ -40,10 +59,12 @@ export function b64urlEncode(obj) {
 }
 
 /** Build the redirect to Steam's own login page. */
-export function loginUrl({ origin, returnTo }) {
+export function loginUrl({ origin, returnTo, did }) {
   const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
   const back = new URL("/auth/steam/return", origin);
   back.searchParams.set("to", safeReturn);
+  const id = safeDid(did);
+  if (id) back.searchParams.set("did", id);
 
   const params = new URLSearchParams({
     "openid.ns": "http://specs.openid.net/auth/2.0",
@@ -132,9 +153,14 @@ export async function returnUrl({ origin, searchParams, apiKey }) {
   const to = searchParams.get("to") || "/";
   const dest = new URL(to.startsWith("/") ? to : "/", origin);
 
+  // Kept on the denied path too, so an abandoned sign-in still lands on the
+  // person who started it rather than inventing a second one.
+  const did = safeDid(searchParams.get("did"));
+  const trail = did ? "&did=" + did : "";
+
   const steamid = await verifyAssertion(searchParams).catch(() => null);
   if (!steamid) {
-    dest.hash = "steam=denied";
+    dest.hash = "steam=denied" + trail;
     return dest.toString();
   }
 
@@ -145,7 +171,7 @@ export async function returnUrl({ origin, searchParams, apiKey }) {
     profile = { id: steamid.slice(-4), persona: "", avatar: "", hours: 0, size: 0, owned: [], games: [], lib: false };
   }
 
-  dest.hash = "steam=" + b64urlEncode(profile);
+  dest.hash = "steam=" + b64urlEncode(profile) + trail;
   return dest.toString();
 }
 
