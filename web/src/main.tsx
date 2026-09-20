@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Client } from "./Client";
 import { Host } from "./Host";
-import "./styles.css";
 
 // Two routes, one bundle: "/host" is the gaming PC, everything else is the
 // renter. Same origin means the signaling URL is just window.location.

@@ -9,7 +9,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatusLine } from "./StatusLine";
-import * as peer from "./peer";
+import * as peer from "@swiff/rtc";
 
 /** A peer connection stub whose state and listeners the test drives by hand. */
 function fakePc(state: RTCPeerConnectionState = "new") {

@@ -61,10 +61,17 @@ TURN exists for.
 ## Layout
 
 ```
+packages/ui/         Component library and design tokens, shared by every client.
+                     Tokens are copied from prototypes/tokens/ — keep them in sync.
+packages/rtc/        Signaling client, peer helpers, and the host half of the handshake.
 server/src/          TypeScript. Node + ws — static files and signaling relay. No database.
-server/src/protocol.ts   The wire format. Imported by the web app too, so it is defined once.
-web/src/             Vite + React. Routes / (renter) and /host (gaming PC).
+server/src/protocol.ts   The wire format. Imported by the clients too, so it is defined once.
+web/src/             Vite + React. Routes / (renter) and /host (browser host, for dev).
 docs/                Plan and architecture diagrams.
 ```
 
-Both packages are TypeScript and strict. `npm run typecheck` checks both without building.
+Everything is TypeScript and strict. `npm run typecheck` checks server and web without
+building.
+
+Components and tokens live in `packages/ui` rather than in `web/`, so the host app that
+follows renders the same product rather than one that happens to share a repo.
