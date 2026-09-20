@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.SWIFF_TEST={side:"gamer",name:"Swiff v7 — players",posthogKey:"phc_vgw65mbeXvA8wLrYL2JYMut4jvwzdoPAngxDdJyW2Zgt",posthogHost:"https://eu.i.posthog.com",debug:false};</script>
+<script src="./swiff-test.js"></script>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -227,7 +229,7 @@
       </sc-if>
     </section>
     <sc-if value="{{ noLibrary }}" hint-placeholder-val="{{ false }}"><div style="font-size:12px;line-height:16px;color:var(--color-neutral-500);margin-top:var(--space-2)">{{ proofLine }}</div></sc-if>
-    <div data-w="wall-credit" style="font-size:12px;line-height:16px;color:var(--color-neutral-700)">Placeholder media: photos via <a href="https://unsplash.com" style="color:inherit">Unsplash</a>, video via <a href="https://www.pexels.com" style="color:inherit">Pexels</a> · {{ creditLine }}</div>
+    <div data-w="wall-credit" style="font-size:12px;line-height:16px;color:var(--color-neutral-700)">{{ creditLine }}</div>
     <div data-w="wall-fade" style="position:sticky;bottom:0;height:48px;margin-top:0;flex:none;pointer-events:none;background:linear-gradient(180deg,transparent,var(--color-bg))"></div>
   </main>
   </sc-if>
@@ -393,7 +395,7 @@
           <div style="display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;flex-direction:column;gap:2px"><div style="font-size:15px;line-height:20px;font-weight:500">Controls</div><div style="font-size:12px;line-height:16px;color:var(--color-neutral-400)">Only machines that support them are offered.</div></div>
             <div style="display:flex;gap:var(--space-2)">
-              <sc-for list="{{ devices }}" as="d" hint-placeholder-count="3"><button onClick="{{ d.toggle }}" title="{{ d.name }}" aria-pressed="{{ d.on }}" style="{{ d.style }}" style-hover="border-color:color-mix(in srgb,var(--color-text) 35%,transparent);opacity:1"><svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor"><path d="{{ d.path }}"/></svg></button></sc-for>
+              <sc-for list="{{ devices }}" as="d" hint-placeholder-count="3"><button onClick="{{ d.toggle }}" title="{{ d.name }}" aria-pressed="{{ d.on }}" style="{{ d.style }}" style-hover="border-color:color-mix(in srgb,var(--color-text) 35%,transparent);opacity:1">{{ d.icon }}<svg style="display:none" aria-hidden="true"></button></sc-for>
             </div>
           </div>
         </div>
@@ -414,11 +416,11 @@ class Component extends DCLogic {
   state = {
     screen: 'home', gameId: null, machineId: null, phase: 'idle', q: 0, hoverId: null, px: 0, py: 0, leaving: null, focusIdx: 0, accounts: ['Steam'], launching: false, machinesOpen: true, kbNav: false, lastInput: Date.now(),
     me: { tag: 'kai_nx', name: 'Kai', level: 34, since: '2016' }, devices: ['kb', 'mouse', 'pad'], syncedAt: Date.now() - 120000,
-    session: 'evening', motion: true, sound: false, previewId: null, wants: ['Elden Ring', 'Valorant'], sharing: true, startedAt: 0, now: Date.now(), connectT: 0, tick: 0, dropped: false, dismissedDrop: false,
+    session: 'evening', motion: true, sound: false, previewId: null, wants: ['Elden Ring', 'THE FINALS'], sharing: true, startedAt: 0, now: Date.now(), connectT: 0, tick: 0, dropped: false, dismissedDrop: false,
   };
   games = [
     { id: 'er', title: 'Elden Ring', dark: true, last: 'yesterday', t1: "Elden", t2: "Ring", focus: '70% 50%', promise: 'Return to the Lands Between.', personal: 'Liurnia · yesterday', genre: 'Action RPG', hue: 30, hours: 61, owned: true, save: 'Cloud save · Liurnia', blurb: 'Nightreign expansion installed on three shared machines. Your save syncs in before the stream starts.', machines: ['nova','glass','tide','ember'] },
-    { id: 'val', title: 'Valorant', f2p: true, last: 'yesterday', t1: "Valorant", t2: "", focus: '60% 50%', promise: 'Five rounds. No excuses.', personal: 'Yesterday · 17–13 win', genre: 'Tactical shooter', hue: 355, hours: 140, owned: true, save: 'Riot account linked', blurb: 'Competitive-ready machines only: 120 fps where the host is close.', machines: ['glass','ember'] },
+    { id: 'val', title: 'THE FINALS', f2p: true, last: 'yesterday', t1: "THE", t2: "FINALS", focus: '60% 50%', promise: 'Last team standing takes it.', personal: 'Yesterday · cashed out twice', genre: 'Tactical shooter', hue: 355, hours: 140, owned: true, save: 'Steam cloud save', blurb: 'Competitive-ready machines only: 120 fps where the host is close.', machines: ['glass','ember'] },
     { id: 'cp', title: 'Cyberpunk 2077', last: '3 days ago', t1: "Cyberpunk", t2: "2077", focus: '65% 40%', promise: 'Night City is awake.', personal: 'Act 2 · 3 days ago', genre: 'Open-world RPG', hue: 210, hours: 22, owned: true, save: 'Cloud save · Act 2', blurb: 'Path tracing on the 4090s. Two machines are ready now.', machines: ['glass','tide'] },
     { id: 'bg3', title: "Baldur's Gate 3", dark: true, t1: "Baldur's", t2: "Gate 3", focus: '70% 50%', promise: 'Your party is waiting.', personal: 'New game', genre: 'CRPG', hue: 95, hours: 9, owned: false, save: 'New game', blurb: 'Long sessions welcome. Owners have marked these machines as free all evening.', machines: ['tide','moss'] },
     { id: 'hd2', title: 'Helldivers 2', t1: "Helldivers 2", t2: "", focus: '60% 50%', promise: 'Dive. Together.', personal: 'New game', genre: 'Co-op shooter', hue: 215, hours: 0, owned: false, save: 'New game', blurb: 'One machine free now, one back at 21:30.', machines: ['ember','moss'] },
@@ -427,7 +429,9 @@ class Component extends DCLogic {
     { id: 'hk', title: 'Hollow Knight: Silksong', dark: true, t1: "Hollow Knight", t2: "Silksong", focus: '70% 50%', promise: 'Ascend to the peak.', personal: 'New game', genre: 'Metroidvania', hue: 195, hours: 0, owned: false, save: 'New game', blurb: 'Light on the GPU; even Moss streams it at 120.', machines: ['moss'] },
     { id: 'sf', title: 'Starfield', t1: "Starfield", t2: "", focus: '60% 40%', promise: 'The stars are yours.', personal: 'New game', genre: 'Space RPG', hue: 25, hours: 0, owned: false, save: 'New game', blurb: 'Installed on Glasshouse. Owner is online until midnight.', machines: ['glass'] },
   ];
-  photos = {"er":{"id":"1759681770982-313332e7f42c","credit":"Photo by Kristaps Ungurs on Unsplash","href":"https://unsplash.com/@kristapsungurs"},"val":{"id":"1630769660701-3454835913dc","credit":"Photo by Cash Macanaya on Unsplash","href":"https://unsplash.com/@cashmacanaya"},"cp":{"id":"1601042879364-f3947d3f9c16","credit":"Photo by Valentin BEAUVAIS on Unsplash","href":"https://unsplash.com/@valentinbvs"},"bg3":{"id":"1448375240586-882707db888b","credit":"Photo by Sebastian Unrau on Unsplash","href":"https://unsplash.com/@sebastian_unrau"},"hd2":{"id":"1557515126-1bf9ada5cb93","credit":"Photo by Francois Hoang on Unsplash","href":"https://unsplash.com/@aoirostudio"},"ff":{"id":"1470115636492-6d2b56f9146d","credit":"Photo by JOHN TOWNER on Unsplash","href":"https://unsplash.com/@heytowner"},"cs":{"id":"1732130318657-c8740c0f5215","credit":"Photo by Philipp on Unsplash","href":"https://unsplash.com/@picture_scape"},"hk":{"id":"1473448912268-2022ce9509d8","credit":"Photo by Luca Bravo on Unsplash","href":"https://unsplash.com/@lucabravo"},"sf":{"id":"1511497584788-876760111969","credit":"Photo by Sergei A on Unsplash","href":"https://unsplash.com/@sakulich"}};
+  // Store artwork straight from Steam's CDN, keyed by appid. Publisher-owned
+  // promotional art, which is what a real client would be showing here.
+  art(id) { return 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + this.appids[id] + '/library_hero.jpg'; }
   machines = {
     nova:  { id: 'nova',  name: 'Nova-01',   owner: 'you',       gpu: 'RTX 4080',    cpu: 'Ryzen 7 7800X3D', ping: 2,  quality: '1440p 120', tier: 'Ultra · 1440p 120', pic: 3, until: 'late', busy: false, self: true },
     glass: { id: 'glass', name: 'Glasshouse', owner: 'm0th',      gpu: 'RTX 4090',    cpu: 'Core i9‑14900K',  ping: 9,  quality: '4K 60',     tier: 'Ultra · 4K 60',     pic: 4, until: '00:30', busy: false },
@@ -435,13 +439,96 @@ class Component extends DCLogic {
     tide:  { id: 'tide',  name: 'Tide',       owner: 'priya_p',   gpu: 'RX 7900 XTX', cpu: 'Ryzen 9 7900X',   ping: 21, quality: '1440p 120', tier: 'Ultra · 1440p 120', pic: 3, until: '02:00', busy: false },
     moss:  { id: 'moss',  name: 'Moss',       owner: 'theo.b',    gpu: 'RTX 3080',    cpu: 'Ryzen 7 5800X',   ping: 38, quality: '1080p 60',  tier: 'High · 1080p 60',   pic: 2, until: '23:30', busy: true, back: '21:30' },
   };
+  appids = { er: 1245620, val: 2073850, cp: 1091500, bg3: 1086940, hd2: 553850, ff: 1551360, cs: 730, hk: 1030300, sf: 1716740 };
+
+  // Real Steam data, held in component state only. Marks which wall titles the
+  // player actually owns and swaps in their persona name and hours.
+  // Deterministic so a game looks the same on every load.
+  hashOf(n) { let h = 0; const t = String(n); for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return h; }
+
+  // Spread real library titles across the machine pool. A card with no machine
+  // would render as permanently unavailable, which reads as broken.
+  machinesForApp(appid) {
+    const pool = Object.keys(this.machines).filter(id => !this.machines[id].self);
+    const h = this.hashOf(appid);
+    const n = 2 + (h % 2);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(pool[(h + i * 3) % pool.length]);
+    return [...new Set(out)];
+  }
+
+  // Build a card for a game we know nothing about beyond its name and hours.
+  // Everything here is either real data or obviously generic: no invented
+  // save points, no fake "last played" moments.
+  cardFor(appid, name, hours) {
+    const words = String(name).trim().split(/\s+/);
+    const id = 'app' + appid;
+    this.appids[id] = appid;
+    return {
+      id, title: name, appid, dark: true,
+      t1: words[0], t2: words.slice(1).join(' '),
+      focus: '60% 50%',
+      promise: hours ? 'Pick up where you left off.' : 'Ready when you are.',
+      personal: hours ? hours + ' h played' : 'In your library',
+      genre: 'From your library',
+      hue: this.hashOf(appid) % 360,
+      hours, owned: true,
+      save: 'Steam cloud save',
+      blurb: 'Streams from the machines near you that have it installed.',
+      machines: this.machinesForApp(appid),
+      fromLibrary: true,
+    };
+  }
+
+  applySteam(p) {
+    // p.owned is [[appid, hours], ...] for the curated nine.
+    // p.games is [[appid, name, hours], ...] for everything else.
+    const owned = new Map(p.owned || []);
+    for (const g of this.games) {
+      const appid = this.appids[g.id];
+      if (!appid) continue;                       // not a Steam title
+      const hit = owned.has(appid);
+      g.owned = g.f2p || hit;
+      if (hit) { g.hours = owned.get(appid); g.last = g.hours ? 'in your library' : undefined; }
+      else if (!g.f2p) { g.hours = 0; }
+    }
+
+    // Drop any cards generated by an earlier connect before adding this set.
+    this.games = this.games.filter(g => !g.fromLibrary);
+    const known = new Set(Object.values(this.appids));
+    const extra = (p.games || [])
+      .filter(([appid, name]) => name && !known.has(appid))
+      .map(([appid, name, hours]) => this.cardFor(appid, name, hours || 0));
+    this.games = [...this.games, ...extra];
+
+    window.swiff.track('library_matched', {
+      owned_here: owned.size,            // curated cards lit up
+      library_rendered: extra.length,    // real games given a card
+      library_returned: (p.games || []).length,
+      library_size: p.size || 0,
+    });
+
+    this.setState({
+      libraryConnected: true,
+      steam: p,
+      me: { ...this.state.me, tag: p.persona || this.state.me.tag, name: (p.persona || this.state.me.name).split(/[ _.]/)[0] },
+    });
+  }
+
   NOW = 20 * 60;
   minsLeft(m) { if (m.until === 'late') return 12 * 60; const [hh, mm] = m.until.split(':').map(Number); let t = hh * 60 + mm; if (t < this.NOW) t += 24 * 60; return t - this.NOW; }
   sessionMins() { return { quick: 60, evening: 180, night: 0 }[this.state.session] || 180; }
   lasts(m) { const need = this.sessionMins(); return need === 0 ? this.minsLeft(m) >= 6 * 60 : this.minsLeft(m) >= need; }
   fmtLeft(mins) { if (mins >= 11 * 60) return 'all night'; const hh = Math.floor(mins / 60), mm = mins % 60; return hh ? hh + ' h' + (mm ? ' ' + String(mm).padStart(2, '0') : '') : mm + ' min'; }
-  videos = { er: 19960842, val: 11818869, cp: 30226549, bg3: 16538871, hd2: 32794364, ff: 14517260, cs: 17243363, hk: 19202453, sf: 19245860, stream: 28552373 };
-  vid(id) { return 'https://www.pexels.com/download/video/' + id + '/'; }
+  videos = { er: 256839312, val: 257102318, cp: 256977924, bg3: 256961600, hd2: 256957675, ff: 256859757, cs: 256972298, hk: 257186996, sf: 256952210 };
+  vid(id) { return 'https://video.akamai.steamstatic.com/store_trailers/' + id + '/movie480_vp9.webm'; }
+  // Trailers bookend the footage with studio logos and rating cards, so play
+  // only the middle and loop within it rather than running to the end.
+  gameplayStart(v) { return v.duration > 20 ? v.duration * 0.25 : 0; }
+  gameplayEnd(v) { return v.duration > 20 ? v.duration * 0.7 : v.duration; }
+  intoGameplay = e => { const v = e.target; try { v.currentTime = this.gameplayStart(v); } catch (err) {} };
+  replayGameplay = e => { const v = e.target; try { v.currentTime = this.gameplayStart(v); v.play(); } catch (err) {} };
+  holdGameplay = e => { const v = e.target; if (v.duration && v.currentTime > this.gameplayEnd(v)) this.replayGameplay(e); };
   steps = ['Waking machine', 'Syncing your save', 'Negotiating stream', 'Launching game'];
   feel(m) {
     // effective experience from machine ceiling + your connection, in plain words
@@ -462,13 +549,14 @@ class Component extends DCLogic {
     if (free.every(x => x.pic <= m.pic)) return 'Best picture';
     return 'Longest free window';
   }
-  url(id, w) { return 'https://images.unsplash.com/photo-' + id + '?auto=format&fit=crop&w=' + w + '&q=70'; }
+  url(id) { return this.art(id); }
   componentDidMount() {
+    window.swiff.onSteam(p => this.applySteam(p));
     this.freeT = setTimeout(() => { if (this.props.simulateMachineFrees ?? true) { this.machines.moss.busy = false; this.forceUpdate(); } }, 12000);
     this.wide = window.matchMedia('(min-width:1800px)');
     this.t = setInterval(() => {
       const s = this.state;
-      if (s.phase === 'connecting') { const c = s.connectT + 1; c >= 12 ? this.setState({ phase: 'live', startedAt: Date.now(), now: Date.now(), tick: 0, flash: true }) : this.setState({ connectT: c }); }
+      if (s.phase === 'connecting') { const c = s.connectT + 1; c >= 12 ? (window.swiff.step('session_started'), this.setState({ phase: 'live', startedAt: Date.now(), now: Date.now(), tick: 0, flash: true })) : this.setState({ connectT: c }); }
       else {
         this.setState({ now: Date.now(), tick: s.tick + 1, flash: false, sweptOnce: s.sweptOnce || s.tick > 3 });
         const idle = Date.now() - s.lastInput;
@@ -513,8 +601,8 @@ class Component extends DCLogic {
   emit(name, detail) { try { window.dispatchEvent(new CustomEvent('swiff:' + name, { detail })); } catch {} }
   beginHold() { if (this.state.launching || this.state.holding) return; this.setState({ holding: true }); this.holdT = setTimeout(() => { this.holdT = null; this.fire(); }, 600); }
   cancelHold() { if (this.holdT) { clearTimeout(this.holdT); this.holdT = null; } if (this.state.holding) this.setState({ holding: false }); }
-  fire() { const s = this.state; if (s.launching || !s.machineId) return; this.emit('confirm', { game: s.gameId, machine: s.machineId }); this.setState({ launching: true, holding: false }); setTimeout(() => this.setState({ launching: false, phase: 'connecting', connectT: 0 }), 220); }
-  growInto(g, dur) {
+  fire() { const s = this.state; if (s.launching || !s.machineId) return; window.swiff.step('launch_confirmed', { game: s.gameId, machine: s.machineId }); this.emit('confirm', { game: s.gameId, machine: s.machineId }); this.setState({ launching: true, holding: false }); setTimeout(() => this.setState({ launching: false, phase: 'connecting', connectT: 0 }), 220); }
+  growInto(g, dur) { window.swiff.step('game_opened', { game: g.id });
     const s = this.state; if (s.attract || s.hold) return;
     if (dur < 800) this.beep('launch');
     const el = document.querySelector('[data-w="wall"] [data-gid="' + g.id + '"]');
@@ -555,10 +643,10 @@ class Component extends DCLogic {
     const s = this.state, p = this.props;
     const jitter = (base, k) => base + ((s.tick + k) % 3 === 0 ? 1 : 0);
     const decorate = g => {
-      const free = this.freeOf(g), best = free[0], ph = this.photos[g.id];
+      const free = this.freeOf(g), best = free[0];
       const busyM = this.machinesFor(g).find(m => m.back);
       const shortM = this.freeAny(g).sort((a, b) => this.minsLeft(b) - this.minsLeft(a))[0];
-      return { ...g, slotId: 'cover-' + g.id, bgSlotId: 'bg-' + g.id, art: this.url(ph.id, 900), artWide: this.url(ph.id, 1800), video: this.vid(this.videos[g.id]), credit: ph.credit, creditHref: ph.href, artStyle: 'position:absolute;inset:0;background:url(' + this.url(ph.id, 900) + ') center/cover no-repeat',
+      return { ...g, slotId: 'cover-' + g.id, bgSlotId: 'bg-' + g.id, art: this.art(g.id), artWide: this.art(g.id), video: this.videos[g.id] ? this.vid(this.videos[g.id]) : null, artStyle: 'position:absolute;inset:0;background:url(' + this.art(g.id) + ') center/cover no-repeat',
         free: free.length, isFree: free.length > 0, isBusy: free.length === 0, tint: 'hsl(' + g.hue + ' 60% 60%)',
         readyLabel: free.length + ' ready', pingLabel: best ? best.ping + ' ms' : '', bestPing: best ? best.ping : '—',
         backLabel: busyM ? 'Back at ' + busyM.back : 'In use',
@@ -686,7 +774,7 @@ class Component extends DCLogic {
       proofLine: 'Shared by ' + Object.values(this.machines).filter(m => !m.self).length + ' players near you · 1 240 h streamed this month',
       noLibrary: noLib, hasLibrary: !noLib, noLibAttr: noLib ? '' : undefined, installedCount: all.length, firstAccount: s.accounts[0] || 'Steam',
       promo: (() => { const g = all.find(x => x.id === 'er') || all[0]; const f = all.find(x => x.f2p && x.free) || g; const best = this.freeOf(g)[0]; return { ...g, headline: 'Play ' + g.title + ' on a ' + (best ? best.gpu : 'shared PC') + ' tonight.', readyLine: all.filter(x => x.free).length + ' games ready on machines near you right now', social: '2,140 sessions played tonight · 9 ms average', f2pTitle: f.title, tryLabel: 'Start with ' + f.title + ' — free on Steam', open: () => { this.setState({ libraryConnected: true }); f.open(); }, video: React.createElement('video', { key: 'promo', src: g.video, poster: g.artWide, muted: true, autoPlay: true, loop: true, playsInline: true, style: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: g.focus } }) }; })(),
-      connectLibrary: () => this.setState({ libraryConnected: true }),
+      connectLibrary: () => { window.swiff.track('cta_clicked', { cta: 'connect_steam' }); window.swiff.steamConnect(); },
       sessionLabel: { quick: '1 h', evening: '3 h', night: 'All night' }[s.session],
       sessionPillStyle: 'display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 12px;border-radius:999px;border:1px solid ' + (hintPill ? 'color-mix(in srgb,var(--color-time) 70%,transparent)' : 'color-mix(in srgb,var(--color-text) 14%,transparent)') + ';background:color-mix(in srgb,var(--color-bg) 45%,transparent);backdrop-filter:blur(14px);color:var(--color-neutral-200);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:border-color .3s,background .2s,box-shadow .3s' + (hintPill ? ';box-shadow:0 0 18px color-mix(in srgb,var(--color-time) 35%,transparent)' : ''),
       cycleSession: e => { e.stopPropagation(); const next = { quick: 'evening', evening: 'night', night: 'quick' }[s.session]; this.beep('tick'); this.setState({ session: next }); },
@@ -694,9 +782,9 @@ class Component extends DCLogic {
       motionOn: s.motion, toggleMotion: () => this.setState({ motion: !s.motion }),
       soundOn: s.sound, toggleSound: () => { this.setState({ sound: !s.sound }); if (!s.sound) this.beep('tick'); },
       hasMore: !s.showAll && sorted.length > LIMIT, moreLabel: 'All ' + sorted.length + ' games →', toggleAll: () => this.setState({ showAll: true }),
-      creditLine: Object.values(this.photos).map(p => p.credit.replace('Photo by ', '').replace(' on Unsplash', '')).concat('Carl Raw').join(', '),
-      heroVideo: !s.motion ? React.createElement('div', { key: 'still-' + game.id, style: { width: '100%', height: '100%', background: 'url(' + game.artWide + ') ' + game.focus + '/cover' } }) : React.createElement('video', { key: game.id, src: game.video, poster: game.artWide, autoPlay: true, muted: true, loop: true, playsInline: true, style: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: game.focus, display: 'block' } }),
-      streamVideo: React.createElement('video', { key: 'stream', src: this.vid(this.videos.stream), autoPlay: true, muted: true, loop: true, playsInline: true, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }),
+      creditLine: 'Game artwork and trailers are the property of their respective publishers, served from Steam.',
+      heroVideo: (!s.motion || !game.video) ? React.createElement('div', { key: 'still-' + game.id, style: { width: '100%', height: '100%', background: 'url(' + game.artWide + ') ' + game.focus + '/cover' } }) : React.createElement('video', { key: game.id, src: game.video, poster: game.artWide, autoPlay: true, muted: true, playsInline: true, onLoadedMetadata: this.intoGameplay, onEnded: this.replayGameplay, onTimeUpdate: this.holdGameplay, style: { width: '100%', height: '100%', objectFit: 'cover', objectPosition: game.focus, display: 'block' } }),
+      streamVideo: !this.videos[game.id] ? React.createElement('div', { key: 'stream-still-' + game.id, style: { width: '100%', height: '100%', background: 'url(' + this.art(game.id) + ') center/cover' } }) : React.createElement('video', { key: 'stream-' + game.id, src: this.vid(this.videos[game.id]), poster: this.art(game.id), autoPlay: true, muted: true, playsInline: true, onLoadedMetadata: this.intoGameplay, onEnded: this.replayGameplay, onTimeUpdate: this.holdGameplay, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }),
       game, machines, machineCols: single ? 1 : Math.max(3, liveList.length + 1 + (busyList.length ? 1 : 0)),
       hasBusy: busyList.length > 0, busyChip: busyList.length ? '+' + busyList.length + ' back at ' + (busyList[0].back || 'later') : '',
       owners: [...new Set(list.map(m => m.self ? s.me.tag : m.owner))].slice(0, 4).map((o, i) => ({ initial: o[0].toUpperCase(), style: 'width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:500;background:var(--color-accent-900);color:var(--color-accent-200);box-shadow:0 0 0 2px var(--color-bg);margin-left:' + (i ? -6 : 0) + 'px' })),
@@ -729,7 +817,7 @@ class Component extends DCLogic {
       holdEnd: () => this.cancelHold(),
       holdKey: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!this.holdT) this.beginHold(); } },
       holdKeyUp: e => { if (e.key === 'Enter' || e.key === ' ') this.cancelHold(); },
-      end: () => this.setState({ phase: 'idle', connectT: 0, dismissedDrop: false }),
+      end: () => { const played = Math.round((Date.now() - (s.startedAt || Date.now())) / 1000); window.swiff.track('session_ended', { seconds: played }); this.setState({ phase: 'idle', connectT: 0, dismissedDrop: false }); window.swiff.captureEmail({ at: 'session_end', title: 'Want this on your own account?', body: 'Swiff is invite-only while we grow the pool of machines. Leave an email and you are in the next group.', cta: 'Get my invite' }); },
       ring: React.createElement('div', { style: { position: 'absolute', inset: 0, borderRadius: '50%', '--swiff-a': Math.round(pct * 360) + 'deg', background: 'conic-gradient(var(--color-accent) var(--swiff-a),color-mix(in srgb,var(--color-text) 12%,transparent) 0)', transition: '--swiff-a .34s linear', mask: 'radial-gradient(circle,transparent 76%,#000 77%)', WebkitMask: 'radial-gradient(circle,transparent 76%,#000 77%)', boxShadow: '0 0 60px color-mix(in srgb,var(--color-accent) 40%,transparent)', transition: 'background .4s' } }),
       connectPct: Math.round(pct * 100) + '%', stepIdx,
       ripples: React.createElement('div', { style: { width: 'min(70vmin,720px)', height: 'min(70vmin,720px)', borderRadius: '50%', background: 'radial-gradient(circle,color-mix(in srgb,' + game.tint + ' 28%,transparent),color-mix(in srgb,' + game.tint + ' 8%,transparent) 45%,transparent 70%)', filter: 'blur(30px)', animation: 'swiff-breathe-glow 5s ease-in-out infinite' } }), connectStep: stepText,
@@ -743,9 +831,9 @@ class Component extends DCLogic {
       shareLabel: s.sharing ? 'Sharing' : 'Paused', shareBtnClass: s.sharing ? 'btn btn-primary' : 'btn btn-secondary',
       toggleShare: () => this.setState({ sharing: !s.sharing }),
       connectedLine: 'Steam connected · ' + this.games.filter(g => g.owned).length + ' games · synced ' + (() => { const m = Math.max(0, Math.round((s.now - s.syncedAt) / 60000)); return m === 0 ? 'just now' : m + ' min ago'; })(),
-      profileBg: this.games.filter(g => g.owned).map(g => ({ bg: 'background:url(' + this.url(this.photos[g.id].id, 400) + ') center/cover' })),
+      profileBg: this.games.filter(g => g.owned).map(g => ({ bg: 'background:url(' + this.art(g.id) + ') center/cover' })),
       resync: () => this.setState({ syncedAt: Date.now() }),
-      devices: [['kb', 'Keyboard', 'M224 48H32a16 16 0 0 0-16 16v128a16 16 0 0 0 16 16h192a16 16 0 0 0 16-16V64a16 16 0 0 0-16-16ZM56 88h16v16H56Zm40 0h16v16H96Zm40 0h16v16h-16Zm40 0h16v16h-16ZM56 128h16v16H56Zm40 0h16v16H96Zm40 0h16v16h-16Zm40 0h16v16h-16ZM72 168h112v16H72Z'], ['mouse', 'Mouse', 'M144 16.5V96h64V96a80.1 80.1 0 0 0-64-79.5ZM112 16.5A80.1 80.1 0 0 0 48 96h64ZM48 112v48a80 80 0 0 0 160 0v-48Z'], ['pad', 'Controller', 'M176 56H80a72 72 0 0 0 0 144h96a72 72 0 0 0 0-144Zm-40 80H88v24a8 8 0 0 1-16 0v-24H48a8 8 0 0 1 0-16h24V96a8 8 0 0 1 16 0v24h48a8 8 0 0 1 0 16Zm40 24a12 12 0 1 1 12-12 12 12 0 0 1-12 12Zm16-40a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z']].map(([id, name, path]) => { const on = s.devices.includes(id); return { name, path, on, toggle: () => this.setState({ devices: on ? s.devices.filter(x => x !== id) : [...s.devices, id] }), style: 'width:52px;height:52px;display:grid;place-items:center;border-radius:var(--radius-md);cursor:pointer;transition:border-color .2s,background .2s,opacity .2s;border:1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-divider)') + ';background:' + (on ? 'color-mix(in srgb,var(--color-accent) 14%,transparent)' : 'var(--glass)') + ';color:' + (on ? 'var(--color-accent-200)' : 'var(--color-neutral-500)') + ';opacity:' + (on ? 1 : .8) }; }),
+      devices: [['kb', 'Keyboard', 'M224 48H32a16 16 0 0 0-16 16v128a16 16 0 0 0 16 16h192a16 16 0 0 0 16-16V64a16 16 0 0 0-16-16ZM56 88h16v16H56Zm40 0h16v16H96Zm40 0h16v16h-16Zm40 0h16v16h-16ZM56 128h16v16H56Zm40 0h16v16H96Zm40 0h16v16h-16Zm40 0h16v16h-16ZM72 168h112v16H72Z'], ['mouse', 'Mouse', 'M144 16.5V96h64V96a80.1 80.1 0 0 0-64-79.5ZM112 16.5A80.1 80.1 0 0 0 48 96h64ZM48 112v48a80 80 0 0 0 160 0v-48Z'], ['pad', 'Controller', 'M176 56H80a72 72 0 0 0 0 144h96a72 72 0 0 0 0-144Zm-40 80H88v24a8 8 0 0 1-16 0v-24H48a8 8 0 0 1 0-16h24V96a8 8 0 0 1 16 0v24h48a8 8 0 0 1 0 16Zm40 24a12 12 0 1 1 12-12 12 12 0 0 1-12 12Zm16-40a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z']].map(([id, name, path]) => { const on = s.devices.includes(id); return { name, path, icon: React.createElement('svg', { width: 20, height: 20, viewBox: '0 0 256 256', fill: 'currentColor' }, React.createElement('path', { d: path })), on, toggle: () => this.setState({ devices: on ? s.devices.filter(x => x !== id) : [...s.devices, id] }), style: 'width:52px;height:52px;display:grid;place-items:center;border-radius:var(--radius-md);cursor:pointer;transition:border-color .2s,background .2s,opacity .2s;border:1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-divider)') + ';background:' + (on ? 'color-mix(in srgb,var(--color-accent) 14%,transparent)' : 'var(--glass)') + ';color:' + (on ? 'var(--color-accent-200)' : 'var(--color-neutral-500)') + ';opacity:' + (on ? 1 : .8) }; }),
     };
   }
   navStyle(on) {

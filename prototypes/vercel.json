@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/auth/steam", "destination": "/api/steam" },
+    { "source": "/auth/steam/:path*", "destination": "/api/steam" },
+    { "source": "/", "destination": "/Swiff v7.dc.html" },
+    { "source": "/play", "destination": "/Swiff v7.dc.html" },
+    { "source": "/host", "destination": "/Swiff Host.dc.html" }
+  ]
+}
