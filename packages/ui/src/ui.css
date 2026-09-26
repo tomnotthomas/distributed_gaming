@@ -261,3 +261,53 @@ html, body { height: 100%; background: var(--color-bg); }
 .machine-owner { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-500); }
 .machine-tags { display: flex; gap: 6px; flex: none; align-items: center; }
 .machine-meters { display: flex; gap: var(--space-6); }
+
+/* — motion —
+   The prototype's keyframes, kept in one block. Reduced motion collapses every
+   duration rather than removing the animation, so entrances still settle. */
+@property --swiff-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes swiff-fill { from { width: 0 } to { width: 100% } }
+@keyframes swiff-rise { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+@keyframes swiff-fadein { from { opacity: 0 } to { opacity: 1 } }
+@keyframes swiff-slam {
+  0% { opacity: 0; transform: translateY(20px) }
+  60% { opacity: 1; transform: translateY(-2px) }
+  100% { opacity: 1; transform: none }
+}
+@keyframes swiff-deal {
+  0% { opacity: 0; transform: translateY(28px) scale(.96) }
+  70% { opacity: 1; transform: translateY(-3px) scale(1.005) }
+  100% { opacity: 1; transform: none }
+}
+@keyframes swiff-press { 0% { transform: scale(1) } 30% { transform: scale(.97) } 100% { transform: scale(1) } }
+@keyframes swiff-breathe-glow { 0%, 100% { transform: scale(1); opacity: .75 } 50% { transform: scale(1.1); opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .15s !important; transition-duration: .15s !important }
+}
+.btn:active { animation: swiff-press .32s var(--ease-out) both; }
+
+/* — hold to launch — */
+.hold { position: relative; overflow: hidden; }
+.hold-fill {
+  position: absolute; left: 0; bottom: 0; height: 3px;
+  background: var(--color-accent); border-radius: 0 2px 2px 0;
+  animation: swiff-fill linear both;
+}
+
+/* — progress ring — */
+.ring { position: relative; flex: none; }
+.ring-arc {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(var(--color-accent) var(--swiff-a),
+                             color-mix(in srgb, var(--color-text) 12%, transparent) 0);
+  /* Mask to an annulus so the fill reads as a ring, not a pie. */
+  mask: radial-gradient(circle, transparent 76%, #000 77%);
+  -webkit-mask: radial-gradient(circle, transparent 76%, #000 77%);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  transition: --swiff-a var(--dur-ui) linear;
+}
+.ring-label {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-22);
+  font-variant-numeric: tabular-nums;
+}
