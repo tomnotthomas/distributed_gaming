@@ -1,0 +1,258 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import posthog, { isPostHogEnabled } from "../posthog";
+import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
+import { freeFor, machinesFor } from "./derive";
+import { applySteam, readSteamFragment, type SteamProfile } from "./steam";
+
+export type Screen = "home" | "game" | "profile";
+export type Phase = "idle" | "connecting" | "live";
+export type Quality = "auto" | "fps" | "resolution";
+export type Device = "kb" | "mouse" | "pad";
+
+/** One 340 ms beat of the ignition sequence; twelve of them reach a frame. */
+const IGNITION_MS = 340;
+const IGNITION_BEATS = 12;
+
+/** Moss comes back mid-session, so the wall can show a machine freeing up. */
+const MOSS_FREES_AFTER_MS = 12_000;
+
+const track = (event: string, props?: Record<string, unknown>) => {
+  if (isPostHogEnabled) posthog.capture(event, props);
+};
+
+export function useSwiff() {
+  const [screen, setScreen] = useState<Screen>("home");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [machineId, setMachineId] = useState<string | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [machinesOpen, setMachinesOpen] = useState(true);
+
+  const [games, setGames] = useState<Game[]>(GAMES);
+  const [profile, setProfile] = useState<SteamProfile | null>(null);
+  const [steamDenied, setSteamDenied] = useState(false);
+
+  const [session, setSession] = useState<SessionLength>("evening");
+  const [motion, setMotion] = useState(true);
+  const [sound, setSound] = useState(false);
+  const [quality, setQuality] = useState<Quality>("auto");
+  const [devices, setDevices] = useState<Device[]>(["kb", "mouse", "pad"]);
+
+  const [mossFree, setMossFree] = useState(false);
+  const [beat, setBeat] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+
+  // Moss is busy in the seed data; freeing it later is the only mutation, so the
+  // pool stays derived rather than kept in state.
+  const pool = useMemo<Record<string, Machine>>(
+    () => (mossFree ? { ...MACHINES, moss: { ...MACHINES.moss!, busy: false } } : MACHINES),
+    [mossFree],
+  );
+
+  const sharedMachineIds = useMemo(
+    () => Object.values(pool).filter((m) => !m.self).map((m) => m.id),
+    [pool],
+  );
+
+  const game = useMemo(() => games.find((g) => g.id === gameId) ?? null, [games, gameId]);
+  const machines = useMemo(
+    () => (game ? machinesFor(game, pool, session) : []),
+    [game, pool, session],
+  );
+  const picked = useMemo(
+    () => machines.find((m) => m.id === machineId) ?? null,
+    [machines, machineId],
+  );
+
+  const libraryConnected = profile !== null;
+
+  // --- Steam sign-in ---------------------------------------------------------
+
+  useEffect(() => {
+    const result = readSteamFragment();
+    if (result === null) return;
+    if (result === "denied") {
+      setSteamDenied(true);
+      track("steam_sign_in_denied");
+      return;
+    }
+    setProfile(result);
+    setGames(applySteam(result, sharedMachineIds));
+    track("library_matched", {
+      owned_here: result.owned.length,
+      library_rendered: result.games.length,
+      library_size: result.size,
+    });
+    // sharedMachineIds is stable for the seed pool; re-running on Moss freeing
+    // would re-decode a fragment that has already been cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- timers ----------------------------------------------------------------
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMossFree(true), MOSS_FREES_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "connecting") return;
+    const timer = window.setInterval(() => setBeat((b) => b + 1), IGNITION_MS);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "connecting" || beat < IGNITION_BEATS) return;
+    track("session_started", { game: gameId, machine: machineId });
+    setPhase("live");
+    setElapsedMs(0);
+  }, [phase, beat, gameId, machineId]);
+
+  useEffect(() => {
+    if (phase !== "live") return;
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - started), 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
+  // --- navigation ------------------------------------------------------------
+
+  const goHome = useCallback(() => {
+    setScreen("home");
+    setPhase("idle");
+    setBeat(0);
+  }, []);
+
+  const openGame = useCallback(
+    (next: Game) => {
+      track("game_opened", { game: next.id });
+      const best = freeFor(next, pool, session)[0] ?? machinesFor(next, pool, session).find((m) => !m.busy);
+      setGameId(next.id);
+      setMachineId(best?.id ?? null);
+      setScreen("game");
+      setPhase("idle");
+      setBeat(0);
+      // Fold the selector away unless the top two are close enough that the
+      // choice is genuinely the player's.
+      const free = freeFor(next, pool, session);
+      setMachinesOpen(free.length > 1 && free[1]!.ping - free[0]!.ping <= 3);
+    },
+    [pool, session],
+  );
+
+  const launch = useCallback(() => {
+    if (!picked) return;
+    track("launch_confirmed", { game: gameId, machine: picked.id });
+    setPhase("connecting");
+    setBeat(0);
+  }, [picked, gameId]);
+
+  const endSession = useCallback(() => {
+    track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
+    setPhase("idle");
+    setBeat(0);
+  }, [elapsedMs]);
+
+  const cycleSession = useCallback(
+    () =>
+      setSession((current) =>
+        current === "quick" ? "evening" : current === "evening" ? "night" : "quick",
+      ),
+    [],
+  );
+
+  const toggleDevice = useCallback(
+    (id: Device) =>
+      setDevices((current) =>
+        current.includes(id) ? current.filter((d) => d !== id) : [...current, id],
+      ),
+    [],
+  );
+
+  /** Move the machine selection, for arrow keys and the d-pad. */
+  const moveSelection = useRef<(step: number) => void>(() => {});
+  moveSelection.current = (step) => {
+    const free = machines.filter((m) => !m.busy);
+    const at = free.findIndex((m) => m.id === machineId);
+    const next = Math.max(0, Math.min(free.length - 1, at + step));
+    if (next !== at && free[next]) setMachineId(free[next]!.id);
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        goHome();
+        return;
+      }
+      if (screen !== "game" || phase !== "idle") return;
+      if (event.key === "ArrowRight") moveSelection.current(1);
+      if (event.key === "ArrowLeft") moveSelection.current(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [screen, phase, goHome]);
+
+  // A gamepad is the point of a couch product, so d-pad left/right selects a
+  // machine and B goes back. Edge-triggered: a held stick must not scroll away.
+  useEffect(() => {
+    if (!navigator.getGamepads) return;
+    let previous = { left: false, right: false, back: false };
+    const timer = window.setInterval(() => {
+      const pad = Array.from(navigator.getGamepads()).find(Boolean);
+      if (!pad) return;
+      const axis = pad.axes[0] ?? 0;
+      const now = {
+        left: Boolean(pad.buttons[14]?.pressed) || axis < -0.6,
+        right: Boolean(pad.buttons[15]?.pressed) || axis > 0.6,
+        back: Boolean(pad.buttons[1]?.pressed),
+      };
+      if (now.left && !previous.left) moveSelection.current(-1);
+      if (now.right && !previous.right) moveSelection.current(1);
+      if (now.back && !previous.back) goHome();
+      previous = now;
+    }, 90);
+    return () => window.clearInterval(timer);
+  }, [goHome]);
+
+  return {
+    screen,
+    phase,
+    games,
+    game,
+    machines,
+    picked,
+    pool,
+    session,
+    hoverId,
+    machinesOpen,
+    libraryConnected,
+    steamDenied,
+    profile,
+    motion,
+    sound,
+    quality,
+    devices,
+    showAll,
+    /** 0 to 1 through the ignition sequence. */
+    progress: Math.min(1, beat / IGNITION_BEATS),
+    ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
+    elapsedMs,
+    goHome,
+    openGame,
+    launch,
+    endSession,
+    cycleSession,
+    toggleDevice,
+    setHoverId,
+    setMachineId,
+    setMachinesOpen,
+    setScreen,
+    setMotion,
+    setSound,
+    setQuality,
+    setShowAll,
+  };
+}
+
+export type Swiff = ReturnType<typeof useSwiff>;
