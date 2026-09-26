@@ -12,6 +12,7 @@ export { Meter } from "./Meter";
 export { Notice } from "./Notice";
 export { PageShell } from "./PageShell";
 export { ProgressRing } from "./ProgressRing";
+export { SteamButton } from "./SteamButton";
 export { Stage } from "./Stage";
 export { StatusLine } from "./StatusLine";
 export { Tag } from "./Tag";
