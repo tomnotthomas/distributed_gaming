@@ -42,6 +42,7 @@ export function useSwiff() {
   const [beat, setBeat] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showAll, setShowAll] = useState(false);
+  const [ownerDropped, setOwnerDropped] = useState(false);
 
   // Moss is busy in the seed data; freeing it later is the only mutation, so the
   // pool stays derived rather than kept in state.
@@ -152,7 +153,24 @@ export function useSwiff() {
     track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
     setPhase("idle");
     setBeat(0);
+    setOwnerDropped(false);
   }, [elapsedMs]);
+
+  /**
+   * The owner took their machine back mid-session. Nothing drives this yet: the
+   * trigger is the host's `peer-left` on the signaling socket, which arrives
+   * when the wall is wired to @swiff/rtc. Kept here so the recovery path is one
+   * call away rather than a screen that has to be rebuilt then.
+   */
+  const reportOwnerDropped = useCallback(() => setOwnerDropped(true), []);
+
+  const switchMachine = useCallback((id: string) => {
+    track("machine_switched", { machine: id });
+    setMachineId(id);
+    setOwnerDropped(false);
+    setPhase("connecting");
+    setBeat(0);
+  }, []);
 
   const cycleSession = useCallback(
     () =>
@@ -238,10 +256,13 @@ export function useSwiff() {
     progress: Math.min(1, beat / IGNITION_BEATS),
     ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
     elapsedMs,
+    ownerDropped,
     goHome,
     openGame,
     launch,
     endSession,
+    reportOwnerDropped,
+    switchMachine,
     cycleSession,
     toggleDevice,
     setHoverId,
