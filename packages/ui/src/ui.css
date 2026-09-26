@@ -62,6 +62,51 @@ html, body { height: 100%; background: var(--color-bg); }
 }
 .tag-label { color: var(--color-text-3); }
 
+.tag-accent {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent-200);
+}
+.tag-outline { background: transparent; border-color: var(--color-divider); color: var(--color-neutral-300); }
+.tag-live { background: transparent; border-color: color-mix(in srgb, var(--color-live) 50%, transparent); color: var(--color-live); }
+.tag-time { background: transparent; border-color: color-mix(in srgb, var(--color-time) 50%, transparent); color: var(--color-time); }
+
+/* — glass surface —
+   A class, not a component: the machine card is a <button>, the dialog a <div>
+   and the session pill a <button>, and one class beats three wrappers. */
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: var(--glass-hi);
+}
+
+/* — meter — */
+.meter { display: flex; flex-direction: column; gap: 5px; }
+.meter-label { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-500); }
+.meter-bars { display: flex; gap: 3px; }
+.meter-seg {
+  width: 14px; height: 4px; border-radius: 2px;
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.meter-on { background: var(--color-accent-300); }
+
+/* — avatar — */
+.avatar {
+  display: grid; place-items: center; flex: none;
+  border-radius: 50%; font-weight: 500;
+  background: var(--color-accent-900); color: var(--color-accent-200);
+}
+.avatar-lg {
+  background: linear-gradient(160deg, var(--color-accent-800), var(--color-accent-900));
+  color: var(--color-accent-100);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+/* Two rings, one meaning each: live says a machine of yours is shared now. */
+.avatar[data-ring="live"] { box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 3.5px var(--color-live); }
+.avatar[data-ring="idle"] { box-shadow: 0 0 0 1px var(--color-neutral-700); }
+
 /* — status — */
 .status {
   display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
