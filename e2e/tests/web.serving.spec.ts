@@ -1,8 +1,9 @@
 // The HTTP surface of the signaling server, exercised over a real socket.
 //
-// Two routes are the same SPA and everything else is a file off disk, which is
-// a small enough rule that it is easy to break without noticing — especially
-// the part where a crafted path must not escape the build directory.
+// Any extensionless path is the same SPA and everything with an extension is a
+// file off disk, which is a small enough rule that it is easy to break without
+// noticing — especially the part where a crafted path must not escape the build
+// directory.
 
 import { expect, test } from "@playwright/test";
 
@@ -15,13 +16,15 @@ test.describe("static serving", () => {
     expect(await res.text()).toContain('<div id="root">');
   });
 
-  test("serves the same app at the host route", async ({ request }) => {
-    const renter = await request.get("/");
-    const host = await request.get("/host");
+  test("serves the same app at every route", async ({ request }) => {
+    const wall = await request.get("/");
 
-    expect(host.status()).toBe(200);
-    // One bundle, two routes — the page decides which half to render.
-    expect(await host.text()).toBe(await renter.text());
+    // One bundle, several routes — the page decides which screen to render.
+    for (const route of ["/host", "/rtc"]) {
+      const res = await request.get(route);
+      expect(res.status(), route).toBe(200);
+      expect(await res.text(), route).toBe(await wall.text());
+    }
   });
 
   test("serves the built bundle with a javascript content type", async ({ request }) => {
