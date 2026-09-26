@@ -325,3 +325,97 @@ html, body { height: 100%; background: var(--color-bg); }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .steam-btn img { display: block; }
+
+/* — app chrome — */
+.app {
+  position: relative; height: 100vh; display: flex; flex-direction: column;
+  overflow: hidden; background: var(--color-bg); color: var(--color-text);
+  font-family: var(--font-body);
+}
+.app-tint {
+  position: fixed; inset: -20%; pointer-events: none; z-index: 0;
+  filter: blur(80px); transition: background .8s ease, opacity .8s ease;
+}
+.topbar {
+  position: sticky; top: 0; z-index: 5; flex: none;
+  display: flex; align-items: center; gap: var(--space-4);
+  height: 60px; padding: 0 var(--space-8);
+}
+/* The game screen puts its hero behind the chrome rather than below it. */
+.topbar-float { position: absolute; left: 0; right: 0; }
+.topbar-left { display: flex; align-items: center; gap: var(--space-3); margin-right: auto; }
+.topbar-right { display: flex; align-items: center; gap: var(--space-3); }
+.brand {
+  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px;
+  border: 0; background: transparent; color: inherit; font: inherit;
+  font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px;
+}
+.brand-mark {
+  width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+  background: var(--color-accent-800); color: var(--color-accent-200);
+  font-family: var(--font-heading); font-weight: 600; font-size: 12px; letter-spacing: 0;
+}
+.backbtn {
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 22px;
+  color: var(--color-text); cursor: pointer; padding: 0;
+  animation: swiff-fadein var(--dur-ui) var(--ease-out) both;
+  transition: background var(--dur-ui), transform var(--dur-micro);
+}
+.backbtn:hover {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
+}
+.pill {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px;
+  border-radius: 999px; color: var(--color-neutral-200);
+  font: inherit; font-size: 13px; line-height: 18px; cursor: pointer;
+  transition: border-color var(--dur-ui), background var(--dur-micro);
+}
+.pill:hover { background: var(--glass-strong); }
+.pill-label { color: var(--color-neutral-400); }
+.pill-value { font-weight: 500; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.avatar-btn {
+  border: 0; background: transparent; padding: 0; cursor: pointer; line-height: 0;
+  border-radius: 50%; transition: transform var(--dur-micro);
+}
+.avatar-btn:hover { transform: scale(1.06); }
+
+/* — dialog — */
+.dialog-backdrop {
+  position: absolute; inset: 0; z-index: 30; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  backdrop-filter: blur(8px);
+  animation: swiff-fadein var(--dur-ui) ease both;
+}
+.dialog {
+  max-width: 46ch; padding: var(--space-8);
+  display: flex; flex-direction: column; gap: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, #141417 82%, transparent);
+  backdrop-filter: blur(28px) saturate(1.3);
+}
+.dialog-title { font-family: var(--font-heading); font-weight: 500; font-size: var(--text-22); }
+.dialog-body { font-size: var(--text-14); line-height: var(--lh-20); color: var(--color-neutral-300); }
+.dialog-actions { display: flex; gap: var(--space-3); justify-content: flex-end; }
+
+/* — toggle — */
+.toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); cursor: pointer;
+}
+.toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.toggle-label { font-size: 15px; line-height: var(--lh-20); font-weight: 500; }
+.toggle-hint { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-400); }
+.toggle-box { width: 20px; height: 20px; accent-color: var(--color-accent); cursor: pointer; flex: none; }
+
+/* — segment — */
+.seg { display: inline-flex; padding: 3px; border-radius: var(--radius-md); gap: 2px; }
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: calc(var(--radius-md) - 2px);
+  font-size: var(--text-12); line-height: var(--lh-16);
+  color: var(--color-neutral-300); cursor: pointer;
+  transition: background var(--dur-micro), color var(--dur-micro);
+}
+.seg-opt input { accent-color: var(--color-accent); margin: 0; }
+.seg-on { background: color-mix(in srgb, var(--color-accent) 18%, transparent); color: var(--color-text); }
