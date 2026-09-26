@@ -179,3 +179,85 @@ html, body { height: 100%; background: var(--color-bg); }
   border-bottom: 1px solid var(--glass-edge);
 }
 .titlebar button, .titlebar input { -webkit-app-region: no-drag; }
+
+/* — wall tile —
+   Grid spans live here rather than on the element: the wall is a 4-column grid
+   and a tile should not need to know its own index to size itself. */
+.tile {
+  position: relative; grid-column: span 1; grid-row: span 1;
+  padding: 0; border: 0; border-radius: var(--radius-lg); overflow: hidden;
+  background: var(--color-neutral-900); color: inherit; font: inherit;
+  cursor: pointer; box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui),
+              filter var(--dur-enter) var(--ease-out);
+}
+.tile-wide { grid-column: span 2; }
+.tile-hero { grid-column: span 4; grid-row: span 2; border-radius: var(--radius-xl); }
+.tile:hover { transform: scale(1.02); z-index: 2; }
+.tile:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* Dim, never hidden: a game you cannot start tonight is still yours. */
+.tile-dim { filter: saturate(.2) brightness(.55); }
+.tile-dim:hover { filter: saturate(.3) brightness(.7); }
+.tile-art, .tile-video { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tile-art { background-position: center; background-size: cover; background-repeat: no-repeat; }
+.tile-video { object-fit: cover; }
+.tile-scrim {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(0deg,
+    color-mix(in srgb, var(--color-bg) 92%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg) 45%, transparent) 38%,
+    transparent 62%);
+}
+.tile-hero .tile-scrim {
+  background: linear-gradient(0deg,
+    color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg) 35%, transparent) 40%,
+    transparent 62%);
+}
+.tile-badge { position: absolute; top: var(--space-3); left: var(--space-3); pointer-events: none; }
+.tile-cap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: flex; flex-direction: column; gap: 4px; text-align: left; pointer-events: none;
+}
+.tile-title {
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-17);
+  line-height: var(--lh-20); letter-spacing: -.01em;
+}
+.tile-sub {
+  font-size: var(--text-12); line-height: var(--lh-16);
+  font-variant-numeric: tabular-nums; color: var(--color-neutral-300);
+}
+
+/* — machine card — */
+.machine {
+  position: relative; display: flex; flex-direction: column; justify-content: center;
+  gap: 8px; padding: var(--space-4); border-radius: var(--radius-lg);
+  min-height: clamp(72px, 11vh, 88px);
+  text-align: left; color: inherit; font: inherit; cursor: pointer;
+  border: 1px solid var(--color-divider); opacity: .72; transform: scale(.985);
+  transition: border-color var(--dur-ui), background var(--dur-ui), opacity var(--dur-ui),
+              box-shadow var(--dur-ui), transform var(--dur-ui) var(--ease-out);
+}
+.machine:hover { opacity: 1; transform: scale(1); }
+.machine-rec { grid-column: span 2; min-height: clamp(84px, 13vh, 104px); }
+.machine-on {
+  opacity: 1; transform: scale(1.02); z-index: 2;
+  border: 2px solid var(--color-accent); padding: calc(var(--space-4) - 1px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 16%, transparent), var(--glass-strong));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent),
+              0 0 28px color-mix(in srgb, var(--color-accent) 30%, transparent), var(--glass-hi);
+}
+.machine:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.machine-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+.machine-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.machine-name {
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-17);
+  line-height: 1.2; letter-spacing: -.01em; font-variant-numeric: tabular-nums;
+}
+.machine-rec .machine-name { font-size: var(--text-22); }
+.machine-dot { color: var(--color-neutral-500); font-weight: 400; }
+.machine-unit { font-size: .6em; color: var(--color-neutral-500); font-weight: 400; }
+.machine-owner { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-500); }
+.machine-tags { display: flex; gap: 6px; flex: none; align-items: center; }
+.machine-meters { display: flex; gap: var(--space-6); }
