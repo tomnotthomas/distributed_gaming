@@ -198,6 +198,16 @@ export function originFrom(
   const forwarded = headers["x-forwarded-host"] ?? headers.host;
   const host = Array.isArray(forwarded) ? forwarded[0] : forwarded;
   if (!host) return fallback;
-  const proto = headers["x-forwarded-proto"] ?? (host.startsWith("localhost") ? "http" : "https");
+  const proto = headers["x-forwarded-proto"] ?? (isLoopback(host) ? "http" : "https");
   return `${Array.isArray(proto) ? proto[0] : proto}://${host}`;
+}
+
+/**
+ * Local development is plain http. Guessing https for 127.0.0.1 builds an
+ * openid.realm Steam cannot reach, and it rejects the whole sign-in — so every
+ * loopback form has to be recognised, not just the word "localhost".
+ */
+function isLoopback(host: string): boolean {
+  const name = host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  return name === "localhost" || name === "127.0.0.1" || name === "::1" || name.endsWith(".localhost");
 }

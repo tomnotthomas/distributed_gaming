@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { LIBRARY_CAP, b64urlEncode, loginUrl, readProfile, returnUrl, verifyAssertion } from "../steam.js";
+import { LIBRARY_CAP, b64urlEncode, loginUrl, originFrom, readProfile, returnUrl, verifyAssertion } from "../steam.js";
 
 const ORIGIN = "https://swiff.example";
 
@@ -135,5 +135,29 @@ describe("b64urlEncode", () => {
   it("emits fragment-safe base64", () => {
     const encoded = b64urlEncode({ persona: "kai?+/=nx" });
     assert.ok(!/[+/=]/.test(encoded));
+  });
+});
+
+describe("originFrom", () => {
+  it("keeps loopback on http, in every form it arrives as", () => {
+    // Guessing https here builds an openid.realm Steam cannot reach.
+    for (const host of ["localhost:8080", "127.0.0.1:8099", "[::1]:8080", "app.localhost"]) {
+      assert.equal(originFrom({ host }, "http://fallback"), `http://${host}`);
+    }
+  });
+
+  it("assumes https for a real host", () => {
+    assert.equal(originFrom({ host: "swiff.example" }, "http://fallback"), "https://swiff.example");
+  });
+
+  it("trusts a proxy's forwarded proto and host over the guess", () => {
+    assert.equal(
+      originFrom({ host: "internal:8080", "x-forwarded-host": "swiff.example", "x-forwarded-proto": "https" }, "http://fallback"),
+      "https://swiff.example",
+    );
+  });
+
+  it("falls back when there is no host header at all", () => {
+    assert.equal(originFrom({}, "http://fallback"), "http://fallback");
   });
 });
