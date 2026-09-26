@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Trailer } from "./Trailer";
 
 type Size = "hero" | "wide" | "small";
 
@@ -37,28 +38,44 @@ export function Tile({
   onHoverChange,
   children,
 }: Props) {
+  const art_ = <span className="tile-art" style={{ backgroundImage: `url(${art})` }} />;
+  const layers = (
+    <>
+      {art_}
+      {video ? <Trailer className="tile-video" src={video} /> : null}
+      {badge ? <span className="tile-badge">{badge}</span> : null}
+      <span className="tile-scrim" />
+    </>
+  );
+  const hover = {
+    onMouseEnter: () => onHoverChange?.(true),
+    onMouseLeave: () => onHoverChange?.(false),
+  };
+
+  // The hero carries its own controls — Resume, or Valve's sign-in link — and a
+  // <button> may not contain a link. So the hero is a plain container and its
+  // children own the clicks; only the smaller tiles are one big hit target.
+  if (size === "hero") {
+    return (
+      <div className={`tile tile-hero${dim ? " tile-dim" : ""}`} {...hover}>
+        {layers}
+        {children}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
       className={`tile tile-${size}${dim ? " tile-dim" : ""}`}
       onClick={onOpen}
-      onMouseEnter={() => onHoverChange?.(true)}
-      onMouseLeave={() => onHoverChange?.(false)}
+      {...hover}
     >
-      <span className="tile-art" style={{ backgroundImage: `url(${art})` }} />
-      {video ? (
-        <video className="tile-video" src={video} muted autoPlay loop playsInline />
-      ) : null}
-      {badge ? <span className="tile-badge">{badge}</span> : null}
-      <span className="tile-scrim" />
-      {size === "hero" ? (
-        children
-      ) : (
-        <span className="tile-cap">
-          <span className="tile-title">{title}</span>
-          {sub ? <span className="tile-sub">{sub}</span> : null}
-        </span>
-      )}
+      {layers}
+      <span className="tile-cap">
+        <span className="tile-title">{title}</span>
+        {sub ? <span className="tile-sub">{sub}</span> : null}
+      </span>
     </button>
   );
 }

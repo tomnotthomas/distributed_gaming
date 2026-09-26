@@ -89,6 +89,9 @@
   display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
   padding: 68px var(--space-8) 0; max-width: min(860px, 64%);
 }
+/* With the selector folded there is no row below to sit against, so the stack
+   centres and keeps a floor — otherwise the meters hang off the bottom edge. */
+.menu-hero-folded { justify-content: center; padding-bottom: 6vh; }
 .menu-title {
   margin: 0 0 0 -.04em; font-size: clamp(40px, min(9vw, 9.5vh), 140px);
   letter-spacing: var(--display-track); line-height: .9; text-wrap: balance;

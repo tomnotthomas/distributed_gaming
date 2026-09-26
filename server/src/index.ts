@@ -258,6 +258,7 @@ const sweep = setInterval(() => {
 sweep.unref?.();
 
 server.listen(PORT, () => {
-  console.log(`[swiff] http://localhost:${PORT}  (renter)`);
+  console.log(`[swiff] http://localhost:${PORT}       (the wall)`);
   console.log(`[swiff] http://localhost:${PORT}/host  (gaming PC)`);
+  console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
 });

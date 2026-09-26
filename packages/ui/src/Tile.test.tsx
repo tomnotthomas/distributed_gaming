@@ -16,6 +16,18 @@ describe("Tile", () => {
     expect(screen.getByText("hero overlay")).toBeInTheDocument();
   });
 
+  it("does not make the hero a button, because it contains its own controls", () => {
+    // A <button> may not contain a link, and the hero holds Valve's sign-in
+    // link: nesting them made signing in also open the game.
+    const { container } = render(
+      <Tile title="Elden Ring" art="a.jpg" size="hero" onOpen={() => {}}>
+        <a href="/auth/steam/login">Sign in through Steam</a>
+      </Tile>,
+    );
+    expect(container.querySelector("button")).toBeNull();
+    expect(screen.getByRole("link")).toBeInTheDocument();
+  });
+
   it("renders the trailer only when one is given", () => {
     const { container, rerender } = render(<Tile title="A" art="a.jpg" />);
     expect(container.querySelector(".tile-video")).toBeNull();

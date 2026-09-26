@@ -1,4 +1,4 @@
-import { HoldButton, MachineCard, Meter, Tag } from "@swiff/ui";
+import { HoldButton, MachineCard, Meter, Tag, Trailer } from "@swiff/ui";
 import { trailerUrl } from "./data";
 import { feel, fmtLeft, lasts, meters, minsLeft, reason } from "./derive";
 import { gameArt } from "./steam";
@@ -23,16 +23,12 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
     <main className="menu">
       <div className="menu-art">
         {motion && game.video ? (
-          <video
+          <Trailer
             key={game.id}
             className="menu-video"
             src={trailerUrl(game.video)}
             poster={gameArt(game)}
             style={{ objectPosition: game.focus }}
-            autoPlay
-            muted
-            loop
-            playsInline
           />
         ) : (
           <div
@@ -44,7 +40,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
         <div className="menu-fade" />
       </div>
 
-      <div className="menu-hero">
+      <div className={machinesOpen ? "menu-hero" : "menu-hero menu-hero-folded"}>
         <h1 className="menu-title">
           {game.t1}
           {game.t2 ? (

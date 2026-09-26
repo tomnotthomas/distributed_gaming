@@ -1,4 +1,4 @@
-import { Button, Dialog, Tag } from "@swiff/ui";
+import { Button, Dialog, Tag, Trailer } from "@swiff/ui";
 import { trailerUrl } from "./data";
 import { gameArt } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -23,15 +23,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
   return (
     <div className="session" data-testid="session">
       {game.video ? (
-        <video
-          className="session-video"
-          src={trailerUrl(game.video)}
-          poster={gameArt(game)}
-          autoPlay
-          muted
-          loop
-          playsInline
-        />
+        <Trailer className="session-video" src={trailerUrl(game.video)} poster={gameArt(game)} />
       ) : (
         <div className="session-still" style={{ backgroundImage: `url(${gameArt(game)})` }} />
       )}

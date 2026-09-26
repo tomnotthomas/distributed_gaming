@@ -20,4 +20,5 @@ export { StatusLine } from "./StatusLine";
 export { SteamButton } from "./SteamButton";
 export { Tag } from "./Tag";
 export { Tile } from "./Tile";
+export { Trailer } from "./Trailer";
 export { Toggle } from "./Toggle";
