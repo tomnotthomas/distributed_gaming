@@ -2,7 +2,7 @@
 // fragment (see server/src/steam.ts); this reads it once, then clears it so a
 // refresh or a shared link does not carry someone's library around.
 
-import { GAMES, artUrl, type Game } from "./data";
+import { GAMES, artUrl, headerUrl, trailerUrl, type Game } from "./data";
 
 export type SteamProfile = {
   id: string;
@@ -65,7 +65,12 @@ function machinesForLibraryGame(appid: number, pool: string[]): string[] {
  * is either real or obviously generic: no invented save points, no fake "last
  * played" moments.
  */
-function cardFor(appid: number, name: string, hours: number, pool: string[]): Game {
+function cardFor(
+  appid: number,
+  name: string,
+  pool: string[],
+  extra: Pick<Game, "promise" | "personal" | "hours" | "owned"> & Partial<Game>,
+): Game {
   const words = name.trim().split(/\s+/);
   return {
     id: `app${appid}`,
@@ -74,15 +79,62 @@ function cardFor(appid: number, name: string, hours: number, pool: string[]): Ga
     t2: words.slice(1).join(" "),
     appid,
     focus: "60% 50%",
-    promise: hours ? "Pick up where you left off." : "Ready when you are.",
-    personal: hours ? `${hours} h played` : "In your library",
     hue: hashOf(appid) % 360,
-    hours,
-    owned: true,
     save: "Steam cloud save",
     machines: machinesForLibraryGame(appid, pool),
-    fromLibrary: true,
+    ...extra,
   };
+}
+
+const libraryCard = (appid: number, name: string, hours: number, pool: string[]) =>
+  cardFor(appid, name, pool, {
+    promise: hours ? "Pick up where you left off." : "Ready when you are.",
+    personal: hours ? `${hours} h played` : "In your library",
+    hours,
+    owned: true,
+    fromLibrary: true,
+  });
+
+/** One of Steam's most played games, as the server's catalog describes it. */
+export type CatalogGame = {
+  appid: number;
+  name: string;
+  free: boolean;
+  trailer: string | null;
+  header: string | null;
+};
+
+/**
+ * The signed-out wall: Steam's most played games, in chart order. Free-to-play
+ * ones are playable straight away; the rest are shown for what they are.
+ */
+export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
+  catalog.map((game, index) =>
+    cardFor(game.appid, game.name, pool, {
+      promise: "One of the most played games on Steam right now.",
+      personal: `#${index + 1} on Steam right now`,
+      hours: 0,
+      owned: game.free,
+      f2p: game.free,
+      save: game.free ? "Steam cloud save" : "New game",
+      trailer: game.trailer ?? undefined,
+      header: game.header ?? undefined,
+      popularRank: index + 1,
+    }),
+  );
+
+/**
+ * Put the catalog's media onto games: a trailer where the game has none yet
+ * (the curated nine keep their own), and the real header image.
+ */
+export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
+  const media = new Map(catalog.map((g) => [g.appid, g]));
+  return games.map((game) => {
+    const found = media.get(game.appid);
+    if (!found) return game;
+    const trailer = game.trailer ?? (game.video ? undefined : found.trailer ?? undefined);
+    return { ...game, trailer, header: found.header ?? game.header };
+  });
 }
 
 /**
@@ -100,10 +152,17 @@ export function applySteam(profile: SteamProfile, sharedMachineIds: string[]): G
   const known = new Set(GAMES.map((g) => g.appid));
   const extra = profile.games
     .filter(([appid, name]) => name && !known.has(appid))
-    .map(([appid, name, hours]) => cardFor(appid, name, hours ?? 0, sharedMachineIds));
+    .map(([appid, name, hours]) => libraryCard(appid, name, hours ?? 0, sharedMachineIds));
 
   return [...curated, ...extra];
 }
 
-/** Steam art for any appid, curated or from the library. */
+/** Steam art for any appid, curated, popular or from the library. */
 export const gameArt = (game: Game) => artUrl(game.appid);
+
+/** Fallback art: the store header at its real URL when known, else the guessable one. */
+export const gameHeader = (game: Game) => game.header ?? headerUrl(game.appid);
+
+/** The trailer to play for a game, if it has one. */
+export const gameTrailer = (game: Game): string | null =>
+  game.trailer ?? (game.video ? trailerUrl(game.video) : null);

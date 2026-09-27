@@ -1,6 +1,5 @@
 import { Backdrop, Button, Dialog, StatusDot, Tag, TopBar } from "@swiff/ui";
-import { trailerUrl } from "./data";
-import { gameArt } from "./steam";
+import { gameArt, gameHeader, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 const clock = (ms: number) =>
@@ -24,7 +23,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
     <div className="session" data-testid="session">
       {/* The stream stand-in always moves: the wall's motion setting is about the
           wall, not about the game you are playing. */}
-      <Backdrop image={gameArt(game)} video={game.video ? trailerUrl(game.video) : null} motion />
+      <Backdrop image={gameArt(game)} fallback={gameHeader(game)} video={gameTrailer(game)} motion />
 
       <TopBar
         variant="hud"

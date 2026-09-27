@@ -8,6 +8,8 @@ export type Scrim = "pocket" | "bottom" | "top" | "noise";
 
 type Props = HTMLAttributes<HTMLDivElement> & {
   image: string;
+  /** Painted under `image`, so it shows wherever `image` fails to load. */
+  fallback?: string;
   /** Plays over the still when motion is on. */
   video?: string | null;
   /** Focus point for both still and video, e.g. "30% 40%". */
@@ -23,7 +25,7 @@ type Props = HTMLAttributes<HTMLDivElement> & {
  * scrims that keep a bright frame — a scoreboard, a snow field — from
  * swallowing the headline.
  */
-export function Backdrop({ image, video, position, scrims = [], motion, className, ...rest }: Props) {
+export function Backdrop({ image, fallback, video, position, scrims = [], motion, className, ...rest }: Props) {
   const allowed = useMotion();
   const play = Boolean(video) && (motion ?? allowed);
   const place: CSSProperties = position ? { objectPosition: position, backgroundPosition: position } : {};
@@ -32,7 +34,10 @@ export function Backdrop({ image, video, position, scrims = [], motion, classNam
       {play ? (
         <Trailer className="backdrop-media" src={video!} poster={image} style={place} />
       ) : (
-        <div className="backdrop-media backdrop-still" style={{ backgroundImage: `url(${image})`, ...place }} />
+        <div
+          className="backdrop-media backdrop-still"
+          style={{ backgroundImage: fallback ? `url(${image}), url(${fallback})` : `url(${image})`, ...place }}
+        />
       )}
       {scrims.map((scrim) => (
         <div key={scrim} className="backdrop-scrim" data-scrim={scrim} />

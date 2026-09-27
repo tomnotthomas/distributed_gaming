@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { turnServersFromEnv } from "./ice.js";
 import { isRelayed, type SignalMessage } from "./protocol.js";
+import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -128,11 +129,32 @@ async function serveSteamAuth(
   return false;
 }
 
+/**
+ * The game catalog: Steam's most played games for the signed-out wall, and
+ * names plus trailers for any appids (a signed-in library). Keyless and cached
+ * in catalog.ts; a Steam outage answers an empty list and the client falls back
+ * to its own nine.
+ */
+async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSearchParams): Promise<boolean> {
+  let games: Promise<unknown[]>;
+  if (urlPath === "/api/games/popular") games = popularGames();
+  else if (urlPath === "/api/games/media") {
+    games = gamesMedia((query.get("appids") ?? "").split(",").map(Number));
+  } else return false;
+
+  const body = JSON.stringify({ games: await games.catch(() => []) });
+  // Browsers may reuse it for a few minutes; the server's own cache does the rest.
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" });
+  res.end(body);
+  return true;
+}
+
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
 
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
+  if (await serveCatalog(res, urlPath, url.searchParams)) return;
 
   // Every screen is the same SPA. A path with no extension is a route, so it
   // gets index.html; a path with one is an asset, so a miss is a real 404.
@@ -261,4 +283,6 @@ server.listen(PORT, () => {
   console.log(`[swiff] http://localhost:${PORT}       (the wall)`);
   console.log(`[swiff] http://localhost:${PORT}/host  (gaming PC)`);
   console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
+  // Warm the catalog so the first visitor's wall does not wait on Steam.
+  void popularGames();
 });
