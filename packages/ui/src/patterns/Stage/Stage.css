@@ -1,0 +1,16 @@
+.stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: var(--radius-lg); overflow: hidden;
+  background: var(--color-recessed);
+  border: 1px solid var(--glass-edge); box-shadow: var(--shadow-md);
+}
+.stage-sm { max-width: 420px; }
+/* Transparent, not black: before a frame arrives the recessed ground should
+   show through rather than a void the size of the page. */
+.stage video { display: block; width: 100%; height: 100%; object-fit: contain; background: transparent; }
+.stage-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--text-12); color: var(--color-text-3); letter-spacing: .04em;
+  text-transform: uppercase; pointer-events: none;
+}

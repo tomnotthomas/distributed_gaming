@@ -113,7 +113,7 @@ function HeroResume({ game, sub, onResume }: { game: Game; sub: string; onResume
         <span className="hero-title">{game.title}</span>
         <span className="hero-meta">{sub}</span>
       </span>
-      <Button large onClick={onResume}>
+      <Button size="lg" onClick={onResume}>
         Resume
       </Button>
     </span>

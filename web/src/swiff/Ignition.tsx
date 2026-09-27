@@ -8,7 +8,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
     <div className="ignition" data-testid="ignition">
       <div className="ignition-glow" />
       <div className="ignition-stack">
-        <ProgressRing pct={progress}>{Math.round(progress * 100)}%</ProgressRing>
+        <ProgressRing pct={progress} label={`Starting ${game?.title ?? "your game"}`}>{Math.round(progress * 100)}%</ProgressRing>
         <div className="ignition-text">
           <div className="ignition-step">{ignitionStep}</div>
           <div className="ignition-where">

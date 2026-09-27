@@ -101,7 +101,7 @@ export function Client() {
       <div className="row">
         {!connecting ? (
           <Button
-            large
+            size="lg"
             onClick={() => {
               if (isPostHogEnabled) posthog.capture("client_connection_requested");
               setConnecting(true);

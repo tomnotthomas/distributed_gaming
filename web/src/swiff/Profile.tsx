@@ -1,4 +1,4 @@
-import { Avatar, Button, Segment, SteamButton, Toggle } from "@swiff/ui";
+import { Avatar, Button, Segment, SettingRow, SteamButton } from "@swiff/ui";
 import type { Device, Quality, Swiff } from "./useSwiff";
 
 const QUALITY = [
@@ -44,51 +44,57 @@ export function Profile({ swiff }: { swiff: Swiff }) {
       <section className="profile-section">
         <h2 className="profile-kicker">Streaming</h2>
         <div className="profile-grid">
-          <div className="profile-setting">
-            <div className="profile-setting-head">
-              <div className="toggle-label">Picture</div>
-              <div className="toggle-hint">Swiff picks the machine that can deliver it.</div>
-            </div>
-            <Segment name="quality" options={QUALITY} value={quality} onChange={swiff.setQuality} />
-          </div>
+          <SettingRow
+            layout="stacked"
+            label="Picture"
+            hint="Swiff picks the machine that can deliver it."
+            control={
+              <Segment
+                name="quality"
+                aria-label="Picture"
+                options={QUALITY}
+                value={quality}
+                onChange={swiff.setQuality}
+              />
+            }
+          />
 
-          <div className="profile-setting">
-            <div className="profile-setting-head">
-              <div className="toggle-label">Controls</div>
-              <div className="toggle-hint">Only machines that support them are offered.</div>
-            </div>
-            <div className="device-row">
-              {DEVICES.map((device) => (
-                <button
-                  key={device.id}
-                  type="button"
-                  className={devices.includes(device.id) ? "device device-on glass" : "device glass"}
-                  onClick={() => swiff.toggleDevice(device.id)}
-                  aria-pressed={devices.includes(device.id)}
-                  aria-label={device.name}
-                  title={device.name}
-                >
-                  <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-                    <path d={device.path} />
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
+          <SettingRow
+            layout="stacked"
+            label="Controls"
+            hint="Only machines that support them are offered."
+            control={
+              <div className="device-row">
+                {DEVICES.map((device) => (
+                  <button
+                    key={device.id}
+                    type="button"
+                    className={devices.includes(device.id) ? "device device-on glass" : "device glass"}
+                    onClick={() => swiff.toggleDevice(device.id)}
+                    aria-pressed={devices.includes(device.id)}
+                    aria-label={device.name}
+                    title={device.name}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                      <path d={device.path} />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+            }
+          />
         </div>
 
         <div className="profile-grid">
-          <Toggle
+          <SettingRow
             label="Motion on the wall"
             hint="Clips play on the hero and on hover. Off shows stills."
-            checked={motion}
-            onChange={swiff.setMotion}
+            control={<input type="checkbox" checked={motion} onChange={(e) => swiff.setMotion(e.target.checked)} />}
           />
-          <Toggle
+          <SettingRow
             label="Interface sounds"
             hint="A tick on focus, a thump on launch, a chime when a machine frees up."
-            checked={sound}
-            onChange={swiff.setSound}
+            control={<input type="checkbox" checked={sound} onChange={(e) => swiff.setSound(e.target.checked)} />}
           />
         </div>
         <p className="profile-fine">

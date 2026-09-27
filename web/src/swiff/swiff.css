@@ -54,7 +54,7 @@
   font-family: var(--font-heading); font-weight: 500;
   font-size: clamp(34px, 3.8vw, 56px); line-height: .95;
   letter-spacing: var(--display-track); margin-left: -.04em;
-  text-shadow: 0 2px 24px rgba(3, 8, 16, .75); text-wrap: balance;
+  text-shadow: var(--display-shadow); text-wrap: balance;
 }
 .hero-personal, .hero-meta {
   font-size: var(--text-14); line-height: var(--lh-20);
@@ -95,7 +95,7 @@
 .menu-title {
   margin: 0 0 0 -.04em; font-size: clamp(40px, min(9vw, 9.5vh), 140px);
   letter-spacing: var(--display-track); line-height: .9; text-wrap: balance;
-  text-shadow: 0 2px 24px rgba(3, 8, 16, .75);
+  text-shadow: var(--display-shadow);
   animation: swiff-slam .4s .12s var(--ease-out) both;
 }
 .menu-personal {
@@ -210,8 +210,6 @@
   color: var(--color-accent-300); font-weight: 500;
 }
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-8); }
-.profile-setting { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.profile-setting-head { display: flex; flex-direction: column; gap: 2px; }
 .profile-fine { margin: 0; font-size: var(--text-12); color: var(--color-neutral-500); }
 .device-row { display: flex; gap: var(--space-2); }
 .device {

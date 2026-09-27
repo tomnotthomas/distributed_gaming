@@ -55,12 +55,9 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
 
         <div className="menu-launch">
           <div className="menu-launch-row">
-            <HoldButton
-              label="Launch"
-              icon={PLAY_ICON}
-              disabled={!picked}
-              onFire={swiff.launch}
-            />
+            <HoldButton icon={PLAY_ICON} disabled={!picked} onFire={swiff.launch}>
+              Launch
+            </HoldButton>
             <button
               type="button"
               className="btn btn-primary menu-launch-more"

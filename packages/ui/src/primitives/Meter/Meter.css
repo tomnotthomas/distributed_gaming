@@ -1,0 +1,9 @@
+.meter { display: flex; flex-direction: column; gap: 5px; }
+.meter[data-label="inline"] { flex-direction: row; align-items: center; gap: 8px; }
+.meter-label { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-500); }
+.meter-bars { display: flex; gap: 3px; }
+.meter-seg {
+  width: 14px; height: 4px; border-radius: 2px;
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.meter-on { background: var(--color-accent-300); }

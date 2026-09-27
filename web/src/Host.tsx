@@ -66,7 +66,7 @@ export function Host() {
     >
       <div className="row">
         {!stream ? (
-          <Button large onClick={() => void startSharing()}>
+          <Button size="lg" onClick={() => void startSharing()}>
             Start sharing
           </Button>
         ) : (

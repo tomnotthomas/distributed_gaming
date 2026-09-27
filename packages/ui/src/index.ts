@@ -1,24 +1,12 @@
+// One import gives consumers tokens, document styles and every component.
+// Order matters: tokens → base/motion → primitives → patterns, so a pattern's
+// CSS can refine the primitives it is built from.
 import "./tokens/colors.css";
 import "./tokens/typography.css";
 import "./tokens/spacing.css";
-import "./ui.css";
+import "./styles/base.css";
+import "./styles/motion.css";
 
-export { AppShell } from "./AppShell";
-export { Avatar } from "./Avatar";
-export { Button } from "./Button";
-export { Dialog } from "./Dialog";
-export { Field } from "./Field";
-export { HoldButton } from "./HoldButton";
-export { MachineCard } from "./MachineCard";
-export { Meter } from "./Meter";
-export { Notice } from "./Notice";
-export { PageShell } from "./PageShell";
-export { ProgressRing } from "./ProgressRing";
-export { Segment } from "./Segment";
-export { Stage } from "./Stage";
-export { StatusLine } from "./StatusLine";
-export { SteamButton } from "./SteamButton";
-export { Tag } from "./Tag";
-export { Tile } from "./Tile";
-export { Trailer } from "./Trailer";
-export { Toggle } from "./Toggle";
+export { MotionContext, useMotion } from "./lib/motion";
+export * from "./primitives";
+export * from "./patterns";

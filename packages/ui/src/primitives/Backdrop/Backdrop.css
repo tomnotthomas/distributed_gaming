@@ -1,0 +1,22 @@
+.backdrop { position: absolute; inset: 0; overflow: hidden; }
+.backdrop-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.backdrop-still { background-size: cover; background-position: center; background-repeat: no-repeat; }
+.backdrop-scrim { position: absolute; inset: 0; pointer-events: none; }
+/* A pocket of ground behind the reading side, so type stays legible over any art. */
+.backdrop-scrim[data-scrim="pocket"] {
+  background: radial-gradient(ellipse min(48%, 900px) 70% at 16% 58%,
+    color-mix(in srgb, var(--color-bg) 78%, transparent),
+    color-mix(in srgb, var(--color-bg) 30%, transparent) 55%, transparent 80%);
+}
+.backdrop-scrim[data-scrim="bottom"] {
+  background: linear-gradient(0deg, var(--color-bg) 0%,
+    color-mix(in srgb, var(--color-bg) 70%, transparent) 18%, transparent 40%);
+}
+.backdrop-scrim[data-scrim="top"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 85%, transparent), transparent 22%);
+}
+.backdrop-scrim[data-scrim="noise"] {
+  opacity: .5; mix-blend-mode: overlay;
+  background: repeating-radial-gradient(circle at 30% 30%,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 0 1px, transparent 1px 3px);
+}
