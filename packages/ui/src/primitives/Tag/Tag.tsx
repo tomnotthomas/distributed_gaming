@@ -4,9 +4,8 @@ import type { Tone } from "../../lib/tone";
 import "./Tag.css";
 
 type Props = HTMLAttributes<HTMLSpanElement> & {
-  /** Label/value form: the room id both RTC peers must show. */
+  /** A muted prefix before the value: <Tag label="Room">demo</Tag>. */
   label?: string;
-  value?: string;
   children?: ReactNode;
   /** `live` for a free machine, `time` for a window that is running out. */
   tone?: Tone;
@@ -16,11 +15,11 @@ type Props = HTMLAttributes<HTMLSpanElement> & {
 };
 
 /** A labelled pill for badges, stats and time notes. */
-export function Tag({ label, value, children, tone = "neutral", variant = "solid", size = "md", className, ...rest }: Props) {
+export function Tag({ label, children, tone = "neutral", variant = "solid", size = "md", className, ...rest }: Props) {
   return (
     <span data-tone={tone} data-variant={variant} data-size={size} className={cx("tag", className)} {...rest}>
       {label ? <span className="tag-label">{label}</span> : null}
-      {value ?? children}
+      {children}
     </span>
   );
 }

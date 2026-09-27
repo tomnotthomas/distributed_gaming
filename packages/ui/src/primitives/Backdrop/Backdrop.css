@@ -2,15 +2,21 @@
 .backdrop-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .backdrop-still { background-size: cover; background-position: center; background-repeat: no-repeat; }
 .backdrop-scrim { position: absolute; inset: 0; pointer-events: none; }
+/* Two layers do every "text over footage" job; a caller tunes their shape and
+   strength through custom properties instead of adding another scrim. The
+   defaults are the full-bleed game title's. */
 /* A pocket of ground behind the reading side, so type stays legible over any art. */
 .backdrop-scrim[data-scrim="pocket"] {
-  background: radial-gradient(ellipse min(48%, 900px) 70% at 16% 58%,
-    color-mix(in srgb, var(--color-bg) 78%, transparent),
-    color-mix(in srgb, var(--color-bg) 30%, transparent) 55%, transparent 80%);
+  background: radial-gradient(var(--pocket-shape, ellipse min(48%, 900px) 70% at 16% 58%),
+    color-mix(in srgb, var(--color-bg) var(--pocket-from, 78%), transparent),
+    color-mix(in srgb, var(--color-bg) var(--pocket-mid, 30%), transparent) 55%,
+    transparent var(--pocket-end, 80%));
 }
 .backdrop-scrim[data-scrim="bottom"] {
-  background: linear-gradient(0deg, var(--color-bg) 0%,
-    color-mix(in srgb, var(--color-bg) 70%, transparent) 18%, transparent 40%);
+  background: linear-gradient(0deg,
+    color-mix(in srgb, var(--color-bg) var(--fade-from, 100%), transparent) 0%,
+    color-mix(in srgb, var(--color-bg) var(--fade-mid, 70%), transparent) var(--fade-mid-at, 18%),
+    transparent var(--fade-end, 40%));
 }
 .backdrop-scrim[data-scrim="top"] {
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 85%, transparent), transparent 22%);

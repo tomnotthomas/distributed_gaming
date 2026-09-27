@@ -96,7 +96,7 @@ export function Client() {
     <PageShell
       title="Swiff"
       subtitle="Rent a gaming PC. Play it in this tab."
-      meta={<Tag label="Room" value={HOST_ID} />}
+      meta={<Tag label="Room">{HOST_ID}</Tag>}
     >
       <div className="row">
         {!connecting ? (

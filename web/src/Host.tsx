@@ -62,7 +62,7 @@ export function Host() {
     <PageShell
       title="Gaming PC"
       subtitle="Share this screen with whoever joins the room."
-      meta={<Tag label="Room" value={HOST_ID} />}
+      meta={<Tag label="Room">{HOST_ID}</Tag>}
     >
       <div className="row">
         {!stream ? (
