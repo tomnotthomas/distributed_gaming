@@ -7,6 +7,7 @@ type Props = HTMLAttributes<HTMLDivElement> & {
   pct: number;
   /** The accessible name: what is progressing. */
   label: string;
+  /** Diameter in px. Unset, it follows `--ring-size` (120px by default), so a screen can scale it. */
   size?: number;
   children?: ReactNode;
 };
@@ -16,12 +17,12 @@ type Props = HTMLAttributes<HTMLDivElement> & {
  * and no stroke maths, and the sweep animates because --swiff-a is a registered
  * angle property.
  */
-export function ProgressRing({ pct, label, size = 120, children, className, style, ...rest }: Props) {
+export function ProgressRing({ pct, label, size, children, className, style, ...rest }: Props) {
   const clamped = Math.min(1, Math.max(0, pct));
   return (
     <div
       className={cx("ring", className)}
-      style={{ width: size, height: size, ...style }}
+      style={{ ...(size ? { ["--ring-size" as string]: `${size}px` } : null), ...style }}
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}

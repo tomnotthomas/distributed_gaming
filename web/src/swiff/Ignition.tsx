@@ -5,7 +5,7 @@ import type { Swiff } from "./useSwiff";
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionStep } = swiff;
   return (
-    <Overlay glow data-testid="ignition">
+    <Overlay glow className="ignition" data-testid="ignition">
       <ProgressRing pct={progress} label={`Starting ${game?.title ?? "your game"}`}>
         {Math.round(progress * 100)}%
       </ProgressRing>

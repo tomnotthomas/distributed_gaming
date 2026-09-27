@@ -7,6 +7,7 @@
   /* scale: 12 / 14 / 17 / 22 / 34 / 56 / display */
   --text-12:12px; --text-14:14px; --text-17:17px; --text-22:22px; --text-34:34px; --text-56:56px;
   --lh-16:16px; --lh-20:20px; --lh-24:24px; --lh-28:28px;
+  --lh-tight:1.33; /* unitless 16/12, for type that scales with a size variable */
   --display-lh:.9;
 }
 body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:var(--text-14);line-height:var(--lh-20)}

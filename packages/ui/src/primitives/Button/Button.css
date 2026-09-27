@@ -37,5 +37,9 @@
 
 .btn-sm { min-height: 32px; padding: 0 var(--space-4); font-size: var(--text-12); }
 .btn-lg { min-height: 54px; padding: 0 var(--space-12); font-size: var(--text-17); }
-.btn-xl { min-height: 60px; padding: 0 28px 0 32px; font-size: var(--text-17); }
+/* The launch size. A screen scales it for big displays through --btn-xl-*. */
+.btn-xl {
+  min-height: var(--btn-xl-height, 60px); padding: var(--btn-xl-padding, 0 28px 0 32px);
+  font-size: var(--btn-xl-size, var(--text-17));
+}
 .btn-glow { box-shadow: var(--glass-hi), 0 0 32px color-mix(in srgb, var(--color-accent) 35%, transparent); }

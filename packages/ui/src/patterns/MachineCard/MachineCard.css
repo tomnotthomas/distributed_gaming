@@ -1,14 +1,14 @@
 .machine {
   position: relative; display: flex; flex-direction: column; justify-content: center;
   gap: 8px; padding: var(--space-4); border-radius: var(--radius-lg);
-  min-height: clamp(72px, 11vh, 88px);
+  min-height: var(--machine-min-h, clamp(72px, 11vh, 88px));
   text-align: left; color: inherit; font: inherit; cursor: pointer;
   border: 1px solid var(--color-divider); opacity: .72; transform: scale(.985);
   transition: border-color var(--dur-ui), background var(--dur-ui), opacity var(--dur-ui),
               box-shadow var(--dur-ui), transform var(--dur-ui) var(--ease-out);
 }
 .machine:hover { opacity: 1; transform: scale(1); }
-.machine-rec { grid-column: span 2; min-height: clamp(84px, 13vh, 104px); }
+.machine-rec { grid-column: span 2; min-height: var(--machine-rec-min-h, clamp(84px, 13vh, 104px)); }
 .machine-on {
   opacity: 1; transform: scale(1.02); z-index: 2;
   border: 2px solid var(--color-accent); padding: calc(var(--space-4) - 1px);

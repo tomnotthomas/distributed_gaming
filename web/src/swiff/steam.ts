@@ -2,7 +2,8 @@
 // fragment (see server/src/steam.ts); this reads it once, then clears it so a
 // refresh or a shared link does not carry someone's library around.
 
-import { GAMES, artUrl, headerUrl, trailerUrl, type Game } from "./data";
+import type { VideoSource } from "@swiff/ui";
+import { GAMES, artUrl, headerUrl, trailerUrl, type Game, type GameMedia } from "./data";
 
 export type SteamProfile = {
   id: string;
@@ -95,14 +96,17 @@ const libraryCard = (appid: number, name: string, hours: number, pool: string[])
     fromLibrary: true,
   });
 
-/** One of Steam's most played games, as the server's catalog describes it. */
+/** A game as the server's catalog describes it (server/src/catalog.ts). */
 export type CatalogGame = {
   appid: number;
   name: string;
   free: boolean;
+  art: { hero: string | null; capsule: string | null };
+  preview: string | null;
   trailer: string | null;
-  header: string | null;
 };
+
+const mediaOf = (game: CatalogGame): GameMedia => ({ ...game.art, preview: game.preview, trailer: game.trailer });
 
 /**
  * The signed-out wall: Steam's most played games, in chart order. Free-to-play
@@ -117,24 +121,14 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
       owned: game.free,
       f2p: game.free,
       save: game.free ? "Steam cloud save" : "New game",
-      trailer: game.trailer ?? undefined,
-      header: game.header ?? undefined,
-      popularRank: index + 1,
+      media: mediaOf(game),
     }),
   );
 
-/**
- * Put the catalog's media onto games: a trailer where the game has none yet
- * (the curated nine keep their own), and the real header image.
- */
+/** Put the catalog's art and trailers onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
-  const media = new Map(catalog.map((g) => [g.appid, g]));
-  return games.map((game) => {
-    const found = media.get(game.appid);
-    if (!found) return game;
-    const trailer = game.trailer ?? (game.video ? undefined : found.trailer ?? undefined);
-    return { ...game, trailer, header: found.header ?? game.header };
-  });
+  const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));
+  return games.map((game) => (media.has(game.appid) ? { ...game, media: media.get(game.appid) } : game));
 }
 
 /**
@@ -157,12 +151,36 @@ export function applySteam(profile: SteamProfile, sharedMachineIds: string[]): G
   return [...curated, ...extra];
 }
 
-/** Steam art for any appid, curated, popular or from the library. */
-export const gameArt = (game: Game) => artUrl(game.appid);
+/**
+ * Key art for a game: 2x for full-bleed use (the hero, the game screen), 1x for
+ * a tile. The catalog's exact file when there is one — its 1x sits beside the
+ * 2x — else the store capsule, else the guessable path.
+ */
+export function gameArt(game: Game, scale: 1 | 2 = 2): string {
+  const hero = game.media?.hero;
+  if (hero) return scale === 2 ? hero : hero.replace("library_hero_2x", "library_hero");
+  return game.media?.capsule ?? artUrl(game.appid, scale);
+}
 
-/** Fallback art: the store header at its real URL when known, else the guessable one. */
-export const gameHeader = (game: Game) => game.header ?? headerUrl(game.appid);
+/**
+ * Painted under the key art where it fails to load. Only guessed art needs one;
+ * every layer is downloaded, so art the catalog vouched for gets none.
+ */
+export const gameArtFallbacks = (game: Game): string[] => (game.media ? [] : [headerUrl(game.appid)]);
 
-/** The trailer to play for a game, if it has one. */
-export const gameTrailer = (game: Game): string | null =>
-  game.trailer ?? (game.video ? trailerUrl(game.video) : null);
+/**
+ * The full trailer, for the hero and the game screen, as encodings in order of
+ * preference: HLS where the browser plays it, then the short clip, then the
+ * hand-authored nine's own trailer. The <video> picks the first it can play.
+ */
+export function gameTrailer(game: Game): VideoSource[] {
+  const sources: VideoSource[] = [];
+  if (game.media?.trailer) sources.push({ src: game.media.trailer, type: "application/vnd.apple.mpegurl" });
+  if (game.media?.preview) sources.push({ src: game.media.preview, type: "video/mp4" });
+  if (game.video) sources.push({ src: trailerUrl(game.video), type: "video/webm" });
+  return sources;
+}
+
+/** The short clip for a hovered tile: quick to start, plays in every browser. */
+export const gamePreview = (game: Game): VideoSource[] =>
+  game.media?.preview ? [{ src: game.media.preview, type: "video/mp4" }] : gameTrailer(game);

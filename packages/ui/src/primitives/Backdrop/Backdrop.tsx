@@ -1,17 +1,17 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
 import { useMotion } from "../../lib/motion";
-import { Trailer } from "../Trailer";
+import { Trailer, type VideoSource } from "../Trailer";
 import "./Backdrop.css";
 
 export type Scrim = "pocket" | "bottom" | "top" | "noise";
 
 type Props = HTMLAttributes<HTMLDivElement> & {
   image: string;
-  /** Painted under `image`, so it shows wherever `image` fails to load. */
-  fallback?: string;
-  /** Plays over the still when motion is on. */
-  video?: string | null;
+  /** Painted under `image`, in order, so each shows wherever the ones above fail to load. */
+  fallback?: string | readonly string[];
+  /** Plays over the still when motion is on: one URL, or encodings in order of preference. */
+  video?: string | readonly VideoSource[] | null;
   /** Focus point for both still and video, e.g. "30% 40%". */
   position?: string;
   /** Layers that keep type legible over any frame, painted in this order. */
@@ -27,16 +27,18 @@ type Props = HTMLAttributes<HTMLDivElement> & {
  */
 export function Backdrop({ image, fallback, video, position, scrims = [], motion, className, ...rest }: Props) {
   const allowed = useMotion();
-  const play = Boolean(video) && (motion ?? allowed);
+  const play = Boolean(video && video.length) && (motion ?? allowed);
+  // A new set of sources needs a new <video>: changing <source> children alone does not reload it.
+  const videoKey = typeof video === "string" ? video : video?.map((s) => s.src).join(" ");
   const place: CSSProperties = position ? { objectPosition: position, backgroundPosition: position } : {};
   return (
     <div className={cx("backdrop", className)} {...rest}>
       {play ? (
-        <Trailer className="backdrop-media" src={video!} poster={image} style={place} />
+        <Trailer key={videoKey} className="backdrop-media" src={video!} poster={image} style={place} />
       ) : (
         <div
           className="backdrop-media backdrop-still"
-          style={{ backgroundImage: fallback ? `url(${image}), url(${fallback})` : `url(${image})`, ...place }}
+          style={{ backgroundImage: [image].concat(fallback ?? []).map((src) => `url(${src})`).join(", "), ...place }}
         />
       )}
       {scrims.map((scrim) => (

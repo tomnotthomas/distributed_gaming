@@ -106,3 +106,48 @@
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-8); }
 .profile-fine { margin: 0; font-size: var(--text-12); color: var(--color-neutral-500); }
 .device-row { display: flex; gap: var(--space-2); }
+
+/* — big displays —
+   The prototype's two tiers. display.ts decides which one applies and puts it
+   on <html data-display>; this file only sets the size variables components
+   expose. From "wide" the game screen grows; on "ultra" the wall is Mosaic's
+   sideways strip and every screen scales up again. */
+:root:is([data-display="wide"], [data-display="ultra"]) {
+  .menu {
+    --pocket-shape: ellipse 34vw 75% at 14vw 50%; --pocket-from: 80%; --pocket-mid: 35%;
+    --hero-xl-max: min(1100px, 56vw);
+    --hero-xl-title: clamp(96px, min(10vw, 22vh), 180px); --hero-xl-title-lh: .86;
+    --hero-xl-meta: clamp(14px, .9vw, 17px); --hero-xl-meta-lh: 1.4; --hero-xl-meta-gap: clamp(12px, 2vh, 24px);
+    --hero-xl-body: clamp(20px, 1.4vw, 28px); --hero-xl-body-max: 30ch;
+    --btn-xl-height: clamp(60px, 4.4vw, 80px); --btn-xl-padding: 0 clamp(36px, 2.8vw, 56px); --btn-xl-size: 20px;
+  }
+  .menu-hero { justify-content: center; padding-bottom: 2vh; padding-left: 5vw; max-width: none; }
+  .menu-launch { margin-top: clamp(24px, 4vh, 48px); gap: 12px; }
+  .menu-sub {
+    font-size: 17px; line-height: 24px; gap: var(--space-8);
+    --meter-label-size: 14px; --meter-seg-w: 22px; --meter-seg-h: 6px; --meter-gap: 4px;
+  }
+  .selector-cards { --meter-label-size: 14px; --meter-seg-w: 20px; --meter-seg-h: 5px; }
+}
+
+/* At 2200px and up the prototype's fluid values have all reached their caps,
+   so they are plain numbers here. */
+:root[data-display="ultra"] {
+  /* The strip fills what is left under the header; the page does not scroll. */
+  .wall-main { overflow: hidden; }
+  .menu {
+    --pocket-shape: ellipse 30vw 70% at 12vw 58%; --pocket-from: 78%; --pocket-mid: 30%;
+    --hero-xl-max: 900px; --hero-xl-meta: 20px; --hero-xl-body: 22px;
+    --btn-xl-height: 76px; --btn-xl-padding: 0 2.4vw; --btn-xl-size: 26px;
+  }
+  .menu-hero, .selector { padding-inline: 6vw; }
+  .menu-sub { font-size: 16px; }
+  .selector-cards {
+    gap: 14px;
+    --machine-min-h: clamp(104px, 9vh, 140px); --machine-rec-min-h: clamp(128px, 11vh, 168px);
+  }
+  .ignition { --ring-size: 160px; --ring-label-size: 28px; }
+  .session { font-size: 20px; }
+  .hud-stats { --tag-size: 16px; }
+  .hud-clock { font-size: 30px; }
+}

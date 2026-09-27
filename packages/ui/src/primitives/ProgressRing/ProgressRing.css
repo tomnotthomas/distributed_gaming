@@ -1,5 +1,5 @@
 @property --swiff-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
-.ring { position: relative; flex: none; }
+.ring { position: relative; flex: none; width: var(--ring-size, 120px); height: var(--ring-size, 120px); }
 .ring-arc {
   position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(var(--color-accent) var(--swiff-a),
@@ -12,6 +12,6 @@
 }
 .ring-label {
   position: absolute; inset: 0; display: grid; place-items: center;
-  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-22);
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--ring-label-size, var(--text-22));
   font-variant-numeric: tabular-nums;
 }

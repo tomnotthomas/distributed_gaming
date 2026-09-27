@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, EmptyState, Hero, Mosaic, StatusDot, SteamButton, Tag, Tile } from "@swiff/ui";
 import type { Game } from "./data";
+import { useDisplay } from "./display";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
-import { STEAM_LOGIN_URL, gameArt, gameHeader, gameTrailer } from "./steam";
+import { STEAM_LOGIN_URL, gameArt, gameArtFallbacks, gamePreview, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /** Seven tiles fill the grid exactly: one hero, two wide, four small. */
@@ -46,12 +47,13 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
   const freeMachines = Object.values(pool).filter((m) => !m.busy && !m.self).length;
   const previewId = usePreview(swiff.hoverId);
+  const display = useDisplay();
 
   if (!anythingFree) return <WallEmpty />;
 
   return (
     <main className="wall-main" data-testid="wall">
-      <Mosaic>
+      <Mosaic layout={display === "ultra" ? "horizontal" : "grid"}>
         {wall.map((game, index) => (
           <WallTile
             key={game.id}
@@ -106,13 +108,13 @@ function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }
   return (
     <Tile
       title={game.title}
-      art={gameArt(game)}
-      fallbackArt={gameHeader(game)}
+      art={gameArt(game, size === "hero" ? 2 : 1)}
+      fallbackArt={gameArtFallbacks(game)}
       size={size}
       // The hero always moves; a smaller tile only once it is being looked at,
       // as in the prototype. Unplayable games stay still. The motion setting
       // itself is MotionContext's job.
-      video={playable && (size === "hero" || preview) ? gameTrailer(game) : null}
+      video={!playable ? null : size === "hero" ? gameTrailer(game) : preview ? gamePreview(game) : null}
       sub={size === "hero" ? undefined : sub}
       badge={!libraryConnected && game.f2p && size !== "hero" ? <Tag tone="accent">Free</Tag> : null}
       dim={!playable || (!libraryConnected && !game.f2p)}

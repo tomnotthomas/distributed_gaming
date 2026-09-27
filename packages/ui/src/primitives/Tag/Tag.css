@@ -1,7 +1,8 @@
 .tag {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; border-radius: 999px;
-  font-size: var(--text-12); line-height: var(--lh-16);
+  /* --tag-size scales the whole pill; padding follows the type. */
+  padding: .42em 1em; border-radius: 999px;
+  font-size: var(--tag-size, var(--text-12)); line-height: var(--lh-tight);
   font-variant-numeric: tabular-nums;
   background: var(--glass); border: 1px solid var(--glass-edge); color: var(--color-text-2);
 }
