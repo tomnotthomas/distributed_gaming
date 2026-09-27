@@ -13,8 +13,8 @@ const CARD_SCRIMS = ["bottom"] as const;
 type Props = {
   title: string;
   art: string;
-  /** Shown where `art` fails to load — older games have no library art. */
-  fallbackArt?: string;
+  /** Shown, in order, where `art` fails to load — not every game has every size. */
+  fallbackArt?: string | readonly string[];
   /** Spans 4×2, 2×1 and 1×1 of a Mosaic, through data-span. */
   size?: Size;
   /** A muted, looping trailer. Null keeps the still — the motion setting is off. */

@@ -2,7 +2,7 @@
 // fragment (see server/src/steam.ts); this reads it once, then clears it so a
 // refresh or a shared link does not carry someone's library around.
 
-import { GAMES, artUrl, headerUrl, trailerUrl, type Game } from "./data";
+import { GAMES, artUrl, headerUrl, trailerUrl, type Game, type GameMedia } from "./data";
 
 export type SteamProfile = {
   id: string;
@@ -95,14 +95,22 @@ const libraryCard = (appid: number, name: string, hours: number, pool: string[])
     fromLibrary: true,
   });
 
-/** One of Steam's most played games, as the server's catalog describes it. */
+/** A game as the server's catalog describes it (server/src/catalog.ts). */
 export type CatalogGame = {
   appid: number;
   name: string;
   free: boolean;
+  art: { hero: string | null; capsule: string | null; header: string | null };
+  preview: string | null;
   trailer: string | null;
-  header: string | null;
 };
+
+const mediaOf = (game: CatalogGame): GameMedia => ({
+  hero: game.art.hero ?? undefined,
+  capsule: game.art.capsule ?? game.art.header ?? undefined,
+  preview: game.preview ?? undefined,
+  trailer: game.trailer ?? undefined,
+});
 
 /**
  * The signed-out wall: Steam's most played games, in chart order. Free-to-play
@@ -117,24 +125,15 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
       owned: game.free,
       f2p: game.free,
       save: game.free ? "Steam cloud save" : "New game",
-      trailer: game.trailer ?? undefined,
-      header: game.header ?? undefined,
+      media: mediaOf(game),
       popularRank: index + 1,
     }),
   );
 
-/**
- * Put the catalog's media onto games: a trailer where the game has none yet
- * (the curated nine keep their own), and the real header image.
- */
+/** Put the catalog's art and trailers onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
-  const media = new Map(catalog.map((g) => [g.appid, g]));
-  return games.map((game) => {
-    const found = media.get(game.appid);
-    if (!found) return game;
-    const trailer = game.trailer ?? (game.video ? undefined : found.trailer ?? undefined);
-    return { ...game, trailer, header: found.header ?? game.header };
-  });
+  const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));
+  return games.map((game) => (media.has(game.appid) ? { ...game, media: media.get(game.appid) } : game));
 }
 
 /**
@@ -157,12 +156,30 @@ export function applySteam(profile: SteamProfile, sharedMachineIds: string[]): G
   return [...curated, ...extra];
 }
 
-/** Steam art for any appid, curated, popular or from the library. */
-export const gameArt = (game: Game) => artUrl(game.appid);
+/** Steam art for any game: the catalog's exact file, else the guessable 2x key art. */
+export const gameArt = (game: Game) => game.media?.hero ?? artUrl(game.appid);
 
-/** Fallback art: the store header at its real URL when known, else the guessable one. */
-export const gameHeader = (game: Game) => game.header ?? headerUrl(game.appid);
+/**
+ * What to paint under the key art, in order, for games that lack it: the 1x key
+ * art (older games have no 2x), then the store capsule or header.
+ */
+export const gameArtFallbacks = (game: Game): string[] => [
+  artUrl(game.appid, 1),
+  game.media?.capsule ?? headerUrl(game.appid),
+];
 
-/** The trailer to play for a game, if it has one. */
+/** Chrome and Safari play HLS in a plain <video>; Firefox does not. */
+const playsHls = () =>
+  typeof document !== "undefined" && document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "";
+
+/**
+ * The full trailer, for the hero and the game screen: HLS where the browser
+ * plays it, else the short clip, else the hand-authored nine's own trailer.
+ */
 export const gameTrailer = (game: Game): string | null =>
-  game.trailer ?? (game.video ? trailerUrl(game.video) : null);
+  (playsHls() ? game.media?.trailer : undefined) ??
+  game.media?.preview ??
+  (game.video ? trailerUrl(game.video) : null);
+
+/** The short clip for a hovered tile: quick to start, plays in every browser. */
+export const gamePreview = (game: Game): string | null => game.media?.preview ?? gameTrailer(game);

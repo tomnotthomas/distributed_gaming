@@ -24,14 +24,23 @@ export type Game = {
   last?: string;
   /** Steam store trailer id, for the hand-authored nine. */
   video?: number;
-  /** A resolved trailer URL (.webm or HLS) from the server's catalog. Wins over `video`. */
-  trailer?: string;
-  /** The store header at its real URL, for games whose art is not at the guessable path. */
-  header?: string;
+  /** Media from the server's catalog, at the exact URLs Steam gives. Wins over the guessable ones. */
+  media?: GameMedia;
   /** Generated from the player's real library rather than hand-authored. */
   fromLibrary?: boolean;
   /** On the wall because it is among Steam's most played games right now. */
   popularRank?: number;
+};
+
+export type GameMedia = {
+  /** Wide key art, 2x where Steam has it. */
+  hero?: string;
+  /** The store capsule or header, for games without key art. */
+  capsule?: string;
+  /** An ~8 s .mp4 clip for hover previews. */
+  preview?: string;
+  /** The full highlight trailer as HLS. */
+  trailer?: string;
 };
 
 export type Machine = {
@@ -81,8 +90,9 @@ export const IGNITION_STEPS = ["Waking machine", "Syncing your save", "Negotiati
 
 const STEAM_ART = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 
-/** The wide, logo-free key art every game ships for its Steam library page. */
-export const artUrl = (appid: number) => `${STEAM_ART}/${appid}/library_hero.jpg`;
+/** The wide, logo-free key art every game ships for its Steam library page, at 1x or 2x (3840 wide). */
+export const artUrl = (appid: number, scale: 1 | 2 = 2) =>
+  `${STEAM_ART}/${appid}/${scale === 2 ? "library_hero_2x" : "library_hero"}.jpg`;
 
 /** The store header. Older games without library art still have one. */
 export const headerUrl = (appid: number) => `${STEAM_ART}/${appid}/header.jpg`;

@@ -8,8 +8,8 @@ export type Scrim = "pocket" | "bottom" | "top" | "noise";
 
 type Props = HTMLAttributes<HTMLDivElement> & {
   image: string;
-  /** Painted under `image`, so it shows wherever `image` fails to load. */
-  fallback?: string;
+  /** Painted under `image`, in order, so each shows wherever the ones above fail to load. */
+  fallback?: string | readonly string[];
   /** Plays over the still when motion is on. */
   video?: string | null;
   /** Focus point for both still and video, e.g. "30% 40%". */
@@ -36,7 +36,7 @@ export function Backdrop({ image, fallback, video, position, scrims = [], motion
       ) : (
         <div
           className="backdrop-media backdrop-still"
-          style={{ backgroundImage: fallback ? `url(${image}), url(${fallback})` : `url(${image})`, ...place }}
+          style={{ backgroundImage: [image, ...[fallback ?? []].flat()].map((src) => `url(${src})`).join(", "), ...place }}
         />
       )}
       {scrims.map((scrim) => (

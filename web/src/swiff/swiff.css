@@ -106,3 +106,41 @@
 .profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-8); }
 .profile-fine { margin: 0; font-size: var(--text-12); color: var(--color-neutral-500); }
 .device-row { display: flex; gap: var(--space-2); }
+
+/* — big displays —
+   The prototype's two tiers. From 1800px (or anything wider than 2:1) the game
+   screen grows; from 2200px the wall turns into a sideways strip (Mosaic's
+   horizontal layout) and every screen scales up again. Components grow through
+   their own size variables; this file only sets them. */
+@media (min-width: 1800px), (min-aspect-ratio: 2/1) {
+  .menu {
+    --pocket-shape: ellipse 34vw 75% at 14vw 50%; --pocket-from: 80%; --pocket-mid: 35%;
+  }
+  .menu-hero { justify-content: center; padding-bottom: 2vh; padding-left: 5vw; max-width: none; }
+  .menu-launch { margin-top: clamp(24px, 4vh, 48px); gap: 12px; }
+  .menu-sub {
+    font-size: 17px; line-height: 24px; gap: var(--space-8);
+    --meter-label-size: 14px; --meter-seg-w: 22px; --meter-seg-h: 6px; --meter-gap: 4px;
+  }
+  .selector-cards { --meter-label-size: 14px; --meter-seg-w: 20px; --meter-seg-h: 5px; }
+}
+
+@media (min-width: 2200px) {
+  /* The strip is exactly as tall as the space under the header. */
+  .wall-main {
+    overflow: hidden; padding-bottom: var(--space-4);
+    --mosaic-strip-height: calc(100vh - 60px - var(--space-4) * 3 - 16px);
+  }
+  .menu {
+    --pocket-shape: ellipse 30vw 70% at 12vw 58%; --pocket-from: 78%; --pocket-mid: 30%;
+  }
+  .menu-hero, .selector { padding-left: 6vw; padding-right: 6vw; }
+  .menu-sub { font-size: clamp(12px, .8vw, 16px); }
+  .selector-cards { gap: 14px; }
+  .selector-cards > .machine { min-height: clamp(104px, 9vh, 140px); }
+  .selector-cards > .machine-rec { min-height: clamp(128px, 11vh, 168px); }
+  .overlay-stack { --ring-size: 160px; --ring-label-size: 28px; }
+  .session .topbar { font-size: clamp(14px, 1vw, 20px); }
+  .hud-stats { --tag-size: clamp(11px, .8vw, 16px); }
+  .hud-clock { font-size: clamp(20px, 1.4vw, 30px); }
+}

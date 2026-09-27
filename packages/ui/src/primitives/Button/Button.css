@@ -38,4 +38,11 @@
 .btn-sm { min-height: 32px; padding: 0 var(--space-4); font-size: var(--text-12); }
 .btn-lg { min-height: 54px; padding: 0 var(--space-12); font-size: var(--text-17); }
 .btn-xl { min-height: 60px; padding: 0 28px 0 32px; font-size: var(--text-17); }
+/* The launch size grows with a big display, as in the prototype. */
+@media (min-width: 1800px), (min-aspect-ratio: 2/1) {
+  .btn-xl { min-height: clamp(60px, 4.4vw, 80px); padding: 0 clamp(36px, 2.8vw, 56px); font-size: 20px; }
+}
+@media (min-width: 2200px) {
+  .btn-xl { min-height: clamp(56px, 4.2vw, 76px); padding: 0 2.4vw; font-size: clamp(19px, 1.3vw, 26px); }
+}
 .btn-glow { box-shadow: var(--glass-hi), 0 0 32px color-mix(in srgb, var(--color-accent) 35%, transparent); }

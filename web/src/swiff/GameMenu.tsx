@@ -1,6 +1,6 @@
 import { Backdrop, Button, Hero, HoldButton, Icon, MachineCard, Meter, SplitButton, Tag } from "@swiff/ui";
 import { feel, fmtLeft, lasts, meters, minsLeft, reason } from "./derive";
-import { gameArt, gameHeader, gameTrailer } from "./steam";
+import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /** One game, full bleed, with the machines that can run it along the bottom. */
@@ -17,7 +17,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
       <Backdrop
         key={game.id}
         image={gameArt(game)}
-        fallback={gameHeader(game)}
+        fallback={gameArtFallbacks(game)}
         video={gameTrailer(game)}
         position={game.focus}
         scrims={["pocket", "bottom"]}
