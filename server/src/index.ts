@@ -30,7 +30,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
-import { turnServersFromEnv } from "./ice.js";
+import { createIceSource } from "./ice.js";
 import { isRelayed, type SignalMessage } from "./protocol.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
@@ -38,9 +38,13 @@ import { loginUrl, originFrom, returnUrl } from "./steam.js";
 const PORT = Number(process.env.PORT ?? 8080);
 
 // Sent to both peers on register/join. Omitted entirely when unset, so a
-// server with no TURN behaves exactly as before.
-const TURN_SERVERS = turnServersFromEnv(process.env);
-const iceServers = TURN_SERVERS.length ? { iceServers: TURN_SERVERS } : {};
+// server with no TURN behaves exactly as before. Read per message rather than
+// captured once: credentials are re-minted while the process runs.
+const ice = createIceSource(process.env);
+const iceServers = () => {
+  const servers = ice.servers();
+  return servers.length ? { iceServers: servers } : {};
+};
 
 // Resolved from the COMPILED location: server/dist/index.js -> web/dist/
 const STATIC_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -221,7 +225,7 @@ wss.on("connection", (socket) => {
         ws.hostId = msg.hostId;
         ws.role = "host";
         room.host = ws;
-        send(ws, { type: "registered", hostId: msg.hostId, ...iceServers });
+        send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
         // A client that arrived first is still waiting; tell the host now.
         if (room.client) send(ws, { type: "peer-joined" });
         return;
@@ -234,7 +238,7 @@ wss.on("connection", (socket) => {
         ws.hostId = msg.hostId;
         ws.role = "client";
         room.client = ws;
-        send(ws, { type: "joined", hostId: msg.hostId, hostOnline: Boolean(room.host), ...iceServers });
+        send(ws, { type: "joined", hostId: msg.hostId, hostOnline: Boolean(room.host), ...iceServers() });
         send(room.host, { type: "peer-joined" });
         return;
       }
@@ -286,3 +290,8 @@ server.listen(PORT, () => {
   // Warm the catalog so the first visitor's wall does not wait on Steam.
   void popularGames();
 });
+
+// Not awaited before listening: minting talks to a third party, and the LAN
+// case needs no relay at all. Peers that register before the first credential
+// lands simply get none, exactly as they would with no TURN configured.
+void ice.start();

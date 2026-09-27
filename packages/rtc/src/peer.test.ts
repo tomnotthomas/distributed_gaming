@@ -25,10 +25,25 @@ function pcWithStats(reports: Record<string, unknown>[]) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+/**
+ * Stub `RTCPeerConnection` and hand back the constructor spy.
+ *
+ * The instance records its listeners, because `createPeerConnection` subscribes
+ * to `icecandidateerror` and a test needs to be able to fire it.
+ */
+function stubPeerConnection() {
+  const listeners = new Map<string, (event: unknown) => void>();
+  const spy = vi.fn(function (this: Record<string, unknown>, _config: RTCConfiguration) {
+    this.addEventListener = (type: string, fn: (event: unknown) => void) =>
+      listeners.set(type, fn);
+  });
+  vi.stubGlobal("RTCPeerConnection", spy);
+  return { spy, fire: (type: string, event: unknown) => listeners.get(type)?.(event) };
+}
+
 describe("createPeerConnection", () => {
-  it("falls back to the default STUN server", () => {
-    const spy = vi.fn();
-    vi.stubGlobal("RTCPeerConnection", spy);
+  it("falls back to the default STUN servers", () => {
+    const { spy } = stubPeerConnection();
 
     createPeerConnection();
 
@@ -36,9 +51,17 @@ describe("createPeerConnection", () => {
     expect(spy.mock.calls[0][0].iceServers).toEqual(DEFAULT_ICE_SERVERS);
   });
 
+  // The whole point of the default list: one name failing to resolve must not
+  // cost every srflx candidate, and two entries on one domain share a lookup.
+  it("defaults to STUN on more than one operator", () => {
+    const urls = DEFAULT_ICE_SERVERS.flatMap((server) => [server.urls].flat());
+
+    expect(urls.length).toBeGreaterThan(1);
+    expect(urls.some((url) => !url.includes("google.com"))).toBe(true);
+  });
+
   it("passes caller-supplied ICE servers through", () => {
-    const spy = vi.fn();
-    vi.stubGlobal("RTCPeerConnection", spy);
+    const { spy } = stubPeerConnection();
     const iceServers = [{ urls: "turn:example:3478", username: "u", credential: "p" }];
 
     createPeerConnection({ iceServers });
@@ -47,14 +70,69 @@ describe("createPeerConnection", () => {
   });
 
   it("leaves the transport policy open unless relay is forced", () => {
-    const spy = vi.fn();
-    vi.stubGlobal("RTCPeerConnection", spy);
+    const { spy } = stubPeerConnection();
 
     createPeerConnection();
     expect(spy.mock.calls[0][0].iceTransportPolicy).toBe("all");
 
     createPeerConnection({ forceRelay: true });
     expect(spy.mock.calls[1][0].iceTransportPolicy).toBe("relay");
+  });
+
+  // Gathering nothing but LAN addresses means this peer cannot be reached from
+  // anywhere else. It used to happen in total silence, and on one network it
+  // still connects, so nobody finds out until a renter somewhere else cannot.
+  it("warns when gathering finishes with no route off the local network", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { spy, fire } = stubPeerConnection();
+
+    createPeerConnection();
+    fire("icecandidateerror", {
+      url: "stun:stun.l.google.com:19302",
+      errorCode: 701,
+      errorText: "STUN host lookup received error",
+    });
+    fire("icecandidate", { candidate: { type: "host" } });
+    spy.mock.instances[0].iceGatheringState = "complete";
+    fire("icegatheringstatechange", {});
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0].join(" ")).toContain("only reachable on its own network");
+    expect(warn.mock.calls[0].join(" ")).toContain("stun.l.google.com");
+    warn.mockRestore();
+  });
+
+  // The noisy case this deliberately stays quiet for: a 701 per address family
+  // is normal, and srflx still came back. Warning here would train people to
+  // ignore the warning that matters.
+  it("stays silent when a server errored but a srflx candidate still arrived", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { spy, fire } = stubPeerConnection();
+
+    createPeerConnection();
+    fire("icecandidateerror", {
+      url: "stun:stun.l.google.com:19302",
+      errorCode: 701,
+      errorText: "STUN host lookup received error",
+    });
+    fire("icecandidate", { candidate: { type: "srflx" } });
+    spy.mock.instances[0].iceGatheringState = "complete";
+    fire("icegatheringstatechange", {});
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("says nothing until gathering is actually complete", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { spy, fire } = stubPeerConnection();
+
+    createPeerConnection();
+    spy.mock.instances[0].iceGatheringState = "gathering";
+    fire("icegatheringstatechange", {});
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
