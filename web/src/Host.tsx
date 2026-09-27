@@ -25,7 +25,10 @@ export function Host() {
     try {
       // Chrome IGNORES width/height/frameRate passed in here, so the returned
       // track is whatever the monitor is. Downscale afterwards.
-      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      // Audio is offered, not required: Chrome only includes it if the owner
+      // ticks "Share system audio" in the picker, and the session is fine
+      // without it.
+      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       const [track] = captured.getVideoTracks();
       await track.applyConstraints({
         width: DEFAULT_CAPTURE.width,

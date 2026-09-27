@@ -5,6 +5,7 @@
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► offer ──► answer
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
+import { DEFAULT_AUDIO_BITRATE, withStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
 
@@ -12,13 +13,39 @@ export type CaptureSettings = {
   width: number;
   frameRate: number;
   maxBitrate: number;
+  /** Opus ceiling. Only used when the capture actually carries sound. */
+  audioBitrate: number;
 };
 
 export const DEFAULT_CAPTURE: CaptureSettings = {
   width: 1920,
   frameRate: 60,
   maxBitrate: 10_000_000,
+  audioBitrate: DEFAULT_AUDIO_BITRATE,
 };
+
+/**
+ * Apply a description, preferring the stereo-tuned version of it.
+ *
+ * Editing SDP that `createOffer` produced is discouraged, and for Opus stereo
+ * it is also the only option. A browser that refuses the edit should cost the
+ * session its second audio channel, never the session itself — so the
+ * untouched description is applied instead and the reason is said out loud.
+ */
+async function setLocalDescription(
+  pc: RTCPeerConnection,
+  description: RTCSessionDescriptionInit,
+  hasAudio: boolean,
+  bitrate: number,
+): Promise<void> {
+  if (!hasAudio) return pc.setLocalDescription(description);
+  try {
+    await pc.setLocalDescription(withStereoOpus(description, bitrate));
+  } catch (cause) {
+    console.warn("[swiff] stereo Opus was rejected; falling back to mono", cause);
+    await pc.setLocalDescription(description);
+  }
+}
 
 export type HostSessionOptions = IceConfig & {
   url: string;
@@ -67,9 +94,15 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     params.encodings[0].maxBitrate = capture.maxBitrate; // else estimation saturates the link
     await sender.setParameters(params);
 
+    // Audio is its own sender. The tuning above is video-only: applying a
+    // resolution preference or a 10 Mbit ceiling to an audio track quietly
+    // does nothing, and reading it back later suggests it did something.
+    const [audio] = opts.stream.getAudioTracks();
+    if (audio) pc.addTrack(audio, opts.stream);
+
     const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    send({ type: "offer", sdp: offer });
+    await setLocalDescription(pc, offer, Boolean(audio), capture.audioBitrate);
+    send({ type: "offer", sdp: pc.localDescription ?? offer });
   };
 
   const signaling = connectSignaling({

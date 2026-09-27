@@ -21,6 +21,10 @@ export function Client() {
   const [note, setNote] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  // Only true when the browser refused to start audible playback. Clicking
+  // Connect is a user gesture and normally earns the right to sound, but a
+  // browser that disagrees must still show the picture.
+  const [mutedByBrowser, setMutedByBrowser] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   // Holds the host's candidates until its offer has been applied.
@@ -44,7 +48,18 @@ export function Client() {
       };
 
       connection.ontrack = (event) => {
-        if (videoRef.current) videoRef.current.srcObject = event.streams[0];
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = event.streams[0];
+          // Audio arrives as a second track on the same stream, so ontrack
+          // fires twice; starting playback again is harmless and covers the
+          // case where the audio track is the one that lands first.
+          void video.play().catch(() => {
+            video.muted = true;
+            setMutedByBrowser(true);
+            return video.play().catch(() => {});
+          });
+        }
         setPlaying(true);
         if (isPostHogEnabled) posthog.capture("client_stream_started");
         // The largest single latency win available: do not buffer for smoothness.
@@ -127,6 +142,21 @@ export function Client() {
             Disconnect
           </Button>
         )}
+
+        {playing && mutedByBrowser ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const video = videoRef.current;
+              if (!video) return;
+              video.muted = false;
+              setMutedByBrowser(false);
+              void video.play().catch(() => {});
+            }}
+          >
+            Turn sound on
+          </Button>
+        ) : null}
       </div>
 
       {error ? <Notice>{error}</Notice> : null}

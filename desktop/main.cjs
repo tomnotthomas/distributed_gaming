@@ -43,7 +43,19 @@ app.whenReady().then(() => {
     (request, callback) => {
       desktopCapturer
         .getSources({ types: ["screen"] })
-        .then((sources) => callback(sources.length ? { video: sources[0] } : {}))
+        .then((sources) => {
+          if (!sources.length) return callback({});
+          // `"loopback"` is what the machine is playing — the game — and is
+          // Windows only. Not `true`, which would be a microphone nobody is
+          // speaking into. `"loopbackWithMute"` silences the host's own
+          // speakers, which is wrong for a machine with nobody sitting at it
+          // and one more state to get stuck in.
+          callback(
+            process.platform === "win32"
+              ? { video: sources[0], audio: "loopback" }
+              : { video: sources[0] },
+          );
+        })
         .catch(() => callback({}));
     },
     { useSystemPicker: false },

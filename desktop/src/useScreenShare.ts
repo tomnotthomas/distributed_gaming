@@ -18,7 +18,11 @@ export function useScreenShare() {
     try {
       // Electron's main process answers this with the primary screen, so no
       // picker appears. The size hints are ignored, as they are in Chrome.
-      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      //
+      // Audio is asked for here and answered as Windows loopback in main.cjs.
+      // A machine that cannot produce it still shares its screen: a silent
+      // session beats no session.
+      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       const [track] = captured.getVideoTracks();
       await track.applyConstraints({
         width: DEFAULT_CAPTURE.width,
