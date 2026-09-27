@@ -28,7 +28,7 @@ and that is not something you can design around on paper.
 | Signaling server | Node + `ws`. One room. Relays offer/answer/ICE. Reads nothing. | A cheap VPS, public |
 | Host app | Electron. Captures the screen, creates the offer, injects input. | Owner's Windows PC |
 | Renter page | Vite + React. Connects, shows `<video>`, sends input. | Any browser |
-| coturn | TURN relay for the ~20% that cannot connect directly. | Same VPS |
+| TURN | Relay for the ~20% that cannot connect directly. Managed for now — see Risks. | Cloudflare |
 
 One room id, hardcoded. No database. No auth. That is correct for phase 1 and wrong the
 moment there is a second machine — see Open questions.
@@ -47,7 +47,9 @@ moment there is a second machine — see Open questions.
    This is the step that makes it a gaming product rather than a screen viewer.
 6. **Prove the internet path.** The acceptance criterion, and the step most likely to be
    skipped. See Verification.
-7. **Stand up coturn** and re-run step 6 with relay forced.
+7. **Force the relay path** and re-run step 6 with `FORCE_RELAY` on both peers. Managed TURN
+   already covers this; self-hosting coturn became a cost decision rather than a blocker —
+   see Risks.
 
 Encoder settings that fail silently if omitted:
 
@@ -69,7 +71,8 @@ work while proving nothing.** That is the trap.
 1. Tether the renter to a phone. Carrier CGNAT is symmetric NAT, a genuinely different
    network, five minutes of work. Status line must read `srflx`.
 2. `FORCE_RELAY = true` on both peers with a `getStats()` assertion that both selected
-   candidates are type `relay`. Needs coturn from step 7.
+   candidates are type `relay`. Needs TURN credentials, which the signaling server now
+   mints for itself — `server/src/ice.ts`.
 3. Play something for 30 minutes. Watch for the encoder silently degrading.
 
 Status line shows `connectionState` and the selected candidate type throughout — it is the
@@ -97,8 +100,20 @@ worth the rework — but do it knowingly, and run phase 1 on machines with nothi
 on them.
 
 **TURN cost is decided here, not later.** Self-hosted coturn on a VPS is ~€5/mo with egress
-included. Managed TURN at $0.40/GB is ~$1.80 per relayed hour, which does not survive a
-gaming workload. Stand up coturn in step 7 rather than reaching for a managed provider.
+included. This plan originally costed managed TURN at $0.40/GB — ~$1.80 per relayed hour,
+which does not survive a gaming workload — and concluded that self-hosting was the only
+option. That input price was wrong by 8×.
+
+Cloudflare Realtime TURN is $0.05/GB with the first 1,000 GB each month free. At the current
+`maxBitrate` of 10 Mbit/s a relayed hour costs roughly 4.5 GB, so the free tier covers about
+220 relayed hours a month and an hour beyond it is ~$0.23. Managed TURN is what runs today:
+`server/src/ice.ts` mints short-lived credentials from a provider key and re-mints before
+they expire.
+
+The original conclusion still holds at scale — a VPS with included egress wins once relayed
+hours are routine — but coturn is now a cost threshold to watch rather than a step to finish
+before phase 1 is done. Turn `maxBitrate` down while developing; 2 Mbit/s is watchable for a
+connectivity test and makes any tier last five times longer.
 
 **Anti-cheat titles are out of the catalogue.** They detect the virtualization that phase 2
 isolation needs — and they are also unplayable at the latency this architecture has. No
