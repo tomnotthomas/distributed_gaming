@@ -1,14 +1,34 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, EmptyState, Hero, Mosaic, StatusDot, SteamButton, Tag, Tile } from "@swiff/ui";
-import { trailerUrl, type Game } from "./data";
+import type { Game } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
-import { STEAM_LOGIN_URL, gameArt } from "./steam";
+import { STEAM_LOGIN_URL, gameArt, gameHeader, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /** Seven tiles fill the grid exactly: one hero, two wide, four small. */
 const LIMIT = 7;
 
 const sizeAt = (index: number) => (index === 0 ? "hero" : index <= 2 ? "wide" : "small");
+
+/** How long the pointer has to rest on a tile before its trailer starts. */
+const PREVIEW_DELAY_MS = 380;
+
+/**
+ * The hovered tile, once the pointer has stayed on it for a moment. Sweeping
+ * across the wall should not start (and download) a trailer per tile passed.
+ */
+function usePreview(hoverId: string | null): string | null {
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  useEffect(() => {
+    if (hoverId === null) {
+      setPreviewId(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setPreviewId(hoverId), PREVIEW_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [hoverId]);
+  return previewId;
+}
 
 export function Wall({ swiff }: { swiff: Swiff }) {
   const { games, pool, session, libraryConnected, showAll } = swiff;
@@ -25,6 +45,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
   }, [ordered, showAll, libraryConnected]);
 
   const freeMachines = Object.values(pool).filter((m) => !m.busy && !m.self).length;
+  const previewId = usePreview(swiff.hoverId);
 
   if (!anythingFree) return <WallEmpty />;
 
@@ -36,6 +57,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
             key={game.id}
             game={game}
             size={sizeAt(index)}
+            preview={previewId === game.id}
             swiff={swiff}
             freeMachines={freeMachines}
             libraryConnected={libraryConnected}
@@ -61,12 +83,14 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 type TileProps = {
   game: Game;
   size: "hero" | "wide" | "small";
+  /** The pointer has rested on this tile: play its trailer. */
+  preview: boolean;
   swiff: Swiff;
   freeMachines: number;
   libraryConnected: boolean;
 };
 
-function WallTile({ game, size, swiff, freeMachines, libraryConnected }: TileProps) {
+function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }: TileProps) {
   const { pool, session } = swiff;
   const free = freeFor(game, pool, session);
   const best = free[0];
@@ -83,9 +107,12 @@ function WallTile({ game, size, swiff, freeMachines, libraryConnected }: TilePro
     <Tile
       title={game.title}
       art={gameArt(game)}
+      fallbackArt={gameHeader(game)}
       size={size}
-      // Only playable games move; the motion setting itself is MotionContext's job.
-      video={game.video && playable ? trailerUrl(game.video) : null}
+      // The hero always moves; a smaller tile only once it is being looked at,
+      // as in the prototype. Unplayable games stay still. The motion setting
+      // itself is MotionContext's job.
+      video={playable && (size === "hero" || preview) ? gameTrailer(game) : null}
       sub={size === "hero" ? undefined : sub}
       badge={!libraryConnected && game.f2p && size !== "hero" ? <Tag tone="accent">Free</Tag> : null}
       dim={!playable || (!libraryConnected && !game.f2p)}

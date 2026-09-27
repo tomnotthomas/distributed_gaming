@@ -13,6 +13,8 @@ const CARD_SCRIMS = ["bottom"] as const;
 type Props = {
   title: string;
   art: string;
+  /** Shown where `art` fails to load — older games have no library art. */
+  fallbackArt?: string;
   /** Spans 4×2, 2×1 and 1×1 of a Mosaic, through data-span. */
   size?: Size;
   /** A muted, looping trailer. Null keeps the still — the motion setting is off. */
@@ -32,10 +34,22 @@ type Props = {
  * One game on the live wall: a Backdrop with its scrim, a badge and a caption. The
  * caption is inside the button so the whole tile is one hit target.
  */
-export function Tile({ title, art, size = "small", video, sub, badge, dim, onOpen, onHoverChange, children }: Props) {
+export function Tile({
+  title,
+  art,
+  fallbackArt,
+  size = "small",
+  video,
+  sub,
+  badge,
+  dim,
+  onOpen,
+  onHoverChange,
+  children,
+}: Props) {
   const layers = (
     <>
-      <Backdrop image={art} video={video} scrims={size === "hero" ? HERO_SCRIMS : CARD_SCRIMS} />
+      <Backdrop image={art} fallback={fallbackArt} video={video} scrims={size === "hero" ? HERO_SCRIMS : CARD_SCRIMS} />
       {badge ? <span className="tile-badge">{badge}</span> : null}
     </>
   );

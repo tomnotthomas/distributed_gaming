@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
 import { freeFor, machinesFor } from "./derive";
-import { applySteam, readSteamFragment, type SteamProfile } from "./steam";
+import { fetchMedia, fetchPopular } from "./catalog";
+import { applySteam, popularCards, readSteamFragment, withMedia, type SteamProfile } from "./steam";
 
 export type Screen = "home" | "game" | "profile";
 export type Phase = "idle" | "connecting" | "live";
@@ -71,16 +72,36 @@ export function useSwiff() {
 
   // --- Steam sign-in ---------------------------------------------------------
 
+  // The game open right now, so a late catalog answer never swaps it out from
+  // under the player.
+  const openGameId = useRef(gameId);
+  openGameId.current = gameId;
+
   useEffect(() => {
     const result = readSteamFragment();
-    if (result === null) return;
-    if (result === "denied") {
-      setSteamDenied(true);
-      track("steam_sign_in_denied");
+    if (result === null || result === "denied") {
+      if (result === "denied") {
+        setSteamDenied(true);
+        track("steam_sign_in_denied");
+      }
+      // Signed out: lead with what people are actually playing on Steam. Until
+      // it arrives, or if Steam is down, the hand-authored nine stay up.
+      void fetchPopular().then((catalog) => {
+        if (!catalog.length) return;
+        const cards = popularCards(catalog, sharedMachineIds);
+        setGames((prev) => {
+          const open = prev.find((g) => g.id === openGameId.current);
+          return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;
+        });
+      });
       return;
     }
     setProfile(result);
-    setGames(applySteam(result, sharedMachineIds));
+    const library = applySteam(result, sharedMachineIds);
+    setGames(library);
+    // Every card asks the catalog for its real header image; the ones without
+    // a curated trailer get theirs from there too.
+    void fetchMedia(library.map((g) => g.appid)).then((catalog) => setGames((prev) => withMedia(prev, catalog)));
     track("library_matched", {
       owned_here: result.owned.length,
       library_rendered: result.games.length,

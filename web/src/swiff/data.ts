@@ -22,10 +22,16 @@ export type Game = {
   machines: string[];
   f2p?: boolean;
   last?: string;
-  /** Steam store trailer id. */
+  /** Steam store trailer id, for the hand-authored nine. */
   video?: number;
+  /** A resolved trailer URL (.webm or HLS) from the server's catalog. Wins over `video`. */
+  trailer?: string;
+  /** The store header at its real URL, for games whose art is not at the guessable path. */
+  header?: string;
   /** Generated from the player's real library rather than hand-authored. */
   fromLibrary?: boolean;
+  /** On the wall because it is among Steam's most played games right now. */
+  popularRank?: number;
 };
 
 export type Machine = {
@@ -73,8 +79,13 @@ export const MACHINES: Record<string, Machine> = {
 /** The four things that happen between pressing Launch and seeing a frame. */
 export const IGNITION_STEPS = ["Waking machine", "Syncing your save", "Negotiating stream", "Launching game"];
 
-export const artUrl = (appid: number) =>
-  `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_hero.jpg`;
+const STEAM_ART = "https://cdn.cloudflare.steamstatic.com/steam/apps";
+
+/** The wide, logo-free key art every game ships for its Steam library page. */
+export const artUrl = (appid: number) => `${STEAM_ART}/${appid}/library_hero.jpg`;
+
+/** The store header. Older games without library art still have one. */
+export const headerUrl = (appid: number) => `${STEAM_ART}/${appid}/header.jpg`;
 
 export const trailerUrl = (video: number) =>
   `https://video.akamai.steamstatic.com/store_trailers/${video}/movie480_vp9.webm`;
