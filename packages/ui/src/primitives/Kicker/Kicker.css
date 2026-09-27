@@ -1,5 +1,6 @@
 .kicker {
   display: inline-flex; align-items: center; gap: 8px;
-  font-size: 11px; line-height: var(--lh-16); letter-spacing: .1em; text-transform: uppercase; font-weight: 500;
-  color: var(--tone);
+  margin: 0; font-family: var(--font-body);
+  font-size: 11px; line-height: 1; letter-spacing: .1em; text-transform: uppercase; font-weight: 500;
+  color: var(--tone-text, var(--tone));
 }

@@ -17,7 +17,8 @@ html, body { height: 100%; background: var(--color-bg); }
 /* Tone → colour, once. Components read var(--tone) instead of keeping their
    own table, so a new tone is one line here. */
 [data-tone="neutral"] { --tone: var(--color-text-3); }
-[data-tone="accent"] { --tone: var(--color-accent); }
+/* --tone-text: the shade for type on dark ground, where the base accent reads too dim. */
+[data-tone="accent"] { --tone: var(--color-accent); --tone-text: var(--color-accent-300); }
 [data-tone="live"] { --tone: var(--color-live); }
 [data-tone="time"] { --tone: var(--color-time); }
 [data-tone="danger"] { --tone: var(--color-danger); }

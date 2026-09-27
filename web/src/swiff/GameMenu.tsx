@@ -1,18 +1,12 @@
-import { HoldButton, MachineCard, Meter, Tag, Trailer } from "@swiff/ui";
+import { Backdrop, Button, Hero, HoldButton, Icon, MachineCard, Meter, SplitButton, Tag } from "@swiff/ui";
 import { trailerUrl } from "./data";
 import { feel, fmtLeft, lasts, meters, minsLeft, reason } from "./derive";
 import { gameArt } from "./steam";
 import type { Swiff } from "./useSwiff";
 
-const PLAY_ICON = (
-  <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-    <path d="M232.4 114.5 88.3 26.4a16 16 0 0 0-16.2-.3A15.9 15.9 0 0 0 64 40v176a15.9 15.9 0 0 0 8.1 13.9 16 16 0 0 0 16.2-.3l144.1-88.1a15.9 15.9 0 0 0 0-27Z" />
-  </svg>
-);
-
 /** One game, full bleed, with the machines that can run it along the bottom. */
 export function GameMenu({ swiff }: { swiff: Swiff }) {
-  const { game, machines, picked, session, motion, machinesOpen } = swiff;
+  const { game, machines, picked, session, machinesOpen } = swiff;
   if (!game) return null;
 
   const live = machines.filter((m) => !m.busy);
@@ -21,62 +15,43 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
 
   return (
     <main className="menu">
-      <div className="menu-art">
-        {motion && game.video ? (
-          <Trailer
-            key={game.id}
-            className="menu-video"
-            src={trailerUrl(game.video)}
-            poster={gameArt(game)}
-            style={{ objectPosition: game.focus }}
-          />
-        ) : (
-          <div
-            className="menu-still"
-            style={{ backgroundImage: `url(${gameArt(game)})`, backgroundPosition: game.focus }}
-          />
-        )}
-        <div className="menu-pocket" />
-        <div className="menu-fade" />
-      </div>
+      <Backdrop
+        key={game.id}
+        image={gameArt(game)}
+        video={game.video ? trailerUrl(game.video) : null}
+        position={game.focus}
+        scrims={["pocket", "bottom"]}
+      />
 
       <div className={machinesOpen ? "menu-hero" : "menu-hero menu-hero-folded"}>
-        <h1 className="menu-title">
-          {game.t1}
-          {game.t2 ? (
+        <Hero
+          size="xl"
+          enter
+          title={
             <>
-              <br />
-              {game.t2}
+              {game.t1}
+              {game.t2 ? (
+                <>
+                  <br />
+                  {game.t2}
+                </>
+              ) : null}
             </>
-          ) : null}
-        </h1>
-        <p className="menu-personal">{game.personal}</p>
-        <p className="menu-promise">{game.promise}</p>
+          }
+          meta={game.personal}
+          body={game.promise}
+        />
 
         <div className="menu-launch">
-          <div className="menu-launch-row">
-            <HoldButton icon={PLAY_ICON} disabled={!picked} onFire={swiff.launch}>
+          <SplitButton
+            expanded={machinesOpen}
+            onToggle={() => swiff.setMachinesOpen(!machinesOpen)}
+            toggleLabel="Choose a different machine"
+          >
+            <HoldButton size="xl" icon={<Icon name="play" />} disabled={!picked} onFire={swiff.launch}>
               Launch
             </HoldButton>
-            <button
-              type="button"
-              className="btn btn-primary menu-launch-more"
-              onClick={() => swiff.setMachinesOpen(!machinesOpen)}
-              aria-label="Choose a different machine"
-              aria-expanded={machinesOpen}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 256 256"
-                fill="currentColor"
-                style={{ transform: machinesOpen ? "none" : "rotate(180deg)" }}
-                aria-hidden="true"
-              >
-                <path d="M213.7 101.7l-80 80a8 8 0 0 1-11.4 0l-80-80a8 8 0 0 1 11.4-11.4L128 164.7l74.3-74.4a8 8 0 0 1 11.4 11.4Z" />
-              </svg>
-            </button>
-          </div>
+          </SplitButton>
 
           <div className="menu-sub" title={picked ? feel(picked).tech : undefined}>
             <span className="menu-sub-main">
@@ -91,9 +66,9 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
             ) : null}
           </div>
           {!machinesOpen ? (
-            <button type="button" className="linkbtn" onClick={() => swiff.setMachinesOpen(true)}>
+            <Button variant="link" onClick={() => swiff.setMachinesOpen(true)}>
               Change machine
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

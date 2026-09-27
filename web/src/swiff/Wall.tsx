@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Button, SteamButton, Tag, Tile } from "@swiff/ui";
+import { Button, EmptyState, Hero, Mosaic, StatusDot, SteamButton, Tag, Tile } from "@swiff/ui";
 import { trailerUrl, type Game } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
 import { STEAM_LOGIN_URL, gameArt } from "./steam";
@@ -11,7 +11,7 @@ const LIMIT = 7;
 const sizeAt = (index: number) => (index === 0 ? "hero" : index <= 2 ? "wide" : "small");
 
 export function Wall({ swiff }: { swiff: Swiff }) {
-  const { games, pool, session, libraryConnected, motion, showAll } = swiff;
+  const { games, pool, session, libraryConnected, showAll } = swiff;
 
   const ordered = useMemo(() => wallOrder(games, pool, session), [games, pool, session]);
   const anythingFree = ordered.some((g) => freeFor(g, pool, session).length > 0);
@@ -30,24 +30,23 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
   return (
     <main className="wall-main" data-testid="wall">
-      <section className="wall">
+      <Mosaic>
         {wall.map((game, index) => (
           <WallTile
             key={game.id}
             game={game}
             size={sizeAt(index)}
             swiff={swiff}
-            motion={motion}
             freeMachines={freeMachines}
             libraryConnected={libraryConnected}
           />
         ))}
         {!showAll && ordered.length > LIMIT ? (
-          <button type="button" className="wall-more" onClick={() => swiff.setShowAll(true)}>
+          <button type="button" className="wall-more" data-span="small" onClick={() => swiff.setShowAll(true)}>
             All {ordered.length} games →
           </button>
         ) : null}
-      </section>
+      </Mosaic>
 
       {swiff.steamDenied ? (
         <p className="wall-note">Steam sign-in was cancelled. The free-to-play wall still works.</p>
@@ -63,12 +62,11 @@ type TileProps = {
   game: Game;
   size: "hero" | "wide" | "small";
   swiff: Swiff;
-  motion: boolean;
   freeMachines: number;
   libraryConnected: boolean;
 };
 
-function WallTile({ game, size, swiff, motion, freeMachines, libraryConnected }: TileProps) {
+function WallTile({ game, size, swiff, freeMachines, libraryConnected }: TileProps) {
   const { pool, session } = swiff;
   const free = freeFor(game, pool, session);
   const best = free[0];
@@ -86,7 +84,8 @@ function WallTile({ game, size, swiff, motion, freeMachines, libraryConnected }:
       title={game.title}
       art={gameArt(game)}
       size={size}
-      video={motion && game.video && playable ? trailerUrl(game.video) : null}
+      // Only playable games move; the motion setting itself is MotionContext's job.
+      video={game.video && playable ? trailerUrl(game.video) : null}
       sub={size === "hero" ? undefined : sub}
       badge={!libraryConnected && game.f2p && size !== "hero" ? <Tag tone="accent">Free</Tag> : null}
       dim={!playable || (!libraryConnected && !game.f2p)}
@@ -107,16 +106,12 @@ function WallTile({ game, size, swiff, motion, freeMachines, libraryConnected }:
 /** The signed-in hero: what you were doing, and one button back into it. */
 function HeroResume({ game, sub, onResume }: { game: Game; sub: string; onResume: () => void }) {
   return (
-    <span className="hero">
-      <span className="hero-copy">
-        <span className="hero-personal">{game.personal}</span>
-        <span className="hero-title">{game.title}</span>
-        <span className="hero-meta">{sub}</span>
-      </span>
+    <div className="wall-hero">
+      <Hero kicker={game.personal} title={game.title} meta={sub} />
       <Button size="lg" onClick={onResume}>
         Resume
       </Button>
-    </span>
+    </div>
   );
 }
 
@@ -134,41 +129,37 @@ function HeroFirstRun({
   freeMachines: number;
 }) {
   return (
-    <span className="hero hero-first">
-      <span className="hero-copy">
-        <span className="hero-kicker">
-          <span className="live-dot" />
-          {freeMachines} machines free near you
-        </span>
-        <span className="hero-title">
-          {game.title} on a {gpu ? gpu.replace(/^(RTX|RX) /, "") : "shared PC"}.
-          <br />
-          Tonight. No download.
-        </span>
-        <span className="hero-body">
-          We read your Steam library and stream the games you own from players' idle PCs. Your saves
-          come with you.
-        </span>
-        <span className="hero-cta">
-          <SteamButton href={STEAM_LOGIN_URL} />
-          <span className="hero-fine">Signs in through Steam. We only read your game library.</span>
-        </span>
-      </span>
-    </span>
+    <div className="wall-hero">
+      <Hero
+        kicker={
+          <>
+            <StatusDot />
+            {freeMachines} machines free near you
+          </>
+        }
+        title={
+          <>
+            {game.title} on a {gpu ? gpu.replace(/^(RTX|RX) /, "") : "shared PC"}.
+            <br />
+            Tonight. No download.
+          </>
+        }
+        body="We read your Steam library and stream the games you own from players' idle PCs. Your saves come with you."
+        actions={<SteamButton href={STEAM_LOGIN_URL} />}
+        fine="Signs in through Steam. We only read your game library."
+      />
+    </div>
   );
 }
 
 function WallEmpty() {
   return (
     <main className="wall-main wall-empty" data-testid="wall">
-      <div className="empty">
-        <h2>Nothing is ready right now</h2>
-        <p>
-          Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something
-          frees up.
-        </p>
-        <Button>Notify me</Button>
-      </div>
+      <EmptyState
+        title="Nothing is ready right now"
+        body="Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
+        action={<Button>Notify me</Button>}
+      />
     </main>
   );
 }
