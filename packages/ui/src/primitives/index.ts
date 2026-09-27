@@ -34,5 +34,5 @@ export { Stepper } from "./Stepper";
 export { Surface } from "./Surface";
 export { Tag } from "./Tag";
 export { TopBar } from "./TopBar";
-export { Trailer } from "./Trailer";
+export { Trailer, type VideoSource } from "./Trailer";
 export type { Tone } from "../lib/tone";

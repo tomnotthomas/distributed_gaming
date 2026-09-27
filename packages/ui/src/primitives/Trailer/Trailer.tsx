@@ -17,7 +17,13 @@ const startAt = (video: HTMLVideoElement) =>
 const endAt = (video: HTMLVideoElement) =>
   video.duration > MIN_DURATION ? video.duration * END : video.duration;
 
-type Props = VideoHTMLAttributes<HTMLVideoElement> & { src: string };
+/** One encoding of a trailer. `type` lets the browser skip ones it cannot play without fetching them. */
+export type VideoSource = { src: string; type?: string };
+
+type Props = Omit<VideoHTMLAttributes<HTMLVideoElement>, "src"> & {
+  /** One URL, or encodings in order of preference; the browser plays the first it can. */
+  src: string | readonly VideoSource[];
+};
 
 /** A muted, looping store trailer that plays only its gameplay middle. */
 export function Trailer({ src, ...rest }: Props) {
@@ -40,13 +46,15 @@ export function Trailer({ src, ...rest }: Props) {
   return (
     <video
       {...rest}
-      src={src}
+      src={typeof src === "string" ? src : undefined}
       autoPlay
       muted
       loop
       playsInline
       onLoadedMetadata={seekToGameplay}
       onTimeUpdate={loopWithinGameplay}
-    />
+    >
+      {typeof src === "string" ? null : src.map((s) => <source key={s.src} src={s.src} type={s.type} />)}
+    </video>
   );
 }

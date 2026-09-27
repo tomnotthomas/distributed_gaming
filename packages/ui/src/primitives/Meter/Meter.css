@@ -2,7 +2,7 @@
 .meter[data-label="inline"] { flex-direction: row; align-items: center; gap: 8px; }
 /* --meter-seg-w, --meter-seg-h, --meter-gap and --meter-label-size let a screen
    scale the meter up on a big display without reaching into it. */
-.meter-label { font-size: var(--meter-label-size, var(--text-12)); line-height: 1.33; color: var(--color-neutral-500); }
+.meter-label { font-size: var(--meter-label-size, var(--text-12)); line-height: var(--lh-tight); color: var(--color-neutral-500); }
 .meter-bars { display: flex; gap: var(--meter-gap, 3px); }
 .meter-seg {
   width: var(--meter-seg-w, 14px); height: var(--meter-seg-h, 4px);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cx } from "../../lib/cx";
 import { Backdrop } from "../../primitives/Backdrop";
 import "./Tile.css";
@@ -14,11 +14,11 @@ type Props = {
   title: string;
   art: string;
   /** Shown, in order, where `art` fails to load — not every game has every size. */
-  fallbackArt?: string | readonly string[];
+  fallbackArt?: ComponentProps<typeof Backdrop>["fallback"];
   /** Spans 4×2, 2×1 and 1×1 of a Mosaic, through data-span. */
   size?: Size;
   /** A muted, looping trailer. Null keeps the still — the motion setting is off. */
-  video?: string | null;
+  video?: ComponentProps<typeof Backdrop>["video"];
   sub?: ReactNode;
   /** Sits top-left, above the scrim. Used for the free-to-play flag. */
   badge?: ReactNode;

@@ -4,6 +4,7 @@ import { Ignition } from "./Ignition";
 import { Profile } from "./Profile";
 import { Session } from "./Session";
 import { Wall } from "./Wall";
+import { useDisplay } from "./display";
 import { useSwiff } from "./useSwiff";
 
 const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as const;
@@ -11,6 +12,7 @@ const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as co
 /** Screen switch plus the shared chrome. Every screen reads one hook. */
 export function Swiff() {
   const swiff = useSwiff();
+  useDisplay();
   const { screen, phase, profile, libraryConnected, hoverId, games } = swiff;
 
   const hovered = games.find((game) => game.id === hoverId);

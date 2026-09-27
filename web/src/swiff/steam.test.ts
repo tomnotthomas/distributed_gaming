@@ -1,21 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { GAMES } from "./data";
 import { gameArt, gameArtFallbacks, gamePreview, gameTrailer, popularCards, withMedia, type CatalogGame } from "./steam";
 
-const art = (hero: string | null, capsule: string | null = null) => ({ hero, capsule, header: null });
+const HERO_2X = "https://cdn/h/library_hero_2x.jpg";
 const catalog: CatalogGame[] = [
-  { appid: 730, name: "Counter-Strike 2", free: true, art: art("https://cdn/cs_hero_2x.jpg"), preview: "https://cdn/cs.mp4", trailer: "https://cdn/cs.m3u8" },
-  { appid: 2807960, name: "Battlefield 6", free: false, art: art(null, "https://cdn/bf_capsule_2x.jpg"), preview: null, trailer: null },
+  { appid: 730, name: "Counter-Strike 2", free: true, art: { hero: HERO_2X, capsule: null }, preview: "https://cdn/cs.mp4", trailer: "https://cdn/cs.m3u8" },
+  { appid: 2807960, name: "Battlefield 6", free: false, art: { hero: null, capsule: "https://cdn/bf_capsule_2x.jpg" }, preview: null, trailer: null },
 ];
 const pool = ["glass", "ember", "tide", "moss"];
-
-/** Pretend the browser can (or cannot) play HLS in a plain <video>. */
-function hls(supported: boolean) {
-  vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation((type) =>
-    supported && type === "application/vnd.apple.mpegurl" ? "maybe" : "",
-  );
-}
-afterEach(() => vi.restoreAllMocks());
+const srcs = (list: { src: string }[]) => list.map((s) => s.src);
 
 describe("popularCards", () => {
   it("keeps chart order and says so on each card", () => {
@@ -39,50 +32,54 @@ describe("popularCards", () => {
 });
 
 describe("art", () => {
-  it("uses the catalog's exact hi-res file, else the guessable 2x key art", () => {
-    const [cs, bf] = popularCards(catalog, pool);
-    expect(gameArt(cs!)).toBe("https://cdn/cs_hero_2x.jpg");
-    expect(gameArt(bf!)).toBe("https://cdn.cloudflare.steamstatic.com/steam/apps/2807960/library_hero_2x.jpg");
+  it("uses the catalog's exact file: 2x full-bleed, the 1x beside it for tiles", () => {
+    const [cs] = popularCards(catalog, pool);
+    expect(gameArt(cs!)).toBe(HERO_2X);
+    expect(gameArt(cs!, 1)).toBe("https://cdn/h/library_hero.jpg");
   });
 
-  it("falls back to the 1x key art, then the capsule", () => {
+  it("uses the capsule for a catalog game without key art", () => {
     const [, bf] = popularCards(catalog, pool);
-    expect(gameArtFallbacks(bf!)).toEqual([
-      "https://cdn.cloudflare.steamstatic.com/steam/apps/2807960/library_hero.jpg",
-      "https://cdn/bf_capsule_2x.jpg",
-    ]);
+    expect(gameArt(bf!)).toBe("https://cdn/bf_capsule_2x.jpg");
+  });
+
+  it("only gives guessed art a fallback, since every layer is downloaded", () => {
+    const [cs] = popularCards(catalog, pool);
+    const curated = GAMES[0]!;
+    expect(gameArtFallbacks(cs!)).toEqual([]);
+    expect(gameArt(curated)).toBe(`https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/library_hero_2x.jpg`);
+    expect(gameArtFallbacks(curated)).toEqual([`https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/header.jpg`]);
   });
 });
 
 describe("trailers", () => {
-  it("plays the full HLS trailer where the browser can, else the short clip", () => {
+  it("offers the full trailer as HLS first, then the clip, each typed so the browser can skip what it cannot play", () => {
     const [cs] = popularCards(catalog, pool);
-    hls(true);
-    expect(gameTrailer(cs!)).toBe("https://cdn/cs.m3u8");
-    hls(false);
-    expect(gameTrailer(cs!)).toBe("https://cdn/cs.mp4");
+    expect(gameTrailer(cs!)).toEqual([
+      { src: "https://cdn/cs.m3u8", type: "application/vnd.apple.mpegurl" },
+      { src: "https://cdn/cs.mp4", type: "video/mp4" },
+    ]);
   });
 
-  it("previews a hovered tile with the short clip, which plays everywhere", () => {
+  it("previews a hovered tile with the short clip only", () => {
     const [cs] = popularCards(catalog, pool);
-    hls(true);
-    expect(gamePreview(cs!)).toBe("https://cdn/cs.mp4");
+    expect(srcs(gamePreview(cs!))).toEqual(["https://cdn/cs.mp4"]);
   });
 
   it("has nothing to play for a game without trailers", () => {
     const [, bf] = popularCards(catalog, pool);
-    expect(gameTrailer(bf!)).toBeNull();
-    expect(gamePreview(bf!)).toBeNull();
+    expect(gameTrailer(bf!)).toEqual([]);
+    expect(gamePreview(bf!)).toEqual([]);
   });
 });
 
 describe("withMedia", () => {
-  it("gives a curated game the catalog's clip over its own .webm trailer", () => {
+  it("puts the catalog's clip ahead of a curated game's own .webm trailer", () => {
     const curated = GAMES.find((g) => g.appid === 730)!;
-    hls(false);
     const [merged] = withMedia([curated], catalog);
-    expect(gamePreview(merged!)).toBe("https://cdn/cs.mp4");
-    expect(gameArt(merged!)).toBe("https://cdn/cs_hero_2x.jpg");
+    expect(srcs(gamePreview(merged!))).toEqual(["https://cdn/cs.mp4"]);
+    expect(srcs(gameTrailer(merged!)).at(-1)).toMatch(/\.webm$/);
+    expect(gameArt(merged!)).toBe(HERO_2X);
   });
 
   it("leaves games the catalog does not know untouched", () => {

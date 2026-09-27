@@ -28,19 +28,18 @@ export type Game = {
   media?: GameMedia;
   /** Generated from the player's real library rather than hand-authored. */
   fromLibrary?: boolean;
-  /** On the wall because it is among Steam's most played games right now. */
-  popularRank?: number;
 };
 
+/** A game's media at the exact URLs Steam's catalog gives (server/src/catalog.ts). */
 export type GameMedia = {
-  /** Wide key art, 2x where Steam has it. */
-  hero?: string;
-  /** The store capsule or header, for games without key art. */
-  capsule?: string;
+  /** Wide key art at 2x (3840 wide). */
+  hero: string | null;
+  /** The store capsule, else header, for games without key art. */
+  capsule: string | null;
   /** An ~8 s .mp4 clip for hover previews. */
-  preview?: string;
+  preview: string | null;
   /** The full highlight trailer as HLS. */
-  trailer?: string;
+  trailer: string | null;
 };
 
 export type Machine = {
@@ -92,7 +91,7 @@ const STEAM_ART = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 
 /** The wide, logo-free key art every game ships for its Steam library page, at 1x or 2x (3840 wide). */
 export const artUrl = (appid: number, scale: 1 | 2 = 2) =>
-  `${STEAM_ART}/${appid}/${scale === 2 ? "library_hero_2x" : "library_hero"}.jpg`;
+  `${STEAM_ART}/${appid}/library_hero${scale === 2 ? "_2x" : ""}.jpg`;
 
 /** The store header. Older games without library art still have one. */
 export const headerUrl = (appid: number) => `${STEAM_ART}/${appid}/header.jpg`;

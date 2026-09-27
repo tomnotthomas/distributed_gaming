@@ -2,6 +2,7 @@
 // fragment (see server/src/steam.ts); this reads it once, then clears it so a
 // refresh or a shared link does not carry someone's library around.
 
+import type { VideoSource } from "@swiff/ui";
 import { GAMES, artUrl, headerUrl, trailerUrl, type Game, type GameMedia } from "./data";
 
 export type SteamProfile = {
@@ -100,17 +101,12 @@ export type CatalogGame = {
   appid: number;
   name: string;
   free: boolean;
-  art: { hero: string | null; capsule: string | null; header: string | null };
+  art: { hero: string | null; capsule: string | null };
   preview: string | null;
   trailer: string | null;
 };
 
-const mediaOf = (game: CatalogGame): GameMedia => ({
-  hero: game.art.hero ?? undefined,
-  capsule: game.art.capsule ?? game.art.header ?? undefined,
-  preview: game.preview ?? undefined,
-  trailer: game.trailer ?? undefined,
-});
+const mediaOf = (game: CatalogGame): GameMedia => ({ ...game.art, preview: game.preview, trailer: game.trailer });
 
 /**
  * The signed-out wall: Steam's most played games, in chart order. Free-to-play
@@ -126,7 +122,6 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
       f2p: game.free,
       save: game.free ? "Steam cloud save" : "New game",
       media: mediaOf(game),
-      popularRank: index + 1,
     }),
   );
 
@@ -156,30 +151,36 @@ export function applySteam(profile: SteamProfile, sharedMachineIds: string[]): G
   return [...curated, ...extra];
 }
 
-/** Steam art for any game: the catalog's exact file, else the guessable 2x key art. */
-export const gameArt = (game: Game) => game.media?.hero ?? artUrl(game.appid);
+/**
+ * Key art for a game: 2x for full-bleed use (the hero, the game screen), 1x for
+ * a tile. The catalog's exact file when there is one — its 1x sits beside the
+ * 2x — else the store capsule, else the guessable path.
+ */
+export function gameArt(game: Game, scale: 1 | 2 = 2): string {
+  const hero = game.media?.hero;
+  if (hero) return scale === 2 ? hero : hero.replace("library_hero_2x", "library_hero");
+  return game.media?.capsule ?? artUrl(game.appid, scale);
+}
 
 /**
- * What to paint under the key art, in order, for games that lack it: the 1x key
- * art (older games have no 2x), then the store capsule or header.
+ * Painted under the key art where it fails to load. Only guessed art needs one;
+ * every layer is downloaded, so art the catalog vouched for gets none.
  */
-export const gameArtFallbacks = (game: Game): string[] => [
-  artUrl(game.appid, 1),
-  game.media?.capsule ?? headerUrl(game.appid),
-];
-
-/** Chrome and Safari play HLS in a plain <video>; Firefox does not. */
-const playsHls = () =>
-  typeof document !== "undefined" && document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "";
+export const gameArtFallbacks = (game: Game): string[] => (game.media ? [] : [headerUrl(game.appid)]);
 
 /**
- * The full trailer, for the hero and the game screen: HLS where the browser
- * plays it, else the short clip, else the hand-authored nine's own trailer.
+ * The full trailer, for the hero and the game screen, as encodings in order of
+ * preference: HLS where the browser plays it, then the short clip, then the
+ * hand-authored nine's own trailer. The <video> picks the first it can play.
  */
-export const gameTrailer = (game: Game): string | null =>
-  (playsHls() ? game.media?.trailer : undefined) ??
-  game.media?.preview ??
-  (game.video ? trailerUrl(game.video) : null);
+export function gameTrailer(game: Game): VideoSource[] {
+  const sources: VideoSource[] = [];
+  if (game.media?.trailer) sources.push({ src: game.media.trailer, type: "application/vnd.apple.mpegurl" });
+  if (game.media?.preview) sources.push({ src: game.media.preview, type: "video/mp4" });
+  if (game.video) sources.push({ src: trailerUrl(game.video), type: "video/webm" });
+  return sources;
+}
 
 /** The short clip for a hovered tile: quick to start, plays in every browser. */
-export const gamePreview = (game: Game): string | null => game.media?.preview ?? gameTrailer(game);
+export const gamePreview = (game: Game): VideoSource[] =>
+  game.media?.preview ? [{ src: game.media.preview, type: "video/mp4" }] : gameTrailer(game);

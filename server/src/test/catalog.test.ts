@@ -70,8 +70,12 @@ describe("toCatalogGame", () => {
     assert.deepEqual(game.art, {
       hero: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/h/library_hero_2x.jpg?t=1",
       capsule: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/c/capsule_616x353_2x.jpg?t=1",
-      header: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/x/header.jpg?t=1",
     });
+  });
+
+  it("falls back from the capsule to the header", () => {
+    const game = toCatalogGame(item(10, { assets: { asset_url_format: "steam/apps/10/${FILENAME}", header: "x/header.jpg" } }))!;
+    assert.equal(game.art.capsule, "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/x/header.jpg");
   });
 
   it("uses the mp4 microtrailer for previews and HLS for the full trailer", () => {

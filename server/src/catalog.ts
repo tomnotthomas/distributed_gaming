@@ -21,8 +21,10 @@ const BATCH = 50;
 /** GetItems' `type` for a game; software, DLC and the rest are other numbers. */
 const TYPE_GAME = 0;
 
-export const POPULAR_LIMIT = 24;
-export const MEDIA_LIMIT = 48;
+const POPULAR_LIMIT = 24;
+const MEDIA_LIMIT = 48;
+/** Games remembered at once. Anyone can ask for any appid, so the cache must not grow without bound. */
+const MAX_CACHED_ITEMS = 5000;
 
 export type CatalogGame = {
   appid: number;
@@ -33,9 +35,8 @@ export type CatalogGame = {
   art: {
     /** Wide, logo-free key art (3840×1240 at 2x). */
     hero: string | null;
-    /** The store's main capsule (1232×706 at 2x), for when there is no hero. */
+    /** The store's main capsule (1232×706 at 2x), else its header, for when there is no hero. */
     capsule: string | null;
-    header: string | null;
   };
   /** An ~8 s .mp4 clip Steam cuts for hover previews. Plays in every browser. */
   preview: string | null;
@@ -104,8 +105,7 @@ export function toCatalogGame(item: any): CatalogGame | null {
     free: Boolean(item.is_free),
     art: {
       hero: asset("library_hero_2x", "library_hero"),
-      capsule: asset("main_capsule_2x", "main_capsule"),
-      header: asset("header_2x", "header"),
+      capsule: asset("main_capsule_2x", "main_capsule", "header_2x", "header"),
     },
     preview: typeof preview === "string" ? TRAILER_HOST + preview : null,
     trailer: typeof hls === "string" ? TRAILER_HOST + hls : null,
@@ -124,9 +124,7 @@ async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | n
   );
   const body = await getJson(url);
   const items: any[] = body?.response?.store_items ?? [];
-  const found = new Map<number, CatalogGame | null>(appids.map((id) => [id, null]));
-  for (const item of items) found.set(Number(item.appid), toCatalogGame(item));
-  return found;
+  return new Map(items.map((item) => [Number(item.appid), toCatalogGame(item)]));
 }
 
 /**
@@ -140,9 +138,15 @@ export async function catalogGames(appids: number[], now = Date.now()): Promise<
     const result = fetchItems(batch);
     for (const id of batch) {
       const value = result.then((found) => found.get(id) ?? null);
+      cache.items.delete(id); // re-insert, so Map order stays oldest-first
       cache.items.set(id, { at: now, value });
       value.catch(() => cache.items.delete(id));
     }
+  }
+  // Forget the oldest entries past the cap; this call's own appids are the newest.
+  for (const id of cache.items.keys()) {
+    if (cache.items.size <= MAX_CACHED_ITEMS) break;
+    cache.items.delete(id);
   }
   const games = await Promise.all(appids.map((id) => cache.items.get(id)!.value.catch(() => null)));
   return games.filter((g): g is CatalogGame => g !== null);

@@ -1,4 +1,4 @@
-.mosaic-frame { container-type: inline-size; }
+.mosaic-frame { min-width: 0; }
 .mosaic {
   --mosaic-gap: 10px;
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -8,29 +8,26 @@
 .mosaic > [data-span="wide"] { grid-column: span 2; }
 .mosaic > [data-span="hero"] { grid-column: span 4; grid-row: span 2; }
 
-/* The ultra-wide strip: the hero is a full-height column on the left, every
-   other tile a square in two rows that scroll sideways, fading out at the edge
-   so there is visibly more. */
-@container (min-width: 2150px) {
-  .mosaic[data-layout="horizontal"] {
-    --mosaic-gap: 14px;
-    --strip-height: var(--mosaic-strip-height, calc(100vh - 160px));
-    height: var(--strip-height);
-    grid-template-columns: 46cqw;
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    grid-auto-flow: column;
-    grid-auto-columns: calc((var(--strip-height) - var(--mosaic-gap)) / 2);
-    grid-auto-rows: auto;
-    overflow-x: auto; overflow-y: hidden;
-    padding-right: 8vw;
-    scrollbar-width: none;
-    cursor: grab;
-    mask: linear-gradient(90deg, black 88%, transparent);
-    -webkit-mask: linear-gradient(90deg, black 88%, transparent);
-  }
-  .mosaic[data-layout="horizontal"]::-webkit-scrollbar { display: none; }
-  .mosaic[data-layout="horizontal"] > * { user-select: none; -webkit-user-drag: none; }
-  .mosaic[data-layout="horizontal"] > [data-span="hero"] { grid-column: 1; grid-row: 1 / span 2; }
-  .mosaic[data-layout="horizontal"] > [data-span="wide"],
-  .mosaic[data-layout="horizontal"] > [data-span="small"] { grid-column: auto; grid-row: auto; }
+/* The strip takes the height left in its flex parent and becomes a size
+   container, so a tile can be square — as wide as half the strip is tall —
+   without the strip knowing anything about the chrome around it. It fades out
+   at the edge so there is visibly more. */
+.mosaic-frame[data-layout="horizontal"] { flex: 1 1 0; min-height: 0; container-type: size; }
+.mosaic[data-layout="horizontal"] {
+  --mosaic-gap: 14px;
+  height: 100%;
+  grid-template-columns: 46cqw;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100cqh - var(--mosaic-gap)) / 2);
+  overflow-x: auto; overflow-y: hidden;
+  padding-right: 8vw;
+  scrollbar-width: none;
+  cursor: grab;
+  mask: linear-gradient(90deg, black 88%, transparent);
+  -webkit-mask: linear-gradient(90deg, black 88%, transparent);
 }
+.mosaic[data-layout="horizontal"]::-webkit-scrollbar { display: none; }
+.mosaic[data-layout="horizontal"] > * { user-select: none; -webkit-user-drag: none; }
+.mosaic[data-layout="horizontal"] > [data-span="hero"] { grid-column: 1; grid-row: 1 / span 2; }
+.mosaic[data-layout="horizontal"] > [data-span="wide"] { grid-column: auto; }
