@@ -33,7 +33,8 @@ export function useSwiff() {
   const [steamDenied, setSteamDenied] = useState(false);
 
   const [session, setSession] = useState<SessionLength>("evening");
-  const [motion, setMotion] = useState(true);
+  // Start still for anyone who has asked their OS for less motion.
+  const [motion, setMotion] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const [sound, setSound] = useState(false);
   const [quality, setQuality] = useState<Quality>("auto");
   const [devices, setDevices] = useState<Device[]>(["kb", "mouse", "pad"]);

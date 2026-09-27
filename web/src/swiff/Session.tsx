@@ -1,4 +1,4 @@
-import { Button, Dialog, Tag, Trailer } from "@swiff/ui";
+import { Backdrop, Button, Dialog, StatusDot, Tag, TopBar } from "@swiff/ui";
 import { trailerUrl } from "./data";
 import { gameArt } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -22,26 +22,31 @@ export function Session({ swiff }: { swiff: Swiff }) {
 
   return (
     <div className="session" data-testid="session">
-      {game.video ? (
-        <Trailer className="session-video" src={trailerUrl(game.video)} poster={gameArt(game)} />
-      ) : (
-        <div className="session-still" style={{ backgroundImage: `url(${gameArt(game)})` }} />
-      )}
+      {/* The stream stand-in always moves: the wall's motion setting is about the
+          wall, not about the game you are playing. */}
+      <Backdrop image={gameArt(game)} video={game.video ? trailerUrl(game.video) : null} motion />
 
-      <div className="hud">
-        <span className="hud-left">
-          <span className="live-dot" />
-          <strong>{game.title}</strong>
-          <span className="hud-on">on {picked?.name}</span>
-        </span>
-        <span className="hud-stats">
-          <Tag tone="live">{fps} fps</Tag>
-          <Tag>{picked?.ping ?? 0} ms</Tag>
-          <Tag>{bitrate} Mb/s</Tag>
-          <Tag>{picked?.quality}</Tag>
-        </span>
-        <span className="hud-clock">{clock(elapsedMs)}</span>
-      </div>
+      <TopBar
+        variant="hud"
+        start={
+          <>
+            <StatusDot />
+            <strong className="hud-title">{game.title}</strong>
+            <span className="hud-on">on {picked?.name}</span>
+          </>
+        }
+        end={
+          <>
+            <span className="hud-stats">
+              <Tag tone="live">{fps} fps</Tag>
+              <Tag>{picked?.ping ?? 0} ms</Tag>
+              <Tag>{bitrate} Mb/s</Tag>
+              <Tag>{picked?.quality}</Tag>
+            </span>
+            <span className="hud-clock">{clock(elapsedMs)}</span>
+          </>
+        }
+      />
 
       <div className="session-end">
         <Button variant="secondary" onClick={swiff.endSession}>

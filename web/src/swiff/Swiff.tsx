@@ -1,4 +1,4 @@
-import { AppShell } from "@swiff/ui";
+import { AppShell, MotionContext } from "@swiff/ui";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { Profile } from "./Profile";
@@ -34,11 +34,13 @@ export function Swiff() {
       tint={hovered ? `radial-gradient(ellipse at 30% 30%, hsl(${hovered.hue} 60% 60% / .12), transparent 55%)` : undefined}
       floating={screen === "game"}
     >
-      {screen === "home" ? <Wall swiff={swiff} /> : null}
-      {screen === "game" ? <GameMenu swiff={swiff} /> : null}
-      {screen === "profile" ? <Profile swiff={swiff} /> : null}
-      {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
-      {phase === "live" ? <Session swiff={swiff} /> : null}
+      <MotionContext.Provider value={swiff.motion}>
+        {screen === "home" ? <Wall swiff={swiff} /> : null}
+        {screen === "game" ? <GameMenu swiff={swiff} /> : null}
+        {screen === "profile" ? <Profile swiff={swiff} /> : null}
+        {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
+        {phase === "live" ? <Session swiff={swiff} /> : null}
+      </MotionContext.Provider>
     </AppShell>
   );
 }

@@ -1,16 +1,13 @@
-/* Grid spans live here rather than on the element: the wall is a 4-column grid
-   and a tile should not need to know its own index to size itself. Inside a
-   Mosaic, data-span does the same job. */
+/* A tile sizes itself through data-span; the Mosaic around it owns the grid. */
 .tile {
-  position: relative; grid-column: span 1; grid-row: span 1;
+  position: relative;
   padding: 0; border: 0; border-radius: var(--radius-lg); overflow: hidden;
   background: var(--color-neutral-900); color: inherit; font: inherit;
   box-shadow: var(--shadow-sm);
   transition: transform var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui),
               filter var(--dur-enter) var(--ease-out);
 }
-.tile-wide { grid-column: span 2; }
-.tile-hero { grid-column: span 4; grid-row: span 2; border-radius: var(--radius-xl); }
+.tile-hero { border-radius: var(--radius-xl); }
 /* Only the smaller tiles are a hit target; the hero holds its own controls. */
 button.tile { cursor: pointer; }
 button.tile:hover { transform: scale(1.02); z-index: 2; }

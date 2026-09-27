@@ -8,7 +8,7 @@ type Size = "hero" | "wide" | "small";
 type Props = {
   title: string;
   art: string;
-  /** Spans 4×2, 2×1 and 1×1 of the wall grid respectively. */
+  /** Spans 4×2, 2×1 and 1×1 of a Mosaic, through data-span. */
   size?: Size;
   /** A muted, looping trailer. Null keeps the still — the motion setting is off. */
   video?: string | null;
@@ -55,7 +55,7 @@ export function Tile({ title, art, size = "small", video, sub, badge, dim, onOpe
   return (
     <button
       type="button"
-      className={cx("tile", size === "wide" && "tile-wide", dim && "tile-dim")}
+      className={cx("tile", dim && "tile-dim")}
       data-span={size}
       onClick={onOpen}
       {...hover}
