@@ -7,6 +7,13 @@
 const { app, BrowserWindow, desktopCapturer, session } = require("electron");
 const path = require("node:path");
 
+// Chrome hides local IPs behind random `<uuid>.local` names, which the renter
+// must resolve over mDNS. Windows-to-macOS that often fails, and most home
+// routers will not hairpin the srflx address either, so two machines on the
+// same LAN end up with no pair to try and ICE fails. This app shares the whole
+// screen already; its LAN address is not the secret worth keeping.
+app.commandLine.appendSwitch("disable-features", "WebRtcHideLocalIpsWithMdns");
+
 // `titleBarOverlay` is Windows and Linux only. Passing it on macOS throws and
 // the window never appears, with nothing logged.
 const TITLE_BAR =

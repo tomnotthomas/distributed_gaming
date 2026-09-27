@@ -16,9 +16,17 @@ export type JoinMessage = { type: "join"; hostId: string };
 export type SdpMessage = { type: "offer" | "answer"; sdp: RTCSessionDescriptionInit };
 export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit };
 
-/** Server acknowledgements and room events. */
-export type RegisteredMessage = { type: "registered"; hostId: string };
-export type JoinedMessage = { type: "joined"; hostId: string; hostOnline: boolean };
+/**
+ * Server acknowledgements and room events. `iceServers` carries the TURN relay
+ * when the server has one configured; clients add it to their default STUN.
+ */
+export type RegisteredMessage = { type: "registered"; hostId: string; iceServers?: RTCIceServer[] };
+export type JoinedMessage = {
+  type: "joined";
+  hostId: string;
+  hostOnline: boolean;
+  iceServers?: RTCIceServer[];
+};
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
