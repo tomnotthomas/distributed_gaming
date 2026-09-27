@@ -1,5 +1,5 @@
 // The primitive contract, checked for every export rather than trusted:
-//   1. className and data-* reach the root (Dialog/Sheet: the panel; Field: the label).
+//   1. className and data-* reach the root (Dialog/Sheet: the panel).
 //   2. No colour literal outside tokens/ — a new hex in component CSS is a new
 //      colour the token set does not know about.
 // Adding a primitive without a fixture here fails the first test on purpose.
@@ -22,18 +22,19 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
   Dialog: { title: "T", actions: <button>OK</button>, children: "Body" },
   Divider: {},
   EmptyState: { title: "Nothing here" },
-  Field: { label: "Address" },
+  Field: { label: "Address", children: <input /> },
   Hero: { title: "Moss" },
   HoldButton: { onFire: noop, children: "Launch" },
   Icon: { name: "play" },
   IconButton: { icon: "close", label: "Close" },
+  Input: {},
   KeyValueList: { rows: [{ term: "Rate", value: "1" }] },
   Kicker: { children: "Streaming" },
   Meter: { label: "Picture", value: 2 },
   Mosaic: { children: <div data-span="small" /> },
   Notice: { children: "Denied" },
   Overlay: { children: "…" },
-  Pill: { label: "Tonight", value: "2 h" },
+  Pill: { label: "Tonight", children: "2 h" },
   ProgressRing: { pct: 0.5, label: "Starting" },
   ScrollArea: { children: "…" },
   Segment: { name: "q", "aria-label": "Quality", options: [{ value: "a", label: "A" }], value: "a", onChange: noop },

@@ -5,6 +5,11 @@ import "./Tile.css";
 
 type Size = "hero" | "wide" | "small";
 
+// The hero plays footage behind live copy, so it needs a reading pocket as
+// well as the bottom fade; Tile.css tunes both for a card.
+const HERO_SCRIMS = ["pocket", "bottom"] as const;
+const CARD_SCRIMS = ["bottom"] as const;
+
 type Props = {
   title: string;
   art: string;
@@ -24,15 +29,14 @@ type Props = {
 };
 
 /**
- * One game on the live wall: a Backdrop, a badge, a scrim and a caption. The
+ * One game on the live wall: a Backdrop with its scrim, a badge and a caption. The
  * caption is inside the button so the whole tile is one hit target.
  */
 export function Tile({ title, art, size = "small", video, sub, badge, dim, onOpen, onHoverChange, children }: Props) {
   const layers = (
     <>
-      <Backdrop image={art} video={video} />
+      <Backdrop image={art} video={video} scrims={size === "hero" ? HERO_SCRIMS : CARD_SCRIMS} />
       {badge ? <span className="tile-badge">{badge}</span> : null}
-      <span className="tile-scrim" />
     </>
   );
   const hover = {

@@ -14,6 +14,7 @@ export { Hero } from "./Hero";
 export { HoldButton } from "./HoldButton";
 export { Icon, ICON_NAMES, type IconName } from "./Icon";
 export { IconButton } from "./IconButton";
+export { Input } from "./Input";
 export { KeyValueList, type KeyValueRow } from "./KeyValueList";
 export { Kicker } from "./Kicker";
 export { Meter } from "./Meter";

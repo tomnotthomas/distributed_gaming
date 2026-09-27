@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Field, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
+import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { DEFAULT_HOST_ID, loadUrl, saveUrl } from "./settings";
 import { useScreenShare } from "./useScreenShare";
 
@@ -24,18 +24,17 @@ export function ShareScreen() {
       <PageShell
         title="Swiff Host"
         subtitle="This machine's screen, streamed to whoever rents it."
-        meta={<Tag label="Room" value={DEFAULT_HOST_ID} />}
+        meta={<Tag label="Room">{DEFAULT_HOST_ID}</Tag>}
       >
-        <Field
-          id="signaling"
-          label="Signaling server"
-          value={url}
-          disabled={!!stream}
-          placeholder="hushed-otter-42.trycloudflare.com"
-          hint="The address the renter opens. Paste it exactly as given."
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !stream && share()}
-        />
+        <Field label="Signaling server" hint="The address the renter opens. Paste it exactly as given.">
+          <Input
+            value={url}
+            disabled={!!stream}
+            placeholder="hushed-otter-42.trycloudflare.com"
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !stream && share()}
+          />
+        </Field>
 
         <div className="row">
           {!stream ? (

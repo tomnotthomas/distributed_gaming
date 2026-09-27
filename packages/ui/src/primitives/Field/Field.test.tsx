@@ -1,24 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { Input } from "../Input";
 import { Field } from "./Field";
 
 describe("Field", () => {
-  it("sends input props to the input and root props to the label", () => {
+  it("labels the control it wraps and shows the hint", () => {
     render(
-      <Field
-        label="Signaling server"
-        id="sig"
-        placeholder="ws://…"
-        className="wide"
-        data-testid="sig-field"
-        defaultValue="ws://localhost"
-      />,
+      <Field label="Signaling server" hint="Paste it exactly as given.">
+        <Input placeholder="ws://…" defaultValue="ws://localhost" />
+      </Field>,
     );
-    const input = screen.getByLabelText("Signaling server");
+    const input = screen.getByLabelText(/Signaling server/);
     expect(input).toHaveAttribute("placeholder", "ws://…");
     expect(input).toHaveValue("ws://localhost");
-    expect(input).toHaveClass("input");
-    expect(screen.getByTestId("sig-field")).toHaveClass("field", "wide");
-    expect(screen.getByTestId("sig-field").tagName).toBe("LABEL");
+    expect(screen.getByText("Paste it exactly as given.")).toHaveClass("field-hint");
   });
 });

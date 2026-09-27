@@ -49,10 +49,11 @@ export function AppShell({ onHome, onProfile, onBack, session, avatar, tint, flo
             {session ? (
               <Pill
                 label="Tonight"
-                value={session.label}
                 onClick={session.onCycle}
                 title="How long do you have tonight? Ready means a machine is free for the whole time."
-              />
+              >
+                {session.label}
+              </Pill>
             ) : null}
             <button type="button" className="avatar-btn" onClick={onProfile} aria-label={avatar.label}>
               <Avatar initial={avatar.initial} ring={avatar.ring ?? "idle"} />

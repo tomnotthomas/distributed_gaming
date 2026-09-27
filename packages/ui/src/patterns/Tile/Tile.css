@@ -8,6 +8,14 @@
               filter var(--dur-enter) var(--ease-out);
 }
 .tile-hero { border-radius: var(--radius-xl); }
+
+/* A card's caption needs a taller, denser fade than a full-bleed title; the
+   hero's pocket sits further left and lower. Backdrop's scrims read these. */
+.tile { --fade-from: 92%; --fade-mid: 45%; --fade-mid-at: 38%; --fade-end: 62%; }
+.tile-hero {
+  --fade-from: 88%; --fade-mid: 35%; --fade-mid-at: 40%;
+  --pocket-shape: ellipse 60% 90% at 8% 60%; --pocket-from: 88%; --pocket-mid: 45%; --pocket-end: 78%;
+}
 /* Only the smaller tiles are a hit target; the hero holds its own controls. */
 button.tile { cursor: pointer; }
 button.tile:hover { transform: scale(1.02); z-index: 2; }
@@ -15,25 +23,6 @@ button.tile:focus-visible { outline: 2px solid var(--color-accent); outline-offs
 /* Dim, never hidden: a game you cannot start tonight is still yours. */
 .tile-dim { filter: saturate(.2) brightness(.55); }
 .tile-dim:hover { filter: saturate(.3) brightness(.7); }
-.tile-scrim {
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(0deg,
-    color-mix(in srgb, var(--color-bg) 92%, transparent) 0%,
-    color-mix(in srgb, var(--color-bg) 45%, transparent) 38%,
-    transparent 62%);
-}
-/* The hero plays footage behind live copy, so it needs a pocket of ground on
-   the reading side as well as the bottom fade. */
-.tile-hero .tile-scrim {
-  background:
-    radial-gradient(ellipse 60% 90% at 8% 60%,
-      color-mix(in srgb, var(--color-bg) 88%, transparent),
-      color-mix(in srgb, var(--color-bg) 45%, transparent) 55%, transparent 78%),
-    linear-gradient(0deg,
-      color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
-      color-mix(in srgb, var(--color-bg) 35%, transparent) 40%,
-      transparent 62%);
-}
 .tile-badge { position: absolute; top: var(--space-3); left: var(--space-3); pointer-events: none; }
 .tile-cap {
   position: absolute; left: 0; right: 0; bottom: 0;
