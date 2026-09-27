@@ -4,9 +4,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  createIceInbox,
   createPeerConnection,
   connectSignaling,
   DEFAULT_ICE_SERVERS,
+  type IceInbox,
   type SignalMessage,
 } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
@@ -21,6 +23,8 @@ export function Client() {
   const [playing, setPlaying] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // Holds the host's candidates until its offer has been applied.
+  const inboxRef = useRef<IceInbox | null>(null);
   // TURN from the server's `joined`, which always precedes the host's offer.
   const serverIceRef = useRef<RTCIceServer[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -32,6 +36,7 @@ export function Client() {
         iceServers: [...DEFAULT_ICE_SERVERS, ...serverIceRef.current],
       });
       pcRef.current = connection;
+      inboxRef.current = createIceInbox(connection);
       setPc(connection);
 
       connection.onicecandidate = (event) => {
@@ -47,7 +52,7 @@ export function Client() {
         if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
       };
 
-      await connection.setRemoteDescription(sdp);
+      await inboxRef.current.setRemote(sdp);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
       send({ type: "answer", sdp: answer });
@@ -76,13 +81,14 @@ export function Client() {
             }
             break;
           case "ice":
-            if (msg.candidate) void pcRef.current?.addIceCandidate(msg.candidate).catch(() => {});
+            if (msg.candidate) inboxRef.current?.add(msg.candidate);
             break;
           case "peer-left":
             setNote("gaming PC disconnected");
             setPlaying(false);
             pcRef.current?.close();
             pcRef.current = null;
+            inboxRef.current = null;
             setPc(null);
             break;
         }

@@ -4,6 +4,7 @@
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► offer ──► answer
 
+import { createIceInbox, type IceInbox } from "./iceInbox";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
 
@@ -31,12 +32,15 @@ export type HostSessionOptions = IceConfig & {
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
   const capture = opts.capture ?? DEFAULT_CAPTURE;
   let pc: RTCPeerConnection | null = null;
+  // Holds the renter's candidates until the answer has been applied.
+  let inbox: IceInbox | null = null;
   // TURN from the server's `registered`, which always precedes `peer-joined`.
   let serverIce: RTCIceServer[] = [];
 
   const teardown = () => {
     pc?.close();
     pc = null;
+    inbox = null;
     opts.onPeerConnection(null);
   };
 
@@ -46,6 +50,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       ...opts,
       iceServers: opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
     });
+    inbox = createIceInbox(pc);
     opts.onPeerConnection(pc);
 
     pc.onicecandidate = (event) => {
@@ -80,10 +85,14 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
           void offerTo(send);
           break;
         case "answer":
-          if (msg.sdp) void pc?.setRemoteDescription(msg.sdp);
+          if (msg.sdp) {
+            void inbox?.setRemote(msg.sdp).catch((cause) => {
+              console.warn("[swiff] could not apply the renter's answer", cause);
+            });
+          }
           break;
         case "ice":
-          if (msg.candidate) void pc?.addIceCandidate(msg.candidate).catch(() => {});
+          if (msg.candidate) inbox?.add(msg.candidate);
           break;
         case "peer-left":
           opts.onPeerHere(false);
