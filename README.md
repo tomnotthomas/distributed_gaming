@@ -96,6 +96,21 @@ It prints a random `https://<name>.trycloudflare.com`. Paste that into the Elect
 and open the same URL in the renter's browser. The 25s ping in `packages/rtc/signaling.ts`
 exists for exactly this path: Cloudflare closes an idle WebSocket after 100 seconds.
 
+## When peers cannot reach each other: TURN
+
+STUN finds a direct path most of the time. When there is none (symmetric NAT,
+carrier CGNAT, a network that only lets 443 out), ICE ends `failed` unless a TURN
+relay is configured. Set it on the signaling server; it hands the relay to both
+peers on `registered`/`joined`, so neither the renter nor the host .exe changes:
+
+```bash
+TURN_URLS="turn:turn.example.com:3478,turns:turn.example.com:443?transport=tcp" \
+TURN_USERNAME=... TURN_CREDENTIAL=... npm start
+```
+
+The host app also sends its real LAN address instead of an mDNS `.local` name,
+which is what lets two machines on the same network connect without TURN.
+
 Note that phase 1 has no auth and one hardcoded room, so anyone holding the URL can join
 it. Fine for a test between two machines you own, wrong for anything else.
 

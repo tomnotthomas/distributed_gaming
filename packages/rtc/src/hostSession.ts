@@ -4,7 +4,7 @@
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► offer ──► answer
 
-import { createPeerConnection, type IceConfig } from "./peer";
+import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
 
 export type CaptureSettings = {
@@ -31,6 +31,8 @@ export type HostSessionOptions = IceConfig & {
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
   const capture = opts.capture ?? DEFAULT_CAPTURE;
   let pc: RTCPeerConnection | null = null;
+  // TURN from the server's `registered`, which always precedes `peer-joined`.
+  let serverIce: RTCIceServer[] = [];
 
   const teardown = () => {
     pc?.close();
@@ -40,7 +42,10 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   const offerTo = async (send: (m: SignalMessage) => void) => {
     teardown();
-    pc = createPeerConnection(opts);
+    pc = createPeerConnection({
+      ...opts,
+      iceServers: opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
+    });
     opts.onPeerConnection(pc);
 
     pc.onicecandidate = (event) => {
@@ -67,6 +72,9 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     onOpen: (send) => send({ type: "register", hostId: opts.hostId }),
     onMessage: (msg, send) => {
       switch (msg.type) {
+        case "registered":
+          serverIce = msg.iceServers ?? [];
+          break;
         case "peer-joined":
           opts.onPeerHere(true);
           void offerTo(send);

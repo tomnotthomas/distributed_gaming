@@ -3,7 +3,12 @@
 //   [ Connect ] ──► join ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPeerConnection, connectSignaling, type SignalMessage } from "@swiff/rtc";
+import {
+  createPeerConnection,
+  connectSignaling,
+  DEFAULT_ICE_SERVERS,
+  type SignalMessage,
+} from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
 
@@ -15,12 +20,16 @@ export function Client() {
   const [playing, setPlaying] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  // TURN from the server's `joined`, which always precedes the host's offer.
+  const serverIceRef = useRef<RTCIceServer[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const answerOffer = useCallback(
     async (sdp: RTCSessionDescriptionInit, send: (m: SignalMessage) => void) => {
       pcRef.current?.close();
-      const connection = createPeerConnection();
+      const connection = createPeerConnection({
+        iceServers: [...DEFAULT_ICE_SERVERS, ...serverIceRef.current],
+      });
       pcRef.current = connection;
       setPc(connection);
 
@@ -53,6 +62,7 @@ export function Client() {
       onMessage: (msg, send) => {
         switch (msg.type) {
           case "joined":
+            serverIceRef.current = msg.iceServers ?? [];
             setNote(msg.hostOnline ? undefined : "gaming PC is offline — waiting");
             break;
           case "offer":

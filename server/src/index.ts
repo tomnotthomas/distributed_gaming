@@ -30,9 +30,15 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
+import { turnServersFromEnv } from "./ice.js";
 import { isRelayed, type SignalMessage } from "./protocol.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
+
+// Sent to both peers on register/join. Omitted entirely when unset, so a
+// server with no TURN behaves exactly as before.
+const TURN_SERVERS = turnServersFromEnv(process.env);
+const iceServers = TURN_SERVERS.length ? { iceServers: TURN_SERVERS } : {};
 
 // Resolved from the COMPILED location: server/dist/index.js -> web/dist/
 const STATIC_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -154,7 +160,7 @@ wss.on("connection", (socket) => {
         ws.hostId = msg.hostId;
         ws.role = "host";
         room.host = ws;
-        send(ws, { type: "registered", hostId: msg.hostId });
+        send(ws, { type: "registered", hostId: msg.hostId, ...iceServers });
         // A client that arrived first is still waiting; tell the host now.
         if (room.client) send(ws, { type: "peer-joined" });
         return;
@@ -167,7 +173,7 @@ wss.on("connection", (socket) => {
         ws.hostId = msg.hostId;
         ws.role = "client";
         room.client = ws;
-        send(ws, { type: "joined", hostId: msg.hostId, hostOnline: Boolean(room.host) });
+        send(ws, { type: "joined", hostId: msg.hostId, hostOnline: Boolean(room.host), ...iceServers });
         send(room.host, { type: "peer-joined" });
         return;
       }
