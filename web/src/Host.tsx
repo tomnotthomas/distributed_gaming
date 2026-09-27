@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
+import posthog, { isPostHogEnabled } from "./posthog";
 
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
@@ -32,10 +33,14 @@ export function Host() {
       });
       track.contentHint = "motion";
       // The owner can stop sharing from Chrome's own bar; treat that as a stop.
-      track.addEventListener("ended", () => setStream(null));
+      track.addEventListener("ended", () => {
+        if (isPostHogEnabled) posthog.capture("host_screen_share_ended");
+        setStream(null);
+      });
 
       if (previewRef.current) previewRef.current.srcObject = captured;
       setStream(captured);
+      if (isPostHogEnabled) posthog.capture("host_screen_share_started");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "could not start capture");
     }
@@ -61,7 +66,7 @@ export function Host() {
     >
       <div className="row">
         {!stream ? (
-          <Button large onClick={() => void startSharing()}>
+          <Button size="lg" onClick={() => void startSharing()}>
             Start sharing
           </Button>
         ) : (

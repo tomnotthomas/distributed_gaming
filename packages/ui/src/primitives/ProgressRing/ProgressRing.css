@@ -1,0 +1,17 @@
+@property --swiff-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.ring { position: relative; flex: none; }
+.ring-arc {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(var(--color-accent) var(--swiff-a),
+                             color-mix(in srgb, var(--color-text) 12%, transparent) 0);
+  /* Mask to an annulus so the fill reads as a ring, not a pie. */
+  mask: radial-gradient(circle, transparent 76%, black 77%);
+  -webkit-mask: radial-gradient(circle, transparent 76%, black 77%);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  transition: --swiff-a var(--dur-ui) linear;
+}
+.ring-label {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-22);
+  font-variant-numeric: tabular-nums;
+}

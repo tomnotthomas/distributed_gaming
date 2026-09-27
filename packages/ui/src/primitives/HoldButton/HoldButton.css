@@ -1,0 +1,6 @@
+.hold { position: relative; overflow: hidden; }
+.hold-fill {
+  position: absolute; left: 0; bottom: 0; height: 3px;
+  background: var(--color-accent); border-radius: 0 2px 2px 0;
+  animation: swiff-fill linear both;
+}

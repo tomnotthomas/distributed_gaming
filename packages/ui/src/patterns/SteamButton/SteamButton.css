@@ -1,0 +1,12 @@
+/* The asset itself is untouched; only the focus ring and lift are ours. */
+.steam-btn {
+  display: inline-flex; border-radius: var(--radius-sm); line-height: 0;
+  transition: transform var(--dur-micro) var(--ease-out), filter var(--dur-micro);
+}
+.steam-btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.steam-btn:active { transform: scale(.98); }
+.steam-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.steam-btn img { display: block; }

@@ -11,6 +11,7 @@ import {
 } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
+import posthog, { isPostHogEnabled } from "./posthog";
 
 export function Client() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
@@ -40,6 +41,7 @@ export function Client() {
       connection.ontrack = (event) => {
         if (videoRef.current) videoRef.current.srcObject = event.streams[0];
         setPlaying(true);
+        if (isPostHogEnabled) posthog.capture("client_stream_started");
         // The largest single latency win available: do not buffer for smoothness.
         const receiver = event.receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
         if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
@@ -98,13 +100,20 @@ export function Client() {
     >
       <div className="row">
         {!connecting ? (
-          <Button large onClick={() => setConnecting(true)}>
+          <Button
+            size="lg"
+            onClick={() => {
+              if (isPostHogEnabled) posthog.capture("client_connection_requested");
+              setConnecting(true);
+            }}
+          >
             Connect
           </Button>
         ) : (
           <Button
             variant="secondary"
             onClick={() => {
+              if (isPostHogEnabled) posthog.capture("client_connection_ended");
               setConnecting(false);
               setPlaying(false);
             }}

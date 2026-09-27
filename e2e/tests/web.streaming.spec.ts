@@ -94,7 +94,7 @@ test.describe("host to renter streaming", () => {
     // The host registers and then waits; nobody has joined yet.
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
 
-    await renter.goto("/");
+    await renter.goto("/rtc");
     await expect(renter.getByRole("heading", { name: "Swiff" })).toBeVisible();
     await renter.getByRole("button", { name: "Connect" }).click();
 
@@ -137,7 +137,7 @@ test.describe("host to renter streaming", () => {
   });
 
   test("tells the renter the gaming PC is offline when nothing is sharing", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/rtc");
     await page.getByRole("button", { name: "Connect" }).click();
 
     await expect(page.getByText(/gaming PC is offline/)).toBeVisible();
@@ -155,7 +155,7 @@ test.describe("host to renter streaming", () => {
     // test; it is not what this one is about.
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
 
-    await renter.goto("/");
+    await renter.goto("/rtc");
     await renter.getByRole("button", { name: "Connect" }).click();
     await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 

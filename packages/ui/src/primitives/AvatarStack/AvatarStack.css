@@ -1,0 +1,8 @@
+.avatar-stack { display: inline-flex; align-items: center; }
+.avatar-stack > * { box-shadow: 0 0 0 2px var(--color-bg); }
+.avatar-stack > * + * { margin-left: -6px; }
+.avatar-stack-more {
+  display: grid; place-items: center; padding: 0 5px; border-radius: 999px;
+  font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums;
+  background: var(--color-neutral-800); color: var(--color-neutral-300);
+}

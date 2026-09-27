@@ -75,6 +75,23 @@
   --color-accent-2-800: #334159;
   --color-accent-2-900: #202938;
 
+  /* roles the component layer used to hard-code */
+  --color-danger:#E4796F;          /* failed, dropped — the one warm colour, kept for errors only */
+  --color-danger-text:#FFD9D3;
+  --color-on-accent:#EAF6FD;       /* text on the primary button's glass gradient */
+  --btn-primary-from:color-mix(in srgb,var(--color-accent-hover) 45%,transparent);
+  --btn-primary-to:color-mix(in srgb,#24557E 55%,transparent);
+  --btn-primary-hover-from:color-mix(in srgb,var(--color-accent) 45%,transparent);
+  --btn-primary-hover-to:color-mix(in srgb,var(--color-accent-hover) 60%,transparent);
+  --dialog-fill:color-mix(in srgb,#141417 82%,transparent);
+  --display-shadow:0 2px 24px rgba(3,8,16,.75);
+  --focus-ring:0 0 0 3px color-mix(in srgb,var(--color-accent) 40%,transparent);
+  --focus-ring-soft:0 0 0 3px color-mix(in srgb,var(--color-accent) 25%,transparent);  /* inputs: the border already turns accent */
+  /* the chosen one in a row of choices (Chip, IconButton toggles) */
+  --selected-bg:color-mix(in srgb,var(--color-accent) 14%,transparent);
+  --selected-border:var(--color-accent);
+  --selected-fg:var(--color-accent-200);
+
   /* elevation on the arctic ground */
   --shadow-sm:0 0 0 1px var(--glass-edge);
   --shadow-md:0 0 0 1px var(--glass-edge),0 10px 30px rgba(2,8,16,.75);

@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { turnServersFromEnv } from "./ice.js";
 import { isRelayed, type SignalMessage } from "./protocol.js";
+import { loginUrl, originFrom, returnUrl } from "./steam.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -94,10 +95,48 @@ function send(ws: PeerSocket | null, message: SignalMessage): void {
 
 // --- static files -----------------------------------------------------------
 
+/**
+ * Steam sign-in. Two redirects and no state: `/auth/steam/login` bounces to
+ * Steam, `/auth/steam/return` verifies what comes back and hands the profile to
+ * the page in the URL fragment. STEAM_API_KEY never leaves this process.
+ */
+async function serveSteamAuth(
+  req: IncomingMessage,
+  res: ServerResponse,
+  urlPath: string,
+  query: URLSearchParams,
+): Promise<boolean> {
+  const origin = originFrom(req.headers, `http://localhost:${PORT}`);
+
+  if (urlPath === "/auth/steam/login") {
+    res.writeHead(302, { location: loginUrl({ origin, returnTo: query.get("to") ?? "/" }) }).end();
+    return true;
+  }
+
+  if (urlPath === "/auth/steam/return") {
+    // Any failure here still lands the player back on the wall, flagged, rather
+    // than on an error page they cannot act on.
+    const location = await returnUrl({
+      origin,
+      searchParams: query,
+      apiKey: process.env.STEAM_API_KEY,
+    }).catch(() => `${origin}/#steam=denied`);
+    res.writeHead(302, { location }).end();
+    return true;
+  }
+
+  return false;
+}
+
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  // Both routes are the same SPA: "/" is the renter, "/host" is the gaming PC.
-  const urlPath = new URL(req.url ?? "/", "http://localhost").pathname;
-  const candidate = urlPath === "/" || urlPath === "/host" ? "index.html" : urlPath.slice(1);
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const urlPath = url.pathname;
+
+  if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
+
+  // Every screen is the same SPA. A path with no extension is a route, so it
+  // gets index.html; a path with one is an asset, so a miss is a real 404.
+  const candidate = extname(urlPath) === "" ? "index.html" : urlPath.slice(1);
 
   // normalize() collapses ".." before we join, so a crafted path cannot escape
   // STATIC_DIR.
@@ -219,6 +258,7 @@ const sweep = setInterval(() => {
 sweep.unref?.();
 
 server.listen(PORT, () => {
-  console.log(`[swiff] http://localhost:${PORT}  (renter)`);
+  console.log(`[swiff] http://localhost:${PORT}       (the wall)`);
   console.log(`[swiff] http://localhost:${PORT}/host  (gaming PC)`);
+  console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
 });

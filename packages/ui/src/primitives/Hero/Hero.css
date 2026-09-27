@@ -1,0 +1,30 @@
+.hero-block { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 56ch; }
+.hero-block[data-align="center"] { align-items: center; text-align: center; margin-inline: auto; }
+.hero-block-kicker { display: flex; align-items: center; gap: 8px; font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-300); }
+.hero-block-title {
+  margin: 0 0 0 -.04em; font-family: var(--font-heading); font-weight: 500;
+  letter-spacing: var(--display-track); text-wrap: balance;
+  text-shadow: var(--display-shadow);
+}
+.hero-block[data-size="md"] .hero-block-title { font-size: clamp(34px, 3.8vw, 56px); line-height: .95; }
+.hero-block[data-size="lg"] .hero-block-title { font-size: var(--text-56); line-height: var(--display-lh); }
+.hero-block[data-size="xl"] { max-width: min(860px, 64vw); }
+.hero-block[data-size="xl"] .hero-block-title { font-size: clamp(40px, min(9vw, 9.5vh), 140px); line-height: .9; }
+.hero-block [data-part="meta"] {
+  margin: 0; font-size: var(--text-14); line-height: var(--lh-20);
+  font-variant-numeric: tabular-nums; color: var(--color-neutral-400);
+}
+.hero-block [data-part="body"] {
+  margin: 0; font-size: var(--text-14); line-height: var(--lh-20);
+  color: var(--color-neutral-200); max-width: 48ch; text-wrap: pretty;
+}
+.hero-block[data-size="xl"] [data-part="body"] { font-size: clamp(17px, 2.4vh, 22px); line-height: 1.3; max-width: 34ch; color: var(--color-text); }
+.hero-block [data-part="actions"] { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-top: 4px; }
+.hero-block-fine { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-400); max-width: 30ch; }
+
+/* Entrance: the title slams, then each part rises a beat after the last. */
+.hero-block[data-enter] .hero-block-title { animation: swiff-slam .4s .12s var(--ease-out) both; }
+.hero-block[data-enter] [data-part] { animation: swiff-rise .45s var(--ease-out) both; }
+.hero-block[data-enter] [data-part="meta"] { animation-delay: .2s; }
+.hero-block[data-enter] [data-part="body"] { animation-delay: .26s; }
+.hero-block[data-enter] [data-part="actions"] { animation-delay: .3s; }

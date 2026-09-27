@@ -39,7 +39,7 @@ export function ShareScreen() {
 
         <div className="row">
           {!stream ? (
-            <Button large onClick={share}>
+            <Button size="lg" onClick={share}>
               Start sharing
             </Button>
           ) : (

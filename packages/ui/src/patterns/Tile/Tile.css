@@ -1,0 +1,53 @@
+/* Grid spans live here rather than on the element: the wall is a 4-column grid
+   and a tile should not need to know its own index to size itself. Inside a
+   Mosaic, data-span does the same job. */
+.tile {
+  position: relative; grid-column: span 1; grid-row: span 1;
+  padding: 0; border: 0; border-radius: var(--radius-lg); overflow: hidden;
+  background: var(--color-neutral-900); color: inherit; font: inherit;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui),
+              filter var(--dur-enter) var(--ease-out);
+}
+.tile-wide { grid-column: span 2; }
+.tile-hero { grid-column: span 4; grid-row: span 2; border-radius: var(--radius-xl); }
+/* Only the smaller tiles are a hit target; the hero holds its own controls. */
+button.tile { cursor: pointer; }
+button.tile:hover { transform: scale(1.02); z-index: 2; }
+button.tile:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* Dim, never hidden: a game you cannot start tonight is still yours. */
+.tile-dim { filter: saturate(.2) brightness(.55); }
+.tile-dim:hover { filter: saturate(.3) brightness(.7); }
+.tile-scrim {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(0deg,
+    color-mix(in srgb, var(--color-bg) 92%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg) 45%, transparent) 38%,
+    transparent 62%);
+}
+/* The hero plays footage behind live copy, so it needs a pocket of ground on
+   the reading side as well as the bottom fade. */
+.tile-hero .tile-scrim {
+  background:
+    radial-gradient(ellipse 60% 90% at 8% 60%,
+      color-mix(in srgb, var(--color-bg) 88%, transparent),
+      color-mix(in srgb, var(--color-bg) 45%, transparent) 55%, transparent 78%),
+    linear-gradient(0deg,
+      color-mix(in srgb, var(--color-bg) 88%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 35%, transparent) 40%,
+      transparent 62%);
+}
+.tile-badge { position: absolute; top: var(--space-3); left: var(--space-3); pointer-events: none; }
+.tile-cap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: flex; flex-direction: column; gap: 4px; text-align: left; pointer-events: none;
+}
+.tile-title {
+  font-family: var(--font-heading); font-weight: 500; font-size: var(--text-17);
+  line-height: var(--lh-20); letter-spacing: -.01em;
+}
+.tile-sub {
+  font-size: var(--text-12); line-height: var(--lh-16);
+  font-variant-numeric: tabular-nums; color: var(--color-neutral-300);
+}
