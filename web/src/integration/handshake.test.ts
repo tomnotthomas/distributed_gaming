@@ -10,7 +10,7 @@
 // messages the two peers would exchange to build one.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { connectSignaling } from "@swiff/rtc";
@@ -34,9 +34,17 @@ type MessageOf<T extends SignalMessage["type"], M = SignalMessage> = M extends {
 type SignalMessage = import("@swiff/rtc").SignalMessage;
 type Signaling = import("@swiff/rtc").Signaling;
 
-// The server is started through its own `npm start`, never by naming a source
-// file. Whether it is JavaScript today or compiled TypeScript tomorrow is the
-// server workspace's business, and this test should not have to care.
+// The server is started at the entry point it declares for itself — `main` in
+// the server workspace's package.json — never a path this test invents. Whether
+// that is dist/index.js today or somewhere else tomorrow stays the server
+// workspace's business.
+//
+// Not `npm start`, which is how this used to work: npm is `npm.cmd` on Windows
+// and `spawn` cannot resolve it without a shell, so the whole suite failed there
+// with `spawn npm ENOENT`. Going through npm also means two processes, killable
+// only as a group — and Unix process groups have no Windows equivalent, so the
+// teardown leaked a server holding its port. One `node` process is the same
+// thing the server's own tests start, and `kill` ends it on every platform.
 //
 // Under jsdom `import.meta.url` is an http:// URL, so the repo root has to be
 // found by walking up from the working directory instead.
@@ -49,7 +57,16 @@ function findRepoRoot(): string {
   throw new Error(`no server workspace found above ${process.cwd()}`);
 }
 
+/** Where the server workspace says its runnable entry point is. */
+function findServerEntry(root: string): string {
+  const manifest = resolve(root, "server", "package.json");
+  const { main } = JSON.parse(readFileSync(manifest, "utf8")) as { main?: string };
+  if (!main) throw new Error(`${manifest} declares no "main" to run`);
+  return resolve(root, "server", main);
+}
+
 const REPO_ROOT = findRepoRoot();
+const SERVER_ENTRY = findServerEntry(REPO_ROOT);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let server: ChildProcess;
@@ -104,17 +121,24 @@ function peer(hello: SignalMessage) {
 }
 
 beforeAll(async () => {
-  // Detached so the whole npm -> node process group can be torn down together;
-  // killing npm alone would leave the server holding the port.
-  server = spawn("npm", ["start", "-w", "@swiff/server"], {
-    cwd: REPO_ROOT,
+  // `npm test` builds the server workspace before this one runs. Say so plainly
+  // rather than letting a missing build look like a server that would not boot.
+  expect(
+    existsSync(SERVER_ENTRY),
+    `the server is not built — run \`npm run build -w @swiff/server\` (looked for ${SERVER_ENTRY})`,
+  ).toBe(true);
+
+  server = spawn(process.execPath, [SERVER_ENTRY], {
+    cwd: resolve(REPO_ROOT, "server"),
     env: { ...process.env, PORT: String(PORT) },
     stdio: "ignore",
-    detached: true,
   });
 
   // Poll the HTTP side until it answers, rather than sleeping a fixed guess.
   for (let i = 0; i < 100; i++) {
+    if (server.exitCode !== null) {
+      throw new Error(`signaling server exited with code ${server.exitCode} before answering`);
+    }
     try {
       await fetch(`http://127.0.0.1:${PORT}/`);
       return;
@@ -129,14 +153,9 @@ afterEach(() => {
   openPeers.splice(0).forEach((s) => s.close());
 });
 
+// One process, so no process-group dance: this ends it on Windows and on macOS.
 afterAll(() => {
-  if (server?.pid) {
-    try {
-      process.kill(-server.pid, "SIGTERM");
-    } catch {
-      server.kill("SIGTERM");
-    }
-  }
+  server?.kill();
 });
 
 describe("web client against the real signaling server", () => {
