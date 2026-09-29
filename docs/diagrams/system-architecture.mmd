@@ -1,0 +1,68 @@
+---
+config:
+  theme: base
+  flowchart:
+    curve: basis
+    htmlLabels: true
+  themeVariables:
+    fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif"
+    fontSize: 14px
+    edgeLabelBackground: "#ffffff"
+    lineColor: "#333333"
+    primaryTextColor: "#222222"
+  themeCSS: >-
+    .edgeLabel, .edgeLabel p, .edgeLabel span, .labelBkg { background: #fff !important; background-color: #fff !important; }
+    .edgeLabel p, .edgeLabel span { color: #555; font-size: 13px; }
+    .edgeLabel rect { fill: #fff !important; opacity: 1 !important; }
+    svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
+---
+flowchart LR
+  Renter["Renter"]
+  PC["Gaming PC"]
+  TURN["TURN relay<br/>carries the stream when<br/>the direct path is blocked"]
+  STUN["STUN<br/>tells each side how it looks<br/>from the outside"]
+
+  subgraph Platform["Swiff platform"]
+    API["Booking API"]
+    Q["Queue"]
+    MM["Matchmaker worker"]
+    DB[("Database")]
+    SIG["Connection setup<br/>via SDP + ICE relay"]
+  end
+
+  subgraph Data["Database · stored data"]
+    direction TB
+    T1["machines<br/>id (PK)<br/>owner_id (FK)<br/>gpu · cpu · price<br/>status<br/>available_until<br/>last_seen_at"]
+    T2["bookings<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>minutes · status"]
+    T3["reservations<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>expires_at"]
+    T4["sessions<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>started_at<br/>ended_at · price"]
+    T1 ~~~ T2 ~~~ T3 ~~~ T4
+  end
+
+  Renter -- "HTTPS<br/>GET /games<br/>POST /bookings<br/>GET /bookings/:id<br/>POST /bookings/:id/claim" --> API
+  API -- "enqueue" --> Q
+  Q ~~~ MM
+  MM -- "pulls next booking" --> Q
+  MM -- "polls every 5s · free machines<br/>expired reservations · stale heartbeats" --> DB
+  MM -- "write · reservation + expires_at" --> DB
+  MM -- "session grant<br/>room id + who may join" --> SIG
+  Renter <-- "WebSocket<br/>SDP/ICE + machine ready" --> SIG
+  SIG <-- "WebSocket" --> PC
+  PC -- "available now · heartbeat<br/>session started / ended" --> DB
+  Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> PC
+  PC -. "fallback" .-> TURN
+  Renter <-.- TURN
+  PC -. "public address" .-> STUN
+  Renter -. "public address" .-> STUN
+  DB -.- Data
+
+  classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
+  classDef endpoint fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
+  classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  classDef table fill:#fffbe8,stroke:#e0d58a,color:#333
+  class API,Q,MM,DB platform
+  class Renter,PC,SIG,STUN endpoint
+  class TURN turn
+  class T1,T2,T3,T4 table
+  style Platform fill:#ffffff,stroke:#ccc,color:#444
+  style Data fill:#ffffff,stroke:#ccc,color:#444
