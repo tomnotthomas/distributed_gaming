@@ -103,9 +103,14 @@ export function createInputSender(
     },
     close() {
       if (closed) return;
-      releaseAll("disconnect");
-      closed = true;
-      clearInterval(heartbeat);
+      try {
+        releaseAll("disconnect");
+      } catch {
+        // Best effort: the channel may already be gone.
+      } finally {
+        closed = true;
+        clearInterval(heartbeat);
+      }
     },
   };
 }

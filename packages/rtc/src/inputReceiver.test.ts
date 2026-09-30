@@ -8,7 +8,10 @@ import { createInputSender } from "./inputSender";
 import { assertEveryPressReleased, loopbackChannel, recordingSink } from "./test/fakes";
 
 beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 function setup(timeoutMs = 1_000) {
   const sink = recordingSink();
@@ -133,6 +136,40 @@ describe("createInputReceiver", () => {
     expect(receiver.held().keys).toEqual([]);
   });
 
+  it.each(["timeout", "close", "error"] as const)(
+    "contains and reports sink failures during automatic %s releases",
+    (trigger) => {
+      const { sink, receiver, feed, onRelease } = setup();
+      const channel = loopbackChannel();
+      const listen = vi.spyOn(channel, "addEventListener");
+      receiver.attach(channel);
+      feed(
+        { type: "key", code: "KeyW", down: true },
+        { type: "button", button: 0, down: true },
+        { type: "gamepad", index: 0, state: pad },
+      );
+      const failure = new Error("SendInput failed");
+      vi.spyOn(sink, "key").mockImplementation(() => {
+        throw failure;
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      expect(() => {
+        if (trigger === "timeout") vi.advanceTimersByTime(1_000);
+        else listen.mock.calls.find(([type]) => type === trigger)![1](new Event(trigger));
+      }).not.toThrow();
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith("[swiff] could not release input", failure);
+      expect(onRelease).toHaveBeenCalledExactlyOnceWith(trigger === "timeout" ? "timeout" : "closed");
+      expect(sink.events.slice(-2)).toEqual([
+        { kind: "button", button: 0, down: false },
+        { kind: "gamepad", index: 0, state: NEUTRAL_GAMEPAD },
+      ]);
+      expect(receiver.held()).toEqual({ keys: [], buttons: [], gamepads: [] });
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
   it("does nothing after close", () => {
     const { sink, receiver, feed } = setup();
     feed({ type: "key", code: "KeyW", down: true });
@@ -187,6 +224,36 @@ describe("createInputSender", () => {
     vi.advanceTimersByTime(1_000);
     sender.key("KeyW", true);
     expect(sent).toHaveLength(atClose);
+  });
+
+  it.each([false, true])("finishes closing after a failed send (holding input: %s)", (holding) => {
+    const send = vi.fn();
+    const sender = createInputSender(send);
+    if (holding) sender.key("KeyW", true);
+    send.mockClear();
+    send.mockImplementation(() => {
+      throw new Error("channel closed");
+    });
+
+    expect(() => sender.close()).not.toThrow();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    send.mockClear();
+    vi.advanceTimersByTime(1_000);
+    sender.key("KeyS", true);
+    sender.move(0.5, 0.5);
+    sender.releaseAll("blur");
+    sender.close();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("still propagates send failures from a direct releaseAll call", () => {
+    const failure = new Error("channel closed");
+    const sender = createInputSender(() => {
+      throw failure;
+    });
+    expect(() => sender.releaseAll("blur")).toThrow(failure);
+    sender.close();
   });
 
   it("releases a controller that disconnects mid-press", () => {

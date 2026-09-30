@@ -99,7 +99,7 @@ export function createInputReceiver({
     if (watchdog || closed) return;
     watchdog = setInterval(
       () => {
-        if (Date.now() - lastSeen >= timeoutMs) releaseAll("timeout");
+        if (Date.now() - lastSeen >= timeoutMs) guardedReleaseAll("timeout");
       },
       Math.max(10, Math.floor(timeoutMs / 4)),
     );
@@ -169,6 +169,14 @@ export function createInputReceiver({
     if (failure) throw failure;
   }
 
+  function guardedReleaseAll(reason: ReceiverReleaseReason) {
+    try {
+      releaseAll(reason);
+    } catch (cause) {
+      console.warn("[swiff] could not release input", cause);
+    }
+  }
+
   const receive = (data: ArrayBuffer | ArrayBufferView) => {
     if (closed) return;
     lastSeen = Date.now();
@@ -192,7 +200,7 @@ export function createInputReceiver({
         // Text frames are not part of the protocol.
         if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) receive(data);
       };
-      const onGone = () => releaseAll("closed");
+      const onGone = () => guardedReleaseAll("closed");
       channel.addEventListener("message", onMessage);
       channel.addEventListener("close", onGone);
       channel.addEventListener("error", onGone);
