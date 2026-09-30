@@ -73,9 +73,9 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                     |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                          |
 
-Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended` (or `expired` if
-the reservation lapses unclaimed, or if the renter stops checking on a queued booking for
-2 minutes).
+Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A reservation
+that lapses unclaimed puts the booking back in the queue in its old place; a queued
+booking the renter has not checked on for 2 minutes becomes `expired`.
 
 Machines, bookings, reservations and sessions are one SQLite table each
 (`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
@@ -116,18 +116,19 @@ POST /bookings/:id/claim
   Take the matched machine before the reservation expires (60 s). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
-  → 409 if the reservation has already expired, or the booking is not matched.
+  → 409 if the booking is not matched (its reservation lapsed, or it has expired).
 ```
 
 Matching runs in the server process, every second and on every change: the oldest
 queued booking gets the cheapest live machine that is free for all of its minutes, and
-the machine is reserved for it. A reservation lasts 60 s. A machine that goes silent
-hands its reserved booking back to the queue.
+the machine is reserved for it. A reservation lasts 60 s; one that lapses unclaimed, or
+whose machine goes silent, hands the booking back to the queue in its old place.
 
 A queued booking expires 2 minutes after the renter last checked on it, so a renter who
 closed the tab does not hold a machine when one frees up. Until then the server keeps it
 resumable: a renter who comes back within those 2 minutes (browser reopened, laptop woke
-up) and checks on the same booking id keeps their place. The web helper
+up) and checks on the same booking id keeps their place, even if a machine was reserved
+for them and lapsed while they were away. The web helper
 `web/src/swiff/booking.ts` stores the booking id in `localStorage` when it books and, on
 page load, resumes polling the stored booking, forgetting it once the booking is claimed,
 ended or expired. **Not wired in yet:** no booking page calls the helper; the booking UI

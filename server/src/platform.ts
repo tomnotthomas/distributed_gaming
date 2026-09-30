@@ -2,8 +2,8 @@
 // SQLite table each, and the rules that move a booking through them.
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
-//                     │         │  (reservation lapses unclaimed)
-//                     │         └──────────► expired
+//                     │  ▲      │
+//                     │  └──────┘ (reservation lapses unclaimed: back in its place)
 //                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
 //
 //   machine idle ─► available ─► reserved ─► in_session ─► available
@@ -277,7 +277,7 @@ export class Platform {
   claim(bookingId: string): ClaimResult {
     return this.#transaction(() => {
       const now = this.#now();
-      this.#tick(now); // a reservation that lapsed a moment ago is expired, not claimable
+      this.#tick(now); // a reservation that lapsed a moment ago is not claimable
       const booking = this.#bookingRow(bookingId);
       if (!booking) return { ok: false, reason: "not-found" };
       const reservation = this.#db
@@ -326,12 +326,14 @@ export class Platform {
       this.#setStatus(machine.id, "offline");
     }
 
+    // An unclaimed reservation hands the booking back to the queue in its old
+    // place; whether the renter is still there is the queue timeout's call.
     const lapsed = this.#db
       .prepare("SELECT * FROM reservations WHERE expires_at <= ?")
       .all(now) as ReservationRow[];
     for (const reservation of lapsed) {
       this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-      this.#setBookingStatus(reservation.booking_id, "expired");
+      this.#setBookingStatus(reservation.booking_id, "queued");
       this.#setStatus(reservation.machine_id, "available");
     }
 

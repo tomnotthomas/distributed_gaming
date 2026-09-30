@@ -63,11 +63,11 @@ describe("booking lifecycle", () => {
     assert.equal(booking.machine?.id, "pc-1");
   });
 
-  it("refuses a claim once the reservation has lapsed, and frees the machine", () => {
+  it("refuses a claim once the reservation has lapsed and the renter is gone, and frees the machine", () => {
     platform.setAvailability("pc-1", true);
     const { bookingId } = platform.book(730, 30);
 
-    beatFor("pc-1", RESERVATION_MS);
+    beatFor("pc-1", QUEUE_TIMEOUT_MS);
     const claim = platform.claim(bookingId);
     assert.deepEqual(claim, { ok: false, reason: "not-claimable", status: "expired" });
     assert.equal(platform.booking(bookingId)!.status, "expired");
@@ -163,6 +163,25 @@ describe("queue timeout", () => {
 
     platform.setAvailability("pc-1", true);
     assert.equal(platform.booking(bookingId)!.status, "matched");
+  });
+
+  it("keeps the booking of a renter who was away while its reservation lapsed", () => {
+    platform.setAvailability("pc-1", true);
+    const first = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(first.ok);
+    const { bookingId } = platform.book(730, 30); // the renter's laptop sleeps
+    const behind = platform.book(570, 30);
+
+    beatFor("pc-1", 10_000);
+    platform.endSession("pc-1", first.sessionId); // pc-1 frees while they are away
+    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
+    beatFor("pc-1", RESERVATION_MS); // and the reservation lapses unclaimed
+
+    const back = platform.booking(bookingId)!; // back inside 2 minutes
+    assert.equal(back.status, "matched");
+    assert.equal(back.machine?.id, "pc-1");
+    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
+    assert.ok(platform.claim(bookingId).ok);
   });
 });
 
