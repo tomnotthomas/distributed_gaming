@@ -22,6 +22,7 @@ const MACHINE_KEYS = `pc-1:${HASH},pc-2:${HASH}`;
 
 type Reply = { status: number; body: any };
 
+/** Build a test client with an optional bearer key, returning the HTTP status and parsed JSON body. */
 function client(origin: string) {
   return async (method: string, path: string, body?: unknown, key?: string): Promise<Reply> => {
     const headers: Record<string, string> = {};

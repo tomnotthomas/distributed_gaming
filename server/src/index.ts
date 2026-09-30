@@ -193,6 +193,7 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
   return true;
 }
 
+/** Dispatch auth and API requests, then serve web assets or index.html for extensionless app routes. */
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;

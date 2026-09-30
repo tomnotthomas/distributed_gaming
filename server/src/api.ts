@@ -40,11 +40,16 @@ class HttpError extends Error {
   }
 }
 
+/** Send a JSON response with the given status and disable caching. */
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }
 
+/**
+ * Read a JSON object, treating an empty body as {}. Throw HttpError with 413
+ * above MAX_BODY_BYTES, or 400 for malformed JSON or a non-object value.
+ */
 async function readJson(req: IncomingMessage): Promise<Json> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -71,6 +76,7 @@ function bearer(req: IncomingMessage): string | null {
   return match?.[1] ?? null;
 }
 
+/** Require the bearer key to belong to this machine; throw HttpError with 401 otherwise. */
 function requireMachine(req: IncomingMessage, access: Access, machineId: string): void {
   if (!verifyMachineKey(access.machines, machineId, bearer(req))) throw new HttpError(401, "bad machine key");
 }
@@ -90,6 +96,7 @@ const optionalTime = (value: unknown, field: string): number | undefined => {
   return ms;
 };
 
+/** Return a safe integer from 1 through max, or throw HttpError with 400 naming the invalid field. */
 function positiveInt(value: unknown, field: string, max = Number.MAX_SAFE_INTEGER): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0 || (value as number) > max) {
     throw new HttpError(400, `${field} must be a whole number from 1 to ${max}`);
@@ -109,6 +116,7 @@ const defaultGames = async () =>
  * /api/games/media.
  */
 export function createApi({ platform, access, fallbackOrigin, games = defaultGames }: ApiOptions) {
+  /** Dispatch an API request; return false outside /api/ and throw HttpError for invalid requests. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const method = req.method ?? "GET";
     if (!path.startsWith("/api/")) return false;
