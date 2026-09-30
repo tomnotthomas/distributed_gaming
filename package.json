@@ -13,6 +13,8 @@
     "dev": "npm run build && npm start",
     "dev:web": "npm run dev -w @swiff/web",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p web/tsconfig.test.json && tsc -p e2e/tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "npm test --workspaces --if-present",
     "test:e2e": "playwright test",
     "test:e2e:web": "playwright test --project web",
@@ -21,11 +23,12 @@
     "desktop": "npm start -w @swiff/desktop",
     "desktop:build": "npm run build -w @swiff/desktop",
     "desktop:pack": "npm run pack -w @swiff/desktop",
-    "ci": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+    "ci": "npm run format:check && npm run typecheck && npm test && npm run build && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.20.4",
+    "prettier": "^3.9.9",
     "typescript": "^5.9.3"
   },
   "allowScripts": {
