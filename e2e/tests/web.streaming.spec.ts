@@ -8,6 +8,14 @@
 // Everything downstream of that track is the code that ships.
 
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { E2E_MACHINE_KEY, joinLink } from "./credentials";
+
+/** Open the browser host page and start sharing into the e2e room. */
+async function startHost(page: Page, key = E2E_MACHINE_KEY) {
+  await page.goto("/host");
+  await page.getByLabel("Machine key").fill(key);
+  await page.getByRole("button", { name: "Start sharing" }).click();
+}
 
 /**
  * Replace `getDisplayMedia` with an animated canvas.
@@ -55,7 +63,7 @@ function failOnPageError(page: Page, label: string) {
   return errors;
 }
 
-// Phase 1 has exactly one room, hardcoded as HOST_ID, and every test in this
+// The /host page always registers one room, HOST_ID, and every test in this
 // file shares the one server process. So a test that leaves a socket open hands
 // the next test a half-occupied room. Contexts are tracked and torn down between
 // tests, and the teardown waits for the server to actually process the closes.
@@ -87,14 +95,13 @@ test.describe("host to renter streaming", () => {
 
     await fakeScreenCapture(host);
 
-    await host.goto("/host");
+    await startHost(host);
     await expect(host.getByRole("heading", { name: "Gaming PC" })).toBeVisible();
-    await host.getByRole("button", { name: "Start sharing" }).click();
 
     // The host registers and then waits; nobody has joined yet.
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
 
-    await renter.goto("/rtc");
+    await renter.goto(joinLink());
     await expect(renter.getByRole("heading", { name: "Swiff" })).toBeVisible();
     await renter.getByRole("button", { name: "Connect" }).click();
 
@@ -137,7 +144,7 @@ test.describe("host to renter streaming", () => {
   });
 
   test("tells the renter the gaming PC is offline when nothing is sharing", async ({ page }) => {
-    await page.goto("/rtc");
+    await page.goto(joinLink());
     await page.getByRole("button", { name: "Connect" }).click();
 
     await expect(page.getByText(/gaming PC is offline/)).toBeVisible();
@@ -148,14 +155,13 @@ test.describe("host to renter streaming", () => {
     const renter = await openPeer(browser);
 
     await fakeScreenCapture(host);
-    await host.goto("/host");
-    await host.getByRole("button", { name: "Start sharing" }).click();
+    await startHost(host);
     // Wait for the host to hold the room before the renter joins. Connecting
     // into a room the host has not registered yet is a real race worth its own
     // test; it is not what this one is about.
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
 
-    await renter.goto("/rtc");
+    await renter.goto(joinLink());
     await renter.getByRole("button", { name: "Connect" }).click();
     await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
@@ -163,6 +169,29 @@ test.describe("host to renter streaming", () => {
     await host.close();
 
     await expect(renter.getByText(/gaming PC disconnected/)).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("a renter without a join link cannot connect", async ({ page }) => {
+    await page.goto("/rtc");
+
+    await expect(page.getByText("You need a join link to connect.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect" })).toHaveCount(0);
+  });
+
+  test("a renter with an expired link is told so", async ({ page }) => {
+    await page.goto(joinLink(-60));
+    await page.getByRole("button", { name: "Connect" }).click();
+
+    await expect(page.getByText(/invalid or has expired/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  test("the host is refused with the wrong machine key", async ({ page }) => {
+    await fakeScreenCapture(page);
+    await startHost(page, "not-the-key");
+
+    await expect(page.getByText("The server refused this machine key.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start sharing" })).toBeVisible();
   });
 
   test("the host shows nothing is captured until sharing starts", async ({ page }) => {

@@ -100,8 +100,9 @@ GET  /bookings/:id
   Check whether a machine has been found yet.
 
 POST /bookings/:id/claim
-  → 200 { sessionId, roomId, signalingUrl }
-  Take the matched machine before the reservation expires. Returns the room to join.
+  → 200 { sessionId, roomId, signalingUrl, ticket }
+  Take the matched machine before the reservation expires. Returns the room to join
+  and the join ticket that opens it (see "Room access" below).
   → 409 if the reservation has already expired.
 ```
 
@@ -111,10 +112,30 @@ The wire format lives in `server/src/protocol.ts`.
 
 | Message | Direction | Meaning |
 |---|---|---|
-| `register` | PC → server | The machine opens its room. |
-| `join` | renter → server | The renter joins the room; the PC is told. |
+| `register` | PC → server | The machine opens its room, with its machine key. |
+| `join` | renter → server | The renter joins the room its ticket names; the PC is told. |
+| `denied` | server → either | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry. |
 | `offer` / `answer` / `ice` | either way | Relayed to the other side untouched. |
 | `ping` | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s). |
+
+### Room access
+
+A room is one gaming PC. Nobody gets into it without a credential, and with none
+configured the server lets nobody in (`server/src/access.ts`).
+
+| Side | Credential | Checked how |
+|---|---|---|
+| Gaming PC | **Machine key**: a random secret per machine, pasted into the host app once and stored there encrypted by Windows. | The server keeps only its SHA-256 (`MACHINE_KEYS`) and compares hashes. A wrong key cannot register or take over the room. |
+| Renter | **Join ticket**: names one room and an expiry, signed by the platform with `ROOM_SECRET` (HMAC-SHA256). Returned by `claim`. | The server checks the signature and expiry. No database call and no call from the Booking API is needed. |
+
+- **One renter at a time.** While a renter is in the room, a join with a different
+  ticket is refused (`room-taken`). The same ticket again is the same renter
+  reloading the page and takes the seat back.
+- **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
+  send to a server, proxy or `Referer` header.
+- **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
+- **Until the Booking API exists**, tickets and machine keys are made by hand:
+  `npm run ticket -- <machine-id>` and `npm run machine-key -- <machine-id>`.
 
 The server hands both peers the STUN/TURN settings when they join, with short-lived TURN
 credentials it mints itself (`server/src/ice.ts`).

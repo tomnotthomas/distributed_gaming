@@ -127,11 +127,11 @@ sequenceDiagram
     participant C as Client browser
 
     Note over H: opens /host
-    H->>S: register(hostId)
+    H->>S: register(hostId, machine key)
     Note over H: getDisplayMedia() → picks "Entire Screen"
 
     Note over C: opens /, clicks Connect
-    C->>S: join(hostId)
+    C->>S: join(ticket)
     S->>H: a client joined
 
     Note over H: addTrack(desktop)<br/>createOffer()
@@ -182,8 +182,9 @@ Static files plus a signaling relay. In-memory room map, no database.
 
 | Message | Direction | Effect |
 |---|---|---|
-| `{type:"register", hostId}` | host → server | claims a room |
-| `{type:"join", hostId}` | client → server | joins, notifies host |
+| `{type:"register", hostId, key}` | host → server | claims a room, if the machine key matches |
+| `{type:"join", ticket}` | client → server | joins the ticket's room, notifies host |
+| `{type:"denied", reason}` | server → either | refused; the socket is closed |
 | `{type:"offer"\|"answer"\|"ice"}` | either → server | relayed to the peer |
 | `{type:"ping"}` | both, every 25s | **required** — see below |
 

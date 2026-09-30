@@ -21,9 +21,9 @@
 //       |                          |                            |
 //       |======== WebRTC, peer to peer, not through here =======|
 //
-// Phase 1 has one hardcoded room and no auth: anyone who knows the id can
-// join. That is fine while both machines are ours and wrong the moment a
-// second machine exists. See docs/phase-1/plan.md, "Open questions".
+// A room is one gaming PC. Only that machine, holding its machine key, may
+// register it; only a renter holding a ticket for it may join, and only one
+// renter at a time. See access.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -31,7 +31,8 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
-import { isRelayed, type SignalMessage } from "./protocol.js";
+import { accessFromEnv, verifyMachineKey, verifyTicket } from "./access.js";
+import { DENIED_CODE, isRelayed, type DeniedMessage, type SignalMessage } from "./protocol.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
 
@@ -45,6 +46,12 @@ const iceServers = () => {
   const servers = ice.servers();
   return servers.length ? { iceServers: servers } : {};
 };
+
+const access = accessFromEnv(process.env);
+
+// Handshake frames are a few KB. The ws default is 100 MB, which lets any
+// unauthenticated socket make this process buffer that much per message.
+const MAX_FRAME_BYTES = 64 * 1024;
 
 // Resolved from the COMPILED location: server/dist/index.js -> web/dist/
 const STATIC_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -71,6 +78,8 @@ type Role = "host" | "client";
 type PeerSocket = WebSocket & {
   hostId: string | null;
   role: Role | null;
+  /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
+  ticketId: string | null;
   missedBeats: number;
 };
 
@@ -96,6 +105,12 @@ function peerOf(ws: PeerSocket): PeerSocket | null {
 
 function send(ws: PeerSocket | null, message: SignalMessage): void {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
+}
+
+/** Refuse, say why, and hang up. The socket never enters a room. */
+function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
+  send(ws, { type: "denied", reason });
+  ws.close(DENIED_CODE, reason);
 }
 
 // --- static files -----------------------------------------------------------
@@ -188,12 +203,13 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 // --- signaling --------------------------------------------------------------
 
 const server = createServer(serveStatic);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES });
 
 wss.on("connection", (socket) => {
   const ws = socket as PeerSocket;
   ws.hostId = null;
   ws.role = null;
+  ws.ticketId = null;
   ws.missedBeats = 0;
 
   ws.on("message", (raw) => {
@@ -217,7 +233,8 @@ wss.on("connection", (socket) => {
         return;
 
       case "register": {
-        if (!msg.hostId) return;
+        if (ws.role) return; // one room per socket, decided once
+        if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
         const room = roomFor(msg.hostId);
         // A reconnecting host replaces the stale socket rather than being
         // refused — otherwise a crashed host locks itself out of its own room.
@@ -232,13 +249,21 @@ wss.on("connection", (socket) => {
       }
 
       case "join": {
-        if (!msg.hostId) return;
-        const room = roomFor(msg.hostId);
-        if (room.client && room.client !== ws) room.client.close(4001, "replaced by a newer client");
-        ws.hostId = msg.hostId;
+        if (ws.role) return;
+        const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
+        if (!ticket) return deny(ws, "bad-ticket");
+        const room = roomFor(ticket.room);
+        if (room.client && room.client !== ws) {
+          // The same ticket again is the same renter refreshing: hand them the
+          // seat. A different ticket is somebody else, and the seat is taken.
+          if (room.client.ticketId !== ticket.id) return deny(ws, "room-taken");
+          room.client.close(4001, "replaced by a newer client");
+        }
+        ws.hostId = ticket.room;
         ws.role = "client";
+        ws.ticketId = ticket.id;
         room.client = ws;
-        send(ws, { type: "joined", hostId: msg.hostId, hostOnline: Boolean(room.host), ...iceServers() });
+        send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
         send(room.host, { type: "peer-joined" });
         return;
       }
@@ -287,6 +312,8 @@ server.listen(PORT, () => {
   console.log(`[swiff] http://localhost:${PORT}       (the wall)`);
   console.log(`[swiff] http://localhost:${PORT}/host  (gaming PC)`);
   console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
+  if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
+  if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
   // Warm the catalog so the first visitor's wall does not wait on Steam.
   void popularGames();
 });

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_ENV } from "./e2e/tests/credentials";
 
 // End-to-end tests run against the real thing: the real signaling server
 // serving the real production build, driving real RTCPeerConnections.
@@ -68,7 +69,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: `http://127.0.0.1:${PORT}`,
-    env: { PORT: String(PORT) },
+    env: { PORT: String(PORT), ...E2E_ENV },
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     stdout: "pipe",

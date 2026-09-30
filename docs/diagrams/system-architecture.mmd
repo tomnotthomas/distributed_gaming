@@ -54,9 +54,9 @@ flowchart LR
   MM -- "pulls next booking" --> Q
   MM -- "polls every 5s · free machines" --> DB
   MM -- "write · reservation + expires_at" --> DB
-  MM -- "session grant<br/>room id + who may join" --> SIG
-  Renter <-- "WebSocket<br/>SDP/ICE + machine ready" --> SIG
-  SIG <-- "WebSocket" --> PC
+  API -. "join ticket signed with ROOM_SECRET<br/>checked here, no call needed" .- SIG
+  Renter <-- "WebSocket · join ticket<br/>SDP/ICE + machine ready" --> SIG
+  SIG <-- "WebSocket · machine key" --> PC
   PC -- "available now · heartbeat<br/>session started / ended" --> HAPI
   HAPI -- "write" --> DB
   PC -- "download saves at start<br/>upload saves at end" --> S3

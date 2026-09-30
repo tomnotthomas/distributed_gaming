@@ -102,7 +102,13 @@ POST /sessions/:id/saves
 
 | Message | Direction | Meaning |
 |---|---|---|
-| `register` | PC → server | Open the room and wait for the renter. |
+| `register` | PC → server | Open the room and wait for the renter. Carries the machine key. |
+| `denied` | server → PC | The machine key was refused. The app stops sharing and does not retry. |
 | `join` | server → PC | The renter has arrived; the PC creates the offer. |
 | `offer` / `answer` / `ice` | either way | Relayed to the renter untouched. |
 | `ping` | every 25 s | Keeps the socket alive. |
+
+The machine key comes from `npm run machine-key -- <machine-id>`. The host app keeps it
+encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
+through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
+access" in [`renter.md`](renter.md).

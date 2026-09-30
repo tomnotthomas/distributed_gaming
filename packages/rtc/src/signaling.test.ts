@@ -76,14 +76,14 @@ afterEach(() => {
 
 describe("connectSignaling", () => {
   it("hands the caller a send function once the socket opens", () => {
-    const onOpen = vi.fn((send: (m: SignalMessage) => void) => send({ type: "register", hostId: "pc-1" }));
+    const onOpen = vi.fn((send: (m: SignalMessage) => void) => send({ type: "register", hostId: "pc-1", key: "k" }));
     connectSignaling({ url: TEST_URL, onOpen, onMessage: vi.fn() });
 
     expect(onOpen).not.toHaveBeenCalled(); // nothing before the socket is up
     latest().accept();
 
     expect(onOpen).toHaveBeenCalledOnce();
-    expect(latest().messages).toEqual([{ type: "register", hostId: "pc-1" }]);
+    expect(latest().messages).toEqual([{ type: "register", hostId: "pc-1", key: "k" }]);
   });
 
   it("drops sends made before the socket is open instead of throwing", () => {
@@ -210,6 +210,20 @@ describe("connectSignaling", () => {
     latest().drop();
     vi.advanceTimersByTime(BACKOFF_MAX_MS * 5);
 
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it("stops reconnecting once the server has denied it", () => {
+    const onMessage = vi.fn();
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage });
+    latest().accept();
+
+    latest().deliver({ type: "denied", reason: "bad-ticket" });
+    latest().drop();
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 5);
+
+    // The caller still hears why, so the page can say it.
+    expect(onMessage).toHaveBeenCalledWith({ type: "denied", reason: "bad-ticket" }, expect.any(Function));
     expect(FakeSocket.instances).toHaveLength(1);
   });
 

@@ -1,6 +1,6 @@
 // The renter. Joins the room, answers the host's offer, plays the stream.
 //
-//   [ Connect ] ──► join ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
+//   [ Connect ] ──► join(ticket) ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -12,10 +12,17 @@ import {
   type SignalMessage,
 } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
-import { HOST_ID, SIGNALING_URL } from "./config";
+import { SIGNALING_URL, ticketFromUrl } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
 
+const DENIED: Record<string, string> = {
+  "bad-ticket": "This link is invalid or has expired. Ask for a new one.",
+  "room-taken": "Someone else is already playing on this machine.",
+};
+
 export function Client() {
+  const [ticket] = useState(ticketFromUrl);
+  const [room, setRoom] = useState<string | null>(null);
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [note, setNote] = useState<string | undefined>();
@@ -80,10 +87,15 @@ export function Client() {
 
     const signaling = connectSignaling({
       url: SIGNALING_URL,
-      onOpen: (send) => send({ type: "join", hostId: HOST_ID }),
+      onOpen: (send) => send({ type: "join", ticket }),
       onMessage: (msg, send) => {
         switch (msg.type) {
+          case "denied":
+            setError(DENIED[msg.reason] ?? "The server refused this connection.");
+            setConnecting(false);
+            break;
           case "joined":
+            setRoom(msg.hostId);
             serverIceRef.current = msg.iceServers ?? [];
             setNote(msg.hostOnline ? undefined : "gaming PC is offline — waiting");
             break;
@@ -111,19 +123,22 @@ export function Client() {
     });
 
     return () => signaling.close();
-  }, [connecting, answerOffer]);
+  }, [connecting, answerOffer, ticket]);
 
   return (
     <PageShell
       title="Swiff"
       subtitle="Rent a gaming PC. Play it in this tab."
-      meta={<Tag label="Room">{HOST_ID}</Tag>}
+      meta={room ? <Tag label="Room">{room}</Tag> : undefined}
     >
       <div className="row">
-        {!connecting ? (
+        {!ticket ? (
+          <p className="muted">You need a join link to connect.</p>
+        ) : !connecting ? (
           <Button
             size="lg"
             onClick={() => {
+              setError(null);
               if (isPostHogEnabled) posthog.capture("client_connection_requested");
               setConnecting(true);
             }}

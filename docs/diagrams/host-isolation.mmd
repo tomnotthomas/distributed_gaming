@@ -49,7 +49,7 @@ flowchart LR
   HostApp -- "available now · heartbeat<br/>session started / ended" --> API
   API -- "write" --> DB
   HostApp -- "session start · download saves<br/>session end · upload saves, then wipe" --> S3
-  HostApp <-- "WebSocket · register<br/>SDP/ICE" --> SIG
+  HostApp <-- "WebSocket · register + machine key<br/>SDP/ICE" --> SIG
   SIG <-- "WebSocket · join<br/>SDP/ICE" --> Renter
   HostApp -. "my public address?" .-> STUN
   Capture -. "fallback" .-> TURN

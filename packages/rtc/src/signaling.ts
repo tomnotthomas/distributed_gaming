@@ -10,6 +10,9 @@
 //        │                      │
 //   backoff timer ◄── close ────┘
 //
+// A `denied` is final: the server hangs up after it, and the same credential
+// would be refused again, so the client stops instead of retrying forever.
+//
 // The 25s ping is not optional: Cloudflare closes an idle WebSocket after 100
 // seconds, and a host waiting for its first renter sends nothing at all.
 
@@ -43,6 +46,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
   let retryTimer: number | undefined;
   let backoff = BACKOFF_MIN_MS;
   let closedByUs = false;
+  let denied = false;
 
   const send = (msg: SignalMessage) => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -67,13 +71,14 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
         return;
       }
       if (msg.type === "pong") return;
+      if (msg.type === "denied") denied = true;
       onMessage(msg, send);
     };
 
     socket.onclose = () => {
       window.clearInterval(pingTimer);
       onStatus?.("closed");
-      if (closedByUs) return;
+      if (closedByUs || denied) return;
       retryTimer = window.setTimeout(open, backoff);
       backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
     };
