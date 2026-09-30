@@ -1,0 +1,23 @@
+---
+config:
+  theme: base
+  flowchart:
+    curve: basis
+    nodeSpacing: 30
+    rankSpacing: 28
+    htmlLabels: true
+  themeVariables:
+    fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif"
+    fontSize: 16px
+    lineColor: "#333333"
+    primaryTextColor: "#0b2a4a"
+  themeCSS: >-
+    svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
+---
+flowchart LR
+  S1["<b>1</b><br/>Owner installs<br/>the host app"] --> S2["<b>2</b><br/>Owner makes<br/>the PC available"] --> S3["<b>3</b><br/>System matches<br/>a renter"] --> S4["<b>4</b><br/>Gaming PC starts<br/>Steam, locks the PC"] --> S5["<b>5</b><br/>Renter<br/>plays"] --> S6["<b>6</b><br/>Session ends,<br/>PC back to the owner"]
+
+  classDef step fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
+  classDef done fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  class S1,S2,S3,S4,S5 step
+  class S6 done
