@@ -229,7 +229,7 @@ describe("startRenterSession", () => {
     ]);
   });
 
-  it("asks for stereo Opus when the offer carries audio", async () => {
+  it("answers with createAnswer's description unchanged", async () => {
     start();
     socket().deliver({ type: "joined", hostId: "room-1", hostOnline: true });
     const answerSdp = "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n";
@@ -240,7 +240,8 @@ describe("startRenterSession", () => {
     await flush();
     spy.mockRestore();
 
-    expect(peer().localDescription?.sdp).toContain("stereo=1");
+    expect(peer().localDescription?.sdp).toBe(answerSdp);
+    expect(socket().messages).toContainEqual({ type: "answer", sdp: { type: "answer", sdp: answerSdp } });
   });
 
   it("plays the tracks in the video, without a jitter buffer, and reports them", async () => {
@@ -283,6 +284,18 @@ describe("startRenterSession", () => {
 
     expect(types().filter((t) => t === "connected")).toHaveLength(1);
     expect(types().filter((t) => t === "first-frame")).toHaveLength(1);
+  });
+
+  it("drops a stats sample the browser refuses", async () => {
+    const { types } = start();
+    const pc = await answered();
+    const spy = vi.spyOn(pc, "getStats").mockRejectedValue(new Error("closed"));
+
+    await vi.advanceTimersByTimeAsync(1000);
+    spy.mockRestore();
+
+    expect(types()).not.toContain("stats");
+    expect(types()).not.toContain("error");
   });
 
   it("reports the first frame from stats when there is no video element", async () => {

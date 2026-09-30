@@ -12,7 +12,6 @@
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { inputLane, INPUT_PROTOCOL, type InputLane } from "./input";
 import { startInputCapture, type InputCapture } from "./inputCapture";
-import { setLocalWithStereoOpus } from "./opus";
 import {
   candidateTypeOf,
   createPeerConnection,
@@ -264,21 +263,23 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
 
     let previous: Sample | null = null;
     statsTimer = window.setInterval(() => {
-      void connection.getStats().then((report) => {
-        if (pc !== connection) return;
-        const reading = readRenterStats(report, previous);
-        previous = reading.sample;
-        latest = reading.stats;
-        emit({ type: "stats", stats: reading.stats });
-        if (reading.stats.framesDecoded > 0) firstFrame();
-      });
+      void connection.getStats().then(
+        (report) => {
+          if (pc !== connection) return;
+          const reading = readRenterStats(report, previous);
+          previous = reading.sample;
+          latest = reading.stats;
+          emit({ type: "stats", stats: reading.stats });
+          if (reading.stats.framesDecoded > 0) firstFrame();
+        },
+        () => {},
+      );
     }, statsIntervalMs);
 
     try {
       await inbox.setRemote(sdp);
       const reply = await connection.createAnswer();
-      // Stereo is only sent to a renter that asks for it, so the answer says so.
-      await setLocalWithStereoOpus(connection, reply, /^m=audio /m.test(sdp.sdp ?? ""));
+      await connection.setLocalDescription(reply);
       send({ type: "answer", sdp: connection.localDescription ?? reply });
     } catch (cause) {
       // A connection a newer offer or `end()` already replaced fails on the

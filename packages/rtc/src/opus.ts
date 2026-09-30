@@ -74,11 +74,11 @@ export function withStereoOpus(
 /**
  * Apply a local description, preferring the stereo-tuned version of it.
  *
- * Editing SDP that `createOffer` or `createAnswer` produced is discouraged,
- * and for Opus stereo it is also the only option. A browser that refuses the
- * edit should cost the session its second audio channel, never the session
- * itself — so the untouched description is applied instead and the reason is
- * said out loud. Without audio there is nothing to tune.
+ * Editing SDP that `createOffer` produced is discouraged, and for Opus stereo
+ * it is also the only option. A browser that refuses the edit should cost the
+ * session its second audio channel, never the session itself — so the
+ * untouched description is applied instead and the reason is said out loud.
+ * Without audio there is nothing to tune.
  */
 export async function setLocalWithStereoOpus(
   pc: RTCPeerConnection,
