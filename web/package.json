@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@swiff/rank": "*",
     "@swiff/rtc": "*",
     "@swiff/ui": "*",
     "posthog-js": "^1.434.2",
