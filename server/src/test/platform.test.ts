@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { LIVENESS_MS, Platform, RESERVATION_MS } from "../platform.js";
+import { LIVENESS_MS, Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS } from "../platform.js";
 
 let now: number;
 let platform: Platform;
@@ -141,6 +141,68 @@ describe("booking lifecycle", () => {
     assert.equal(platform.startSession("pc-2", claim.sessionId), false);
     assert.equal(platform.endSession("pc-2", claim.sessionId), false);
     assert.equal(platform.booking(bookingId)!.status, "claimed");
+  });
+});
+
+describe("queue timeout", () => {
+  it("drops a queued booking the renter stopped checking on, and never matches it", () => {
+    const { bookingId } = platform.book(730, 30);
+    advance(QUEUE_TIMEOUT_MS);
+    platform.setAvailability("pc-1", true);
+    assert.equal(platform.heartbeat("pc-1").status, "available");
+    assert.equal(platform.booking(bookingId)!.status, "expired");
+    assert.deepEqual(platform.claim(bookingId), { ok: false, reason: "not-claimable", status: "expired" });
+  });
+
+  it("keeps a queued booking whose renter comes back within the timeout", () => {
+    const { bookingId } = platform.book(730, 30);
+    advance(QUEUE_TIMEOUT_MS - 1_000); // the laptop slept
+    assert.equal(platform.booking(bookingId)!.status, "queued");
+    advance(QUEUE_TIMEOUT_MS - 1_000); // the same renter, polling again, keeps it alive
+    assert.equal(platform.booking(bookingId)!.status, "queued");
+
+    platform.setAvailability("pc-1", true);
+    assert.equal(platform.booking(bookingId)!.status, "matched");
+  });
+});
+
+describe("join ticket revocation", () => {
+  const claimed = () => {
+    platform.setAvailability("pc-1", true);
+    const { bookingId } = platform.book(730, 30);
+    const claim = platform.claim(bookingId);
+    assert.ok(claim.ok);
+    platform.recordTicket(claim.sessionId, "ticket-1");
+    assert.equal(platform.ticketRevoked("ticket-1"), false);
+    return claim;
+  };
+
+  it("revokes the ticket when the host ends the session", () => {
+    const claim = claimed();
+    platform.endSession("pc-1", claim.sessionId);
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("revokes the ticket when the owner takes the machine back", () => {
+    claimed();
+    platform.setAvailability("pc-1", false);
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("revokes the ticket when the machine goes silent", () => {
+    claimed();
+    advance(LIVENESS_MS);
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("revokes the ticket when the session runs past its time", () => {
+    claimed();
+    beatFor("pc-1", 30 * 60_000);
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("leaves a ticket minted by hand, with no session, alone", () => {
+    assert.equal(platform.ticketRevoked("hand-minted"), false);
   });
 });
 

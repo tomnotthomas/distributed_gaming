@@ -209,4 +209,36 @@ describe("the real server", () => {
     assert.equal(reply.type, "joined");
     assert.equal(reply.type === "joined" && reply.hostId, "pc-2");
   });
+
+  it("puts the renter out and refuses the ticket once the session has ended", async () => {
+    await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+
+    const join = () => {
+      const ws = new WebSocket(claim.body.signalingUrl);
+      const received: SignalMessage[] = [];
+      ws.on("message", (raw) => received.push(JSON.parse(String(raw)) as SignalMessage));
+      ws.once("open", () => ws.send(JSON.stringify({ type: "join", ticket: claim.body.ticket })));
+      const closed = new Promise<number>((resolve) => ws.once("close", resolve));
+      return { received, closed };
+    };
+    const until = async (check: () => boolean) => {
+      for (let i = 0; i < 50 && !check(); i++) await new Promise((r) => setTimeout(r, 100));
+    };
+
+    const seated = join();
+    await until(() => seated.received.length > 0);
+    assert.equal(seated.received[0]?.type, "joined");
+
+    const end = await call("POST", `/api/sessions/${claim.body.sessionId}/end`, {}, MACHINE_KEY);
+    assert.equal(end.status, 200);
+    assert.equal(await seated.closed, 4003);
+    assert.deepEqual(seated.received.at(-1), { type: "denied", reason: "bad-ticket" });
+
+    const again = join();
+    assert.equal(await again.closed, 4003);
+    assert.deepEqual(again.received, [{ type: "denied", reason: "bad-ticket" }]);
+  });
 });

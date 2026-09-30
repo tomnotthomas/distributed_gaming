@@ -58,11 +58,16 @@ const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost
 
 // Matching and the liveness sweep. Every request that changes something runs
 // them too; this catches what changes only with time: a machine going silent,
-// a reservation lapsing, and bookings waiting on either.
+// a reservation lapsing, and bookings waiting on either. Then any renter still
+// seated on a ticket whose session has ended, however it ended, is put out.
 const PLATFORM_TICK_MS = 1_000;
 setInterval(() => {
   try {
     platform.tick();
+    for (const room of rooms.values()) {
+      if (room.client?.ticketId && platform.ticketRevoked(room.client.ticketId))
+        deny(room.client, "bad-ticket");
+    }
   } catch (error) {
     // A locked or broken database file must not take signaling down with it.
     console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
@@ -272,7 +277,7 @@ wss.on("connection", (socket) => {
       case "join": {
         if (ws.role) return;
         const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-        if (!ticket) return deny(ws, "bad-ticket");
+        if (!ticket || platform.ticketRevoked(ticket.id)) return deny(ws, "bad-ticket");
         const room = roomFor(ticket.room);
         if (room.client && room.client !== ws) {
           // The same ticket again is the same renter refreshing: hand them the

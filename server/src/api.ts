@@ -9,10 +9,10 @@
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). A renter holds nothing but the
 // booking id, which is unguessable. Claiming mints the join ticket the way
-// `npm run ticket` does.
+// `npm run ticket` does, tied to the session so that ending it revokes the ticket.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mintTicket, verifyMachineKey, type Access } from "./access.js";
+import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
 import { popularGames } from "./catalog.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { originFrom } from "./steam.js";
@@ -155,12 +155,14 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
+      const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60);
+      platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
       const origin = originFrom(req.headers, fallbackOrigin);
       reply(res, 200, {
         sessionId: claim.sessionId,
         roomId: claim.roomId,
         signalingUrl: origin.replace(/^http/, "ws"),
-        ticket: mintTicket(access.secret, claim.roomId, claim.minutes * 60),
+        ticket,
       });
       return true;
     }
