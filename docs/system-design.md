@@ -49,44 +49,9 @@ one session per machine.
 
 ## 3. Workflow
 
-### 3.1 A PC becomes available
+![Workflow](diagrams/workflow.png)
 
-1. The owner starts the host app and marks the machine *available now*, until a given time.
-2. The host app writes that to the database and keeps sending a **heartbeat**
-   (`last_seen_at`). A machine whose heartbeat stops is no longer considered free.
-
-### 3.2 A renter books a game
-
-1. The renter, signed in with Steam, sends `POST /bookings` to the **Booking API**.
-2. The API stores the booking as `queued` and puts it on the **Queue**. The request returns
-   straight away; matching happens in the background.
-3. The **Matchmaker worker** pulls the next booking off the queue.
-4. Every 5 s it looks for free machines in the database: available, heartbeat recent, and
-   not already held by someone.
-5. It picks one and writes a **reservation** with an `expires_at`. The reservation *holds*
-   that machine for this booking only. If the renter does not claim it in time, the
-   reservation lapses and the machine is free for the next booking.
-6. It sends a **session grant** to Connection setup: the room id and who may join it.
-
-### 3.3 The renter connects
-
-1. The renter polls `GET /bookings/:id` until it reads `matched`, then calls
-   `POST /bookings/:id/claim`. That turns the reservation into a **session** and returns
-   the room to join.
-2. Both the renter's browser and the gaming PC open a WebSocket to **Connection setup**
-   and join that room. Connection setup only lets in the two parties named in the grant.
-3. They exchange an offer, an answer and ICE candidates through it (SDP + ICE relay).
-4. Each side asks **STUN** what its public address is, and ICE tries the paths cheapest
-   first: same network → direct across the internet → **TURN** relay.
-5. One **WebRTC peer connection** opens directly between the two. Video and audio go
-   PC → renter; input goes renter → PC over data channels. Connection setup is no longer
-   on the path.
-
-### 3.4 The session ends
-
-1. The renter leaves, the booked time runs out, or the owner hits the kill switch.
-2. The host app writes *session ended* with `ended_at`; the price is worked out from the
-   time played. The machine goes back to available.
+Source: [`diagrams/workflow.mmd`](diagrams/workflow.mmd).
 
 ---
 
