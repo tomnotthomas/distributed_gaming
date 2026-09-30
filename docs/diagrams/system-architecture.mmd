@@ -19,8 +19,12 @@ config:
 flowchart LR
   Renter["Renter"]
   PC["Gaming PC"]
-  TURN["TURN relay<br/>carries the stream when<br/>the direct path is blocked"]
-  STUN["STUN<br/>tells each side how it looks<br/>from the outside"]
+  TURN["TURN relay"]
+  STUN["STUN"]
+  TURNnote["carries the stream when<br/>the direct path is blocked"]
+  STUNnote["tells each side how it looks<br/>from the outside"]
+  TURN ~~~ TURNnote
+  STUN ~~~ STUNnote
 
   subgraph Platform["Swiff platform"]
     API["Booking API"]
@@ -59,10 +63,12 @@ flowchart LR
   classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
   classDef endpoint fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  classDef note fill:none,stroke:none,color:#666,font-style:italic
   classDef table fill:#fffbe8,stroke:#e0d58a,color:#333
   class API,Q,MM,DB platform
   class Renter,PC,SIG,STUN endpoint
   class TURN turn
   class T1,T2,T3,T4 table
+  class TURNnote,STUNnote note
   style Platform fill:#ffffff,stroke:#ccc,color:#444
   style Data fill:#ffffff,stroke:#ccc,color:#444
