@@ -54,7 +54,7 @@ jobs:
         with:
           name: coverage
           path: web/coverage/
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: ignore
 
   # Proves the thing the README tells a human to run actually produces a
@@ -77,7 +77,7 @@ jobs:
         with:
           name: web-dist
           path: web/dist/
-          retention-days: 7
+          retention-days: 1
 
   # The real product: two browsers, a real signaling server, real peer
   # connections, and an assertion that decoded frames arrive.
@@ -120,7 +120,7 @@ jobs:
           path: |
             e2e/.report/
             e2e/.results/
-          retention-days: 14
+          retention-days: 3
 
   # The Electron host app. It lives on its own branch for now, so this job is
   # gated on the directory existing: it lights up by itself when desktop/ lands
@@ -179,7 +179,7 @@ jobs:
           path: |
             e2e/.report/
             e2e/.results/
-          retention-days: 14
+          retention-days: 3
 
   # Builds something a human can actually download and run. Everything else
   # here proves the code is correct; this is the only job that produces the
@@ -253,14 +253,17 @@ jobs:
           fi
           printf 'built: %s\n' "${found[@]}"
 
+      # Installers are large. Keep them only for main and manual runs:
+      # uploading one per PR push is what filled the artifact quota. PRs still
+      # prove the packaging works; they just do not keep the result.
       - uses: actions/upload-artifact@v4
-        if: steps.check.outputs.present == 'true'
+        if: steps.check.outputs.present == 'true' && github.event_name != 'pull_request'
         with:
           name: swiff-host-${{ matrix.label }}
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: error
 
   # One green check to require in branch protection, so adding a job later does
