@@ -4,6 +4,45 @@
 language: en-US
 reviews:
   profile: chill
+  # CodeRabbit requests changes while an error-mode check fails, and approves
+  # once it passes. Without this, error-mode checks only warn.
+  request_changes_workflow: true
+  pre_merge_checks:
+    custom_checks:
+      - name: "No sensitive data in logs"
+        mode: "error"
+        instructions: |
+          Fail if this pull request adds or changes code that can write
+          sensitive data to any output someone other than its owner can read.
+
+          Sensitive data in this repo includes:
+          - Passwords, API keys, access tokens, bearer tokens, cookies,
+            Authorization headers.
+          - STEAM_API_KEY, SESSION_SECRET, ROOM_SECRET, TURN_KEY_API_TOKEN,
+            TURN usernames and credentials, and any other value read from
+            process.env that is a secret.
+          - Machine keys (the `key` field of a `register` message, anything
+            loaded through safeStorage) and join tickets (the `ticket` field
+            of a `join` message, the `#ticket=` part of a URL).
+          - Steam OpenID assertions and signatures from the sign-in return URL.
+          - SDP bodies and ICE candidates: SDP carries ice-pwd, a session
+            credential, and candidates carry users' IP addresses.
+
+          Outputs that count:
+          - console.log / info / warn / error / debug, and any logger.
+          - posthog.capture, posthog.identify and other analytics properties.
+          - Error messages, thrown errors and HTTP or WebSocket responses sent
+            to a client, including the `denied` message.
+          - Files written to disk in plain text.
+
+          Also fail when a whole object that may contain any of the above is
+          logged or sent as-is: a raw request or response body, headers,
+          process.env, a full signaling message, or a caught error from an
+          HTTP call whose body may echo the request back.
+
+          Pass when the code logs only non-secret facts: a status code, a
+          length, a room or machine id, a boolean, an expiry, or a message
+          type. Test files may use fixed fake credentials.
   auto_review:
     enabled: true
     drafts: false
