@@ -557,6 +557,29 @@ describe("host sessions", () => {
     await api(room, "DELETE");
   });
 
+  it("relays nothing from a streamer whose session has ended", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const host = await streamer(room, grant.sessionKey);
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+
+    // The old streamer ignores the close frame and keeps talking.
+    host.pause();
+    assert.equal((await api(room, "DELETE")).status, 204);
+    await wait(100);
+    send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
+    send(host, { type: "ice", candidate: { candidate: "c", sdpMid: "0", sdpMLineIndex: 0 } });
+    await wait(100);
+
+    const inbox = types(renter);
+    assert.ok(inbox.includes("peer-left"), `renter saw [${inbox}]`);
+    assert.ok(!inbox.includes("offer") && !inbox.includes("ice"), `renter saw [${inbox}]`);
+    host.terminate();
+    renter.close();
+  });
+
   it("tells the renter peer-left when a session start puts out a machine-key host", async () => {
     const room = nextRoom();
     const host = await open();

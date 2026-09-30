@@ -114,11 +114,15 @@ function roomFor(hostId: string): Room {
   return room;
 }
 
-/** The other socket in the same room, or null when the peer has not arrived. */
+/**
+ * The other socket in the same room, or null when the peer has not arrived or
+ * `ws` no longer holds its seat (evicted or replaced, and still closing).
+ */
 function peerOf(ws: PeerSocket): PeerSocket | null {
   const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return null;
-  return ws.role === "host" ? room.client : room.host;
+  if (ws.role === "host") return room.host === ws ? room.client : null;
+  return room.client === ws ? room.host : null;
 }
 
 function send(ws: PeerSocket | null, message: SignalMessage): void {
