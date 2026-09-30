@@ -2,8 +2,9 @@
 // SQLite table each, and the rules that move a booking through them.
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
-//                               │  (reservation lapses unclaimed)
-//                               └──────────► expired
+//                     │         │  (reservation lapses unclaimed)
+//                     │         └──────────► expired
+//                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
 //
 //   machine idle ─► available ─► reserved ─► in_session ─► available
 //                 (silent for LIVENESS_MS: offline; taken back: idle)
@@ -26,6 +27,8 @@ import { DatabaseSync } from "node:sqlite";
 export const LIVENESS_MS = 15_000;
 /** How long a matched renter has to claim the machine. */
 export const RESERVATION_MS = 60_000;
+/** A queued booking the renter has not checked on for this long is dropped. */
+export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 /** The longest booking accepted. */
 export const MAX_MINUTES = 12 * 60;
 
@@ -78,7 +81,13 @@ type MachineRow = {
   available_until: number | null;
   last_seen_at: number;
 };
-type BookingRow = { id: string; game_id: number; minutes: number; status: BookingStatus };
+type BookingRow = {
+  id: string;
+  game_id: number;
+  minutes: number;
+  status: BookingStatus;
+  last_seen_at: number;
+};
 type ReservationRow = { id: string; booking_id: string; machine_id: string; expires_at: number };
 type SessionRow = {
   id: string;
@@ -88,6 +97,7 @@ type SessionRow = {
   ended_at: number | null;
   expires_at: number;
   price: number | null;
+  ticket_id: string | null;
 };
 
 const SCHEMA = `
@@ -109,7 +119,9 @@ CREATE TABLE IF NOT EXISTS bookings (
   minutes    INTEGER NOT NULL,
   status     TEXT NOT NULL
              CHECK (status IN ('queued', 'matched', 'claimed', 'playing', 'ended', 'expired')),
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- The renter's last contact (booking or checking on it); a queue timeout.
+  last_seen_at INTEGER NOT NULL
 );
 -- A reservation lives only while it is waiting to be claimed, so one per
 -- machine and one per booking is the whole rule.
@@ -120,7 +132,9 @@ CREATE TABLE IF NOT EXISTS reservations (
   expires_at INTEGER NOT NULL
 );
 -- started_at is when the renter arrived (the host says so); expires_at is when
--- the join ticket runs out, the backstop if the host never ends it.
+-- the join ticket runs out, the backstop if the host never ends it. ticket_id is
+-- the join ticket handed out at claim; it stops opening the room once ended_at
+-- is set.
 CREATE TABLE IF NOT EXISTS sessions (
   id         TEXT PRIMARY KEY,
   booking_id TEXT NOT NULL UNIQUE REFERENCES bookings (id),
@@ -128,7 +142,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at INTEGER,
   ended_at   INTEGER,
   expires_at INTEGER NOT NULL,
-  price      INTEGER
+  price      INTEGER,
+  ticket_id  TEXT UNIQUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_open_per_machine
   ON sessions (machine_id) WHERE ended_at IS NULL;
@@ -239,18 +254,21 @@ export class Platform {
       const id = newId();
       this.#db
         .prepare(
-          `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at)
-             VALUES (?, ?, ?, ?, 'queued', ?)`,
+          `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at)
+             VALUES (?, ?, ?, ?, 'queued', ?, ?)`,
         )
-        .run(id, renterId, gameId, minutes, now);
+        .run(id, renterId, gameId, minutes, now, now);
       this.#tick(now);
       return this.#bookingView(id)!;
     });
   }
 
+  /** The booking as it stands. Checking on it is what keeps a queued booking in the queue. */
   booking(bookingId: string): BookingView | null {
     return this.#transaction(() => {
-      this.#tick(this.#now());
+      const now = this.#now();
+      this.#tick(now);
+      this.#db.prepare("UPDATE bookings SET last_seen_at = ? WHERE id = ?").run(now, bookingId);
       return this.#bookingView(bookingId);
     });
   }
@@ -278,6 +296,18 @@ export class Platform {
       this.#setStatus(reservation.machine_id, "in_session");
       return { ok: true, sessionId, roomId: reservation.machine_id, minutes: booking.minutes };
     });
+  }
+
+  /** Tie the join ticket handed out at claim to its session, so ending the session revokes it. */
+  recordTicket(sessionId: string, ticketId: string): void {
+    this.#db.prepare("UPDATE sessions SET ticket_id = ? WHERE id = ?").run(ticketId, sessionId);
+  }
+
+  /** True when the ticket was handed out for a session that has since ended. A ticket minted by hand has none. */
+  ticketRevoked(ticketId: string): boolean {
+    return Boolean(
+      this.#db.prepare("SELECT 1 FROM sessions WHERE ticket_id = ? AND ended_at IS NOT NULL").get(ticketId),
+    );
   }
 
   // --- matching and sweeps ---------------------------------------------------
@@ -314,6 +344,12 @@ export class Platform {
       this.#endSession(session, session.expires_at);
       this.#setStatus(session.machine_id, "available");
     }
+
+    // A renter who stopped checking on a queued booking has gone; matching it
+    // would only hold a machine for nobody.
+    this.#db
+      .prepare("UPDATE bookings SET status = 'expired' WHERE status = 'queued' AND last_seen_at <= ?")
+      .run(now - QUEUE_TIMEOUT_MS);
 
     this.#match(now);
   }

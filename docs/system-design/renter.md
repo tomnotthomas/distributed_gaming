@@ -66,15 +66,16 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | Entity          | What it is                                                      | Key fields                                                                           |
 | --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `gpu`, `cpu`, `price`, `status`, `available_until`, `last_seen_at` |
-| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`                                    |
+| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                    |
 | **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                       |
-| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`                  |
+| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`, `ticket_id`     |
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                 |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                     |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                          |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended` (or `expired` if
-the reservation lapses unclaimed).
+the reservation lapses unclaimed, or if the renter stops checking on a queued booking for
+2 minutes).
 
 Machines, bookings, reservations and sessions are one SQLite table each
 (`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
@@ -107,13 +108,14 @@ POST /bookings
 GET  /bookings/:id
   → 200 { bookingId, status, machine?, claimBy?, price? }
   Check whether a machine has been found yet. `claimBy` is when the reservation
-  lapses; `price` (cents) is set once the session has ended.
+  lapses; `price` (cents) is set once the session has ended. Checking also keeps a
+  queued booking in the queue: one nobody has checked on for 2 minutes expires.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
   Take the matched machine before the reservation expires (60 s). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
-  booked minutes.
+  booked minutes or until the session ends, whichever comes first.
   → 409 if the reservation has already expired, or the booking is not matched.
 ```
 
@@ -121,6 +123,13 @@ Matching runs in the server process, every second and on every change: the oldes
 queued booking gets the cheapest live machine that is free for all of its minutes, and
 the machine is reserved for it. A reservation lasts 60 s. A machine that goes silent
 hands its reserved booking back to the queue.
+
+A queued booking expires 2 minutes after the renter last checked on it, so a renter who
+closed the tab does not hold a machine when one frees up. A renter who comes back within
+those 2 minutes (browser reopened, laptop woke up) keeps their place: the web app stores
+the booking id in `localStorage` when it books and, on page load, resumes polling the
+stored booking, forgetting it once the booking is claimed, ended or expired
+(`web/src/swiff/booking.ts`).
 
 ### Connection setup (WebSocket)
 
@@ -142,7 +151,7 @@ configured the server lets nobody in (`server/src/access.ts`).
 | Side      | Credential                                                                                                                   | Checked how                                                                                                                |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Gaming PC | **Machine key**: a random secret per machine, pasted into the host app once and stored there encrypted by Windows.           | The server keeps only its SHA-256 (`MACHINE_KEYS`) and compares hashes. A wrong key cannot register or take over the room. |
-| Renter    | **Join ticket**: names one room and an expiry, signed by the platform with `ROOM_SECRET` (HMAC-SHA256). Returned by `claim`. | The server checks the signature and expiry. No database call and no call from the Booking API is needed.                   |
+| Renter    | **Join ticket**: names one room and an expiry, signed by the platform with `ROOM_SECRET` (HMAC-SHA256). Returned by `claim`. | The server checks the signature and expiry, and refuses a ticket whose session has ended.                                  |
 
 - **One renter at a time.** While a renter is in the room, a join with a different
   ticket is refused (`room-taken`). The same ticket again is the same renter
@@ -150,6 +159,10 @@ configured the server lets nobody in (`server/src/access.ts`).
 - **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
+- **A ticket dies with its session.** `claim` records the ticket on the session. Once the
+  session ends (the host ends it, the owner takes the machine back, the machine goes
+  silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
+  and a renter still in the room with it is put out within a second.
 - **Tickets come from `claim`.** `npm run ticket -- <machine-id>` still mints one by
   hand for testing. Machine keys are made by hand: `npm run machine-key -- <machine-id>`.
 
