@@ -1,0 +1,53 @@
+# no-mistakes gate: `git push no-mistakes <branch>` reviews, tests, lints and
+# formats the branch in a throwaway worktree, then pushes to origin and opens
+# the PR. Commands and path rules are read from main only, so a branch cannot
+# loosen its own checks. Reference:
+# https://kunchenguid.github.io/no-mistakes/reference/repo-config/
+agent: claude
+
+commands:
+  prepare: "npm ci"
+  # Unit and integration tests. The browser/Electron e2e suite stays in CI:
+  # locally the macOS firewall flakes its ICE step.
+  test: "npm test"
+  lint: "npm run typecheck && npm run format:check --if-present"
+  format: "npm run format --if-present"
+
+# Changes here need a human, never an automatic fix.
+protected_paths:
+  - "package-lock.json"
+  - ".github/**"
+  - ".no-mistakes.yaml"
+  - ".coderabbit.yaml"
+  - ".gitleaks.toml"
+  - ".env.example"
+
+ignore_patterns:
+  - "prototypes/**"
+  - "docs/diagrams/*.png"
+
+review:
+  path_instructions:
+    - path: "server/src/**"
+      instructions: |
+        Public-facing signaling server: anyone on the internet can open a
+        socket to it. Nothing but ping/pong and a refusal may happen before a
+        socket is admitted to a room (server/src/access.ts). Credentials are
+        compared in constant time and never logged. Bad input must not crash
+        the process.
+    - path: "desktop/**"
+      instructions: |
+        Electron app on a stranger's gaming PC. The renderer never gets node
+        access; desktop/preload.cjs exposes only narrow single-purpose calls;
+        nodeIntegration stays off and contextIsolation/sandbox stay on.
+        Secrets are stored through safeStorage, never in plain text.
+    - path: "packages/rtc/**"
+      instructions: |
+        WebRTC client shared by the renter page and the host app. Watch for
+        reconnect loops, leaked peer connections and timers, and changes to
+        server/src/protocol.ts that only one side picks up.
+    - path: "**"
+      instructions: |
+        Fail anything that can write a password, API key, token, machine key,
+        join ticket, TURN credential, SDP body or ICE candidate to a log,
+        analytics event, error message or plain-text file.
