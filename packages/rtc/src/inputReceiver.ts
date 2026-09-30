@@ -176,6 +176,10 @@ export function createInputReceiver({
     if (failure) throw failure;
   }
 
+  /**
+   * For releases nobody called: the watchdog and a channel closing. There is no
+   * caller to throw to there, so a sink failure is logged instead.
+   */
   function guardedReleaseAll(reason: ReceiverReleaseReason) {
     try {
       releaseAll(reason);
