@@ -19,6 +19,6 @@ them, rounded to 5. They only have to be right to within a bucket
 changing any rule. An unknown GPU scores 0, so it fails E3 instead of being
 guessed.
 
-The older cards (GTX 9xx and 10xx, RX 4xx, 5xx and 5x00) are there because game
+The older cards (GTX 770 and up, R9 290 and up, RX 4xx, 5xx and 5x00) are there because game
 requirements name them: the server maps Steam's requirement text through this
 table (`server/src/requirements.ts`).

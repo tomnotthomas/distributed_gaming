@@ -101,13 +101,13 @@ const OR_BETTER = /\(?\bor\s+(?:better|higher|above|newer|greater|equivalent|sim
 const ALTERNATIVES = /\s+or\s+|\s*[/,;|]\s*/i;
 const FAMILY = /\b(?:GTX|RTX|GT|RX|HD|R[579]|ARC|IRIS|UHD|QUADRO|VEGA)\b/;
 
-/** Cards older and weaker than the table's lowest: GT/GTX below the 10 series, HD, R7/R9, RX 460/560 and Intel's integrated graphics. */
+/** Cards older and weaker than the table's lowest: GT, GTX 760 and older, HD, R7, R9 280 and older, RX 460/560 and Intel's integrated graphics. */
 const OLDER_THAN_TABLE = [
-  /\b(?:GTX?|GTS) \d{3}\b/,
+  /\b(?:GTS? \d{3}|GTX [2-6]\d{2}|GTX 7[1-6]0)\b/,
   /\bGT 10[1-3]0\b/,
   /\b\d{4} (?:GTX?|GTS)\b/,
   /\bU?HD ?\d{3,4}\b/,
-  /\bR[79] \d{3}X?\b/,
+  /\b(?:R7 \d{3}|R9 (?:2[0-8]\d|370))X?\b/,
   /\bRX [45][0-6]0\b/,
   /\bINTEL (?:U?HD|IRIS)\b/,
 ];

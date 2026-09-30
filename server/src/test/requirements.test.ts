@@ -108,7 +108,7 @@ describe("parsing Steam's pc_requirements", () => {
       "GeForce GT 1030",
       "GeForce 9800 GT",
       "AMD Radeon HD 7870",
-      "Radeon R9 290X",
+      "Radeon R9 280X",
       "AMD Radeon R7 260X",
       "Radeon RX 560",
       "Intel HD Graphics 4000",
@@ -118,6 +118,18 @@ describe("parsing Steam's pc_requirements", () => {
     ])
       assert.equal(cardScore(old), floor, old);
     assert.equal(cardScore("GTX 970"), gpuScore("GTX 970"));
+  });
+
+  it("scores older cards stronger than the floor from the table, not as the floor", () => {
+    assert.equal(cardScore("Radeon R9 290X"), 45);
+    assert.equal(cardScore("AMD Radeon R9 Fury X"), 60);
+    assert.equal(cardScore("GeForce GTX 780 Ti"), 40);
+    assert.equal(cardScore("Radeon R9 380"), null);
+    assert.equal(
+      parseTier(tier(graphics("NVIDIA GeForce GTX 970 or AMD Radeon R9 390"))).gpuScore,
+      45,
+    );
+    assert.equal(parseTier(tier(graphics("GTX 780 / R9 290"))).gpuScore, 35);
   });
 
   it("takes an older card as the lower of an 'or' pair", () => {
