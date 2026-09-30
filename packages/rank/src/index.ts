@@ -7,8 +7,8 @@ export {
   headroomOf,
   DEFAULT_MAX_RTT_MS,
   DEFAULT_HEARTBEAT_MAX_AGE_MS,
-} from "./rank";
-export { gpuScore, normalizeGpu } from "./gpu";
+} from "./rank.ts";
+export { gpuScore, normalizeGpu } from "./gpu.ts";
 export type {
   Candidate,
   Control,
@@ -27,4 +27,4 @@ export type {
   RuleId,
   Stability,
   StabilityStats,
-} from "./types";
+} from "./types.ts";

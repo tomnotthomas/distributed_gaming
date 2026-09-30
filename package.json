@@ -12,6 +12,7 @@
     "start": "npm start -w @swiff/server",
     "machine-key": "npm run build -w @swiff/server && node server/dist/cli.js machine-key",
     "ticket": "npm run build -w @swiff/server && node --env-file-if-exists=.env server/dist/cli.js ticket",
+    "seed-requirements": "npm run build -w @swiff/server && npm run seed-requirements -w @swiff/server --",
     "dev": "npm run build && npm start",
     "dev:web": "npm run dev -w @swiff/web",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p web/tsconfig.test.json && tsc -p e2e/tsconfig.json",

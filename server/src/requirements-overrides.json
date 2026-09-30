@@ -1,0 +1,82 @@
+{
+  "440": {
+    "name": "Team Fortress 2",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 0.5,
+    "minVramGb": 0,
+    "why": "Steam names no card, only DirectX 8.1. Both tiers are the table's lowest card."
+  },
+  "570": {
+    "name": "Dota 2",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 4,
+    "minVramGb": 0,
+    "why": "Steam names a GeForce 8600/9600 GT. Older than the GPU table, so both tiers are its lowest card."
+  },
+  "730": {
+    "name": "Counter-Strike 2",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1060",
+    "minRamGb": 8,
+    "minVramGb": 1,
+    "why": "Steam names no card, only a DirectX 11 GPU with 1 GB. The minimum is the table's lowest card and the recommended is a GTX 1060."
+  },
+  "4000": {
+    "name": "Garry's Mod",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 4,
+    "minVramGb": 1,
+    "why": "Steam names no card, only 1 GB of VRAM. Both tiers are the table's lowest card."
+  },
+  "105600": {
+    "name": "Terraria",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 2.5,
+    "minVramGb": 0.125,
+    "why": "Steam names no card, only 128 MB of video memory. Both tiers are the table's lowest card."
+  },
+  "271590": {
+    "name": "Grand Theft Auto V Legacy",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 4,
+    "minVramGb": 1,
+    "why": "Steam names a 9800 GT and a GTX 660. Older than the GPU table, so both tiers are its lowest card."
+  },
+  "294100": {
+    "name": "RimWorld",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 4,
+    "minVramGb": 0,
+    "why": "Steam names Intel HD Graphics 4000. Older than the GPU table, so both tiers are its lowest card."
+  },
+  "413150": {
+    "name": "Stardew Valley",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 2,
+    "minVramGb": 0.25,
+    "why": "Steam names no card, only 256 MB of video memory. Both tiers are the table's lowest card."
+  },
+  "489830": {
+    "name": "The Elder Scrolls V: Skyrim Special Edition",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050 Ti",
+    "minRamGb": 8,
+    "minVramGb": 1,
+    "why": "Steam names a GTX 470 and a GTX 780, both older than the table. The minimum is its lowest card and the recommended a GTX 1050 Ti, near a GTX 780."
+  },
+  "945360": {
+    "name": "Among Us",
+    "minGpu": "GTX 1050",
+    "recGpu": "GTX 1050",
+    "minRamGb": 1,
+    "minVramGb": 0,
+    "why": "Steam names Intel HD Graphics 4600 and a GTX 650. Older than the GPU table, so both tiers are its lowest card."
+  }
+}
