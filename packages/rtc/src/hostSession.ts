@@ -2,9 +2,10 @@
 // web host page. Everything above it differs (Electron picks the screen in
 // code, the browser shows a picker); everything from here down is identical.
 //
-//   register ──► peer-joined ──► addTrack ──► tune encoder ──► offer ──► answer
+//   register ──► peer-joined ──► addTrack ──► tune encoder ──► input channels ──► offer ──► answer
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
+import { INPUT_CHANNELS, type InputLane } from "./input";
 import { DEFAULT_AUDIO_BITRATE, withStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
@@ -58,6 +59,13 @@ export type HostSessionOptions = IceConfig & {
   onPeerConnection: (pc: RTCPeerConnection | null) => void;
   /** The server refused the machine key. Final: the session does not retry. */
   onDenied?: () => void;
+  /**
+   * The renter's input channels, once per peer connection. Attach both to one
+   * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
+   * says the connection is gone: a connection closed from this side fires no
+   * `close` on its channels.
+   */
+  onInputChannels?: (channels: Record<InputLane, RTCDataChannel>) => void;
 };
 
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
@@ -103,6 +111,12 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     // does nothing, and reading it back later suggests it did something.
     const [audio] = opts.stream.getAudioTracks();
     if (audio) pc.addTrack(audio, opts.stream);
+
+    // Created here, by the side that makes the offer, so they are part of the
+    // first negotiation rather than a second one the renter would have to start.
+    const keys = pc.createDataChannel(INPUT_CHANNELS.keys.label, INPUT_CHANNELS.keys.init);
+    const motion = pc.createDataChannel(INPUT_CHANNELS.motion.label, INPUT_CHANNELS.motion.init);
+    opts.onInputChannels?.({ keys, motion });
 
     const offer = await pc.createOffer();
     await setLocalDescription(pc, offer, Boolean(audio), capture.audioBitrate);

@@ -145,6 +145,64 @@ test.describe("host to renter streaming", () => {
     expect(renterErrors).toEqual([]);
   });
 
+  test("carries the renter's keys and mouse buttons to the host, and lets go of them", async ({
+    browser,
+  }) => {
+    const host = await openPeer(browser);
+    const renter = await openPeer(browser);
+    const hostErrors = failOnPageError(host, "host");
+    const renterErrors = failOnPageError(renter, "renter");
+
+    await fakeScreenCapture(host);
+    await startHost(host);
+    await expect(host.getByText("Waiting for a renter…")).toBeVisible();
+
+    await renter.goto(joinLink());
+    await renter.getByRole("button", { name: "Connect" }).click();
+    await expect(host.getByText("Renter is holding: nothing")).toBeVisible({ timeout: 30_000 });
+
+    // Clicking the stream gives it the keyboard (and asks for pointer lock,
+    // which a headless browser may refuse — input still flows without it).
+    const stage = renter.getByTestId("stage-video");
+    await stage.hover();
+    await renter.mouse.down();
+    await renter.keyboard.down("w");
+    await renter.keyboard.down("Shift");
+    await expect(host.getByText("Renter is holding: KeyW, ShiftLeft, left mouse")).toBeVisible();
+
+    await renter.keyboard.up("w");
+    await renter.mouse.up();
+    await expect(host.getByText("Renter is holding: ShiftLeft")).toBeVisible();
+
+    // The renter switches away with Shift still down: the PC must not keep it.
+    await renter.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(host.getByText("Renter is holding: nothing")).toBeVisible();
+
+    expect(hostErrors).toEqual([]);
+    expect(renterErrors).toEqual([]);
+  });
+
+  test("releases what the renter held when they disconnect", async ({ browser }) => {
+    const host = await openPeer(browser);
+    const renter = await openPeer(browser);
+
+    await fakeScreenCapture(host);
+    await startHost(host);
+    await expect(host.getByText("Waiting for a renter…")).toBeVisible();
+
+    await renter.goto(joinLink());
+    await renter.getByRole("button", { name: "Connect" }).click();
+    await expect(host.getByText("Renter is holding: nothing")).toBeVisible({ timeout: 30_000 });
+
+    await renter.getByTestId("stage-video").click();
+    await renter.keyboard.down("d");
+    await expect(host.getByText("Renter is holding: KeyD")).toBeVisible();
+
+    await renter.getByRole("button", { name: "Disconnect" }).click();
+    await expect(host.getByText(/Renter is holding: KeyD/)).toHaveCount(0);
+    await expect(host.getByText("Waiting for a renter…")).toBeVisible({ timeout: 20_000 });
+  });
+
   test("tells the renter the gaming PC is offline when nothing is sharing", async ({ page }) => {
     await page.goto(joinLink());
     await page.getByRole("button", { name: "Connect" }).click();

@@ -7,3 +7,30 @@ export { connectSignaling } from "./signaling";
 export type { SignalMessage, Signaling, SignalingOptions } from "./signaling";
 export { startHostSession, DEFAULT_CAPTURE } from "./hostSession";
 export type { CaptureSettings, HostSessionOptions } from "./hostSession";
+export {
+  encodeInput,
+  decodeInput,
+  isKeyCode,
+  isNeutralGamepad,
+  inputLane,
+  laneOf,
+  INPUT_CHANNELS,
+  INPUT_PROTOCOL,
+  MAX_GAMEPADS,
+  NEUTRAL_GAMEPAD,
+  WHEEL_NOTCH,
+} from "./input";
+export type { GamepadState, InputLane, InputMessage, MouseButton, ReleaseReason } from "./input";
+export { createInputReceiver, DEFAULT_INPUT_TIMEOUT_MS } from "./inputReceiver";
+export type {
+  HeldInput,
+  InputChannelLike,
+  InputReceiver,
+  InputReceiverOptions,
+  InputSink,
+  ReceiverReleaseReason,
+} from "./inputReceiver";
+export { createInputSender, DEFAULT_HEARTBEAT_MS } from "./inputSender";
+export type { InputSender } from "./inputSender";
+export { startInputCapture, videoPoint, gamepadState } from "./inputCapture";
+export type { InputCapture, InputCaptureOptions, InputSendChannel } from "./inputCapture";
