@@ -60,7 +60,8 @@ export function resetCatalog() {
 const fresh = <T>(entry: Cached<T> | null | undefined, ttl: number, now: number): entry is Cached<T> =>
   Boolean(entry && now - entry.at < ttl);
 
-async function getJson(url: URL | string): Promise<any> {
+/** GET a JSON body from Steam; a non-2xx answer throws with its status. */
+export async function getJson(url: URL | string): Promise<any> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url} -> ${response.status}`);
   return response.json();

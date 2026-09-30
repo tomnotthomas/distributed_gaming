@@ -1,6 +1,6 @@
 // GPU name → score, RTX 3060 = 100. See README.md for where the numbers come from.
 
-import table from "./gpu-scores.json";
+import table from "./gpu-scores.json" with { type: "json" };
 
 /**
  * Reduce a reported GPU name to the table's spelling: vendor words and

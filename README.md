@@ -26,6 +26,10 @@ npm run dev:web   # vite with HMR, run signaling separately with npm start
 
 A renter joins with a link from `npm run ticket -- gaming-pc-1`.
 
+`npm run seed-requirements` fills the server database (`DATABASE_PATH`) with each catalogue
+game's minimum and recommended hardware, read from Steam; `server/src/requirements-overrides.json`
+overrides it per game.
+
 Code: `web/`, `server/`, `packages/`.
 
 ## Host side (gaming PC app)

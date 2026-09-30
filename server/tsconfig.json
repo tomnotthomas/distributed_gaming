@@ -16,7 +16,12 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    // @swiff/rank ships TypeScript source with .ts imports, which Node runs
+    // directly (type stripping). This lets tsc read them.
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  // JSON too, so an edit to requirements-overrides.json triggers a rebuild.
+  "include": ["src", "src/**/*.json"]
 }
