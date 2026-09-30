@@ -6,7 +6,7 @@
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
-import { DEFAULT_AUDIO_BITRATE, withStereoOpus } from "./opus";
+import { DEFAULT_AUDIO_BITRATE, setLocalWithStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
 
@@ -24,29 +24,6 @@ export const DEFAULT_CAPTURE: CaptureSettings = {
   maxBitrate: 10_000_000,
   audioBitrate: DEFAULT_AUDIO_BITRATE,
 };
-
-/**
- * Apply a description, preferring the stereo-tuned version of it.
- *
- * Editing SDP that `createOffer` produced is discouraged, and for Opus stereo
- * it is also the only option. A browser that refuses the edit should cost the
- * session its second audio channel, never the session itself — so the
- * untouched description is applied instead and the reason is said out loud.
- */
-async function setLocalDescription(
-  pc: RTCPeerConnection,
-  description: RTCSessionDescriptionInit,
-  hasAudio: boolean,
-  bitrate: number,
-): Promise<void> {
-  if (!hasAudio) return pc.setLocalDescription(description);
-  try {
-    await pc.setLocalDescription(withStereoOpus(description, bitrate));
-  } catch (cause) {
-    console.warn("[swiff] stereo Opus was rejected; falling back to mono", cause);
-    await pc.setLocalDescription(description);
-  }
-}
 
 export type HostSessionOptions = IceConfig & {
   url: string;
@@ -124,7 +101,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     opts.onInputChannels?.({ keys, motion });
 
     const offer = await pc.createOffer();
-    await setLocalDescription(pc, offer, Boolean(audio), capture.audioBitrate);
+    await setLocalWithStereoOpus(pc, offer, Boolean(audio), capture.audioBitrate);
     send({ type: "offer", sdp: pc.localDescription ?? offer });
   };
 

@@ -1,23 +1,11 @@
-// The renter. Joins the room, answers the host's offer, plays the stream, and
-// sends mouse, keyboard and controller input back over the host's data channels.
+// The renter's bare WebRTC test page. `startRenterSession` joins the room,
+// answers the host's offer, plays the stream and sends input back; this page
+// only turns its events into the status line and buttons.
 //
-//   [ Connect ] ──► join(ticket) ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
-//                                                                 └──► ondatachannel ×2 ──► input
+//   [ Connect ] ──► startRenterSession({ ticket, video }) ──► events ──► status, notes, <video>
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  createIceInbox,
-  createPeerConnection,
-  connectSignaling,
-  DEFAULT_ICE_SERVERS,
-  inputLane,
-  INPUT_PROTOCOL,
-  startInputCapture,
-  type IceInbox,
-  type InputCapture,
-  type InputLane,
-  type SignalMessage,
-} from "@swiff/rtc";
+import { useEffect, useRef, useState } from "react";
+import { startRenterSession } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { SIGNALING_URL, ticketFromUrl } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
@@ -41,142 +29,46 @@ export function Client() {
   // browser that disagrees must still show the picture.
   const [mutedByBrowser, setMutedByBrowser] = useState(false);
 
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  // Holds the host's candidates until its offer has been applied.
-  const inboxRef = useRef<IceInbox | null>(null);
-  // TURN from the server's `joined`, which always precedes the host's offer.
-  const serverIceRef = useRef<RTCIceServer[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const inputRef = useRef<InputCapture | null>(null);
-
-  // Releases every key and button still held before input stops, so the PC is
-  // never left with one pressed. Called before the connection goes away.
-  const stopInput = useCallback(() => {
-    inputRef.current?.stop();
-    inputRef.current = null;
-  }, []);
-
-  const answerOffer = useCallback(
-    async (sdp: RTCSessionDescriptionInit, send: (m: SignalMessage) => void) => {
-      stopInput();
-      pcRef.current?.close();
-      const connection = createPeerConnection({
-        iceServers: [...DEFAULT_ICE_SERVERS, ...serverIceRef.current],
-      });
-      pcRef.current = connection;
-      inboxRef.current = createIceInbox(connection);
-      setPc(connection);
-
-      connection.onicecandidate = (event) => {
-        if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
-      };
-
-      // The host opens two input channels, keys and motion; input starts once
-      // both are open, and stops for good when either closes.
-      const lanes: Partial<Record<InputLane, RTCDataChannel>> = {};
-      let capture: InputCapture | null = null;
-      const startInput = () => {
-        const { keys, motion } = lanes;
-        const target = videoRef.current;
-        if (capture || !target || keys?.readyState !== "open" || motion?.readyState !== "open") return;
-        stopInput();
-        capture = startInputCapture({ target, channels: { keys, motion } });
-        inputRef.current = capture;
-      };
-
-      connection.ondatachannel = ({ channel }) => {
-        const lane = inputLane(channel.label);
-        if (!lane) return;
-        if (channel.protocol !== INPUT_PROTOCOL) {
-          console.warn(
-            `[swiff] the gaming PC speaks ${channel.protocol || "no"} input protocol; input is off`,
-          );
-          return;
-        }
-        lanes[lane] = channel;
-        if (channel.readyState === "open") startInput();
-        else channel.addEventListener("open", startInput, { once: true });
-        // Only this connection's own capture: a later one may own the ref by now.
-        channel.addEventListener("close", () => {
-          if (capture && inputRef.current === capture) stopInput();
-        });
-      };
-
-      connection.ontrack = (event) => {
-        const video = videoRef.current;
-        if (video) {
-          video.srcObject = event.streams[0];
-          // Audio arrives as a second track on the same stream, so ontrack
-          // fires twice; starting playback again is harmless and covers the
-          // case where the audio track is the one that lands first.
-          void video.play().catch(() => {
-            video.muted = true;
-            setMutedByBrowser(true);
-            return video.play().catch(() => {});
-          });
-        }
-        setPlaying(true);
-        if (isPostHogEnabled) posthog.capture("client_stream_started");
-        // The largest single latency win available: do not buffer for smoothness.
-        const receiver = event.receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
-        if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
-      };
-
-      await inboxRef.current.setRemote(sdp);
-      const answer = await connection.createAnswer();
-      await connection.setLocalDescription(answer);
-      send({ type: "answer", sdp: answer });
-    },
-    [stopInput],
-  );
 
   useEffect(() => {
-    if (!connecting) return;
+    if (!connecting || !videoRef.current) return;
 
-    const signaling = connectSignaling({
-      url: SIGNALING_URL,
-      onOpen: (send) => send({ type: "join", ticket }),
-      onMessage: (msg, send) => {
-        switch (msg.type) {
-          case "denied":
-            setError(DENIED[msg.reason] ?? "The server refused this connection.");
-            setConnecting(false);
-            break;
-          case "joined":
-            setRoom(msg.hostId);
-            serverIceRef.current = msg.iceServers ?? [];
-            setNote(msg.hostOnline ? undefined : "gaming PC is offline — waiting");
-            break;
-          case "offer":
-            if (msg.sdp) {
-              setNote(undefined);
-              void answerOffer(msg.sdp, send).catch((cause) =>
-                setError(cause instanceof Error ? cause.message : "could not answer"),
-              );
-            }
-            break;
-          case "ice":
-            if (msg.candidate) inboxRef.current?.add(msg.candidate);
-            break;
-          case "peer-left":
-            setNote("gaming PC disconnected");
-            setPlaying(false);
-            stopInput();
-            pcRef.current?.close();
-            pcRef.current = null;
-            inboxRef.current = null;
-            setPc(null);
-            break;
-        }
-      },
+    const session = startRenterSession({ url: SIGNALING_URL, ticket, video: videoRef.current });
+    session.on((event) => {
+      switch (event.type) {
+        case "denied":
+          setError(DENIED[event.reason] ?? "The server refused this connection.");
+          setConnecting(false);
+          break;
+        case "joined":
+          setRoom(event.hostId);
+          setNote(event.hostOnline ? undefined : "gaming PC is offline — waiting");
+          break;
+        case "peer-connection":
+          setPc(event.pc);
+          if (event.pc) setNote(undefined);
+          break;
+        case "track":
+          setPlaying(true);
+          if (isPostHogEnabled) posthog.capture("client_stream_started");
+          break;
+        case "autoplay-muted":
+          setMutedByBrowser(true);
+          break;
+        case "error":
+          setError(event.message);
+          break;
+        case "peer-left":
+          setNote("gaming PC disconnected");
+          setPlaying(false);
+          break;
+      }
     });
 
-    return () => {
-      // Let go of everything first, while the channel can still carry it.
-      stopInput();
-      signaling.close();
-    };
-  }, [connecting, answerOffer, stopInput, ticket]);
+    // Releases held input before it hangs up, while the channels can carry it.
+    return () => session.end();
+  }, [connecting, ticket]);
 
   return (
     <PageShell

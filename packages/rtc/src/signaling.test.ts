@@ -7,59 +7,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectSignaling, type SignalMessage } from "./signaling";
+import { FakeSocket } from "./test/fakes";
 
 const TEST_URL = "wss://signal.test";
 const PING_MS = 25_000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
-
-/** Minimal stand-in for the browser WebSocket, with the hooks a test needs. */
-class FakeSocket {
-  static instances: FakeSocket[] = [];
-  static OPEN = 1;
-  static CLOSED = 3;
-
-  url: string;
-  readyState = 0;
-  sent: string[] = [];
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
-  closeCalls = 0;
-
-  constructor(url: string) {
-    this.url = url;
-    FakeSocket.instances.push(this);
-  }
-
-  send(data: string) {
-    this.sent.push(data);
-  }
-
-  close() {
-    this.closeCalls += 1;
-    this.readyState = FakeSocket.CLOSED;
-  }
-
-  // --- test helpers ---
-  accept() {
-    this.readyState = FakeSocket.OPEN;
-    this.onopen?.();
-  }
-
-  deliver(msg: unknown) {
-    this.onmessage?.({ data: typeof msg === "string" ? msg : JSON.stringify(msg) });
-  }
-
-  drop() {
-    this.readyState = FakeSocket.CLOSED;
-    this.onclose?.();
-  }
-
-  get messages(): SignalMessage[] {
-    return this.sent.map((s) => JSON.parse(s));
-  }
-}
 
 const latest = () => FakeSocket.instances[FakeSocket.instances.length - 1];
 
