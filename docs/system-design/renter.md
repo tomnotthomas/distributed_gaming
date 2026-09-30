@@ -1,11 +1,11 @@
-# Swiff — system design
+# Swiff renter — system design
 
 Rent an idle gaming PC and play it in a browser.
 
 Owners run a small host app on their Windows gaming PC. Renters pick a game on the web,
 get matched to a free machine, and play it over a direct WebRTC stream.
 
-The gaming PC side in detail: [`host.md`](host.md).
+The gaming PC side: [`host.md`](host.md).
 
 ![System architecture](../diagrams/system-architecture.png)
 

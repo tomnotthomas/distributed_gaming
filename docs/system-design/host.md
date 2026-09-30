@@ -4,7 +4,7 @@ The gaming PC side of Swiff. An owner installs the host app on their Windows gam
 while a renter plays, the PC runs Steam and the game for them, streams it, and takes their
 input. When the session ends, the PC goes back to the owner.
 
-Whole-system view: [`system-design.md`](system-design.md).
+The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ![Host isolation](../diagrams/host-isolation.png)
 
