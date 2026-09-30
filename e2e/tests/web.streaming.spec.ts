@@ -198,7 +198,15 @@ test.describe("host to renter streaming", () => {
     // The host shows that line before the renter's input channels open.
     await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
-    await renter.getByTestId("stage-video").click();
+    // Focus, not a click: a click asks for pointer lock, and a locked pointer
+    // sends every click to the stream, so Disconnect could not be pressed.
+    // Leaving the lock (Escape) would release the key itself and prove nothing.
+    // The stream only becomes focusable once input capture has started.
+    const stage = renter.getByTestId("stage-video");
+    await expect(async () => {
+      await stage.focus();
+      await expect(stage).toBeFocused({ timeout: 500 });
+    }).toPass();
     await renter.keyboard.down("d");
     await expect(host.getByText("Renter is holding: KeyD")).toBeVisible();
 
