@@ -47,6 +47,8 @@ import {
 import { createHostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
+import { Platform } from "./platform.js";
+import { createApi } from "./api.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -64,6 +66,24 @@ const access = accessFromEnv(process.env);
 // Session keys are signed with ROOM_SECRET too, so without it no session can
 // start and the machine key is the only way to register.
 const sessions = access.secret ? createHostSessions(access.secret) : null;
+
+// Machines, bookings, reservations and sessions (platform.ts). In memory unless
+// DATABASE_PATH names a file.
+const platform = new Platform({ path: process.env.DATABASE_PATH || ":memory:" });
+const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost:${PORT}` });
+
+// Matching and the liveness sweep. Every request that changes something runs
+// them too; this catches what changes only with time: a machine going silent,
+// a reservation lapsing, and bookings waiting on either.
+const PLATFORM_TICK_MS = 1_000;
+setInterval(() => {
+  try {
+    platform.tick();
+  } catch (error) {
+    // A locked or broken database file must not take signaling down with it.
+    console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
+  }
+}, PLATFORM_TICK_MS).unref();
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -294,6 +314,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   if (serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
+  if (await serveApi(req, res, urlPath)) return;
 
   // Every screen is the same SPA. A path with no extension is a route, so it
   // gets index.html; a path with one is an asset, so a miss is a real 404.
