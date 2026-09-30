@@ -24,6 +24,10 @@
 // A room is one gaming PC. Only that machine, holding its machine key, may
 // register it; only a renter holding a ticket for it may join, and only one
 // renter at a time. See access.ts.
+//
+// While a renter's session runs, the room is registered by the streamer in the
+// renter's Windows account with a short-lived session key instead, and the
+// machine key cannot register it at all. See sessions.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -32,7 +36,15 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
 import { accessFromEnv, verifyMachineKey, verifyTicket } from "./access.js";
-import { DENIED_CODE, isRelayed, type DeniedMessage, type SignalMessage } from "./protocol.js";
+import {
+  DENIED_CODE,
+  isRelayed,
+  type DeniedMessage,
+  type SessionError,
+  type SessionGrant,
+  type SignalMessage,
+} from "./protocol.js";
+import { createHostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
 
@@ -48,6 +60,10 @@ const iceServers = () => {
 };
 
 const access = accessFromEnv(process.env);
+
+// Session keys are signed with ROOM_SECRET too, so without it no session can
+// start and the machine key is the only way to register.
+const sessions = access.secret ? createHostSessions(access.secret) : null;
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -80,6 +96,8 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
+  /** The session a host registered under with a session key; null for a machine key. */
+  sessionId: string | null;
   missedBeats: number;
 };
 
@@ -96,11 +114,15 @@ function roomFor(hostId: string): Room {
   return room;
 }
 
-/** The other socket in the same room, or null when the peer has not arrived. */
+/**
+ * The other socket in the same room, or null when the peer has not arrived or
+ * `ws` no longer holds its seat (evicted or replaced, and still closing).
+ */
 function peerOf(ws: PeerSocket): PeerSocket | null {
   const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return null;
-  return ws.role === "host" ? room.client : room.host;
+  if (ws.role === "host") return room.host === ws ? room.client : null;
+  return room.client === ws ? room.host : null;
 }
 
 function send(ws: PeerSocket | null, message: SignalMessage): void {
@@ -111,6 +133,98 @@ function send(ws: PeerSocket | null, message: SignalMessage): void {
 function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
   send(ws, { type: "denied", reason });
   ws.close(DENIED_CODE, reason);
+}
+
+/**
+ * Take the host out of its room now, tell the renter, then hang up on it. The
+ * room must not wait for the close handshake: a new host registering before it
+ * finishes would otherwise take the seat without the renter hearing peer-left.
+ */
+function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
+  const room = rooms.get(hostId);
+  const host = room?.host;
+  if (!room || !host) return;
+  room.host = null;
+  send(room.client, { type: "peer-left" });
+  if (!room.client) rooms.delete(hostId);
+  deny(host, reason);
+}
+
+// --- host sessions ----------------------------------------------------------
+
+const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
+
+/** End the response with uncached JSON, or just the status when no body is supplied. */
+function json(res: ServerResponse, status: number, body?: SessionGrant | SessionError): void {
+  if (!body) {
+    res.writeHead(status).end();
+    return;
+  }
+  // A session key is a credential: nothing between here and the PC may keep it.
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+/** The bearer credential, or null. Never logged. */
+function bearer(req: IncomingMessage): string | null {
+  const match = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "");
+  return match?.[1] ?? null;
+}
+
+/**
+ * Start and end a renter's session on one gaming PC. Called by the PC's
+ * background service with its machine key; see protocol.ts for the routes.
+ * Returns false without responding if `urlPath` does not match, otherwise true
+ * after responding, including refusals. `urlPath` is the encoded URL pathname.
+ * Starting closes any machine-key host; ending revokes the session's keys and
+ * closes its registered host. Ending an absent session still succeeds.
+ */
+function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): boolean {
+  const match = SESSION_ROUTE.exec(urlPath);
+  if (!match) return false;
+
+  let hostId: string;
+  try {
+    hostId = decodeURIComponent(match[1]!);
+  } catch {
+    json(res, 404, { error: "not-found" });
+    return true;
+  }
+  const allowed = ["POST", "DELETE"];
+  if (!allowed.includes(req.method ?? "")) {
+    res.writeHead(405, { allow: allowed.join(", ") }).end();
+    return true;
+  }
+
+  if (!sessions) {
+    json(res, 503, { error: "not-configured" });
+    return true;
+  }
+  if (!verifyMachineKey(access.machines, hostId, bearer(req))) {
+    json(res, 401, { error: "bad-machine-key" });
+    return true;
+  }
+
+  if (req.method === "DELETE") {
+    const ended = sessions.end(hostId);
+    // Every key of the session is dead now; the streamer registered with one is
+    // hung up on too, so ending a session really does hand the room back.
+    if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+    json(res, 204);
+    return true;
+  }
+
+  const grant = sessions.start(hostId);
+  if (!grant) {
+    json(res, 409, { error: "session-active" });
+    return true;
+  }
+  // From here the room belongs to the session. A host registered with the
+  // machine key is put out now rather than left serving until the streamer
+  // arrives.
+  if (rooms.get(hostId)?.host?.sessionId === null) evictHost(hostId, "session-active");
+  json(res, 201, grant);
+  return true;
 }
 
 // --- static files -----------------------------------------------------------
@@ -168,10 +282,16 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
   return true;
 }
 
+/**
+ * Dispatch session, Steam sign-in and catalog requests, then serve the built web app.
+ * Extensionless paths use index.html; file read failures return 500 for that page
+ * and 404 for assets. URL parsing and delegated handler errors propagate as rejections.
+ */
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
 
+  if (serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
 
@@ -210,7 +330,12 @@ wss.on("connection", (socket) => {
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;
+  ws.sessionId = null;
   ws.missedBeats = 0;
+
+  // An oversized or malformed frame surfaces here, and ws closes the socket
+  // itself. Unhandled, the same error would take the whole process down.
+  ws.on("error", () => {});
 
   ws.on("message", (raw) => {
     let msg: SignalMessage;
@@ -234,13 +359,25 @@ wss.on("connection", (socket) => {
 
       case "register": {
         if (ws.role) return; // one room per socket, decided once
-        if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
+        let sessionId: string | null = null;
+        if ("sessionKey" in msg) {
+          // The streamer: the key must name this room and its session be live.
+          const key = sessions?.verify(msg.sessionKey);
+          if (!key || key.room !== msg.hostId) return deny(ws, "bad-session-key");
+          sessionId = key.session;
+        } else {
+          if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
+          // The machine key never displaces a renter's session, live streamer
+          // or not: the room is the session's until the service ends it.
+          if (sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
+        }
         const room = roomFor(msg.hostId);
         // A reconnecting host replaces the stale socket rather than being
         // refused — otherwise a crashed host locks itself out of its own room.
         if (room.host && room.host !== ws) room.host.close(4000, "replaced by a newer host");
         ws.hostId = msg.hostId;
         ws.role = "host";
+        ws.sessionId = sessionId;
         room.host = ws;
         send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
         // A client that arrived first is still waiting; tell the host now.

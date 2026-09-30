@@ -112,3 +112,7 @@ The machine key comes from `npm run machine-key -- <machine-id>`. The host app k
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
 access" in [`renter.md`](renter.md).
+
+During a renter's session the machine key stays with a background service outside the
+renter's Windows account; the streamer registers with a short-lived session key instead.
+The contract for the Windows side is in [`session-keys.md`](session-keys.md).
