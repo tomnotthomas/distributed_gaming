@@ -30,7 +30,10 @@ flowchart LR
     API["Booking API + Database"]
     SIG ~~~ API
   end
-  ICE["STUN / TURN"]
+  STUN["STUN"]
+  TURN["TURN relay"]
+  STUNnote["tells the host its own<br/>public address"]
+  TURNnote["carries the stream when<br/>the direct path is blocked"]
   Renter["Renter"]
 
   Owner --> Installer
@@ -41,9 +44,13 @@ flowchart LR
   Account -- "launches" --> Steam
   Steam -- "game screen" --> Capture
   HostApp -- "available now · heartbeat<br/>session started / ended" --> API
-  HostApp <-- "WebSocket · register, SDP/ICE" --> SIG
-  SIG <-- "WebSocket · join, SDP/ICE" --> Renter
-  Capture -. "public address · fallback relay" .- ICE
+  HostApp <-- "WebSocket · register<br/>swap public addresses (SDP/ICE)" --> SIG
+  SIG <-- "WebSocket · join<br/>swap public addresses (SDP/ICE)" --> Renter
+  Capture -. "what is my public address?" .-> STUN
+  Capture -. "fallback" .-> TURN
+  TURN -.- Renter
+  STUN -.- STUNnote
+  TURN -.- TURNnote
   Capture <== "video + audio + input" ==> Renter
 
   classDef owner fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
@@ -51,5 +58,10 @@ flowchart LR
   classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
   class Owner,Installer,HostApp owner
   class Account,Steam,Capture,Wiped,Renter session
-  class API,SIG,ICE platform
+  class API,SIG,STUN platform
+  classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  classDef note fill:none,stroke:none,color:#666,font-style:italic
+  class TURN turn
+  class STUNnote,TURNnote note
   style Platform fill:#ffffff,stroke:#ccc,color:#444
+  linkStyle 14,15 stroke:#aaa,stroke-width:1px
