@@ -134,10 +134,7 @@ describe("parsing Steam's pc_requirements", () => {
     assert.equal(cardScore("AMD Radeon R9 Fury X"), 60);
     assert.equal(cardScore("GeForce GTX 780 Ti"), 40);
     assert.equal(cardScore("Radeon R9 380"), null);
-    assert.equal(
-      parseTier(tier(graphics("NVIDIA GeForce GTX 970 or AMD Radeon R9 390"))).gpuScore,
-      45,
-    );
+    assert.equal(parseTier(tier(graphics("NVIDIA GeForce GTX 970 or AMD Radeon R9 390"))).gpuScore, 45);
     assert.equal(parseTier(tier(graphics("GTX 780 / R9 290"))).gpuScore, 35);
   });
 
