@@ -4,6 +4,120 @@
 language: en-US
 reviews:
   profile: chill
+  # CodeRabbit requests changes while an error-mode check fails, and approves
+  # once it passes. Without this, error-mode checks only warn.
+  request_changes_workflow: true
+  pre_merge_checks:
+    custom_checks:
+      - name: "No sensitive data in logs"
+        mode: "error"
+        instructions: |
+          Fail if this pull request adds or changes code that can write
+          sensitive data to any output someone other than its owner can read.
+
+          Sensitive data in this repo includes:
+          - Passwords, API keys, access tokens, bearer tokens, cookies,
+            Authorization headers.
+          - STEAM_API_KEY, SESSION_SECRET, ROOM_SECRET, TURN_KEY_API_TOKEN,
+            TURN usernames and credentials, and any other value read from
+            process.env that is a secret.
+          - Machine keys (the `key` field of a `register` message, anything
+            loaded through safeStorage) and join tickets (the `ticket` field
+            of a `join` message, the `#ticket=` part of a URL).
+          - Steam OpenID assertions and signatures from the sign-in return URL.
+          - SDP bodies and ICE candidates: SDP carries ice-pwd, a session
+            credential, and candidates carry users' IP addresses.
+
+          Outputs that count:
+          - console.log / info / warn / error / debug, and any logger.
+          - posthog.capture, posthog.identify and other analytics properties.
+          - Error messages, thrown errors and HTTP or WebSocket responses sent
+            to a client, including the `denied` message.
+          - Files written to disk in plain text.
+
+          Also fail when a whole object that may contain any of the above is
+          logged or sent as-is: a raw request or response body, headers,
+          process.env, a full signaling message, or a caught error from an
+          HTTP call whose body may echo the request back.
+
+          Pass when the code logs only non-secret facts: a status code, a
+          length, a room or machine id, a boolean, an expiry, or a message
+          type. Test files may use fixed fake credentials.
+      - name: "No secrets in code"
+        mode: "error"
+        instructions: |
+          Fail if this pull request adds a real credential to the repository:
+          an API key, token, password, private key, TURN credential, session
+          or room secret, machine key, or a connection string containing one.
+          This includes values in source, config, docs, HTML prototypes,
+          workflow files and .env.example (which must keep every secret
+          empty). Also fail if a file named .env, or any file holding real
+          credentials, is added.
+
+          Pass for: values read from process.env or GitHub secrets, fixed fake
+          values in test files and e2e/tests/credentials.ts, PostHog project
+          keys (phc_...), which are public by design, and placeholders such as
+          "..." or "<key>".
+      - name: "Authenticated before acting"
+        mode: "error"
+        instructions: |
+          Applies to server/src/. The signaling server is open to the
+          internet and anyone can open a WebSocket to it.
+
+          Fail if a change lets a socket that has not been admitted to a room
+          (a `register` with a valid machine key, or a `join` with a valid
+          ticket, both checked in server/src/access.ts) cause any effect
+          beyond `ping`/`pong` and being refused: relaying offer/answer/ice,
+          reaching another peer, creating or changing room state, or reading
+          TURN credentials.
+
+          Also fail if a change weakens those checks: comparing credentials
+          without a constant-time comparison, accepting an expired or
+          unsigned ticket, letting a second renter replace one holding a
+          different ticket, falling back to an open room when ROOM_SECRET or
+          MACHINE_KEYS is missing, or raising the WebSocket frame limit
+          without a reason.
+
+          Pass if the pull request does not touch server/src/, or keeps all of
+          the above.
+      - name: "Wire format changed on both sides"
+        mode: "error"
+        instructions: |
+          server/src/protocol.ts defines the signaling messages. The server,
+          packages/rtc (used by both the renter page and the host app), the
+          web and desktop apps, and the tests must agree on it.
+
+          Fail if this pull request adds, removes or renames a message type or
+          field in server/src/protocol.ts without the matching change in every
+          place that sends or handles it: server/src/index.ts, packages/rtc,
+          web/src and desktop/src where they build or read that message, and
+          the tests in server/src/test and web/src/integration.
+
+          Also fail if a message is sent or handled in those places in a shape
+          protocol.ts does not define.
+
+          Pass if protocol.ts is unchanged and no message shapes change, or if
+          every side changes together.
+      - name: "Electron stays locked down"
+        mode: "error"
+        instructions: |
+          Applies to desktop/. The host app runs on a stranger's gaming PC,
+          streams its screen and, later, takes remote input.
+
+          Fail if a change does any of these:
+          - Sets nodeIntegration to true, or contextIsolation, sandbox or
+            webSecurity to false, in any BrowserWindow or webPreferences.
+          - Exposes ipcRenderer, require, process, fs or any general-purpose
+            function to the renderer through desktop/preload.cjs. The preload
+            may only expose narrow calls that each do one fixed thing.
+          - Adds an ipcMain handler that takes a file path, a URL to open, a
+            command, or code to run from the renderer.
+          - Loads remote content into a window, or opens external URLs without
+            checking them.
+          - Stores the machine key or another secret unencrypted, instead of
+            through safeStorage.
+
+          Pass if desktop/ is untouched or none of the above applies.
   auto_review:
     enabled: true
     drafts: false

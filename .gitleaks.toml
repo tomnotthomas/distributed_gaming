@@ -1,0 +1,17 @@
+# Secret scan for every commit, run in CI (see .github/workflows/ci.yml) and
+# locally with `gitleaks git .`. Extends gitleaks' built-in rules; the
+# allowlist below is only for values that are not secrets.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fixed fake credentials in tests"
+paths = [
+  '''\.test\.tsx?$''',
+  '''^e2e/tests/credentials\.ts$''',
+]
+
+[[allowlists]]
+description = "PostHog project keys are public by design: they ship in every browser bundle"
+regexes = ['''phc_[A-Za-z0-9]+''']
