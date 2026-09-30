@@ -6,13 +6,24 @@
 // separate Windows account (docs/diagrams/host-isolation.png) so a renter
 // never sees the owner's files. Until then, run only on a machine with
 // nothing private on it.
+//
+// A browser cannot press keys on its own machine, so the renter's input is not
+// replayed here. It is received and shown instead — what the renter is holding
+// right now — which is the part the Windows host shares with this page.
 
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
+import {
+  createInputReceiver,
+  DEFAULT_CAPTURE,
+  startHostSession,
+  type HeldInput,
+  type InputReceiver,
+} from "@swiff/rtc";
 import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
 
+/** Render the browser host, sharing a captured screen and displaying held renter input. */
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -21,6 +32,7 @@ export function Host() {
   const [machineKey, setMachineKey] = useState("");
   const [peerHere, setPeerHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [held, setHeld] = useState<HeldInput | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
 
   const startSharing = async () => {
@@ -55,20 +67,44 @@ export function Host() {
 
   useEffect(() => {
     if (!stream) return;
+    let receiver: InputReceiver | null = null;
+    const closeInput = () => {
+      receiver?.close();
+      receiver = null;
+      setHeld(null);
+    };
+
     const session = startHostSession({
       url: SIGNALING_URL,
       hostId: HOST_ID,
       machineKey: machineKey.trim(),
       stream,
       onPeerHere: setPeerHere,
-      onPeerConnection: setPc,
+      onPeerConnection: (next) => {
+        if (!next) closeInput();
+        setPc(next);
+      },
+      onInputChannels: ({ keys, motion }) => {
+        closeInput();
+        const show = () => setHeld(current.held());
+        const current = createInputReceiver({
+          sink: { move() {}, moveBy() {}, wheel() {}, key: show, button: show, gamepad: show },
+        });
+        current.attach(keys);
+        current.attach(motion);
+        receiver = current;
+        setHeld(current.held());
+      },
       onDenied: () => {
         setError("The server refused this machine key.");
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
       },
     });
-    return () => session.stop();
+    return () => {
+      session.stop();
+      closeInput();
+    };
     // The key is read when sharing starts; editing it mid-session changes nothing.
   }, [stream]);
 
@@ -100,9 +136,23 @@ export function Host() {
 
       {error ? <Notice>{error}</Notice> : null}
 
+      {held ? <p className="muted">Renter is holding: {describeHeld(held)}</p> : null}
+
       <StatusLine pc={pc} note={stream ? undefined : "not capturing"} />
 
       <Stage ref={previewRef} muted small empty={!stream} placeholder="not capturing" />
     </PageShell>
   );
+}
+
+const BUTTON_NAMES = ["left mouse", "middle mouse", "right mouse", "back mouse", "forward mouse"];
+
+/** Format held keys, mouse buttons and controllers, or "nothing" when all are released. */
+function describeHeld({ keys, buttons, gamepads }: HeldInput): string {
+  const all = [
+    ...keys,
+    ...buttons.map((b) => BUTTON_NAMES[b]),
+    ...gamepads.map((i) => `controller ${i + 1}`),
+  ];
+  return all.length ? all.join(", ") : "nothing";
 }

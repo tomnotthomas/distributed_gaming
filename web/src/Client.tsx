@@ -1,6 +1,8 @@
-// The renter. Joins the room, answers the host's offer, plays the stream.
+// The renter. Joins the room, answers the host's offer, plays the stream, and
+// sends mouse, keyboard and controller input back over the host's data channels.
 //
 //   [ Connect ] ──► join(ticket) ──► offer ──► createAnswer ──► send ──► ontrack ──► <video>
+//                                                                 └──► ondatachannel ×2 ──► input
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -8,7 +10,12 @@ import {
   createPeerConnection,
   connectSignaling,
   DEFAULT_ICE_SERVERS,
+  inputLane,
+  INPUT_PROTOCOL,
+  startInputCapture,
   type IceInbox,
+  type InputCapture,
+  type InputLane,
   type SignalMessage,
 } from "@swiff/rtc";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
@@ -20,6 +27,7 @@ const DENIED: Record<string, string> = {
   "room-taken": "Someone else is already playing on this machine.",
 };
 
+/** Render the renter page, joining with a ticket to play the stream and send input. */
 export function Client() {
   const [ticket] = useState(ticketFromUrl);
   const [room, setRoom] = useState<string | null>(null);
@@ -39,9 +47,18 @@ export function Client() {
   // TURN from the server's `joined`, which always precedes the host's offer.
   const serverIceRef = useRef<RTCIceServer[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const inputRef = useRef<InputCapture | null>(null);
+
+  // Releases every key and button still held before input stops, so the PC is
+  // never left with one pressed. Called before the connection goes away.
+  const stopInput = useCallback(() => {
+    inputRef.current?.stop();
+    inputRef.current = null;
+  }, []);
 
   const answerOffer = useCallback(
     async (sdp: RTCSessionDescriptionInit, send: (m: SignalMessage) => void) => {
+      stopInput();
       pcRef.current?.close();
       const connection = createPeerConnection({
         iceServers: [...DEFAULT_ICE_SERVERS, ...serverIceRef.current],
@@ -52,6 +69,37 @@ export function Client() {
 
       connection.onicecandidate = (event) => {
         if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
+      };
+
+      // The host opens two input channels, keys and motion; input starts once
+      // both are open, and stops for good when either closes.
+      const lanes: Partial<Record<InputLane, RTCDataChannel>> = {};
+      let capture: InputCapture | null = null;
+      const startInput = () => {
+        const { keys, motion } = lanes;
+        const target = videoRef.current;
+        if (capture || !target || keys?.readyState !== "open" || motion?.readyState !== "open") return;
+        stopInput();
+        capture = startInputCapture({ target, channels: { keys, motion } });
+        inputRef.current = capture;
+      };
+
+      connection.ondatachannel = ({ channel }) => {
+        const lane = inputLane(channel.label);
+        if (!lane) return;
+        if (channel.protocol !== INPUT_PROTOCOL) {
+          console.warn(
+            `[swiff] the gaming PC speaks ${channel.protocol || "no"} input protocol; input is off`,
+          );
+          return;
+        }
+        lanes[lane] = channel;
+        if (channel.readyState === "open") startInput();
+        else channel.addEventListener("open", startInput, { once: true });
+        // Only this connection's own capture: a later one may own the ref by now.
+        channel.addEventListener("close", () => {
+          if (capture && inputRef.current === capture) stopInput();
+        });
       };
 
       connection.ontrack = (event) => {
@@ -79,7 +127,7 @@ export function Client() {
       await connection.setLocalDescription(answer);
       send({ type: "answer", sdp: answer });
     },
-    [],
+    [stopInput],
   );
 
   useEffect(() => {
@@ -113,6 +161,7 @@ export function Client() {
           case "peer-left":
             setNote("gaming PC disconnected");
             setPlaying(false);
+            stopInput();
             pcRef.current?.close();
             pcRef.current = null;
             inboxRef.current = null;
@@ -122,8 +171,12 @@ export function Client() {
       },
     });
 
-    return () => signaling.close();
-  }, [connecting, answerOffer, ticket]);
+    return () => {
+      // Let go of everything first, while the channel can still carry it.
+      stopInput();
+      signaling.close();
+    };
+  }, [connecting, answerOffer, stopInput, ticket]);
 
   return (
     <PageShell

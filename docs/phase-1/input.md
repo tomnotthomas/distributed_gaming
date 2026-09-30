@@ -12,6 +12,9 @@ capture, a second sender, and the Opus stereo munge in `packages/rtc/src/opus.ts
 left of that here is the part input has yet to learn from it: SDP that has to be edited by
 hand, and a fallback for when the edit is refused.
 
+**The renter half and the protocol are built;** the Windows injection and the spike below
+are not. See [What is built](#what-is-built) — the Windows side replays messages, nothing more.
+
 ---
 
 ## Why the spike comes before the work
@@ -62,8 +65,8 @@ library.
 1. **Two channels, not one.** Mouse deltas are worthless once stale, key events are not:
 
    ```ts
-   pc.createDataChannel("move", { ordered: false, maxRetransmits: 0 });
-   pc.createDataChannel("keys", { ordered: true });
+   pc.createDataChannel("input-motion", { ordered: false, maxRetransmits: 0 });
+   pc.createDataChannel("input-keys", { ordered: true });
    ```
 
    A dropped mouse delta is a nudge nobody notices. A dropped `keyup` is a key held down
@@ -110,6 +113,41 @@ which in-game bindings that rules out and say so, rather than letting players di
 2. **Stuck-key test.** Hold a key, alt-tab, come back. Nothing should still be pressed.
 3. **Thirty minutes, with a gamepad.** Analogue sticks generate far more traffic than a
    mouse and are where `bufferedAmount` backpressure shows up first.
+
+---
+
+## What is built
+
+Everything short of touching Windows, in `packages/rtc/src`:
+
+| File               | What it does                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input.ts`         | The messages and their binary encoding, defined once for both ends. The wire format is in the file's header.                                      |
+| `inputCapture.ts`  | The renter's page: pointer lock, coalesced motion, keys by `event.code`, Gamepad API polling, `bufferedAmount` backpressure.                      |
+| `inputSender.ts`   | Remembers what the renter holds, sends each release, and a heartbeat every 250 ms.                                                                |
+| `inputReceiver.ts` | The PC's end: decodes, tracks what is held, and hands events to a sink. Lets go of everything on a `release`, a channel close, or 1 s of silence. |
+
+The two channels are the ones step 1 above describes: `input-keys` (reliable, ordered) and
+`input-motion` (unordered, no retransmits), opened by `startHostSession` before the offer
+and handed out through `onInputChannels`. The renter's `/rtc` page captures input as soon as
+both are open; the browser `/host` page shows what the renter is holding, which is how the
+e2e suite checks the whole path.
+
+**Stuck keys.** The renter releases everything on window blur, a hidden tab, leaving pointer
+lock, and disconnect — each as explicit key-ups followed by a `release` message. The
+receiver does not rely on any of that arriving: a closed channel or a missing heartbeat
+releases on its own. `inputCapture.test.ts` drives real DOM events through to a recording
+sink and asserts every key-down gets exactly one key-up across all of those, plus a long
+random session. Controller state is sent only while the page is visible and focused; a
+controller held through a blur stays released until the renter comes back.
+
+**For the Windows injector.** Attach both channels to one `createInputReceiver({ sink })`
+and implement the sink: `moveBy` → relative `MOUSEEVENTF_MOVE`, `move` → absolute
+(0..1 of the streamed screen), `button`, `wheel` (1/120 notch, DOM direction — negate `dy`
+for `MOUSEEVENTF_WHEEL`), `key` (map `event.code` to a scancode), `gamepad` (full
+standard-layout state, for a virtual controller). Close the receiver when the session ends
+or the kill switch fires; that releases whatever is still down. Still to do on that side:
+the spike, injection, the kill switch, and the latency echo under Verification.
 
 ---
 
@@ -160,4 +198,5 @@ it. Measure it in step 5's verification rather than discovering it in a demo.
   session? Related to the kill switch, and it decides whether hosting is passive income or a
   thing you supervise.
 - Gamepad passthrough is a real device emulation problem (ViGEm) rather than synthetic
-  input. Decide whether phase 1 sends gamepads as emulated keyboard, or not at all.
+  input. The renter already sends the full controller state; what the PC does with it —
+  a virtual controller, emulated keys, or nothing in phase 1 — is still open.
