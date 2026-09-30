@@ -81,6 +81,15 @@ describe("parsing Steam's pc_requirements", () => {
     assert.equal(parseTier(tier(graphics("RTX 2060"), "<strong>VRAM:</strong> 6 GB")).vramMb, 6 * GB);
   });
 
+  it("prefers a stated VRAM size over one card's size in the Graphics line", () => {
+    // The Witcher 3's minimum: only the RX 5500 XT carries a size, the notes state the VRAM.
+    const witcher = tier(
+      graphics("GeForce GTX 1660 / Radeon RX 5500 XT 8GB / Arc A580"),
+      "<strong>Additional Notes:</strong> VRAM 6 GB",
+    );
+    assert.equal(parseTier(witcher).vramMb, 6 * GB);
+  });
+
   it("reads RAM given in MB", () => {
     assert.equal(parseTier(tier(memory("4096 MB RAM"), graphics("GTX 1050"))).ramMb, 4096);
     assert.equal(parseTier(tier(memory("8GB RAM"))).ramMb, 8 * GB);

@@ -22,5 +22,6 @@
     // directly (type stripping). This lets tsc read them.
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  // JSON too, so an edit to requirements-overrides.json triggers a rebuild.
+  "include": ["src", "src/**/*.json"]
 }

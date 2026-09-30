@@ -93,7 +93,8 @@ type Row = {
 
 const GRAPHICS_LABEL = /^(?:graphics|graphics card|video card|video|gpu)\s*:\s*/i;
 const MEMORY_LABEL = /^(?:memory|system memory|ram)\s*:\s*/i;
-const VRAM_LABEL = /^(?:vram|video memory|video ram)\s*:\s*/i;
+/** A VRAM size stated on its own, on any line: "VRAM: 6 GB", "Additional Notes: VRAM 6 GB". */
+const STATED_VRAM = /\b(?:vram|video memory|video ram)\s*:?\s*(\d+(?:\.\d+)?\s*(?:GB|MB))\b/gi;
 const SIZE = /(\d+(?:\.\d+)?)\s*(GB|MB)\b/gi;
 /** "or better" and friends would otherwise split off as an alternative card. */
 const OR_BETTER = /\(?\bor\s+(?:better|higher|above|newer|greater|equivalent|similar)\b\)?/gi;
@@ -179,7 +180,7 @@ export function cardScore(text: string): number | null {
 /**
  * Read one tier of Steam's pc_requirements HTML. The GPU is the lowest-scoring
  * card cardScore recognises among the alternatives, RAM is the Memory line's size,
- * and VRAM is the smallest size stated for graphics.
+ * and VRAM is the smallest size stated as VRAM, else the smallest in the Graphics line.
  */
 export function parseTier(html: unknown): ParsedTier {
   if (typeof html !== "string") return { gpuScore: null, ramMb: null, vramMb: null };
@@ -193,10 +194,11 @@ export function parseTier(html: unknown): ParsedTier {
     .filter((score): score is number => score !== null);
 
   const ram = sizesMb(field(lines, MEMORY_LABEL) ?? "")[0];
+  // A size stated as VRAM applies to every card, so it wins over a size the
+  // Graphics line gives for one alternative ("RX 5500 XT 8GB").
+  const stated = [...lines.join("\n").matchAll(STATED_VRAM)].map(([, size]) => size).join(" ");
   // 256 MB-48 GB: anything else in a Graphics line is not a card's memory.
-  const vram = sizesMb(`${graphics ?? ""} ${field(lines, VRAM_LABEL) ?? ""}`).filter(
-    (mb) => mb >= 256 && mb <= 48 * MB_PER_GB,
-  );
+  const vram = sizesMb(stated || (graphics ?? "")).filter((mb) => mb >= 256 && mb <= 48 * MB_PER_GB);
 
   return {
     gpuScore: scores.length ? Math.min(...scores) : null,
