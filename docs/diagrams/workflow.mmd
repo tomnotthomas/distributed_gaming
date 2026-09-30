@@ -15,9 +15,9 @@ config:
     svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
 ---
 flowchart LR
-  S1["<b>1</b><br/>Book<br/>a game"] --> S2["<b>2</b><br/>Find<br/>a machine"] --> S3["<b>3</b><br/>Reserve<br/>a free PC"] --> S4["<b>4</b><br/>Machine<br/>ready"] --> S5["<b>5</b><br/>Connect"] --> S6["<b>6</b><br/>Tell<br/>the PC"] --> S7["<b>7</b><br/>Direct<br/>connection"] --> S8["<b>8</b><br/>Start Steam<br/>+ game"] --> S9["<b>9</b><br/>Stream<br/>the game"] --> S10["<b>10</b><br/>Play"]
+  S1["<b>1</b><br/>Renter<br/>chooses a game"] --> S2["<b>2</b><br/>System<br/>finds a machine"] --> S3["<b>3</b><br/>Renter gets<br/>a free machine"] --> S4["<b>4</b><br/>Renter<br/>connects"] --> S5["<b>5</b><br/>Gaming PC starts<br/>Steam, locks the PC"] --> S6["<b>6</b><br/>Renter<br/>plays"]
 
   classDef step fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
   classDef done fill:#fdf1dc,stroke:#e0a458,color:#8a5300
-  class S1,S2,S3,S4,S5,S6,S7,S8,S9 step
-  class S10 done
+  class S1,S2,S3,S4,S5 step
+  class S6 done

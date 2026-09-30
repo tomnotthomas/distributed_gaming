@@ -47,16 +47,12 @@ one session per machine.
 
 ![Workflow](diagrams/workflow.png)
 
-1. The renter chooses a game and books it, signed in with Steam.
-2. The Booking API asks the Matchmaker to find a machine.
-3. The Matchmaker picks a free gaming PC and reserves it.
-4. The renter is told the machine is ready.
-5. The renter connects to Connection setup.
-6. Connection setup tells the gaming PC the renter is coming.
-7. The renter gets a direct connection to the gaming PC.
-8. The gaming PC starts Steam and the game.
-9. The gaming PC streams the game to the renter.
-10. The renter plays.
+1. The renter chooses a game.
+2. The system finds a free gaming PC.
+3. The renter gets an answer with the available machine.
+4. The renter connects to it.
+5. The gaming PC starts Steam and locks the PC.
+6. The renter plays.
 
 Source: [`diagrams/workflow.mmd`](diagrams/workflow.mmd).
 
