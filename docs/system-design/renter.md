@@ -139,6 +139,13 @@ page load, resumes polling the stored booking, forgetting it once the booking is
 ended or expired. **Not wired in yet:** no booking page calls the helper; the booking UI
 will.
 
+**Known gap:** keeping their place does not give a returning renter a fresh claim window.
+If a machine is reserved for them when they come back, their first check counts as having
+seen the match, so they get only what is left of that 60 s reservation, which may be a few
+seconds. Without a page that claims the machine automatically they can lose the booking
+this way. The renter page will claim automatically (Swiff v7); tracked in
+[#35](https://github.com/tomnotthomas/distributed_gaming/issues/35).
+
 ### Connection setup (WebSocket)
 
 The wire format lives in `server/src/protocol.ts`.
