@@ -73,9 +73,11 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                     |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                          |
 
-Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A reservation
-that lapses unclaimed puts the booking back in the queue in its old place; a queued
-booking the renter has not checked on for 2 minutes becomes `expired`.
+Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
+becomes `expired` when its reservation lapses unclaimed after the renter has checked on
+it since the match, or when it is queued and the renter has not checked on it for 2
+minutes. A reservation that lapses while the renter has not been heard from since the
+match puts the booking back in the queue in its old place.
 
 Machines, bookings, reservations and sessions are one SQLite table each
 (`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
@@ -121,8 +123,11 @@ POST /bookings/:id/claim
 
 Matching runs in the server process, every second and on every change: the oldest
 queued booking gets the cheapest live machine that is free for all of its minutes, and
-the machine is reserved for it. A reservation lasts 60 s; one that lapses unclaimed, or
-whose machine goes silent, hands the booking back to the queue in its old place.
+the machine is reserved for it. A reservation lasts 60 s. When it lapses unclaimed, a
+renter who checked on the booking since the match saw it and let it go, so the booking
+expires and the machine goes to the next in line; a renter who has not been heard from
+since the match was away, so the booking goes back to the queue in its old place. A
+machine that goes silent also hands its reserved booking back to the queue.
 
 A queued booking expires 2 minutes after the renter last checked on it, so a renter who
 closed the tab does not hold a machine when one frees up. Until then the server keeps it
