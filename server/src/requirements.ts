@@ -11,8 +11,10 @@
 // "Graphics: NVIDIA GEFORCE GTX 1060 3 GB or AMD RADEON RX 580 4 GB". The
 // parser finds the Memory and Graphics lines, reads RAM and VRAM sizes with a
 // regex, maps each card through the rank package's GPU score table, and keeps
-// the lower of the alternatives: the game runs on either. A card the table
-// does not know is skipped rather than guessed.
+// the lower of the alternatives: the game runs on either. A card older than
+// the table (a GTX 760, a Radeon HD 7870, Intel HD graphics) scores as the
+// table's lowest card; any other card the table does not know is skipped
+// rather than guessed.
 //
 // RAM and VRAM of 0 mean "not stated": E3 then gates on the GPU alone.
 
@@ -99,6 +101,20 @@ const OR_BETTER = /\(?\bor\s+(?:better|higher|above|newer|greater|equivalent|sim
 const ALTERNATIVES = /\s+or\s+|\s*[/,;|]\s*/i;
 const FAMILY = /\b(?:GTX|RTX|GT|RX|HD|R[579]|ARC|IRIS|UHD|QUADRO|VEGA)\b/;
 
+/** Cards older and weaker than the table's lowest: GT/GTX below the 10 series, HD, R7/R9, RX 460/560 and Intel's integrated graphics. */
+const OLDER_THAN_TABLE = [
+  /\b(?:GTX?|GTS) \d{3}\b/,
+  /\bGT 10[1-3]0\b/,
+  /\b\d{4} (?:GTX?|GTS)\b/,
+  /\bU?HD ?\d{3,4}\b/,
+  /\bR[79] \d{3}X?\b/,
+  /\bRX [45][0-6]0\b/,
+  /\bINTEL (?:U?HD|IRIS)\b/,
+];
+
+/** The GPU table's lowest score, given to a card older than the table. */
+const FLOOR_SCORE = Math.min(...Object.values(gpuTable as Record<string, number>));
+
 /** Table names, normalized and longest first, so "RTX 2060 SUPER" is found before "RTX 2060". */
 const GPU_NAMES = Object.keys(gpuTable as Record<string, number>)
   .map(normalizeGpu)
@@ -135,7 +151,8 @@ function sizesMb(text: string): number[] {
 
 /**
  * One alternative in a Graphics line ("NVIDIA GeForce GTX 1060 3 GB") to its
- * score in the GPU table, or null when it names no card the table knows.
+ * score in the GPU table, the table's lowest score for a card older than the
+ * table ("GTX 760", "Intel HD Graphics 4000"), or null for any other name.
  * Tolerates the usual spellings: "GTX1060", "RX 6600XT", "GeForce® RTX™",
  * and a bare "Nvidia 2060 Super" or "GeForce 1070 Ti" with no GTX or RTX.
  */
@@ -155,12 +172,13 @@ export function cardScore(text: string): number | null {
   }
   const padded = ` ${name} `;
   const found = GPU_NAMES.find((known) => padded.includes(` ${known} `));
-  return found === undefined ? null : gpuScore(found);
+  if (found !== undefined) return gpuScore(found);
+  return OLDER_THAN_TABLE.some((older) => older.test(name)) ? FLOOR_SCORE : null;
 }
 
 /**
  * Read one tier of Steam's pc_requirements HTML. The GPU is the lowest-scoring
- * card the table knows among the alternatives, RAM is the Memory line's size,
+ * card cardScore recognises among the alternatives, RAM is the Memory line's size,
  * and VRAM is the smallest size stated for graphics.
  */
 export function parseTier(html: unknown): ParsedTier {
@@ -189,9 +207,9 @@ export function parseTier(html: unknown): ParsedTier {
 
 /**
  * Steam's pc_requirements ({ minimum, recommended } HTML, or [] when the store
- * page has none) to a row's values. A game whose text names no known card in
- * either tier gets the default GPU figures, labelled "default", keeping any
- * RAM and VRAM it did state. A tier with no known card borrows from the other:
+ * page has none) to a row's values. A game whose text names no recognised card
+ * in either tier gets the default GPU figures, labelled "default", keeping any
+ * RAM and VRAM it did state. A tier with no recognised card borrows from the other:
  * the minimum is capped at the recommended, and the recommended is never below
  * the minimum.
  */

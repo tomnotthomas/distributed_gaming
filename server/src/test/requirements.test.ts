@@ -93,10 +93,64 @@ describe("parsing Steam's pc_requirements", () => {
     assert.equal(cardScore("GeForce® RTX™ 3060 Ti"), gpuScore("RTX 3060 Ti"));
   });
 
-  it("names no card for integrated graphics, a size, or a bare number without a vendor", () => {
-    assert.equal(cardScore("Intel HD Graphics 4000"), null);
+  it("names no card for a size, a bare number without a vendor, or an unknown name", () => {
     assert.equal(cardScore("DirectX 11 compatible, 480 MB"), null);
-    assert.equal(parseTier(tier(graphics("Intel UHD 620"))).gpuScore, null);
+    assert.equal(cardScore("Intel Arc A380"), null);
+    assert.equal(cardScore("Qualcomm Adreno X1"), null);
+  });
+
+  it("scores cards older than the table as its lowest card", () => {
+    const floor = gpuScore("GTX 1050");
+    for (const old of [
+      "NVIDIA GeForce GTX 760",
+      "GTX660 2GB",
+      "GeForce GT 730",
+      "GeForce GT 1030",
+      "GeForce 9800 GT",
+      "AMD Radeon HD 7870",
+      "Radeon R9 290X",
+      "AMD Radeon R7 260X",
+      "Radeon RX 560",
+      "Intel HD Graphics 4000",
+      "Intel UHD 620",
+      "Intel HD Graphics",
+      "Intel Iris Xe",
+    ])
+      assert.equal(cardScore(old), floor, old);
+    assert.equal(cardScore("GTX 970"), gpuScore("GTX 970"));
+  });
+
+  it("takes an older card as the lower of an 'or' pair", () => {
+    assert.equal(
+      parseTier(tier(graphics("GeForce GTX 760 or Radeon RX 470"))).gpuScore,
+      gpuScore("GTX 1050"),
+    );
+  });
+
+  it("keeps an older minimum below a newer recommended", () => {
+    const values = requirementsFromSteam({
+      minimum: tier(graphics("GeForce GTX 660")),
+      recommended: tier(graphics("GTX 1060")),
+    });
+    assert.equal(values.minGpuScore, gpuScore("GTX 1050"));
+    assert.equal(values.recGpuScore, gpuScore("GTX 1060"));
+    assert.equal(values.source, "steam");
+  });
+
+  it("labels requirements naming only older cards as steam, at the table's lowest card", () => {
+    assert.deepEqual(
+      requirementsFromSteam({
+        minimum: tier(memory("2 GB RAM"), graphics("GeForce 8800 GT or Radeon HD 4850")),
+        recommended: tier(graphics("GeForce GTX 560 or Radeon HD 6870")),
+      }),
+      {
+        minGpuScore: gpuScore("GTX 1050"),
+        recGpuScore: gpuScore("GTX 1050"),
+        minRamMb: 2 * GB,
+        minVramMb: 0,
+        source: "steam",
+      },
+    );
   });
 
   it("handles a store page with no requirements, or only one tier", () => {
