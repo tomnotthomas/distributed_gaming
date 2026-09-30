@@ -11,6 +11,15 @@
 //                            room's renter seat until it expires, and only while
 //                            nobody holding a different ticket is in it.
 //
+//   Streamer   session key   Signed by this server (HMAC-SHA256, ROOM_SECRET,
+//                            its own domain so it is never a ticket), naming
+//                            one room, one session and an expiry minutes away.
+//                            Handed to the PC's background service, which holds
+//                            the machine key, at session start; the service
+//                            passes it to the streamer in the renter's Windows
+//                            account, so the machine key never enters it. Only
+//                            valid while that session is live — see sessions.ts.
+//
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default
 // worth having on a machine that streams its screen to strangers.
@@ -31,8 +40,38 @@ export const MIN_SECRET_LENGTH = 32;
 
 const b64url = (buf: Buffer) => buf.toString("base64url");
 
-function sign(secret: string, payload: string): Buffer {
-  return createHmac("sha256", secret).update(payload).digest();
+// Each kind of token signs its payload under its own prefix, so a join ticket
+// can never be replayed as a session key or the other way round.
+type Domain = "ticket" | "session";
+
+function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
+  const prefix = domain === "ticket" ? "" : `${domain}.`;
+  return createHmac("sha256", secret)
+    .update(prefix + payload)
+    .digest();
+}
+
+function seal(secret: string, body: object, domain: Domain): string {
+  const payload = b64url(Buffer.from(JSON.stringify(body)));
+  return `${payload}.${b64url(sign(secret, payload, domain))}`;
+}
+
+/** The token's parsed payload if `secret` signed it under `domain`. Expiry is the caller's. */
+function unseal(secret: string, token: unknown, domain: Domain): Record<string, unknown> | null {
+  if (typeof token !== "string") return null;
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra !== undefined) return null;
+
+  const expected = sign(secret, payload, domain);
+  const given = Buffer.from(signature, "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+
+  try {
+    const body: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 function sha256(value: string): Buffer {
@@ -45,30 +84,50 @@ export function mintTicket(secret: string, room: string, ttlSeconds: number, now
     id: b64url(randomBytes(12)),
     exp: Math.floor(now / 1000) + ttlSeconds,
   };
-  const payload = b64url(Buffer.from(JSON.stringify(ticket)));
-  return `${payload}.${b64url(sign(secret, payload))}`;
+  return seal(secret, ticket, "ticket");
 }
 
 /** The ticket, if it is signed by `secret` and has not expired. Otherwise null. */
 export function verifyTicket(secret: string, token: unknown, now = Date.now()): Ticket | null {
-  if (typeof token !== "string") return null;
-  const [payload, signature, extra] = token.split(".");
-  if (!payload || !signature || extra !== undefined) return null;
-
-  const expected = sign(secret, payload);
-  const given = Buffer.from(signature, "base64url");
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
-
-  let ticket: Partial<Ticket>;
-  try {
-    ticket = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-  } catch {
-    return null;
-  }
+  const ticket = unseal(secret, token, "ticket");
+  if (!ticket) return null;
   if (typeof ticket.room !== "string" || !ticket.room) return null;
   if (typeof ticket.id !== "string" || !ticket.id) return null;
   if (typeof ticket.exp !== "number" || ticket.exp * 1000 <= now) return null;
   return { room: ticket.room, id: ticket.id, exp: ticket.exp };
+}
+
+export type SessionKey = {
+  /** The room (machine id) this key may register. */
+  room: string;
+  /** The session it belongs to. Dead the moment that session ends. */
+  session: string;
+  /** Unix seconds after which the key registers nothing. */
+  exp: number;
+};
+
+export function mintSessionKey(
+  secret: string,
+  room: string,
+  session: string,
+  ttlSeconds: number,
+  now = Date.now(),
+): string {
+  const key: SessionKey = { room, session, exp: Math.floor(now / 1000) + ttlSeconds };
+  return seal(secret, key, "session");
+}
+
+/**
+ * The key, if it is signed by `secret` as a session key and has not expired.
+ * Whether its session is still live is for sessions.ts to say.
+ */
+export function verifySessionKey(secret: string, token: unknown, now = Date.now()): SessionKey | null {
+  const key = unseal(secret, token, "session");
+  if (!key) return null;
+  if (typeof key.room !== "string" || !key.room) return null;
+  if (typeof key.session !== "string" || !key.session) return null;
+  if (typeof key.exp !== "number" || key.exp * 1000 <= now) return null;
+  return { room: key.room, session: key.session, exp: key.exp };
 }
 
 /** A new machine key and the hash the server stores for it. */
@@ -95,7 +154,7 @@ export function verifyMachineKey(keys: Map<string, Buffer>, id: unknown, key: un
 }
 
 export type Access = {
-  /** Null when ROOM_SECRET is missing or too short: every join is refused. */
+  /** Null when ROOM_SECRET is missing or too short: every join and session is refused. */
   secret: string | null;
   machines: Map<string, Buffer>;
 };

@@ -2,7 +2,8 @@
 // two real WebSockets through the full handshake, asserts every relay lands.
 //
 // Covers the paths the browser cannot easily be made to exercise on demand:
-// late host, replaced peer, ping/pong liveness, and peer-left on disconnect.
+// late host, replaced peer, ping/pong liveness, peer-left on disconnect, and a
+// test streamer registering with a session key.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -10,8 +11,8 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintTicket } from "../access.js";
-import type { JoinedMessage, SignalMessage } from "../protocol.js";
+import { mintSessionKey, mintTicket } from "../access.js";
+import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8100 + Math.floor(Math.random() * 400);
@@ -20,7 +21,7 @@ const ORIGIN = `ws://localhost:${PORT}`;
 // Every room a test may use is a registered machine, all sharing one key.
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const MACHINE_KEY = "test-machine-key";
-const ROOMS = Array.from({ length: 30 }, (_, i) => `pc-${i}`);
+const ROOMS = Array.from({ length: 60 }, (_, i) => `pc-${i}`);
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 let roomIndex = 0;
 const nextRoom = () => ROOMS[roomIndex++]!;
@@ -336,5 +337,218 @@ describe("room access", () => {
     const code = closed(ws);
     ws.send("x".repeat(256 * 1024));
     assert.equal(await code, 1009);
+
+    // And only that socket: the server is still up for everyone else.
+    const next = await open();
+    send(next, { type: "ping" });
+    await wait(100);
+    assert.ok(types(next).includes("pong"), "server survived an oversized frame");
+    next.close();
+  });
+});
+
+describe("host sessions", () => {
+  const HTTP = `http://localhost:${PORT}`;
+  const denial = (ws: RecordingSocket) => ws.received.find((m) => m.type === "denied");
+  const closed = (ws: WebSocket) =>
+    new Promise<number>((resolve) => {
+      if (ws.readyState === WebSocket.CLOSED) resolve(-1);
+      ws.once("close", (code) => resolve(code));
+    });
+
+  /** One call to the session API, as the PC's background service makes it. */
+  async function api(room: string, method: "POST" | "DELETE" | "GET", path = "", key = MACHINE_KEY) {
+    const res = await fetch(`${HTTP}${sessionPath(room)}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const text = await res.text();
+    return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null };
+  }
+
+  async function startSession(room: string): Promise<SessionGrant> {
+    const { status, body } = await api(room, "POST");
+    assert.equal(status, 201, `start answered ${status} ${JSON.stringify(body)}`);
+    return body as SessionGrant;
+  }
+
+  /** The streamer in the renter's account: registers with the session key only. */
+  async function streamer(room: string, sessionKey: string): Promise<RecordingSocket> {
+    const ws = await open();
+    send(ws, { type: "register", hostId: room, sessionKey });
+    await wait(100);
+    return ws;
+  }
+
+  async function refusedStreamer(room: string, sessionKey: string) {
+    const ws = await open();
+    const code = closed(ws);
+    send(ws, { type: "register", hostId: room, sessionKey });
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(ws), { type: "denied", reason: "bad-session-key" });
+    assert.ok(!types(ws).includes("registered"));
+  }
+
+  it("lets a test streamer register with a session key and serve a renter", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    assert.ok(grant.expiresAt > Date.now() / 1000, "the key expires in the future");
+    assert.ok(grant.expiresAt <= Date.now() / 1000 + 600, "and within minutes");
+
+    const host = await streamer(room, grant.sessionKey);
+    assert.ok(types(host).includes("registered"));
+
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+    assert.equal(joinedMessage(renter).hostOnline, true);
+    send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
+    await wait(100);
+    assert.ok(types(renter).includes("offer"), "offer reached the renter");
+
+    host.close();
+    renter.close();
+    await api(room, "DELETE");
+  });
+
+  it("refuses a session key once its session has ended", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    assert.equal((await api(room, "DELETE")).status, 204);
+    await refusedStreamer(room, grant.sessionKey);
+  });
+
+  it("refuses an expired session key even while its session is live", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const expired = mintSessionKey(SECRET, room, grant.sessionId, 60, Date.now() - 120_000);
+    await refusedStreamer(room, expired);
+    await api(room, "DELETE");
+  });
+
+  it("refuses a session key for another room", async () => {
+    const [x, y] = [nextRoom(), nextRoom()];
+    const grant = await startSession(x);
+    await refusedStreamer(y, grant.sessionKey);
+    // Nor when room Y is in a session of its own.
+    await startSession(y);
+    await refusedStreamer(y, grant.sessionKey);
+    await api(x, "DELETE");
+    await api(y, "DELETE");
+  });
+
+  it("does not let the machine key take over a room held by a live session key", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const host = await streamer(room, grant.sessionKey);
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+
+    const intruder = await open();
+    const code = closed(intruder);
+    send(intruder, register(room));
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(intruder), { type: "denied", reason: "session-active" });
+
+    // The streamer and the renter never noticed.
+    await wait(100);
+    assert.equal(host.readyState, WebSocket.OPEN);
+    assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
+
+    host.close();
+    renter.close();
+    await api(room, "DELETE");
+  });
+
+  it("keeps the machine key out while a session is live, and lets it back in after", async () => {
+    const room = nextRoom();
+    await startSession(room);
+
+    // Before the streamer has connected: still the session's room.
+    const early = await open();
+    const code = closed(early);
+    send(early, register(room));
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(early), { type: "denied", reason: "session-active" });
+
+    await api(room, "DELETE");
+    const host = await open();
+    send(host, register(room));
+    await wait(100);
+    assert.ok(types(host).includes("registered"), "the phase-1 machine-key register works again");
+    host.close();
+  });
+
+  it("puts out a machine-key host when a session starts", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await wait(100);
+    const code = closed(host);
+    await startSession(room);
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "session-active" });
+    await api(room, "DELETE");
+  });
+
+  it("hangs up on the streamer and tells the renter when the session ends", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const host = await streamer(room, grant.sessionKey);
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+
+    const code = closed(host);
+    assert.equal((await api(room, "DELETE")).status, 204);
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "session-ended" });
+    await wait(100);
+    assert.ok(types(renter).includes("peer-left"));
+    renter.close();
+  });
+
+  it("lets a reconnecting streamer retake the room with its session key", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const first = await streamer(room, grant.sessionKey);
+    const second = await streamer(room, grant.sessionKey);
+    await wait(100);
+    assert.ok(types(second).includes("registered"));
+    assert.equal(first.readyState, WebSocket.CLOSED);
+    second.close();
+    await api(room, "DELETE");
+  });
+
+  it("renews a key for the live session only", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const renewed = await api(room, "POST", "/renew");
+    assert.equal(renewed.status, 200);
+    assert.equal((renewed.body as SessionGrant).sessionId, grant.sessionId);
+
+    const host = await streamer(room, (renewed.body as SessionGrant).sessionKey);
+    assert.ok(types(host).includes("registered"));
+    host.close();
+
+    await api(room, "DELETE");
+    assert.deepEqual(await api(room, "POST", "/renew"), { status: 404, body: { error: "no-session" } });
+  });
+
+  it("guards the session API with the machine key", async () => {
+    const room = nextRoom();
+    assert.deepEqual(await api(room, "POST", "", "not-the-key"), {
+      status: 401,
+      body: { error: "bad-machine-key" },
+    });
+    assert.equal((await api("not-a-machine", "POST")).status, 401);
+    // Ending needs the key as well: nobody else may hang up on a renter.
+    await startSession(room);
+    assert.equal((await api(room, "DELETE", "", "not-the-key")).status, 401);
+    assert.deepEqual(await api(room, "POST"), { status: 409, body: { error: "session-active" } });
+    assert.equal((await api(room, "GET")).status, 405);
+    assert.equal((await api(room, "DELETE")).status, 204);
+    assert.equal((await api(room, "DELETE")).status, 204, "ending twice is fine");
   });
 });
