@@ -17,21 +17,16 @@ Source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd).
 
 ## 1. Functional requirements
 
-**Renter**
-
-1. Browse the games that can be played.
-2. Sign in with Steam. Starting a session requires it; signed-out visitors can only browse
-   and never see machine availability.
-3. Book a game for a number of minutes.
-4. Get matched to a free gaming PC that can run it.
-5. Stream the machine's picture and sound in the browser, and control it with mouse,
+1. The renter can browse the games that can be played.
+2. The renter can sign in with Steam. Starting a session requires it; signed-out visitors
+   can only browse and never see machine availability.
+3. The renter can book a game for a number of minutes.
+4. The renter is matched to a free gaming PC that can run the game.
+5. The renter can see and hear the machine in the browser, and control it with mouse,
    keyboard and gamepad.
-6. End the session and be charged for the time played.
-
-**Owner**
-
-7. Offer a PC for rent, with its hardware, price and how long it is available.
-8. Take the machine back at any moment (kill switch).
+6. The renter can end the session and is charged for the time played.
+7. The owner can offer a PC for rent, with its hardware, price and how long it is available.
+8. The owner can take the machine back at any moment (kill switch).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.
@@ -42,13 +37,13 @@ one session per machine.
 
 | | Requirement | Why |
 |---|---|---|
-| **Latency** | Input-to-picture as low as the network allows. Video never passes through Swiff servers unless it has to. | It is a game, not a video. Every hop is felt. |
-| **Quality** | 1080p at 60 fps, ~10 Mbit/s, resolution held under load. | What a gaming PC is being rented for. |
-| **Connectivity** | Connects from any home or mobile network. | ~1 in 5 connections cannot hold a direct path (symmetric NAT, carrier CGNAT); TURN covers them. |
-| **Consistency** | A machine is given to **at most one** booking at a time. | Two renters on one PC is the worst failure the product can have. |
-| **Availability** | A PC that goes offline stops being offered within seconds. | Matching a renter to a dead machine wastes their time. |
-| **Isolation** | The renter cannot reach the owner's files or account. | Owners hand their PC to strangers. Phase 2 (`diagrams/host-isolation.png`). |
-| **Cost** | Relay traffic kept to the minority of sessions that need it. | A relayed hour is ~4.5 GB. |
+| **Latency** | The system keeps input-to-picture as low as the network allows, and keeps video off Swiff servers unless it has to relay it. | It is a game, not a video. Every hop is felt. |
+| **Quality** | The system streams 1080p at 60 fps, ~10 Mbit/s, and holds resolution under load. | What a gaming PC is being rented for. |
+| **Connectivity** | The system connects from any home or mobile network. | ~1 in 5 connections cannot hold a direct path (symmetric NAT, carrier CGNAT); TURN covers them. |
+| **Consistency** | The system gives a machine to **at most one** booking at a time. | Two renters on one PC is the worst failure the product can have. |
+| **Availability** | The system stops offering a PC that goes offline within seconds. | Matching a renter to a dead machine wastes their time. |
+| **Isolation** | The system keeps the renter away from the owner's files and account. | Owners hand their PC to strangers. Phase 2 (`diagrams/host-isolation.png`). |
+| **Cost** | The system relays traffic only for the minority of sessions that need it. | A relayed hour is ~4.5 GB. |
 
 ---
 
