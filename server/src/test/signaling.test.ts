@@ -461,12 +461,9 @@ describe("host sessions", () => {
       method: "POST",
       headers: { authorization: `Bearer ${MACHINE_KEY}` },
     });
-    await renew.body?.cancel();
-    assert.notEqual(
-      renew.headers.get("content-type"),
-      "application/json",
-      `renew answered ${renew.status} with a grant`,
-    );
+    const renewed = (await renew.json()) as Partial<SessionGrant>;
+    assert.equal(renew.status, 404);
+    assert.equal(renewed.sessionKey, undefined, "renew answered with a grant");
 
     // The streamer and the renter never noticed.
     await wait(100);
