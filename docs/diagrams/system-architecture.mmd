@@ -28,10 +28,11 @@ flowchart LR
 
   subgraph Platform["Swiff platform"]
     API["Booking API"]
+    HAPI["Host API"]
     Q["Queue"]
     MM["Matchmaker worker"]
     DB[("Database")]
-    SIG["Connection setup<br/>via SDP + ICE relay"]
+    SIG["Connection setup<br/>swaps public addresses"]
   end
 
   subgraph Data["Database · stored data"]
@@ -46,6 +47,7 @@ flowchart LR
 
   Renter -- "HTTPS · booking requests" --> API
   API -- "enqueue" --> Q
+  API -- "store booking · read status" --> DB
   Q ~~~ MM
   MM -- "pulls next booking" --> Q
   MM -- "polls every 5s · free machines" --> DB
@@ -53,7 +55,8 @@ flowchart LR
   MM -- "session grant<br/>room id + who may join" --> SIG
   Renter <-- "WebSocket<br/>SDP/ICE + machine ready" --> SIG
   SIG <-- "WebSocket" --> PC
-  PC -- "available now · heartbeat<br/>session started / ended" --> DB
+  PC -- "available now · heartbeat<br/>session started / ended" --> HAPI
+  HAPI -- "write" --> DB
   Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> PC
   PC -. "fallback" .-> TURN
   Renter <-.- TURN
@@ -66,7 +69,7 @@ flowchart LR
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   classDef note fill:none,stroke:none,color:#666,font-style:italic
   classDef table fill:#fffbe8,stroke:#e0d58a,color:#333
-  class API,Q,MM,DB platform
+  class API,HAPI,Q,MM,DB platform
   class Renter,PC,SIG,STUN endpoint
   class TURN turn
   class T1,T2,T3,T4 table
