@@ -11,7 +11,8 @@
 // sent for a key that went down, wherever focus has gone since.
 //
 // Controllers: polled once per frame, as the Gamepad API requires, and sent
-// only when something changed.
+// only when something changed. Not while the window is away: a controller
+// held through a blur stays released until the renter comes back.
 //
 // And the one rule the whole thing is for: nothing stays held. Losing focus,
 // hiding the tab, leaving pointer lock and stopping all release everything the
@@ -149,9 +150,18 @@ export function startInputCapture({
     wasLocked = locked();
   };
 
-  const onBlur = () => sender.releaseAll("blur");
+  let away = false;
+  const onBlur = () => {
+    away = true;
+    sender.releaseAll("blur");
+  };
+  const onFocus = () => {
+    away = false;
+  };
   const onVisibility = () => {
-    if (doc.visibilityState === "hidden") sender.releaseAll("hidden");
+    if (doc.visibilityState !== "hidden") return;
+    away = true;
+    sender.releaseAll("hidden");
   };
   const onContextMenu = (event: Event) => event.preventDefault();
 
@@ -164,12 +174,15 @@ export function startInputCapture({
   win.addEventListener("keydown", onKeyDown);
   win.addEventListener("keyup", onKeyUp);
   win.addEventListener("blur", onBlur);
+  win.addEventListener("focus", onFocus);
   doc.addEventListener("visibilitychange", onVisibility);
 
   // Controllers that were connected at the last poll, so one that vanishes is
   // released rather than left mid-press.
   const seen = new Set<number>();
   const poll = () => {
+    frame = requestFrame(poll);
+    if (away) return;
     const present = new Set<number>();
     const pads = getGamepads();
     for (let i = 0; i < pads.length; i++) {
@@ -184,7 +197,6 @@ export function startInputCapture({
     for (const index of seen) if (!present.has(index)) sender.gamepad(index, null);
     seen.clear();
     present.forEach((index) => seen.add(index));
-    frame = requestFrame(poll);
   };
   let frame = requestFrame(poll);
 
@@ -203,6 +215,7 @@ export function startInputCapture({
       win.removeEventListener("keydown", onKeyDown);
       win.removeEventListener("keyup", onKeyUp);
       win.removeEventListener("blur", onBlur);
+      win.removeEventListener("focus", onFocus);
       doc.removeEventListener("visibilitychange", onVisibility);
       if (locked()) doc.exitPointerLock?.();
       sender.close();

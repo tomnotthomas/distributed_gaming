@@ -371,6 +371,37 @@ describe("startInputCapture", () => {
     assertEveryPressReleased(sink.events);
     capture.stop();
   });
+
+  it.each([
+    ["the window loses focus", () => window.dispatchEvent(new Event("blur"))],
+    [
+      "the tab is hidden",
+      () => {
+        setVisibility("hidden");
+        document.dispatchEvent(new Event("visibilitychange"));
+      },
+    ],
+  ])("keeps a controller held through %s released until focus returns", (_, leave) => {
+    const { sink, capture, nextFrame } = session();
+    const padEvents = () => sink.events.filter((e) => e.kind === "gamepad");
+    pads = [fakePad(0, [7])];
+    nextFrame();
+    expect(padEvents()).toHaveLength(1);
+
+    leave();
+    nextFrame();
+    nextFrame();
+    expect(padEvents()).toHaveLength(2);
+    assertEveryPressReleased(sink.events);
+
+    setVisibility("visible");
+    window.dispatchEvent(new Event("focus"));
+    nextFrame();
+    expect(padEvents()).toHaveLength(3);
+    expect(padEvents().at(-1)).toEqual(padEvents()[0]);
+    capture.stop();
+    assertEveryPressReleased(sink.events);
+  });
 });
 
 describe("videoPoint", () => {
