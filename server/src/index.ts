@@ -135,6 +135,7 @@ function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
 
+/** End the response with uncached JSON, or just the status when no body is supplied. */
 function json(res: ServerResponse, status: number, body?: SessionGrant | SessionError): void {
   if (!body) {
     res.writeHead(status).end();
@@ -154,6 +155,10 @@ function bearer(req: IncomingMessage): string | null {
 /**
  * Start and end a renter's session on one gaming PC. Called by the PC's
  * background service with its machine key; see protocol.ts for the routes.
+ * Returns false without responding if `urlPath` does not match, otherwise true
+ * after responding, including refusals. `urlPath` is the encoded URL pathname.
+ * Starting closes any machine-key host; ending revokes the session's keys and
+ * closes its registered host. Ending an absent session still succeeds.
  */
 function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): boolean {
   const match = SESSION_ROUTE.exec(urlPath);
@@ -260,6 +265,11 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
   return true;
 }
 
+/**
+ * Dispatch session, Steam sign-in and catalog requests, then serve the built web app.
+ * Extensionless paths use index.html; file read failures return 500 for that page
+ * and 404 for assets. URL parsing and delegated handler errors propagate as rejections.
+ */
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;

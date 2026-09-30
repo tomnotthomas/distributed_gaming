@@ -96,6 +96,10 @@ export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
 // Every refusal is a SessionError body. Full contract:
 // docs/system-design/session-keys.md.
 
+/**
+ * The session API path with the machine id encoded as one path segment.
+ * Throws URIError if `hostId` contains an unpaired surrogate.
+ */
 export const sessionPath = (hostId: string) => `/api/machines/${encodeURIComponent(hostId)}/session`;
 
 /** What start returns. */

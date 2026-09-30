@@ -32,16 +32,27 @@ import type { SessionGrant } from "./protocol.js";
 export const SESSION_KEY_TTL_SECONDS = 5 * 60;
 
 export type HostSessions = {
-  /** A new session for `room`, or null when one is already live there. */
+  /**
+   * A new session for `room`, or null when one is already live there.
+   * `now` is Unix milliseconds; the grant's `expiresAt` is Unix seconds.
+   */
   start: (room: string, now?: number) => SessionGrant | null;
-  /** Ends the live session in `room`, if any, and returns its id. */
+  /** Ends the live session in `room`, revoking its keys; returns its id, or null if none was live. */
   end: (room: string) => string | null;
   /** Whether `room` is in a session. While it is, the machine key cannot register it. */
   isLive: (room: string) => boolean;
-  /** The key, if it is signed, unexpired and its session is still live. */
+  /**
+   * The key, if it is signed, unexpired and its session is still live; otherwise null.
+   * `now` is Unix milliseconds; keys are rejected at or after their expiry time.
+   */
   verify: (token: unknown, now?: number) => SessionKey | null;
 };
 
+/**
+ * Create an independent in-memory store with at most one live session per room.
+ * `secret` signs and verifies keys; `ttlSeconds` limits key validity, not session lifetime.
+ * Sessions stay live until explicitly ended. Socket disconnection is the caller's responsibility.
+ */
 export function createHostSessions(secret: string, ttlSeconds = SESSION_KEY_TTL_SECONDS): HostSessions {
   const live = new Map<string, string>(); // room -> session id
 

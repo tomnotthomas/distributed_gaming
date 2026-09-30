@@ -44,6 +44,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 // can never be replayed as a session key or the other way round.
 type Domain = "ticket" | "session";
 
+/** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
   const prefix = domain === "ticket" ? "" : `${domain}.`;
   return createHmac("sha256", secret)
@@ -51,12 +52,20 @@ function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffe
     .digest();
 }
 
+/**
+ * Encode a JSON body and its domain-specific signature as a token.
+ * JSON serialization errors propagate to the caller.
+ */
 function seal(secret: string, body: object, domain: Domain): string {
   const payload = b64url(Buffer.from(JSON.stringify(body)));
   return `${payload}.${b64url(sign(secret, payload, domain))}`;
 }
 
-/** The token's parsed payload if `secret` signed it under `domain`. Expiry is the caller's. */
+/**
+ * The token's parsed object payload if `secret` signed it under `domain`.
+ * Malformed tokens, invalid signatures and JSON parse failures return null.
+ * Payload fields and expiry are the caller's responsibility.
+ */
 function unseal(secret: string, token: unknown, domain: Domain): Record<string, unknown> | null {
   if (typeof token !== "string") return null;
   const [payload, signature, extra] = token.split(".");
@@ -78,6 +87,10 @@ function sha256(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
+/**
+ * Mint a signed join ticket for `room` with a random ticket id.
+ * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
+ */
 export function mintTicket(secret: string, room: string, ttlSeconds: number, now = Date.now()): string {
   const ticket: Ticket = {
     room,
@@ -87,7 +100,10 @@ export function mintTicket(secret: string, room: string, ttlSeconds: number, now
   return seal(secret, ticket, "ticket");
 }
 
-/** The ticket, if it is signed by `secret` and has not expired. Otherwise null. */
+/**
+ * The ticket, if it is signed by `secret` and has not expired. Otherwise null.
+ * `now` is Unix milliseconds; a ticket is expired at its expiry time, not just after it.
+ */
 export function verifyTicket(secret: string, token: unknown, now = Date.now()): Ticket | null {
   const ticket = unseal(secret, token, "ticket");
   if (!ticket) return null;
@@ -106,6 +122,10 @@ export type SessionKey = {
   exp: number;
 };
 
+/**
+ * Mint a signed key for the given room and session without creating a live session.
+ * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
+ */
 export function mintSessionKey(
   secret: string,
   room: string,
@@ -120,6 +140,8 @@ export function mintSessionKey(
 /**
  * The key, if it is signed by `secret` as a session key and has not expired.
  * Whether its session is still live is for sessions.ts to say.
+ * Invalid or expired tokens return null. `now` is Unix milliseconds;
+ * a key is expired when its expiry time is less than or equal to `now`.
  */
 export function verifySessionKey(secret: string, token: unknown, now = Date.now()): SessionKey | null {
   const key = unseal(secret, token, "session");
