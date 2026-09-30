@@ -5,10 +5,6 @@ Rent an idle gaming PC and play it in a browser.
 Owners run a small host app on their Windows gaming PC. Renters pick a game on the web,
 get matched to a free machine, and play it over a direct WebRTC stream.
 
-Status: the **connection** (Renter, Gaming PC, Connection setup, STUN, TURN) is built —
-see [`phase-1/plan.md`](phase-1/plan.md). Everything on the booking side (Booking API,
-Queue, Matchmaker, Database) is **design only**.
-
 ![System architecture](diagrams/system-architecture.png)
 
 Source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd).
@@ -42,7 +38,7 @@ one session per machine.
 | **Connectivity** | The system connects from any home or mobile network. | ~1 in 5 connections cannot hold a direct path (symmetric NAT, carrier CGNAT); TURN covers them. |
 | **Consistency** | The system gives a machine to **at most one** booking at a time. | Two renters on one PC is the worst failure the product can have. |
 | **Availability** | The system stops offering a PC that goes offline within seconds. | Matching a renter to a dead machine wastes their time. |
-| **Isolation** | The system keeps the renter away from the owner's files and account. | Owners hand their PC to strangers. Phase 2 (`diagrams/host-isolation.png`). |
+| **Isolation** | The system keeps the renter away from the owner's files and account. | Owners hand their PC to strangers. See `diagrams/host-isolation.png`. |
 | **Cost** | The system relays traffic only for the minority of sessions that need it. | A relayed hour is ~4.5 GB. |
 
 ---
@@ -100,7 +96,7 @@ POST /bookings/:id/claim
 
 ### Connection setup (WebSocket)
 
-Built today — the wire format lives in `server/src/protocol.ts`.
+The wire format lives in `server/src/protocol.ts`.
 
 | Message | Direction | Meaning |
 |---|---|---|
