@@ -70,3 +70,30 @@ export function withStereoOpus(
   if (!description.sdp) return description;
   return { type: description.type, sdp: preferStereoOpus(description.sdp, bitrate) };
 }
+
+/**
+ * Apply a local description, preferring the stereo-tuned version of it.
+ *
+ * Editing SDP that `createOffer` produced is discouraged, and for Opus stereo
+ * it is also the only option. A browser that refuses the edit should cost the
+ * session its second audio channel, never the session itself — so the
+ * untouched description is applied instead and the reason is said out loud.
+ * Without audio there is nothing to tune.
+ */
+export async function setLocalWithStereoOpus(
+  pc: RTCPeerConnection,
+  description: RTCSessionDescriptionInit,
+  hasAudio: boolean,
+  bitrate = DEFAULT_AUDIO_BITRATE,
+): Promise<void> {
+  if (!hasAudio) return pc.setLocalDescription(description);
+  try {
+    await pc.setLocalDescription(withStereoOpus(description, bitrate));
+  } catch (cause) {
+    console.warn(
+      "[swiff] stereo Opus was rejected; falling back to mono",
+      cause instanceof Error ? cause.name : typeof cause,
+    );
+    await pc.setLocalDescription(description);
+  }
+}

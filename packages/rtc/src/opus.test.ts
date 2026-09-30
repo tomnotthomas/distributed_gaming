@@ -6,8 +6,8 @@
 // is not 111, an fmtp line that already exists and carries parameters worth
 // keeping, CRLF terminators, and an offer with no audio at all.
 
-import { describe, expect, it } from "vitest";
-import { DEFAULT_AUDIO_BITRATE, preferStereoOpus, withStereoOpus } from "./opus";
+import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_AUDIO_BITRATE, preferStereoOpus, setLocalWithStereoOpus, withStereoOpus } from "./opus";
 
 /** An offer shaped like the ones Chrome produces, CRLF and all. */
 function sdp(lines: string[]): string {
@@ -112,5 +112,49 @@ describe("withStereoOpus", () => {
     const empty = { type: "offer" } as RTCSessionDescriptionInit;
 
     expect(withStereoOpus(empty)).toBe(empty);
+  });
+});
+
+describe("setLocalWithStereoOpus", () => {
+  /** A peer connection that records what it was given, refusing the first `refusals` tries. */
+  function pcRefusing(refusals: number) {
+    const applied: RTCSessionDescriptionInit[] = [];
+    const pc = {
+      setLocalDescription: vi.fn(async (d: RTCSessionDescriptionInit) => {
+        if (refusals-- > 0) throw new Error("Failed to parse SessionDescription. a=fmtp:111 Invalid value");
+        applied.push(d);
+      }),
+    };
+    return { pc: pc as unknown as RTCPeerConnection, applied };
+  }
+
+  it("applies the stereo-tuned description", async () => {
+    const { pc, applied } = pcRefusing(0);
+
+    await setLocalWithStereoOpus(pc, { type: "answer", sdp: WITH_OPUS }, true);
+
+    expect(params(applied[0].sdp!)).toContain("stereo=1");
+  });
+
+  it("falls back to the untouched description when the edit is refused", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { pc, applied } = pcRefusing(1);
+    const original = { type: "answer" as const, sdp: WITH_OPUS };
+
+    await setLocalWithStereoOpus(pc, original, true);
+
+    expect(applied).toEqual([original]);
+    expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("a=fmtp");
+    warn.mockRestore();
+  });
+
+  it("leaves a description without audio alone", async () => {
+    const { pc, applied } = pcRefusing(0);
+    const original = { type: "answer" as const, sdp: WITH_OPUS };
+
+    await setLocalWithStereoOpus(pc, original, false);
+
+    expect(applied).toEqual([original]);
   });
 });

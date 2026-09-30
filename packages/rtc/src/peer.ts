@@ -70,21 +70,42 @@ export function createPeerConnection({ iceServers, forceRelay }: IceConfig = {})
 //
 // A LAN test reports `host` and proves nothing, which is why step 6 of the
 // phase 1 plan tethers the renter to a phone.
+/** Read this side's candidate type on the pair ICE selected, `unknown` before one is chosen. */
 export async function selectedCandidateType(pc: RTCPeerConnection): Promise<CandidateType> {
   const stats = await pc.getStats();
+  return candidateTypeOf(stats, selectedCandidatePair(stats)?.localCandidateId);
+}
 
-  let pairId: string | undefined;
+/**
+ * The candidate pair ICE is using, or undefined before one is chosen.
+ *
+ * The transport report names it in `selectedCandidatePairId`, which is the
+ * standard answer. Only when no transport names one does this fall back to a
+ * pair marked `selected` (a Firefox-only field) or, last, one that `succeeded`.
+ * Several pairs can succeed at once, so that last guess may be the wrong one.
+ */
+export function selectedCandidatePair(stats: RTCStatsReport): RTCIceCandidatePairStats | undefined {
+  const pairs = new Map<string, RTCIceCandidatePairStats>();
+  let selectedId: string | undefined;
+  let marked: RTCIceCandidatePairStats | undefined;
+  let succeeded: RTCIceCandidatePairStats | undefined;
   stats.forEach((report) => {
-    // Chrome marks the winning pair `selected`; Firefox only reports `succeeded`.
-    if (report.type === "candidate-pair" && (report.selected || report.state === "succeeded")) {
-      pairId = report.localCandidateId;
-    }
+    if (report.type === "transport" && report.selectedCandidatePairId)
+      selectedId = report.selectedCandidatePairId;
+    if (report.type !== "candidate-pair") return;
+    pairs.set(report.id, report);
+    if (report.selected) marked = report;
+    else if (report.state === "succeeded") succeeded = report;
   });
-  if (!pairId) return "unknown";
+  return selectedId ? pairs.get(selectedId) : (marked ?? succeeded);
+}
 
+/** The type of the candidate with this id in a stats report, `unknown` when absent. */
+export function candidateTypeOf(stats: RTCStatsReport, candidateId: string | undefined): CandidateType {
   let type: CandidateType = "unknown";
+  if (!candidateId) return type;
   stats.forEach((report) => {
-    if (report.id === pairId && report.candidateType) type = report.candidateType as CandidateType;
+    if (report.id === candidateId && report.candidateType) type = report.candidateType as CandidateType;
   });
   return type;
 }

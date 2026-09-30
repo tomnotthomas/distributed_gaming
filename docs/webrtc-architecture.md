@@ -209,9 +209,9 @@ p.encodings[0].maxBitrate = 10_000_000; // else bandwidth estimation saturates t
 await sender.setParameters(p);
 ```
 
-### `web/src/Client.tsx`
+### `web/src/Client.tsx` and `packages/rtc/src/renterSession.ts`
 
-Connect → WebSocket → join → answer → attach stream. Sets `receiver.jitterBufferTarget = 0` (largest single latency win). Status line shows `connectionState` and the selected candidate type.
+Connect → WebSocket → join → answer → attach stream, in `startRenterSession`, which the page calls. Sets `receiver.jitterBufferTarget = 0` (largest single latency win). Status line shows `connectionState` and the selected candidate type.
 
 ## The file you edit — `web/src/config.ts`
 
