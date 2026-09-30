@@ -30,6 +30,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run format:check
       - run: npm run typecheck
 
   # Every commit, not just the diff: a key committed and then deleted is still
