@@ -368,7 +368,8 @@ describe("host sessions", () => {
 
   async function startSession(room: string): Promise<SessionGrant> {
     const { status, body } = await api(room, "POST");
-    assert.equal(status, 201, `start answered ${status} ${JSON.stringify(body)}`);
+    // The status only: the body may be a grant, and its key must not reach test output.
+    assert.equal(status, 201, `start answered ${status}`);
     return body as SessionGrant;
   }
 
