@@ -91,12 +91,3 @@ POST /sessions/:id/end
 | `join` | server → PC | The renter has arrived; the PC creates the offer. |
 | `offer` / `answer` / `ice` | either way | Relayed to the renter untouched. |
 | `ping` | every 25 s | Keeps the socket alive. |
-
-### Peer connection (WebRTC)
-
-| Channel | Direction | Carries |
-|---|---|---|
-| Video track | PC → renter | The screen, 1080p60 |
-| Audio track | PC → renter | The machine's sound |
-| `move` data channel | renter → PC | Mouse movement. Unordered, no retransmits: a stale move is worthless. |
-| `keys` data channel | renter → PC | Keys, buttons, gamepad. Ordered and reliable: a lost key-up is a stuck key. |
