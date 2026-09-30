@@ -160,6 +160,8 @@ test.describe("host to renter streaming", () => {
     await renter.goto(joinLink());
     await renter.getByRole("button", { name: "Connect" }).click();
     await expect(host.getByText("Renter is holding: nothing")).toBeVisible({ timeout: 30_000 });
+    // The host shows that line before the renter's input channels open.
+    await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
     // Clicking the stream gives it the keyboard (and asks for pointer lock,
     // which a headless browser may refuse — input still flows without it).
@@ -193,6 +195,8 @@ test.describe("host to renter streaming", () => {
     await renter.goto(joinLink());
     await renter.getByRole("button", { name: "Connect" }).click();
     await expect(host.getByText("Renter is holding: nothing")).toBeVisible({ timeout: 30_000 });
+    // The host shows that line before the renter's input channels open.
+    await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
 
     await renter.getByTestId("stage-video").click();
     await renter.keyboard.down("d");

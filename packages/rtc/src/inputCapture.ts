@@ -81,7 +81,9 @@ export function startInputCapture({
     { heartbeatMs },
   );
 
-  if (target.tabIndex < 0) target.tabIndex = 0;
+  // Chrome reports tabIndex 0 for a <video> that has no tabindex attribute yet
+  // still cannot be focused, so check the attribute itself.
+  if (!target.hasAttribute("tabindex")) target.tabIndex = 0;
 
   const locked = () => doc.pointerLockElement === target;
   const capturingKeys = () => locked() || doc.activeElement === target;

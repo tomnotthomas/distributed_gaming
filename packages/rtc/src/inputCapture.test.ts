@@ -104,6 +104,23 @@ describe("startInputCapture", () => {
     assertEveryPressReleased(sink.events);
   });
 
+  it("makes the stream focusable even where a <video> reports tabIndex 0", () => {
+    // Chrome: tabIndex reads 0 with no tabindex attribute, but focus() does nothing.
+    Object.defineProperty(video, "tabIndex", {
+      configurable: true,
+      get: () => Number(video.getAttribute("tabindex") ?? 0),
+      set: (value: number) => video.setAttribute("tabindex", String(value)),
+    });
+    const { sink, capture } = session();
+
+    video.dispatchEvent(mouse("mousedown", { button: 0 }));
+    key("keydown", "KeyD");
+
+    expect(keys(sink)).toEqual(["KeyD↓"]);
+    capture.stop();
+    assertEveryPressReleased(sink.events);
+  });
+
   it("stops the browser acting on captured keys", () => {
     const { capture } = session();
     video.focus();
