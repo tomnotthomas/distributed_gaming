@@ -131,6 +131,21 @@ function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
   ws.close(DENIED_CODE, reason);
 }
 
+/**
+ * Take the host out of its room now, tell the renter, then hang up on it. The
+ * room must not wait for the close handshake: a new host registering before it
+ * finishes would otherwise take the seat without the renter hearing peer-left.
+ */
+function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
+  const room = rooms.get(hostId);
+  const host = room?.host;
+  if (!room || !host) return;
+  room.host = null;
+  send(room.client, { type: "peer-left" });
+  if (!room.client) rooms.delete(hostId);
+  deny(host, reason);
+}
+
 // --- host sessions ----------------------------------------------------------
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
@@ -190,8 +205,7 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
     const ended = sessions.end(hostId);
     // Every key of the session is dead now; the streamer registered with one is
     // hung up on too, so ending a session really does hand the room back.
-    const host = rooms.get(hostId)?.host;
-    if (ended && host?.sessionId === ended) deny(host, "session-ended");
+    if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
     json(res, 204);
     return true;
   }
@@ -204,8 +218,7 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
   // From here the room belongs to the session. A host registered with the
   // machine key is put out now rather than left serving until the streamer
   // arrives.
-  const host = rooms.get(hostId)?.host;
-  if (host && host.sessionId === null) deny(host, "session-active");
+  if (rooms.get(hostId)?.host?.sessionId === null) evictHost(hostId, "session-active");
   json(res, 201, grant);
   return true;
 }

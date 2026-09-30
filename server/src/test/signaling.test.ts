@@ -531,6 +531,52 @@ describe("host sessions", () => {
     renter.close();
   });
 
+  it("tells the renter peer-left before a new session's streamer takes the room", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const host = await streamer(room, grant.sessionKey);
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+
+    // The old streamer does not answer the close handshake, so the server's
+    // close event for it has not fired when the next streamer registers.
+    host.pause();
+    assert.equal((await api(room, "DELETE")).status, 204);
+    const next = await startSession(room);
+    const intruder = await streamer(room, next.sessionKey);
+    assert.ok(types(intruder).includes("registered"));
+
+    const inbox = types(renter);
+    assert.ok(inbox.includes("peer-left"), `renter saw [${inbox}]`);
+    const hostInbox = types(intruder);
+    assert.ok(hostInbox.includes("peer-joined"), `new host saw [${hostInbox}]`);
+    host.terminate();
+    intruder.close();
+    renter.close();
+    await api(room, "DELETE");
+  });
+
+  it("tells the renter peer-left when a session start puts out a machine-key host", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    const renter = await open();
+    send(renter, join(room));
+    await wait(100);
+
+    host.pause();
+    const grant = await startSession(room);
+    const next = await streamer(room, grant.sessionKey);
+    assert.ok(types(next).includes("registered"));
+    const inbox = types(renter);
+    assert.ok(inbox.includes("peer-left"), `renter saw [${inbox}]`);
+    host.terminate();
+    next.close();
+    renter.close();
+    await api(room, "DELETE");
+  });
+
   it("lets a reconnecting streamer retake the room with its session key", async () => {
     const room = nextRoom();
     const grant = await startSession(room);
