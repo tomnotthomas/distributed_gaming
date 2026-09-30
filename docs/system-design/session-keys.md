@@ -85,6 +85,11 @@ The machine key can still **end** a session (that is the owner's kill switch), w
 up on the streamer and tells the renter `peer-left`. It cannot take a live room over
 silently.
 
+Whenever the server puts a host out — a machine-key host when a session starts, the
+streamer when it ends — the host leaves the room at once and the renter gets `peer-left`
+before any new host can register. A socket that has been put out or replaced relays nothing
+more while it closes.
+
 ## Lifetimes
 
 | Thing       | Lifetime                                                                                                                                               |
