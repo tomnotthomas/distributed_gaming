@@ -50,10 +50,15 @@ $hDesk = [IntPtr]::Zero
 $sid = $null
 $procIds = @()
 
+$proofCompleted = $false
+$marker = $null
+
 try {
   # ------------------------------------------------- 1. create a standard account
+  # Refuse to touch a pre-existing account of this name - it might be a real one, not our leftover.
+  # Clearing an aborted run is Reset-ProofState.ps1's job, which checks the account is ours first.
   if (Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue) {
-    Remove-LocalUser -Name $UserName    # left over from an aborted run
+    throw "an account named '$UserName' already exists - refusing to delete it. Run Reset-ProofState.ps1 to clear a prior run."
   }
   $bytes = New-Object byte[] 24
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
@@ -90,6 +95,23 @@ try {
   $ownerSecrets = Join-Path $root '..\..\.env' | Resolve-Path -ErrorAction SilentlyContinue
   if (-not $ownerSecrets) { $ownerSecrets = Join-Path $ownerProfile 'NTUSER.DAT' }
 
+  # The authoritative isolation check needs a target that DEFINITELY exists and is readable by the
+  # owner but locked to the owner - otherwise a merely-absent path (e.g. no Chrome installed) makes
+  # "denied" ambiguous and could pass a hollow check. Seed one, owner + SYSTEM + Admins only.
+  $marker = Join-Path $ownerProfile ("swiff-owner-secret-" + [guid]::NewGuid().ToString('N') + ".txt")
+  Set-Content -Path $marker -Value "OWNER-ONLY SECRET $([guid]::NewGuid())" -Encoding ASCII
+  $acl = New-Object System.Security.AccessControl.FileSecurity
+  $acl.SetAccessRuleProtection($true, $false)   # drop inherited ACEs (which grant Users read)
+  foreach ($who in $id.User.Value, 'S-1-5-18', 'S-1-5-32-544') {   # owner, SYSTEM, Administrators
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+      (New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', 'Allow')))
+  }
+  Set-Acl -Path $marker -AclObject $acl
+  # Confirm the owner really can read it, so a denial from the renter is meaningful.
+  $ownerCanRead = $false
+  try { Get-Content $marker -ErrorAction Stop | Out-Null; $ownerCanRead = $true } catch {}
+  Step 'owner-only marker seeded and readable by the owner' $ownerCanRead "the renter probe reads this exact file"
+
   $probe = @"
 @echo off
 echo ============== SWIFF ISOLATION PROOF ==============
@@ -104,7 +126,11 @@ echo.
 echo -- my profile --
 echo   USERPROFILE=%USERPROFILE%
 echo.
-echo -- can I reach the owner's files? --
+echo -- authoritative check: the owner-only marker file (known to exist) --
+type "$marker" >nul 2>&1
+if errorlevel 1 (echo   owner marker file    : denied  [OK]) else (echo   owner marker file    : READABLE  [ISOLATION FAILED])
+echo.
+echo -- secondary checks (a path may simply be absent) --
 dir "$ownerProfile\Documents" >nul 2>&1
 if errorlevel 1 (echo   owner Documents      : denied  [OK]) else (echo   owner Documents      : READABLE  [ISOLATION FAILED])
 dir "$ownerProfile\Desktop" >nul 2>&1
@@ -213,8 +239,12 @@ echo [window held open on WinSta0\$DesktopName for capture]
   $noBreach = ($evidence -notmatch 'ISOLATION FAILED')
   Step 'renter process cannot read the owner data it tried' ($noBreach -and $evidence -ne '') `
     $(if ($evidence -eq '') { 'probe produced no output' } else { 'probe reported no readable owner data' })
+
+  $proofCompleted = $true
 }
 finally {
+  # Remove the owner-only marker file the probe targeted.
+  if ($marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
   # ------------------------------------------------- 4. delete everything
   Write-Host "`n--- teardown ---"
   foreach ($p in $procIds) {
@@ -276,7 +306,7 @@ finally {
     proofUser = $UserName
     desktop   = "WinSta0\$DesktopName"
     steps     = $steps
-    allPassed = (@($steps | Where-Object { -not $_.pass }).Count -eq 0)
+    allPassed = ($proofCompleted -and (@($steps | Where-Object { -not $_.pass }).Count -eq 0))
   }
   $report | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $outDir 'report.json') -Encoding UTF8
 

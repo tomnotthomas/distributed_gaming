@@ -76,6 +76,19 @@ function Invoke-AsSystem { param([string]$Task, [string]$Cmd)
   Invoke-Schtasks @('/create','/tn',$Task,'/ru','SYSTEM','/rl','HIGHEST','/sc','once','/st',$st,'/tr',$Cmd,'/f') | Out-Null
   Invoke-Schtasks @('/run','/tn',$Task) | Out-Null }
 
+# Register a one-time SYSTEM task at a full DateTime (date preserved across midnight) and report
+# success, for the delayed watchdog we must have in place before disconnecting the owner.
+function Register-WatchdogAt {
+  param([string]$Name, [string]$Exe, [string]$Argument, [datetime]$At)
+  try {
+    $act = New-ScheduledTaskAction -Execute $Exe -Argument $Argument
+    $trg = New-ScheduledTaskTrigger -Once -At $At
+    $pr  = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    Register-ScheduledTask -TaskName $Name -Action $act -Trigger $trg -Principal $pr -Force -ErrorAction Stop | Out-Null
+    return $true
+  } catch { Note "watchdog registration error: $($_.Exception.Message)"; return $false }
+}
+
 # Inline DPAPI ticket write, matching struct SwiffTicket exactly.
 function Write-Ticket { param([string]$User, [string]$Pw, [int]$Secs)
   $MAX_USER = 64; $MAX_PW = 256; $SIZE = 4 + 8 + ($MAX_USER*2) + ($MAX_PW*2)
@@ -112,16 +125,17 @@ try {
   $capCmd = Join-Path $shareDir 'capture.cmd'
   Set-Content -Path $capCmd -Encoding ASCII -Value @"
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "$shareDir\Capture-InSession.ps1" -ShareDir "$shareDir" -CaptureMs $CaptureMs -ExpectUser "$UserName" > "$shareDir\capture.log" 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "$shareDir\Capture-InSession.ps1" -ShareDir "$shareDir" -CaptureMs $CaptureMs -ExpectUser "$UserName" -OwnerProfile "$env:USERPROFILE" > "$shareDir\capture.log" 2>&1
 "@
   Copy-Item $capCmd $startupCmd -Force   # runs when the renter's session starts
   Note 'capture payload staged (Startup folder, guarded to the proof account)'
 
   # ---------------------------------------------------------------- watchdog + before-state
-  Invoke-Schtasks @('/create','/tn',$taskWatch,'/ru','SYSTEM','/rl','HIGHEST','/sc','once',
-                    '/st',(Get-Date).AddSeconds($WatchdogSeconds).ToString('HH:mm'),
-                    '/tr',"$sys\tscon.exe $ownerSession /dest:console",'/f') | Out-Null
-  Note "watchdog armed: reconnect owner to console in ~$WatchdogSeconds s"
+  # The watchdog is the only automatic recovery if this script dies while the owner is disconnected;
+  # require it before we go any further.
+  $wdOk = Register-WatchdogAt $taskWatch "$sys\tscon.exe" "$ownerSession /dest:console" ((Get-Date).AddSeconds($WatchdogSeconds))
+  Step 'watchdog registered before disconnecting the owner' $wdOk "reconnect owner to console in ~$WatchdogSeconds s"
+  if (-not $wdOk) { throw 'watchdog registration failed - not disconnecting the owner without a recovery path' }
 
   $before = [Iso]::Sessions() | Where-Object { $_.User -eq $UserName }
   Step 'no renter session before we start' (@($before).Count -eq 0) "owner is session $ownerSession on the console"
@@ -188,7 +202,14 @@ finally {
       $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
       if ($o -and $o.User -eq $UserName) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } }
 
-  foreach ($t in @($taskWatch,$taskTscon,$taskCap)) { Invoke-Schtasks @('/delete','/tn',$t,'/f') | Out-Null }
+  # Keep the watchdog if the owner is NOT confirmed back on the console - it is the remaining
+  # recovery path. Delete it only once restoration is verified.
+  foreach ($t in @($taskTscon,$taskCap)) { Invoke-Schtasks @('/delete','/tn',$t,'/f') | Out-Null }
+  if ($consoleNow -eq $ownerSession) {
+    Invoke-Schtasks @('/delete','/tn',$taskWatch,'/f') | Out-Null
+  } else {
+    Note "owner not confirmed on console - LEAVING watchdog '$taskWatch' armed; recovery pending"
+  }
   Safely 'remove startup item' { Remove-Item $startupCmd -Force -ErrorAction SilentlyContinue }
 
   if ($sid) { for ($i=1;$i -le 8;$i++) { $p=$null; Safely 'query profile' { $script:p = Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid } }

@@ -8,7 +8,10 @@ param(
   [Parameter(Mandatory = $true)][string]$ShareDir,
   [int]$CaptureMs = 4000,
   [int]$WaitForConsoleSeconds = 60,
-  [string]$ExpectUser = ''
+  [string]$ExpectUser = '',
+  # The owner's profile folder, passed in by the caller (the owner knows its own path). The renter
+  # tries to read the owner's Documents from here as the isolation probe. Empty/absent => not tested.
+  [string]$OwnerProfile = ''
 )
 
 $ErrorActionPreference = 'Continue'
@@ -53,8 +56,22 @@ try {
   $o.dwmPids          = ($dwmAll | ForEach-Object { "$($_.Id)@session$($_.SessionId)" }) -join ', '
 
   # Can this session see the owner's data at all?
-  $o.ownerDocsReadable = $false
-  try { Get-ChildItem 'C:\Users\tomsc\Documents' -ErrorAction Stop | Out-Null; $o.ownerDocsReadable = $true } catch {}
+  # Report three states, not two: 'not-tested' when we were given no owner path or it doesn't exist,
+  # so a machine-specific missing path can never masquerade as a passed isolation check. Only an
+  # actual successful read counts as $true; an explicit access denial counts as $false (isolated).
+  $ownerDocs = if ($OwnerProfile) { Join-Path $OwnerProfile 'Documents' } else { '' }
+  if (-not $ownerDocs -or -not (Test-Path $ownerDocs)) {
+    $o.ownerDocsReadable = 'not-tested'
+    $o.ownerDocsNote = "owner Documents path not provided or absent: '$ownerDocs'"
+  } else {
+    try {
+      Get-ChildItem $ownerDocs -ErrorAction Stop | Out-Null
+      $o.ownerDocsReadable = $true          # read succeeded - ISOLATION BREACH
+    } catch {
+      $o.ownerDocsReadable = $false         # access denied - isolated as intended
+      $o.ownerDocsNote = $_.Exception.GetType().Name
+    }
+  }
 
   $o.videoControllers = ((Get-CimInstance Win32_VideoController | ForEach-Object Name) -join '; ')
 

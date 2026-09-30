@@ -21,6 +21,12 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition (Get-Content (Join-Path $root 'Win32Iso.cs') -Raw) -ReferencedAssemblies 'System.Drawing'
 
 $origDeny = (Get-ItemProperty $tsKey -Name fDenyTSConnections).fDenyTSConnections
+# Snapshot the service so teardown restores it exactly, rather than leaving a machine where RDP had
+# been off looking as if it were configured for it.
+$svc = Get-Service TermService
+$origStartType = $svc.StartType
+$origRunning = ($svc.Status -eq 'Running')
+$startedByUs = $false
 $sid = $null
 
 function Shoot {
@@ -65,7 +71,7 @@ try {
 
   Set-ItemProperty $tsKey -Name fDenyTSConnections -Value 0
   if ((Get-Service TermService).StartType -eq 'Disabled') { Set-Service TermService -StartupType Manual }
-  Start-Service TermService -ErrorAction SilentlyContinue
+  if (-not $origRunning) { Start-Service TermService -ErrorAction SilentlyContinue; $startedByUs = $true }
 
   $deadline = (Get-Date).AddSeconds(40); $listening = $false
   while ((Get-Date) -lt $deadline -and -not $listening) {
@@ -126,7 +132,9 @@ finally {
   Get-Process mstsc -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   & cmdkey /delete:TERMSRV/localhost 2>&1 | Out-Null
   try { Set-ItemProperty $tsKey -Name fDenyTSConnections -Value $origDeny } catch {}
-  try { Stop-Service TermService -Force -ErrorAction SilentlyContinue } catch {}
+  # Stop the service only if this run started it, and restore its original start type.
+  try { if ($startedByUs) { Stop-Service TermService -Force -ErrorAction SilentlyContinue } } catch {}
+  try { if ((Get-Service TermService).StartType -ne $origStartType) { Set-Service TermService -StartupType $origStartType } } catch {}
   if ($sid) {
     for ($t = 1; $t -le 6; $t++) {
       $p = Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid }

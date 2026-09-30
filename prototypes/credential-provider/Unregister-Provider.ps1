@@ -11,7 +11,11 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 
 Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$CLSID" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKLM:\SOFTWARE\Classes\CLSID\$CLSID" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path 'HKLM:\SOFTWARE\Swiff' -Recurse -Force -ErrorAction SilentlyContinue
+# Remove only the ticket key (the provider's own transient state). The persistent renter's stored
+# password lives under HKLM:\SOFTWARE\Swiff\Renter and must survive a normal unregister, or a later
+# re-register + login could not mint a ticket. Full removal of Swiff is reserved for -RemoveAll
+# (Prove-PersistentRenter.ps1), which owns the account lifecycle.
+Remove-Item -Path 'HKLM:\SOFTWARE\Swiff\Logon' -Recurse -Force -ErrorAction SilentlyContinue
 
 # LogonUI may still hold the DLL; if so, schedule it for deletion on the next boot.
 if (Test-Path $InstallPath) {
@@ -20,7 +24,8 @@ if (Test-Path $InstallPath) {
 }
 
 Write-Host "`n--- state ---"
-Write-Host "provider key : $(Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$CLSID")"
-Write-Host "CLSID key    : $(Test-Path "HKLM:\SOFTWARE\Classes\CLSID\$CLSID")"
-Write-Host "ticket key   : $(Test-Path 'HKLM:\SOFTWARE\Swiff')"
-Write-Host "dll present  : $(Test-Path $InstallPath)"
+Write-Host "provider key   : $(Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$CLSID")"
+Write-Host "CLSID key      : $(Test-Path "HKLM:\SOFTWARE\Classes\CLSID\$CLSID")"
+Write-Host "ticket key     : $(Test-Path 'HKLM:\SOFTWARE\Swiff\Logon')"
+Write-Host "renter creds   : $(Test-Path 'HKLM:\SOFTWARE\Swiff\Renter') (kept unless -RemoveAll)"
+Write-Host "dll present    : $(Test-Path $InstallPath)"
