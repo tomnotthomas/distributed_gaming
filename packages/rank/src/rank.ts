@@ -5,7 +5,7 @@
 // rule that separated the top two is the "Recommended" reason. Pure: the clock
 // is an argument, so the same inputs always give the same order.
 
-import { gpuScore } from "./gpu";
+import { gpuScore } from "./gpu.ts";
 import type {
   Candidate,
   Encoder,
@@ -23,7 +23,7 @@ import type {
   RuleId,
   Stability,
   StabilityStats,
-} from "./types";
+} from "./types.ts";
 
 /** E6 default: past this round trip a game stops feeling local. */
 export const DEFAULT_MAX_RTT_MS = 80;

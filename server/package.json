@@ -7,9 +7,11 @@
     "build": "tsc -b",
     "start": "node --env-file-if-exists=../.env --env-file-if-exists=.env dist/index.js",
     "test": "npm run build && node --test dist/test/*.test.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed-requirements": "node --env-file-if-exists=../.env --env-file-if-exists=.env dist/seed-requirements.js"
   },
   "dependencies": {
+    "@swiff/rank": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

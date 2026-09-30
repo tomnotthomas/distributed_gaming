@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { failedGates, pictureScore, rank, responseScore, stabilityOf } from "./rank";
-import type { Candidate, GameRequirements, HostProfile, RenterPrefs, StabilityStats } from "./types";
+import { failedGates, pictureScore, rank, responseScore, stabilityOf } from "./rank.ts";
+import type { Candidate, GameRequirements, HostProfile, RenterPrefs, StabilityStats } from "./types.ts";
 
 const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;

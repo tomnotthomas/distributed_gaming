@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { gpuScore, normalizeGpu } from "./gpu";
-import table from "./gpu-scores.json";
+import { gpuScore, normalizeGpu } from "./gpu.ts";
+import table from "./gpu-scores.json" with { type: "json" };
 
 describe("gpuScore", () => {
   it("anchors on the RTX 3060 and the plan's worked example", () => {
