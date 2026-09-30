@@ -19,7 +19,8 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
 2. The renter can sign in with Steam. Starting a session requires it; signed-out visitors
    can only browse and never see machine availability.
 3. The renter can book a game for a number of minutes.
-4. The renter is matched to a free gaming PC that can run the game.
+4. The renter is matched to a free gaming PC that can run the game. The renter's own PC is
+   never listed, recommended or matched (gate E5 in `packages/rank`).
 5. The renter can play the game in the browser on the remote gaming PC, with Steam
    already started for them.
 6. The renter can end the session and is charged for the time played.

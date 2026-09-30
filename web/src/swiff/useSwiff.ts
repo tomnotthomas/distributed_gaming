@@ -63,8 +63,13 @@ export function useSwiff() {
     [pool],
   );
 
+  const prefs = useMemo(() => ({ quality, devices }), [quality, devices]);
+
   const game = useMemo(() => games.find((g) => g.id === gameId) ?? null, [games, gameId]);
-  const machines = useMemo(() => (game ? machinesFor(game, pool, session) : []), [game, pool, session]);
+  const machines = useMemo(
+    () => (game ? machinesFor(game, pool, session, prefs) : []),
+    [game, pool, session, prefs],
+  );
   const picked = useMemo(() => machines.find((m) => m.id === machineId) ?? null, [machines, machineId]);
 
   const libraryConnected = profile !== null;
@@ -151,7 +156,8 @@ export function useSwiff() {
   const openGame = useCallback(
     (next: Game) => {
       track("game_opened", { game: next.id });
-      const best = freeFor(next, pool, session)[0] ?? machinesFor(next, pool, session).find((m) => !m.busy);
+      const free = freeFor(next, pool, session, prefs);
+      const best = free[0] ?? machinesFor(next, pool, session, prefs).find((m) => !m.busy);
       setGameId(next.id);
       setMachineId(best?.id ?? null);
       setScreen("game");
@@ -159,10 +165,9 @@ export function useSwiff() {
       setBeat(0);
       // Fold the selector away unless the top two are close enough that the
       // choice is genuinely the player's.
-      const free = freeFor(next, pool, session);
       setMachinesOpen(free.length > 1 && free[1]!.ping - free[0]!.ping <= 3);
     },
-    [pool, session],
+    [pool, session, prefs],
   );
 
   const launch = useCallback(() => {
@@ -261,6 +266,7 @@ export function useSwiff() {
     picked,
     pool,
     session,
+    prefs,
     hoverId,
     machinesOpen,
     libraryConnected,

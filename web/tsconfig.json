@@ -16,7 +16,8 @@
     "allowImportingTsExtensions": true,
     "paths": {
       "@swiff/ui": ["../packages/ui/src/index.ts"],
-      "@swiff/rtc": ["../packages/rtc/src/index.ts"]
+      "@swiff/rtc": ["../packages/rtc/src/index.ts"],
+      "@swiff/rank": ["../packages/rank/src/index.ts"]
     },
     "baseUrl": "."
   },

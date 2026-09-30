@@ -5,12 +5,13 @@ import type { Swiff } from "./useSwiff";
 
 /** One game, full bleed, with the machines that can run it along the bottom. */
 export function GameMenu({ swiff }: { swiff: Swiff }) {
-  const { game, machines, picked, session, machinesOpen } = swiff;
+  const { game, machines, picked, pool, session, machinesOpen, quality, devices } = swiff;
   if (!game) return null;
 
   const live = machines.filter((m) => !m.busy);
   const busy = machines.filter((m) => m.busy);
-  const pickedMeters = picked ? meters(picked) : null;
+  const pickedMeters = picked ? meters(picked, game) : null;
+  const why = reason(game, pool, session, { quality, devices });
 
   return (
     <main className="menu">
@@ -53,7 +54,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
             </HoldButton>
           </SplitButton>
 
-          <div className="menu-sub" title={picked ? feel(picked).tech : undefined}>
+          <div className="menu-sub" title={picked ? feel(picked, game).tech : undefined}>
             <span className="menu-sub-main">
               {picked ? `${picked.name} · ${picked.ping} ms` : "Pick a machine below"} · hold to launch
             </span>
@@ -89,11 +90,11 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                 name={machine.name}
                 ping={machine.ping}
                 owner={machine.self ? "your machine" : `shared by ${machine.owner}`}
-                picture={meters(machine).picture}
-                response={meters(machine).response}
+                picture={meters(machine, game).picture}
+                response={meters(machine, game).response}
                 left={`${fmtLeft(minsLeft(machine))} left`}
                 leftTone={lasts(machine, session) ? "live" : "time"}
-                reason={index === 0 ? reason(machine, machines) : undefined}
+                reason={index === 0 ? why : undefined}
                 hardware={`${machine.gpu} · ${machine.cpu}`}
                 selected={picked?.id === machine.id}
                 recommended={index === 0 && live.length > 1}

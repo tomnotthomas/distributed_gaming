@@ -4,6 +4,8 @@
 // owned promotional media, which is what a real client would be showing. A
 // player's own library is merged on top of this at sign-in (see steam.ts).
 
+import type { Control, Encoder, StabilityStats } from "@swiff/rank";
+
 export type Game = {
   id: string;
   title: string;
@@ -28,7 +30,12 @@ export type Game = {
   media?: GameMedia;
   /** Generated from the player's real library rather than hand-authored. */
   fromLibrary?: boolean;
+  /** Hardware the game asks for. Without it, a GTX 1060 minimum and an RTX 3060 recommended card. */
+  requirements?: Requirements;
 };
+
+/** A game's system requirements, as GPU names from the score table and gigabytes. */
+export type Requirements = { minGpu: string; recGpu: string; minRamGb: number; minVramGb: number };
 
 /** A game's media at the exact URLs Steam's catalog gives (server/src/catalog.ts). */
 export type GameMedia = {
@@ -52,14 +59,21 @@ export type Machine = {
   quality: string;
   /** "Ultra · 1440p 120" — the ceiling this machine can actually deliver. */
   tier: string;
-  /** Picture ceiling, 1 to 4. */
-  pic: number;
   /** Clock time the owner has promised it until, or "late". */
   until: string;
   busy: boolean;
   back?: string;
-  /** Your own PC. Shown, but never the one we recommend renting. */
+  /** Your own PC. Never listed, recommended or matched (gate E5). */
   self?: boolean;
+  // What the host app reports, for ranking (@swiff/rank).
+  ramGb: number;
+  vramGb: number;
+  controls: Control[];
+  encoders: Encoder[];
+  uploadMbps: number;
+  priceCentsPerHour: number;
+  /** The last seven days, as the server observes them. */
+  history: StabilityStats;
 };
 
 export type SessionLength = "quick" | "evening" | "night";
@@ -81,6 +95,8 @@ export const GAMES: Game[] = [
     machines: ["nova", "glass", "tide", "ember"],
     last: "yesterday",
     video: 256839312,
+    // The plan's worked example measures headroom against an RTX 3060.
+    requirements: { minGpu: "GTX 1060", recGpu: "RTX 3060", minRamGb: 12, minVramGb: 3 },
   },
   {
     id: "val",
@@ -218,6 +234,19 @@ export const GAMES: Game[] = [
   },
 ];
 
+// Seven days of history, three ways: a host with a clean record, an ordinary
+// one, and one too new to judge.
+const STEADY: StabilityStats = {
+  heartbeatCoverage: 0.998,
+  dropsPerHour: 0.05,
+  sessionCompletion: 0.97,
+  packetLoss: 0.004,
+  sessions: 40,
+  offeredHours: 120,
+};
+const OK: StabilityStats = { ...STEADY, heartbeatCoverage: 0.985, dropsPerHour: 0.2 };
+const NEW: StabilityStats = { ...STEADY, sessions: 2, offeredHours: 6 };
+
 export const MACHINES: Record<string, Machine> = {
   nova: {
     id: "nova",
@@ -228,10 +257,16 @@ export const MACHINES: Record<string, Machine> = {
     ping: 2,
     quality: "1440p 120",
     tier: "Ultra · 1440p 120",
-    pic: 3,
     until: "late",
     busy: false,
     self: true,
+    ramGb: 32,
+    vramGb: 16,
+    controls: ["kb", "mouse", "pad"],
+    encoders: ["h264", "hevc", "av1"],
+    uploadMbps: 30,
+    priceCentsPerHour: 0,
+    history: STEADY,
   },
   glass: {
     id: "glass",
@@ -242,9 +277,15 @@ export const MACHINES: Record<string, Machine> = {
     ping: 9,
     quality: "4K 60",
     tier: "Ultra · 4K 60",
-    pic: 4,
     until: "00:30",
     busy: false,
+    ramGb: 32,
+    vramGb: 24,
+    controls: ["kb", "mouse", "pad"],
+    encoders: ["h264", "hevc", "av1"],
+    uploadMbps: 50,
+    priceCentsPerHour: 180,
+    history: STEADY,
   },
   ember: {
     id: "ember",
@@ -255,9 +296,15 @@ export const MACHINES: Record<string, Machine> = {
     ping: 14,
     quality: "1080p 120",
     tier: "High · 1080p 120",
-    pic: 2,
     until: "21:10",
     busy: false,
+    ramGb: 32,
+    vramGb: 12,
+    controls: ["kb", "mouse", "pad"],
+    encoders: ["h264", "hevc", "av1"],
+    uploadMbps: 20,
+    priceCentsPerHour: 120,
+    history: NEW,
   },
   tide: {
     id: "tide",
@@ -268,9 +315,15 @@ export const MACHINES: Record<string, Machine> = {
     ping: 21,
     quality: "1440p 120",
     tier: "Ultra · 1440p 120",
-    pic: 3,
     until: "02:00",
     busy: false,
+    ramGb: 32,
+    vramGb: 24,
+    controls: ["kb", "mouse", "pad"],
+    encoders: ["h264", "hevc"],
+    uploadMbps: 30,
+    priceCentsPerHour: 140,
+    history: STEADY,
   },
   moss: {
     id: "moss",
@@ -281,10 +334,16 @@ export const MACHINES: Record<string, Machine> = {
     ping: 38,
     quality: "1080p 60",
     tier: "High · 1080p 60",
-    pic: 2,
     until: "23:30",
     busy: true,
     back: "21:30",
+    ramGb: 32,
+    vramGb: 10,
+    controls: ["kb", "mouse", "pad"],
+    encoders: ["h264", "hevc"],
+    uploadMbps: 18,
+    priceCentsPerHour: 90,
+    history: OK,
   },
 };
 

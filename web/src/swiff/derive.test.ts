@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { GAMES, MACHINES, type Machine } from "./data";
-import { feel, fmtLeft, freeFor, lasts, machinesFor, meters, minsLeft, reason, wallOrder } from "./derive";
+import {
+  feel,
+  fmtLeft,
+  freeFor,
+  lasts,
+  machinesFor,
+  meters,
+  minsLeft,
+  reason,
+  requirementsOf,
+  wallOrder,
+} from "./derive";
+
+const elden = GAMES.find((g) => g.id === "er")!; // nova, glass, tide, ember
 
 const at = (until: string, over: Partial<Machine> = {}): Machine => ({
   ...MACHINES.glass!,
@@ -52,32 +65,69 @@ describe("lasts", () => {
 
 describe("meters", () => {
   it("caps picture on a slow link, because a 4090 cannot beat latency", () => {
-    expect(meters({ ...MACHINES.glass!, ping: 9 })).toEqual({ picture: 4, response: 4 });
-    expect(meters({ ...MACHINES.glass!, ping: 38 })).toEqual({ picture: 2, response: 1 });
+    expect(meters({ ...MACHINES.glass!, ping: 9 }, elden)).toEqual({ picture: 4, response: 4 });
+    expect(meters({ ...MACHINES.glass!, ping: 38 }, elden)).toEqual({ picture: 2, response: 1 });
+  });
+
+  it("holds picture back when the owner's upload cannot carry it", () => {
+    // Ember's 4070 Ti has three times the headroom Elden Ring asks for, but 20 Mb/s up.
+    expect(meters(MACHINES.ember!, elden)).toEqual({ picture: 2, response: 3 });
+  });
+});
+
+describe("requirementsOf", () => {
+  it("measures a game with no requirements against a GTX 1060 minimum and an RTX 3060", () => {
+    const unknown = { ...elden, requirements: undefined };
+    expect(requirementsOf(unknown)).toMatchObject({ minGpuScore: 45, recGpuScore: 100 });
   });
 });
 
 describe("feel", () => {
   it("says it in words a player would use", () => {
-    expect(feel(MACHINES.glass!).text).toBe("Stunning picture, controls feel instant");
-    expect(feel(MACHINES.moss!).text).toBe("Good picture, slight delay on controls");
+    expect(feel(MACHINES.glass!, elden).text).toBe("Stunning picture, controls feel instant");
+    expect(feel(MACHINES.moss!, elden).text).toBe("Good picture, slight delay on controls");
   });
 });
 
 describe("reason", () => {
-  it("credits the lowest ping when nothing free is closer", () => {
-    const all = [MACHINES.glass!, MACHINES.tide!];
-    expect(reason(MACHINES.glass!, all)).toBe("Lowest latency");
+  it("names the rule that put the first machine above the second", () => {
+    // Glasshouse and Tide both cover the evening; Glasshouse responds faster.
+    expect(reason(elden, MACHINES, "evening")).toBe("Lowest latency");
+    expect(reason(elden, MACHINES, "evening", { quality: "resolution", devices: [] })).toBe("Best picture");
+    expect(reason(elden, MACHINES, "evening", { quality: "fps", devices: [] })).toBe("120 fps");
+  });
+
+  it("gives none when there is only one machine to pick", () => {
+    const starfield = GAMES.find((g) => g.id === "sf")!; // glass only
+    expect(reason(starfield, MACHINES, "evening")).toBeUndefined();
   });
 });
 
 describe("machinesFor", () => {
   it("sinks the machine that cannot cover the session, below lower pings", () => {
-    const elden = GAMES.find((g) => g.id === "er")!; // nova, glass, tide, ember
     const order = machinesFor(elden, MACHINES, "evening").map((m) => m.id);
-    expect(order[0]).toBe("nova");
     // Ember is 14 ms but promised only until 21:10, so it loses to 21 ms Tide.
-    expect(order).toEqual(["nova", "glass", "tide", "ember"]);
+    expect(order).toEqual(["glass", "tide", "ember"]);
+  });
+
+  it("never lists your own PC, however close it is", () => {
+    // Nova-01 is 2 ms away, free all night, and yours: gate E5.
+    expect(machinesFor(elden, MACHINES, "night").map((m) => m.id)).not.toContain("nova");
+    expect(freeFor(elden, MACHINES, "quick").map((m) => m.id)).not.toContain("nova");
+  });
+
+  it("follows the Picture setting", () => {
+    // 120 fps first: Tide streams 1440p 120, Glasshouse tops out at 4K 60.
+    const order = machinesFor(elden, MACHINES, "evening", { quality: "fps", devices: [] });
+    expect(order.map((m) => m.id)).toEqual(["tide", "glass", "ember"]);
+  });
+
+  it("drops a machine that lacks a control you turned on", () => {
+    const pool = { ...MACHINES, glass: { ...MACHINES.glass!, controls: ["kb" as const, "mouse" as const] } };
+    const withPad = machinesFor(elden, pool, "evening", { quality: "auto", devices: ["kb", "mouse", "pad"] });
+    expect(withPad.map((m) => m.id)).toEqual(["tide", "ember"]);
+    const noPad = machinesFor(elden, pool, "evening", { quality: "auto", devices: ["kb", "mouse"] });
+    expect(noPad.map((m) => m.id)).toEqual(["glass", "tide", "ember"]);
   });
 
   it("sinks a busy machine below every free one", () => {
@@ -87,8 +137,8 @@ describe("machinesFor", () => {
   });
 
   it("drops a machine id the pool does not have rather than throwing", () => {
-    const ghost = { ...GAMES[0]!, machines: ["nova", "nope"] };
-    expect(machinesFor(ghost, MACHINES, "evening").map((m) => m.id)).toEqual(["nova"]);
+    const ghost = { ...GAMES[0]!, machines: ["glass", "nope"] };
+    expect(machinesFor(ghost, MACHINES, "evening").map((m) => m.id)).toEqual(["glass"]);
   });
 });
 

@@ -32,10 +32,10 @@ function usePreview(hoverId: string | null): string | null {
 }
 
 export function Wall({ swiff }: { swiff: Swiff }) {
-  const { games, pool, session, libraryConnected, showAll } = swiff;
+  const { games, pool, session, prefs, libraryConnected, showAll } = swiff;
 
-  const ordered = useMemo(() => wallOrder(games, pool, session), [games, pool, session]);
-  const anythingFree = ordered.some((g) => freeFor(g, pool, session).length > 0);
+  const ordered = useMemo(() => wallOrder(games, pool, session, prefs), [games, pool, session, prefs]);
+  const anythingFree = ordered.some((g) => freeFor(g, pool, session, prefs).length > 0);
 
   // Before sign-in the wall leads with something playable right now: a
   // free-to-play title, because that is the one a stranger can actually start.
@@ -98,8 +98,8 @@ type TileProps = {
 };
 
 function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }: TileProps) {
-  const { pool, session } = swiff;
-  const free = freeFor(game, pool, session);
+  const { pool, session, prefs } = swiff;
+  const free = freeFor(game, pool, session, prefs);
   const best = free[0];
   const playable = free.length > 0;
 
