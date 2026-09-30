@@ -1,0 +1,55 @@
+---
+config:
+  theme: base
+  flowchart:
+    curve: basis
+    htmlLabels: true
+  themeVariables:
+    fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif"
+    fontSize: 14px
+    edgeLabelBackground: "#ffffff"
+    lineColor: "#333333"
+    primaryTextColor: "#222222"
+  themeCSS: >-
+    .edgeLabel, .edgeLabel p, .edgeLabel span, .labelBkg { background: #fff !important; background-color: #fff !important; }
+    .edgeLabel p, .edgeLabel span { color: #555; font-size: 13px; }
+    .edgeLabel rect { fill: #fff !important; opacity: 1 !important; }
+    svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
+---
+flowchart LR
+  Owner["Owner"]
+  Installer["Swiff installer"]
+  HostApp["Swiff host app"]
+  Account["Separate Windows account"]
+  Steam["Steam"]
+  Capture["Capture + WebRTC"]
+  Wiped["Account wiped"]
+  subgraph Platform["Swiff platform"]
+    direction TB
+    SIG["Connection setup<br/>via SDP + ICE relay"]
+    API["Booking API + Database"]
+    SIG ~~~ API
+  end
+  ICE["STUN / TURN"]
+  Renter["Renter"]
+
+  Owner --> Installer
+  Installer -- "creates" --> Account
+  Installer --> HostApp
+  HostApp -- "session start" --> Account
+  HostApp -- "session end" --> Wiped
+  Account -- "launches" --> Steam
+  Steam -- "game screen" --> Capture
+  HostApp -- "available now · heartbeat<br/>session started / ended" --> API
+  HostApp <-- "WebSocket · register, SDP/ICE" --> SIG
+  SIG <-- "WebSocket · join, SDP/ICE" --> Renter
+  Capture -. "public address · fallback relay" .- ICE
+  Capture <== "video + audio + input" ==> Renter
+
+  classDef owner fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
+  classDef session fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
+  class Owner,Installer,HostApp owner
+  class Account,Steam,Capture,Wiped,Renter session
+  class API,SIG,ICE platform
+  style Platform fill:#ffffff,stroke:#ccc,color:#444
