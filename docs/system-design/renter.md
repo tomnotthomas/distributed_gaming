@@ -125,11 +125,13 @@ the machine is reserved for it. A reservation lasts 60 s. A machine that goes si
 hands its reserved booking back to the queue.
 
 A queued booking expires 2 minutes after the renter last checked on it, so a renter who
-closed the tab does not hold a machine when one frees up. A renter who comes back within
-those 2 minutes (browser reopened, laptop woke up) keeps their place: the web app stores
-the booking id in `localStorage` when it books and, on page load, resumes polling the
-stored booking, forgetting it once the booking is claimed, ended or expired
-(`web/src/swiff/booking.ts`).
+closed the tab does not hold a machine when one frees up. Until then the server keeps it
+resumable: a renter who comes back within those 2 minutes (browser reopened, laptop woke
+up) and checks on the same booking id keeps their place. The web helper
+`web/src/swiff/booking.ts` stores the booking id in `localStorage` when it books and, on
+page load, resumes polling the stored booking, forgetting it once the booking is claimed,
+ended or expired. **Not wired in yet:** no booking page calls the helper; the booking UI
+will.
 
 ### Connection setup (WebSocket)
 
