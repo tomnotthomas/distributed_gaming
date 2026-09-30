@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews every PR into main on its own. Config reference:
+# https://docs.coderabbit.ai/reference/configuration
+language: en-US
+reviews:
+  profile: chill
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+  path_filters:
+    - "!**/*.png"
+    - "!**/*.gif"
+    - "!package-lock.json"
+    - "!**/dist/**"
+  path_instructions:
+    - path: "server/src/**"
+      instructions: >-
+        Public-facing signaling server. Anyone on the internet can open a
+        socket to it. Check that no message is acted on before the socket is
+        authenticated, that credentials are compared in constant time and never
+        logged, and that bad input cannot crash the process.
+    - path: "desktop/**"
+      instructions: >-
+        Electron app that runs on a stranger's gaming PC and streams its
+        screen. The renderer must not get node access; the preload may expose
+        only narrow, single-purpose calls. Secrets must not be stored in plain
+        text.
+    - path: "packages/rtc/**"
+      instructions: >-
+        WebRTC client shared by the renter page and the host app. Watch for
+        reconnect loops, leaked peer connections and timers, and changes to
+        the wire format that only one side picks up.
