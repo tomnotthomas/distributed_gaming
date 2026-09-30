@@ -418,14 +418,19 @@ describe("startRenterSession", () => {
   it("reports an offer it could not answer", async () => {
     const { events } = start();
     socket().deliver({ type: "joined", hostId: "room-1", hostOnline: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const spy = vi
       .spyOn(FakePeerConnection.prototype, "setRemoteDescription")
-      .mockRejectedValueOnce(new Error("bad sdp"));
+      .mockRejectedValueOnce(new Error("Failed to parse SessionDescription. a=secret Invalid value"));
     socket().deliver({ type: "offer", sdp: OFFER });
     await flush();
     spy.mockRestore();
 
-    expect(events).toContainEqual({ type: "error", message: "bad sdp" });
+    // Browser parse errors quote SDP lines; none of that may leave the session.
+    expect(events).toContainEqual({ type: "error", message: "could not answer the PC's offer" });
+    expect(JSON.stringify(events)).not.toContain("a=secret");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("a=secret");
+    warn.mockRestore();
   });
 
   it("stops for good when the ticket is refused", async () => {

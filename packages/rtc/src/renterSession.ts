@@ -284,7 +284,11 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
       // A connection a newer offer or `end()` already replaced fails on the
       // way out; that is the replacement working, not an error.
       if (pc !== connection) return;
-      emit({ type: "error", message: cause instanceof Error ? cause.message : "could not answer" });
+      console.warn(
+        "[swiff] could not answer the PC's offer",
+        cause instanceof Error ? cause.name : typeof cause,
+      );
+      emit({ type: "error", message: "could not answer the PC's offer" });
     }
   };
 

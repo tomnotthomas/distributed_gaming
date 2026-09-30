@@ -2,10 +2,10 @@
 //
 // `selectedCandidateType` is the one piece of code that decides whether a test
 // run means anything: it is what tells you a connection went `srflx` across the
-// internet rather than `host` over the wifi you were already on. The browser
-// differences it papers over (Chrome marks the winning pair `selected`, Firefox
-// only ever says `succeeded`) are exactly what regresses silently, so both are
-// pinned here.
+// internet rather than `host` over the wifi you were already on. The transport
+// report's `selectedCandidatePairId` is the standard answer; the fallbacks for
+// a report without one (Firefox's `selected`, then `succeeded`) are exactly what
+// regresses silently, so all of them are pinned here.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPeerConnection, selectedCandidateType, DEFAULT_ICE_SERVERS } from "./peer";
@@ -145,7 +145,28 @@ describe("selectedCandidateType", () => {
     expect(await selectedCandidateType(pcWithStats([]))).toBe("unknown");
   });
 
-  it("reads the winning pair that Chrome marks selected", async () => {
+  it("reads the pair the transport names, not the last one that succeeded", async () => {
+    const pc = pcWithStats([
+      { type: "transport", selectedCandidatePairId: "p-direct" },
+      { id: "p-direct", type: "candidate-pair", state: "succeeded", localCandidateId: "c-direct" },
+      { id: "p-relay", type: "candidate-pair", state: "succeeded", localCandidateId: "c-relay" },
+      { id: "c-direct", type: "local-candidate", candidateType: "srflx" },
+      { id: "c-relay", type: "local-candidate", candidateType: "relay" },
+    ]);
+    expect(await selectedCandidateType(pc)).toBe("srflx");
+  });
+
+  it("prefers a pair marked selected over one that merely succeeded", async () => {
+    const pc = pcWithStats([
+      { id: "p-win", type: "candidate-pair", selected: true, state: "succeeded", localCandidateId: "c-win" },
+      { id: "p-other", type: "candidate-pair", state: "succeeded", localCandidateId: "c-other" },
+      { id: "c-win", type: "local-candidate", candidateType: "srflx" },
+      { id: "c-other", type: "local-candidate", candidateType: "relay" },
+    ]);
+    expect(await selectedCandidateType(pc)).toBe("srflx");
+  });
+
+  it("reads the winning pair that Firefox marks selected", async () => {
     const pc = pcWithStats([
       { type: "candidate-pair", selected: true, localCandidateId: "c-win" },
       { id: "c-win", type: "local-candidate", candidateType: "srflx" },
@@ -154,7 +175,7 @@ describe("selectedCandidateType", () => {
     expect(await selectedCandidateType(pc)).toBe("srflx");
   });
 
-  it("reads the winning pair that Firefox only marks succeeded", async () => {
+  it("falls back to a succeeded pair when nothing names or marks one", async () => {
     const pc = pcWithStats([
       { type: "candidate-pair", state: "succeeded", localCandidateId: "c-win" },
       { id: "c-win", type: "local-candidate", candidateType: "relay" },

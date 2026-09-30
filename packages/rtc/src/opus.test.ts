@@ -121,7 +121,7 @@ describe("setLocalWithStereoOpus", () => {
     const applied: RTCSessionDescriptionInit[] = [];
     const pc = {
       setLocalDescription: vi.fn(async (d: RTCSessionDescriptionInit) => {
-        if (refusals-- > 0) throw new Error("refused");
+        if (refusals-- > 0) throw new Error("Failed to parse SessionDescription. a=fmtp:111 Invalid value");
         applied.push(d);
       }),
     };
@@ -145,6 +145,7 @@ describe("setLocalWithStereoOpus", () => {
 
     expect(applied).toEqual([original]);
     expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("a=fmtp");
     warn.mockRestore();
   });
 

@@ -90,7 +90,10 @@ export async function setLocalWithStereoOpus(
   try {
     await pc.setLocalDescription(withStereoOpus(description, bitrate));
   } catch (cause) {
-    console.warn("[swiff] stereo Opus was rejected; falling back to mono", cause);
+    console.warn(
+      "[swiff] stereo Opus was rejected; falling back to mono",
+      cause instanceof Error ? cause.name : typeof cause,
+    );
     await pc.setLocalDescription(description);
   }
 }
