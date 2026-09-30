@@ -12,7 +12,12 @@ type Props = HTMLAttributes<HTMLParagraphElement> & {
 /** A message in the flow of the page — capture denied, answer failed. */
 export function Notice({ children, tone = "danger", className, ...rest }: Props) {
   return (
-    <p role={tone === "danger" ? "alert" : "status"} data-tone={tone} className={cx("notice", className)} {...rest}>
+    <p
+      role={tone === "danger" ? "alert" : "status"}
+      data-tone={tone}
+      className={cx("notice", className)}
+      {...rest}
+    >
       {children}
     </p>
   );

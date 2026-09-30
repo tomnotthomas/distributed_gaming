@@ -72,6 +72,12 @@ export function useModal<T extends HTMLElement>(forwarded: ForwardedRef<T>, onDi
         if (event.target === event.currentTarget) onDismiss?.();
       },
     },
-    panelProps: { ref: panel, role: "dialog", "aria-modal": true, "aria-labelledby": titleId, tabIndex: -1 } as const,
+    panelProps: {
+      ref: panel,
+      role: "dialog",
+      "aria-modal": true,
+      "aria-labelledby": titleId,
+      tabIndex: -1,
+    } as const,
   };
 }

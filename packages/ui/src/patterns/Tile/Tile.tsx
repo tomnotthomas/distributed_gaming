@@ -49,7 +49,12 @@ export function Tile({
 }: Props) {
   const layers = (
     <>
-      <Backdrop image={art} fallback={fallbackArt} video={video} scrims={size === "hero" ? HERO_SCRIMS : CARD_SCRIMS} />
+      <Backdrop
+        image={art}
+        fallback={fallbackArt}
+        video={video}
+        scrims={size === "hero" ? HERO_SCRIMS : CARD_SCRIMS}
+      />
       {badge ? <span className="tile-badge">{badge}</span> : null}
     </>
   );

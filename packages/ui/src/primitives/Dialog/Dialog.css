@@ -1,17 +1,38 @@
 .dialog-backdrop {
-  position: absolute; inset: 0; z-index: 30; display: grid; place-items: center;
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
   background: color-mix(in srgb, var(--color-bg) 70%, transparent);
   backdrop-filter: blur(8px);
   animation: swiff-fadein var(--dur-ui) ease both;
 }
 .dialog {
-  max-width: 46ch; padding: var(--space-8);
-  display: flex; flex-direction: column; gap: var(--space-4);
+  max-width: 46ch;
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--dialog-fill);
   backdrop-filter: blur(28px) saturate(1.3);
 }
-.dialog:focus { outline: none; }
-.dialog-title { font-family: var(--font-heading); font-weight: 500; font-size: var(--text-22); }
-.dialog-body { font-size: var(--text-14); line-height: var(--lh-20); color: var(--color-neutral-300); }
-.dialog-actions { display: flex; gap: var(--space-3); justify-content: flex-end; }
+.dialog:focus {
+  outline: none;
+}
+.dialog-title {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: var(--text-22);
+}
+.dialog-body {
+  font-size: var(--text-14);
+  line-height: var(--lh-20);
+  color: var(--color-neutral-300);
+}
+.dialog-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}

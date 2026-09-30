@@ -3,8 +3,8 @@
 **Goal:** the renter drives the machine. Mouse, keyboard and gamepad from the browser,
 injected on Windows.
 
-This is step 5 of [`plan.md`](./plan.md) — *"the step that makes it a gaming product rather
-than a screen viewer"*.
+This is step 5 of [`plan.md`](./plan.md) — _"the step that makes it a gaming product rather
+than a screen viewer"_.
 
 Steps 1–4 and 6 are done: the Electron host streams 1080p60 to a browser across the public
 internet. **Audio shipped separately and is no longer planned work** — Windows loopback
@@ -26,12 +26,12 @@ work that is wasted if the answer is no.
 
 ## What gets built
 
-| Piece | What it is | Where it runs |
-|---|---|---|
-| Input capture | Pointer lock, key up/down, Gamepad API | Renter page |
-| Input channels | Two `RTCDataChannel`s with different reliability | `packages/rtc` |
-| Input injection | Win32 `SendInput` through an FFI binding | Host app, main process |
-| Kill switch | Host takes the machine back, instantly | Host app |
+| Piece           | What it is                                       | Where it runs          |
+| --------------- | ------------------------------------------------ | ---------------------- |
+| Input capture   | Pointer lock, key up/down, Gamepad API           | Renter page            |
+| Input channels  | Two `RTCDataChannel`s with different reliability | `packages/rtc`         |
+| Input injection | Win32 `SendInput` through an FFI binding         | Host app, main process |
+| Kill switch     | Host takes the machine back, instantly           | Host app               |
 
 ---
 
@@ -42,16 +42,16 @@ work that is wasted if the answer is no.
 **Electron cannot do this on its own.** `webContents.sendInputEvent` injects into the Electron
 window; a fullscreen game never sees it. OS-level synthetic input is required.
 
-| Route | Cost |
-|---|---|
-| `koffi` + Win32 `SendInput` | Prebuilt binaries, no node-gyp, no rebuild step |
-| `nut-js` | Native addon; `npmRebuild: false` in the build config has to change |
-| `robotjs` | Effectively unmaintained |
+| Route                       | Cost                                                                |
+| --------------------------- | ------------------------------------------------------------------- |
+| `koffi` + Win32 `SendInput` | Prebuilt binaries, no node-gyp, no rebuild step                     |
+| `nut-js`                    | Native addon; `npmRebuild: false` in the build config has to change |
+| `robotjs`                   | Effectively unmaintained                                            |
 
 Prefer `koffi`: it calls `SendInput` directly and avoids dragging a native build into an
 electron-builder pipeline that currently and deliberately does not have one.
 
-**Acceptance for the spike:** from inside the *packed* app, move the cursor and press a key
+**Acceptance for the spike:** from inside the _packed_ app, move the cursor and press a key
 in a fullscreen game, and watch the game react. Not a text editor — a game. Fullscreen
 exclusive mode, anti-cheat-free title, on this machine. If that does not work, the rest of
 this section is void and the answer is a different capture architecture, not a different
@@ -62,8 +62,8 @@ library.
 1. **Two channels, not one.** Mouse deltas are worthless once stale, key events are not:
 
    ```ts
-   pc.createDataChannel("move", { ordered: false, maxRetransmits: 0 })
-   pc.createDataChannel("keys", { ordered: true })
+   pc.createDataChannel("move", { ordered: false, maxRetransmits: 0 });
+   pc.createDataChannel("keys", { ordered: true });
    ```
 
    A dropped mouse delta is a nudge nobody notices. A dropped `keyup` is a key held down
@@ -128,7 +128,7 @@ corrected figures.
 
 - Host isolation. Still phase 2, and input makes it matter more — see Risks.
 - Clipboard, file transfer, multi-monitor selection.
-- Audio *from* the renter. Voice chat is a different feature with a different latency budget.
+- Audio _from_ the renter. Voice chat is a different feature with a different latency budget.
 - macOS hosting. No loopback audio, no `SendInput`.
 - Renegotiation. Channels and tracks are fixed at offer time in phase 1.
 

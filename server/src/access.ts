@@ -39,12 +39,7 @@ function sha256(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-export function mintTicket(
-  secret: string,
-  room: string,
-  ttlSeconds: number,
-  now = Date.now(),
-): string {
+export function mintTicket(secret: string, room: string, ttlSeconds: number, now = Date.now()): string {
   const ticket: Ticket = {
     room,
     id: b64url(randomBytes(12)),

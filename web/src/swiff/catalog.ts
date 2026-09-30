@@ -14,4 +14,6 @@ async function getGames(path: string): Promise<CatalogGame[]> {
 export const fetchPopular = () => getGames("/api/games/popular").catch(() => []);
 
 export const fetchMedia = (appids: number[]) =>
-  appids.length ? getGames(`/api/games/media?appids=${appids.join(",")}`).catch(() => []) : Promise.resolve([]);
+  appids.length
+    ? getGames(`/api/games/media?appids=${appids.join(",")}`).catch(() => [])
+    : Promise.resolve([]);

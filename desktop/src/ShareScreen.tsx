@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
-import {
-  loadMachineId,
-  loadMachineKey,
-  loadUrl,
-  saveMachineId,
-  saveMachineKey,
-  saveUrl,
-} from "./settings";
+import { loadMachineId, loadMachineKey, loadUrl, saveMachineId, saveMachineKey, saveUrl } from "./settings";
 import { useScreenShare } from "./useScreenShare";
 
 /** The whole app: paste an address, share the screen, watch the connection. */
@@ -79,9 +72,7 @@ export function ShareScreen() {
               <Button variant="secondary" onClick={stop}>
                 Stop sharing
               </Button>
-              <span className="muted">
-                {peerHere ? "A renter is connected." : "Waiting for a renter…"}
-              </span>
+              <span className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</span>
             </>
           )}
         </div>

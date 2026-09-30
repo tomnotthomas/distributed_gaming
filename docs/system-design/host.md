@@ -31,16 +31,16 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ## 2. Non-functional requirements
 
-| | Requirement | Why |
-|---|---|---|
-| **Unattended** | The system starts capture, Steam and the game with no one clicking anything on the PC. | A rental machine has nobody sitting at it. |
-| **Isolation** | The system runs the session in a separate Windows account and wipes it afterwards. | The renter must never reach the owner's files, passwords or signed-in accounts. |
-| **Latency** | The system injects input as OS-level input the moment it arrives. | Input delay is felt far more than video delay. |
-| **Correctness of input** | The system never leaves a key held down. | A dropped key-up walks the character into a wall until the session ends. |
-| **Liveness** | The system reports the PC's state every few seconds, and stops offering it within seconds of it going offline. | Matching a renter to a dead machine wastes their time. |
-| **Durability** | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds. | The wipe would otherwise delete the renter's progress. |
-| **Control** | The system hands the PC back to the owner instantly on the kill switch, and stops input at the same moment. | The owner has to trust they can always take their machine back. |
-| **Trust** | The system ships as a signed installer. | Screen capture plus input injection looks like malware to antivirus and SmartScreen. |
+|                          | Requirement                                                                                                           | Why                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Unattended**           | The system starts capture, Steam and the game with no one clicking anything on the PC.                                | A rental machine has nobody sitting at it.                                           |
+| **Isolation**            | The system runs the session in a separate Windows account and wipes it afterwards.                                    | The renter must never reach the owner's files, passwords or signed-in accounts.      |
+| **Latency**              | The system injects input as OS-level input the moment it arrives.                                                     | Input delay is felt far more than video delay.                                       |
+| **Correctness of input** | The system never leaves a key held down.                                                                              | A dropped key-up walks the character into a wall until the session ends.             |
+| **Liveness**             | The system reports the PC's state every few seconds, and stops offering it within seconds of it going offline.        | Matching a renter to a dead machine wastes their time.                               |
+| **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds. | The wipe would otherwise delete the renter's progress.                               |
+| **Control**              | The system hands the PC back to the owner instantly on the kill switch, and stops input at the same moment.           | The owner has to trust they can always take their machine back.                      |
+| **Trust**                | The system ships as a signed installer.                                                                               | Screen capture plus input injection looks like malware to antivirus and SmartScreen. |
 
 ---
 
@@ -61,12 +61,12 @@ Source: [`../diagrams/host-workflow.mmd`](../diagrams/host-workflow.mmd).
 
 ## 4. Core entities
 
-| Entity | What it is | Key fields |
-|---|---|---|
-| **Machine** | This PC, as the platform knows it. | `id`, `owner_id`, `gpu`, `cpu`, `price`, `status`, `available_until`, `last_seen_at` |
-| **Session** | One renter playing on this PC. | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price` |
-| **Save** | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at` |
-| **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC |
+| Entity              | What it is                                                                        | Key fields                                                                           |
+| ------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Machine**         | This PC, as the platform knows it.                                                | `id`, `owner_id`, `gpu`, `cpu`, `price`, `status`, `available_until`, `last_seen_at` |
+| **Session**         | One renter playing on this PC.                                                    | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`                  |
+| **Save**            | A renter's save data for one game, kept in object storage (S3).                   | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                 |
+| **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC                                                      |
 
 Machine `status`: `idle` → `available` → `in_session` → `available` (or `idle` when the
 owner takes it back).
@@ -100,13 +100,13 @@ POST /sessions/:id/saves
 
 ### Connection setup (WebSocket)
 
-| Message | Direction | Meaning |
-|---|---|---|
-| `register` | PC → server | Open the room and wait for the renter. Carries the machine key. |
-| `denied` | server → PC | The machine key was refused. The app stops sharing and does not retry. |
-| `join` | server → PC | The renter has arrived; the PC creates the offer. |
-| `offer` / `answer` / `ice` | either way | Relayed to the renter untouched. |
-| `ping` | every 25 s | Keeps the socket alive. |
+| Message                    | Direction   | Meaning                                                                |
+| -------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.        |
+| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry. |
+| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                      |
+| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                       |
+| `ping`                     | every 25 s  | Keeps the socket alive.                                                |
 
 The machine key comes from `npm run machine-key -- <machine-id>`. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it

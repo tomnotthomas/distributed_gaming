@@ -41,12 +41,20 @@ type HostBridge = {
 const bridge = (): HostBridge | undefined => (window as { swiffHost?: HostBridge }).swiffHost;
 
 export async function loadMachineKey(): Promise<string> {
-  return (await bridge()?.loadMachineKey().catch(() => "")) ?? "";
+  return (
+    (await bridge()
+      ?.loadMachineKey()
+      .catch(() => "")) ?? ""
+  );
 }
 
 /** False when the OS offers no encryption and the key was not kept. */
 export async function saveMachineKey(key: string): Promise<boolean> {
-  return (await bridge()?.saveMachineKey(key).catch(() => false)) ?? false;
+  return (
+    (await bridge()
+      ?.saveMachineKey(key)
+      .catch(() => false)) ?? false
+  );
 }
 
 /** `https://x.trycloudflare.com` and `x.trycloudflare.com` both become wss://. */

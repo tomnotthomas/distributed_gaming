@@ -42,9 +42,11 @@ async function fakeScreenCapture(page: Page) {
       ctx.fillText(String(frame), 60, 400);
     }, 60);
 
-    const stream = (canvas as HTMLCanvasElement & {
-      captureStream(fps?: number): MediaStream;
-    }).captureStream(30);
+    const stream = (
+      canvas as HTMLCanvasElement & {
+        captureStream(fps?: number): MediaStream;
+      }
+    ).captureStream(30);
 
     // Host applies width/frameRate constraints after the fact; a canvas track
     // rejects those, and the rejection would be reported as a capture failure.
@@ -118,19 +120,19 @@ test.describe("host to renter streaming", () => {
 
     // And frames are genuinely decoding, not just a negotiated-but-silent track.
     await expect
-      .poll(
-        () => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.videoWidth),
-        { timeout: 30_000, message: "renter never received a decoded frame" },
-      )
+      .poll(() => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.videoWidth), {
+        timeout: 30_000,
+        message: "renter never received a decoded frame",
+      })
       .toBeGreaterThan(0);
 
     // Polled, not read once: currentTime is still exactly 0 at the instant the
     // first frame decodes, and only advances as playback actually runs.
     await expect
-      .poll(
-        () => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.currentTime),
-        { timeout: 15_000, message: "video decoded a frame but never started playing" },
-      )
+      .poll(() => renter.getByTestId("stage-video").evaluate((v: HTMLVideoElement) => v.currentTime), {
+        timeout: 15_000,
+        message: "video decoded a frame but never started playing",
+      })
       .toBeGreaterThan(0);
 
     // And the status line resolved which ICE path actually won, rather than

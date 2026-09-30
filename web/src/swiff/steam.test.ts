@@ -1,11 +1,33 @@
 import { describe, expect, it } from "vitest";
 import { GAMES } from "./data";
-import { gameArt, gameArtFallbacks, gamePreview, gameTrailer, popularCards, withMedia, type CatalogGame } from "./steam";
+import {
+  gameArt,
+  gameArtFallbacks,
+  gamePreview,
+  gameTrailer,
+  popularCards,
+  withMedia,
+  type CatalogGame,
+} from "./steam";
 
 const HERO_2X = "https://cdn/h/library_hero_2x.jpg";
 const catalog: CatalogGame[] = [
-  { appid: 730, name: "Counter-Strike 2", free: true, art: { hero: HERO_2X, capsule: null }, preview: "https://cdn/cs.mp4", trailer: "https://cdn/cs.m3u8" },
-  { appid: 2807960, name: "Battlefield 6", free: false, art: { hero: null, capsule: "https://cdn/bf_capsule_2x.jpg" }, preview: null, trailer: null },
+  {
+    appid: 730,
+    name: "Counter-Strike 2",
+    free: true,
+    art: { hero: HERO_2X, capsule: null },
+    preview: "https://cdn/cs.mp4",
+    trailer: "https://cdn/cs.m3u8",
+  },
+  {
+    appid: 2807960,
+    name: "Battlefield 6",
+    free: false,
+    art: { hero: null, capsule: "https://cdn/bf_capsule_2x.jpg" },
+    preview: null,
+    trailer: null,
+  },
 ];
 const pool = ["glass", "ember", "tide", "moss"];
 const srcs = (list: { src: string }[]) => list.map((s) => s.src);
@@ -47,8 +69,12 @@ describe("art", () => {
     const [cs] = popularCards(catalog, pool);
     const curated = GAMES[0]!;
     expect(gameArtFallbacks(cs!)).toEqual([]);
-    expect(gameArt(curated)).toBe(`https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/library_hero_2x.jpg`);
-    expect(gameArtFallbacks(curated)).toEqual([`https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/header.jpg`]);
+    expect(gameArt(curated)).toBe(
+      `https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/library_hero_2x.jpg`,
+    );
+    expect(gameArtFallbacks(curated)).toEqual([
+      `https://cdn.cloudflare.steamstatic.com/steam/apps/${curated.appid}/header.jpg`,
+    ]);
   });
 });
 

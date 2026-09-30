@@ -26,7 +26,8 @@ if (command === "machine-key") {
 } else if (command === "ticket") {
   if (!id) fail("usage: npm run ticket -- <machine-id> [minutes] [origin]");
   const { secret } = accessFromEnv(process.env);
-  if (!secret) fail(`ROOM_SECRET is missing or shorter than ${MIN_SECRET_LENGTH} characters — see .env.example`);
+  if (!secret)
+    fail(`ROOM_SECRET is missing or shorter than ${MIN_SECRET_LENGTH} characters — see .env.example`);
   const minutes = Number(rest[0] ?? 60);
   if (!Number.isFinite(minutes) || minutes <= 0) fail("minutes must be a positive number");
   const origin = (rest[1] ?? "").replace(/\/+$/, "");

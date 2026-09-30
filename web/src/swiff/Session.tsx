@@ -61,9 +61,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
               <Button variant="secondary" onClick={swiff.endSession}>
                 Stop for now
               </Button>
-              <Button onClick={() => swiff.switchMachine(fallback.id)}>
-                Continue on {fallback.name}
-              </Button>
+              <Button onClick={() => swiff.switchMachine(fallback.id)}>Continue on {fallback.name}</Button>
             </>
           }
         >

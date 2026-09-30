@@ -33,8 +33,8 @@ function fakeFetch(steps: (() => unknown)[]) {
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
 
-const ok = (body: unknown) =>
-  () => ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
+const ok = (body: unknown) => () =>
+  ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
 
 const MINTED = {
   iceServers: {
@@ -112,9 +112,11 @@ describe("createIceSource", () => {
   });
 
   it("falls back to a hand-supplied pair when the first mint fails", async () => {
-    const { fetch } = fakeFetch([() => {
-      throw new Error("network down");
-    }]);
+    const { fetch } = fakeFetch([
+      () => {
+        throw new Error("network down");
+      },
+    ]);
     const source = createIceSource(
       {
         TURN_KEY_ID: "key-1",

@@ -74,11 +74,7 @@ export function reason(machine: Machine, all: Machine[]): string {
  * The machines a game can run on, best first: free before busy, then the ones
  * that cover your whole session, then lowest ping.
  */
-export function machinesFor(
-  game: Game,
-  pool: Record<string, Machine>,
-  session: SessionLength,
-): Machine[] {
+export function machinesFor(game: Game, pool: Record<string, Machine>, session: SessionLength): Machine[] {
   return game.machines
     .map((id) => pool[id])
     .filter((m): m is Machine => Boolean(m))
@@ -99,18 +95,12 @@ export function freeFor(game: Game, pool: Record<string, Machine>, session: Sess
  * Wall order: playable first, then the ones you have played, then the rest.
  * A game with nothing free sinks but never disappears — it is still yours.
  */
-export function wallOrder(
-  games: Game[],
-  pool: Record<string, Machine>,
-  session: SessionLength,
-): Game[] {
+export function wallOrder(games: Game[], pool: Record<string, Machine>, session: SessionLength): Game[] {
   const rank = (game: Game) => {
     const free = freeFor(game, pool, session).length > 0 ? 0 : 3;
     return free + (game.last ? 0 : game.owned ? 1 : 2);
   };
   return [...games].sort(
-    (a, b) =>
-      rank(a) - rank(b) ||
-      freeFor(b, pool, session).length - freeFor(a, pool, session).length,
+    (a, b) => rank(a) - rank(b) || freeFor(b, pool, session).length - freeFor(a, pool, session).length,
   );
 }

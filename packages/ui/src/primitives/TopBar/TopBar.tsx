@@ -19,7 +19,12 @@ type Props = HTMLAttributes<HTMLElement> & {
 export function TopBar({ start, center, end, variant = "nav", floating, className, ...rest }: Props) {
   const Root = variant === "nav" ? "nav" : "div";
   return (
-    <Root data-variant={variant} data-floating={floating ? "" : undefined} className={cx("topbar", className)} {...rest}>
+    <Root
+      data-variant={variant}
+      data-floating={floating ? "" : undefined}
+      className={cx("topbar", className)}
+      {...rest}
+    >
       <div className="topbar-start">{start}</div>
       {center ? <div className="topbar-center">{center}</div> : null}
       <div className="topbar-end">{end}</div>

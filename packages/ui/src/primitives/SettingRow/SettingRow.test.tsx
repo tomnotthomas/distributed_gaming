@@ -19,7 +19,9 @@ describe("SettingRow", () => {
   });
 
   it("does not wrap a stacked control in a label, so its own labels stay separate", () => {
-    const { container } = render(<SettingRow layout="stacked" label="Picture" control={<button>x</button>} />);
+    const { container } = render(
+      <SettingRow layout="stacked" label="Picture" control={<button>x</button>} />,
+    );
     expect(container.querySelector("label")).toBeNull();
     expect(container.firstElementChild).toHaveAttribute("data-layout", "stacked");
   });

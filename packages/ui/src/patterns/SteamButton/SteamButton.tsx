@@ -37,13 +37,7 @@ export function SteamButton({ href = "/auth/steam/login", small, onClick }: Prop
   const art = small ? SMALL : LARGE;
   return (
     <a className="steam-btn" href={href} onClick={onClick}>
-      <img
-        src={art.src}
-        width={art.width}
-        height={art.height}
-        alt="Sign in through Steam"
-        decoding="async"
-      />
+      <img src={art.src} width={art.width} height={art.height} alt="Sign in through Steam" decoding="async" />
     </a>
   );
 }

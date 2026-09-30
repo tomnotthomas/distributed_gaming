@@ -14,11 +14,7 @@ function sdp(lines: string[]): string {
   return lines.join("\r\n") + "\r\n";
 }
 
-const VIDEO_ONLY = sdp([
-  "v=0",
-  "m=video 9 UDP/TLS/RTP/SAVPF 96",
-  "a=rtpmap:96 VP8/90000",
-]);
+const VIDEO_ONLY = sdp(["v=0", "m=video 9 UDP/TLS/RTP/SAVPF 96", "a=rtpmap:96 VP8/90000"]);
 
 const WITH_OPUS = sdp([
   "v=0",

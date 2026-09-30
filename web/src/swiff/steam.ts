@@ -106,7 +106,11 @@ export type CatalogGame = {
   trailer: string | null;
 };
 
-const mediaOf = (game: CatalogGame): GameMedia => ({ ...game.art, preview: game.preview, trailer: game.trailer });
+const mediaOf = (game: CatalogGame): GameMedia => ({
+  ...game.art,
+  preview: game.preview,
+  trailer: game.trailer,
+});
 
 /**
  * The signed-out wall: Steam's most played games, in chart order. Free-to-play

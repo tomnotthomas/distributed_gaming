@@ -3,7 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MachineCard } from "./MachineCard";
 
-const base = { name: "Glasshouse", ping: 9, owner: "shared by m0th", picture: 4, response: 4, left: "4 h left" };
+const base = {
+  name: "Glasshouse",
+  ping: 9,
+  owner: "shared by m0th",
+  picture: 4,
+  response: 4,
+  left: "4 h left",
+};
 
 describe("MachineCard", () => {
   it("shows both meters and marks the selected card for assistive tech", () => {

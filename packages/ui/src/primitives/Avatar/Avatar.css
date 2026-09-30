@@ -1,7 +1,11 @@
 .avatar {
-  display: grid; place-items: center; flex: none;
-  border-radius: 50%; font-weight: 500;
-  background: var(--color-accent-900); color: var(--color-accent-200);
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  font-weight: 500;
+  background: var(--color-accent-900);
+  color: var(--color-accent-200);
 }
 .avatar-lg {
   background: linear-gradient(160deg, var(--color-accent-800), var(--color-accent-900));
@@ -10,5 +14,11 @@
   box-shadow: 0 0 32px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 /* Two rings, one meaning each: live says a machine of yours is shared now. */
-.avatar[data-ring="live"] { box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 3.5px var(--color-live); }
-.avatar[data-ring="idle"] { box-shadow: 0 0 0 1px var(--color-neutral-700); }
+.avatar[data-ring="live"] {
+  box-shadow:
+    0 0 0 2px var(--color-bg),
+    0 0 0 3.5px var(--color-live);
+}
+.avatar[data-ring="idle"] {
+  box-shadow: 0 0 0 1px var(--color-neutral-700);
+}

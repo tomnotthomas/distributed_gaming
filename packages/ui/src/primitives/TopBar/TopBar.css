@@ -1,18 +1,52 @@
 .topbar {
-  position: sticky; top: 0; z-index: 5; flex: none;
-  display: flex; align-items: center; gap: var(--space-4);
-  height: 60px; padding: 0 var(--space-8);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 60px;
+  padding: 0 var(--space-8);
 }
-.topbar[data-floating] { position: absolute; left: 0; right: 0; }
-.topbar-start { display: flex; align-items: center; gap: var(--space-3); margin-right: auto; }
-.topbar-center { display: flex; align-items: center; gap: var(--space-3); }
-.topbar-end { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
-.topbar-start + .topbar-end { margin-left: 0; }
+.topbar[data-floating] {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.topbar-start {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-right: auto;
+}
+.topbar-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.topbar-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+.topbar-start + .topbar-end {
+  margin-left: 0;
+}
 
 .topbar[data-variant="hud"] {
-  position: absolute; left: 0; right: 0; top: 0; height: auto;
-  padding: var(--space-4) var(--space-8); gap: var(--space-6);
-  font-variant-numeric: tabular-nums; pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: auto;
+  padding: var(--space-4) var(--space-8);
+  gap: var(--space-6);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 85%, transparent), transparent);
 }
-.topbar[data-variant="hud"] :is(button, a, input) { pointer-events: auto; }
+.topbar[data-variant="hud"] :is(button, a, input) {
+  pointer-events: auto;
+}
