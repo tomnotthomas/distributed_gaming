@@ -8,6 +8,10 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ![Host isolation](../diagrams/host-isolation.png)
 
+- **STUN** tells each side its own public address, the way the outside world sees it.
+  The two sides then swap those addresses through **Connection setup**.
+- **TURN** relays the stream when no direct path between the two works.
+
 ---
 
 ## 1. Functional requirements
