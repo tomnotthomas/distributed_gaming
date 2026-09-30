@@ -171,6 +171,37 @@ describe("createInputReceiver", () => {
     },
   );
 
+  it("keeps receiving from a channel when the sink fails on one message", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sink = recordingSink();
+    const failing = {
+      ...sink,
+      key(code: string, down: boolean) {
+        if (code === "KeyA" && down) throw new Error("SendInput failed");
+        sink.key(code, down);
+      },
+    };
+    const receiver = createInputReceiver({ sink: failing });
+    const channel = loopbackChannel();
+    receiver.attach(channel);
+
+    // The failure stays inside the listener instead of escaping to the channel.
+    expect(() => channel.send(encodeInput({ type: "key", code: "KeyA", down: true }))).not.toThrow();
+    expect(warn).toHaveBeenCalledOnce();
+
+    channel.send(encodeInput({ type: "key", code: "KeyW", down: true }));
+    expect(receiver.held().keys).toEqual(["KeyA", "KeyW"]);
+
+    // A key whose press failed is still released, along with the rest.
+    channel.drop();
+    expect(sink.events).toEqual([
+      { kind: "key", code: "KeyW", down: true },
+      { kind: "key", code: "KeyA", down: false },
+      { kind: "key", code: "KeyW", down: false },
+    ]);
+    warn.mockRestore();
+  });
+
   it("does nothing after close", () => {
     const { sink, receiver, feed } = setup();
     feed({ type: "key", code: "KeyW", down: true });

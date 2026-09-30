@@ -209,7 +209,14 @@ export function createInputReceiver({
       const onMessage = (event: Event) => {
         const { data } = event as MessageEvent;
         // Text frames are not part of the protocol.
-        if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) receive(data);
+        if (!(data instanceof ArrayBuffer || ArrayBuffer.isView(data))) return;
+        // Like the close handler, a listener has no caller to throw to: a sink
+        // that fails on one event is logged, and the next message still lands.
+        try {
+          receive(data);
+        } catch (cause) {
+          console.warn("[swiff] could not apply input", cause);
+        }
       };
       const onGone = () => guardedReleaseAll("closed");
       channel.addEventListener("message", onMessage);
