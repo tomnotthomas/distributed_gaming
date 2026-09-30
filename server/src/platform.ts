@@ -3,7 +3,8 @@
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
 //                     │  ▲      │
-//                     │  └──────┘ (reservation lapses unclaimed: back in its place)
+//                     │  └──────┤ (lapses unclaimed, renter away since the match: back in its place)
+//                     │         └──────────► expired (lapses unclaimed, renter saw the match)
 //                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
 //
 //   machine idle ─► available ─► reserved ─► in_session ─► available
@@ -25,7 +26,7 @@ import { DatabaseSync } from "node:sqlite";
 
 /** A machine that has not checked in for this long is no longer offered. Hosts beat every 5 s. */
 export const LIVENESS_MS = 15_000;
-/** How long a matched renter has to claim the machine. */
+/** How long a matched renter has to claim the machine. A renter who checked in since the match and let it lapse loses the booking. */
 export const RESERVATION_MS = 60_000;
 /** A queued booking the renter has not checked on for this long is dropped. */
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
@@ -326,14 +327,18 @@ export class Platform {
       this.#setStatus(machine.id, "offline");
     }
 
-    // An unclaimed reservation hands the booking back to the queue in its old
-    // place; whether the renter is still there is the queue timeout's call.
+    // An unclaimed reservation: a renter who checked in since the match saw it
+    // and let it go, so the booking expires. One who has not been heard from
+    // since was away; the booking goes back to the queue in its old place, and
+    // the queue timeout decides whether they are coming back.
     const lapsed = this.#db
       .prepare("SELECT * FROM reservations WHERE expires_at <= ?")
       .all(now) as ReservationRow[];
     for (const reservation of lapsed) {
+      const { last_seen_at } = this.#bookingRow(reservation.booking_id)!;
+      const matchedAt = reservation.expires_at - RESERVATION_MS;
       this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-      this.#setBookingStatus(reservation.booking_id, "queued");
+      this.#setBookingStatus(reservation.booking_id, last_seen_at >= matchedAt ? "expired" : "queued");
       this.#setStatus(reservation.machine_id, "available");
     }
 

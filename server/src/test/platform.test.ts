@@ -183,6 +183,25 @@ describe("queue timeout", () => {
     assert.equal(platform.booking(behind.bookingId)!.status, "queued");
     assert.ok(platform.claim(bookingId).ok);
   });
+
+  it("expires the booking of a renter who saw the match and let it lapse, and serves the next", () => {
+    platform.setAvailability("pc-1", true);
+    const first = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(first.ok);
+    const { bookingId } = platform.book(730, 30);
+    const behind = platform.book(570, 30);
+
+    beatFor("pc-1", 10_000);
+    platform.endSession("pc-1", first.sessionId);
+    assert.equal(platform.booking(bookingId)!.status, "matched"); // the renter is there and sees it
+    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
+    beatFor("pc-1", RESERVATION_MS); // and never claims
+
+    assert.equal(platform.booking(bookingId)!.status, "expired");
+    const next = platform.booking(behind.bookingId)!;
+    assert.equal(next.status, "matched");
+    assert.equal(next.machine?.id, "pc-1");
+  });
 });
 
 describe("join ticket revocation", () => {
