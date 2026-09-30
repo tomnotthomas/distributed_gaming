@@ -1,4 +1,5 @@
-// Credentials for phase 1, minted by hand until the platform mints them.
+// Credentials minted by hand: machine keys always, join tickets only for
+// testing. A renter gets their ticket by claiming a booking (api.ts).
 //
 //   npm run machine-key -- <machine-id>
 //       A new key for one gaming PC. Prints the key (paste it into the host app)

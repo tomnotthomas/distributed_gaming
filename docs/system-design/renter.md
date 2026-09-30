@@ -73,15 +73,23 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                     |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                          |
 
-Booking `status`: `queued` → `matched` → `playing` → `ended` (or `expired` if the
-reservation lapses unclaimed).
+Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended` (or `expired` if
+the reservation lapses unclaimed).
+
+Machines, bookings, reservations and sessions are one SQLite table each
+(`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
+need no database server). The file is `DATABASE_PATH`; unset, the data lives in memory
+and resets with the server. Users, games and saves have no table yet: games come from
+Steam, and saves are not built.
 
 ---
 
 ## 5. API
 
-All requests are HTTPS and carry the Steam sign-in session. Only `GET /games` works signed
-out.
+All requests are HTTPS, served under `/api` (`server/src/api.ts`). The design is that
+they carry the Steam sign-in session and only `GET /games` works signed out. **Not built
+yet:** the server keeps no sign-in session, so today the unguessable booking id is the
+renter's only credential and anyone who can reach the server can book.
 
 ### Booking API
 
@@ -92,19 +100,27 @@ GET  /games
 
 POST /bookings
   { gameId, minutes }
-  → 202 { bookingId, status: "queued" }
-  Request a game for N minutes. Matching happens in the background.
+  → 202 { bookingId, status }
+  Request a game for N minutes (at most 720). Matching happens in the background;
+  `status` is "matched" already when a machine was free.
 
 GET  /bookings/:id
-  → 200 { bookingId, status, machine? }
-  Check whether a machine has been found yet.
+  → 200 { bookingId, status, machine?, claimBy?, price? }
+  Check whether a machine has been found yet. `claimBy` is when the reservation
+  lapses; `price` (cents) is set once the session has ended.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
-  Take the matched machine before the reservation expires. Returns the room to join
-  and the join ticket that opens it (see "Room access" below).
-  → 409 if the reservation has already expired.
+  Take the matched machine before the reservation expires (60 s). Returns the room to
+  join and the join ticket that opens it (see "Room access" below), valid for the
+  booked minutes.
+  → 409 if the reservation has already expired, or the booking is not matched.
 ```
+
+Matching runs in the server process, every second and on every change: the oldest
+queued booking gets the cheapest live machine that is free for all of its minutes, and
+the machine is reserved for it. A reservation lasts 60 s. A machine that goes silent
+hands its reserved booking back to the queue.
 
 ### Connection setup (WebSocket)
 
@@ -134,8 +150,8 @@ configured the server lets nobody in (`server/src/access.ts`).
 - **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
-- **Until the Booking API exists**, tickets and machine keys are made by hand:
-  `npm run ticket -- <machine-id>` and `npm run machine-key -- <machine-id>`.
+- **Tickets come from `claim`.** `npm run ticket -- <machine-id>` still mints one by
+  hand for testing. Machine keys are made by hand: `npm run machine-key -- <machine-id>`.
 
 The server hands both peers the STUN/TURN settings when they join, with short-lived TURN
 credentials it mints itself (`server/src/ice.ts`).

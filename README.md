@@ -24,7 +24,8 @@ npm run dev       # builds web/, serves it and signaling on :8080
 npm run dev:web   # vite with HMR, run signaling separately with npm start
 ```
 
-A renter joins with a link from `npm run ticket -- gaming-pc-1`.
+A renter joins with the ticket `POST /api/bookings/:id/claim` returns, or a link from
+`npm run ticket -- gaming-pc-1`.
 
 Code: `web/`, `server/`, `packages/`.
 

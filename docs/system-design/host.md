@@ -68,8 +68,8 @@ Source: [`../diagrams/host-workflow.mmd`](../diagrams/host-workflow.mmd).
 | **Save**            | A renter's save data for one game, kept in object storage (S3).                   | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                 |
 | **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC                                                      |
 
-Machine `status`: `idle` → `available` → `in_session` → `available` (or `idle` when the
-owner takes it back).
+Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
+`idle` when the owner takes it back, `offline` when it stops sending heartbeats).
 
 ---
 
@@ -77,18 +77,29 @@ owner takes it back).
 
 ### Host → platform
 
+Served under `/api` (`server/src/api.ts`). Every call carries the machine key as
+`Authorization: Bearer <machine key>`; a session call needs the key of the machine the
+session runs on.
+
 ```
 PUT  /machines/:id/availability
-  { available: true, until }
-  Offer the PC, or take it back (available: false).
+  { available: true, until?, gpu?, cpu?, price? }
+  → 200 { id, status, gpu, cpu, price, session? }
+  Offer the PC, or take it back (available: false), which ends whatever it was doing.
+  `until` is an ISO date; `price` is cents per hour.
 
 POST /machines/:id/heartbeat
-  Sent every few seconds. A machine that stops sending is no longer offered.
+  → 200 { id, status, gpu, cpu, price, session? }
+  Sent every 5 s. A machine silent for 15 s is `offline` and no longer offered: its
+  reserved booking goes to another machine, its running session ends. Its next
+  heartbeat offers it again. `session.id` names the session a renter has claimed.
 
 POST /sessions/:id/start
 POST /sessions/:id/end
-  { endedAt }
-  Mark the session started, and ended (renter left, time ran out, or kill switch).
+  { endedAt? }
+  Mark the session started (the renter arrived), and ended (renter left, time ran out,
+  or kill switch). → 409 once the session is over. The platform ends a session itself
+  when its join ticket runs out.
 
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }
