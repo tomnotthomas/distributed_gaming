@@ -45,3 +45,6 @@ npm run test:e2e
 npm run typecheck
 npm run ci        # everything CI runs
 ```
+
+Push branches with `git push no-mistakes <branch>` (after `no-mistakes init`): it reviews, tests and lints
+the branch first, then pushes to origin and opens the PR. Config: `.no-mistakes.yaml`.
