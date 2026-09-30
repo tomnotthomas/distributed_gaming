@@ -1,9 +1,20 @@
 /* Document-level rules every screen shares. Component styles live beside
    their components; this file only holds what no single component owns. */
 
-*, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; background: var(--color-bg); }
-::selection { background: color-mix(in srgb, var(--color-accent) 35%, transparent); color: var(--color-text); }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  background: var(--color-bg);
+}
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: var(--color-text);
+}
 
 /* The frosted glass every card, panel and pill sits on. A shared recipe, not
    Surface's own: buttons, pills and dialogs wear it on elements they already own. */
@@ -16,32 +27,69 @@ html, body { height: 100%; background: var(--color-bg); }
 
 /* Tone → colour, once. Components read var(--tone) instead of keeping their
    own table, so a new tone is one line here. */
-[data-tone="neutral"] { --tone: var(--color-text-3); }
+[data-tone="neutral"] {
+  --tone: var(--color-text-3);
+}
 /* --tone-text: the shade for type on dark ground, where the base accent reads too dim. */
-[data-tone="accent"] { --tone: var(--color-accent); --tone-text: var(--color-accent-300); }
-[data-tone="live"] { --tone: var(--color-live); }
-[data-tone="time"] { --tone: var(--color-time); }
-[data-tone="danger"] { --tone: var(--color-danger); }
+[data-tone="accent"] {
+  --tone: var(--color-accent);
+  --tone-text: var(--color-accent-300);
+}
+[data-tone="live"] {
+  --tone: var(--color-live);
+}
+[data-tone="time"] {
+  --tone: var(--color-time);
+}
+[data-tone="danger"] {
+  --tone: var(--color-danger);
+}
 
 /* Page utilities the RTC pages and the Electron app use inline. */
-.row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
-.muted { color: var(--color-text-3); }
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.muted {
+  color: var(--color-text-3);
+}
 
 /* Thin, quiet scrollbars wherever the library scrolls. */
-.ui-scroll { scrollbar-width: thin; scrollbar-color: var(--color-neutral-700) transparent; }
+.ui-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-700) transparent;
+}
 
 /* Present for assistive tech, absent on screen. */
 .visually-hidden {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Reduced motion collapses every duration rather than removing animation, so
    entrances still settle. `data-motion="off"` does the same for one subtree —
    the gallery's switch, or a screen that has turned motion off. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .15s !important; transition-duration: .15s !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.15s !important;
+    transition-duration: 0.15s !important;
+  }
 }
-[data-motion="off"], [data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after {
-  animation-duration: .15s !important; transition-duration: .15s !important;
+[data-motion="off"],
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after {
+  animation-duration: 0.15s !important;
+  transition-duration: 0.15s !important;
 }

@@ -1,9 +1,25 @@
 /* The glass look itself is `.glass` in styles/base.css. */
-.surface[data-strength="strong"] { background: var(--glass-strong); }
-.surface[data-padding="none"] { padding: 0; }
-.surface[data-padding="sm"] { padding: var(--space-4); }
-.surface[data-padding="md"] { padding: var(--space-6); }
-.surface[data-padding="lg"] { padding: var(--space-8); }
-.surface[data-radius="md"] { border-radius: var(--radius-md); }
-.surface[data-radius="lg"] { border-radius: var(--radius-lg); }
-.surface[data-radius="xl"] { border-radius: var(--radius-xl); }
+.surface[data-strength="strong"] {
+  background: var(--glass-strong);
+}
+.surface[data-padding="none"] {
+  padding: 0;
+}
+.surface[data-padding="sm"] {
+  padding: var(--space-4);
+}
+.surface[data-padding="md"] {
+  padding: var(--space-6);
+}
+.surface[data-padding="lg"] {
+  padding: var(--space-8);
+}
+.surface[data-radius="md"] {
+  border-radius: var(--radius-md);
+}
+.surface[data-radius="lg"] {
+  border-radius: var(--radius-lg);
+}
+.surface[data-radius="xl"] {
+  border-radius: var(--radius-xl);
+}

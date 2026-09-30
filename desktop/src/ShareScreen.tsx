@@ -46,9 +46,7 @@ export function ShareScreen() {
               <Button variant="secondary" onClick={stop}>
                 Stop sharing
               </Button>
-              <span className="muted">
-                {peerHere ? "A renter is connected." : "Waiting for a renter…"}
-              </span>
+              <span className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</span>
             </>
           )}
         </div>

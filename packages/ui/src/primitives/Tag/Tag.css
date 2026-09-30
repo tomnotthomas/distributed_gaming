@@ -1,17 +1,29 @@
 .tag {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   /* --tag-size scales the whole pill; padding follows the type. */
-  padding: .42em 1em; border-radius: 999px;
-  font-size: var(--tag-size, var(--text-12)); line-height: var(--lh-tight);
+  padding: 0.42em 1em;
+  border-radius: 999px;
+  font-size: var(--tag-size, var(--text-12));
+  line-height: var(--lh-tight);
   font-variant-numeric: tabular-nums;
-  background: var(--glass); border: 1px solid var(--glass-edge); color: var(--color-text-2);
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  color: var(--color-text-2);
 }
-.tag-label { color: var(--color-text-3); }
-.tag[data-size="sm"] { padding: 2px 8px; font-size: 11px; }
+.tag-label {
+  color: var(--color-text-3);
+}
+.tag[data-size="sm"] {
+  padding: 2px 8px;
+  font-size: 11px;
+}
 
 /* Signal tones drop the glass and draw in their own colour. */
 .tag:is([data-tone="live"], [data-tone="time"], [data-tone="danger"]) {
-  background: transparent; color: var(--tone);
+  background: transparent;
+  color: var(--tone);
   border-color: color-mix(in srgb, var(--tone) 50%, transparent);
 }
 .tag[data-tone="accent"] {
@@ -20,8 +32,14 @@
   color: var(--color-accent-200);
 }
 
-.tag[data-variant="outline"], .tag[data-variant="dashed"] { background: transparent; }
-.tag[data-variant="dashed"] { border-style: dashed; }
+.tag[data-variant="outline"],
+.tag[data-variant="dashed"] {
+  background: transparent;
+}
+.tag[data-variant="dashed"] {
+  border-style: dashed;
+}
 .tag[data-tone="neutral"]:is([data-variant="outline"], [data-variant="dashed"]) {
-  border-color: var(--color-divider); color: var(--color-neutral-300);
+  border-color: var(--color-divider);
+  color: var(--color-neutral-300);
 }

@@ -1,10 +1,31 @@
-.stat { display: flex; flex-direction: column; gap: 2px; }
-.stat[data-align="end"] { align-items: flex-end; text-align: right; }
-.stat-label { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-400); }
-.stat-value {
-  font-family: var(--font-heading); font-weight: 500; letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; line-height: 1.1;
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.stat[data-size="md"] .stat-value { font-size: var(--text-22); }
-.stat[data-size="lg"] .stat-value { font-size: var(--text-34); }
-.stat[data-size="xl"] .stat-value { font-size: var(--text-56); letter-spacing: var(--display-track); }
+.stat[data-align="end"] {
+  align-items: flex-end;
+  text-align: right;
+}
+.stat-label {
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
+  color: var(--color-neutral-400);
+}
+.stat-value {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.stat[data-size="md"] .stat-value {
+  font-size: var(--text-22);
+}
+.stat[data-size="lg"] .stat-value {
+  font-size: var(--text-34);
+}
+.stat[data-size="xl"] .stat-value {
+  font-size: var(--text-56);
+  letter-spacing: var(--display-track);
+}

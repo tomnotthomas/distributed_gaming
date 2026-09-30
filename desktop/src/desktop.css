@@ -2,7 +2,11 @@
    rather than in @swiff/ui. */
 .titlebar {
   -webkit-app-region: drag;
-  height: 38px; flex: none;
+  height: 38px;
+  flex: none;
   border-bottom: 1px solid var(--glass-edge);
 }
-.titlebar button, .titlebar input { -webkit-app-region: no-drag; }
+.titlebar button,
+.titlebar input {
+  -webkit-app-region: no-drag;
+}

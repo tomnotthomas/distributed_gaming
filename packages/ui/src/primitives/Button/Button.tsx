@@ -38,14 +38,22 @@ export const Button = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonPr
   const classes = cx(buttonClass(variant, size, glow), className);
   if (rest.href !== undefined) {
     return (
-      <a ref={ref as Ref<HTMLAnchorElement>} {...(rest as AnchorHTMLAttributes<HTMLAnchorElement>)} className={classes}>
+      <a
+        ref={ref as Ref<HTMLAnchorElement>}
+        {...(rest as AnchorHTMLAttributes<HTMLAnchorElement>)}
+        className={classes}
+      >
         {icon}
         {children}
       </a>
     );
   }
   return (
-    <button ref={ref as Ref<HTMLButtonElement>} {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)} className={classes}>
+    <button
+      ref={ref as Ref<HTMLButtonElement>}
+      {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)}
+      className={classes}
+    >
       {icon}
       {children}
     </button>

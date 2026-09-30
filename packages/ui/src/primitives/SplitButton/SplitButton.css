@@ -1,10 +1,23 @@
 /* Stretch makes the chevron as tall as whatever size the main action is. */
-.split-btn { display: inline-flex; align-items: stretch; }
-.split-btn > .btn:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.split-btn {
+  display: inline-flex;
+  align-items: stretch;
+}
+.split-btn > .btn:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
 .split-btn-toggle {
-  width: 48px; padding: 0; min-height: 0;
-  border-left: 0; border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  width: 48px;
+  padding: 0;
+  min-height: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 /* Points up while closed ("open more"), down once the choices are showing. */
-.split-btn-toggle svg { transform: rotate(180deg); transition: transform var(--dur-ui); }
-.split-btn-toggle[data-expanded] svg { transform: none; }
+.split-btn-toggle svg {
+  transform: rotate(180deg);
+  transition: transform var(--dur-ui);
+}
+.split-btn-toggle[data-expanded] svg {
+  transform: none;
+}

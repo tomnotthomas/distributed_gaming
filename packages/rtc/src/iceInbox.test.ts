@@ -104,9 +104,7 @@ describe("createIceInbox", () => {
       addIceCandidate: vi.fn(),
     } as unknown as RTCPeerConnection;
 
-    await expect(createIceInbox(pc).setRemote({ type: "offer", sdp: "x" })).rejects.toThrow(
-      "bad sdp",
-    );
+    await expect(createIceInbox(pc).setRemote({ type: "offer", sdp: "x" })).rejects.toThrow("bad sdp");
   });
 
   it("holds a candidate that arrives between two remote descriptions", async () => {

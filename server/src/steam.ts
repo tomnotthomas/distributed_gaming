@@ -105,11 +105,7 @@ export async function verifyAssertion(searchParams: URLSearchParams): Promise<st
   return match ? match[1]! : null;
 }
 
-async function steamApi(
-  apiKey: string,
-  path: string,
-  params: Record<string, string>,
-): Promise<any> {
+async function steamApi(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
   const url = new URL(`https://api.steampowered.com/${path}`);
   url.searchParams.set("key", apiKey);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -122,10 +118,7 @@ async function steamApi(
  * Read the public profile and owned games, then reduce to the small payload the
  * page needs. The full library is discarded here and never stored.
  */
-export async function readProfile(
-  apiKey: string | undefined,
-  steamid: string,
-): Promise<SteamProfile> {
+export async function readProfile(apiKey: string | undefined, steamid: string): Promise<SteamProfile> {
   const out = empty(steamid);
   if (!apiKey) return out;
 
@@ -190,10 +183,7 @@ export async function returnUrl({
 }
 
 /** Derive the public origin from the request, so deploys need no config. */
-export function originFrom(
-  headers: Record<string, string | string[] | undefined>,
-  fallback: string,
-): string {
+export function originFrom(headers: Record<string, string | string[] | undefined>, fallback: string): string {
   if (process.env.PUBLIC_ORIGIN) return process.env.PUBLIC_ORIGIN;
   const forwarded = headers["x-forwarded-host"] ?? headers.host;
   const host = Array.isArray(forwarded) ? forwarded[0] : forwarded;
@@ -208,6 +198,9 @@ export function originFrom(
  * loopback form has to be recognised, not just the word "localhost".
  */
 function isLoopback(host: string): boolean {
-  const name = host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  const name = host
+    .replace(/:\d+$/, "")
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
   return name === "localhost" || name === "127.0.0.1" || name === "::1" || name.endsWith(".localhost");
 }

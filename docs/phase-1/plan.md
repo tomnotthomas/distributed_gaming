@@ -23,12 +23,12 @@ and that is not something you can design around on paper.
 
 ## What gets built
 
-| Piece | What it is | Where it runs |
-|---|---|---|
-| Signaling server | Node + `ws`. One room. Relays offer/answer/ICE. Reads nothing. | A cheap VPS, public |
-| Host app | Electron. Captures the screen, creates the offer, injects input. | Owner's Windows PC |
-| Renter page | Vite + React. Connects, shows `<video>`, sends input. | Any browser |
-| TURN | Relay for the ~20% that cannot connect directly. Managed for now — see Risks. | Cloudflare |
+| Piece            | What it is                                                                    | Where it runs       |
+| ---------------- | ----------------------------------------------------------------------------- | ------------------- |
+| Signaling server | Node + `ws`. One room. Relays offer/answer/ICE. Reads nothing.                | A cheap VPS, public |
+| Host app         | Electron. Captures the screen, creates the offer, injects input.              | Owner's Windows PC  |
+| Renter page      | Vite + React. Connects, shows `<video>`, sends input.                         | Any browser         |
+| TURN             | Relay for the ~20% that cannot connect directly. Managed for now — see Risks. | Cloudflare          |
 
 One room id, hardcoded. No database. No auth. That is correct for phase 1 and wrong the
 moment there is a second machine — see Open questions.
@@ -56,9 +56,9 @@ Encoder settings that fail silently if omitted:
 ```ts
 await track.applyConstraints({ width: 1920, frameRate: 60 }); // Chrome ignores these in getDisplayMedia
 track.contentHint = "motion";
-p.degradationPreference = "maintain-resolution";             // else Chrome drops to 320x180 under load
-p.encodings[0].maxBitrate = 10_000_000;                      // else bandwidth estimation saturates the link
-receiver.jitterBufferTarget = 0;                             // largest single latency win
+p.degradationPreference = "maintain-resolution"; // else Chrome drops to 320x180 under load
+p.encodings[0].maxBitrate = 10_000_000; // else bandwidth estimation saturates the link
+receiver.jitterBufferTarget = 0; // largest single latency win
 ```
 
 ---

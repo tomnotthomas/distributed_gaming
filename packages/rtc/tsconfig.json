@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -16,22 +12,12 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": [
-      "node",
-      "@testing-library/jest-dom"
-    ],
+    "types": ["node", "@testing-library/jest-dom"],
     "baseUrl": ".",
     "paths": {
-      "@swiff/ui": [
-        "../ui/src/index.ts"
-      ],
-      "@swiff/rtc": [
-        "../rtc/src/index.ts"
-      ]
+      "@swiff/ui": ["../ui/src/index.ts"],
+      "@swiff/rtc": ["../rtc/src/index.ts"]
     }
   },
-  "include": [
-    "src",
-    "vitest.config.ts"
-  ]
+  "include": ["src", "vitest.config.ts"]
 }

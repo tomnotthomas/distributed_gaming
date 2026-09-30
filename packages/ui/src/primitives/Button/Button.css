@@ -1,16 +1,35 @@
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 44px; padding: 0 var(--space-8);
-  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: var(--text-14); line-height: 1.2; color: var(--color-text);
-  background: transparent; border: 1px solid transparent; border-radius: var(--radius-md);
-  cursor: pointer; text-decoration: none;
-  transition: background var(--dur-micro) var(--ease-out),
-              border-color var(--dur-micro) var(--ease-out);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 var(--space-8);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-14);
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    border-color var(--dur-micro) var(--ease-out);
 }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.btn:active { animation: swiff-press .32s var(--ease-out) both; }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.btn:active {
+  animation: swiff-press 0.32s var(--ease-out) both;
+}
 
 .btn-primary {
   background: linear-gradient(180deg, var(--btn-primary-from), var(--btn-primary-to));
@@ -23,23 +42,54 @@
   background: linear-gradient(180deg, var(--btn-primary-hover-from), var(--btn-primary-hover-to));
   border-color: var(--color-accent);
 }
-.btn-secondary { background: var(--glass); border-color: var(--glass-edge); backdrop-filter: blur(14px); }
-.btn-secondary:hover { background: var(--glass-strong); }
-.btn-ghost { color: var(--color-neutral-200); }
-.btn-ghost:hover { background: var(--glass); color: var(--color-text); }
+.btn-secondary {
+  background: var(--glass);
+  border-color: var(--glass-edge);
+  backdrop-filter: blur(14px);
+}
+.btn-secondary:hover {
+  background: var(--glass-strong);
+}
+.btn-ghost {
+  color: var(--color-neutral-200);
+}
+.btn-ghost:hover {
+  background: var(--glass);
+  color: var(--color-text);
+}
 /* A link that happens to be a button: no box, just the underline. */
 .btn-link {
-  min-height: 0; padding: 0; border: 0;
-  font-family: var(--font-body); font-weight: 400;
-  color: var(--color-accent-300); text-decoration: underline; text-underline-offset: 3px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--color-accent-300);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-.btn-link:active { animation: none; }
+.btn-link:active {
+  animation: none;
+}
 
-.btn-sm { min-height: 32px; padding: 0 var(--space-4); font-size: var(--text-12); }
-.btn-lg { min-height: 54px; padding: 0 var(--space-12); font-size: var(--text-17); }
+.btn-sm {
+  min-height: 32px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-12);
+}
+.btn-lg {
+  min-height: 54px;
+  padding: 0 var(--space-12);
+  font-size: var(--text-17);
+}
 /* The launch size. A screen scales it for big displays through --btn-xl-*. */
 .btn-xl {
-  min-height: var(--btn-xl-height, 60px); padding: var(--btn-xl-padding, 0 28px 0 32px);
+  min-height: var(--btn-xl-height, 60px);
+  padding: var(--btn-xl-padding, 0 28px 0 32px);
   font-size: var(--btn-xl-size, var(--text-17));
 }
-.btn-glow { box-shadow: var(--glass-hi), 0 0 32px color-mix(in srgb, var(--color-accent) 35%, transparent); }
+.btn-glow {
+  box-shadow:
+    var(--glass-hi),
+    0 0 32px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}

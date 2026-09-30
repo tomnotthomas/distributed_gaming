@@ -105,10 +105,7 @@ function peer(hello: SignalMessage) {
      * back — `waitFor("joined")` hands back something with `hostOnline` on it,
      * and a typo in the tag is a compile error rather than a 5s timeout.
      */
-    async waitFor<T extends SignalMessage["type"]>(
-      type: T,
-      timeoutMs = 5000,
-    ): Promise<MessageOf<T>> {
+    async waitFor<T extends SignalMessage["type"]>(type: T, timeoutMs = 5000): Promise<MessageOf<T>> {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const hit = received.find((m) => m.type === type);

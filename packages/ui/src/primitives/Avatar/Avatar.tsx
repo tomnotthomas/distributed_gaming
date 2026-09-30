@@ -21,7 +21,13 @@ export function Avatar({ initial, size = 32, ring = "none", hue, className, styl
     <span
       className={cx("avatar", size >= 64 && "avatar-lg", className)}
       data-ring={ring}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.38), ...(hue ? { background: hue } : null), ...style }}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.38),
+        ...(hue ? { background: hue } : null),
+        ...style,
+      }}
       {...rest}
     >
       {initial}

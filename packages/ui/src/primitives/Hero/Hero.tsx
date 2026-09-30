@@ -39,7 +39,13 @@ export function Hero({
   ...rest
 }: Props) {
   return (
-    <div data-size={size} data-align={align} data-enter={enter ? "" : undefined} className={cx("hero-block", className)} {...rest}>
+    <div
+      data-size={size}
+      data-align={align}
+      data-enter={enter ? "" : undefined}
+      className={cx("hero-block", className)}
+      {...rest}
+    >
       {kicker ? <div className="hero-block-kicker">{kicker}</div> : null}
       <Heading className="hero-block-title">{title}</Heading>
       {meta ? <p data-part="meta">{meta}</p> : null}

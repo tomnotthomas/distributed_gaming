@@ -1,8 +1,16 @@
 .status {
-  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-  margin: 0; padding: var(--space-4) var(--space-6);
-  font-size: var(--text-12); line-height: var(--lh-16);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: 0;
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
   border-radius: var(--radius-lg);
   --dot-glow: 10px;
 }
-.status strong { font-weight: 500; letter-spacing: .01em; }
+.status strong {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}

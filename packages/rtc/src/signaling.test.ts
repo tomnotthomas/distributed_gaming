@@ -242,11 +242,6 @@ describe("connectSignaling", () => {
 
     // The retry announces itself only once the backoff has actually elapsed.
     vi.advanceTimersByTime(BACKOFF_MIN_MS);
-    expect(onStatus.mock.calls.map((c) => c[0])).toEqual([
-      "connecting",
-      "open",
-      "closed",
-      "connecting",
-    ]);
+    expect(onStatus.mock.calls.map((c) => c[0])).toEqual(["connecting", "open", "closed", "connecting"]);
   });
 });

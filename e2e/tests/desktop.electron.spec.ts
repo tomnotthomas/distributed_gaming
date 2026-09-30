@@ -83,9 +83,7 @@ test.describe("Swiff Host desktop app", () => {
       }
     });
 
-    expect(capture.ok, `getDisplayMedia rejected: ${"error" in capture ? capture.error : ""}`).toBe(
-      true,
-    );
+    expect(capture.ok, `getDisplayMedia rejected: ${"error" in capture ? capture.error : ""}`).toBe(true);
     if (!capture.ok) return;
 
     expect(capture.trackCount).toBe(1);
@@ -101,15 +99,13 @@ test.describe("Swiff Host desktop app", () => {
     // stops caring which source it got.
     // Annotated by hand: electron's types are a dependency of desktop/, which
     // main does not have, so this file must typecheck without them.
-    const sources: { id: string; name: string }[] = await app.evaluate(
-      async ({ desktopCapturer }) => {
-        const found = await desktopCapturer.getSources({ types: ["screen"] });
-        return found.map((source: { id: string; name: string }) => ({
-          id: source.id,
-          name: source.name,
-        }));
-      },
-    );
+    const sources: { id: string; name: string }[] = await app.evaluate(async ({ desktopCapturer }) => {
+      const found = await desktopCapturer.getSources({ types: ["screen"] });
+      return found.map((source: { id: string; name: string }) => ({
+        id: source.id,
+        name: source.name,
+      }));
+    });
 
     expect(sources.length, "no screen sources — the host has nothing to share").toBeGreaterThan(0);
     expect(sources[0].id).toMatch(/^screen:/);

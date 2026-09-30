@@ -51,9 +51,7 @@ app.whenReady().then(() => {
           // speakers, which is wrong for a machine with nobody sitting at it
           // and one more state to get stuck in.
           callback(
-            process.platform === "win32"
-              ? { video: sources[0], audio: "loopback" }
-              : { video: sources[0] },
+            process.platform === "win32" ? { video: sources[0], audio: "loopback" } : { video: sources[0] },
           );
         })
         .catch(() => callback({}));

@@ -14,10 +14,10 @@ This creates a chicken-and-egg problem. To open a direct connection, each side n
 
 That gap is filled by two separate things people constantly conflate:
 
-| | What it does | Does video pass through it? |
-|---|---|---|
-| **Rendezvous point** (signaling server) | Introduces the two machines to each other | No |
-| **ICE servers** (STUN / TURN) | Work out which network path can actually carry the connection | STUN: no. TURN: yes |
+|                                         | What it does                                                  | Does video pass through it? |
+| --------------------------------------- | ------------------------------------------------------------- | --------------------------- |
+| **Rendezvous point** (signaling server) | Introduces the two machines to each other                     | No                          |
+| **ICE servers** (STUN / TURN)           | Work out which network path can actually carry the connection | STUN: no. TURN: yes         |
 
 A consequence worth stating plainly, because it is the most common wrong mental model: **you cannot connect to a gaming PC by hardcoding its IP address.** That machine has no stable, dialable address from the outside. Everything below follows from that.
 
@@ -27,7 +27,7 @@ A consequence worth stating plainly, because it is the most common wrong mental 
 
 A small server both machines can reach. Its only job is to pass messages between them before the real connection exists.
 
-**Why it must be public, and why it can't live on the gaming PC:** NAT permits outbound connections and blocks inbound ones. If the rendezvous point ran on the gaming PC, the client couldn't reach it — the same problem all over again. So it sits somewhere publicly reachable and *both* machines dial *out* to it. Outbound works from behind any router.
+**Why it must be public, and why it can't live on the gaming PC:** NAT permits outbound connections and blocks inbound ones. If the rendezvous point ran on the gaming PC, the client couldn't reach it — the same problem all over again. So it sits somewhere publicly reachable and _both_ machines dial _out_ to it. Outbound works from behind any router.
 
 It relays exactly three kinds of message:
 
@@ -45,25 +45,25 @@ It is a mutual friend who gives you each other's phone number — after that you
 
 ## ICE servers: STUN and TURN
 
-**ICE** (Interactive Connectivity Establishment) is the algorithm that finds a working path between two peers. It gathers every address a peer might be reachable at — a *candidate* — then tests pairs until one works.
+**ICE** (Interactive Connectivity Establishment) is the algorithm that finds a working path between two peers. It gathers every address a peer might be reachable at — a _candidate_ — then tests pairs until one works.
 
 Three candidate types, cheapest first:
 
-| Type | Meaning | How it's found |
-|---|---|---|
-| `host` | The machine's own local address (`192.168.1.50`) | Read off the network interface. Free. Only works if both peers are on the same network. |
-| `srflx` | "Server-reflexive" — the public address the world sees | Asked a **STUN** server |
-| `relay` | An address on a relay server that forwards traffic | Allocated on a **TURN** server |
+| Type    | Meaning                                                | How it's found                                                                          |
+| ------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `host`  | The machine's own local address (`192.168.1.50`)       | Read off the network interface. Free. Only works if both peers are on the same network. |
+| `srflx` | "Server-reflexive" — the public address the world sees | Asked a **STUN** server                                                                 |
+| `relay` | An address on a relay server that forwards traffic     | Allocated on a **TURN** server                                                          |
 
 ### STUN — "what's my public address?"
 
-Your PC genuinely does not know its own public address. A **STUN** server answers one question: it receives a packet and replies *"I saw that arrive from `203.0.113.5:54321`."*
+Your PC genuinely does not know its own public address. A **STUN** server answers one question: it receives a packet and replies _"I saw that arrive from `203.0.113.5:54321`."_
 
 That's the whole protocol. The peer then tries to connect to that address directly. STUN is tiny, stateless, and free to run — **no video ever passes through it.** It is a mirror, not a pipe.
 
 ### TURN — the fallback relay
 
-Sometimes a direct connection is impossible. The common culprit is *symmetric NAT*, where the router assigns a different external port for every destination, so the address STUN reported is useless to anyone else. Carrier-grade NAT — increasingly standard on home fibre and universal on mobile data — behaves this way.
+Sometimes a direct connection is impossible. The common culprit is _symmetric NAT_, where the router assigns a different external port for every destination, so the address STUN reported is useless to anyone else. Carrier-grade NAT — increasingly standard on home fibre and universal on mobile data — behaves this way.
 
 When that happens, **TURN** relays the actual media. Both peers connect outbound to the TURN server and it forwards packets between them.
 
@@ -71,11 +71,11 @@ This always works, and it is expensive, because **all the video flows through it
 
 Provider choice is roughly a 30× cost swing:
 
-| Option | Cost | Notes |
-|---|---|---|
-| Self-hosted coturn on a VPS | ~€5/mo, egress included | Cheapest at volume; real infrastructure to run |
-| Cloudflare Realtime TURN | ~$0.05/GB | Cheapest managed option |
-| Twilio / Xirsys | ~$0.40/GB | ~$1.80/hour per relayed session — does not survive contact with a gaming workload |
+| Option                      | Cost                    | Notes                                                                             |
+| --------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| Self-hosted coturn on a VPS | ~€5/mo, egress included | Cheapest at volume; real infrastructure to run                                    |
+| Cloudflare Realtime TURN    | ~$0.05/GB               | Cheapest managed option                                                           |
+| Twilio / Xirsys             | ~$0.40/GB               | ~$1.80/hour per relayed session — does not survive contact with a gaming workload |
 
 Worth deciding before pricing the product.
 
@@ -83,7 +83,7 @@ Worth deciding before pricing the product.
 
 ```ts
 const ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" },              // ask "what's my public IP?"
+  { urls: "stun:stun.l.google.com:19302" }, // ask "what's my public IP?"
   { urls: "turn:...", username: "...", credential: "" }, // relay, if direct fails
 ];
 ```
@@ -172,7 +172,7 @@ Design settled; not built yet.
 
 ## Shape
 
-One Node process serves the React app *and* the signaling WebSocket. `cloudflared` exposes it publicly. Both machines load the same HTTPS origin — the gaming PC at `/host`, the client at `/`. Same origin means the signaling URL is just `window.location`: nothing to hardcode, no mixed-content problem, and both pages sit in a secure context.
+One Node process serves the React app _and_ the signaling WebSocket. `cloudflared` exposes it publicly. Both machines load the same HTTPS origin — the gaming PC at `/host`, the client at `/`. Same origin means the signaling URL is just `window.location`: nothing to hardcode, no mixed-content problem, and both pages sit in a secure context.
 
 ## Components
 
@@ -180,12 +180,12 @@ One Node process serves the React app *and* the signaling WebSocket. `cloudflare
 
 Static files plus a signaling relay. In-memory room map, no database.
 
-| Message | Direction | Effect |
-|---|---|---|
-| `{type:"register", hostId}` | host → server | claims a room |
-| `{type:"join", hostId}` | client → server | joins, notifies host |
-| `{type:"offer"\|"answer"\|"ice"}` | either → server | relayed to the peer |
-| `{type:"ping"}` | both, every 25s | **required** — see below |
+| Message                           | Direction       | Effect                   |
+| --------------------------------- | --------------- | ------------------------ |
+| `{type:"register", hostId}`       | host → server   | claims a room            |
+| `{type:"join", hostId}`           | client → server | joins, notifies host     |
+| `{type:"offer"\|"answer"\|"ice"}` | either → server | relayed to the peer      |
+| `{type:"ping"}`                   | both, every 25s | **required** — see below |
 
 **The heartbeat is not optional.** Cloudflare closes an idle WebSocket after 100 seconds. A host waiting for a connection would silently drop off. Both sides ping every 25s and reconnect with backoff.
 
@@ -203,8 +203,8 @@ await track.applyConstraints({ width: 1920, frameRate: 60 });
 track.contentHint = "motion";
 
 const p = sender.getParameters();
-p.degradationPreference = "maintain-resolution";  // else Chrome drops to 320x180 under load
-p.encodings[0].maxBitrate = 10_000_000;           // else bandwidth estimation saturates the link
+p.degradationPreference = "maintain-resolution"; // else Chrome drops to 320x180 under load
+p.encodings[0].maxBitrate = 10_000_000; // else bandwidth estimation saturates the link
 await sender.setParameters(p);
 ```
 
@@ -215,15 +215,15 @@ Connect → WebSocket → join → answer → attach stream. Sets `receiver.jitt
 ## The file you edit — `web/src/config.ts`
 
 ```ts
-export const SIGNALING_URL = `wss://${window.location.host}`;  // same origin, nothing to edit
-export const HOST_ID       = "gaming-pc-1";                    // ← which machine to reach
+export const SIGNALING_URL = `wss://${window.location.host}`; // same origin, nothing to edit
+export const HOST_ID = "gaming-pc-1"; // ← which machine to reach
 
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   // { urls: "turn:HOST:3478", username: "USER", credential: "PASS" },
 ];
 
-export const FORCE_RELAY = false;                              // ← prove the internet path
+export const FORCE_RELAY = false; // ← prove the internet path
 ```
 
 ## Stack
@@ -251,15 +251,15 @@ Electron removes this. `session.setDisplayMediaRequestHandler()` answers the pic
 
 ```js
 session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-  desktopCapturer.getSources({ types: ["screen"] }).then(sources => {
-    callback({ video: sources[0] });   // no dialog, no human
+  desktopCapturer.getSources({ types: ["screen"] }).then((sources) => {
+    callback({ video: sources[0] }); // no dialog, no human
   });
 });
 ```
 
 The app then auto-launches at Windows boot and registers itself as available. No one touches the gaming PC.
 
-**2. Input injection.** A browser tab cannot move the mouse or press keys on Windows — no web API exists for it, by design. Remote *control* (as opposed to remote *viewing*) requires a native process. That is the same app.
+**2. Input injection.** A browser tab cannot move the mouse or press keys on Windows — no web API exists for it, by design. Remote _control_ (as opposed to remote _viewing_) requires a native process. That is the same app.
 
 **The prototype is not wasted work.** Signaling, ICE, the offer/answer exchange, TURN and the encoder parameters are identical in both — Electron runs the same Chromium and the same WebRTC stack. Going native replaces one function call (how the capture track is acquired) and adds a DataChannel handler for input. It is not a rewrite, which is why proving the connection in a plain browser first is the cheaper order.
 

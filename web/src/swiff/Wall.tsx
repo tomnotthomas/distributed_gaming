@@ -66,7 +66,12 @@ export function Wall({ swiff }: { swiff: Swiff }) {
           />
         ))}
         {!showAll && ordered.length > LIMIT ? (
-          <button type="button" className="wall-more" data-span="small" onClick={() => swiff.setShowAll(true)}>
+          <button
+            type="button"
+            className="wall-more"
+            data-span="small"
+            onClick={() => swiff.setShowAll(true)}
+          >
             All {ordered.length} games →
           </button>
         ) : null}
@@ -148,15 +153,7 @@ function HeroResume({ game, sub, onResume }: { game: Game; sub: string; onResume
  * The first-run hero. It has to answer one question — what can I play tonight,
  * on what, with no download — and then offer Steam's own sign-in button.
  */
-function HeroFirstRun({
-  game,
-  gpu,
-  freeMachines,
-}: {
-  game: Game;
-  gpu?: string;
-  freeMachines: number;
-}) {
+function HeroFirstRun({ game, gpu, freeMachines }: { game: Game; gpu?: string; freeMachines: number }) {
   return (
     <div className="wall-hero">
       <Hero

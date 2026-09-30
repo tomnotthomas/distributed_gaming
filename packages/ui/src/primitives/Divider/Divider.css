@@ -1,3 +1,12 @@
-.divider { border: 0; height: 1px; margin: 0; background: var(--color-divider); }
-.divider[data-fade="end"] { background: linear-gradient(90deg, var(--color-divider), transparent); }
-.divider[data-fade="both"] { background: linear-gradient(90deg, transparent, var(--color-divider), transparent); }
+.divider {
+  border: 0;
+  height: 1px;
+  margin: 0;
+  background: var(--color-divider);
+}
+.divider[data-fade="end"] {
+  background: linear-gradient(90deg, var(--color-divider), transparent);
+}
+.divider[data-fade="both"] {
+  background: linear-gradient(90deg, transparent, var(--color-divider), transparent);
+}

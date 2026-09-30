@@ -1,21 +1,58 @@
 .sheet-backdrop {
-  position: fixed; inset: 0; z-index: 30; display: flex; justify-content: flex-end;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
   background: color-mix(in srgb, var(--color-bg) 55%, transparent);
   animation: swiff-fadein var(--dur-ui) ease both;
 }
-@keyframes sheet-in { from { transform: translateX(24px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
 .sheet {
-  width: min(440px, 100%); height: 100%;
-  display: flex; flex-direction: column;
+  width: min(440px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
   /* No backdrop blur: the fill is 82% opaque, so a blur would cost a full-height
      pass per frame of the slide-in and barely show. */
-  background: var(--dialog-fill); border: 1px solid var(--glass-edge); border-right: 0;
+  background: var(--dialog-fill);
+  border: 1px solid var(--glass-edge);
+  border-right: 0;
   box-shadow: var(--glass-hi);
   animation: sheet-in var(--dur-ui) var(--ease-out) both;
 }
-.sheet:focus { outline: none; }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-8) var(--space-8) var(--space-4); }
-.sheet-title { font-size: var(--text-22); letter-spacing: -.01em; line-height: 1.2; }
-.sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-8) var(--space-8); }
-.sheet-foot { padding: var(--space-6) var(--space-8); border-top: 1px solid var(--color-divider); }
+.sheet:focus {
+  outline: none;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-8) var(--space-4);
+}
+.sheet-title {
+  font-size: var(--text-22);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-8) var(--space-8);
+}
+.sheet-foot {
+  padding: var(--space-6) var(--space-8);
+  border-top: 1px solid var(--color-divider);
+}

@@ -1,7 +1,13 @@
 .status-dot {
-  display: inline-block; flex: none; border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
   background: var(--tone);
 }
 /* Signals that mean "on" glow; --dot-glow lets a context widen the halo. */
-.status-dot:is([data-tone="accent"], [data-tone="live"]) { box-shadow: 0 0 var(--dot-glow, 8px) var(--tone); }
-.status-dot[data-pulse] { animation: pulse 1.4s var(--ease-out) infinite; }
+.status-dot:is([data-tone="accent"], [data-tone="live"]) {
+  box-shadow: 0 0 var(--dot-glow, 8px) var(--tone);
+}
+.status-dot[data-pulse] {
+  animation: pulse 1.4s var(--ease-out) infinite;
+}

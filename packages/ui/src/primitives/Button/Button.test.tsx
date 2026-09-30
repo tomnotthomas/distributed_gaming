@@ -9,7 +9,11 @@ describe("Button", () => {
     expect(screen.getByRole("button")).toHaveAttribute("class", "btn btn-primary");
     rerender(<Button size="lg">Go</Button>);
     expect(screen.getByRole("button")).toHaveAttribute("class", "btn btn-primary btn-lg");
-    rerender(<Button variant="secondary" className="extra">Go</Button>);
+    rerender(
+      <Button variant="secondary" className="extra">
+        Go
+      </Button>,
+    );
     expect(screen.getByRole("button")).toHaveAttribute("class", "btn btn-secondary extra");
   });
 
