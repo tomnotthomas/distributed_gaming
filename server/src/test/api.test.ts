@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { parseMachineKeys, verifyTicket, type Access } from "../access.js";
 import { createApi } from "../api.js";
-import { Platform, RESERVATION_MS } from "../platform.js";
+import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
 import type { SignalMessage } from "../protocol.js";
 
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
@@ -108,10 +108,10 @@ describe("booking and host API", () => {
     assert.equal(again.status, 409);
   });
 
-  it("answers 409 to a claim after the reservation has expired", async () => {
+  it("answers 409 to a claim after the reservation has lapsed and the renter is gone", async () => {
     await offer();
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    now += RESERVATION_MS;
+    now += QUEUE_TIMEOUT_MS;
     await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
 
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
