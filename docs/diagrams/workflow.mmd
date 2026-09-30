@@ -22,63 +22,17 @@ sequenceDiagram
   autonumber
   participant R as Renter
   participant API as Booking API
-  participant Q as Queue
-  participant MM as Matchmaker worker
-  participant DB as Database
+  participant MM as Matchmaker
   participant SIG as Connection setup
   participant PC as Gaming PC
-  participant ICE as STUN / TURN
 
-  rect rgb(247, 247, 247)
-  Note over R,ICE: 1 · A PC becomes available
-  PC->>DB: available now, until available_until
-  loop every few seconds
-    PC->>DB: heartbeat (last_seen_at)
-  end
-  PC->>SIG: WebSocket · register, wait for a renter
-  end
-
-  rect rgb(255, 255, 255)
-  Note over R,ICE: 2 · The renter books a game (signed in with Steam)
-  R->>API: POST /bookings { gameId, minutes }
-  API->>DB: booking · queued
-  API->>Q: enqueue
-  API-->>R: 202 { bookingId }
-  MM->>Q: pull next booking
-  loop every 5s until a machine is found
-    MM->>DB: find free machines
-  end
-  MM->>DB: write reservation + expires_at<br/>(holds the machine for this booking, free again if unclaimed by expires_at)
-  MM->>SIG: session grant · room id + who may join
-  end
-
-  rect rgb(247, 247, 247)
-  Note over R,ICE: 3 · The renter connects
-  loop until matched
-    R->>API: GET /bookings/:id
-  end
-  R->>API: POST /bookings/:id/claim
-  API->>DB: reservation → session (started_at)
-  API-->>R: { sessionId, roomId, signalingUrl }
-  R->>SIG: WebSocket · join room
-  SIG->>PC: renter joined
-  PC->>SIG: offer (SDP)
-  SIG->>R: offer
-  R->>SIG: answer (SDP)
-  SIG->>PC: answer
-  par
-    R->>ICE: what is my public address?
-  and
-    PC->>ICE: what is my public address?
-  end
-  R-->SIG: ICE candidates, both ways
-  SIG-->PC: ICE candidates, both ways
-  PC->>R: WebRTC · video + audio (direct, or via TURN) · Connection setup no longer on the path
-  R->>PC: WebRTC · mouse, keyboard, gamepad
-  end
-
-  rect rgb(255, 255, 255)
-  Note over R,ICE: 4 · The session ends (renter leaves, time runs out, or owner's kill switch)
-  PC->>DB: session ended · ended_at, price
-  PC->>DB: available again
-  end
+  R->>API: choose a game and book it (signed in with Steam)
+  API->>MM: find a machine for this booking
+  MM->>MM: pick a free gaming PC and reserve it
+  MM-->>R: machine ready
+  R->>SIG: connect
+  SIG->>PC: renter is coming
+  SIG-->>R: direct connection to the gaming PC
+  PC->>PC: start Steam and the game
+  PC->>R: stream the game
+  R->>PC: play
