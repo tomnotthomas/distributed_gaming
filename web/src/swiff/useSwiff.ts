@@ -35,7 +35,9 @@ export function useSwiff() {
 
   const [session, setSession] = useState<SessionLength>("evening");
   // Start still for anyone who has asked their OS for less motion.
-  const [motion, setMotion] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  const [motion, setMotion] = useState(
+    () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+  );
   const [sound, setSound] = useState(false);
   const [quality, setQuality] = useState<Quality>("auto");
   const [devices, setDevices] = useState<Device[]>(["kb", "mouse", "pad"]);
@@ -54,19 +56,16 @@ export function useSwiff() {
   );
 
   const sharedMachineIds = useMemo(
-    () => Object.values(pool).filter((m) => !m.self).map((m) => m.id),
+    () =>
+      Object.values(pool)
+        .filter((m) => !m.self)
+        .map((m) => m.id),
     [pool],
   );
 
   const game = useMemo(() => games.find((g) => g.id === gameId) ?? null, [games, gameId]);
-  const machines = useMemo(
-    () => (game ? machinesFor(game, pool, session) : []),
-    [game, pool, session],
-  );
-  const picked = useMemo(
-    () => machines.find((m) => m.id === machineId) ?? null,
-    [machines, machineId],
-  );
+  const machines = useMemo(() => (game ? machinesFor(game, pool, session) : []), [game, pool, session]);
+  const picked = useMemo(() => machines.find((m) => m.id === machineId) ?? null, [machines, machineId]);
 
   const libraryConnected = profile !== null;
 
@@ -101,7 +100,9 @@ export function useSwiff() {
     setGames(library);
     // Every card asks the catalog for its real header image; the ones without
     // a curated trailer get theirs from there too.
-    void fetchMedia(library.map((g) => g.appid)).then((catalog) => setGames((prev) => withMedia(prev, catalog)));
+    void fetchMedia(library.map((g) => g.appid)).then((catalog) =>
+      setGames((prev) => withMedia(prev, catalog)),
+    );
     track("library_matched", {
       owned_here: result.owned.length,
       library_rendered: result.games.length,
@@ -196,17 +197,13 @@ export function useSwiff() {
 
   const cycleSession = useCallback(
     () =>
-      setSession((current) =>
-        current === "quick" ? "evening" : current === "evening" ? "night" : "quick",
-      ),
+      setSession((current) => (current === "quick" ? "evening" : current === "evening" ? "night" : "quick")),
     [],
   );
 
   const toggleDevice = useCallback(
     (id: Device) =>
-      setDevices((current) =>
-        current.includes(id) ? current.filter((d) => d !== id) : [...current, id],
-      ),
+      setDevices((current) => (current.includes(id) ? current.filter((d) => d !== id) : [...current, id])),
     [],
   );
 

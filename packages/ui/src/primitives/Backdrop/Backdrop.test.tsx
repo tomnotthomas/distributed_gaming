@@ -28,7 +28,9 @@ describe("Backdrop", () => {
 
   it("paints the scrims it is asked for, in order", () => {
     const { container } = render(<Backdrop image="a.jpg" scrims={["pocket", "bottom"]} />);
-    const scrims = [...container.querySelectorAll(".backdrop-scrim")].map((el) => el.getAttribute("data-scrim"));
+    const scrims = [...container.querySelectorAll(".backdrop-scrim")].map((el) =>
+      el.getAttribute("data-scrim"),
+    );
     expect(scrims).toEqual(["pocket", "bottom"]);
   });
 });

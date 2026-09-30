@@ -4,7 +4,11 @@ import { ProgressRing } from "./ProgressRing";
 
 describe("ProgressRing", () => {
   it("reports progress as a percentage", () => {
-    render(<ProgressRing label="Starting" pct={0.25}>25%</ProgressRing>);
+    render(
+      <ProgressRing label="Starting" pct={0.25}>
+        25%
+      </ProgressRing>,
+    );
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
   });
 

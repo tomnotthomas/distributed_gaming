@@ -1,4 +1,14 @@
-import { Avatar, Button, Divider, IconButton, Kicker, Segment, SettingRow, StatusDot, SteamButton } from "@swiff/ui";
+import {
+  Avatar,
+  Button,
+  Divider,
+  IconButton,
+  Kicker,
+  Segment,
+  SettingRow,
+  StatusDot,
+  SteamButton,
+} from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
 import type { Device, Quality, Swiff } from "./useSwiff";
 
@@ -86,17 +96,19 @@ export function Profile({ swiff }: { swiff: Swiff }) {
           <SettingRow
             label="Motion on the wall"
             hint="Clips play on the hero and on hover. Off shows stills."
-            control={<input type="checkbox" checked={motion} onChange={(e) => swiff.setMotion(e.target.checked)} />}
+            control={
+              <input type="checkbox" checked={motion} onChange={(e) => swiff.setMotion(e.target.checked)} />
+            }
           />
           <SettingRow
             label="Interface sounds"
             hint="A tick on focus, a thump on launch, a chime when a machine frees up."
-            control={<input type="checkbox" checked={sound} onChange={(e) => swiff.setSound(e.target.checked)} />}
+            control={
+              <input type="checkbox" checked={sound} onChange={(e) => swiff.setSound(e.target.checked)} />
+            }
           />
         </div>
-        <p className="profile-fine">
-          Changes save instantly. Name, avatar and library come from Steam.
-        </p>
+        <p className="profile-fine">Changes save instantly. Name, avatar and library come from Steam.</p>
       </section>
 
       <div>

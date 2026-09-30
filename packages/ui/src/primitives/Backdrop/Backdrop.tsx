@@ -25,7 +25,16 @@ type Props = HTMLAttributes<HTMLDivElement> & {
  * scrims that keep a bright frame — a scoreboard, a snow field — from
  * swallowing the headline.
  */
-export function Backdrop({ image, fallback, video, position, scrims = [], motion, className, ...rest }: Props) {
+export function Backdrop({
+  image,
+  fallback,
+  video,
+  position,
+  scrims = [],
+  motion,
+  className,
+  ...rest
+}: Props) {
   const allowed = useMotion();
   const play = Boolean(video && video.length) && (motion ?? allowed);
   // A new set of sources needs a new <video>: changing <source> children alone does not reload it.
@@ -38,7 +47,13 @@ export function Backdrop({ image, fallback, video, position, scrims = [], motion
       ) : (
         <div
           className="backdrop-media backdrop-still"
-          style={{ backgroundImage: [image].concat(fallback ?? []).map((src) => `url(${src})`).join(", "), ...place }}
+          style={{
+            backgroundImage: [image]
+              .concat(fallback ?? [])
+              .map((src) => `url(${src})`)
+              .join(", "),
+            ...place,
+          }}
         />
       )}
       {scrims.map((scrim) => (

@@ -4,7 +4,15 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { LIBRARY_CAP, b64urlEncode, loginUrl, originFrom, readProfile, returnUrl, verifyAssertion } from "../steam.js";
+import {
+  LIBRARY_CAP,
+  b64urlEncode,
+  loginUrl,
+  originFrom,
+  readProfile,
+  returnUrl,
+  verifyAssertion,
+} from "../steam.js";
 
 const ORIGIN = "https://swiff.example";
 
@@ -33,10 +41,7 @@ describe("loginUrl", () => {
     assert.equal(url.origin + url.pathname, "https://steamcommunity.com/openid/login");
     assert.equal(url.searchParams.get("openid.mode"), "checkid_setup");
     assert.equal(url.searchParams.get("openid.realm"), ORIGIN);
-    assert.equal(
-      url.searchParams.get("openid.return_to"),
-      `${ORIGIN}/auth/steam/return?to=%2F`,
-    );
+    assert.equal(url.searchParams.get("openid.return_to"), `${ORIGIN}/auth/steam/return?to=%2F`);
   });
 
   it("refuses an absolute returnTo, so this is not an open redirector", () => {
@@ -152,7 +157,10 @@ describe("originFrom", () => {
 
   it("trusts a proxy's forwarded proto and host over the guess", () => {
     assert.equal(
-      originFrom({ host: "internal:8080", "x-forwarded-host": "swiff.example", "x-forwarded-proto": "https" }, "http://fallback"),
+      originFrom(
+        { host: "internal:8080", "x-forwarded-host": "swiff.example", "x-forwarded-proto": "https" },
+        "http://fallback",
+      ),
       "https://swiff.example",
     );
   });

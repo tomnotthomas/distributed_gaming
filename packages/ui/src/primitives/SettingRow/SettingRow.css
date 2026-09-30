@@ -1,8 +1,38 @@
-.setting { display: flex; gap: var(--space-4); }
-.setting[data-layout="inline"] { align-items: center; justify-content: space-between; cursor: pointer; }
-.setting[data-layout="stacked"] { flex-direction: column; align-items: flex-start; gap: 8px; }
-.setting-text { display: flex; flex-direction: column; gap: 2px; }
-.setting-label { font-size: 15px; line-height: var(--lh-20); font-weight: 500; }
-.setting-hint { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-400); }
+.setting {
+  display: flex;
+  gap: var(--space-4);
+}
+.setting[data-layout="inline"] {
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+.setting[data-layout="stacked"] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.setting-label {
+  font-size: 15px;
+  line-height: var(--lh-20);
+  font-weight: 500;
+}
+.setting-hint {
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
+  color: var(--color-neutral-400);
+}
 /* The native checkbox a settings row usually holds. */
-.setting input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--color-accent); cursor: pointer; flex: none; margin: 0; }
+.setting input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  flex: none;
+  margin: 0;
+}

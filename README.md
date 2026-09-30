@@ -43,6 +43,7 @@ Code: `desktop/`, `packages/`.
 npm test
 npm run test:e2e
 npm run typecheck
+npm run format    # Prettier; CI runs format:check
 npm run ci        # everything CI runs
 ```
 

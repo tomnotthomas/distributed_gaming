@@ -15,7 +15,15 @@ type Props = HTMLAttributes<HTMLSpanElement> & {
 };
 
 /** A labelled pill for badges, stats and time notes. */
-export function Tag({ label, children, tone = "neutral", variant = "solid", size = "md", className, ...rest }: Props) {
+export function Tag({
+  label,
+  children,
+  tone = "neutral",
+  variant = "solid",
+  size = "md",
+  className,
+  ...rest
+}: Props) {
   return (
     <span data-tone={tone} data-variant={variant} data-size={size} className={cx("tag", className)} {...rest}>
       {label ? <span className="tag-label">{label}</span> : null}

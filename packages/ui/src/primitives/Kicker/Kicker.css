@@ -1,6 +1,13 @@
 .kicker {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin: 0; font-family: var(--font-body);
-  font-size: 11px; line-height: 1; letter-spacing: .1em; text-transform: uppercase; font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
   color: var(--tone-text, var(--tone));
 }

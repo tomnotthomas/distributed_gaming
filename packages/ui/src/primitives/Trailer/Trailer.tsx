@@ -11,8 +11,7 @@ const END = 0.7;
 /** Short clips have no bookends worth skipping. */
 const MIN_DURATION = 20;
 
-const startAt = (video: HTMLVideoElement) =>
-  video.duration > MIN_DURATION ? video.duration * START : 0;
+const startAt = (video: HTMLVideoElement) => (video.duration > MIN_DURATION ? video.duration * START : 0);
 
 const endAt = (video: HTMLVideoElement) =>
   video.duration > MIN_DURATION ? video.duration * END : video.duration;

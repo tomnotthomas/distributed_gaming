@@ -25,8 +25,15 @@ const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 let roomIndex = 0;
 const nextRoom = () => ROOMS[roomIndex++]!;
 
-const register = (room: string, key = MACHINE_KEY): SignalMessage => ({ type: "register", hostId: room, key });
-const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessage => ({ type: "join", ticket });
+const register = (room: string, key = MACHINE_KEY): SignalMessage => ({
+  type: "register",
+  hostId: room,
+  key,
+});
+const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessage => ({
+  type: "join",
+  ticket,
+});
 
 /** A socket that records every message it receives, so tests can assert on order. */
 type RecordingSocket = WebSocket & { received: SignalMessage[] };

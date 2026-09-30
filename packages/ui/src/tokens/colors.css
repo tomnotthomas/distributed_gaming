@@ -2,98 +2,106 @@
    Brand ladder (dark → light): crevasse #071019 · dusty-denim #5388BC · fresh-sky #57ACD9 · powder-blue-2 #B5C9E7
    Source palette: powder-blue #B2C3E0 · wisteria-blue #90A5C7 · powder-blue-2 #B5C9E7 · fresh-sky #57ACD9 · dusty-denim #5388BC
    Hue sits at the cyan end of the blues; grounds run deep so the ice tones and frost edges carry the contrast. */
-:root{
+:root {
   /* brand */
-  --brand-plum:#071019; --brand-wine:#5388BC; --brand-red:#57ACD9; --brand-coral:#B5C9E7;
+  --brand-plum: #071019;
+  --brand-wine: #5388bc;
+  --brand-red: #57acd9;
+  --brand-coral: #b5c9e7;
 
   /* ground ladder (deep glacier ice — widened so elevation reads without a shadow) */
-  --color-bg:#071019; --color-recessed:#03080F; --color-surface:#0F1E2B; --color-raised:#1A3042;
+  --color-bg: #071019;
+  --color-recessed: #03080f;
+  --color-surface: #0f1e2b;
+  --color-raised: #1a3042;
 
   /* text — ice white on deep ice */
-  --color-text:#F7FBFF; --color-text-2:#CFE3F5; --color-text-3:#8AA4BE;
+  --color-text: #f7fbff;
+  --color-text-2: #cfe3f5;
+  --color-text-3: #8aa4be;
 
   /* roles */
-  --color-accent:#57ACD9;          /* action: buttons, focus, selected — fresh-sky */
-  --color-accent-hover:#5388BC;    /* pressed / hover fill — dusty-denim */
-  --color-presence:#145C87;        /* saturated ground for moments (ignition, dividers) */
-  --color-live:#A8E8FF;            /* live signals: ready dots, streaming — meltwater cyan */
-  --color-time:#B2C3E0;            /* time notes: free until, back at — powder-blue */
-  --color-divider:color-mix(in srgb,#F7FBFF 18%,transparent);
+  --color-accent: #57acd9; /* action: buttons, focus, selected — fresh-sky */
+  --color-accent-hover: #5388bc; /* pressed / hover fill — dusty-denim */
+  --color-presence: #145c87; /* saturated ground for moments (ignition, dividers) */
+  --color-live: #a8e8ff; /* live signals: ready dots, streaming — meltwater cyan */
+  --color-time: #b2c3e0; /* time notes: free until, back at — powder-blue */
+  --color-divider: color-mix(in srgb, #f7fbff 18%, transparent);
 
   /* glass — frost. Crisper edges than a warm system would take. */
-  --glass:color-mix(in srgb,#FFFFFF 8%,transparent);
-  --glass-strong:color-mix(in srgb,#FFFFFF 14%,transparent);
-  --glass-edge:color-mix(in srgb,#FFFFFF 24%,transparent);
-  --glass-hi:inset 0 1px 0 color-mix(in srgb,#FFFFFF 18%,transparent);
+  --glass: color-mix(in srgb, #ffffff 8%, transparent);
+  --glass-strong: color-mix(in srgb, #ffffff 14%, transparent);
+  --glass-edge: color-mix(in srgb, #ffffff 24%, transparent);
+  --glass-hi: inset 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent);
 
   /* ramps (100 light → 900 dark) */
-  --color-neutral-100: #F7FCFF;
-  --color-neutral-200: #E6F1FA;
-  --color-neutral-300: #C8DCEE;
-  --color-neutral-400: #90A5C7;
-  --color-neutral-500: #6E869F;
-  --color-neutral-600: #556D86;
-  --color-neutral-700: #3F566D;
-  --color-neutral-800: #2B3E52;
+  --color-neutral-100: #f7fcff;
+  --color-neutral-200: #e6f1fa;
+  --color-neutral-300: #c8dcee;
+  --color-neutral-400: #90a5c7;
+  --color-neutral-500: #6e869f;
+  --color-neutral-600: #556d86;
+  --color-neutral-700: #3f566d;
+  --color-neutral-800: #2b3e52;
   --color-neutral-900: #182636;
-  --color-accent-100: #EAF8FF;
-  --color-accent-200: #C4ECFF;
-  --color-accent-300: #93DCFB;
-  --color-accent-400: #6BC8EE;
-  --color-accent-500: #57ACD9;
-  --color-accent-600: #4189B4;
-  --color-accent-700: #31688C;
+  --color-accent-100: #eaf8ff;
+  --color-accent-200: #c4ecff;
+  --color-accent-300: #93dcfb;
+  --color-accent-400: #6bc8ee;
+  --color-accent-500: #57acd9;
+  --color-accent-600: #4189b4;
+  --color-accent-700: #31688c;
   --color-accent-800: #234764;
-  --color-accent-900: #182F42;
-  --color-wine-100: #EFF6FD;
-  --color-wine-200: #D7E6F6;
-  --color-wine-300: #B2C3E0;
-  --color-wine-400: #7FA3CE;
-  --color-wine-500: #5388BC;
-  --color-wine-600: #416F9D;
-  --color-wine-700: #32567B;
-  --color-wine-800: #253E5A;
-  --color-wine-900: #19283A;
-  --color-red-100: #E6FAFF;
-  --color-red-200: #BCF0FE;
-  --color-red-300: #8CE2F8;
-  --color-red-400: #5CCFEE;
-  --color-red-500: #35B9DE;
-  --color-red-600: #2894B4;
-  --color-red-700: #1F7089;
-  --color-red-800: #194E60;
+  --color-accent-900: #182f42;
+  --color-wine-100: #eff6fd;
+  --color-wine-200: #d7e6f6;
+  --color-wine-300: #b2c3e0;
+  --color-wine-400: #7fa3ce;
+  --color-wine-500: #5388bc;
+  --color-wine-600: #416f9d;
+  --color-wine-700: #32567b;
+  --color-wine-800: #253e5a;
+  --color-wine-900: #19283a;
+  --color-red-100: #e6faff;
+  --color-red-200: #bcf0fe;
+  --color-red-300: #8ce2f8;
+  --color-red-400: #5ccfee;
+  --color-red-500: #35b9de;
+  --color-red-600: #2894b4;
+  --color-red-700: #1f7089;
+  --color-red-800: #194e60;
   --color-red-900: #153340;
 
   /* second accent — periwinkle ice (overrides the design-system default so no violet survives) */
-  --color-accent-2-100: #F2F6FF;
-  --color-accent-2-200: #DFE8FB;
-  --color-accent-2-300: #C2D2F2;
-  --color-accent-2-400: #9DB4E5;
-  --color-accent-2-500: #7B95CD;
-  --color-accent-2-600: #6178A8;
-  --color-accent-2-700: #495C82;
+  --color-accent-2-100: #f2f6ff;
+  --color-accent-2-200: #dfe8fb;
+  --color-accent-2-300: #c2d2f2;
+  --color-accent-2-400: #9db4e5;
+  --color-accent-2-500: #7b95cd;
+  --color-accent-2-600: #6178a8;
+  --color-accent-2-700: #495c82;
   --color-accent-2-800: #334159;
   --color-accent-2-900: #202938;
 
   /* roles the component layer used to hard-code */
-  --color-danger:#E4796F;          /* failed, dropped — the one warm colour, kept for errors only */
-  --color-danger-text:#FFD9D3;
-  --color-on-accent:#EAF6FD;       /* text on the primary button's glass gradient */
-  --btn-primary-from:color-mix(in srgb,var(--color-accent-hover) 45%,transparent);
-  --btn-primary-to:color-mix(in srgb,#24557E 55%,transparent);
-  --btn-primary-hover-from:color-mix(in srgb,var(--color-accent) 45%,transparent);
-  --btn-primary-hover-to:color-mix(in srgb,var(--color-accent-hover) 60%,transparent);
-  --dialog-fill:color-mix(in srgb,#141417 82%,transparent);
-  --display-shadow:0 2px 24px rgba(3,8,16,.75);
-  --focus-ring:0 0 0 3px color-mix(in srgb,var(--color-accent) 40%,transparent);
-  --focus-ring-soft:0 0 0 3px color-mix(in srgb,var(--color-accent) 25%,transparent);  /* inputs: the border already turns accent */
+  --color-danger: #e4796f; /* failed, dropped — the one warm colour, kept for errors only */
+  --color-danger-text: #ffd9d3;
+  --color-on-accent: #eaf6fd; /* text on the primary button's glass gradient */
+  --btn-primary-from: color-mix(in srgb, var(--color-accent-hover) 45%, transparent);
+  --btn-primary-to: color-mix(in srgb, #24557e 55%, transparent);
+  --btn-primary-hover-from: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --btn-primary-hover-to: color-mix(in srgb, var(--color-accent-hover) 60%, transparent);
+  --dialog-fill: color-mix(in srgb, #141417 82%, transparent);
+  --display-shadow: 0 2px 24px rgba(3, 8, 16, 0.75);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  --focus-ring-soft: 0 0 0 3px color-mix(in srgb, var(--color-accent) 25%, transparent); /* inputs: the border already turns accent */
   /* the chosen one in a row of choices (Chip, IconButton toggles) */
-  --selected-bg:color-mix(in srgb,var(--color-accent) 14%,transparent);
-  --selected-border:var(--color-accent);
-  --selected-fg:var(--color-accent-200);
+  --selected-bg: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --selected-border: var(--color-accent);
+  --selected-fg: var(--color-accent-200);
 
   /* elevation on the arctic ground */
-  --shadow-sm:0 0 0 1px var(--glass-edge);
-  --shadow-md:0 0 0 1px var(--glass-edge),0 10px 30px rgba(2,8,16,.75);
-  --shadow-lg:0 0 0 1px color-mix(in srgb,#FFFFFF 30%,transparent),0 20px 50px rgba(2,8,16,.85);
+  --shadow-sm: 0 0 0 1px var(--glass-edge);
+  --shadow-md: 0 0 0 1px var(--glass-edge), 0 10px 30px rgba(2, 8, 16, 0.75);
+  --shadow-lg: 0 0 0 1px color-mix(in srgb, #ffffff 30%, transparent), 0 20px 50px rgba(2, 8, 16, 0.85);
 }

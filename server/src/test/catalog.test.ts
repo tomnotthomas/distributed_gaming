@@ -4,7 +4,14 @@
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { catalogGames, gamesMedia, mostPlayed, popularGames, resetCatalog, toCatalogGame } from "../catalog.js";
+import {
+  catalogGames,
+  gamesMedia,
+  mostPlayed,
+  popularGames,
+  resetCatalog,
+  toCatalogGame,
+} from "../catalog.js";
 
 const realFetch = globalThis.fetch;
 beforeEach(resetCatalog);
@@ -69,19 +76,28 @@ describe("toCatalogGame", () => {
     const game = toCatalogGame(item(10))!;
     assert.deepEqual(game.art, {
       hero: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/h/library_hero_2x.jpg?t=1",
-      capsule: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/c/capsule_616x353_2x.jpg?t=1",
+      capsule:
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/c/capsule_616x353_2x.jpg?t=1",
     });
   });
 
   it("falls back from the capsule to the header", () => {
-    const game = toCatalogGame(item(10, { assets: { asset_url_format: "steam/apps/10/${FILENAME}", header: "x/header.jpg" } }))!;
-    assert.equal(game.art.capsule, "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/x/header.jpg");
+    const game = toCatalogGame(
+      item(10, { assets: { asset_url_format: "steam/apps/10/${FILENAME}", header: "x/header.jpg" } }),
+    )!;
+    assert.equal(
+      game.art.capsule,
+      "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/x/header.jpg",
+    );
   });
 
   it("uses the mp4 microtrailer for previews and HLS for the full trailer", () => {
     const game = toCatalogGame(item(10))!;
     assert.equal(game.preview, "https://video.akamai.steamstatic.com/store_trailers/10/1/micro.mp4");
-    assert.equal(game.trailer, "https://video.akamai.steamstatic.com/store_trailers/10/1/hls_264_master.m3u8");
+    assert.equal(
+      game.trailer,
+      "https://video.akamai.steamstatic.com/store_trailers/10/1/hls_264_master.m3u8",
+    );
   });
 
   it("keeps a game without trailers or art, with nulls", () => {
@@ -98,7 +114,10 @@ describe("toCatalogGame", () => {
 
 describe("mostPlayed", () => {
   it("returns the chart's appids in rank order, once per hour", async () => {
-    const calls = stubFetch(() => ({ ok: true, body: { response: { ranks: [{ appid: 730 }, { appid: 570 }] } } }));
+    const calls = stubFetch(() => ({
+      ok: true,
+      body: { response: { ranks: [{ appid: 730 }, { appid: 570 }] } },
+    }));
     assert.deepEqual(await mostPlayed(0), [730, 570]);
     await mostPlayed(30 * 60 * 1000);
     assert.equal(calls.length, 1);
@@ -116,7 +135,13 @@ describe("mostPlayed", () => {
 
 describe("catalogGames", () => {
   it("asks for a whole wall in one request and keeps the order given", async () => {
-    const calls = stubFetch((url) => itemsAnswer(askedFor(url).reverse().map((id) => item(id))));
+    const calls = stubFetch((url) =>
+      itemsAnswer(
+        askedFor(url)
+          .reverse()
+          .map((id) => item(id)),
+      ),
+    );
     const games = await catalogGames([3, 1, 2]);
     assert.deepEqual(
       games.map((g) => g.appid),

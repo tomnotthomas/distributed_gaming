@@ -1,10 +1,28 @@
-.seg { display: inline-flex; padding: 3px; border-radius: var(--radius-md); gap: 2px; }
-.seg-opt {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: calc(var(--radius-md) - 2px);
-  font-size: var(--text-12); line-height: var(--lh-16);
-  color: var(--color-neutral-300); cursor: pointer;
-  transition: background var(--dur-micro), color var(--dur-micro);
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  gap: 2px;
 }
-.seg-opt input { accent-color: var(--color-accent); margin: 0; }
-.seg-on { background: color-mix(in srgb, var(--color-accent) 18%, transparent); color: var(--color-text); }
+.seg-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: calc(var(--radius-md) - 2px);
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
+  color: var(--color-neutral-300);
+  cursor: pointer;
+  transition:
+    background var(--dur-micro),
+    color var(--dur-micro);
+}
+.seg-opt input {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+.seg-on {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-text);
+}

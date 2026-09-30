@@ -24,16 +24,18 @@ export function Swiff() {
       onProfile={() => swiff.setScreen("profile")}
       onBack={screen === "game" ? swiff.goHome : undefined}
       session={
-        libraryConnected
-          ? { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession }
-          : undefined
+        libraryConnected ? { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession } : undefined
       }
       avatar={{
         initial,
         ring: libraryConnected ? "live" : "idle",
         label: `Profile, ${profile?.persona ?? "not signed in"}`,
       }}
-      tint={hovered ? `radial-gradient(ellipse at 30% 30%, hsl(${hovered.hue} 60% 60% / .12), transparent 55%)` : undefined}
+      tint={
+        hovered
+          ? `radial-gradient(ellipse at 30% 30%, hsl(${hovered.hue} 60% 60% / .12), transparent 55%)`
+          : undefined
+      }
       floating={screen === "game"}
     >
       <MotionContext.Provider value={swiff.motion}>

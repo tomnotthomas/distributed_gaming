@@ -42,7 +42,11 @@ describe("HoldButton", () => {
 
   it("ignores a press while disabled", () => {
     const onFire = vi.fn();
-    render(<HoldButton disabled onFire={onFire}>Launch</HoldButton>);
+    render(
+      <HoldButton disabled onFire={onFire}>
+        Launch
+      </HoldButton>,
+    );
     press();
     vi.advanceTimersByTime(1000);
     expect(onFire).not.toHaveBeenCalled();

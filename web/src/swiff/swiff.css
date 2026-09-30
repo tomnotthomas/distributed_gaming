@@ -1,111 +1,264 @@
 /* Screen layout for the Swiff wall. Everything reusable lives in @swiff/ui;
    this file is only the arrangement of those pieces per screen. */
 
-
 /* — live wall — */
 .wall-main {
-  position: relative; flex: 1; min-height: 0; overflow-y: auto;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-4) var(--space-8) var(--space-8);
-  display: flex; flex-direction: column; gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   scrollbar-width: thin;
 }
 .wall-more {
-  border: 1px dashed var(--color-divider); border-radius: var(--radius-lg);
-  background: transparent; color: var(--color-neutral-400); font: inherit;
-  font-size: var(--text-14); cursor: pointer; display: grid; place-items: center;
-  transition: border-color var(--dur-micro), color var(--dur-micro);
+  border: 1px dashed var(--color-divider);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font: inherit;
+  font-size: var(--text-14);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition:
+    border-color var(--dur-micro),
+    color var(--dur-micro);
 }
-.wall-more:hover { border-color: var(--color-accent); color: var(--color-text); }
-.wall-note { margin: 0; font-size: var(--text-12); color: var(--color-time); }
-.wall-credit { margin: 0; font-size: var(--text-12); color: var(--color-neutral-700); }
-.wall-empty { display: grid; place-items: center; }
+.wall-more:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+.wall-note {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-time);
+}
+.wall-credit {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-neutral-700);
+}
+.wall-empty {
+  display: grid;
+  place-items: center;
+}
 
 /* — wall hero —
    Positions the Hero block over the hero tile's art, action on the right. */
 .wall-hero {
-  position: absolute; inset: 0;
+  position: absolute;
+  inset: 0;
   padding: var(--space-8) var(--space-8) var(--space-12);
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: var(--space-6); text-align: left;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  text-align: left;
 }
 
 /* — game menu — */
-.menu { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.menu {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .menu-hero {
-  position: relative; flex: 1; min-height: 0;
-  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
-  padding: 68px var(--space-8) 0; max-width: min(860px, 64%);
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 68px var(--space-8) 0;
+  max-width: min(860px, 64%);
 }
 /* With the selector folded there is no row below to sit against, so the stack
    centres and keeps a floor — otherwise the meters hang off the bottom edge. */
-.menu-hero-folded { justify-content: center; padding-bottom: 6vh; }
+.menu-hero-folded {
+  justify-content: center;
+  padding-bottom: 6vh;
+}
 .menu-launch {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
-  margin-top: clamp(12px, 4vh, 32px); animation: swiff-rise .45s .3s var(--ease-out) both;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: clamp(12px, 4vh, 32px);
+  animation: swiff-rise 0.45s 0.3s var(--ease-out) both;
 }
 .menu-sub {
-  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
-  font-size: var(--text-14); line-height: var(--lh-20);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-14);
+  line-height: var(--lh-20);
 }
-.menu-sub-main { font-variant-numeric: tabular-nums; color: var(--color-neutral-400); }
-.menu-until { color: var(--color-time); }
+.menu-sub-main {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-400);
+}
+.menu-until {
+  color: var(--color-time);
+}
 
 /* — machine selector — */
 .selector {
-  position: relative; padding: clamp(8px, 2.5vh, 17px) var(--space-8) clamp(12px, 3vh, 22px);
-  display: flex; flex-direction: column; gap: var(--space-2);
-  animation: swiff-rise .45s ease both;
+  position: relative;
+  padding: clamp(8px, 2.5vh, 17px) var(--space-8) clamp(12px, 3vh, 22px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: swiff-rise 0.45s ease both;
 }
-.selector-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); }
-.selector-count, .selector-hint { font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-500); }
+.selector-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+.selector-count,
+.selector-hint {
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
+  color: var(--color-neutral-500);
+}
 .selector-cards {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--space-3); align-items: end;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
 }
-.selector-cards > .machine { animation: swiff-deal .38s var(--ease-out) backwards; }
-.selector-busy { align-self: center; justify-self: start; }
+.selector-cards > .machine {
+  animation: swiff-deal 0.38s var(--ease-out) backwards;
+}
+.selector-busy {
+  align-self: center;
+  justify-self: start;
+}
 
 /* — ignition — */
-.ignition-text { text-align: center; }
-.ignition-step {
-  font-size: var(--text-22); font-family: var(--font-heading); font-weight: 500; min-height: 32px;
+.ignition-text {
+  text-align: center;
 }
-.ignition-where { font-size: 13px; color: var(--color-neutral-400); margin-top: 6px; }
+.ignition-step {
+  font-size: var(--text-22);
+  font-family: var(--font-heading);
+  font-weight: 500;
+  min-height: 32px;
+}
+.ignition-where {
+  font-size: 13px;
+  color: var(--color-neutral-400);
+  margin-top: 6px;
+}
 
 /* — live session — */
-.session { position: fixed; inset: 0; z-index: 20; background: var(--color-bg); }
-.hud-title { font-family: var(--font-heading); font-weight: 500; }
-.hud-on { color: var(--color-neutral-400); font-size: 13px; }
-.hud-stats { display: flex; gap: var(--space-2); }
-.hud-clock {
-  font-size: var(--text-22); font-family: var(--font-heading); font-weight: 500;
-  letter-spacing: -.02em;
+.session {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--color-bg);
 }
-.session-end { position: absolute; left: var(--space-8); bottom: var(--space-8); }
+.hud-title {
+  font-family: var(--font-heading);
+  font-weight: 500;
+}
+.hud-on {
+  color: var(--color-neutral-400);
+  font-size: 13px;
+}
+.hud-stats {
+  display: flex;
+  gap: var(--space-2);
+}
+.hud-clock {
+  font-size: var(--text-22);
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.session-end {
+  position: absolute;
+  left: var(--space-8);
+  bottom: var(--space-8);
+}
 
 /* — profile — */
 .profile {
-  position: relative; flex: 1; min-height: 0; overflow-y: auto;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-8) var(--space-8) 56px;
-  display: flex; flex-direction: column; gap: var(--space-8);
-  max-width: 780px; animation: swiff-rise .5s ease both;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  max-width: 780px;
+  animation: swiff-rise 0.5s ease both;
 }
-.profile-head { display: flex; align-items: center; gap: var(--space-6); }
-.profile-id { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+.profile-id {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .profile-name {
-  font-family: var(--font-heading); font-weight: 500; font-size: 30px;
-  line-height: 1.05; letter-spacing: -.02em;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
 }
 .profile-line {
-  display: flex; align-items: center; gap: 8px;
-  font-size: var(--text-12); line-height: var(--lh-16); color: var(--color-neutral-300);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-12);
+  line-height: var(--lh-16);
+  color: var(--color-neutral-300);
 }
-.profile-connect { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
-.profile-sub { font-size: 13px; color: var(--color-neutral-400); }
-.profile-section { display: flex; flex-direction: column; gap: var(--space-6); }
-.profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-8); }
-.profile-fine { margin: 0; font-size: var(--text-12); color: var(--color-neutral-500); }
-.device-row { display: flex; gap: var(--space-2); }
+.profile-connect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.profile-sub {
+  font-size: 13px;
+  color: var(--color-neutral-400);
+}
+.profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-8);
+}
+.profile-fine {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-neutral-500);
+}
+.device-row {
+  display: flex;
+  gap: var(--space-2);
+}
 
 /* — big displays —
    The prototype's two tiers. display.ts decides which one applies and puts it
@@ -114,40 +267,88 @@
    sideways strip and every screen scales up again. */
 :root:is([data-display="wide"], [data-display="ultra"]) {
   .menu {
-    --pocket-shape: ellipse 34vw 75% at 14vw 50%; --pocket-from: 80%; --pocket-mid: 35%;
+    --pocket-shape: ellipse 34vw 75% at 14vw 50%;
+    --pocket-from: 80%;
+    --pocket-mid: 35%;
     --hero-xl-max: min(1100px, 56vw);
-    --hero-xl-title: clamp(96px, min(10vw, 22vh), 180px); --hero-xl-title-lh: .86;
-    --hero-xl-meta: clamp(14px, .9vw, 17px); --hero-xl-meta-lh: 1.4; --hero-xl-meta-gap: clamp(12px, 2vh, 24px);
-    --hero-xl-body: clamp(20px, 1.4vw, 28px); --hero-xl-body-max: 30ch;
-    --btn-xl-height: clamp(60px, 4.4vw, 80px); --btn-xl-padding: 0 clamp(36px, 2.8vw, 56px); --btn-xl-size: 20px;
+    --hero-xl-title: clamp(96px, min(10vw, 22vh), 180px);
+    --hero-xl-title-lh: 0.86;
+    --hero-xl-meta: clamp(14px, 0.9vw, 17px);
+    --hero-xl-meta-lh: 1.4;
+    --hero-xl-meta-gap: clamp(12px, 2vh, 24px);
+    --hero-xl-body: clamp(20px, 1.4vw, 28px);
+    --hero-xl-body-max: 30ch;
+    --btn-xl-height: clamp(60px, 4.4vw, 80px);
+    --btn-xl-padding: 0 clamp(36px, 2.8vw, 56px);
+    --btn-xl-size: 20px;
   }
-  .menu-hero { justify-content: center; padding-bottom: 2vh; padding-left: 5vw; max-width: none; }
-  .menu-launch { margin-top: clamp(24px, 4vh, 48px); gap: 12px; }
+  .menu-hero {
+    justify-content: center;
+    padding-bottom: 2vh;
+    padding-left: 5vw;
+    max-width: none;
+  }
+  .menu-launch {
+    margin-top: clamp(24px, 4vh, 48px);
+    gap: 12px;
+  }
   .menu-sub {
-    font-size: 17px; line-height: 24px; gap: var(--space-8);
-    --meter-label-size: 14px; --meter-seg-w: 22px; --meter-seg-h: 6px; --meter-gap: 4px;
+    font-size: 17px;
+    line-height: 24px;
+    gap: var(--space-8);
+    --meter-label-size: 14px;
+    --meter-seg-w: 22px;
+    --meter-seg-h: 6px;
+    --meter-gap: 4px;
   }
-  .selector-cards { --meter-label-size: 14px; --meter-seg-w: 20px; --meter-seg-h: 5px; }
+  .selector-cards {
+    --meter-label-size: 14px;
+    --meter-seg-w: 20px;
+    --meter-seg-h: 5px;
+  }
 }
 
 /* At 2200px and up the prototype's fluid values have all reached their caps,
    so they are plain numbers here. */
 :root[data-display="ultra"] {
   /* The strip fills what is left under the header; the page does not scroll. */
-  .wall-main { overflow: hidden; }
-  .menu {
-    --pocket-shape: ellipse 30vw 70% at 12vw 58%; --pocket-from: 78%; --pocket-mid: 30%;
-    --hero-xl-max: 900px; --hero-xl-meta: 20px; --hero-xl-body: 22px;
-    --btn-xl-height: 76px; --btn-xl-padding: 0 2.4vw; --btn-xl-size: 26px;
+  .wall-main {
+    overflow: hidden;
   }
-  .menu-hero, .selector { padding-inline: 6vw; }
-  .menu-sub { font-size: 16px; }
+  .menu {
+    --pocket-shape: ellipse 30vw 70% at 12vw 58%;
+    --pocket-from: 78%;
+    --pocket-mid: 30%;
+    --hero-xl-max: 900px;
+    --hero-xl-meta: 20px;
+    --hero-xl-body: 22px;
+    --btn-xl-height: 76px;
+    --btn-xl-padding: 0 2.4vw;
+    --btn-xl-size: 26px;
+  }
+  .menu-hero,
+  .selector {
+    padding-inline: 6vw;
+  }
+  .menu-sub {
+    font-size: 16px;
+  }
   .selector-cards {
     gap: 14px;
-    --machine-min-h: clamp(104px, 9vh, 140px); --machine-rec-min-h: clamp(128px, 11vh, 168px);
+    --machine-min-h: clamp(104px, 9vh, 140px);
+    --machine-rec-min-h: clamp(128px, 11vh, 168px);
   }
-  .ignition { --ring-size: 160px; --ring-label-size: 28px; }
-  .session { font-size: 20px; }
-  .hud-stats { --tag-size: 16px; }
-  .hud-clock { font-size: 30px; }
+  .ignition {
+    --ring-size: 160px;
+    --ring-label-size: 28px;
+  }
+  .session {
+    font-size: 20px;
+  }
+  .hud-stats {
+    --tag-size: 16px;
+  }
+  .hud-clock {
+    font-size: 30px;
+  }
 }

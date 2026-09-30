@@ -1,14 +1,33 @@
 /* Near-opaque ground rather than a backdrop blur: at 92% the blur barely showed
    and cost a full-viewport pass on every frame of the trailer behind it. */
 .overlay {
-  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
   background: color-mix(in srgb, var(--color-bg) 94%, transparent);
-  animation: swiff-fadein .4s ease both;
+  animation: swiff-fadein 0.4s ease both;
 }
 /* Soft by its gradient alone, so the breathing scale/opacity stays on the compositor. */
 .overlay-glow {
-  position: absolute; width: min(70vmin, 720px); height: min(70vmin, 720px); border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 20%, transparent), transparent 80%);
-  animation: swiff-breathe-glow 5s ease-in-out infinite; pointer-events: none; will-change: transform;
+  position: absolute;
+  width: min(70vmin, 720px);
+  height: min(70vmin, 720px);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-accent) 20%, transparent),
+    transparent 80%
+  );
+  animation: swiff-breathe-glow 5s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform;
 }
-.overlay-stack { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-6); }
+.overlay-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+}

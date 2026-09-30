@@ -34,8 +34,7 @@ afterEach(() => vi.unstubAllGlobals());
 function stubPeerConnection() {
   const listeners = new Map<string, (event: unknown) => void>();
   const spy = vi.fn(function (this: Record<string, unknown>, _config: RTCConfiguration) {
-    this.addEventListener = (type: string, fn: (event: unknown) => void) =>
-      listeners.set(type, fn);
+    this.addEventListener = (type: string, fn: (event: unknown) => void) => listeners.set(type, fn);
   });
   vi.stubGlobal("RTCPeerConnection", spy);
   return { spy, fire: (type: string, event: unknown) => listeners.get(type)?.(event) };

@@ -76,7 +76,9 @@ afterEach(() => {
 
 describe("connectSignaling", () => {
   it("hands the caller a send function once the socket opens", () => {
-    const onOpen = vi.fn((send: (m: SignalMessage) => void) => send({ type: "register", hostId: "pc-1", key: "k" }));
+    const onOpen = vi.fn((send: (m: SignalMessage) => void) =>
+      send({ type: "register", hostId: "pc-1", key: "k" }),
+    );
     connectSignaling({ url: TEST_URL, onOpen, onMessage: vi.fn() });
 
     expect(onOpen).not.toHaveBeenCalled(); // nothing before the socket is up
@@ -256,11 +258,6 @@ describe("connectSignaling", () => {
 
     // The retry announces itself only once the backoff has actually elapsed.
     vi.advanceTimersByTime(BACKOFF_MIN_MS);
-    expect(onStatus.mock.calls.map((c) => c[0])).toEqual([
-      "connecting",
-      "open",
-      "closed",
-      "connecting",
-    ]);
+    expect(onStatus.mock.calls.map((c) => c[0])).toEqual(["connecting", "open", "closed", "connecting"]);
   });
 });
