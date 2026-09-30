@@ -118,7 +118,7 @@ test.describe("Swiff Host desktop app", () => {
   test("does not leak node into the renderer", async () => {
     const window = await app.firstWindow();
 
-    // The preload deliberately exposes nothing. If `require` or `process` ever
+    // The preload exposes two key-storage calls and nothing else. If `require` or `process` ever
     // shows up in the renderer, a page bug becomes a machine compromise — and
     // this app runs on a box a stranger is paying to control.
     const leaked = await window.evaluate(() => ({
@@ -128,6 +128,19 @@ test.describe("Swiff Host desktop app", () => {
     }));
 
     expect(leaked).toEqual({ require: "undefined", process: "undefined", module: "undefined" });
+  });
+
+  test("exposes only the machine-key calls to the renderer", async () => {
+    const window = await app.firstWindow();
+
+    // The key is a credential for this machine's room. The renderer may ask
+    // main to store and return it; it gets no other door into main.
+    const bridge = await window.evaluate(() => {
+      const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
+      return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
+    });
+
+    expect(bridge).toEqual({ loadMachineKey: "function", saveMachineKey: "function" });
   });
 
   test("stays up with no uncaught errors in the renderer", async () => {

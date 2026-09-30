@@ -10,10 +10,12 @@
 // messages the two peers would exchange to build one.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { connectSignaling } from "@swiff/rtc";
+import { mintTicket } from "../../../server/src/access";
 
 const PORT = 8500 + Math.floor(Math.random() * 400);
 const SIGNALING_URL = `ws://127.0.0.1:${PORT}`;
@@ -64,6 +66,20 @@ function findServerEntry(root: string): string {
   if (!main) throw new Error(`${manifest} declares no "main" to run`);
   return resolve(root, "server", main);
 }
+
+// Every room a test may use is a registered machine, all sharing one key.
+const SECRET = "integration-room-secret-long-enough-to-pass";
+const MACHINE_KEY = "integration-machine-key";
+const ROOMS = Array.from({ length: 30 }, (_, i) => `it-pc-${i}`);
+const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
+let roomIndex = 0;
+const nextRoom = () => ROOMS[roomIndex++];
+
+const register = (room: string): SignalMessage => ({ type: "register", hostId: room, key: MACHINE_KEY });
+const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessage => ({
+  type: "join",
+  ticket,
+});
 
 const REPO_ROOT = findRepoRoot();
 const SERVER_ENTRY = findServerEntry(REPO_ROOT);
@@ -130,7 +146,12 @@ beforeAll(async () => {
 
   server = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: resolve(REPO_ROOT, "server"),
-    env: { ...process.env, PORT: String(PORT) },
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      ROOM_SECRET: SECRET,
+      MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+    },
     stdio: "ignore",
   });
 
@@ -160,12 +181,12 @@ afterAll(() => {
 
 describe("web client against the real signaling server", () => {
   it("carries an offer from the host to the renter and the answer back", async () => {
-    const room = `it-${Math.random().toString(36).slice(2)}`;
+    const room = nextRoom();
 
-    const host = peer({ type: "register", hostId: room });
+    const host = peer(register(room));
     await host.waitFor("registered");
 
-    const renter = peer({ type: "join", hostId: room });
+    const renter = peer(join(room));
     const joined = await renter.waitFor("joined");
     expect(joined.hostOnline).toBe(true);
 
@@ -182,10 +203,10 @@ describe("web client against the real signaling server", () => {
   });
 
   it("relays ICE candidates in both directions", async () => {
-    const room = `ice-${Math.random().toString(36).slice(2)}`;
-    const host = peer({ type: "register", hostId: room });
+    const room = nextRoom();
+    const host = peer(register(room));
     await host.waitFor("registered");
-    const renter = peer({ type: "join", hostId: room });
+    const renter = peer(join(room));
     await renter.waitFor("joined");
     await host.waitFor("peer-joined");
 
@@ -197,17 +218,17 @@ describe("web client against the real signaling server", () => {
   });
 
   it("tells a renter the gaming PC is offline when nobody has registered", async () => {
-    const renter = peer({ type: "join", hostId: `empty-${Date.now()}` });
+    const renter = peer(join(nextRoom()));
 
     expect((await renter.waitFor("joined")).hostOnline).toBe(false);
   });
 
   it("lets a renter wait in an empty room until the host shows up", async () => {
-    const room = `late-${Date.now()}`;
-    const renter = peer({ type: "join", hostId: room });
+    const room = nextRoom();
+    const renter = peer(join(room));
     expect((await renter.waitFor("joined")).hostOnline).toBe(false);
 
-    const host = peer({ type: "register", hostId: room });
+    const host = peer(register(room));
     await host.waitFor("registered");
 
     // Without this the late host never learns to offer and both sides hang.
@@ -215,10 +236,10 @@ describe("web client against the real signaling server", () => {
   });
 
   it("tells the host when the renter goes away", async () => {
-    const room = `left-${Date.now()}`;
-    const host = peer({ type: "register", hostId: room });
+    const room = nextRoom();
+    const host = peer(register(room));
     await host.waitFor("registered");
-    const renter = peer({ type: "join", hostId: room });
+    const renter = peer(join(room));
     await host.waitFor("peer-joined");
 
     renter.signaling.close();
@@ -227,7 +248,7 @@ describe("web client against the real signaling server", () => {
   });
 
   it("never surfaces the keepalive to the application", async () => {
-    const host = peer({ type: "register", hostId: `ping-${Date.now()}` });
+    const host = peer(register(nextRoom()));
     await host.waitFor("registered");
 
     host.send({ type: "ping" });
@@ -238,28 +259,28 @@ describe("web client against the real signaling server", () => {
   });
 
   it("hands a reconnecting host its room back instead of locking it out", async () => {
-    const room = `replace-${Date.now()}`;
-    const first = peer({ type: "register", hostId: room });
+    const room = nextRoom();
+    const first = peer(register(room));
     await first.waitFor("registered");
 
     // A host whose machine slept comes back on a brand new socket.
-    const second = peer({ type: "register", hostId: room });
+    const second = peer(register(room));
     await second.waitFor("registered");
 
-    const renter = peer({ type: "join", hostId: room });
+    const renter = peer(join(room));
     expect((await renter.waitFor("joined")).hostOnline).toBe(true);
     await second.waitFor("peer-joined");
   });
 
   it("reconnects by itself when the server drops the socket", async () => {
-    const room = `retry-${Date.now()}`;
-    const host = peer({ type: "register", hostId: room });
+    const room = nextRoom();
+    const host = peer(register(room));
     await host.waitFor("registered");
 
     // Registering the same room from elsewhere makes the server close the first
     // socket — the same shape as a network blip, and the client should come
     // back on its own and re-register.
-    const usurper = peer({ type: "register", hostId: room });
+    const usurper = peer(register(room));
     await usurper.waitFor("registered");
     usurper.signaling.close();
 
@@ -276,17 +297,19 @@ describe("web client against the real signaling server", () => {
   // held the room next, so a renter who refreshed made the host tear down the
   // connection it had just built for them — no picture until the host restarted.
   it("does not tell the host a renter left when that renter was only replaced", async () => {
-    const room = `refresh-${Date.now()}`;
-    const host = peer({ type: "register", hostId: room });
+    const room = nextRoom();
+    const host = peer(register(room));
     await host.waitFor("registered");
 
-    const first = peer({ type: "join", hostId: room });
+    // Same ticket both times: the link the renter opened is the same one.
+    const ticket = mintTicket(SECRET, room, 600);
+    const first = peer(join(room, ticket));
     await first.waitFor("joined");
     await host.waitFor("peer-joined");
 
     // The renter hits refresh: a new socket joins the same room, and the old
     // one is closed by the server a moment later.
-    const second = peer({ type: "join", hostId: room });
+    const second = peer(join(room, ticket));
     await second.waitFor("joined");
     await wait(500);
 
@@ -300,8 +323,16 @@ describe("web client against the real signaling server", () => {
     ).toBe(true);
   });
 
+  it("gives up, rather than retrying forever, when the server refuses the ticket", async () => {
+    const renter = peer({ type: "join", ticket: "not-a-ticket" });
+
+    expect((await renter.waitFor("denied")).reason).toBe("bad-ticket");
+    await wait(1500); // longer than the first backoff
+    expect(renter.statuses).toEqual(["connecting", "open", "closed"]);
+  });
+
   it("reports the connection status to the UI", async () => {
-    const host = peer({ type: "register", hostId: `status-${Date.now()}` });
+    const host = peer(register(nextRoom()));
     await host.waitFor("registered");
 
     expect(host.statuses).toEqual(["connecting", "open"]);

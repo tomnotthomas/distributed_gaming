@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
-import { DEFAULT_HOST_ID, toSocketUrl } from "./settings";
+import { toSocketUrl } from "./settings";
+
+export type Credentials = { machineId: string; machineKey: string };
 
 /** Capture the screen, then hold the signaling session open while it runs. */
 export function useScreenShare() {
@@ -9,12 +11,17 @@ export function useScreenShare() {
   const [peerHere, setPeerHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const urlRef = useRef("");
+  const credentialsRef = useRef<Credentials>({ machineId: "", machineKey: "" });
 
-  const start = async (rawUrl: string) => {
+  const start = async (rawUrl: string, credentials: Credentials) => {
     setError(null);
     const url = toSocketUrl(rawUrl);
     if (!url) return setError("Paste the signaling server address first.");
+    if (!credentials.machineId || !credentials.machineKey) {
+      return setError("Fill in this machine's id and key first.");
+    }
     urlRef.current = url;
+    credentialsRef.current = credentials;
     try {
       // Electron's main process answers this with the primary screen, so no
       // picker appears. The size hints are ignored, as they are in Chrome.
@@ -45,10 +52,16 @@ export function useScreenShare() {
     if (!stream) return;
     const session = startHostSession({
       url: urlRef.current,
-      hostId: DEFAULT_HOST_ID,
+      hostId: credentialsRef.current.machineId,
+      machineKey: credentialsRef.current.machineKey,
       stream,
       onPeerHere: setPeerHere,
       onPeerConnection: setPc,
+      onDenied: () => {
+        setError("The server refused this machine id and key.");
+        stream.getTracks().forEach((t) => t.stop());
+        setStream(null);
+      },
     });
     return () => session.stop();
   }, [stream]);

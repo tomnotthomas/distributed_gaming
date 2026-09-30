@@ -9,19 +9,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
-import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
+import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
 
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  // Typed in each time and never stored: this page is a dev tool, and a
+  // browser's storage is not a place for a machine's credential.
+  const [machineKey, setMachineKey] = useState("");
   const [peerHere, setPeerHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
 
   const startSharing = async () => {
     setError(null);
+    if (!machineKey.trim()) return setError("Paste this machine's key first.");
     try {
       // Chrome IGNORES width/height/frameRate passed in here, so the returned
       // track is whatever the monitor is. Downscale afterwards.
@@ -54,11 +58,18 @@ export function Host() {
     const session = startHostSession({
       url: SIGNALING_URL,
       hostId: HOST_ID,
+      machineKey: machineKey.trim(),
       stream,
       onPeerHere: setPeerHere,
       onPeerConnection: setPc,
+      onDenied: () => {
+        setError("The server refused this machine key.");
+        stream.getTracks().forEach((t) => t.stop());
+        setStream(null);
+      },
     });
     return () => session.stop();
+    // The key is read when sharing starts; editing it mid-session changes nothing.
   }, [stream]);
 
   return (
@@ -67,6 +78,16 @@ export function Host() {
       subtitle="Share this screen with whoever joins the room."
       meta={<Tag label="Room">{HOST_ID}</Tag>}
     >
+      <Field label="Machine key" hint="From npm run machine-key. Not stored.">
+        <Input
+          type="password"
+          autoComplete="off"
+          value={machineKey}
+          disabled={!!stream}
+          onChange={(e) => setMachineKey(e.target.value)}
+        />
+      </Field>
+
       <div className="row">
         {!stream ? (
           <Button size="lg" onClick={() => void startSharing()}>

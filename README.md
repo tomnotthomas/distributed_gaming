@@ -13,7 +13,8 @@ System design: [renter](docs/system-design/renter.md), [host](docs/system-design
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env              # then set ROOM_SECRET
+npm run machine-key -- gaming-pc-1   # key for the host app, entry for MACHINE_KEYS
 ```
 
 ## Renter side (web app + server)
@@ -22,6 +23,8 @@ cp .env.example .env
 npm run dev       # builds web/, serves it and signaling on :8080
 npm run dev:web   # vite with HMR, run signaling separately with npm start
 ```
+
+A renter joins with a link from `npm run ticket -- gaming-pc-1`.
 
 Code: `web/`, `server/`, `packages/`.
 

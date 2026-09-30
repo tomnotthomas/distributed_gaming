@@ -4,8 +4,33 @@
 // human click "Share this screen" on the gaming PC. setDisplayMediaRequestHandler
 // answers that request in code, so a rental machine needs nobody sitting at it.
 
-const { app, BrowserWindow, desktopCapturer, session } = require("electron");
+const { app, BrowserWindow, desktopCapturer, ipcMain, safeStorage, session } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
+
+// The machine key, encrypted by the OS for the logged-in Windows user. Never
+// written in the clear: where encryption is unavailable it is not stored at
+// all, and the owner pastes it again next launch.
+const keyFile = () => path.join(app.getPath("userData"), "machine-key.bin");
+
+ipcMain.handle("machine-key:load", () => {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return "";
+    return safeStorage.decryptString(fs.readFileSync(keyFile()));
+  } catch {
+    return "";
+  }
+});
+
+ipcMain.handle("machine-key:save", (_event, key) => {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  if (!key) {
+    fs.rmSync(keyFile(), { force: true });
+    return true;
+  }
+  fs.writeFileSync(keyFile(), safeStorage.encryptString(String(key)));
+  return true;
+});
 
 // Chrome hides local IPs behind random `<uuid>.local` names, which the renter
 // must resolve over mDNS. Windows-to-macOS that often fails, and most home

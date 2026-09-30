@@ -50,10 +50,14 @@ async function setLocalDescription(
 export type HostSessionOptions = IceConfig & {
   url: string;
   hostId: string;
+  /** This machine's key, from `npm run machine-key`. Without the right one the server refuses the room. */
+  machineKey: string;
   stream: MediaStream;
   capture?: CaptureSettings;
   onPeerHere: (here: boolean) => void;
   onPeerConnection: (pc: RTCPeerConnection | null) => void;
+  /** The server refused the machine key. Final: the session does not retry. */
+  onDenied?: () => void;
 };
 
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
@@ -107,9 +111,12 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   const signaling = connectSignaling({
     url: opts.url,
-    onOpen: (send) => send({ type: "register", hostId: opts.hostId }),
+    onOpen: (send) => send({ type: "register", hostId: opts.hostId, key: opts.machineKey }),
     onMessage: (msg, send) => {
       switch (msg.type) {
+        case "denied":
+          opts.onDenied?.();
+          break;
         case "registered":
           serverIce = msg.iceServers ?? [];
           break;
