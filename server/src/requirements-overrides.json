@@ -66,10 +66,10 @@
   "489830": {
     "name": "The Elder Scrolls V: Skyrim Special Edition",
     "minGpu": "GTX 1050",
-    "recGpu": "GTX 1050 Ti",
+    "recGpu": "GTX 780",
     "minRamGb": 8,
     "minVramGb": 1,
-    "why": "Steam names a GTX 470 and a GTX 780, both older than the table. The minimum is its lowest card and the recommended a GTX 1050 Ti, near a GTX 780."
+    "why": "Steam names a GTX 470, older than the table, and a GTX 780. The minimum is the table's lowest card and the recommended the stated GTX 780."
   },
   "945360": {
     "name": "Among Us",
