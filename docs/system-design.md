@@ -18,8 +18,8 @@ Source: [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd).
    can only browse and never see machine availability.
 3. The renter can book a game for a number of minutes.
 4. The renter is matched to a free gaming PC that can run the game.
-5. The renter can see and hear the machine in the browser, and control it with mouse,
-   keyboard and gamepad.
+5. The renter can play the game in the browser on the remote gaming PC, with Steam
+   already started for them.
 6. The renter can end the session and is charged for the time played.
 7. The owner can offer a PC for rent, with its hardware, price and how long it is available.
 8. The owner can take the machine back at any moment (kill switch).
