@@ -27,6 +27,7 @@ flowchart LR
   subgraph Platform["Swiff platform"]
     API["Host API"]
     DB[("Database")]
+    S3[("Save storage · S3")]
   end
   subgraph Connect["Connecting host and renter"]
     direction TB
@@ -47,6 +48,7 @@ flowchart LR
   Steam -- "game screen" --> Capture
   HostApp -- "available now · heartbeat<br/>session started / ended" --> API
   API -- "write" --> DB
+  HostApp -- "session start · download saves<br/>session end · upload saves, then wipe" --> S3
   HostApp <-- "WebSocket · register<br/>SDP/ICE" --> SIG
   SIG <-- "WebSocket · join<br/>SDP/ICE" --> Renter
   HostApp -. "my public address?" .-> STUN
@@ -59,7 +61,7 @@ flowchart LR
   classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
   class Owner,Installer,HostApp owner
   class Account,Steam,Capture,Wiped,Renter session
-  class API,DB,SIG,STUN platform
+  class API,DB,S3,SIG,STUN platform
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   class TURN turn
   style Platform fill:#ffffff,stroke:#ccc,color:#444

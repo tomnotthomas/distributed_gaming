@@ -24,6 +24,8 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
    their own.
 6. The renter can control the game with mouse, keyboard and gamepad.
 7. The owner gets the PC back, unchanged, when the session ends.
+8. The renter keeps their game progress: saves from one session are there in the next,
+   on any machine.
 
 ---
 
@@ -36,6 +38,7 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 | **Latency** | The system injects input as OS-level input the moment it arrives. | Input delay is felt far more than video delay. |
 | **Correctness of input** | The system never leaves a key held down. | A dropped key-up walks the character into a wall until the session ends. |
 | **Liveness** | The system reports the PC's state every few seconds, and stops offering it within seconds of it going offline. | Matching a renter to a dead machine wastes their time. |
+| **Durability** | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds. | The wipe would otherwise delete the renter's progress. |
 | **Control** | The system hands the PC back to the owner instantly on the kill switch, and stops input at the same moment. | The owner has to trust they can always take their machine back. |
 | **Trust** | The system ships as a signed installer. | Screen capture plus input injection looks like malware to antivirus and SmartScreen. |
 
@@ -62,6 +65,7 @@ Source: [`../diagrams/host-workflow.mmd`](../diagrams/host-workflow.mmd).
 |---|---|---|
 | **Machine** | This PC, as the platform knows it. | `id`, `owner_id`, `gpu`, `cpu`, `price`, `status`, `available_until`, `last_seen_at` |
 | **Session** | One renter playing on this PC. | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price` |
+| **Save** | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at` |
 | **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC |
 
 Machine `status`: `idle` → `available` → `in_session` → `available` (or `idle` when the
@@ -85,6 +89,13 @@ POST /sessions/:id/start
 POST /sessions/:id/end
   { endedAt }
   Mark the session started, and ended (renter left, time ran out, or kill switch).
+
+GET  /sessions/:id/saves
+  → 200 { downloadUrl? }
+POST /sessions/:id/saves
+  → 200 { uploadUrl }
+  Short-lived S3 links for this renter's saves for this game. The PC never holds
+  storage credentials. Download before the game starts; upload before the wipe.
 ```
 
 ### Connection setup (WebSocket)

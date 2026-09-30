@@ -32,6 +32,7 @@ flowchart LR
     Q["Queue"]
     MM["Matchmaker worker"]
     DB[("Database")]
+    S3[("Save storage · S3")]
     SIG["Connection setup<br/>swaps public addresses"]
   end
 
@@ -41,7 +42,8 @@ flowchart LR
     T2["bookings<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>minutes · status"]
     T3["reservations<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>expires_at"]
     T4["sessions<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>started_at<br/>ended_at · price"]
-    T1 ~~~ T2 ~~~ T3 ~~~ T4
+    T5["saves<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>s3_key · updated_at"]
+    T1 ~~~ T2 ~~~ T3 ~~~ T4 ~~~ T5
   end
 
 
@@ -57,6 +59,7 @@ flowchart LR
   SIG <-- "WebSocket" --> PC
   PC -- "available now · heartbeat<br/>session started / ended" --> HAPI
   HAPI -- "write" --> DB
+  PC -- "download saves at start<br/>upload saves at end" --> S3
   Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> PC
   PC -. "fallback" .-> TURN
   Renter <-.- TURN
@@ -69,10 +72,10 @@ flowchart LR
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   classDef note fill:none,stroke:none,color:#666,font-style:italic
   classDef table fill:#fffbe8,stroke:#e0d58a,color:#333
-  class API,HAPI,Q,MM,DB platform
+  class API,HAPI,Q,MM,DB,S3 platform
   class Renter,PC,SIG,STUN endpoint
   class TURN turn
-  class T1,T2,T3,T4 table
+  class T1,T2,T3,T4,T5 table
   class TURNnote,STUNnote note
   style Platform fill:#ffffff,stroke:#ccc,color:#444
   style Data fill:#ffffff,stroke:#ccc,color:#444

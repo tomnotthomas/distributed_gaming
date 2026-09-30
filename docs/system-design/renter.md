@@ -23,8 +23,9 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
 5. The renter can play the game in the browser on the remote gaming PC, with Steam
    already started for them.
 6. The renter can end the session and is charged for the time played.
-7. The owner can offer a PC for rent, with its hardware, price and how long it is available.
-8. The owner can take the machine back at any moment (kill switch).
+7. The renter keeps their game progress between sessions, on any machine.
+8. The owner can offer a PC for rent, with its hardware, price and how long it is available.
+9. The owner can take the machine back at any moment (kill switch).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.
@@ -68,6 +69,7 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Booking** | A renter's request to play a game for N minutes. | `id`, `renter_id`, `game_id`, `minutes`, `status` |
 | **Reservation** | A machine held for one booking, for a limited time. | `id`, `booking_id`, `machine_id`, `expires_at` |
 | **Session** | Time actually played on a machine. What gets charged. | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price` |
+| **Save** | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at` |
 | **User** | A renter or owner, identified by their Steam account. | `id`, `steam_id` |
 | **Game** | Something in the catalogue. Comes from Steam. | `id` (Steam app id), `name` |
 
