@@ -1,38 +1,23 @@
 ---
 config:
   theme: base
+  flowchart:
+    curve: basis
+    nodeSpacing: 30
+    rankSpacing: 28
+    htmlLabels: true
   themeVariables:
     fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif"
-    fontSize: 14px
-    primaryColor: "#e8f1fb"
-    primaryBorderColor: "#6d9ed3"
-    primaryTextColor: "#0b2a4a"
+    fontSize: 16px
     lineColor: "#333333"
-    noteBkgColor: "#ffffff"
-    noteBorderColor: "#ffffff"
-    noteTextColor: "#666666"
-    actorBkg: "#e8f1fb"
-    actorBorder: "#6d9ed3"
+    primaryTextColor: "#0b2a4a"
   themeCSS: >-
-    svg, text, tspan, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
-    .noteText, .noteText tspan { font-weight: 600; fill: #222 !important; font-size: 15px !important; }
-    .labelText, .loopText, .loopText tspan { font-weight: bold; fill: #444 !important; }
+    svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
 ---
-sequenceDiagram
-  autonumber
-  participant R as Renter
-  participant API as Booking API
-  participant MM as Matchmaker
-  participant SIG as Connection setup
-  participant PC as Gaming PC
+flowchart LR
+  S1["<b>1</b><br/>Book<br/>a game"] --> S2["<b>2</b><br/>Find<br/>a machine"] --> S3["<b>3</b><br/>Reserve<br/>a free PC"] --> S4["<b>4</b><br/>Machine<br/>ready"] --> S5["<b>5</b><br/>Connect"] --> S6["<b>6</b><br/>Tell<br/>the PC"] --> S7["<b>7</b><br/>Direct<br/>connection"] --> S8["<b>8</b><br/>Start Steam<br/>+ game"] --> S9["<b>9</b><br/>Stream<br/>the game"] --> S10["<b>10</b><br/>Play"]
 
-  R->>API: choose a game and book it (signed in with Steam)
-  API->>MM: find a machine for this booking
-  MM->>MM: pick a free gaming PC and reserve it
-  MM-->>R: machine ready
-  R->>SIG: connect
-  SIG->>PC: renter is coming
-  SIG-->>R: direct connection to the gaming PC
-  PC->>PC: start Steam and the game
-  PC->>R: stream the game
-  R->>PC: play
+  classDef step fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
+  classDef done fill:#fdf1dc,stroke:#e0a458,color:#8a5300
+  class S1,S2,S3,S4,S5,S6,S7,S8,S9 step
+  class S10 done
