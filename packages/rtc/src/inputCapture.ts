@@ -150,18 +150,9 @@ export function startInputCapture({
     wasLocked = locked();
   };
 
-  let away = false;
-  const onBlur = () => {
-    away = true;
-    sender.releaseAll("blur");
-  };
-  const onFocus = () => {
-    away = false;
-  };
+  const onBlur = () => sender.releaseAll("blur");
   const onVisibility = () => {
-    if (doc.visibilityState !== "hidden") return;
-    away = true;
-    sender.releaseAll("hidden");
+    if (doc.visibilityState === "hidden") sender.releaseAll("hidden");
   };
   const onContextMenu = (event: Event) => event.preventDefault();
 
@@ -174,7 +165,6 @@ export function startInputCapture({
   win.addEventListener("keydown", onKeyDown);
   win.addEventListener("keyup", onKeyUp);
   win.addEventListener("blur", onBlur);
-  win.addEventListener("focus", onFocus);
   doc.addEventListener("visibilitychange", onVisibility);
 
   // Controllers that were connected at the last poll, so one that vanishes is
@@ -182,7 +172,7 @@ export function startInputCapture({
   const seen = new Set<number>();
   const poll = () => {
     frame = requestFrame(poll);
-    if (away) return;
+    if (doc.visibilityState !== "visible" || !doc.hasFocus()) return;
     const present = new Set<number>();
     const pads = getGamepads();
     for (let i = 0; i < pads.length; i++) {
@@ -215,7 +205,6 @@ export function startInputCapture({
       win.removeEventListener("keydown", onKeyDown);
       win.removeEventListener("keyup", onKeyUp);
       win.removeEventListener("blur", onBlur);
-      win.removeEventListener("focus", onFocus);
       doc.removeEventListener("visibilitychange", onVisibility);
       if (locked()) doc.exitPointerLock?.();
       sender.close();

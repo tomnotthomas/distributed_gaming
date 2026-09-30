@@ -23,6 +23,7 @@ beforeEach(() => {
   pads = [];
   frames = [];
   setVisibility("visible");
+  setFocus(true);
 });
 
 afterEach(() => {
@@ -33,6 +34,10 @@ afterEach(() => {
 
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+}
+
+function setFocus(focused: boolean) {
+  Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
 }
 
 function lockPointer(element: Element | null) {
@@ -373,7 +378,13 @@ describe("startInputCapture", () => {
   });
 
   it.each([
-    ["the window loses focus", () => window.dispatchEvent(new Event("blur"))],
+    [
+      "the window loses focus",
+      () => {
+        setFocus(false);
+        window.dispatchEvent(new Event("blur"));
+      },
+    ],
     [
       "the tab is hidden",
       () => {
@@ -381,7 +392,7 @@ describe("startInputCapture", () => {
         document.dispatchEvent(new Event("visibilitychange"));
       },
     ],
-  ])("keeps a controller held through %s released until focus returns", (_, leave) => {
+  ])("keeps a controller held through %s released until the page is back", (_, leave) => {
     const { sink, capture, nextFrame } = session();
     const padEvents = () => sink.events.filter((e) => e.kind === "gamepad");
     pads = [fakePad(0, [7])];
@@ -394,11 +405,28 @@ describe("startInputCapture", () => {
     expect(padEvents()).toHaveLength(2);
     assertEveryPressReleased(sink.events);
 
+    // No focus event: a tab hidden while the window kept focus comes back without one.
+    setFocus(true);
     setVisibility("visible");
-    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
     nextFrame();
     expect(padEvents()).toHaveLength(3);
     expect(padEvents().at(-1)).toEqual(padEvents()[0]);
+    capture.stop();
+    assertEveryPressReleased(sink.events);
+  });
+
+  it("sends no controller state when capture starts while the page is unfocused", () => {
+    setFocus(false);
+    const { sink, capture, nextFrame } = session();
+    pads = [fakePad(0, [7])];
+    nextFrame();
+    nextFrame();
+    expect(sink.events.filter((e) => e.kind === "gamepad")).toEqual([]);
+
+    setFocus(true);
+    nextFrame();
+    expect(sink.events.filter((e) => e.kind === "gamepad")).toHaveLength(1);
     capture.stop();
     assertEveryPressReleased(sink.events);
   });
