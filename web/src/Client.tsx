@@ -27,6 +27,7 @@ const DENIED: Record<string, string> = {
   "room-taken": "Someone else is already playing on this machine.",
 };
 
+/** Render the renter page, joining with a ticket to play the stream and send input. */
 export function Client() {
   const [ticket] = useState(ticketFromUrl);
   const [room, setRoom] = useState<string | null>(null);

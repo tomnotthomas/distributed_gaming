@@ -32,14 +32,17 @@ afterEach(() => {
   Object.defineProperty(document, "pointerLockElement", { configurable: true, value: null });
 });
 
+/** Override the document visibility reported to input capture. */
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
 }
 
+/** Override document focus to control whether gamepad polling sends input. */
 function setFocus(focused: boolean) {
   Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
 }
 
+/** Set the simulated pointer-lock owner without dispatching a change event. */
 function lockPointer(element: Element | null) {
   Object.defineProperty(document, "pointerLockElement", { configurable: true, value: element });
 }
@@ -71,6 +74,7 @@ const keys = (sink: ReturnType<typeof recordingSink>) =>
     .filter((e) => e.kind === "key")
     .map((e) => (e.kind === "key" ? `${e.code}${e.down ? "↓" : "↑"}` : ""));
 
+/** Build a bubbling mouse event with movement deltas that jsdom does not initialise. */
 function mouse(type: string, init: MouseEventInit & { movementX?: number; movementY?: number } = {}) {
   const { movementX, movementY, ...rest } = init;
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, ...rest });
@@ -80,6 +84,7 @@ function mouse(type: string, init: MouseEventInit & { movementX?: number; moveme
   return event;
 }
 
+/** Build a connected standard controller with the requested buttons and axes. */
 function fakePad(index: number, pressed: number[] = [], axes = [0, 0, 0, 0]): Gamepad {
   const buttons = Array.from({ length: 17 }, (_, i) => ({
     pressed: pressed.includes(i),
@@ -450,6 +455,7 @@ describe("startInputCapture", () => {
 });
 
 describe("videoPoint", () => {
+  /** Create a video with fixed layout and source dimensions for coordinate mapping. */
   function sized(width: number, height: number, videoWidth: number, videoHeight: number) {
     const el = document.createElement("video");
     el.getBoundingClientRect = () => ({ left: 100, top: 50, width, height }) as DOMRect;

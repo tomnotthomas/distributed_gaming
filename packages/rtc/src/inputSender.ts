@@ -37,6 +37,11 @@ export type InputSender = {
 /** A quarter of the receiver's default timeout: three can go missing first. */
 export const DEFAULT_HEARTBEAT_MS = 250;
 
+/**
+ * Create a sender that encodes input onto its lane and sends periodic heartbeats.
+ * Tracks held input and suppresses duplicate states; close releases everything
+ * before stopping the heartbeat and preventing further sends.
+ */
 export function createInputSender(
   send: (bytes: Uint8Array<ArrayBuffer>, lane: InputLane) => void,
   { heartbeatMs = DEFAULT_HEARTBEAT_MS }: { heartbeatMs?: number } = {},
@@ -115,8 +120,10 @@ export function createInputSender(
   };
 }
 
-// Compared as encoded bytes: two states that quantise to the same message are
-// the same state as far as the PC can ever tell.
+/**
+ * Compared as encoded bytes: two states that quantise to the same message are
+ * the same state as far as the PC can ever tell.
+ */
 function stateKey(state: GamepadState): string {
   return encodeInput({ type: "gamepad", index: 0, state }).join(",");
 }

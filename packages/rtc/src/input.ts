@@ -113,10 +113,12 @@ const REASONS: ReleaseReason[] = ["blur", "hidden", "disconnect", "unlock"];
 // either a bug or someone probing the PC's injector with garbage.
 const KEY_CODE = /^[A-Za-z0-9]{1,32}$/;
 
+/** Accept only the protocol's 1–32 ASCII letters or digits for a physical key code. */
 export function isKeyCode(code: string): boolean {
   return KEY_CODE.test(code);
 }
 
+/** Return whether all controller buttons, axes and triggers are released. */
 export function isNeutralGamepad(state: GamepadState): boolean {
   return state.buttons === 0 && state.axes.every((a) => a === 0) && state.triggers.every((t) => t === 0);
 }
@@ -127,6 +129,10 @@ const unit16 = (v: number) => Math.round(clamp(v, 0, 1) * 65535);
 const axis16 = (v: number) => Math.round(clamp(v, -1, 1) * 32767);
 const unit8 = (v: number) => Math.round(clamp(v, 0, 1) * 255);
 
+/**
+ * Encode one input message, clamping and quantising motion and controller values.
+ * Throws RangeError for an invalid key code or an out-of-range gamepad slot.
+ */
 export function encodeInput(msg: InputMessage): Uint8Array<ArrayBuffer> {
   switch (msg.type) {
     case "move": {
@@ -245,12 +251,14 @@ export function decodeInput(data: ArrayBuffer | ArrayBufferView): InputMessage |
   }
 }
 
+/** Allocate a zero-filled frame and write its opcode into the first byte. */
 function frame(size: number, op: number): DataView<ArrayBuffer> {
   const view = new DataView(new ArrayBuffer(size));
   view.setUint8(0, op);
   return view;
 }
 
+/** Expose the frame's backing buffer as bytes without copying it. */
 function bytes(view: DataView<ArrayBuffer>): Uint8Array<ArrayBuffer> {
   return new Uint8Array(view.buffer);
 }

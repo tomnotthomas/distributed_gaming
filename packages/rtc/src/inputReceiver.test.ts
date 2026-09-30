@@ -13,6 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Create a recording receiver with a release spy and a helper to feed encoded messages. */
 function setup(timeoutMs = 1_000) {
   const sink = recordingSink();
   const onRelease = vi.fn();

@@ -58,6 +58,11 @@ export type InputCapture = {
   stop(): void;
 };
 
+/**
+ * Forward the video's mouse, keyboard and controller input over the supplied channels.
+ * Releases held input on blur, hidden tabs and pointer-lock exit; the returned
+ * stop method releases input and removes listeners, polling and the heartbeat.
+ */
 export function startInputCapture({
   target,
   channels,
@@ -254,20 +259,25 @@ export function gamepadState(pad: Gamepad): GamepadState {
   };
 }
 
-// Chrome coalesces pointer events to one per frame and keeps the rest here;
-// each carries its own movement. Browsers without it report the sum on the
-// event itself.
+/**
+ * Chrome coalesces pointer events to one per frame and keeps the rest here;
+ * each carries its own movement. Browsers without it report the sum on the
+ * event itself.
+ */
 function coalesced(event: PointerEvent): MouseEvent[] {
   const all = event.getCoalescedEvents?.();
   return all?.length ? all : [event];
 }
 
+/** Narrow a DOM button number to one of the protocol's five mouse buttons. */
 function isMouseButton(button: number): button is MouseButton {
   return Number.isInteger(button) && button >= 0 && button <= 4;
 }
 
-// What one unit of `deltaY` is worth in 1/120 notches. Chrome and Edge report
-// pixels, 100 to a notch; Firefox reports lines, 3 to a notch.
+/**
+ * What one unit of `deltaY` is worth in 1/120 notches. Chrome and Edge report
+ * pixels, 100 to a notch; Firefox reports lines, 3 to a notch.
+ */
 function wheelUnit(deltaMode: number): number {
   if (deltaMode === 1) return WHEEL_NOTCH / 3; // DOM_DELTA_LINE
   if (deltaMode === 2) return WHEEL_NOTCH; // DOM_DELTA_PAGE
@@ -289,9 +299,11 @@ function remainder() {
   };
 }
 
-// Chrome can lock without mouse acceleration, which is what games expect; a
-// browser without that option, or one that refuses the lock outright, still
-// gets absolute motion, so a refusal is not an error.
+/**
+ * Chrome can lock without mouse acceleration, which is what games expect; a
+ * browser without that option, or one that refuses the lock outright, still
+ * gets absolute motion, so a refusal is not an error.
+ */
 function lockPointer(target: HTMLElement) {
   if (!target.requestPointerLock) return;
   try {

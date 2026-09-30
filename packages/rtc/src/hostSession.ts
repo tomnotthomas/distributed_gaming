@@ -68,6 +68,11 @@ export type HostSessionOptions = IceConfig & {
   onInputChannels?: (channels: Record<InputLane, RTCDataChannel>) => void;
 };
 
+/**
+ * Register the host and negotiate its media stream and input channels with renters.
+ * Reports peer and channel changes through callbacks; stop closes signaling and
+ * tears down the current peer connection.
+ */
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
   const capture = opts.capture ?? DEFAULT_CAPTURE;
   let pc: RTCPeerConnection | null = null;

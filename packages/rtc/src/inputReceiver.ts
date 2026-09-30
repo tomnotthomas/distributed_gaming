@@ -80,6 +80,11 @@ export type InputReceiver = {
  */
 export const DEFAULT_INPUT_TIMEOUT_MS = 1_000;
 
+/**
+ * Decode input into a synchronous sink, tracking held keys, buttons and controllers.
+ * Releases held input on release messages, attached channel closure or errors,
+ * inactivity and close. Duplicate key and mouse-button transitions are ignored.
+ */
 export function createInputReceiver({
   sink,
   timeoutMs = DEFAULT_INPUT_TIMEOUT_MS,
@@ -142,9 +147,11 @@ export function createInputReceiver({
     }
   };
 
-  // Every release is attempted even if the sink throws on one: a failure to
-  // lift one key must not leave the others down. The first error is rethrown
-  // once everything has been tried.
+  /**
+   * Every release is attempted even if the sink throws on one: a failure to
+   * lift one key must not leave the others down. The first error is rethrown
+   * once everything has been tried.
+   */
   function releaseAll(reason: ReceiverReleaseReason) {
     disarm();
     if (!holding()) return;

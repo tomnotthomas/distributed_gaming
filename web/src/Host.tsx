@@ -23,6 +23,7 @@ import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from 
 import { HOST_ID, SIGNALING_URL } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
 
+/** Render the browser host, sharing a captured screen and displaying held renter input. */
 export function Host() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -146,6 +147,7 @@ export function Host() {
 
 const BUTTON_NAMES = ["left mouse", "middle mouse", "right mouse", "back mouse", "forward mouse"];
 
+/** Format held keys, mouse buttons and controllers, or "nothing" when all are released. */
 function describeHeld({ keys, buttons, gamepads }: HeldInput): string {
   const all = [
     ...keys,
