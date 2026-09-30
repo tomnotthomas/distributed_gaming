@@ -64,19 +64,6 @@ describe("host sessions", () => {
     assert.ok(sessions.verify(second.sessionKey));
   });
 
-  it("renews with a fresh key for the same session, and only while live", () => {
-    const sessions = createHostSessions(SECRET, 60);
-    const now = Date.now();
-    const grant = sessions.start("pc-1", now)!;
-    const later = now + 120_000;
-    assert.equal(sessions.verify(grant.sessionKey, later), null, "the first key expired");
-    const renewed = sessions.renew("pc-1", later)!;
-    assert.equal(renewed.sessionId, grant.sessionId);
-    assert.ok(sessions.verify(renewed.sessionKey, later));
-    sessions.end("pc-1");
-    assert.equal(sessions.renew("pc-1"), null);
-  });
-
   it("treats ending a room with no session as done", () => {
     assert.equal(createHostSessions(SECRET).end("pc-1"), null);
   });

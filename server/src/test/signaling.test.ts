@@ -445,20 +445,41 @@ describe("host sessions", () => {
     send(renter, join(room));
     await wait(100);
 
+    // Registering with the machine key is refused.
     const intruder = await open();
     const code = closed(intruder);
     send(intruder, register(room));
     assert.equal(await code, 4003);
     assert.deepEqual(denial(intruder), { type: "denied", reason: "session-active" });
 
+    // So is a second session.
+    assert.deepEqual(await api(room, "POST"), { status: 409, body: { error: "session-active" } });
+
+    // And there is no way to mint another key for the live session.
+    const renew = await fetch(`${HTTP}${sessionPath(room)}/renew`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${MACHINE_KEY}` },
+    });
+    await renew.body?.cancel();
+    assert.notEqual(
+      renew.headers.get("content-type"),
+      "application/json",
+      `renew answered ${renew.status} with a grant`,
+    );
+
     // The streamer and the renter never noticed.
     await wait(100);
     assert.equal(host.readyState, WebSocket.OPEN);
     assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
 
-    host.close();
+    // Only ending the session hands the room back, and visibly.
+    const hungUp = closed(host);
+    assert.equal((await api(room, "DELETE")).status, 204);
+    assert.equal(await hungUp, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "session-ended" });
+    await wait(100);
+    assert.ok(types(renter).includes("peer-left"));
     renter.close();
-    await api(room, "DELETE");
   });
 
   it("keeps the machine key out while a session is live, and lets it back in after", async () => {
@@ -519,21 +540,6 @@ describe("host sessions", () => {
     assert.equal(first.readyState, WebSocket.CLOSED);
     second.close();
     await api(room, "DELETE");
-  });
-
-  it("renews a key for the live session only", async () => {
-    const room = nextRoom();
-    const grant = await startSession(room);
-    const renewed = await api(room, "POST", "/renew");
-    assert.equal(renewed.status, 200);
-    assert.equal((renewed.body as SessionGrant).sessionId, grant.sessionId);
-
-    const host = await streamer(room, (renewed.body as SessionGrant).sessionKey);
-    assert.ok(types(host).includes("registered"));
-    host.close();
-
-    await api(room, "DELETE");
-    assert.deepEqual(await api(room, "POST", "/renew"), { status: 404, body: { error: "no-session" } });
   });
 
   it("guards the session API with the machine key", async () => {

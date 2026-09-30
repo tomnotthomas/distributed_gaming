@@ -90,26 +90,25 @@ export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
 // Called by the background service on the gaming PC, never by the streamer or
 // the browser. Authenticated with the machine key as `Authorization: Bearer`.
 //
-//   POST   /api/machines/:id/session        start  → 201 SessionGrant | 409 session-active
-//   POST   /api/machines/:id/session/renew  renew  → 200 SessionGrant | 404 no-session
-//   DELETE /api/machines/:id/session        end    → 204, whether or not one was live
+//   POST   /api/machines/:id/session  start  → 201 SessionGrant | 409 session-active
+//   DELETE /api/machines/:id/session  end    → 204, whether or not one was live
 //
 // Every refusal is a SessionError body. Full contract:
 // docs/system-design/session-keys.md.
 
 export const sessionPath = (hostId: string) => `/api/machines/${encodeURIComponent(hostId)}/session`;
 
-/** What start and renew return. */
+/** What start returns. */
 export type SessionGrant = {
   sessionId: string;
   /** Hand to the streamer; it sends it in `register`. */
   sessionKey: string;
-  /** Unix seconds. After this the key registers nothing; renew for another. */
+  /** Unix seconds. After this the key registers nothing; end and start for another. */
   expiresAt: number;
 };
 
 export type SessionError = {
-  error: "bad-machine-key" | "session-active" | "no-session" | "not-configured" | "not-found";
+  error: "bad-machine-key" | "session-active" | "not-configured" | "not-found";
 };
 
 /**

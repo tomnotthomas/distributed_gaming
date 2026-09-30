@@ -133,7 +133,7 @@ function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
 
 // --- host sessions ----------------------------------------------------------
 
-const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session(\/renew)?$/;
+const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
 
 function json(res: ServerResponse, status: number, body?: SessionGrant | SessionError): void {
   if (!body) {
@@ -152,7 +152,7 @@ function bearer(req: IncomingMessage): string | null {
 }
 
 /**
- * Start, renew and end a renter's session on one gaming PC. Called by the PC's
+ * Start and end a renter's session on one gaming PC. Called by the PC's
  * background service with its machine key; see protocol.ts for the routes.
  */
 function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): boolean {
@@ -166,8 +166,7 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
     json(res, 404, { error: "not-found" });
     return true;
   }
-  const renew = Boolean(match[2]);
-  const allowed = renew ? ["POST"] : ["POST", "DELETE"];
+  const allowed = ["POST", "DELETE"];
   if (!allowed.includes(req.method ?? "")) {
     res.writeHead(405, { allow: allowed.join(", ") }).end();
     return true;
@@ -179,12 +178,6 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
   }
   if (!verifyMachineKey(access.machines, hostId, bearer(req))) {
     json(res, 401, { error: "bad-machine-key" });
-    return true;
-  }
-
-  if (renew) {
-    const grant = sessions.renew(hostId);
-    json(res, grant ? 200 : 404, grant ?? { error: "no-session" });
     return true;
   }
 

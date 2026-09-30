@@ -8,7 +8,6 @@
 //   launches the streamer with the key ─────────────────────────► register { sessionKey }
 //                                       verify: signed, unexpired,
 //                                       session still live ─────► registered
-//   POST .../session/renew  ──────────► fresh key, same session
 //   DELETE .../session      ──────────► end: every key of the
 //                                       session dies, the
 //                                       streamer is hung up on ─► denied session-ended
@@ -35,8 +34,6 @@ export const SESSION_KEY_TTL_SECONDS = 5 * 60;
 export type HostSessions = {
   /** A new session for `room`, or null when one is already live there. */
   start: (room: string, now?: number) => SessionGrant | null;
-  /** A fresh key for the live session in `room`, or null when there is none. */
-  renew: (room: string, now?: number) => SessionGrant | null;
   /** Ends the live session in `room`, if any, and returns its id. */
   end: (room: string) => string | null;
   /** Whether `room` is in a session. While it is, the machine key cannot register it. */
@@ -48,22 +45,13 @@ export type HostSessions = {
 export function createHostSessions(secret: string, ttlSeconds = SESSION_KEY_TTL_SECONDS): HostSessions {
   const live = new Map<string, string>(); // room -> session id
 
-  const grant = (room: string, sessionId: string, now: number): SessionGrant => {
-    const sessionKey = mintSessionKey(secret, room, sessionId, ttlSeconds, now);
-    return { sessionId, sessionKey, expiresAt: Math.floor(now / 1000) + ttlSeconds };
-  };
-
   return {
     start(room, now = Date.now()) {
       if (live.has(room)) return null;
       const sessionId = randomBytes(12).toString("base64url");
       live.set(room, sessionId);
-      return grant(room, sessionId, now);
-    },
-
-    renew(room, now = Date.now()) {
-      const sessionId = live.get(room);
-      return sessionId ? grant(room, sessionId, now) : null;
+      const sessionKey = mintSessionKey(secret, room, sessionId, ttlSeconds, now);
+      return { sessionId, sessionKey, expiresAt: Math.floor(now / 1000) + ttlSeconds };
     },
 
     end(room) {

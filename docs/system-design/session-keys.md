@@ -30,8 +30,6 @@ its command line or stdin ──────────────────
                                                                    ◄ registered
                                     renter joins with their ticket  ◄► offer / answer / ice
             ... session runs; the key expires, the socket stays ...
-POST .../session/renew  ──────────► 200 { same sessionId, new sessionKey, expiresAt }
-   (only when the streamer must reconnect after expiry)
 DELETE /api/machines/:id/session ─► 204; every key of the session is dead
                                     ─────────────────────────────► denied session-ended, socket closed
                                     renter gets peer-left
@@ -39,21 +37,21 @@ DELETE /api/machines/:id/session ─► 204; every key of the session is dead
 
 ## Endpoints
 
-All three are called by the **PC service only**, over HTTPS to the signaling server, with
+Both are called by the **PC service only**, over HTTPS to the signaling server, with
 `Authorization: Bearer <machine key>`. `:id` is the machine id (the room). Requests have no
 body; responses are JSON with `cache-control: no-store`.
 
-| Call                                   | Success                                             | Refusals                                                          |
-| -------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
-| `POST /api/machines/:id/session`       | `201 { sessionId, sessionKey, expiresAt }`          | `401 bad-machine-key`, `409 session-active`, `503 not-configured` |
-| `POST /api/machines/:id/session/renew` | `200 { sessionId, sessionKey, expiresAt }`, same id | `401 bad-machine-key`, `404 no-session`, `503 not-configured`     |
-| `DELETE /api/machines/:id/session`     | `204`, whether or not a session was live            | `401 bad-machine-key`, `503 not-configured`                       |
+| Call                               | Success                                    | Refusals                                                          |
+| ---------------------------------- | ------------------------------------------ | ----------------------------------------------------------------- |
+| `POST /api/machines/:id/session`   | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `409 session-active`, `503 not-configured` |
+| `DELETE /api/machines/:id/session` | `204`, whether or not a session was live   | `401 bad-machine-key`, `503 not-configured`                       |
 
 - A refusal body is `{ "error": "<code>" }` (`SessionError` in `protocol.ts`). A wrong
   method answers `405`.
 - `expiresAt` is Unix seconds. The key registers nothing after it.
 - There is one live session per room. A second start while one is live is `409`; end it
-  first.
+  first. There is no way to get another key for a live session: a streamer whose key has
+  expired gets a new session (end, then start).
 
 ## WebSocket: the streamer's `register`
 
@@ -92,20 +90,20 @@ silently.
 | Thing       | Lifetime                                                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session key | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
-| Session     | From start until end. The server does not end a session on its own.                                                                                    |
+| Session     | From start until end. The server does not end a session on its own; a new key means a new session.                                                     |
 | Everything  | Held in the server's memory. A server restart forgets every session.                                                                                   |
 
 ## Failure behaviour
 
-| What happens                             | Result                                               | PC service does                                                         |
-| ---------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
-| Streamer's socket drops, key still fresh | it reconnects and re-registers with the same key     | nothing                                                                 |
-| Streamer's socket drops, key expired     | `denied bad-session-key`                             | `renew`, relaunch the streamer with the new key                         |
-| Streamer crashes                         | renter gets `peer-left`; room stays in the session   | relaunch the streamer (with a `renew`ed key if the old one has expired) |
-| Service restarts and lost the session    | the old session is still live; start answers `409`   | on startup, always `DELETE` first, then start when a renter is due      |
-| Signaling server restarts                | every session forgotten; keys refused; `renew` `404` | start a new session, relaunch the streamer                              |
-| Server cannot be reached for `DELETE`    | the room stays in the session; the streamer stays    | retry until `204`; stop the streamer locally meanwhile                  |
-| `ROOM_SECRET` not set on the server      | every call `503 not-configured`                      | report the machine unavailable                                          |
+| What happens                             | Result                                             | PC service does                                                    |
+| ---------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
+| Streamer's socket drops, key still fresh | it reconnects and re-registers with the same key   | nothing                                                            |
+| Streamer's socket drops, key expired     | `denied bad-session-key`                           | `DELETE`, start, relaunch the streamer with the new key            |
+| Streamer crashes                         | renter gets `peer-left`; room stays in the session | relaunch it; if the key has expired, `DELETE` and start first      |
+| Service restarts and lost the session    | the old session is still live; start answers `409` | on startup, always `DELETE` first, then start when a renter is due |
+| Signaling server restarts                | every session forgotten; keys refused              | start a new session, relaunch the streamer                         |
+| Server cannot be reached for `DELETE`    | the room stays in the session; the streamer stays  | retry until `204`; stop the streamer locally meanwhile             |
+| `ROOM_SECRET` not set on the server      | every call `503 not-configured`                    | report the machine unavailable                                     |
 
 Never pass the machine key to the streamer, write it into the renter's profile, or log it,
 the session key or the ticket. The session key is harmless outside its room and after its
