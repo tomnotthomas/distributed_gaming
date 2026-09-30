@@ -61,6 +61,26 @@ $volatile = @(
 )
 $common = @('/MIR', '/COPY:DAT', '/b', '/R:1', '/W:1', '/XJ', '/NFL', '/NDL', '/NP', '/NJH', '/NJS', '/XD') + $volatile
 
+# Delete every directory named in $Names found anywhere under $Root, without ever descending into
+# a reparse point (junction/symlink) - so a junction inside the profile can't lead a recursive
+# delete out of the profile. Reparse points that are themselves named targets are unlinked, not
+# followed. Used after a restore to purge the volatile trees /MIR left in place.
+function Remove-VolatileTrees {
+  param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string[]]$Names)
+  $reparse = [System.IO.FileAttributes]::ReparsePoint
+  foreach ($child in Get-ChildItem -LiteralPath $Root -Directory -Force -ErrorAction SilentlyContinue) {
+    $isReparse = ($child.Attributes -band $reparse) -ne 0
+    if ($Names -contains $child.Name) {
+      try {
+        if ($isReparse) { [System.IO.Directory]::Delete($child.FullName, $false) }  # unlink only
+        else { Remove-Item -LiteralPath $child.FullName -Recurse -Force -ErrorAction Stop }
+      } catch { Write-Host "  could not remove $($child.FullName): $($_.Exception.Message)" }
+    } elseif (-not $isReparse) {
+      Remove-VolatileTrees -Root $child.FullName -Names $Names
+    }
+  }
+}
+
 if ($Snapshot) {
   Write-Host "capturing baseline of $profPath -> $BaselineDir"
   New-Item -ItemType Directory -Force -Path $BaselineDir | Out-Null
@@ -73,7 +93,11 @@ if ($Snapshot) {
   Write-Host "restoring $profPath from baseline (wipes this renter's data)"
   & robocopy $BaselineDir $profPath @common | Out-Null
   $rc = $LASTEXITCODE
-  Write-Host "profile reset to baseline (robocopy code $rc)"
+  # /MIR does not purge directories excluded with /XD, so the previous renter's cache and temp trees
+  # would survive the restore and be readable by the next renter. Delete them explicitly. Walk
+  # without following reparse points (junctions in AppData), so we never delete outside the profile.
+  Remove-VolatileTrees -Root $profPath -Names $volatile
+  Write-Host "profile reset to baseline (robocopy code $rc; volatile trees purged)"
 }
 
 # Success is measured by outcome, not by a spotless robocopy code: a live profile always has a few

@@ -59,6 +59,21 @@ function AsSystem { param([string]$T,[string]$C) $st=(Get-Date).AddMinutes(30).T
   Invoke-Sch @('/create','/tn',$T,'/ru','SYSTEM','/rl','HIGHEST','/sc','once','/st',$st,'/tr',$C,'/f') | Out-Null
   Invoke-Sch @('/run','/tn',$T) | Out-Null }
 
+# Register a one-time SYSTEM task at a full DateTime, via the ScheduledTasks cmdlets so the DATE is
+# preserved (a bare '/st HH:mm' scheduled at 23:59 would land in the past and never fire) and so we
+# get a real success/failure back. Used for the delayed watchdog that must exist before we dare
+# disconnect the owner.
+function Register-WatchdogAt {
+  param([string]$Name, [string]$Exe, [string]$Argument, [datetime]$At)
+  try {
+    $act = New-ScheduledTaskAction -Execute $Exe -Argument $Argument
+    $trg = New-ScheduledTaskTrigger -Once -At $At
+    $pr  = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    Register-ScheduledTask -TaskName $Name -Action $act -Trigger $trg -Principal $pr -Force -ErrorAction Stop | Out-Null
+    return $true
+  } catch { Note "watchdog registration error: $($_.Exception.Message)"; return $false }
+}
+
 # ---------------------------------------------------------------- RemoveAll
 if ($RemoveAll) {
   Write-Host 'removing persistent renter, baseline, stored password, and provider registration'
@@ -117,9 +132,12 @@ try {
   Note "ticket written for $UserName"
 
   # ---------------------------------------------------------------- watchdog + disconnect
-  Invoke-Sch @('/create','/tn',$taskWatch,'/ru','SYSTEM','/rl','HIGHEST','/sc','once',
-             '/st',(Get-Date).AddSeconds($WatchdogSeconds).ToString('HH:mm'),
-             '/tr',"$sys\tscon.exe $ownerSession /dest:console",'/f') | Out-Null
+  # The watchdog is the only automatic recovery if this script dies while the owner is disconnected.
+  # Refuse to disconnect the owner unless it registered - otherwise a failure here could strand the
+  # console on LogonUI with no way back.
+  $wdOk = Register-WatchdogAt $taskWatch "$sys\tscon.exe" "$ownerSession /dest:console" ((Get-Date).AddSeconds($WatchdogSeconds))
+  Step 'watchdog registered before disconnecting the owner' $wdOk "reconnect owner to console in ~$WatchdogSeconds s"
+  if (-not $wdOk) { throw 'watchdog registration failed - not disconnecting the owner without a recovery path' }
 
   Progress 'PHASE: disconnecting owner'
   $ErrorActionPreference='Continue'; & "$sys\tsdiscon.exe" $ownerSession 2>&1 | Out-Null; $ErrorActionPreference='Stop'
@@ -173,7 +191,14 @@ finally {
     Safely 'snapshot baseline' { & (Join-Path $root 'Reset-RenterProfile.ps1') -UserName $UserName -Snapshot | Out-Null; Note 'baseline captured' }
   }
 
-  foreach ($t in @($taskWatch,$taskTscon)) { Invoke-Sch @('/delete','/tn',$t,'/f') | Out-Null }
+  Safely 'delete tscon task' { Invoke-Sch @('/delete','/tn',$taskTscon,'/f') | Out-Null }
+  # Keep the watchdog if the owner is NOT confirmed back on the console - it is the remaining
+  # recovery path. Delete it only once restoration is verified.
+  if ($consoleNow -eq $ownerSession) {
+    Safely 'delete watchdog' { Invoke-Sch @('/delete','/tn',$taskWatch,'/f') | Out-Null }
+  } else {
+    Note "owner not confirmed on console - LEAVING watchdog '$taskWatch' armed; recovery pending"
+  }
   # Leave the account + baseline (the deliverable); restore the provider to unregistered.
   Safely 'unregister provider' { & (Join-Path $root 'Unregister-Provider.ps1') | Out-Null }
 

@@ -155,7 +155,7 @@ try {
   $capCmd = Join-Path $shareDir 'capture.cmd'
   Set-Content -Path $capCmd -Encoding ASCII -Value @"
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "$shareDir\Capture-InSession.ps1" -ShareDir "$shareDir" -CaptureMs $CaptureMs -ExpectUser "$UserName" > "$shareDir\capture.log" 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "$shareDir\Capture-InSession.ps1" -ShareDir "$shareDir" -CaptureMs $CaptureMs -ExpectUser "$UserName" -OwnerProfile "$env:USERPROFILE" > "$shareDir\capture.log" 2>&1
 "@
   # Capture-InSession waits until its session owns the console, so it can start before the handoff.
   $st = (Get-Date).AddMinutes(30).ToString('HH:mm')
@@ -305,8 +305,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$shareDir\Capture-InSession
     Step 'GPU capture works inside the real session' `
       ([bool]$ev.ddaDuplicateOk -and [int]$ev.ddaFrames -gt 0 -and [bool]$ev.ddaPngWritten) `
       "mode $($ev.ddaMode), frames $($ev.ddaFrames), fps $($ev.ddaFps), colours $($ev.ddaColors), readback $($ev.ddaReadback) $($ev.ddaError)"
-    Step 'the renter still cannot read the owner files' (-not [bool]$ev.ownerDocsReadable) `
-      "owner Documents readable from the session: $($ev.ownerDocsReadable)"
+    # Pass only on an explicit access denial ($false). 'not-tested' (no owner path / absent) is not a
+    # pass - a missing path must never masquerade as proven isolation.
+    Step 'the renter still cannot read the owner files' ($ev.ownerDocsReadable -eq $false) `
+      "owner Documents from the session: $($ev.ownerDocsReadable)$(if ($ev.PSObject.Properties.Name -contains 'ownerDocsNote') { " ($($ev.ownerDocsNote))" })"
   } else {
     Step 'evidence collected from inside the session' $false 'Capture-InSession.ps1 never wrote session-evidence.json'
     if (Test-Path (Join-Path $shareDir 'capture.log')) { Write-Host (Get-Content (Join-Path $shareDir 'capture.log') -Raw) }

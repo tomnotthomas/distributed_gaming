@@ -259,6 +259,9 @@ public static class Dda {
     Result[] box = new Result[1];
     Thread th = new Thread(delegate () { box[0] = Run(hDesk, durationMs, pngPath); });
     th.SetApartmentState(ApartmentState.MTA);
+    // Background, so that if Run() is still blocked when the timed Join below gives up, the worker
+    // cannot keep the host process alive (a foreground thread would).
+    th.IsBackground = true;
     th.Start();
     if (!th.Join(durationMs + 20000)) {
       Result r = new Result();
