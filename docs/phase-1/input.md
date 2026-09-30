@@ -65,8 +65,8 @@ library.
 1. **Two channels, not one.** Mouse deltas are worthless once stale, key events are not:
 
    ```ts
-   pc.createDataChannel("move", { ordered: false, maxRetransmits: 0 });
-   pc.createDataChannel("keys", { ordered: true });
+   pc.createDataChannel("input-motion", { ordered: false, maxRetransmits: 0 });
+   pc.createDataChannel("input-keys", { ordered: true });
    ```
 
    A dropped mouse delta is a nudge nobody notices. A dropped `keyup` is a key held down
@@ -127,7 +127,7 @@ Everything short of touching Windows, in `packages/rtc/src`:
 | `inputSender.ts`   | Remembers what the renter holds, sends each release, and a heartbeat every 250 ms.                                                                |
 | `inputReceiver.ts` | The PC's end: decodes, tracks what is held, and hands events to a sink. Lets go of everything on a `release`, a channel close, or 1 s of silence. |
 
-The two channels are the ones step 1 below describes: `input-keys` (reliable, ordered) and
+The two channels are the ones step 1 above describes: `input-keys` (reliable, ordered) and
 `input-motion` (unordered, no retransmits), opened by `startHostSession` before the offer
 and handed out through `onInputChannels`. The renter's `/rtc` page captures input as soon as
 both are open; the browser `/host` page shows what the renter is holding, which is how the
@@ -138,7 +138,8 @@ lock, and disconnect — each as explicit key-ups followed by a `release` messag
 receiver does not rely on any of that arriving: a closed channel or a missing heartbeat
 releases on its own. `inputCapture.test.ts` drives real DOM events through to a recording
 sink and asserts every key-down gets exactly one key-up across all of those, plus a long
-random session.
+random session. Controller state is sent only while the page is visible and focused; a
+controller held through a blur stays released until the renter comes back.
 
 **For the Windows injector.** Attach both channels to one `createInputReceiver({ sink })`
 and implement the sink: `moveBy` → relative `MOUSEEVENTF_MOVE`, `move` → absolute
