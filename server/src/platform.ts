@@ -158,8 +158,14 @@ export class Platform {
   readonly #db: DatabaseSync;
   readonly #now: () => number;
   readonly #onSessionEnded: (machineId: string) => void;
+  /** Machines whose session ended in the open transaction, told once it commits. */
+  #endedMachines: string[] = [];
 
-  /** `onSessionEnded` hears of every session that ends, however it ends, with its machine. */
+  /**
+   * `onSessionEnded` hears of every session that ends, however it ends, with its
+   * machine. It runs after the change is committed, so what it does (evicting a
+   * streamer) never outlives a rolled-back end, and its failure undoes nothing.
+   */
   constructor({
     path = ":memory:",
     now = Date.now,
@@ -423,7 +429,7 @@ export class Platform {
       .prepare("UPDATE sessions SET ended_at = ?, price = ? WHERE id = ?")
       .run(endedAt, Math.round((price * played) / 3_600_000), session.id);
     this.#setBookingStatus(session.booking_id, "ended");
-    this.#onSessionEnded(session.machine_id);
+    this.#endedMachines.push(session.machine_id);
   }
 
   // --- rows ------------------------------------------------------------------
@@ -501,13 +507,29 @@ export class Platform {
 
   #transaction<T>(work: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
+    let result: T;
     try {
-      const result = work();
+      result = work();
       this.#db.exec("COMMIT");
-      return result;
     } catch (error) {
+      this.#endedMachines = [];
       this.#db.exec("ROLLBACK");
       throw error;
     }
+    const ended = this.#endedMachines;
+    this.#endedMachines = [];
+    for (const machineId of ended) {
+      try {
+        this.#onSessionEnded(machineId);
+      } catch (error) {
+        // The session is over in the database either way; one failed eviction
+        // must not stop the rest, or the sweep that ended it.
+        console.error(
+          "[swiff] session-ended hook failed:",
+          error instanceof Error ? error.name : typeof error,
+        );
+      }
+    }
+    return result;
   }
 }

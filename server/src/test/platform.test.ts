@@ -283,6 +283,37 @@ describe("session end notice", () => {
     platform.endSession("pc-1", claim.sessionId);
     assert.deepEqual(ended, ["pc-1"]);
   });
+
+  it("tells the server only once the end is committed", () => {
+    // Reading the platform from inside the notice would open a second
+    // transaction if the first were still open, and throw.
+    const seen: (string | undefined)[] = [];
+    platform = new Platform({
+      now: () => now,
+      onSessionEnded: () => seen.push(platform.booking(bookingId)?.status),
+    });
+    platform.setAvailability("pc-1", true);
+    const { bookingId } = platform.book(730, 30);
+    assert.ok(platform.claim(bookingId).ok);
+    platform.setAvailability("pc-1", false);
+    assert.deepEqual(seen, ["ended"]);
+  });
+
+  it("keeps the session ended, and the sweep going, when the notice fails", () => {
+    platform = new Platform({
+      now: () => now,
+      onSessionEnded: () => {
+        throw new Error("eviction failed");
+      },
+    });
+    platform.setAvailability("pc-1", true);
+    const first = platform.book(730, 10);
+    assert.ok(platform.claim(first.bookingId).ok);
+
+    beatFor("pc-1", 10 * 60_000);
+    assert.equal(platform.booking(first.bookingId)!.status, "ended");
+    assert.equal(platform.book(570, 10).machine?.id, "pc-1");
+  });
 });
 
 describe("machine liveness", () => {
