@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
-import { freeFor, machinesFor } from "./derive";
+import { closeCall, freeFor, machinesFor } from "./derive";
 import { fetchMedia, fetchPopular } from "./catalog";
 import { applySteam, popularCards, readSteamFragment, withMedia, type SteamProfile } from "./steam";
 
@@ -165,7 +165,7 @@ export function useSwiff() {
       setBeat(0);
       // Fold the selector away unless the top two are close enough that the
       // choice is genuinely the player's.
-      setMachinesOpen(free.length > 1 && free[1]!.ping - free[0]!.ping <= 3);
+      setMachinesOpen(closeCall(free));
     },
     [pool, session, prefs],
   );
