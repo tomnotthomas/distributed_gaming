@@ -244,6 +244,47 @@ describe("join ticket revocation", () => {
   });
 });
 
+describe("session end notice", () => {
+  let ended: string[];
+
+  beforeEach(() => {
+    ended = [];
+    platform = new Platform({ now: () => now, onSessionEnded: (machineId) => ended.push(machineId) });
+  });
+
+  const claimed = () => {
+    platform.setAvailability("pc-1", true);
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    assert.deepEqual(ended, []);
+    return claim;
+  };
+
+  it("tells the server when the booked time runs out", () => {
+    claimed();
+    beatFor("pc-1", 30 * 60_000);
+    assert.deepEqual(ended, ["pc-1"]);
+  });
+
+  it("tells the server when the machine goes silent", () => {
+    claimed();
+    advance(LIVENESS_MS);
+    assert.deepEqual(ended, ["pc-1"]);
+  });
+
+  it("tells the server when the owner takes the machine back", () => {
+    claimed();
+    platform.setAvailability("pc-1", false);
+    assert.deepEqual(ended, ["pc-1"]);
+  });
+
+  it("tells the server when the host ends the session", () => {
+    const claim = claimed();
+    platform.endSession("pc-1", claim.sessionId);
+    assert.deepEqual(ended, ["pc-1"]);
+  });
+});
+
 describe("machine liveness", () => {
   it("stops offering a machine within seconds of its heartbeats stopping", () => {
     platform.setAvailability("pc-1", true);

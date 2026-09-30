@@ -109,6 +109,13 @@ POST /sessions/:id/saves
   storage credentials. Download before the game starts; upload before the wipe.
 ```
 
+Whenever the platform session ends — the host ends it, the booked time runs out, the
+machine goes silent or the owner takes it back — the server also ends the PC's host
+session ([`session-keys.md`](session-keys.md)): its session keys die and the streamer is
+put out with `session-ended`. The Windows service must treat that denial, or a heartbeat
+whose `session.id` has changed or is missing, as the signal to tear down the renter
+account session.
+
 ### Connection setup (WebSocket)
 
 | Message                    | Direction   | Meaning                                                                |

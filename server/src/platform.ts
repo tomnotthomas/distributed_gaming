@@ -157,10 +157,17 @@ const newId = () => randomBytes(16).toString("base64url");
 export class Platform {
   readonly #db: DatabaseSync;
   readonly #now: () => number;
+  readonly #onSessionEnded: (machineId: string) => void;
 
-  constructor({ path = ":memory:", now = Date.now }: { path?: string; now?: () => number } = {}) {
+  /** `onSessionEnded` hears of every session that ends, however it ends, with its machine. */
+  constructor({
+    path = ":memory:",
+    now = Date.now,
+    onSessionEnded = () => {},
+  }: { path?: string; now?: () => number; onSessionEnded?: (machineId: string) => void } = {}) {
     this.#db = new DatabaseSync(path);
     this.#now = now;
+    this.#onSessionEnded = onSessionEnded;
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
   }
@@ -416,6 +423,7 @@ export class Platform {
       .prepare("UPDATE sessions SET ended_at = ?, price = ? WHERE id = ?")
       .run(endedAt, Math.round((price * played) / 3_600_000), session.id);
     this.#setBookingStatus(session.booking_id, "ended");
+    this.#onSessionEnded(session.machine_id);
   }
 
   // --- rows ------------------------------------------------------------------

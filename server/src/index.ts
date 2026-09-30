@@ -68,8 +68,13 @@ const access = accessFromEnv(process.env);
 const sessions = access.secret ? createHostSessions(access.secret) : null;
 
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
-// DATABASE_PATH names a file.
-const platform = new Platform({ path: process.env.DATABASE_PATH || ":memory:" });
+// DATABASE_PATH names a file. Whenever a renter's session ends there, however
+// it ends, the PC's host session ends with it: the next renter never meets a
+// streamer launched for the last one.
+const platform = new Platform({
+  path: process.env.DATABASE_PATH || ":memory:",
+  onSessionEnded: endHostSession,
+});
 const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost:${PORT}` });
 
 // Matching and the liveness sweep. Every request that changes something runs
@@ -177,6 +182,15 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
 
 // --- host sessions ----------------------------------------------------------
 
+/**
+ * End the live host session in `hostId`, if any: every key of it dies, and the
+ * streamer registered with one is hung up on, so the room really is handed back.
+ */
+function endHostSession(hostId: string): void {
+  const ended = sessions?.end(hostId);
+  if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+}
+
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
 
 /** End the response with uncached JSON, or just the status when no body is supplied. */
@@ -231,10 +245,7 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
   }
 
   if (req.method === "DELETE") {
-    const ended = sessions.end(hostId);
-    // Every key of the session is dead now; the streamer registered with one is
-    // hung up on too, so ending a session really does hand the room back.
-    if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+    endHostSession(hostId);
     json(res, 204);
     return true;
   }

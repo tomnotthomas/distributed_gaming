@@ -241,4 +241,42 @@ describe("the real server", () => {
     assert.equal(await again.closed, 4003);
     assert.deepEqual(again.received, [{ type: "denied", reason: "bad-ticket" }]);
   });
+
+  it("ends the PC's host session when the platform ends the renter's session", async () => {
+    await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+    assert.equal(claim.body.roomId, "pc-1");
+
+    const started = await call("POST", "/api/machines/pc-1/session", undefined, MACHINE_KEY);
+    assert.equal(started.status, 201);
+    const streamer = () => {
+      const ws = new WebSocket(`ws://localhost:${PORT}`);
+      const received: SignalMessage[] = [];
+      ws.on("message", (raw) => received.push(JSON.parse(String(raw)) as SignalMessage));
+      ws.once("open", () =>
+        ws.send(JSON.stringify({ type: "register", hostId: "pc-1", sessionKey: started.body.sessionKey })),
+      );
+      const closed = new Promise<number>((resolve) => ws.once("close", resolve));
+      return { received, closed };
+    };
+    const renterA = streamer();
+    for (let i = 0; i < 50 && !renterA.received.length; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(renterA.received[0]?.type, "registered");
+
+    // The platform ends it on its own: the owner takes the machine back.
+    assert.equal(
+      (await call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY)).status,
+      200,
+    );
+    assert.equal(await renterA.closed, 4003);
+    assert.deepEqual(renterA.received.at(-1), { type: "denied", reason: "session-ended" });
+
+    const again = streamer();
+    assert.equal(await again.closed, 4003);
+    assert.deepEqual(again.received, [{ type: "denied", reason: "bad-session-key" }]);
+
+    const renterB = await call("POST", "/api/machines/pc-1/session", undefined, MACHINE_KEY);
+    assert.equal(renterB.status, 201);
+  });
 });
