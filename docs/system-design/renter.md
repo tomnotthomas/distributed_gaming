@@ -95,9 +95,10 @@ saves are not built.
 
 ## 5. API
 
-All requests are HTTPS, served under `/api` (`server/src/api.ts`). They carry the
-renter's sign-in session, and only `GET /games` and `POST /signout` work signed out;
-everything else answers `401` without one.
+All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me` and
+`/bookings` calls carry the renter's sign-in session and answer `401` without one;
+`GET /games` and `POST /signout` work signed out, and the `/sessions` calls carry the
+join ticket instead.
 
 ### Sign-in session
 
