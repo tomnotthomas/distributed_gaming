@@ -44,30 +44,60 @@ describe("loginUrl", () => {
   });
 });
 
+/** An assertion Steam made for this site's return route, with overrides. */
+function assertion(overrides: Record<string, string> = {}): URLSearchParams {
+  return new URLSearchParams({
+    "openid.op_endpoint": "https://steamcommunity.com/openid/login",
+    "openid.return_to": `${ORIGIN}/auth/steam/return?to=%2F`,
+    "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
+    "openid.sig": "abc",
+    ...overrides,
+  });
+}
+
 describe("verifyAssertion", () => {
   it("returns the steamid only when Steam says the assertion is valid", async () => {
     stubFetch("ns:http://specs.openid.net/auth/2.0\nis_valid:true\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-      "openid.sig": "abc",
-    });
-    assert.equal(await verifyAssertion(params), "76561198000000001");
+    assert.equal(await verifyAssertion(assertion(), ORIGIN), "76561198000000001");
   });
 
   it("refuses a forged assertion", async () => {
     stubFetch("is_valid:false\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-    });
-    assert.equal(await verifyAssertion(params), null);
+    assert.equal(await verifyAssertion(assertion(), ORIGIN), null);
   });
 
   it("refuses a claimed_id that is not a Steam openid identity", async () => {
     stubFetch("is_valid:true\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://evil.example/openid/id/76561198000000001",
-    });
-    assert.equal(await verifyAssertion(params), null);
+    const params = assertion({ "openid.claimed_id": "https://evil.example/openid/id/76561198000000001" });
+    assert.equal(await verifyAssertion(params, ORIGIN), null);
+  });
+
+  it("refuses a genuine assertion Steam made for another site", async () => {
+    // Steam would vouch for it: the signature is real, only the audience is wrong.
+    const calls = stubFetch("is_valid:true\n");
+    for (const returnTo of [
+      "https://other.example/auth/steam/return",
+      `${ORIGIN}.evil.example/auth/steam/return`,
+      `${ORIGIN}/auth/steam/returned`,
+      "not a url",
+    ]) {
+      assert.equal(await verifyAssertion(assertion({ "openid.return_to": returnTo }), ORIGIN), null);
+    }
+    const missing = assertion();
+    missing.delete("openid.return_to");
+    assert.equal(await verifyAssertion(missing, ORIGIN), null);
+    assert.deepEqual(calls, []);
+  });
+
+  it("refuses an assertion from any provider but Steam", async () => {
+    const calls = stubFetch("is_valid:true\n");
+    for (const endpoint of ["https://evil.example/openid/login", "http://steamcommunity.com/openid/login"]) {
+      assert.equal(await verifyAssertion(assertion({ "openid.op_endpoint": endpoint }), ORIGIN), null);
+    }
+    const missing = assertion();
+    missing.delete("openid.op_endpoint");
+    assert.equal(await verifyAssertion(missing, ORIGIN), null);
+    assert.deepEqual(calls, []);
   });
 });
 
@@ -109,13 +139,17 @@ describe("returnUrl", () => {
 
   it("names the Steam id Steam vouched for and carries no profile in the URL", async () => {
     stubFetch("is_valid:true\n");
-    const params = new URLSearchParams({
-      to: "/games",
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-    });
+    const params = assertion({ to: "/games" });
     const back = await returnUrl({ origin: ORIGIN, searchParams: params });
     assert.equal(back.steamId, "76561198000000001");
     assert.equal(back.location, `${ORIGIN}/games#steam=ok`);
+  });
+
+  it("denies an assertion made for another site's return route", async () => {
+    stubFetch("is_valid:true\n");
+    const params = assertion({ to: "/games", "openid.return_to": "https://other.example/auth/steam/return" });
+    const back = await returnUrl({ origin: ORIGIN, searchParams: params });
+    assert.deepEqual(back, { location: `${ORIGIN}/games#steam=denied`, steamId: null });
   });
 });
 

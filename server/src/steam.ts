@@ -78,10 +78,14 @@ export function loginUrl({ origin, returnTo }: { origin: string; returnTo?: stri
 }
 
 /**
- * Ask Steam whether the assertion it handed the browser is genuine. Returns the
- * 17-digit steamid, or null — never trust the claimed_id without this round trip.
+ * Ask Steam whether the assertion it handed the browser is genuine, and that it
+ * was made by Steam for this site's own return route. Returns the 17-digit
+ * steamid, or null — never trust the claimed_id without both checks.
  */
-export async function verifyAssertion(searchParams: URLSearchParams): Promise<string | null> {
+export async function verifyAssertion(searchParams: URLSearchParams, origin: string): Promise<string | null> {
+  if (searchParams.get("openid.op_endpoint") !== STEAM_OPENID) return null;
+  if (!isOurReturn(searchParams.get("openid.return_to"), origin)) return null;
+
   const body = new URLSearchParams();
   for (const [key, value] of searchParams) if (key.startsWith("openid.")) body.set(key, value);
   body.set("openid.mode", "check_authentication");
@@ -96,6 +100,13 @@ export async function verifyAssertion(searchParams: URLSearchParams): Promise<st
   const claimed = searchParams.get("openid.claimed_id") ?? "";
   const match = claimed.match(/^https?:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/);
   return match ? match[1]! : null;
+}
+
+/** Whether a signed return_to points at this origin's /auth/steam/return. */
+function isOurReturn(returnTo: string | null, origin: string): boolean {
+  if (!returnTo || !URL.canParse(returnTo)) return false;
+  const url = new URL(returnTo);
+  return url.origin === new URL(origin).origin && url.pathname === "/auth/steam/return";
 }
 
 async function steamApi(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
@@ -164,7 +175,7 @@ export async function returnUrl({
   const to = searchParams.get("to") ?? "/";
   const dest = new URL(to.startsWith("/") ? to : "/", origin);
 
-  const steamId = await verifyAssertion(searchParams).catch(() => null);
+  const steamId = await verifyAssertion(searchParams, origin).catch(() => null);
   dest.hash = steamId ? "steam=ok" : "steam=denied";
   return { location: dest.toString(), steamId };
 }
