@@ -1119,6 +1119,22 @@ describe("presence", () => {
     });
   });
 
+  it("counts the time a machine on offer was gone across a restart as unseen when it reconnects", async () => {
+    await withDatabaseFile((path) => {
+      const first = new Platform({ path, now: () => now });
+      first.setAvailability("pc-1", true, REPORT);
+      first.close();
+
+      now += 10 * 60_000;
+      const second = new Platform({ path, now: () => now });
+      second.hostConnected("pc-1");
+      const { stats } = second.stability("pc-1");
+      assert.equal(Math.round(stats.offeredHours * 3_600_000), 10 * 60_000);
+      assert.equal(Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000), LIVENESS_MS);
+      second.close();
+    });
+  });
+
   it("ends a game on a present machine that never comes back after a restart as of its last ping round", async () => {
     await withDatabaseFile(async (path) => {
       const first = new Platform({ path, now: () => now });

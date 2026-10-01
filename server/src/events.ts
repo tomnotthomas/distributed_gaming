@@ -65,9 +65,12 @@ const bookingEvent = (booking: BookingView) => `event: booking\ndata: ${JSON.str
 /**
  * Write to the stream, or drop it when its buffer is full: a renter that does
  * not read is not kept in memory. EventSource reconnects one that was only slow.
+ * A stream already ended is left alone until it closes: writing to it would
+ * raise an error event nothing handles.
  */
 function write(res: ServerResponse, chunk: string): void {
-  if (!res.destroyed && !res.write(chunk)) res.destroy();
+  if (res.destroyed || res.writableEnded) return;
+  if (!res.write(chunk)) res.destroy();
 }
 
 /** Send the booking, and end the stream once the booking needs no more watching. */

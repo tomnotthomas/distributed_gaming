@@ -256,13 +256,23 @@ describe("renter event stream", () => {
     assert.equal(late.ended, true);
   });
 
-  /** A stand-in response: `write` answers `writes`, and destroy() closes it as a hung-up socket does. */
+  /**
+   * A stand-in response: `write` answers `writes` and counts the chunks written
+   * after end(), and destroy() closes it as a hung-up socket does.
+   */
   const fakeResponse = (writes = true) => {
     const res = Object.assign(new EventEmitter(), {
       destroyed: false,
+      writableEnded: false,
+      writesAfterEnd: 0,
       writeHead() {},
-      write: () => writes,
-      end() {},
+      write: () => {
+        if (res.writableEnded) res.writesAfterEnd += 1;
+        return writes;
+      },
+      end() {
+        res.writableEnded = true;
+      },
       destroy() {
         res.destroyed = true;
         res.emit("close");
@@ -277,6 +287,18 @@ describe("renter event stream", () => {
     const res = fakeResponse(false); // its send buffer is already full
     assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, "renter-1"), "opened");
     assert.equal(res.destroyed, true);
+  });
+
+  it("writes nothing more to a stream it ended before the stream has closed", () => {
+    platform.setAvailability("pc-1", true, REPORT);
+    const { bookingId } = platform.book(730, 30, RENTER);
+    platform.claim(bookingId, RENTER);
+    const events = createRenterEvents(platform, { keepAliveMs: 60_000 });
+    const res = fakeResponse(); // ended, but its close event has not come yet
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, "renter-1"), "opened");
+    assert.equal(res.writableEnded, true);
+    events.bookingChanged(bookingId);
+    assert.equal(res.writesAfterEnd, 0);
   });
 
   it("refuses a client its streams beyond the per-client cap with 429, and leaves other clients alone", async () => {

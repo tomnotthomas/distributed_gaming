@@ -515,14 +515,16 @@ export class Platform {
    * The PC opened its socket to the server: the machine is there for as long as
    * it stays open, with no heartbeat needed. A machine dropped as offline comes
    * back as it was offered. Nothing is stored for a machine never heard from.
+   * The time before the socket opened is counted first, as seen only up to its
+   * last contact.
    */
   hostConnected(machineId: string): void {
     this.#transaction(() => {
-      this.#present.add(machineId);
       const now = this.#now();
       const machine = this.#machineRow(machineId);
+      if (machine) this.#touch(machineId, now);
+      this.#present.add(machineId);
       if (!machine) return;
-      this.#touch(machineId, now);
       if (machine.status === "offline") this.#setStatus(machineId, "available");
       this.#tick(now);
     });

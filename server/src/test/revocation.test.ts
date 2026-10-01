@@ -35,9 +35,21 @@ after(() => {
   rmSync(DIR, { recursive: true, force: true });
 });
 
+/** Ports already given to a server here: each child server gets its own. */
+const usedPorts = new Set<number>();
+
+/** A random port in the test range that no server here has yet. */
+function freshPort(): number {
+  let port: number;
+  do port = 9300 + Math.floor(Math.random() * 600);
+  while (usedPorts.has(port));
+  usedPorts.add(port);
+  return port;
+}
+
 /** A server on its own database file, with the ticket reconcile every `reconcileMs`. */
 async function startServer(name: string, reconcileMs: number) {
-  const port = 9300 + Math.floor(Math.random() * 600);
+  const port = freshPort();
   const databasePath = join(DIR, `${name}.db`);
   servers.push(
     spawn(process.execPath, [SERVER], {
