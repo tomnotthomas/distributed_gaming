@@ -22,6 +22,7 @@ const MACHINE_KEYS = `pc-1:${HASH},pc-2:${HASH}`;
 
 type Reply = { status: number; body: any };
 
+/** A JSON caller for `origin`, sending the machine key as a bearer token when given one. */
 function client(origin: string) {
   return async (method: string, path: string, body?: unknown, key?: string): Promise<Reply> => {
     const headers: Record<string, string> = {};

@@ -178,6 +178,7 @@ export class Platform {
     this.#db.exec(SCHEMA);
   }
 
+  /** Close the database. */
   close(): void {
     this.#db.close();
   }
@@ -330,6 +331,7 @@ export class Platform {
     this.#transaction(() => this.#tick(this.#now()));
   }
 
+  /** Drop silent machines, settle lapsed reservations and overrun sessions, then match. */
   #tick(now: number): void {
     // Silent machines first, so nothing below hands a booking to one.
     const silent = this.#db
@@ -445,6 +447,7 @@ export class Platform {
     return this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
   }
 
+  /** The session, if it runs on this machine and has not ended. */
   #openSession(machineId: string, sessionId: string): SessionRow | null {
     const row = this.#db
       .prepare("SELECT * FROM sessions WHERE id = ? AND machine_id = ? AND ended_at IS NULL")
@@ -452,20 +455,24 @@ export class Platform {
     return row ?? null;
   }
 
+  /** The booking row, or null when there is none. */
   #bookingRow(bookingId: string): BookingRow | null {
     const row = this.#db.prepare("SELECT * FROM bookings WHERE id = ?").get(bookingId) as
       BookingRow | undefined;
     return row ?? null;
   }
 
+  /** Move a machine to `status`. */
   #setStatus(machineId: string, status: MachineStatus): void {
     this.#db.prepare("UPDATE machines SET status = ? WHERE id = ?").run(status, machineId);
   }
 
+  /** Move a booking to `status`. */
   #setBookingStatus(bookingId: string, status: BookingStatus): void {
     this.#db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, bookingId);
   }
 
+  /** What the host is told about its machine, with the session running on it. */
   #machineView(machineId: string): MachineView {
     const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
     const session = this.#db
@@ -481,6 +488,7 @@ export class Platform {
     };
   }
 
+  /** What the renter is told about a booking: its machine, claim deadline, session and price. */
   #bookingView(bookingId: string): BookingView | null {
     const booking = this.#bookingRow(bookingId);
     if (!booking) return null;

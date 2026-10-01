@@ -13,6 +13,7 @@ import { accessFromEnv, MIN_SECRET_LENGTH, mintTicket, newMachineKey } from "./a
 
 const [command, id, ...rest] = process.argv.slice(2);
 
+/** Print the message and exit with an error. */
 function fail(message: string): never {
   console.error(message);
   process.exit(1);
