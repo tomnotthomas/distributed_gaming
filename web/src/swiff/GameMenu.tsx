@@ -26,7 +26,8 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
 
   const live = machines.filter((m) => !m.busy);
   const busy = machines.filter((m) => m.busy);
-  const owners = new Set(machines.map((m) => m.owner)).size;
+  // Players behind the machines listed below, not the busy ones left out of it.
+  const owners = new Set(live.map((m) => m.owner)).size;
   const why = reason(game, pool, session, { quality, devices });
   const pickedMeters = picked ? meters(picked, game) : null;
 
@@ -123,6 +124,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           <Reticle
             onFire={swiff.launch}
             disabled={!picked}
+            launching={swiff.phase !== "idle"}
             label={picked ? `Hold to launch on ${picked.name}` : "Pick a machine to launch"}
           />
         </div>

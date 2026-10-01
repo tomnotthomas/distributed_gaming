@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Backdrop } from "@swiff/ui";
 import { IGNITION_STEPS } from "./data";
 import { Glyph } from "./Glyph";
@@ -8,7 +9,9 @@ import type { Swiff } from "./useSwiff";
 /**
  * The wait between Launch and a frame, named step by step so it is not a
  * spinner. The dial, the percentage and the legend all follow the launch's
- * real progress, eased between beats.
+ * real progress, eased between beats. It is modal: Swiff.tsx makes the page
+ * behind it inert, and focus moves to Cancel while it is up and back to where
+ * it was when it closes.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionStep } = swiff;
@@ -17,8 +20,23 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
   const now = IGNITION_STEPS.indexOf(ignitionStep);
   const title = game?.title ?? "your game";
 
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    cancel.current?.focus();
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
+  }, []);
+
   return (
-    <div className="ignition" data-testid="ignition" role="dialog" aria-label={`Starting ${title}`}>
+    <div
+      className="ignition"
+      data-testid="ignition"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Starting ${title}`}
+    >
       <div className="ig-art">
         {game ? (
           <Backdrop
@@ -56,12 +74,17 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
             <span>%</span>
           </div>
         </div>
-        <button type="button" className="lpill ig-cancel" onClick={swiff.goHome}>
+        <button type="button" className="lpill ig-cancel" onClick={swiff.goHome} ref={cancel}>
           Cancel
           <span className="lpill-c">
             <Glyph name="close" size={18} />
           </span>
         </button>
+
+        {/* Steps are announced once each; the eased percentage is not. */}
+        <p className="sr-only" aria-live="polite">
+          {ignitionStep}
+        </p>
 
         <IgnitionDial pct={shown} />
 

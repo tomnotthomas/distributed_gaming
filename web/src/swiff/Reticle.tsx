@@ -20,15 +20,21 @@ const LABEL: Record<Phase, [string, string]> = {
  * not a click. Pointer, Space or Enter fills the outer ring over 1.2 s and
  * pulls the brackets in; letting go early drains it with nothing spent. The
  * fill is feedback for the player's own action, so it runs under reduced
- * motion too; only the idle cue stops.
+ * motion too; only the idle cue stops. While a launch is under way it stays
+ * closed on "Launching" and takes no new press, so a second hold cannot start
+ * the launch over.
  */
 export function Reticle({
   onFire,
   disabled,
+  launching,
   label,
 }: {
   onFire: () => void;
+  /** No machine to launch on. */
   disabled?: boolean;
+  /** A launch is already under way. */
+  launching?: boolean;
   label: string;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -69,12 +75,12 @@ export function Reticle({
   const go = useCallback(
     (next: 1 | -1) => {
       if (phase === "done" || next === dir.current) return;
-      if (next > 0 && disabled) return;
+      if (next > 0 && (disabled || launching)) return;
       dir.current = next;
       setPhase(next > 0 ? "hold" : "idle");
       run();
     },
-    [phase, disabled, run],
+    [phase, disabled, launching, run],
   );
 
   // A pointer can be released anywhere, not only over the button.
@@ -99,17 +105,19 @@ export function Reticle({
     [],
   );
 
-  const [line1, line2] = disabled ? ["Pick a", "machine"] : LABEL[phase];
-  const arc = (100 - progress * 100).toFixed(2);
+  const shown: Phase = launching ? "done" : phase;
+  const fill = launching ? 1 : progress;
+  const [line1, line2] = disabled ? ["Pick a", "machine"] : LABEL[shown];
+  const arc = (100 - fill * 100).toFixed(2);
 
   return (
     <button
       type="button"
       className="reticle"
-      data-phase={phase}
-      disabled={disabled}
+      data-phase={shown}
+      disabled={disabled || launching}
       aria-label={label}
-      style={{ "--hold": progress.toFixed(4) } as CSSProperties}
+      style={{ "--hold": fill.toFixed(4) } as CSSProperties}
       onPointerDown={(event) => {
         if (event.button > 0) return;
         event.preventDefault();

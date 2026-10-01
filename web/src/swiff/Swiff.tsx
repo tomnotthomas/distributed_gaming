@@ -19,6 +19,12 @@ export function Swiff() {
 
   // The app scrolls as one page; a new screen starts at its top.
   const page = useRef<HTMLDivElement>(null);
+  // While Ignition or a session covers the page, nothing behind it can be
+  // focused or pressed: a second hold must not start the launch over.
+  const behind = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    behind.current?.toggleAttribute("inert", phase !== "idle");
+  }, [phase]);
   useEffect(() => {
     page.current?.scrollTo(0, 0);
   }, [screen, swiff.game?.id]);
@@ -30,25 +36,27 @@ export function Swiff() {
 
   return (
     <div className="sw" data-screen={screen} ref={page}>
-      <Chrome
-        screen={screen}
-        onHome={swiff.goHome}
-        onProfile={() => swiff.setScreen("profile")}
-        onBack={screen === "game" ? swiff.goHome : undefined}
-        live={live}
-        renter={
-          libraryConnected
-            ? {
-                persona: profile?.persona ?? "",
-                session: { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession },
-              }
-            : undefined
-        }
-      />
       <MotionContext.Provider value={swiff.motion}>
-        {screen === "home" ? <Wall swiff={swiff} /> : null}
-        {screen === "game" ? <GameMenu swiff={swiff} /> : null}
-        {screen === "profile" ? <Profile swiff={swiff} /> : null}
+        <div className="sw-page" ref={behind}>
+          <Chrome
+            screen={screen}
+            onHome={swiff.goHome}
+            onProfile={() => swiff.setScreen("profile")}
+            onBack={screen === "game" ? swiff.goHome : undefined}
+            live={live}
+            renter={
+              libraryConnected
+                ? {
+                    persona: profile?.persona ?? "",
+                    session: { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession },
+                  }
+                : undefined
+            }
+          />
+          {screen === "home" ? <Wall swiff={swiff} /> : null}
+          {screen === "game" ? <GameMenu swiff={swiff} /> : null}
+          {screen === "profile" ? <Profile swiff={swiff} /> : null}
+        </div>
         {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
         {phase === "live" ? <Session swiff={swiff} /> : null}
       </MotionContext.Provider>

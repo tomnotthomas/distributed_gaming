@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { GAMES, MACHINES } from "./data";
 import { Ignition } from "./Ignition";
@@ -30,5 +31,36 @@ describe("Ignition", () => {
     expect(screen.getByRole("dialog", { name: "Starting Elden Ring" })).toBeInTheDocument();
     expect(screen.getByText("Glasshouse")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("announces the current step, not every eased percentage", () => {
+    render(<Ignition swiff={swiffAt(0.25, "Syncing your save")} />);
+
+    const live = document.querySelector('[aria-live="polite"]')!;
+    expect(live).toHaveTextContent("Syncing your save");
+    expect(live).not.toHaveTextContent("%");
+  });
+
+  it("takes focus while it is up and hands it back when it closes", () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Launch</button>
+          <button onClick={() => setOpen(false)}>Close</button>
+          {open ? <Ignition swiff={swiffAt(0, "Waking machine")} /> : null}
+        </>
+      );
+    }
+    render(<Harness />);
+    const launch = screen.getByRole("button", { name: "Launch" });
+    launch.focus();
+    fireEvent.click(launch);
+
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(launch).toHaveFocus();
   });
 });

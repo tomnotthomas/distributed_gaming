@@ -77,6 +77,21 @@ describe("Reticle", () => {
     expect(button).toBeDisabled();
   });
 
+  it("stays on Launching and takes no new hold while a launch is under way", () => {
+    const fire = vi.fn();
+    render(<Reticle onFire={fire} launching label="Hold to launch on Glasshouse" />);
+    const button = screen.getByRole("button");
+
+    fireEvent.keyDown(button, { key: " " });
+    fireEvent.pointerDown(button, { button: 0 });
+    run(HOLD_MS * 2);
+
+    expect(fire).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("data-phase", "done");
+    expect(button).toHaveTextContent("Launching");
+  });
+
   it("never fires once unmounted mid-hold", () => {
     const fire = vi.fn();
     const { unmount } = render(<Reticle onFire={fire} label="Hold to launch on Glasshouse" />);
