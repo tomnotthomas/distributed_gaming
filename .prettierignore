@@ -1,4 +1,9 @@
-# Prettier also reads .gitignore, so build and test output is already skipped.
+node_modules
+**/dist
+desktop/release
+web/coverage
+e2e/.results
+e2e/.report
 package-lock.json
 prototypes
 docs/diagrams/*.png
