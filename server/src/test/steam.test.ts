@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
   LIBRARY_CAP,
+  PROFILE_REFRESH_MIN_MS,
   PROFILE_TTL_MS,
   cachedProfiles,
   emptyProfile,
@@ -183,19 +184,109 @@ describe("cachedProfiles", () => {
     assert.equal(read.calls.length, 2);
   });
 
-  it("does not remember a failed read", async () => {
+  it("asks Steam again on a fresh read, but not twice within the refresh floor", async () => {
+    let now = 0;
+    let persona = "private";
+    const read = counted(async () => ({ ...emptyProfile(ID), persona }));
+    const profile = cachedProfiles(read, { now: () => now });
+
+    await profile(ID);
+    persona = "public";
+    now += PROFILE_REFRESH_MIN_MS - 1;
+    assert.equal((await profile(ID, { fresh: true })).persona, "private");
+    assert.equal(read.calls.length, 1);
+
+    now += 1;
+    assert.equal((await profile(ID, { fresh: true })).persona, "public");
+    assert.equal(read.calls.length, 2);
+    // The fresh read is what later page loads are served.
+    assert.equal((await profile(ID)).persona, "public");
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("shares one Steam read between concurrent fresh lookups, and reads again once it settles", async () => {
+    let release!: () => void;
+    const read = counted(
+      () => new Promise((resolve) => (release = () => resolve({ ...emptyProfile(ID), persona: "kai_nx" }))),
+    );
+    const profile = cachedProfiles(read, { refreshMinMs: 0 });
+
+    const both = Promise.all([profile(ID, { fresh: true }), profile(ID, { fresh: true })]);
+    release();
+    assert.deepEqual(
+      (await both).map((p) => p.persona),
+      ["kai_nx", "kai_nx"],
+    );
+    assert.equal(read.calls.length, 1);
+
+    const again = profile(ID, { fresh: true });
+    release();
+    await again;
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("lets a lookup after a failed shared read ask Steam again once the refresh floor passes", async () => {
+    let now = 0;
     let fail = true;
     const read = counted(async () => {
       if (fail) throw new Error("steam down");
       return emptyProfile(ID);
     });
-    const profile = cachedProfiles(read);
+    const profile = cachedProfiles(read, { now: () => now });
+    await Promise.all([assert.rejects(profile(ID)), assert.rejects(profile(ID))]);
+    assert.equal(read.calls.length, 1);
+    fail = false;
+    now += PROFILE_REFRESH_MIN_MS;
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("does not remember a failed read", async () => {
+    let now = 0;
+    let fail = true;
+    const read = counted(async () => {
+      if (fail) throw new Error("steam down");
+      return emptyProfile(ID);
+    });
+    const profile = cachedProfiles(read, { now: () => now });
 
     await assert.rejects(profile(ID));
     fail = false;
+    now += PROFILE_REFRESH_MIN_MS;
     await profile(ID);
     await profile(ID);
     assert.equal(read.calls.length, 2);
+  });
+
+  it("does not ask a failing Steam again within the refresh floor, however often the renter refreshes", async () => {
+    let now = 0;
+    let fail = false;
+    const read = counted(async () => {
+      if (fail) throw new Error("steam down");
+      return { ...emptyProfile(ID), persona: "kai_nx" };
+    });
+    const profile = cachedProfiles(read, { now: () => now });
+
+    // No good profile yet: repeated refreshes reject without reaching Steam.
+    fail = true;
+    await assert.rejects(profile(ID, { fresh: true }));
+    for (let i = 0; i < 5; i++) await assert.rejects(profile(ID, { fresh: true }));
+    assert.equal(read.calls.length, 1);
+
+    // Once a read succeeds, a later failure leaves the renter on their last good profile.
+    fail = false;
+    now += PROFILE_REFRESH_MIN_MS;
+    await profile(ID);
+    fail = true;
+    now += PROFILE_REFRESH_MIN_MS;
+    await assert.rejects(profile(ID, { fresh: true }));
+    for (let i = 0; i < 5; i++) assert.equal((await profile(ID, { fresh: true })).persona, "kai_nx");
+    assert.equal(read.calls.length, 3);
+
+    now += PROFILE_REFRESH_MIN_MS;
+    fail = false;
+    await profile(ID, { fresh: true });
+    assert.equal(read.calls.length, 4);
   });
 
   it("holds at most max profiles, dropping the oldest", async () => {

@@ -36,6 +36,17 @@
   font-size: var(--text-12);
   color: var(--color-time);
 }
+.wall-library {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.wall-library-text {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-time);
+}
 .wall-credit {
   margin: 0;
   font-size: var(--text-12);

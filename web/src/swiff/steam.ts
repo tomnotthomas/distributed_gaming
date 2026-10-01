@@ -51,6 +51,33 @@ export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | n
   }
 }
 
+/**
+ * Read the signed-in renter's profile from Steam again rather than the copy the
+ * server remembers, e.g. after they make their game details public. Null when
+ * nobody is signed in or the server cannot be reached.
+ */
+export async function refreshRenter(get: typeof fetch = fetch): Promise<Renter | null> {
+  try {
+    const response = await get("/api/me/refresh", { method: "POST" });
+    return response.ok ? ((await response.json()) as Renter) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the signed-in wall can say about the renter's library: `unreadable` when
+ * Steam gave no library at all (game details private, or Steam failed), `none`
+ * when it did but none of it can be put on the wall, else `ok`.
+ */
+export type LibraryState = "ok" | "unreadable" | "none";
+
+/** The renter's library state, as the wall explains it (LibraryState). */
+export function libraryState(profile: SteamProfile): LibraryState {
+  if (!profile.lib) return "unreadable";
+  return profile.owned.length || profile.games.some(([, name]) => name) ? "ok" : "none";
+}
+
 /** End the sign-in session. Resolves once the server has cleared the cookie. */
 export async function signOut(get: typeof fetch = fetch): Promise<void> {
   const response = await get("/api/signout", { method: "POST" });
@@ -153,30 +180,95 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
     }),
   );
 
+/** Steam's store data as last read: art for the wall's games, and the most played chart. */
+export type StoreData = { media: CatalogGame[]; popular: CatalogGame[] };
+
+/**
+ * The store data to keep after a new read. Each read fails soft to an empty
+ * list, which means "keep what you have" (catalog.ts), so an outage of either
+ * during a retry never takes the free-to-play games it found off the wall.
+ */
+export const nextCatalog = (
+  previous: StoreData,
+  media: CatalogGame[],
+  popular: CatalogGame[],
+): StoreData => ({
+  media: media.length ? media : previous.media,
+  popular: popular.length ? popular : previous.popular,
+});
+
+/** All the games the store data knows, art first, then the chart. */
+export const storeGames = (store: StoreData): CatalogGame[] => [...store.media, ...store.popular];
+
 /** Put the catalog's art and trailers onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
   const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));
   return games.map((game) => (media.has(game.appid) ? { ...game, media: media.get(game.appid) } : game));
 }
 
-/**
- * Merge a real library onto the wall: light up the curated titles the player
- * owns, then give every other game its own card.
- */
-export function applySteam(profile: SteamProfile, sharedMachineIds: string[]): Game[] {
-  const owned = new Map(profile.owned);
-  const curated = GAMES.map((game) => {
-    const hours = owned.get(game.appid);
-    if (hours === undefined) return { ...game, owned: Boolean(game.f2p), hours: game.f2p ? game.hours : 0 };
-    return { ...game, owned: true, hours, last: hours ? "in your library" : game.last };
+/** A curated title the renter owns, told with their real hours instead of the demo story. */
+function ownedCurated(game: Game, hours: number): Game {
+  return {
+    ...game,
+    owned: true,
+    hours,
+    personal: hours ? `${hours} h played` : "In your library",
+    save: "Steam cloud save",
+    // Played games lead the wall (wallOrder); never the demo's "yesterday".
+    last: hours ? "in your library" : undefined,
+  };
+}
+
+const FREE = { owned: false, hours: 0, f2p: true, personal: "Free to play", save: "Steam cloud save" };
+
+/** A curated free-to-play game the renter does not own, told as free rather than with demo copy. */
+const freeCurated = (game: Game): Game => ({ ...game, ...FREE, last: undefined });
+
+/** A free-to-play game the renter does not own: playable by anyone, and marked Free. */
+function freeCard(game: CatalogGame, pool: string[]): Game {
+  const curated = GAMES.find((g) => g.appid === game.appid);
+  if (curated) return { ...freeCurated(curated), media: mediaOf(game) };
+  return cardFor(game.appid, game.name, pool, {
+    ...FREE,
+    promise: "Free to play. No purchase needed.",
+    media: mediaOf(game),
   });
+}
+
+/**
+ * The signed-in wall: only games the renter owns, plus free-to-play games
+ * anyone can start, which `catalog` (Steam's store data) marks free. With no
+ * catalog (not read yet, or the store is down) the curated games marked f2p
+ * stand in. A paid game the renter does not own is never on it, whether or not
+ * Steam let us read the library.
+ */
+export function applySteam(
+  profile: SteamProfile,
+  sharedMachineIds: string[],
+  catalog: CatalogGame[] = [],
+): Game[] {
+  const owned = new Map(profile.owned);
+  const curated = GAMES.filter((game) => owned.has(game.appid)).map((game) =>
+    ownedCurated(game, owned.get(game.appid)!),
+  );
 
   const known = new Set(GAMES.map((g) => g.appid));
   const extra = profile.games
     .filter(([appid, name]) => name && !known.has(appid))
     .map(([appid, name, hours]) => libraryCard(appid, name, hours ?? 0, sharedMachineIds));
 
-  return [...curated, ...extra];
+  const mine = new Set([...curated, ...extra].map((g) => g.appid));
+  // One entry per game, the first the catalog lists (the fresh art read, ahead
+  // of a chart kept from an earlier read), so a stale "free" never wins.
+  const byApp = new Map<number, CatalogGame>();
+  for (const game of catalog) if (!byApp.has(game.appid)) byApp.set(game.appid, game);
+  const free = catalog.length
+    ? [...byApp.values()]
+        .filter((g) => g.free && !mine.has(g.appid))
+        .map((g) => freeCard(g, sharedMachineIds))
+    : GAMES.filter((g) => g.f2p && !mine.has(g.appid)).map(freeCurated);
+
+  return [...curated, ...extra, ...free];
 }
 
 /**

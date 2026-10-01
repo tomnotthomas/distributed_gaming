@@ -1,17 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
 import {
+  applySteam,
   endSignIn,
   fetchRenter,
   gameArt,
   gameArtFallbacks,
   gamePreview,
   gameTrailer,
+  libraryState,
+  nextCatalog,
   popularCards,
   readSteamFragment,
+  refreshRenter,
   signOut,
+  storeGames,
   withMedia,
   type CatalogGame,
+  type SteamProfile,
 } from "./steam";
 
 const HERO_2X = "https://cdn/h/library_hero_2x.jpg";
@@ -54,6 +60,124 @@ describe("popularCards", () => {
       expect(card.machines.length).toBeGreaterThan(0);
       expect(card.machines.every((id) => pool.includes(id))).toBe(true);
     }
+  });
+});
+
+describe("applySteam", () => {
+  const profile = (over: Partial<SteamProfile> = {}): SteamProfile => ({
+    id: "0001",
+    persona: "kai_nx",
+    avatar: "",
+    hours: 0,
+    size: 0,
+    owned: [],
+    games: [],
+    lib: true,
+    ...over,
+  });
+  // Steam's store data: THE FINALS and Counter-Strike 2 are free, Cyberpunk is not.
+  const store: CatalogGame[] = [
+    ...catalog,
+    {
+      appid: 2073850,
+      name: "THE FINALS",
+      free: true,
+      art: { hero: null, capsule: null },
+      preview: null,
+      trailer: null,
+    },
+    {
+      appid: 1091500,
+      name: "Cyberpunk 2077",
+      free: false,
+      art: { hero: null, capsule: null },
+      preview: null,
+      trailer: null,
+    },
+  ];
+  const appids = (games: { appid: number }[]) => games.map((g) => g.appid).sort((a, b) => a - b);
+
+  it("falls back to the curated free-to-play games for a private library when there is no store data", () => {
+    const wall = applySteam(profile({ lib: false }), pool);
+    expect(appids(wall)).toEqual([730, 2073850]);
+    for (const game of wall)
+      expect(game).toMatchObject({
+        owned: false,
+        f2p: true,
+        hours: 0,
+        last: undefined,
+        personal: "Free to play",
+      });
+    expect(libraryState(profile({ lib: false }))).toBe("unreadable");
+  });
+
+  it("lets the store data, when there is any, say what is free over the curated set", () => {
+    const paid = store.map((g) => (g.appid === 730 ? { ...g, free: false } : g));
+    expect(appids(applySteam(profile({ lib: false }), pool, paid))).toEqual([2073850]);
+  });
+
+  it("lets a refreshed art read that marks a game paid beat a kept chart entry that still says free", () => {
+    const finals = store.find((g) => g.appid === 2073850)!;
+    const kept = { media: [], popular: [finals] };
+    const next = nextCatalog(kept, [{ ...finals, free: false }], []);
+    expect(appids(applySteam(profile({ lib: false }), pool, storeGames(next)))).toEqual([]);
+  });
+
+  it("shows a private library only the free-to-play games, marked free and not owned", () => {
+    const wall = applySteam(profile({ lib: false }), pool, store);
+    expect(appids(wall)).toEqual([730, 2073850]);
+    for (const game of wall)
+      expect(game).toMatchObject({ owned: false, f2p: true, hours: 0, last: undefined });
+    expect(wall.map((g) => g.title)).not.toContain("Cyberpunk 2077");
+  });
+
+  it("shows only the owned subset of the curated games, with real hours instead of demo copy", () => {
+    const wall = applySteam(profile({ owned: [[1245620, 12]], games: [[570, "Dota 2", 3]] }), pool, store);
+    expect(appids(wall)).toEqual([570, 730, 1245620, 2073850]);
+    const elden = wall.find((g) => g.appid === 1245620)!;
+    expect(elden).toMatchObject({
+      owned: true,
+      hours: 12,
+      personal: "12 h played",
+      last: "in your library",
+    });
+    expect(elden.save).not.toMatch(/Liurnia/);
+    expect(wall.find((g) => g.appid === 570)).toMatchObject({ owned: true, fromLibrary: true });
+    expect(libraryState(profile({ owned: [[1245620, 12]] }))).toBe("ok");
+  });
+
+  it("does not show an owned free game twice, and counts it as the renter's", () => {
+    const wall = applySteam(profile({ owned: [[730, 400]] }), pool, store);
+    expect(wall.filter((g) => g.appid === 730)).toHaveLength(1);
+    expect(wall.find((g) => g.appid === 730)).toMatchObject({ owned: true, hours: 400 });
+  });
+
+  it("says a readable library with nothing to show is empty, rather than unreadable", () => {
+    expect(libraryState(profile({ size: 3 }))).toBe("none");
+    expect(applySteam(profile({ size: 3 }), pool, store).every((g) => g.f2p && !g.owned)).toBe(true);
+  });
+});
+
+describe("nextCatalog", () => {
+  const [cs, bf] = catalog;
+  const previous = { media: [bf!], popular: [cs!] };
+
+  it("keeps the store data it has when both store reads fail", () => {
+    expect(nextCatalog(previous, [], [])).toEqual(previous);
+  });
+
+  it("keeps the last chart when only the chart read fails, so its free games stay up", () => {
+    const next = nextCatalog(previous, [cs!], []);
+    expect(next).toEqual({ media: [cs], popular: [cs] });
+    expect(storeGames(next).filter((g) => g.free)).not.toHaveLength(0);
+  });
+
+  it("keeps the last art when only the art read fails", () => {
+    expect(nextCatalog(previous, [], [bf!])).toEqual({ media: [bf], popular: [bf] });
+  });
+
+  it("replaces each source with whatever its read brings back", () => {
+    expect(nextCatalog(previous, [cs!], [bf!])).toEqual({ media: [cs], popular: [bf] });
   });
 });
 
@@ -141,6 +265,13 @@ describe("sign-in", () => {
     const get = answer(200, renter);
     expect(await fetchRenter(get as unknown as typeof fetch)).toEqual(renter);
     expect(get).toHaveBeenCalledWith("/api/me");
+  });
+
+  it("asks the server to read the library from Steam again on retry", async () => {
+    const get = answer(200, renter);
+    expect(await refreshRenter(get as unknown as typeof fetch)).toEqual(renter);
+    expect(get).toHaveBeenCalledWith("/api/me/refresh", { method: "POST" });
+    expect(await refreshRenter(answer(401) as unknown as typeof fetch)).toBeNull();
   });
 
   it("shows the wall signed out when the server signs nobody in or cannot be reached", async () => {
