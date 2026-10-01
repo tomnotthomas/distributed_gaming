@@ -127,8 +127,17 @@ POST /bookings/:id/claim
   → 409 if the booking is not matched (its reservation lapsed, or it has expired).
 
 POST /sessions/:id/qos
-  Report stream quality during the session, with the join ticket as bearer. Feeds the
-  machine's stability; see host.md, "Stability".
+  { fps, bitrate, rttMs, packetLoss }
+  Report stream quality during the session, with the join ticket as bearer, and once
+  more up to 60 s after it ends while the ticket is still valid. Feeds the machine's
+  stability; see host.md, "Stability". Later concern: each report counts equally in the
+  session's running mean, so a policy for duplicate or uneven sampling (bounded report
+  intervals, report ids, and telling sparse from absent telemetry) is still to come.
+
+POST /sessions/:id/leave
+  The renter is leaving: ends the session as `renter`, with the join ticket as bearer.
+  → 403 for another session's ticket, → 409 once the session is over. The only way a
+  session is recorded as the renter's own choice to end it.
 ```
 
 Matching runs in the server process, every second and on every change: the oldest

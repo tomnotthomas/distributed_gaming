@@ -107,13 +107,15 @@ POST /machines/:id/session
 
 POST /sessions/:id/start
 POST /sessions/:id/end
-  { endedAt?, reason?: "renter" | "time_up" | "owner_kill" }
-  Mark the session started (the renter arrived), and ended (renter left, time ran out,
-  or kill switch). → 409 once the session is over. Without a `reason`, an end at the
-  session's expiry is `time_up` and an earlier one `renter`. The platform ends a session
-  itself when its join ticket runs out (`time_up`, or `grace_expired` if the renter never
-  arrived), when the machine goes silent (`host_offline`) and when the owner takes it
-  back (`owner_kill`). The reason feeds the machine's stability (below).
+  { endedAt? }
+  Mark the session started (the renter arrived), and ended. → 409 once the session is
+  over; → 400 if the body carries a `reason`. The server alone decides why a session
+  ended, so a host can never claim credit for one: `time_up` once the server sees the
+  session past its expiry, `owner_kill` for any earlier end the host or owner triggers,
+  `renter` only when the renter leaves with their own ticket (renter.md), and from its
+  own sweeps `time_up` or `grace_expired` (the renter never arrived) when the join ticket
+  runs out and `host_offline` when the machine goes silent. The reason feeds the
+  machine's stability (below).
 
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }

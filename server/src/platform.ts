@@ -127,7 +127,7 @@ export type ClaimResult =
   | ({ ok: true; roomId: string } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
-/** A QoS report's fate: stored, or why not. */
+/** What became of a renter's ticket-authenticated call (a QoS report or leaving): done, or why not. */
 export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
 type MachineRow = {
@@ -537,12 +537,12 @@ export class Platform {
   }
 
   /**
-   * The renter left, the time ran out or the owner pressed the kill switch.
-   * `endedAt` is the host's own clock, kept only between the start and now.
-   * Without a `reason`, an end at or past the session's expiry is time_up and
-   * any earlier one is the renter leaving.
+   * The host ended the session. `endedAt` is the host's own clock, kept only
+   * between the start and now. The host says nothing about why: once the server
+   * sees the session past its expiry it is time_up, and any earlier end is
+   * owner_kill, since only the renter's own ticket can record that they left.
    */
-  endSession(machineId: string, sessionId: string, endedAt?: number, reason?: EndReason): boolean {
+  endSession(machineId: string, sessionId: string, endedAt?: number): boolean {
     return this.#transaction(() => {
       const now = this.#now();
       const machine = this.#touch(machineId, now);
@@ -550,7 +550,7 @@ export class Platform {
       if (!session) return false;
       const floor = session.started_at ?? now;
       const at = Math.min(now, Math.max(floor, endedAt ?? now));
-      this.#endSession(session, at, reason ?? (at >= session.expires_at ? "time_up" : "renter"));
+      this.#endSession(session, at, now >= session.expires_at ? "time_up" : "owner_kill");
       if (machine.status === "in_session") this.#setStatus(machineId, "available");
       this.#tick(now);
       return true;
@@ -614,6 +614,30 @@ export class Platform {
   /** Tie the join ticket handed out at claim to its session, so ending the session revokes it. */
   recordTicket(sessionId: string, ticketId: string): void {
     this.#db.prepare("UPDATE sessions SET ticket_id = ? WHERE id = ?").run(ticketId, sessionId);
+  }
+
+  /**
+   * The renter left, ending the session as renter. Only the join ticket handed
+   * out for this session may do it, and only while the session runs.
+   */
+  leaveSession(sessionId: string, ticketId: string): QosResult {
+    return this.#transaction(() => {
+      const now = this.#now();
+      const session = this.#db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
+        SessionRow | undefined;
+      if (!session) return "not-found";
+      if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
+      if (session.ended_at !== null) return "over";
+      this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+      const machine = this.#db
+        .prepare("SELECT status FROM machines WHERE id = ?")
+        .get(session.machine_id) as {
+        status: MachineStatus;
+      };
+      if (machine.status === "in_session") this.#setStatus(session.machine_id, "available");
+      this.#tick(now);
+      return "ok";
+    });
   }
 
   /**

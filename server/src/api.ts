@@ -6,19 +6,21 @@
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start
 //   POST /api/bookings/:id/claim           POST /api/sessions/:id/end
 //   POST /api/sessions/:id/qos (ticket)
+//   POST /api/sessions/:id/leave (ticket)
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). A renter holds nothing but the
 // booking id, which is unguessable. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
-// The renter's page reports stream quality with that ticket as its bearer.
+// The renter's page reports stream quality, and says it is leaving, with that
+// ticket as its bearer.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
 import { popularGames } from "./catalog.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
-import { HOST_END_REASONS, type EndReason, type QosReport } from "./stability.js";
+import type { QosReport } from "./stability.js";
 import { originFrom } from "./steam.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
@@ -95,13 +97,21 @@ function qosReport(body: Json): QosReport {
   };
 }
 
-/** The reason a host gives for ending a session, if it gives one. */
-function hostEndReason(value: unknown): EndReason | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (!HOST_END_REASONS.includes(value as EndReason)) {
-    throw new HttpError(400, `reason must be one of ${HOST_END_REASONS.join(", ")}`);
-  }
-  return value as EndReason;
+/**
+ * The join ticket in `Authorization: Bearer …`, verified at the current time as
+ * it is at join: 401 when missing, forged or expired.
+ */
+function requireTicket(req: IncomingMessage, access: Access) {
+  const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
+  if (!ticket) throw new HttpError(401, "bad ticket");
+  return ticket;
+}
+
+/** The HTTP answer for a renter call the platform refused. */
+function renterRefusal(result: "not-found" | "wrong-ticket" | "over"): HttpError {
+  if (result === "not-found") return new HttpError(404, "no such session");
+  if (result === "wrong-ticket") return new HttpError(403, "the ticket is not for this session");
+  return new HttpError(409, "the session is over");
 }
 
 const defaultGames = async () =>
@@ -201,33 +211,34 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
       if (!machineId) throw new HttpError(404, "no such session");
       requireMachine(req, access, machineId);
       const body = await readJson(req);
+      // Why a session ended is the server's to decide (platform.ts), never the host's.
+      if (body.reason !== undefined)
+        throw new HttpError(400, "reason is not accepted: the server decides it");
       const ok =
         action === "start"
           ? platform.startSession(machineId, id)
-          : platform.endSession(
-              machineId,
-              id,
-              optionalTime(body.endedAt, "endedAt"),
-              hostEndReason(body.reason),
-            );
+          : platform.endSession(machineId, id, optionalTime(body.endedAt, "endedAt"));
       if (!ok) throw new HttpError(409, "the session is already over");
       reply(res, 200, { sessionId: id, roomId: machineId });
       return true;
     }
 
-    // --- Renter QoS (join ticket) ---------------------------------------------
+    // --- Renter session calls (join ticket) ------------------------------------
 
     if (resource === "sessions" && id && action === "qos" && method === "POST") {
-      // An expired ticket is refused here as it is at join. A last report after
-      // the session ends is taken while the ticket is still valid, for at most
-      // QOS_GRACE_MS (platform.ts).
-      const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
-      if (!ticket) throw new HttpError(401, "bad ticket");
+      // A last report after the session ends is taken while the ticket is still
+      // valid, for at most QOS_GRACE_MS (platform.ts).
+      const ticket = requireTicket(req, access);
       const report = qosReport(await readJson(req, MAX_QOS_BODY_BYTES));
       const result = platform.recordQos(id, ticket.id, report);
-      if (result === "not-found") throw new HttpError(404, "no such session");
-      if (result === "wrong-ticket") throw new HttpError(403, "the ticket is not for this session");
-      if (result === "over") throw new HttpError(409, "the session is over");
+      if (result !== "ok") throw renterRefusal(result);
+      reply(res, 200, { sessionId: id });
+      return true;
+    }
+
+    if (resource === "sessions" && id && action === "leave" && method === "POST") {
+      const result = platform.leaveSession(id, requireTicket(req, access).id);
+      if (result !== "ok") throw renterRefusal(result);
       reply(res, 200, { sessionId: id });
       return true;
     }

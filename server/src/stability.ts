@@ -13,14 +13,16 @@ import { stabilityOf, type Stability, type StabilityStats } from "@swiff/rank";
 /** How far back stability looks. */
 export const STABILITY_WINDOW_MS = 7 * 24 * 3_600_000;
 
-/** Why a session ended. The host reports the first three; the server decides the rest. */
+/**
+ * Why a session ended, always decided by the server so a host can never claim
+ * credit: renter only through the renter's own ticket, time_up only once the
+ * session reaches its expiry, owner_kill for any earlier end the host or owner
+ * triggers, host_offline and grace_expired from the server's own sweeps.
+ */
 export const END_REASONS = ["renter", "time_up", "owner_kill", "host_offline", "grace_expired"] as const;
 export type EndReason = (typeof END_REASONS)[number];
 
-/** The reasons a host may give when it ends a session itself. */
-export const HOST_END_REASONS: readonly EndReason[] = ["renter", "time_up", "owner_kill"];
-
-/** Ends that count against the machine: it went away, or its owner took it back mid-session. */
+/** Ends that count against the machine: it went away, or its host or owner ended the session early. */
 const INCOMPLETE: readonly EndReason[] = ["host_offline", "owner_kill"];
 
 /** One renter's report of stream quality, from getStats. */

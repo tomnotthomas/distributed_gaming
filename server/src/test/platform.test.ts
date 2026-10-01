@@ -627,33 +627,54 @@ describe("claim notice and host sessions", () => {
 });
 
 describe("session end reasons", () => {
-  /** A claimed 30-minute session on pc-1, started unless told otherwise. */
+  /** A claimed 30-minute session on pc-1 with join ticket "ticket-1", started unless told otherwise. */
   const session = (start = true) => {
     offer("pc-1");
     const claim = platform.claim(platform.book(730, 30).bookingId);
     assert.ok(claim.ok);
+    platform.recordTicket(claim.sessionId, "ticket-1");
     if (start) assert.ok(platform.startSession("pc-1", claim.sessionId));
     return claim.sessionId;
   };
 
-  it("is renter when the host ends a session early without saying why", () => {
+  it("is renter when the renter leaves with the session's own ticket", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    assert.equal(platform.leaveSession(id, "ticket-1"), "ok");
+    assert.equal(platform.sessionEndReason(id), "renter");
+    assert.equal(platform.heartbeat("pc-1").status, "available");
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("lets only the session's own ticket leave it, and only while it runs", () => {
+    const id = session();
+    assert.equal(platform.leaveSession(id, "ticket-2"), "wrong-ticket");
+    assert.equal(platform.leaveSession("no-such-session", "ticket-1"), "not-found");
+    assert.equal(platform.sessionEndReason(id), null);
+    platform.setAvailability("pc-1", false);
+    assert.equal(platform.leaveSession(id, "ticket-1"), "over");
+    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  });
+
+  it("is owner_kill when the host ends a session before its expiry, whatever the host meant", () => {
     const id = session();
     beatFor("pc-1", 60_000);
     platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "renter");
+    assert.equal(platform.sessionEndReason(id), "owner_kill");
   });
 
-  it("is time_up when the host ends it at its expiry without saying why", () => {
+  it("is owner_kill when the host backdates its end to look like it ran its time", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    platform.endSession("pc-1", id, now + 30 * 60_000);
+    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  });
+
+  it("is time_up when the host ends it once the server sees it past its expiry", () => {
     const id = session();
     now += 30 * 60_000; // no tick: the host's end arrives before the backstop
     platform.endSession("pc-1", id);
     assert.equal(platform.sessionEndReason(id), "time_up");
-  });
-
-  it("is the reason the host gives", () => {
-    const id = session();
-    platform.endSession("pc-1", id, undefined, "owner_kill");
-    assert.equal(platform.sessionEndReason(id), "owner_kill");
   });
 
   it("is owner_kill when the owner takes the machine back", () => {
@@ -819,7 +840,7 @@ describe("renter QoS", () => {
 });
 
 describe("machine stability", () => {
-  /** A two-hour session on pc-1, ended by the renter, reporting `packetLoss`. */
+  /** A two-hour session on pc-1, left by the renter, reporting `packetLoss`. */
   const play = (packetLoss: number) => {
     const claim = platform.claim(platform.book(730, 180).bookingId);
     assert.ok(claim.ok);
@@ -832,7 +853,7 @@ describe("machine stability", () => {
       rttMs: 12,
       packetLoss,
     });
-    platform.endSession("pc-1", claim.sessionId);
+    assert.equal(platform.leaveSession(claim.sessionId, `ticket-${claim.sessionId}`), "ok");
   };
 
   it("is New for a machine never heard from", () => {
@@ -887,7 +908,7 @@ describe("machine stability", () => {
       const claim = reopened.claim(reopened.book(730, 30).bookingId);
       assert.ok(claim.ok);
       reopened.endSession("pc-1", claim.sessionId);
-      assert.equal(reopened.sessionEndReason(claim.sessionId), "renter");
+      assert.equal(reopened.sessionEndReason(claim.sessionId), "owner_kill");
       reopened.close();
     });
   });

@@ -196,18 +196,41 @@ describe("booking and host API", () => {
     assert.equal((await offer("pc-1", huge)).status, 413);
   });
 
-  it("records the reason a host gives for ending a session, and refuses one it may not give", async () => {
+  it("never takes a reason from the host: an early end is owner_kill, whatever it claims", async () => {
     await offer();
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
     const end = `/api/sessions/${claim.body.sessionId}/end`;
-    for (const reason of ["host_offline", "grace_expired", "bored"]) {
+    for (const reason of ["renter", "time_up", "owner_kill", "bored"]) {
       const refused = await call("POST", end, { reason }, MACHINE_KEY);
       assert.equal(refused.status, 400, reason);
       assert.match(refused.body.error, /^reason /);
     }
-    assert.equal((await call("POST", end, { reason: "owner_kill" }, MACHINE_KEY)).status, 200);
+    assert.equal(platform.sessionEndReason(claim.body.sessionId), null);
+    assert.equal((await call("POST", end, {}, MACHINE_KEY)).status, 200);
     assert.equal(platform.sessionEndReason(claim.body.sessionId), "owner_kill");
+  });
+
+  it("ends a session as renter when the renter leaves with the session's own ticket", async () => {
+    await offer();
+    await offer("pc-2");
+    const first = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const second = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const mine = await call("POST", `/api/bookings/${first.body.bookingId}/claim`);
+    const theirs = await call("POST", `/api/bookings/${second.body.bookingId}/claim`);
+    const leave = `/api/sessions/${mine.body.sessionId}/leave`;
+
+    assert.equal((await call("POST", leave)).status, 401);
+    assert.equal((await call("POST", leave, undefined, MACHINE_KEY)).status, 401);
+    assert.equal((await call("POST", leave, undefined, theirs.body.ticket)).status, 403);
+    assert.equal((await call("POST", "/api/sessions/nope/leave", undefined, mine.body.ticket)).status, 404);
+    assert.equal(platform.sessionEndReason(mine.body.sessionId), null);
+
+    const left = await call("POST", leave, undefined, mine.body.ticket);
+    assert.equal(left.status, 200);
+    assert.deepEqual(left.body, { sessionId: mine.body.sessionId });
+    assert.equal(platform.sessionEndReason(mine.body.sessionId), "renter");
+    assert.equal((await call("POST", leave, undefined, mine.body.ticket)).status, 409);
   });
 
   describe("renter QoS", () => {
