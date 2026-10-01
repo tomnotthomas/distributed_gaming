@@ -154,15 +154,16 @@ GET  /me
   → 200 { steamId, profile }
   Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
   A profile read is kept in memory for 5 minutes per renter, so reloads do not spend the
-  Web API quota; a read Steam fails or takes over 3 s to answer is not kept, and the
-  renter gets an empty profile until the next one succeeds.
+  Web API quota; a read Steam fails or takes over 3 s to answer is not kept. For 10 s
+  after a failed read Steam is not asked again for that renter: they get their last
+  good profile, or an empty one when there is none.
   → 401 when nobody is.
 
 POST /me/refresh
   → 200 { steamId, profile }
   As `GET /me`, but read from Steam again rather than the kept copy, e.g. after the
-  renter makes their game details public. A read under 10 s old is served as is, so
-  repeated retries cost one Steam read.
+  renter makes their game details public. A read under 10 s old, or a failed read under
+  10 s ago, is not repeated, so retries cost at most one Steam read per 10 s.
   → 401 when nobody is signed in.
 
 POST /signout

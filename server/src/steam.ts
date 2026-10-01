@@ -213,10 +213,12 @@ export type ProfileReader = (steamId: string, options?: { fresh?: boolean }) => 
 
 /**
  * `read`, remembered per Steam id for `ttlMs` so reloads do not spend the shared
- * Web API quota. Holds at most `max` profiles, dropping the oldest first. A read
- * that rejects is not remembered: the next request asks Steam again. `fresh`
+ * Web API quota. Holds at most `max` profiles, dropping the oldest first. `fresh`
  * skips the remembered read, e.g. after the renter makes their library public,
  * unless it is under `refreshMinMs` old, so a mashed retry button costs one read.
+ * A read that rejects is not remembered, but for `refreshMinMs` after it nobody
+ * asks Steam again for that id: lookups get the last good profile, or reject
+ * when there is none, so a Steam outage cannot be turned into a flood of reads.
  * Concurrent lookups for one Steam id share the read already in flight.
  */
 export function cachedProfiles(
@@ -231,17 +233,33 @@ export function cachedProfiles(
   const cache = new Map<string, { profile: SteamProfile; at: number }>();
   // Reads still waiting on Steam, so two tabs refreshing at once share one.
   const pending = new Map<string, Promise<SteamProfile>>();
+  // When each id's last read failed, so a failing Steam is not asked again at once.
+  const failed = new Map<string, number>();
   return async (steamId, { fresh = false } = {}) => {
     const inFlight = pending.get(steamId);
     if (inFlight) return inFlight;
     const hit = cache.get(steamId);
     if (hit && now() - hit.at < (fresh ? refreshMinMs : ttlMs)) return hit.profile;
-    const reading = read(steamId).then((profile) => {
-      cache.delete(steamId);
-      if (cache.size >= max) cache.delete(cache.keys().next().value!);
-      cache.set(steamId, { profile, at: now() });
-      return profile;
-    });
+    const failedAt = failed.get(steamId);
+    if (failedAt !== undefined && now() - failedAt < refreshMinMs) {
+      if (hit) return hit.profile;
+      throw new Error("steam read failed moments ago; retry later");
+    }
+    const reading = read(steamId).then(
+      (profile) => {
+        failed.delete(steamId);
+        cache.delete(steamId);
+        if (cache.size >= max) cache.delete(cache.keys().next().value!);
+        cache.set(steamId, { profile, at: now() });
+        return profile;
+      },
+      (error) => {
+        failed.delete(steamId);
+        if (failed.size >= max) failed.delete(failed.keys().next().value!);
+        failed.set(steamId, now());
+        throw error;
+      },
+    );
     pending.set(steamId, reading);
     try {
       return await reading;
