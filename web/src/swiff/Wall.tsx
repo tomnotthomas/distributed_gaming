@@ -225,6 +225,14 @@ function WallHero({ game, swiff, shared }: { game: Game; swiff: Swiff; shared: M
             with you.
           </p>
           <div className="hero-actions">
+            {best && game.f2p ? (
+              <button type="button" className="lpill" onClick={() => swiff.openGame(game)}>
+                Play free
+                <span className="lpill-c">
+                  <Glyph name="play" size={16} />
+                </span>
+              </button>
+            ) : null}
             <SteamButton href={STEAM_LOGIN_URL} />
             <span className="mono hero-fine">Signs in through Steam. We only read your game library.</span>
           </div>

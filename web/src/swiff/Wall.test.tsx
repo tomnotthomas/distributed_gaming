@@ -104,4 +104,15 @@ describe("Wall", () => {
     expect(screen.queryByTestId("library-state")).toBeNull();
     expect(screen.getAllByText("Cyberpunk 2077").length).toBeGreaterThan(0);
   });
+
+  it("lets a signed-out visitor play the lead free-to-play game from the hero", () => {
+    const openGame = vi.fn();
+    render(<Wall swiff={{ ...swiffWith(GAMES, null), openGame }} />);
+    const lead = screen.getByRole("heading", { level: 1 }).textContent;
+    fireEvent.click(screen.getByRole("button", { name: "Play free" }));
+    expect(openGame).toHaveBeenCalledOnce();
+    const game = openGame.mock.calls[0]![0] as Game;
+    expect(game.title).toBe(lead);
+    expect(game.f2p).toBe(true);
+  });
 });
