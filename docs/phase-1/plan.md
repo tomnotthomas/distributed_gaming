@@ -7,8 +7,8 @@ Diagrams: `../diagrams/system-architecture.png` (where this sits in the whole sy
 `../diagrams/host-isolation.png` (where it goes in phase 2).
 
 Phase 1 builds only the right-hand side of the architecture diagram: **Connection setup**,
-**Gaming PC**, **Renter**, **STUN**, **TURN**. No Booking API, no Queue, no Matchmaker
-worker, no Database.
+**Gaming PC**, **Renter**, **STUN**, **TURN**. No Booking API, no Host API, no Matching,
+no Database.
 
 ---
 
