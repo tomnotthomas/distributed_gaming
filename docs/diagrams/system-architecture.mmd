@@ -55,14 +55,16 @@ flowchart LR
   Renter -- "sign in" --> SteamID
   Renter -- "HTTPS · ranked PCs for a game<br/>book the picked PC or join the queue<br/>claim" --> API
   API -- "rank live PCs · reserve the pick<br/>store booking · claimed" --> DB
+  API -- "event stream (SSE)<br/>booking status · claim countdown<br/>page heartbeat every 15 s = renter present" --> Renter
   API -- "no PC free: queue" --> MM
   MM -- "reserve a free PC<br/>for the oldest booking" --> DB
   API -. "join ticket signed with ROOM_SECRET<br/>checked here, no call needed" .- SIG
   Renter <-- "WebSocket · join ticket<br/>SDP/ICE + machine ready" --> SIG
+  SVC <-- "WebSocket · machine key<br/>open socket = PC online<br/>session-claimed" --> SIG
   SVC -- "POST /api/machines/:id/session<br/>machine key → session key" --> SIG
   SVC -- "launches with the session key" --> STR
   STR <-- "WebSocket · session key" --> SIG
-  SVC -- "available now · heartbeat<br/>session started / ended" --> HAPI
+  SVC -- "available now · report on change<br/>session started / ended" --> HAPI
   HAPI -- "write" --> DB
   SVC -- "download saves at start<br/>upload saves at end" --> S3
   Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> STR

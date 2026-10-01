@@ -25,6 +25,13 @@
 // register it; only a renter holding a ticket for it may join, and only one
 // renter at a time. See access.ts.
 //
+// The host's open socket is also how the platform knows the PC is there: it
+// stays offered while the socket is open and goes offline the moment it
+// closes, or when the ping below stops being answered. Once a renter has
+// claimed it, a closed socket leaves the PC the heartbeat window instead. A
+// renter is there while their page speaks: opening the event stream
+// (events.ts), then its heartbeat.
+//
 // When a renter claims the machine, its machine-key socket is told at once
 // (session-claimed), and the PC service starts the host session for that
 // platform session. While it runs, the room is registered by the streamer in
@@ -52,6 +59,7 @@ import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
+import { createRenterEvents } from "./events.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -77,16 +85,24 @@ const publicOrigin = publicOriginFromEnv(process.env, PORT);
 const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
-// DATABASE_PATH names a file. A claim is pushed to the claimed PC. Whenever a
-// renter's session ends there, however it ends, the PC's host session ends
-// with it: the next renter never meets a streamer launched for the last one.
+// DATABASE_PATH names a file. A claim is pushed to the claimed PC, and every
+// booking change to the renter's event stream. Whenever a renter's session ends
+// there, however it ends, the PC's host session ends with it and the renter is
+// put out: the next renter never meets a streamer launched for the last one.
 // Each machine's owner comes from MACHINE_KEYS, so no renter is ever matched
-// to their own PC.
+// to their own PC. The platform arms its own timer for whatever changes only
+// with time.
 const platform = new Platform({
   path: process.env.DATABASE_PATH || ":memory:",
   owners: access.owners,
-  onSessionEnded: evictStreamer,
+  onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
+  onBookingChanged: (bookingId) => renterEvents.bookingChanged(bookingId),
+});
+// Open renter streams are capped server-wide and per signed-in renter (events.ts).
+const renterEvents = createRenterEvents(platform, {
+  maxStreams: Number(process.env.MAX_EVENT_STREAMS) || undefined,
+  maxStreamsPerRenter: Number(process.env.MAX_EVENT_STREAMS_PER_RENTER) || undefined,
 });
 
 // Session keys are signed with ROOM_SECRET too, so without it no session can
@@ -100,25 +116,8 @@ const serveApi = createApi({
   publicOrigin,
   fallbackOrigin: `http://localhost:${PORT}`,
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
+  events: renterEvents,
 });
-
-// Matching and the liveness sweep. Every request that changes something runs
-// them too; this catches what changes only with time: a machine going silent,
-// a reservation lapsing, and bookings waiting on either. Then any renter still
-// seated on a ticket whose session has ended, however it ended, is put out.
-const PLATFORM_TICK_MS = 1_000;
-setInterval(() => {
-  try {
-    platform.tick();
-    for (const room of rooms.values()) {
-      if (room.client?.ticketId && platform.ticketRevoked(room.client.ticketId))
-        deny(room.client, "bad-ticket");
-    }
-  } catch (error) {
-    // A locked or broken database file must not take signaling down with it.
-    console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
-  }
-}, PLATFORM_TICK_MS).unref();
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -132,6 +131,9 @@ const STATIC_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 // hold its room forever.
 const HEARTBEAT_MS = 25_000;
 const HEARTBEAT_MISSES = 2;
+
+/** Rooms whose host pinged since the last sweep round: their PCs are there. */
+const pinged = new Set<string>();
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -194,6 +196,8 @@ function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
  * Take the host out of its room now, tell the renter, then hang up on it. The
  * room must not wait for the close handshake: a new host registering before it
  * finishes would otherwise take the seat without the renter hearing peer-left.
+ * The room is being handed over, not dropped: the machine has the liveness
+ * window to come back on its new credential before it counts as offline.
  */
 function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
   const room = rooms.get(hostId);
@@ -203,6 +207,20 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
   send(room.client, { type: "peer-left" });
   if (!room.client) rooms.delete(hostId);
   deny(host, reason);
+  hostGone(hostId, false);
+}
+
+/**
+ * Tell the platform the host socket holding `hostId` is gone: `dropped` when it
+ * closed or stopped answering (a PC on offer is offline at once), not when the
+ * server handed the room over. A database failure is logged, never thrown.
+ */
+function hostGone(hostId: string, dropped: boolean): void {
+  try {
+    platform.hostDisconnected(hostId, dropped);
+  } catch (error) {
+    console.error("[swiff] host presence failed:", error instanceof Error ? error.name : typeof error);
+  }
 }
 
 // --- host sessions ----------------------------------------------------------
@@ -217,9 +235,38 @@ function endHostSession(hostId: string): void {
 }
 
 /**
+ * A platform session on `hostId` ended, however it ended. Its streamer is hung
+ * up on, and a renter still seated on the session's revoked ticket is put out.
+ */
+function sessionEnded(hostId: string, sessionId: string): void {
+  evictStreamer(hostId, sessionId);
+  const client = rooms.get(hostId)?.client;
+  if (client) seatStillValid(client);
+}
+
+/**
+ * True when the renter `client` may stay seated: its ticket's session has not
+ * ended. A revoked one is put out with `bad-ticket`. When the database cannot
+ * say, the renter is hung up on without `denied`, so it may retry, and nothing
+ * is relayed for it meanwhile. The session-end notice puts a revoked renter out
+ * at once; this is the check that does not depend on that notice arriving.
+ */
+function seatStillValid(client: PeerSocket): boolean {
+  if (!client.ticketId) return true;
+  try {
+    if (!platform.ticketRevoked(client.ticketId)) return true;
+    deny(client, "bad-ticket");
+  } catch (error) {
+    console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+    client.close(1011, "internal error");
+  }
+  return false;
+}
+
+/**
  * Hang up on the streamer serving session `sessionId` in `hostId`, if it is
- * the room's host. The platform calls this when that session ends, having
- * already ended its host session in the same transaction.
+ * the room's host. The platform ends a session's host session in the same
+ * transaction that ends the session, before this runs.
  */
 function evictStreamer(hostId: string, sessionId: string): void {
   if (rooms.get(hostId)?.host?.sessionId === sessionId) evictHost(hostId, "session-ended");
@@ -422,6 +469,7 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
   switch (msg.type) {
     case "ping":
       ws.missedBeats = 0;
+      if (ws.role === "host" && ws.hostId) pinged.add(ws.hostId);
       send(ws, { type: "pong" });
       return;
 
@@ -447,9 +495,12 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       ws.role = "host";
       ws.sessionId = sessionId;
       room.host = ws;
+      // The PC is there for as long as this socket stays open.
+      platform.hostConnected(msg.hostId);
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
-      // A client that arrived first is still waiting; tell the host now.
-      if (room.client) send(ws, { type: "peer-joined" });
+      // A client that arrived first is still waiting; tell the host now,
+      // unless its ticket died meanwhile.
+      if (room.client && seatStillValid(room.client)) send(ws, { type: "peer-joined" });
       // A PC that missed its claim, or lost it before starting the session,
       // hears it again: the machine key only registers with no session live.
       if (sessionId === null) {
@@ -508,8 +559,12 @@ wss.on("connection", (socket) => {
     }
 
     if (isRelayed(msg)) {
-      // Forwarded verbatim. The server does not read the payload.
-      send(peerOf(ws), msg);
+      // Forwarded verbatim. The server does not read the payload. Never to or
+      // from a renter whose ticket has been revoked since it joined.
+      const peer = peerOf(ws);
+      const renter = ws.role === "client" ? ws : peer;
+      if (renter && !seatStillValid(renter)) return;
+      send(peer, msg);
       return;
     }
 
@@ -537,15 +592,33 @@ wss.on("connection", (socket) => {
     if (room.host !== ws && room.client !== ws) return;
 
     const peer = peerOf(ws);
-    if (room.host === ws) room.host = null;
+    const wasHost = room.host === ws;
+    if (wasHost) room.host = null;
     if (room.client === ws) room.client = null;
     send(peer, { type: "peer-left" });
     if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
+    // The PC service's own socket going is the PC going: offline now while it
+    // is on offer. A streamer's going, or any socket once a renter has claimed
+    // the PC, leaves the liveness window: a session does not die with one socket.
+    if (wasHost && ws.hostId) hostGone(ws.hostId, ws.sessionId === null);
   });
 });
 
+// The safety net under the session-end notice and the relay check: every so
+// often, any seated renter whose ticket has been revoked is put out, even one
+// that sends nothing. SWIFF_TICKET_RECONCILE_MS shortens it for tests.
+const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 30_000;
+setInterval(() => {
+  for (const room of rooms.values()) if (room.client) seatStillValid(room.client);
+}, TICKET_RECONCILE_MS).unref();
+
 // Server-side liveness sweep. Without it a host whose machine slept keeps its
-// room and the next renter joins a socket that will never answer.
+// room and the next renter joins a socket that will never answer, and the
+// platform keeps offering a PC that is not there: terminating the socket is
+// what takes it offline.
+// Each round also stores, in one write, that the PCs which pinged since the
+// last round are still there, so a crash leaves their last contact at most a
+// round stale rather than as of whatever last touched the database.
 const sweep = setInterval(() => {
   for (const socket of wss.clients) {
     const ws = socket as PeerSocket;
@@ -554,6 +627,13 @@ const sweep = setInterval(() => {
       continue;
     }
     ws.missedBeats += 1;
+  }
+  const alive = [...pinged];
+  pinged.clear();
+  try {
+    platform.hostsAlive(alive);
+  } catch (error) {
+    console.error("[swiff] host presence failed:", error instanceof Error ? error.name : typeof error);
   }
 }, HEARTBEAT_MS);
 sweep.unref?.();

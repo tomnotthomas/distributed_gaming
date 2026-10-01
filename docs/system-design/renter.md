@@ -81,7 +81,8 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
 becomes `expired` when its reservation lapses unclaimed after the renter has checked on
 it since the match, or when it is queued and the renter has not checked on it for 2
-minutes. A reservation that lapses while the renter has not been heard from since the
+minutes. Opening the event stream on the booking (below) and the page's heartbeat while
+it is open count as checking on it; a stream merely left open does not. A reservation that lapses while the renter has not been heard from since the
 match puts the booking back in the queue in its old place.
 
 Machines, bookings, reservations and sessions are one SQLite table each
@@ -95,8 +96,9 @@ saves are not built.
 
 ## 5. API
 
-All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me` and
-`/bookings` calls carry the renter's sign-in session and answer `401` without one;
+All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
+`/bookings` and `/events` calls carry the renter's sign-in session and answer `401`
+without one;
 `GET /games` and `POST /signout` work signed out, and the `/sessions` calls carry the
 join ticket instead.
 
@@ -183,6 +185,30 @@ GET  /bookings/:id
   queued booking in the queue: one nobody has checked on for 2 minutes expires.
   → 404 for an unknown booking, and for one another renter made: a renter only ever
   sees their own.
+  The page uses this only while its event stream is down.
+
+POST /bookings/:id/seen
+  → 204
+  The page's heartbeat while its event stream is open (every 15 s): counts as checking
+  on the booking, the same as GET /bookings/:id, without the body. → 404 for an
+  unknown booking or another renter's.
+
+GET  /events?booking=:id
+  → 200 text/event-stream
+  The renter's event stream (Server-Sent Events, `server/src/events.ts`), for the
+  signed-in renter's own booking. Sends the booking at once, then again the moment its
+  status changes, as `event: booking` with the same body as GET /bookings/:id; `claimBy`
+  is the claim countdown. A `: keep-alive` comment every 25 s keeps an idle stream open
+  through Cloudflare. Opening the stream counts as checking on the booking; from then on
+  only the page's heartbeat does, since a sleeping laptop's stream can stay open long
+  after its page stopped running. The stream ends once the booking is claimed, playing,
+  ended or expired, after sending that status, and when the renter's sign-in session
+  runs out; the page then treats the booking as gone from view, as it does a 401 on its
+  heartbeat or poll. A booking takes at most 3 streams at a time, a signed-in renter 10
+  and the server 500 (`MAX_EVENT_STREAMS_PER_RENTER`, `MAX_EVENT_STREAMS`); more are
+  refused with 429. A stream the renter does not read fast enough is dropped (EventSource
+  reconnects it). → 404 for an unknown booking or another renter's, even while a stream
+  cap is full.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
@@ -209,7 +235,9 @@ POST /sessions/:id/leave
   within 10 s of its expiry) and counts neither for nor against the machine's completion.
 ```
 
-Matching runs in the server process, every second and on every change: the oldest
+Matching runs in the server process on every change, with one timer armed for the next
+deadline (a reservation lapsing, a machine's liveness, a queued booking timing out, a
+session running out) instead of a sweep: the oldest
 queued booking gets the cheapest live machine that is free for all of its minutes, has
 the game installed and meets the game's minimum hardware (ranking gates E2 and E3), and
 is not the renter's own (E5); the machine is reserved for it. A machine's owner is the
@@ -229,9 +257,11 @@ resumable: a renter who comes back within those 2 minutes (browser reopened, lap
 up) and checks on the same booking id keeps their place, even if a machine was reserved
 for them and lapsed while they were away. The web helper
 `web/src/swiff/booking.ts` stores the booking id in `localStorage` when it books and, on
-page load, resumes polling the stored booking, forgetting it once the booking is claimed,
-ended or expired. **Not wired in yet:** no booking page calls the helper; the booking UI
-will.
+page load, resumes watching the stored booking over the event stream, forgetting it once
+the booking is claimed, ended or expired. While the stream is open it sends the heartbeat
+POST /bookings/:id/seen every 15 s. `EventSource` reconnects a dropped stream by itself;
+until it does, the helper checks on the booking with a slow poll (every 5 s) instead.
+**Not wired in yet:** no booking page calls the helper; the booking UI will.
 
 **Known gap:** keeping their place does not give a returning renter a fresh claim window.
 If a machine is reserved for them when they come back, their first check counts as having
@@ -271,10 +301,12 @@ configured the server lets nobody in (`server/src/access.ts`).
 - **A ticket dies with its session.** `claim` records the ticket on the session. Once the
   session ends (the host ends it, the owner takes the machine back, the machine goes
   silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
-  and a renter still in the room with it is put out within a second.
+  and a renter still in the room with it is put out at once. That does not rest on the
+  one notice alone: the ticket is checked again on every frame relayed to or from the
+  renter and when the host registers, and every 30 s for every seated renter.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
-  can call. `npm run ticket -- <machine-id>` still mints one by hand for testing. Machine keys are made by hand:
-  `npm run machine-key -- <machine-id> <owner-steam-id>`.
+  can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
+  Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
 
 The server hands both peers the STUN/TURN settings when they join, with short-lived TURN
 credentials it mints itself (`server/src/ice.ts`).

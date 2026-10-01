@@ -8,8 +8,10 @@
 //   POST /api/bookings                     POST /api/sessions/:id/end
 //   GET  /api/bookings/:id
 //   POST /api/bookings/:id/claim
+//   POST /api/bookings/:id/seen
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
+//   GET  /api/events?booking=:id  (event stream, events.ts)
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
@@ -20,13 +22,14 @@
 // ticket as its bearer.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
+import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
 import { popularGames } from "./catalog.js";
+import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
-import { clearedCookie, renterOf } from "./signin.js";
+import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
@@ -47,6 +50,8 @@ export type ApiOptions = {
   fallbackOrigin: string;
   /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
+  /** The renter event streams. Without them GET /api/events is not served. */
+  events?: RenterEvents;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
   profile?: ProfileReader;
 };
@@ -57,11 +62,16 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** The signed-in renter's session; 401 when the request carries no live one. */
+function requireRenterSession(req: IncomingMessage, sessionSecret: string | null): RenterSession {
+  const session = renterSessionOf(req, sessionSecret);
+  if (!session) throw new HttpError(401, "sign in with Steam first");
+  return session;
+}
+
 /** The signed-in renter's Steam id; 401 when the request carries no live session. */
 function requireRenter(req: IncomingMessage, sessionSecret: string | null): string {
-  const renter = renterOf(req, sessionSecret);
-  if (!renter) throw new HttpError(401, "sign in with Steam first");
-  return renter;
+  return requireRenterSession(req, sessionSecret).steamId;
 }
 
 /** 401 unless the request carries this machine's own key. */
@@ -149,6 +159,7 @@ export function createApi({
   fallbackOrigin,
   games = defaultGames,
   profile = (steamId) => readProfile(undefined, steamId),
+  events,
 }: ApiOptions) {
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -167,6 +178,18 @@ export function createApi({
 
     if (resource === "games" && !id && method === "GET") {
       reply(res, 200, await games().catch(() => []));
+      return true;
+    }
+
+    if (resource === "events" && !id && method === "GET" && events) {
+      const session = requireRenterSession(req, sessionSecret);
+      const bookingId = new URL(req.url ?? "/", "http://localhost").searchParams.get("booking");
+      if (!bookingId) throw new HttpError(400, "booking is required");
+      // Somebody else's booking reads exactly like one that does not exist.
+      // The stream ends when the session does, as any other call would be refused then.
+      const opened = events.open(res, bookingId, session.steamId, session.exp * 1000);
+      if (opened === "not-found") throw new HttpError(404, "no such booking");
+      if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true;
     }
 
@@ -213,6 +236,15 @@ export function createApi({
       const booking = platform.booking(id, requireRenter(req, sessionSecret));
       if (!booking) throw new HttpError(404, "no such booking");
       reply(res, 200, booking);
+      return true;
+    }
+
+    if (resource === "bookings" && id && action === "seen" && method === "POST") {
+      // The renter's page is still there: counts as checking on the booking.
+      if (!platform.booking(id, requireRenter(req, sessionSecret)))
+        throw new HttpError(404, "no such booking");
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
       return true;
     }
 
