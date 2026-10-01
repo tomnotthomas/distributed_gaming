@@ -109,7 +109,7 @@ POST /sessions/:id/start
 POST /sessions/:id/end
   { endedAt? }
   Mark the session started (the renter arrived), and ended. → 409 once the session is
-  over; → 400 if the body carries a `reason`. The server alone decides why a session
+  over. Any `reason` the host sends is ignored: the server alone decides why a session
   ended, so a host can never claim credit for one: `time_up` once the server sees the
   session within 10 s of its expiry (to absorb clock skew), `host_end` for any earlier
   end the host reports (often a renter who disconnected without leaving; it counts

@@ -196,19 +196,15 @@ describe("booking and host API", () => {
     assert.equal((await offer("pc-1", huge)).status, 413);
   });
 
-  it("never takes a reason from the host: an early end is host_end, whatever it claims", async () => {
+  it("ignores any reason the host sends: an early end is host_end, whatever it claims", async () => {
     await offer();
-    const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
-    const end = `/api/sessions/${claim.body.sessionId}/end`;
-    for (const reason of ["renter", "time_up", "owner_kill", "bored"]) {
-      const refused = await call("POST", end, { reason }, MACHINE_KEY);
-      assert.equal(refused.status, 400, reason);
-      assert.match(refused.body.error, /^reason /);
+    for (const reason of ["renter", "time_up"]) {
+      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      const end = await call("POST", `/api/sessions/${claim.body.sessionId}/end`, { reason }, MACHINE_KEY);
+      assert.equal(end.status, 200, reason);
+      assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end", reason);
     }
-    assert.equal(platform.sessionEndReason(claim.body.sessionId), null);
-    assert.equal((await call("POST", end, {}, MACHINE_KEY)).status, 200);
-    assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end");
   });
 
   it("ends a session as renter when the renter leaves with the session's own ticket", async () => {

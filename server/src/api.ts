@@ -211,9 +211,6 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
       if (!machineId) throw new HttpError(404, "no such session");
       requireMachine(req, access, machineId);
       const body = await readJson(req);
-      // Why a session ended is the server's to decide (platform.ts), never the host's.
-      if (body.reason !== undefined)
-        throw new HttpError(400, "reason is not accepted: the server decides it");
       const ok =
         action === "start"
           ? platform.startSession(machineId, id)
