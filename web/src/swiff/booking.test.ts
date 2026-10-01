@@ -196,6 +196,33 @@ describe("watching a booking over the event stream", () => {
     expect(beats.length).toBe(sent);
   });
 
+  for (const refused of [401, 404] as const) {
+    it(`forgets the booking and stops when the heartbeat is refused with ${refused}`, async () => {
+      localStorage.setItem("swiff.booking", "b-1");
+      const beats: string[] = [];
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        beats.push(`${init?.method ?? "GET"} ${String(url)}`);
+        return new Response(null, { status: refused });
+      }) as unknown as typeof globalThis.fetch;
+      const updates: (BookingStatus | null)[] = [];
+      const { stream, open } = fakeStream();
+      watchBooking("b-1", (b) => updates.push(b?.status ?? null), {
+        fetch,
+        heartbeatMs: 5,
+        eventSource: open,
+      });
+      stream.push("queued");
+      await settle();
+
+      expect(updates).toEqual(["queued", null]);
+      expect(localStorage.getItem("swiff.booking")).toBeNull();
+      expect(stream.closed).toBe(true);
+      const sent = beats.length;
+      await settle();
+      expect(beats.length).toBe(sent);
+    });
+  }
+
   it("stops beating once the booking is done", async () => {
     const server = fakeServer(["queued"]);
     const { stream, open } = fakeStream();

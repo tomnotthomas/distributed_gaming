@@ -91,13 +91,20 @@ export function watchBooking(
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let stream: EventStream | null = null;
 
-  /** Tell the server the renter is still here; a failed beat waits for the next. */
+  /**
+   * Tell the server the renter is still here; a failed beat waits for the next.
+   * Refused as signed out or not theirs, the booking is gone from view, as the
+   * poll treats it.
+   */
   const beat = async () => {
+    let response: Response;
     try {
-      await get(`/api/bookings/${encodeURIComponent(bookingId)}/seen`, { method: "POST" });
+      response = await get(`/api/bookings/${encodeURIComponent(bookingId)}/seen`, { method: "POST" });
     } catch {
       // A blip on the network: the next beat tries again.
+      return;
     }
+    if (response.status === 404 || response.status === 401) settle(null);
   };
 
   const stopHeartbeat = () => {

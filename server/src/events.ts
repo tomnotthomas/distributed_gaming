@@ -54,9 +54,10 @@ export type RenterEvents = {
   /**
    * Answer GET /api/events for `bookingId` with a stream for the signed-in
    * `renterId`, unless the booking is unknown or not theirs, or a stream cap
-   * is reached.
+   * is reached. The stream ends at `signedInUntil` (Unix ms), when the
+   * renter's session does.
    */
-  open(res: ServerResponse, bookingId: string, renterId: string): OpenResult;
+  open(res: ServerResponse, bookingId: string, renterId: string, signedInUntil: number): OpenResult;
   /** Send the booking as it now stands to every stream open on it. The platform calls this on each change. */
   bookingChanged(bookingId: string): void;
 };
@@ -88,29 +89,37 @@ export function createRenterEvents(
     keepAliveMs = KEEP_ALIVE_MS,
     maxStreams = MAX_STREAMS,
     maxStreamsPerRenter = MAX_STREAMS_PER_RENTER,
+    now = Date.now,
   }: {
     keepAliveMs?: number | undefined;
     maxStreams?: number | undefined;
     maxStreamsPerRenter?: number | undefined;
+    /** The clock sessions expire by. */
+    now?: () => number;
   } = {},
 ): RenterEvents {
   const streams = new Map<string, Set<ServerResponse>>();
+  /** When each open stream's renter session ends, in Unix ms. */
+  const signedInUntil = new WeakMap<ServerResponse, number>();
+  /** End the stream if its renter's session is over; true when it did. */
+  const signedOut = (res: ServerResponse): boolean => {
+    if (now() < (signedInUntil.get(res) ?? Infinity)) return false;
+    if (!res.destroyed && !res.writableEnded) res.end();
+    return true;
+  };
   /** Open streams per signed-in renter, and in all. */
   const perRenter = new Map<string, number>();
   let total = 0;
 
   return {
-    open(res, bookingId, renterId) {
-      if (
-        (streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING ||
-        (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter ||
-        total >= maxStreams
-      ) {
-        return "too-many";
-      }
-      // Somebody else's booking reads as not found.
+    open(res, bookingId, renterId, until) {
+      // The renter's own count and the server's say nothing about the booking.
+      if ((perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter || total >= maxStreams) return "too-many";
+      // Somebody else's booking reads as not found, before its own count can
+      // tell anyone it is being watched.
       const booking = platform.booking(bookingId, renterId);
       if (!booking) return "not-found";
+      if ((streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING) return "too-many";
 
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
@@ -123,9 +132,11 @@ export function createRenterEvents(
       let open = streams.get(bookingId);
       if (!open) streams.set(bookingId, (open = new Set()));
       open.add(res);
+      signedInUntil.set(res, until);
       perRenter.set(renterId, (perRenter.get(renterId) ?? 0) + 1);
       total += 1;
-      const keepAlive = setInterval(() => write(res, ": keep-alive\n\n"), keepAliveMs);
+      // Each keep-alive also checks the session: one that has run out ends the stream.
+      const keepAlive = setInterval(() => signedOut(res) || write(res, ": keep-alive\n\n"), keepAliveMs);
       keepAlive.unref();
 
       res.once("close", () => {
@@ -146,7 +157,7 @@ export function createRenterEvents(
       if (!open?.size) return;
       const booking = platform.viewBooking(bookingId);
       if (!booking) return;
-      for (const res of [...open]) sendBooking(res, booking);
+      for (const res of [...open]) if (!signedOut(res)) sendBooking(res, booking);
     },
   };
 }

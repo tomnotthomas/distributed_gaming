@@ -18,6 +18,7 @@ import {
   MIN_SECRET_LENGTH,
   mintRenterSession,
   mintSignInState,
+  type RenterSession,
   verifyRenterSession,
   verifySignInState,
 } from "./access.js";
@@ -111,16 +112,26 @@ function startedHere(req: IncomingMessage, secret: string, query: URLSearchParam
 }
 
 /**
- * The signed-in renter's Steam id, or null when the request carries no session
- * cookie that `secret` signed and that has not expired. Null secret: nobody.
+ * The signed-in renter's session (Steam id and expiry), or null when the
+ * request carries no session cookie that `secret` signed and that has not
+ * expired. Null secret: nobody.
  */
-export function renterOf(req: IncomingMessage, secret: string | null, now = Date.now()): string | null {
+export function renterSessionOf(
+  req: IncomingMessage,
+  secret: string | null,
+  now = Date.now(),
+): RenterSession | null {
   if (!secret) return null;
   for (const token of cookieValues(req.headers.cookie, SESSION_COOKIE)) {
     const session = verifyRenterSession(secret, token, now);
-    if (session) return session.steamId;
+    if (session) return session;
   }
   return null;
+}
+
+/** The signed-in renter's Steam id, or null as for renterSessionOf. */
+export function renterOf(req: IncomingMessage, secret: string | null, now = Date.now()): string | null {
+  return renterSessionOf(req, secret, now)?.steamId ?? null;
 }
 
 /**

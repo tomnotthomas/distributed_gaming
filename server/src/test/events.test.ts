@@ -239,6 +239,15 @@ describe("renter event stream", () => {
     for (const s of [...open, another]) s.close();
   });
 
+  it("answers somebody else's booking with 404 even while its own streams are full", async () => {
+    const { bookingId } = platform.book(730, 30, RENTER);
+    const open: Stream[] = [];
+    for (let i = 0; i < MAX_STREAMS_PER_BOOKING; i++) open.push(await stream(`?booking=${bookingId}`));
+    // 429 here would tell a stranger the booking exists and is being watched.
+    assert.equal((await stream(`?booking=${bookingId}`, {}, signedIn(OTHER))).status, 404);
+    for (const s of open) s.close();
+  });
+
   it("ends the stream once the booking needs no more watching", async () => {
     platform.setAvailability("pc-1", true, REPORT);
     const { bookingId } = platform.book(730, 30, RENTER);
@@ -285,7 +294,7 @@ describe("renter event stream", () => {
     const { bookingId } = platform.book(730, 30, RENTER);
     const events = createRenterEvents(platform, { keepAliveMs: 60_000 });
     const res = fakeResponse(false); // its send buffer is already full
-    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER), "opened");
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, Infinity), "opened");
     assert.equal(res.destroyed, true);
   });
 
@@ -295,10 +304,34 @@ describe("renter event stream", () => {
     platform.claim(bookingId, RENTER);
     const events = createRenterEvents(platform, { keepAliveMs: 60_000 });
     const res = fakeResponse(); // ended, but its close event has not come yet
-    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER), "opened");
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, Infinity), "opened");
     assert.equal(res.writableEnded, true);
     events.bookingChanged(bookingId);
     assert.equal(res.writesAfterEnd, 0);
+  });
+
+  it("ends the stream when the renter's session runs out, on the next change or keep-alive", async () => {
+    const { bookingId } = platform.book(730, 30, RENTER);
+    let clock = 1_000;
+    const events = createRenterEvents(platform, { keepAliveMs: 5, now: () => clock });
+    const res = fakeResponse();
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, 2_000), "opened");
+    events.bookingChanged(bookingId);
+    assert.equal(res.writableEnded, false, "still signed in");
+
+    clock = 2_000;
+    events.bookingChanged(bookingId);
+    assert.equal(res.writableEnded, true, "a change after the session ran out ends the stream");
+    assert.equal(res.writesAfterEnd, 0);
+
+    const idle = fakeResponse();
+    assert.equal(events.open(idle as unknown as ServerResponse, bookingId, RENTER, 3_000), "opened");
+    clock = 3_000;
+    await settle();
+    assert.equal(idle.writableEnded, true, "the keep-alive ends it with no change at all");
+    assert.equal(idle.writesAfterEnd, 0);
+    res.destroy();
+    idle.destroy();
   });
 
   it("holds a renter to the per-renter cap however the client address header is rotated, and leaves other renters alone", async () => {
@@ -329,7 +362,7 @@ describe("renter event stream", () => {
     }));
     const first = fakeResponse();
     const open = ({ renter, bookingId }: { renter: string; bookingId: string }, res = fakeResponse()) =>
-      events.open(res as unknown as ServerResponse, bookingId, renter);
+      events.open(res as unknown as ServerResponse, bookingId, renter, Infinity);
     assert.equal(open(a!, first), "opened");
     assert.equal(open(b!), "opened");
     assert.equal(open(c!), "too-many", "a third renter, a third booking: the server is full");

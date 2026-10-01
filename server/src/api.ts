@@ -22,14 +22,14 @@
 // ticket as its bearer.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
+import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
-import { clearedCookie, renterOf } from "./signin.js";
+import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
@@ -62,11 +62,16 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** The signed-in renter's session; 401 when the request carries no live one. */
+function requireRenterSession(req: IncomingMessage, sessionSecret: string | null): RenterSession {
+  const session = renterSessionOf(req, sessionSecret);
+  if (!session) throw new HttpError(401, "sign in with Steam first");
+  return session;
+}
+
 /** The signed-in renter's Steam id; 401 when the request carries no live session. */
 function requireRenter(req: IncomingMessage, sessionSecret: string | null): string {
-  const renter = renterOf(req, sessionSecret);
-  if (!renter) throw new HttpError(401, "sign in with Steam first");
-  return renter;
+  return requireRenterSession(req, sessionSecret).steamId;
 }
 
 /** 401 unless the request carries this machine's own key. */
@@ -177,11 +182,12 @@ export function createApi({
     }
 
     if (resource === "events" && !id && method === "GET" && events) {
-      const renter = requireRenter(req, sessionSecret);
+      const session = requireRenterSession(req, sessionSecret);
       const bookingId = new URL(req.url ?? "/", "http://localhost").searchParams.get("booking");
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
-      const opened = events.open(res, bookingId, renter);
+      // The stream ends when the session does, as any other call would be refused then.
+      const opened = events.open(res, bookingId, session.steamId, session.exp * 1000);
       if (opened === "not-found") throw new HttpError(404, "no such booking");
       if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true;

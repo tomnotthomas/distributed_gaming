@@ -202,11 +202,13 @@ GET  /events?booking=:id
   through Cloudflare. Opening the stream counts as checking on the booking; from then on
   only the page's heartbeat does, since a sleeping laptop's stream can stay open long
   after its page stopped running. The stream ends once the booking is claimed, playing,
-  ended or expired, after sending that status. A booking takes at most 3 streams at a
-  time, a signed-in renter 10 and the server 500 (`MAX_EVENT_STREAMS_PER_RENTER`,
-  `MAX_EVENT_STREAMS`); more are refused with 429. A stream the renter does not read fast
-  enough is dropped (EventSource reconnects it). → 404 for an unknown booking or another
-  renter's.
+  ended or expired, after sending that status, and when the renter's sign-in session
+  runs out; the page then treats the booking as gone from view, as it does a 401 on its
+  heartbeat or poll. A booking takes at most 3 streams at a time, a signed-in renter 10
+  and the server 500 (`MAX_EVENT_STREAMS_PER_RENTER`, `MAX_EVENT_STREAMS`); more are
+  refused with 429. A stream the renter does not read fast enough is dropped (EventSource
+  reconnects it). → 404 for an unknown booking or another renter's, even one whose own
+  streams are full.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
