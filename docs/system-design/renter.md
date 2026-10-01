@@ -64,15 +64,15 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
 ## 4. Core entities
 
-| Entity          | What it is                                                      | Key fields                                                                           |
-| --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `gpu`, `cpu`, `price`, `status`, `available_until`, `last_seen_at` |
-| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                    |
-| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                       |
-| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`, `ticket_id`     |
-| **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                 |
-| **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                     |
-| **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                          |
+| Entity          | What it is                                                      | Key fields                                                                                                            |
+| --------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
+| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                     |
+| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                                                        |
+| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`, `ticket_id`                                      |
+| **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
+| **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
+| **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
 becomes `expired` when its reservation lapses unclaimed after the renter has checked on
@@ -123,8 +123,9 @@ POST /bookings/:id/claim
 ```
 
 Matching runs in the server process, every second and on every change: the oldest
-queued booking gets the cheapest live machine that is free for all of its minutes, and
-the machine is reserved for it. A reservation lasts 60 s. When it lapses unclaimed, a
+queued booking gets the cheapest live machine that is free for all of its minutes, has
+the game installed and meets the game's minimum hardware (ranking gates E2 and E3), and
+is not the renter's own (E5); the machine is reserved for it. A reservation lasts 60 s. When it lapses unclaimed, a
 renter who checked on the booking since the match saw it and let it go, so the booking
 expires and the machine goes to the next in line; a renter who has not been heard from
 since the match was away, so the booking goes back to the queue in its old place. A
