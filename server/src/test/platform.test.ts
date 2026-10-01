@@ -9,6 +9,7 @@ import {
   QOS_GRACE_MS,
   QUEUE_TIMEOUT_MS,
   RESERVATION_MS,
+  TIME_UP_GRACE_MS,
   type MachineSpec,
 } from "../platform.js";
 import { REPORT } from "./report.js";
@@ -656,18 +657,32 @@ describe("session end reasons", () => {
     assert.equal(platform.sessionEndReason(id), "owner_kill");
   });
 
-  it("is owner_kill when the host ends a session before its expiry, whatever the host meant", () => {
+  it("is host_end when the host ends a session before its expiry, whatever the host meant", () => {
     const id = session();
     beatFor("pc-1", 60_000);
     platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "owner_kill");
+    assert.equal(platform.sessionEndReason(id), "host_end");
   });
 
-  it("is owner_kill when the host backdates its end to look like it ran its time", () => {
+  it("is host_end when the host backdates its end to look like it ran its time", () => {
     const id = session();
     beatFor("pc-1", 60_000);
     platform.endSession("pc-1", id, now + 30 * 60_000);
-    assert.equal(platform.sessionEndReason(id), "owner_kill");
+    assert.equal(platform.sessionEndReason(id), "host_end");
+  });
+
+  it("is time_up when the host ends it within the grace before its expiry", () => {
+    const id = session();
+    now += 30 * 60_000 - 5_000; // no tick: the host's timer runs slightly ahead of the server's
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "time_up");
+  });
+
+  it("is host_end when the host ends it just outside the grace before its expiry", () => {
+    const id = session();
+    now += 30 * 60_000 - TIME_UP_GRACE_MS - 1_000;
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "host_end");
   });
 
   it("is time_up when the host ends it once the server sees it past its expiry", () => {
@@ -908,7 +923,7 @@ describe("machine stability", () => {
       const claim = reopened.claim(reopened.book(730, 30).bookingId);
       assert.ok(claim.ok);
       reopened.endSession("pc-1", claim.sessionId);
-      assert.equal(reopened.sessionEndReason(claim.sessionId), "owner_kill");
+      assert.equal(reopened.sessionEndReason(claim.sessionId), "host_end");
       reopened.close();
     });
   });

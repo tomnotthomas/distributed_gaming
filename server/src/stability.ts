@@ -3,7 +3,8 @@
 //
 //   heartbeat coverage   seen_ms / offered_ms from machine_uptime
 //   drops per hour       liveness drops / offered hours
-//   session completion   sessions not ended by host_offline or owner_kill
+//   session completion   sessions not ended by host_offline or owner_kill, of
+//                        those not ended early by the host (host_end)
 //   packet loss          median of each session's mean loss from renter QoS
 //
 // Pure: platform.ts reads the rows, this turns them into numbers.
@@ -16,14 +17,28 @@ export const STABILITY_WINDOW_MS = 7 * 24 * 3_600_000;
 /**
  * Why a session ended, always decided by the server so a host can never claim
  * credit: renter only through the renter's own ticket, time_up only once the
- * session reaches its expiry, owner_kill for any earlier end the host or owner
- * triggers, host_offline and grace_expired from the server's own sweeps.
+ * session reaches (or nearly reaches) its expiry, host_end for any earlier end
+ * the host reports, owner_kill when the owner takes the machine back,
+ * host_offline and grace_expired from the server's own sweeps.
  */
-export const END_REASONS = ["renter", "time_up", "owner_kill", "host_offline", "grace_expired"] as const;
+export const END_REASONS = [
+  "renter",
+  "time_up",
+  "owner_kill",
+  "host_end",
+  "host_offline",
+  "grace_expired",
+] as const;
 export type EndReason = (typeof END_REASONS)[number];
 
-/** Ends that count against the machine: it went away, or its host or owner ended the session early. */
+/** Ends that count against the machine: it went away, or its owner took it back mid-session. */
 const INCOMPLETE: readonly EndReason[] = ["host_offline", "owner_kill"];
+
+/**
+ * Ends left out of completion entirely: the host ended early, often because the
+ * renter disconnected without saying so, so it is neither a completion nor a failure.
+ */
+const NEUTRAL: readonly EndReason[] = ["host_end"];
 
 /** One renter's report of stream quality, from getStats. */
 export type QosReport = {
@@ -69,15 +84,18 @@ function median(values: number[]): number {
  * The window's uptime and sessions as rank()'s StabilityStats. With nothing
  * offered, coverage is 1 and drops per hour 0; with no sessions, completion is
  * 1; with no QoS, loss is 0. Too little of either is New regardless.
+ * host_end sessions are left out of completion but still count as sessions
+ * (for New) and towards the loss median, since the machine was really used.
  */
 export function stabilityStats(uptime: UptimeTotals, sessions: EndedSession[]): StabilityStats {
   const offeredHours = uptime.offeredMs / 3_600_000;
-  const completed = sessions.filter((s) => !INCOMPLETE.includes(s.endReason)).length;
+  const judged = sessions.filter((s) => !NEUTRAL.includes(s.endReason));
+  const completed = judged.filter((s) => !INCOMPLETE.includes(s.endReason)).length;
   const losses = sessions.flatMap((s) => (s.packetLoss === null ? [] : [s.packetLoss]));
   return {
     heartbeatCoverage: uptime.offeredMs > 0 ? uptime.seenMs / uptime.offeredMs : 1,
     dropsPerHour: offeredHours > 0 ? uptime.drops / offeredHours : 0,
-    sessionCompletion: sessions.length ? completed / sessions.length : 1,
+    sessionCompletion: judged.length ? completed / judged.length : 1,
     packetLoss: median(losses),
     sessions: sessions.length,
     offeredHours,

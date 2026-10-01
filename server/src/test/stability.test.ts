@@ -42,13 +42,14 @@ describe("stabilityStats", () => {
       { endReason: "grace_expired", packetLoss: null },
       { endReason: "host_offline", packetLoss: 0.5 },
       { endReason: "owner_kill", packetLoss: 0.01 },
+      { endReason: "host_end", packetLoss: 0.03 },
     ]);
     assert.deepEqual(stats, {
       heartbeatCoverage: 0.98,
       dropsPerHour: 0.1,
       sessionCompletion: 0.6,
-      packetLoss: (0.01 + 0.02) / 2,
-      sessions: 5,
+      packetLoss: 0.02,
+      sessions: 6,
       offeredHours: 50,
     });
   });
@@ -98,6 +99,14 @@ describe("stability bucket from the raw history", () => {
   it("counts the renter leaving, time running out and a no-show as completed", () => {
     const ended = [...sessions(5, "renter"), ...sessions(5, "time_up"), ...sessions(5, "grace_expired")];
     assert.equal(stabilityStats(UPTIME, ended).sessionCompletion, 1);
+  });
+
+  it("leaves a host's early end out of completion, but counts it as a session", () => {
+    const ended = [...sessions(19, "renter"), ...sessions(1, "host_offline"), ...sessions(10, "host_end")];
+    const stats = stabilityStats(UPTIME, ended);
+    assert.equal(stats.sessionCompletion, 0.95);
+    assert.equal(stats.sessions, 30);
+    assert.equal(stabilityStats(UPTIME, sessions(5, "host_end")).sessionCompletion, 1);
   });
 
   it("is Steady under 1% median loss, OK from 1% to 3%, and Shaky past it", () => {

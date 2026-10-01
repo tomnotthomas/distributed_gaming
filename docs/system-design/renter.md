@@ -137,7 +137,9 @@ POST /sessions/:id/qos
 POST /sessions/:id/leave
   The renter is leaving: ends the session as `renter`, with the join ticket as bearer.
   → 403 for another session's ticket, → 409 once the session is over. The only way a
-  session is recorded as the renter's own choice to end it.
+  session is recorded as the renter's own choice to end it. A renter who just closes the
+  page leaves the host to end the session, which is recorded as `host_end` (or `time_up`
+  within 10 s of its expiry) and counts neither for nor against the machine's completion.
 ```
 
 Matching runs in the server process, every second and on every change: the oldest

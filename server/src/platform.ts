@@ -71,6 +71,8 @@ export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 export const MAX_MINUTES = 12 * 60;
 /** A renter's last QoS report may arrive this long after the session ended, while its join ticket is still valid. */
 export const QOS_GRACE_MS = 60_000;
+/** A host's end this close to the session's expiry is time_up, to absorb clock skew between host and server. */
+export const TIME_UP_GRACE_MS = 10_000;
 
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
 /** Every status but idle: the owner is offering the machine, whether or not it is answering. */
@@ -281,7 +283,7 @@ const REPORT_COLUMNS: [name: string, type: string][] = [
 const SESSION_COLUMNS: [name: string, type: string][] = [
   [
     "end_reason",
-    "TEXT CHECK (end_reason IN ('renter', 'time_up', 'host_offline', 'owner_kill', 'grace_expired'))",
+    "TEXT CHECK (end_reason IN ('renter', 'time_up', 'host_offline', 'owner_kill', 'host_end', 'grace_expired'))",
   ],
   ["qos", "TEXT"],
 ];
@@ -539,8 +541,9 @@ export class Platform {
   /**
    * The host ended the session. `endedAt` is the host's own clock, kept only
    * between the start and now. The host says nothing about why: once the server
-   * sees the session past its expiry it is time_up, and any earlier end is
-   * owner_kill, since only the renter's own ticket can record that they left.
+   * sees the session within TIME_UP_GRACE_MS of its expiry it is time_up, and
+   * any earlier end is host_end, which neither credits nor blames the machine,
+   * since only the renter's own ticket can record that they left.
    */
   endSession(machineId: string, sessionId: string, endedAt?: number): boolean {
     return this.#transaction(() => {
@@ -550,7 +553,7 @@ export class Platform {
       if (!session) return false;
       const floor = session.started_at ?? now;
       const at = Math.min(now, Math.max(floor, endedAt ?? now));
-      this.#endSession(session, at, now >= session.expires_at ? "time_up" : "owner_kill");
+      this.#endSession(session, at, now >= session.expires_at - TIME_UP_GRACE_MS ? "time_up" : "host_end");
       if (machine.status === "in_session") this.#setStatus(machineId, "available");
       this.#tick(now);
       return true;

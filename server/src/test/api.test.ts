@@ -196,7 +196,7 @@ describe("booking and host API", () => {
     assert.equal((await offer("pc-1", huge)).status, 413);
   });
 
-  it("never takes a reason from the host: an early end is owner_kill, whatever it claims", async () => {
+  it("never takes a reason from the host: an early end is host_end, whatever it claims", async () => {
     await offer();
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
@@ -208,7 +208,7 @@ describe("booking and host API", () => {
     }
     assert.equal(platform.sessionEndReason(claim.body.sessionId), null);
     assert.equal((await call("POST", end, {}, MACHINE_KEY)).status, 200);
-    assert.equal(platform.sessionEndReason(claim.body.sessionId), "owner_kill");
+    assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end");
   });
 
   it("ends a session as renter when the renter leaves with the session's own ticket", async () => {
