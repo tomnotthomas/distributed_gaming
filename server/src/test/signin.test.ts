@@ -10,17 +10,22 @@ import {
   mintRenterSession,
   mintSessionKey,
   mintTicket,
+  mintSignInState,
   parseMachineOwners,
   verifyRenterSession,
+  verifySignInState,
 } from "../access.js";
 import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
+  SIGNIN_COOKIE,
+  SIGNIN_TTL_SECONDS,
   clearedCookie,
   createSteamAuth,
   renterOf,
   sessionCookie,
   sessionSecretFromEnv,
+  signInCookie,
 } from "../signin.js";
 
 const SECRET = "a-session-secret-that-is-at-least-32-chars";
@@ -64,6 +69,20 @@ describe("renter session tokens", () => {
 
   it("refuses a session that names something other than a Steam id", () => {
     assert.equal(verifyRenterSession(SECRET, mintRenterSession(SECRET, "pc-1", 600)), null);
+  });
+});
+
+describe("sign-in attempt tokens", () => {
+  it("round-trip the nonce until they expire", () => {
+    const token = mintSignInState(SECRET, "n-1", 60, NOW);
+    assert.equal(verifySignInState(SECRET, token, NOW + 59_000), "n-1");
+    assert.equal(verifySignInState(SECRET, token, NOW + 60_000), null);
+  });
+
+  it("are never a renter session, nor one of them an attempt", () => {
+    assert.equal(verifyRenterSession(SECRET, mintSignInState(SECRET, STEAM_ID, 600)), null);
+    assert.equal(verifySignInState(SECRET, mintRenterSession(SECRET, STEAM_ID, 600)), null);
+    assert.equal(verifySignInState(`${SECRET}-other`, mintSignInState(SECRET, "n-1", 600)), null);
   });
 });
 
@@ -147,7 +166,7 @@ describe("Steam sign-in", () => {
   before(async () => {
     server = createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
-      if (!(await auth(res, url.pathname, url.searchParams))) res.writeHead(404).end();
+      if (!(await auth(req, res, url.pathname, url.searchParams))) res.writeHead(404).end();
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     port = (server.address() as AddressInfo).port;
@@ -175,15 +194,27 @@ describe("Steam sign-in", () => {
         .end();
     });
 
-  /** The return route as Steam would call it, for an assertion made for `site`. */
-  const returnPath = (site: string, to = "/games") =>
+  /**
+   * The return route as Steam would call it, for an assertion made for `site`
+   * whose signed return_to carries the sign-in nonce `state`.
+   */
+  const returnPath = (site: string, state: string, to = "/games") =>
     `/auth/steam/return?${new URLSearchParams({
       to,
+      state,
       "openid.op_endpoint": "https://steamcommunity.com/openid/login",
-      "openid.return_to": `${site}/auth/steam/return?to=%2Fgames`,
+      "openid.return_to": `${site}/auth/steam/return?to=%2Fgames&state=${state}`,
       "openid.claimed_id": `https://steamcommunity.com/openid/id/${STEAM_ID}`,
       "openid.sig": "abc",
     })}`;
+
+  /** Start a sign-in as a browser would: the attempt's cookie and the nonce Steam is told. */
+  const startSignIn = async () => {
+    const res = await get("/auth/steam/login?to=%2Fgames");
+    const [cookie] = res.headers["set-cookie"] ?? [];
+    const returnTo = new URL(new URL(res.headers.location!).searchParams.get("openid.return_to")!);
+    return { cookie: pair(cookie!), nonce: returnTo.searchParams.get("state")! };
+  };
 
   const spoofed = {
     host: "other.example",
@@ -193,31 +224,78 @@ describe("Steam sign-in", () => {
 
   it("refuses another site's assertion however the request names its host", async () => {
     auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
-    const res = await get(returnPath("https://other.example"), spoofed);
+    const { cookie, nonce } = await startSignIn();
+    const res = await get(returnPath("https://other.example", nonce), { ...spoofed, cookie });
     assert.equal(res.statusCode, 302);
     assert.equal(res.headers.location, `${ORIGIN}/games#steam=denied`);
-    assert.equal(res.headers["set-cookie"], undefined);
+    assert.ok(!(res.headers["set-cookie"] ?? []).some((c) => c.startsWith(`${SESSION_COOKIE}=`)));
     assert.equal(steamAsked, 0);
   });
 
-  it("signs in on the configured origin only, with its cookie attributes", async () => {
+  it("signs in on the configured origin only, with its cookie attributes, and spends the attempt", async () => {
     auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
-    const res = await get(returnPath(ORIGIN), { host: "localhost", "x-forwarded-proto": "http" });
+    const { cookie: attempt, nonce } = await startSignIn();
+    const res = await get(returnPath(ORIGIN, nonce), {
+      host: "localhost",
+      "x-forwarded-proto": "http",
+      cookie: attempt,
+    });
     assert.equal(res.headers.location, `${ORIGIN}/games#steam=ok`);
+    const [session, cleared] = res.headers["set-cookie"] ?? [];
+    assert.ok(session?.includes("; Secure"));
+    assert.equal(renterOf(request(pair(session!)), SECRET), STEAM_ID);
+    assert.equal(pair(cleared!), `${SIGNIN_COOKIE}=`);
+    assert.ok(cleared!.includes("Max-Age=0"));
+  });
+
+  it("starts each attempt with a short-lived, HttpOnly cookie only Steam sign-in's routes see", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const res = await get("/auth/steam/login");
     const [cookie] = res.headers["set-cookie"] ?? [];
-    assert.ok(cookie?.includes("; Secure"));
-    assert.equal(renterOf(request(pair(cookie!)), SECRET), STEAM_ID);
+    for (const attribute of [
+      "HttpOnly",
+      "SameSite=Lax",
+      "Secure",
+      "Path=/auth/steam",
+      `Max-Age=${SIGNIN_TTL_SECONDS}`,
+    ]) {
+      assert.ok(cookie!.split("; ").includes(attribute), attribute);
+    }
+    const second = await startSignIn();
+    assert.notEqual(second.nonce, (await startSignIn()).nonce);
+  });
+
+  it("refuses a return this browser did not start: no attempt, another nonce or an expired one", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const { cookie, nonce } = await startSignIn();
+    const expired = pair(signInCookie(SECRET, nonce, ORIGIN, Date.now() - (SIGNIN_TTL_SECONDS + 1) * 1000));
+    const forged = `${SIGNIN_COOKIE}=${mintSignInState(`${SECRET}-other`, nonce, 600)}`;
+    for (const headers of [
+      {},
+      { cookie: (await startSignIn()).cookie },
+      { cookie: expired },
+      { cookie: forged },
+    ]) {
+      const res = await get(returnPath(ORIGIN, nonce), headers);
+      assert.equal(res.headers.location, `${ORIGIN}/games#steam=denied`);
+      assert.ok(!(res.headers["set-cookie"] ?? []).some((c) => c.startsWith(`${SESSION_COOKIE}=`)));
+    }
+    // The right attempt with no nonce in Steam's signed return is refused too.
+    const bare = returnPath(ORIGIN, nonce).replace(`%26state%3D${nonce}`, "");
+    assert.equal((await get(bare, { cookie })).headers.location, `${ORIGIN}/games#steam=denied`);
+    assert.equal(steamAsked, 0);
   });
 
   it("never redirects off the configured origin after sign-in", async () => {
     auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
-    const res = await get(returnPath(ORIGIN, "//evil.example/steal"));
+    const { cookie, nonce } = await startSignIn();
+    const res = await get(returnPath(ORIGIN, nonce, "//evil.example/steal"), { cookie });
     assert.equal(res.headers.location, `${ORIGIN}/#steam=ok`);
   });
 
   it("refuses every sign-in when no public origin is configured", async () => {
     auth = createSteamAuth({ origin: null, sessionSecret: SECRET });
-    for (const path of ["/auth/steam/login", returnPath("https://other.example")]) {
+    for (const path of ["/auth/steam/login", returnPath("https://other.example", "n-1")]) {
       const res = await get(path, spoofed);
       assert.equal(res.headers.location, "/#steam=denied");
       assert.equal(res.headers["set-cookie"], undefined);
@@ -230,6 +308,9 @@ describe("Steam sign-in", () => {
     const res = await get("/auth/steam/login?to=%2Fgames", spoofed);
     const steam = new URL(res.headers.location!);
     assert.equal(steam.searchParams.get("openid.realm"), ORIGIN);
-    assert.equal(steam.searchParams.get("openid.return_to"), `${ORIGIN}/auth/steam/return?to=%2Fgames`);
+    const back = new URL(steam.searchParams.get("openid.return_to")!);
+    assert.equal(back.origin + back.pathname, `${ORIGIN}/auth/steam/return`);
+    assert.equal(back.searchParams.get("to"), "/games");
+    assert.match(back.searchParams.get("state") ?? "", /^[\w-]{22}$/);
   });
 });

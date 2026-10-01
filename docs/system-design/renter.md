@@ -114,12 +114,20 @@ site's `/auth/steam/return`. "This site" is `PUBLIC_ORIGIN`, never the request's
 `http://localhost:<PORT>` outside production; with `NODE_ENV=production` and no
 `PUBLIC_ORIGIN`, every sign-in is refused (`#steam=denied`, no cookie) and the server warns.
 
+Steam's answer also only counts in the browser that asked for it. `/auth/steam/login` sets
+a short-lived sign-in cookie holding a random nonce and puts the same nonce in the
+`return_to` Steam signs; the return is refused before Steam is asked unless that cookie
+comes back with the matching nonce, and the cookie is cleared either way. Without it, a
+return URL someone made with their own Steam account could sign another person's browser
+in as them (login CSRF), and that person's bookings would land on their account.
+
 Deployment: set both `SESSION_SECRET` (below) and `PUBLIC_ORIGIN` (the site's public
 origin, e.g. `https://swiff.example`) in the server's environment.
 
 | Cookie          | Holds                                                                                     | Attributes                                                                    |
 | --------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `swiff_session` | The renter's Steam id and an expiry (7 days), signed with `SESSION_SECRET` (HMAC-SHA256). | `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` whenever the site is on https. |
+| `swiff_signin`  | One sign-in attempt's nonce and an expiry (10 minutes), signed with `SESSION_SECRET`.     | `HttpOnly`, `SameSite=Lax`, `Path=/auth/steam`; `Secure` on https.            |
 
 - **`SESSION_SECRET` is its own secret,** at least 32 characters and never `ROOM_SECRET`,
   so a leak of one forges neither the other's tickets nor sessions. Without it nobody can
@@ -130,6 +138,9 @@ origin, e.g. `https://swiff.example`) in the server's environment.
   another site cannot book or claim as the renter.
 - **The page asks the server who is signed in** (`GET /me`), on every load, so a signed-in
   renter stays signed in across reloads until the cookie expires or they sign out.
+- **Signing out only counts once the server says so.** If `POST /signout` fails, the cookie
+  is still valid, so the page says sign-out failed and keeps the renter signed in rather
+  than showing a signed-out wall that the next load would undo.
 
 ### Booking API
 

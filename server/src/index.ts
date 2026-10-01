@@ -386,7 +386,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   const urlPath = url.pathname;
 
   if (await serveSessions(req, res, urlPath)) return;
-  if (await serveSteamAuth(res, urlPath, url.searchParams)) return;
+  if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
   if (await serveApi(req, res, urlPath)) return;
 

@@ -59,12 +59,25 @@ export const emptyProfile = (steamid: string): SteamProfile => ({
   lib: false,
 });
 
-/** Build the redirect to Steam's own login page. */
-export function loginUrl({ origin, returnTo }: { origin: string; returnTo?: string | undefined }): string {
+/**
+ * Build the redirect to Steam's own login page. `state` is the sign-in
+ * attempt's nonce: it rides in return_to, which Steam signs, so the return can
+ * be matched to the browser that started it (signin.ts).
+ */
+export function loginUrl({
+  origin,
+  returnTo,
+  state,
+}: {
+  origin: string;
+  returnTo?: string | undefined;
+  state?: string | undefined;
+}): string {
   // Only same-site returns: an absolute `to` would make this an open redirector.
   const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
   const back = new URL("/auth/steam/return", origin);
   back.searchParams.set("to", safeReturn);
+  if (state) back.searchParams.set("state", state);
 
   const params = new URLSearchParams({
     "openid.ns": "http://specs.openid.net/auth/2.0",
@@ -100,6 +113,13 @@ export async function verifyAssertion(searchParams: URLSearchParams, origin: str
   const claimed = searchParams.get("openid.claimed_id") ?? "";
   const match = claimed.match(/^https?:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/);
   return match ? match[1]! : null;
+}
+
+/** The sign-in nonce carried in the signed return_to, or null when it has none. */
+export function returnState(searchParams: URLSearchParams): string | null {
+  const returnTo = searchParams.get("openid.return_to");
+  if (!returnTo || !URL.canParse(returnTo)) return null;
+  return new URL(returnTo).searchParams.get("state");
 }
 
 /** Whether a signed return_to points at this origin's /auth/steam/return. */
@@ -206,6 +226,13 @@ export function cachedProfiles(
   };
 }
 
+/** The page on `origin` the player asked to come back to (`to`), or its root for anything else. */
+export function landingUrl(origin: string, to: string | null): URL {
+  const path = to ?? "/";
+  const dest = new URL(path.startsWith("/") ? path : "/", origin);
+  return dest.origin === new URL(origin).origin ? dest : new URL("/", origin);
+}
+
 /**
  * Where to send the browser once Steam has answered, and the Steam id Steam
  * vouched for (null when it did not). The page it lands on is flagged
@@ -218,10 +245,7 @@ export async function returnUrl({
   origin: string;
   searchParams: URLSearchParams;
 }): Promise<{ location: string; steamId: string | null }> {
-  const to = searchParams.get("to") ?? "/";
-  let dest = new URL(to.startsWith("/") ? to : "/", origin);
-  if (dest.origin !== new URL(origin).origin) dest = new URL("/", origin);
-
+  const dest = landingUrl(origin, searchParams.get("to"));
   const steamId = await verifyAssertion(searchParams, origin).catch(() => null);
   dest.hash = steamId ? "steam=ok" : "steam=denied";
   return { location: dest.toString(), steamId };

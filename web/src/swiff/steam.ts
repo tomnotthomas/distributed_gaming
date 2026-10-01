@@ -57,6 +57,15 @@ export async function signOut(get: typeof fetch = fetch): Promise<void> {
   if (!response.ok) throw new Error(`sign-out failed: ${response.status}`);
 }
 
+/**
+ * Sign out, then `done` once the server has cleared the cookie. If it has not,
+ * `failed` instead: the cookie is still valid, so the renter is still signed in
+ * and must be told rather than shown a signed-out page that reload undoes.
+ */
+export function endSignIn(done: () => void, failed: () => void, get: typeof fetch = fetch): Promise<void> {
+  return signOut(get).then(done, failed);
+}
+
 /** Deterministic, so a library game keeps the same hue and machines every load. */
 function hashOf(value: number | string): number {
   const text = String(value);

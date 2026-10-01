@@ -12,11 +12,31 @@
 // the browser's copy. A copied cookie stays valid until it expires, which is why
 // it is HttpOnly (no script on the page can read it) and expires in a week.
 
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { MIN_SECRET_LENGTH, mintRenterSession, verifyRenterSession } from "./access.js";
-import { loginUrl, returnUrl } from "./steam.js";
+import {
+  MIN_SECRET_LENGTH,
+  mintRenterSession,
+  mintSignInState,
+  verifyRenterSession,
+  verifySignInState,
+} from "./access.js";
+import { landingUrl, loginUrl, returnState, returnUrl } from "./steam.js";
 
 export const SESSION_COOKIE = "swiff_session";
+
+/**
+ * The sign-in attempt: set when the browser leaves for Steam, required back
+ * with a matching nonce when it returns, so a return URL made in another
+ * browser (login CSRF) cannot sign this one in.
+ */
+export const SIGNIN_COOKIE = "swiff_signin";
+
+/** How long a browser has to come back from Steam. */
+export const SIGNIN_TTL_SECONDS = 10 * 60;
+
+/** Where the sign-in cookie is sent: only Steam sign-in's own routes. */
+const SIGNIN_PATH = "/auth/steam";
 
 /** How long a sign-in lasts before Steam has to be asked again. */
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -36,9 +56,9 @@ export function sessionSecretFromEnv(env: NodeJS.ProcessEnv): string | null {
  * https; local development on plain http would never get the cookie back.
  * SameSite=Lax keeps it off cross-site POSTs, so another site cannot book.
  */
-function attributes(origin: string, maxAge: number): string {
+function attributes(origin: string, maxAge: number, path = "/"): string {
   const secure = origin.startsWith("https:") ? "; Secure" : "";
-  return `Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+  return `Path=${path}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
 /** The Set-Cookie value that signs the Steam account `steamId` in on `origin`. */
@@ -52,14 +72,42 @@ export function clearedCookie(origin: string): string {
   return `${SESSION_COOKIE}=; ${attributes(origin, 0)}`;
 }
 
-/** Every value the Cookie header gives the session cookie, in order. */
-function sessionTokens(header: string | undefined): string[] {
-  const tokens: string[] = [];
+/** Every value the Cookie header gives the cookie `name`, in order. */
+function cookieValues(header: string | undefined, name: string): string[] {
+  const values: string[] = [];
   for (const pair of (header ?? "").split(";")) {
     const eq = pair.indexOf("=");
-    if (eq !== -1 && pair.slice(0, eq).trim() === SESSION_COOKIE) tokens.push(pair.slice(eq + 1).trim());
+    if (eq !== -1 && pair.slice(0, eq).trim() === name) values.push(pair.slice(eq + 1).trim());
   }
-  return tokens;
+  return values;
+}
+
+/** The Set-Cookie value that starts a sign-in attempt holding `nonce` on `origin`. */
+export function signInCookie(secret: string, nonce: string, origin: string, now = Date.now()): string {
+  const token = mintSignInState(secret, nonce, SIGNIN_TTL_SECONDS, now);
+  return `${SIGNIN_COOKIE}=${token}; ${attributes(origin, SIGNIN_TTL_SECONDS, SIGNIN_PATH)}`;
+}
+
+/** The Set-Cookie value that ends the sign-in attempt, used or not. */
+function clearedSignInCookie(origin: string): string {
+  return `${SIGNIN_COOKIE}=; ${attributes(origin, 0, SIGNIN_PATH)}`;
+}
+
+/**
+ * Whether the request carries a live sign-in attempt `secret` signed for the
+ * same nonce as Steam's signed return_to. Compared in constant time.
+ */
+function startedHere(req: IncomingMessage, secret: string, query: URLSearchParams, now: number): boolean {
+  const returned = returnState(query);
+  if (!returned) return false;
+  for (const token of cookieValues(req.headers.cookie, SIGNIN_COOKIE)) {
+    const nonce = verifySignInState(secret, token, now);
+    if (!nonce) continue;
+    const a = Buffer.from(nonce);
+    const b = Buffer.from(returned);
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+  }
+  return false;
 }
 
 /**
@@ -68,7 +116,7 @@ function sessionTokens(header: string | undefined): string[] {
  */
 export function renterOf(req: IncomingMessage, secret: string | null, now = Date.now()): string | null {
   if (!secret) return null;
-  for (const token of sessionTokens(req.headers.cookie)) {
+  for (const token of cookieValues(req.headers.cookie, SESSION_COOKIE)) {
     const session = verifyRenterSession(secret, token, now);
     if (session) return session.steamId;
   }
@@ -77,11 +125,12 @@ export function renterOf(req: IncomingMessage, secret: string | null, now = Date
 
 /**
  * Steam sign-in on `origin`, the configured public origin (publicOriginFromEnv),
- * never one read from the request. `/auth/steam/login` bounces to Steam;
- * `/auth/steam/return` verifies what comes back and, when Steam vouches for the
- * player, signs them in with a session cookie. Without an origin or a
- * `sessionSecret` every sign-in reads as denied. Returns the handler, which
- * answers false for every other path.
+ * never one read from the request. `/auth/steam/login` starts an attempt (the
+ * sign-in cookie) and bounces to Steam; `/auth/steam/return` requires that
+ * attempt back with the nonce Steam signed, verifies the assertion and, when
+ * Steam vouches for the player, signs them in with a session cookie. Without
+ * an origin or a `sessionSecret` every sign-in reads as denied. Returns the
+ * handler, which answers false for every other path.
  */
 export function createSteamAuth({
   origin,
@@ -91,36 +140,50 @@ export function createSteamAuth({
   sessionSecret: string | null;
 }) {
   return async function serveSteamAuth(
+    req: IncomingMessage,
     res: ServerResponse,
     urlPath: string,
     query: URLSearchParams,
   ): Promise<boolean> {
     if (urlPath !== "/auth/steam/login" && urlPath !== "/auth/steam/return") return false;
 
-    if (!origin) {
-      console.warn("[swiff] Steam sign-in refused: PUBLIC_ORIGIN is not set");
+    if (!origin || !sessionSecret) {
+      console.warn("[swiff] Steam sign-in refused: PUBLIC_ORIGIN or SESSION_SECRET is not set");
       res.writeHead(302, { location: "/#steam=denied", "cache-control": "no-store" }).end();
       return true;
     }
 
     if (urlPath === "/auth/steam/login") {
-      res.writeHead(302, { location: loginUrl({ origin, returnTo: query.get("to") ?? "/" }) }).end();
+      const nonce = randomBytes(16).toString("base64url");
+      res
+        .writeHead(302, {
+          location: loginUrl({ origin, returnTo: query.get("to") ?? "/", state: nonce }),
+          "set-cookie": signInCookie(sessionSecret, nonce, origin),
+          "cache-control": "no-store",
+        })
+        .end();
       return true;
     }
 
+    // The attempt is spent either way: one return per sign-in.
+    const cleared = clearedSignInCookie(origin);
     // Any failure here still lands the player back on the wall, flagged, rather
-    // than on an error page they cannot act on.
-    const back = await returnUrl({ origin, searchParams: query }).catch(() => null);
-    if (!back?.steamId || !sessionSecret) {
-      const denied = new URL(back?.location ?? `${origin}/`);
+    // than on an error page they cannot act on. A return this browser did not
+    // start is refused before Steam is asked.
+    const ours = startedHere(req, sessionSecret, query, Date.now());
+    const back = ours ? await returnUrl({ origin, searchParams: query }).catch(() => null) : null;
+    if (!back?.steamId) {
+      const denied = back ? new URL(back.location) : landingUrl(origin, query.get("to"));
       denied.hash = "steam=denied";
-      res.writeHead(302, { location: denied.toString(), "cache-control": "no-store" }).end();
+      res
+        .writeHead(302, { location: denied.toString(), "set-cookie": cleared, "cache-control": "no-store" })
+        .end();
       return true;
     }
     res
       .writeHead(302, {
         location: back.location,
-        "set-cookie": sessionCookie(sessionSecret, back.steamId, origin),
+        "set-cookie": [sessionCookie(sessionSecret, back.steamId, origin), cleared],
         "cache-control": "no-store",
       })
       .end();

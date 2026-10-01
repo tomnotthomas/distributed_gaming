@@ -5,10 +5,10 @@ import { closeCall, freeFor, machinesFor } from "./derive";
 import { fetchMedia, fetchPopular } from "./catalog";
 import {
   applySteam,
+  endSignIn,
   fetchRenter,
   popularCards,
   readSteamFragment,
-  signOut as endSignIn,
   withMedia,
   type SteamProfile,
 } from "./steam";
@@ -40,6 +40,7 @@ export function useSwiff() {
   const [games, setGames] = useState<Game[]>(GAMES);
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const [steamDenied, setSteamDenied] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
 
   const [session, setSession] = useState<SessionLength>("evening");
   // Start still for anyone who has asked their OS for less motion.
@@ -133,12 +134,16 @@ export function useSwiff() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Sign out, then start over on the signed-out wall. */
+  /** Sign out, then start over on the signed-out wall; if it fails, say so and stay signed in. */
   const signOut = useCallback(() => {
-    track("steam_signed_out");
-    void endSignIn()
-      .catch(() => {})
-      .then(() => window.location.assign("/"));
+    setSignOutFailed(false);
+    void endSignIn(
+      () => {
+        track("steam_signed_out");
+        window.location.assign("/");
+      },
+      () => setSignOutFailed(true),
+    );
   }, []);
 
   // --- timers ----------------------------------------------------------------
@@ -294,6 +299,7 @@ export function useSwiff() {
     machinesOpen,
     libraryConnected,
     steamDenied,
+    signOutFailed,
     profile,
     motion,
     sound,

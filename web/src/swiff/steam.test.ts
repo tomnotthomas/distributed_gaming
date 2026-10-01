@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
 import {
+  endSignIn,
   fetchRenter,
   gameArt,
   gameArtFallbacks,
@@ -146,6 +147,25 @@ describe("sign-in", () => {
     expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBeNull();
     const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
     expect(await fetchRenter(offline as unknown as typeof fetch)).toBeNull();
+  });
+
+  it("leaves the page only once the server has signed the renter out", async () => {
+    const done = vi.fn();
+    const failed = vi.fn();
+    await endSignIn(done, failed, answer(204) as unknown as typeof fetch);
+    expect(done).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused or unreachable sign-out instead of leaving the page", async () => {
+    const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
+    for (const get of [answer(500), offline]) {
+      const done = vi.fn();
+      const failed = vi.fn();
+      await endSignIn(done, failed, get as unknown as typeof fetch);
+      expect(done).not.toHaveBeenCalled();
+      expect(failed).toHaveBeenCalledOnce();
+    }
   });
 
   it("signs out with a POST, and says so when the server refuses", async () => {

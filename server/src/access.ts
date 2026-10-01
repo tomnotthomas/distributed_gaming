@@ -48,7 +48,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter";
+type Domain = "ticket" | "session" | "renter" | "signin";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -198,6 +198,25 @@ export function verifyRenterSession(secret: string, token: unknown, now = Date.n
   if (typeof session.steamId !== "string" || !STEAM_ID.test(session.steamId)) return null;
   if (typeof session.exp !== "number" || session.exp * 1000 <= now) return null;
   return { steamId: session.steamId, exp: session.exp };
+}
+
+/**
+ * Mint a signed sign-in attempt holding `nonce`, valid for `ttlSeconds` after
+ * `now` (Unix milliseconds). It ties Steam's answer to the browser that asked.
+ */
+export function mintSignInState(secret: string, nonce: string, ttlSeconds: number, now = Date.now()): string {
+  return seal(secret, { nonce, exp: Math.floor(now / 1000) + ttlSeconds }, "signin");
+}
+
+/**
+ * The nonce of a sign-in attempt `secret` signed that has not expired, or null.
+ * `now` is Unix milliseconds; an attempt is expired at its expiry time.
+ */
+export function verifySignInState(secret: string, token: unknown, now = Date.now()): string | null {
+  const state = unseal(secret, token, "signin");
+  if (!state || typeof state.nonce !== "string" || !state.nonce) return null;
+  if (typeof state.exp !== "number" || state.exp * 1000 <= now) return null;
+  return state.nonce;
 }
 
 /** A new machine key and the hash the server stores for it. */

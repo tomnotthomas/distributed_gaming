@@ -43,6 +43,11 @@ export function Profile({ swiff }: { swiff: Swiff }) {
               <Button variant="link" size="sm" onClick={swiff.signOut}>
                 Sign out
               </Button>
+              {swiff.signOutFailed ? (
+                <span className="profile-sub" role="alert">
+                  Sign-out failed, so you are still signed in. Try again.
+                </span>
+              ) : null}
             </div>
           ) : (
             <div className="profile-connect">
