@@ -3,6 +3,9 @@
 // (server/src/platform.ts); polling it is that check. The booking id is kept in
 // localStorage so a renter who comes back within those two minutes picks up the
 // same place in the queue instead of booking again.
+//
+// Every call needs the renter signed in: the session cookie goes with each
+// same-origin fetch, and a booking is only ever shown to the renter who made it.
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
 
@@ -42,7 +45,8 @@ export async function book(gameId: number, minutes: number, options: BookingOpti
 
 /**
  * Check on the booking every `intervalMs` and report each answer. Stops, and
- * forgets the stored booking, once it is claimed, over, or gone. Returns stop().
+ * forgets the stored booking, once it is claimed, over, or gone — including
+ * gone from view because the renter is no longer signed in. Returns stop().
  */
 export function watchBooking(
   bookingId: string,
@@ -62,7 +66,7 @@ export function watchBooking(
     let booking: Booking | null;
     try {
       const response = await get(`/api/bookings/${encodeURIComponent(bookingId)}`);
-      if (response.status === 404) booking = null;
+      if (response.status === 404 || response.status === 401) booking = null;
       else if (!response.ok) throw new Error(String(response.status));
       else booking = (await response.json()) as Booking;
     } catch {

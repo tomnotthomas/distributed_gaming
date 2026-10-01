@@ -1,6 +1,8 @@
-// The browser half of Steam sign-in. The server put the profile in the URL
-// fragment (see server/src/steam.ts); this reads it once, then clears it so a
-// refresh or a shared link does not carry someone's library around.
+// The browser half of Steam sign-in. The server signs the renter in with an
+// HttpOnly session cookie the page cannot read (server/src/signin.ts), so who is
+// signed in, and their profile, comes from GET /api/me. The return from Steam
+// only flags the page `#steam=ok` or `#steam=denied`; this reads that once and
+// clears it.
 
 import type { VideoSource } from "@swiff/ui";
 import { GAMES, artUrl, headerUrl, trailerUrl, type Game, type GameMedia } from "./data";
@@ -20,26 +22,48 @@ export type SteamProfile = {
 
 export const STEAM_LOGIN_URL = "/auth/steam/login";
 
-function decode(fragment: string): SteamProfile | null {
+/** Who the server says is signed in (GET /api/me). */
+export type Renter = { steamId: string; profile: SteamProfile };
+
+/**
+ * Read `#steam=…` and remove it. "ok" when the player has just signed in,
+ * "denied" when they backed out at Steam, so the wall can say so rather than
+ * silently staying signed out. Neither signs anyone in: only the server does.
+ */
+export function readSteamFragment(): "ok" | "denied" | null {
+  const hash = location.hash.replace(/^#/, "");
+  if (!hash.startsWith("steam=")) return null;
+
+  history.replaceState(null, "", location.pathname + location.search);
+  return hash === "steam=ok" ? "ok" : "denied";
+}
+
+/**
+ * The renter the session cookie signs in, or null when nobody is signed in or
+ * the server cannot be reached; signed out is the safe thing to show then.
+ */
+export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | null> {
   try {
-    const base64 = fragment.replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(atob(base64)) as SteamProfile;
+    const response = await get("/api/me");
+    return response.ok ? ((await response.json()) as Renter) : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Read `#steam=…` and remove it. Returns "denied" when the player backed out at
- * Steam, so the wall can say so rather than silently staying signed out.
- */
-export function readSteamFragment(): SteamProfile | "denied" | null {
-  const hash = location.hash.replace(/^#/, "");
-  if (!hash.startsWith("steam=")) return null;
+/** End the sign-in session. Resolves once the server has cleared the cookie. */
+export async function signOut(get: typeof fetch = fetch): Promise<void> {
+  const response = await get("/api/signout", { method: "POST" });
+  if (!response.ok) throw new Error(`sign-out failed: ${response.status}`);
+}
 
-  history.replaceState(null, "", location.pathname + location.search);
-  const payload = hash.slice("steam=".length);
-  return payload === "denied" ? "denied" : decode(payload);
+/**
+ * Sign out, then `done` once the server has cleared the cookie. If it has not,
+ * `failed` instead: the cookie is still valid, so the renter is still signed in
+ * and must be told rather than shown a signed-out page that reload undoes.
+ */
+export function endSignIn(done: () => void, failed: () => void, get: typeof fetch = fetch): Promise<void> {
+  return signOut(get).then(done, failed);
 }
 
 /** Deterministic, so a library game keeps the same hue and machines every load. */

@@ -11,6 +11,8 @@ const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 
 export const E2E_ENV = {
   ROOM_SECRET: E2E_SECRET,
+  // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
+  SESSION_SECRET: "e2e-session-secret-that-is-long-enough-to-pass",
   MACHINE_KEYS: `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
 };
 

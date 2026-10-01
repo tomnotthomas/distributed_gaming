@@ -13,8 +13,11 @@ System design: [renter](docs/system-design/renter.md), [host](docs/system-design
 
 ```bash
 npm install
-cp .env.example .env              # then set ROOM_SECRET
-npm run machine-key -- gaming-pc-1   # key for the host app, entry for MACHINE_KEYS
+cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
+# Steam sign-in also needs PUBLIC_ORIGIN (e.g. https://swiff.example) in .env when
+# NODE_ENV=production; without it every sign-in is refused. Elsewhere it defaults to
+# http://localhost:$PORT.
+npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
 ```
 
 ## Renter side (web app + server)
@@ -24,8 +27,9 @@ npm run dev       # builds web/, serves it and signaling on :8080
 npm run dev:web   # vite with HMR, run signaling separately with npm start
 ```
 
-A renter joins with the ticket `POST /api/bookings/:id/claim` returns, or a link from
-`npm run ticket -- gaming-pc-1`.
+A renter signs in with Steam, which sets their session cookie, then books and joins with
+the ticket `POST /api/bookings/:id/claim` returns. For testing, `npm run ticket -- gaming-pc-1`
+makes a join link without a booking.
 
 `npm run seed-requirements` fills the server database (`DATABASE_PATH`) with each catalogue
 game's minimum and recommended hardware, read from Steam; `server/src/requirements-overrides.json`

@@ -202,7 +202,8 @@ matched.
 | `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
 | `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
 
-The machine key comes from `npm run machine-key -- <machine-id>`. The host app keeps it
+The machine key comes from `npm run machine-key -- <machine-id> <owner-steam-id>`, which
+also records the owner, so the owner is never matched to their own PC. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
 access" in [`renter.md`](renter.md).

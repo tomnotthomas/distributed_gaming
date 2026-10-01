@@ -48,7 +48,8 @@ import {
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
-import { loginUrl, originFrom, returnUrl } from "./steam.js";
+import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
+import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { bearer, HttpError, readJson } from "./http.js";
@@ -66,12 +67,24 @@ const iceServers = () => {
 
 const access = accessFromEnv(process.env);
 
+// Signs renters' sign-in session cookies (signin.ts). Without it nobody can
+// sign in, so nobody can book.
+const sessionSecret = sessionSecretFromEnv(process.env);
+
+// The only origin Steam sign-in trusts, for its return route, its redirects and
+// the cookie's Secure flag. Without it in production nobody can sign in.
+const publicOrigin = publicOriginFromEnv(process.env, PORT);
+const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
+
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
 // DATABASE_PATH names a file. A claim is pushed to the claimed PC. Whenever a
 // renter's session ends there, however it ends, the PC's host session ends
 // with it: the next renter never meets a streamer launched for the last one.
+// Each machine's owner comes from MACHINE_KEYS, so no renter is ever matched
+// to their own PC.
 const platform = new Platform({
   path: process.env.DATABASE_PATH || ":memory:",
+  owners: access.owners,
   onSessionEnded: evictStreamer,
   onSessionClaimed: pushClaim,
 });
@@ -80,7 +93,14 @@ const platform = new Platform({
 // start and the machine key is the only way to register. Live sessions are kept
 // in the platform database, so they and their keys survive a restart.
 const sessions = access.secret ? createHostSessions(access.secret, platform.keySessions) : null;
-const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost:${PORT}` });
+const serveApi = createApi({
+  platform,
+  access,
+  sessionSecret,
+  publicOrigin,
+  fallbackOrigin: `http://localhost:${PORT}`,
+  profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
+});
 
 // Matching and the liveness sweep. Every request that changes something runs
 // them too; this catches what changes only with time: a machine going silent,
@@ -337,39 +357,6 @@ async function answerSession(
 // --- static files -----------------------------------------------------------
 
 /**
- * Steam sign-in. Two redirects and no state: `/auth/steam/login` bounces to
- * Steam, `/auth/steam/return` verifies what comes back and hands the profile to
- * the page in the URL fragment. STEAM_API_KEY never leaves this process.
- */
-async function serveSteamAuth(
-  req: IncomingMessage,
-  res: ServerResponse,
-  urlPath: string,
-  query: URLSearchParams,
-): Promise<boolean> {
-  const origin = originFrom(req.headers, `http://localhost:${PORT}`);
-
-  if (urlPath === "/auth/steam/login") {
-    res.writeHead(302, { location: loginUrl({ origin, returnTo: query.get("to") ?? "/" }) }).end();
-    return true;
-  }
-
-  if (urlPath === "/auth/steam/return") {
-    // Any failure here still lands the player back on the wall, flagged, rather
-    // than on an error page they cannot act on.
-    const location = await returnUrl({
-      origin,
-      searchParams: query,
-      apiKey: process.env.STEAM_API_KEY,
-    }).catch(() => `${origin}/#steam=denied`);
-    res.writeHead(302, { location }).end();
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * The game catalog: Steam's most played games for the signed-out wall, and
  * names plus trailers for any appids (a signed-in library). Keyless and cached
  * in catalog.ts; a Steam outage answers an empty list and the client falls back
@@ -577,6 +564,12 @@ server.listen(PORT, () => {
   console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
+  if (!sessionSecret)
+    console.warn("[swiff] SESSION_SECRET missing, too short or equal to ROOM_SECRET — no renter can sign in");
+  if (!publicOrigin)
+    console.warn("[swiff] PUBLIC_ORIGIN missing or not an http(s) URL — no renter can sign in with Steam");
+  const ownerless = [...access.machines.keys()].filter((id) => !access.owners.has(id)).length;
+  if (ownerless) console.warn(`[swiff] ${ownerless} machine(s) in MACHINE_KEYS name no owner Steam id`);
   // Warm the catalog so the first visitor's wall does not wait on Steam.
   void popularGames();
 });

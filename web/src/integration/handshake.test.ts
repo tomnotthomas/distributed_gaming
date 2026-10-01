@@ -15,7 +15,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { connectSignaling, startHostSession, type SessionClaim } from "@swiff/rtc";
-import { mintTicket } from "../../../server/src/access";
+import { mintRenterSession, mintTicket } from "../../../server/src/access";
+import { SESSION_COOKIE } from "../../../server/src/signin";
 import { REPORT } from "../../../server/src/test/report";
 
 const PORT = 8500 + Math.floor(Math.random() * 400);
@@ -71,6 +72,9 @@ function findServerEntry(root: string): string {
 
 // Every room a test may use is a registered machine, all sharing one key.
 const SECRET = "integration-room-secret-long-enough-to-pass";
+const SESSION_SECRET = "integration-session-secret-long-enough-too";
+/** A signed-in renter, who alone may book and claim. */
+const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "integration-machine-key";
 const ROOMS = Array.from({ length: 30 }, (_, i) => `it-pc-${i}`);
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
@@ -149,6 +153,7 @@ beforeAll(async () => {
       ...process.env,
       PORT: String(PORT),
       ROOM_SECRET: SECRET,
+      SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
     },
     stdio: "ignore",
@@ -183,12 +188,13 @@ async function until(check: () => boolean, what: string, timeoutMs = 5000): Prom
   }
 }
 
-/** One JSON call to the server's HTTP API, with the machine key when given. */
+/** One JSON call to the server's HTTP API as the signed-in renter, with the machine key when given. */
 async function call(method: string, path: string, body?: unknown, key?: string) {
   const res = await fetch(`${HTTP_URL}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
+      cookie: RENTER_COOKIE,
       ...(key ? { authorization: `Bearer ${key}` } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),

@@ -20,6 +20,12 @@
 //                            account, so the machine key never enters it. Only
 //                            valid while that session is live — see sessions.ts.
 //
+//   Renter     sign-in session  Signed by this server (HMAC-SHA256 with
+//                            SESSION_SECRET, never ROOM_SECRET, under its own
+//                            domain), naming one Steam account and an expiry.
+//                            Set as an HttpOnly cookie after Steam sign-in and
+//                            required to book or claim — see signin.ts.
+//
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default
 // worth having on a machine that streams its screen to strangers.
@@ -42,7 +48,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session";
+type Domain = "ticket" | "session" | "renter" | "signin";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -157,13 +163,69 @@ export function verifySessionKey(secret: string, token: unknown, now = Date.now(
   return { room: key.room, session: key.session, grant: key.grant, exp: key.exp };
 }
 
+export type RenterSession = {
+  /** The renter's 17-digit Steam id, as Steam OpenID vouched for it. */
+  steamId: string;
+  /** Unix seconds after which the session signs nobody in. */
+  exp: number;
+};
+
+/** A Steam id as Steam OpenID returns it: exactly 17 digits. */
+export const STEAM_ID = /^\d{17}$/;
+
+/**
+ * Mint a signed sign-in session for the Steam account `steamId`.
+ * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
+ */
+export function mintRenterSession(
+  secret: string,
+  steamId: string,
+  ttlSeconds: number,
+  now = Date.now(),
+): string {
+  const session: RenterSession = { steamId, exp: Math.floor(now / 1000) + ttlSeconds };
+  return seal(secret, session, "renter");
+}
+
+/**
+ * The session, if `secret` signed it as a sign-in session, it names a Steam id
+ * and has not expired. Otherwise null. `now` is Unix milliseconds; a session is
+ * expired at its expiry time, not just after it.
+ */
+export function verifyRenterSession(secret: string, token: unknown, now = Date.now()): RenterSession | null {
+  const session = unseal(secret, token, "renter");
+  if (!session) return null;
+  if (typeof session.steamId !== "string" || !STEAM_ID.test(session.steamId)) return null;
+  if (typeof session.exp !== "number" || session.exp * 1000 <= now) return null;
+  return { steamId: session.steamId, exp: session.exp };
+}
+
+/**
+ * Mint a signed sign-in attempt holding `nonce`, valid for `ttlSeconds` after
+ * `now` (Unix milliseconds). It ties Steam's answer to the browser that asked.
+ */
+export function mintSignInState(secret: string, nonce: string, ttlSeconds: number, now = Date.now()): string {
+  return seal(secret, { nonce, exp: Math.floor(now / 1000) + ttlSeconds }, "signin");
+}
+
+/**
+ * The nonce of a sign-in attempt `secret` signed that has not expired, or null.
+ * `now` is Unix milliseconds; an attempt is expired at its expiry time.
+ */
+export function verifySignInState(secret: string, token: unknown, now = Date.now()): string | null {
+  const state = unseal(secret, token, "signin");
+  if (!state || typeof state.nonce !== "string" || !state.nonce) return null;
+  if (typeof state.exp !== "number" || state.exp * 1000 <= now) return null;
+  return state.nonce;
+}
+
 /** A new machine key and the hash the server stores for it. */
 export function newMachineKey(): { key: string; hash: string } {
   const key = b64url(randomBytes(32));
   return { key, hash: sha256(key).toString("hex") };
 }
 
-/** `id:sha256hex,id:sha256hex` → id → hash. Malformed entries are skipped. */
+/** `id:sha256hex[:owner],…` → id → hash. Malformed entries are skipped. */
 export function parseMachineKeys(value: string | undefined): Map<string, Buffer> {
   const keys = new Map<string, Buffer>();
   for (const entry of (value ?? "").split(",")) {
@@ -171,6 +233,19 @@ export function parseMachineKeys(value: string | undefined): Map<string, Buffer>
     if (id && hash && /^[0-9a-f]{64}$/i.test(hash)) keys.set(id, Buffer.from(hash, "hex"));
   }
   return keys;
+}
+
+/**
+ * `id:sha256hex:owner,…` → id → the owner's Steam id, for every well-formed
+ * entry that names one. An owner that is not a 17-digit Steam id is skipped.
+ */
+export function parseMachineOwners(value: string | undefined): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const entry of (value ?? "").split(",")) {
+    const [id, hash, owner] = entry.trim().split(":");
+    if (id && hash && /^[0-9a-f]{64}$/i.test(hash) && owner && STEAM_ID.test(owner)) owners.set(id, owner);
+  }
+  return owners;
 }
 
 export function verifyMachineKey(keys: Map<string, Buffer>, id: unknown, key: unknown): boolean {
@@ -184,12 +259,16 @@ export type Access = {
   /** Null when ROOM_SECRET is missing or too short: every join and session is refused. */
   secret: string | null;
   machines: Map<string, Buffer>;
+  /** Machine id → its owner's Steam id. A renter is never matched to a machine they own. */
+  owners: Map<string, string>;
 };
 
+/** ROOM_SECRET and MACHINE_KEYS, parsed. A missing or short secret is null. */
 export function accessFromEnv(env: NodeJS.ProcessEnv): Access {
   const secret = env.ROOM_SECRET?.trim() ?? "";
   return {
     secret: secret.length >= MIN_SECRET_LENGTH ? secret : null,
     machines: parseMachineKeys(env.MACHINE_KEYS),
+    owners: parseMachineOwners(env.MACHINE_KEYS),
   };
 }

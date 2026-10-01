@@ -1,11 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
 import {
+  endSignIn,
+  fetchRenter,
   gameArt,
   gameArtFallbacks,
   gamePreview,
   gameTrailer,
   popularCards,
+  readSteamFragment,
+  signOut,
   withMedia,
   type CatalogGame,
 } from "./steam";
@@ -111,5 +115,63 @@ describe("withMedia", () => {
   it("leaves games the catalog does not know untouched", () => {
     const curated = GAMES.find((g) => g.appid === 1245620)!;
     expect(withMedia([curated], catalog)[0]).toBe(curated);
+  });
+});
+
+describe("sign-in", () => {
+  const renter = { steamId: "76561198000000001", profile: { id: "0001", persona: "kai_nx" } };
+  const answer = (status: number, body?: unknown) =>
+    vi.fn(async () => new Response(body === undefined ? null : JSON.stringify(body), { status }));
+
+  it("reads the return from Steam once and clears it, signing nobody in from the URL", () => {
+    for (const [hash, expected] of [
+      ["#steam=ok", "ok"],
+      ["#steam=denied", "denied"],
+      ["#steam=eyJpZCI6IjAwMDEifQ", "denied"],
+    ] as const) {
+      history.replaceState(null, "", `/games${hash}`);
+      expect(readSteamFragment()).toBe(expected);
+      expect(location.hash).toBe("");
+      expect(location.pathname).toBe("/games");
+    }
+    expect(readSteamFragment()).toBeNull();
+  });
+
+  it("asks the server who is signed in", async () => {
+    const get = answer(200, renter);
+    expect(await fetchRenter(get as unknown as typeof fetch)).toEqual(renter);
+    expect(get).toHaveBeenCalledWith("/api/me");
+  });
+
+  it("shows the wall signed out when the server signs nobody in or cannot be reached", async () => {
+    expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBeNull();
+    const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
+    expect(await fetchRenter(offline as unknown as typeof fetch)).toBeNull();
+  });
+
+  it("leaves the page only once the server has signed the renter out", async () => {
+    const done = vi.fn();
+    const failed = vi.fn();
+    await endSignIn(done, failed, answer(204) as unknown as typeof fetch);
+    expect(done).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused or unreachable sign-out instead of leaving the page", async () => {
+    const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
+    for (const get of [answer(500), offline]) {
+      const done = vi.fn();
+      const failed = vi.fn();
+      await endSignIn(done, failed, get as unknown as typeof fetch);
+      expect(done).not.toHaveBeenCalled();
+      expect(failed).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("signs out with a POST, and says so when the server refuses", async () => {
+    const get = answer(204);
+    await signOut(get as unknown as typeof fetch);
+    expect(get).toHaveBeenCalledWith("/api/signout", { method: "POST" });
+    await expect(signOut(answer(500) as unknown as typeof fetch)).rejects.toThrow("500");
   });
 });

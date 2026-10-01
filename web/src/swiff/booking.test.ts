@@ -4,13 +4,15 @@ import { book, resumeBooking, type Booking, type BookingStatus } from "./booking
 const booking = (status: BookingStatus): Booking => ({ bookingId: "b-1", status, gameId: 730, minutes: 30 });
 
 /** A server that answers GET /api/bookings/b-1 with each status in turn, and POST with a queued booking. */
-function fakeServer(statuses: (BookingStatus | 404)[]) {
+function fakeServer(statuses: (BookingStatus | 404 | 401)[]) {
   const calls: string[] = [];
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${String(url)}`);
     if (init?.method === "POST") return new Response(JSON.stringify(booking("queued")), { status: 202 });
     const next = statuses.length > 1 ? statuses.shift()! : statuses[0]!;
     if (next === 404) return new Response(JSON.stringify({ error: "no such booking" }), { status: 404 });
+    if (next === 401)
+      return new Response(JSON.stringify({ error: "sign in with Steam first" }), { status: 401 });
     return new Response(JSON.stringify(booking(next)), { status: 200 });
   });
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
@@ -45,7 +47,7 @@ describe("booking across a closed tab", () => {
     expect(resumeBooking(() => {}, { fetch: fakeServer(["queued"]).fetch })).toBeNull();
   });
 
-  for (const end of ["claimed", "ended", "expired", 404] as const) {
+  for (const end of ["claimed", "ended", "expired", 404, 401] as const) {
     it(`forgets the booking and stops polling once it is ${end}`, async () => {
       const server = fakeServer(["queued", end]);
       await book(730, 30, { fetch: server.fetch });
@@ -54,7 +56,7 @@ describe("booking across a closed tab", () => {
       resumeBooking((b) => updates.push(b?.status ?? null), { fetch: server.fetch, intervalMs: 5 });
       await settle();
 
-      expect(updates).toEqual(["queued", end === 404 ? null : end]);
+      expect(updates).toEqual(["queued", end === 404 || end === 401 ? null : end]);
       expect(localStorage.getItem("swiff.booking")).toBeNull();
       expect(resumeBooking(() => {}, { fetch: server.fetch })).toBeNull();
     });

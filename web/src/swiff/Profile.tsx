@@ -33,13 +33,21 @@ export function Profile({ swiff }: { swiff: Swiff }) {
   return (
     <main className="profile">
       <header className="profile-head">
-        <Avatar initial={(profile?.persona ?? "?")[0]!.toUpperCase()} size={72} />
+        <Avatar initial={(profile?.persona || "?")[0]!.toUpperCase()} size={72} />
         <div className="profile-id">
           <div className="profile-name">{persona}</div>
           {profile ? (
             <div className="profile-line">
               <StatusDot />
               Steam connected · {owned} games · {profile.size} in your library
+              <Button variant="link" size="sm" onClick={swiff.signOut}>
+                Sign out
+              </Button>
+              {swiff.signOutFailed ? (
+                <span className="profile-sub" role="alert">
+                  Sign-out failed, so you are still signed in. Try again.
+                </span>
+              ) : null}
             </div>
           ) : (
             <div className="profile-connect">

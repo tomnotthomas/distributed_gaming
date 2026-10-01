@@ -6,9 +6,12 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
   LIBRARY_CAP,
-  b64urlEncode,
+  PROFILE_TTL_MS,
+  cachedProfiles,
+  emptyProfile,
   loginUrl,
   originFrom,
+  publicOriginFromEnv,
   readProfile,
   returnUrl,
   verifyAssertion,
@@ -52,30 +55,60 @@ describe("loginUrl", () => {
   });
 });
 
+/** An assertion Steam made for this site's return route, with overrides. */
+function assertion(overrides: Record<string, string> = {}): URLSearchParams {
+  return new URLSearchParams({
+    "openid.op_endpoint": "https://steamcommunity.com/openid/login",
+    "openid.return_to": `${ORIGIN}/auth/steam/return?to=%2F`,
+    "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
+    "openid.sig": "abc",
+    ...overrides,
+  });
+}
+
 describe("verifyAssertion", () => {
   it("returns the steamid only when Steam says the assertion is valid", async () => {
     stubFetch("ns:http://specs.openid.net/auth/2.0\nis_valid:true\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-      "openid.sig": "abc",
-    });
-    assert.equal(await verifyAssertion(params), "76561198000000001");
+    assert.equal(await verifyAssertion(assertion(), ORIGIN), "76561198000000001");
   });
 
   it("refuses a forged assertion", async () => {
     stubFetch("is_valid:false\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-    });
-    assert.equal(await verifyAssertion(params), null);
+    assert.equal(await verifyAssertion(assertion(), ORIGIN), null);
   });
 
   it("refuses a claimed_id that is not a Steam openid identity", async () => {
     stubFetch("is_valid:true\n");
-    const params = new URLSearchParams({
-      "openid.claimed_id": "https://evil.example/openid/id/76561198000000001",
-    });
-    assert.equal(await verifyAssertion(params), null);
+    const params = assertion({ "openid.claimed_id": "https://evil.example/openid/id/76561198000000001" });
+    assert.equal(await verifyAssertion(params, ORIGIN), null);
+  });
+
+  it("refuses a genuine assertion Steam made for another site", async () => {
+    // Steam would vouch for it: the signature is real, only the audience is wrong.
+    const calls = stubFetch("is_valid:true\n");
+    for (const returnTo of [
+      "https://other.example/auth/steam/return",
+      `${ORIGIN}.evil.example/auth/steam/return`,
+      `${ORIGIN}/auth/steam/returned`,
+      "not a url",
+    ]) {
+      assert.equal(await verifyAssertion(assertion({ "openid.return_to": returnTo }), ORIGIN), null);
+    }
+    const missing = assertion();
+    missing.delete("openid.return_to");
+    assert.equal(await verifyAssertion(missing, ORIGIN), null);
+    assert.deepEqual(calls, []);
+  });
+
+  it("refuses an assertion from any provider but Steam", async () => {
+    const calls = stubFetch("is_valid:true\n");
+    for (const endpoint of ["https://evil.example/openid/login", "http://steamcommunity.com/openid/login"]) {
+      assert.equal(await verifyAssertion(assertion({ "openid.op_endpoint": endpoint }), ORIGIN), null);
+    }
+    const missing = assertion();
+    missing.delete("openid.op_endpoint");
+    assert.equal(await verifyAssertion(missing, ORIGIN), null);
+    assert.deepEqual(calls, []);
   });
 });
 
@@ -106,40 +139,93 @@ describe("readProfile", () => {
     assert.ok(!profile.games.some(([appid]) => appid === 730));
     assert.equal(profile.size, games.length);
   });
+
+  it("gives up on a Steam that does not answer in time", async () => {
+    globalThis.fetch = ((_: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+      )) as typeof fetch;
+    // AbortSignal.timeout does not hold the event loop open on its own.
+    const alive = setInterval(() => {}, 1_000);
+    try {
+      await assert.rejects(readProfile("key", "76561198000000001", 20));
+    } finally {
+      clearInterval(alive);
+    }
+  });
+});
+
+describe("cachedProfiles", () => {
+  const ID = "76561198000000001";
+
+  /** A read that counts its calls and answers `result` (a rejection when it is an Error). */
+  function counted(result: () => Promise<ReturnType<typeof emptyProfile>>) {
+    const read = async (steamId: string) => {
+      read.calls.push(steamId);
+      return result();
+    };
+    read.calls = [] as string[];
+    return read;
+  }
+
+  it("serves a profile again within the ttl without asking Steam, and reads again after", async () => {
+    let now = 0;
+    const read = counted(async () => ({ ...emptyProfile(ID), persona: "kai_nx" }));
+    const profile = cachedProfiles(read, { now: () => now });
+
+    assert.equal((await profile(ID)).persona, "kai_nx");
+    now += PROFILE_TTL_MS - 1;
+    await profile(ID);
+    assert.equal(read.calls.length, 1);
+
+    now += 1;
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("does not remember a failed read", async () => {
+    let fail = true;
+    const read = counted(async () => {
+      if (fail) throw new Error("steam down");
+      return emptyProfile(ID);
+    });
+    const profile = cachedProfiles(read);
+
+    await assert.rejects(profile(ID));
+    fail = false;
+    await profile(ID);
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("holds at most max profiles, dropping the oldest", async () => {
+    const read = counted(async () => emptyProfile(ID));
+    const profile = cachedProfiles(read, { max: 2 });
+    for (const id of ["a", "b", "c", "b", "a"]) await profile(id);
+    assert.deepEqual(read.calls, ["a", "b", "c", "a"]);
+  });
 });
 
 describe("returnUrl", () => {
-  it("flags a denied sign-in on the page the player came from", async () => {
+  it("flags a denied sign-in on the page the player came from, naming nobody", async () => {
     stubFetch("is_valid:false\n");
-    const url = await returnUrl({
-      origin: ORIGIN,
-      searchParams: new URLSearchParams({ to: "/" }),
-      apiKey: "key",
-    });
-    assert.equal(url, `${ORIGIN}/#steam=denied`);
+    const back = await returnUrl({ origin: ORIGIN, searchParams: new URLSearchParams({ to: "/" }) });
+    assert.deepEqual(back, { location: `${ORIGIN}/#steam=denied`, steamId: null });
   });
 
-  it("carries the profile home in the fragment, never the query", async () => {
+  it("names the Steam id Steam vouched for and carries no profile in the URL", async () => {
     stubFetch("is_valid:true\n");
-    const params = new URLSearchParams({
-      to: "/",
-      "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
-    });
-    const url = new URL(await returnUrl({ origin: ORIGIN, searchParams: params, apiKey: undefined }));
-    assert.equal(url.search, "");
-    assert.ok(url.hash.startsWith("#steam="));
-    const json = Buffer.from(
-      url.hash.slice("#steam=".length).replace(/-/g, "+").replace(/_/g, "/"),
-      "base64",
-    ).toString("utf8");
-    assert.equal(JSON.parse(json).id, "0001");
+    const params = assertion({ to: "/games" });
+    const back = await returnUrl({ origin: ORIGIN, searchParams: params });
+    assert.equal(back.steamId, "76561198000000001");
+    assert.equal(back.location, `${ORIGIN}/games#steam=ok`);
   });
-});
 
-describe("b64urlEncode", () => {
-  it("emits fragment-safe base64", () => {
-    const encoded = b64urlEncode({ persona: "kai?+/=nx" });
-    assert.ok(!/[+/=]/.test(encoded));
+  it("denies an assertion made for another site's return route", async () => {
+    stubFetch("is_valid:true\n");
+    const params = assertion({ to: "/games", "openid.return_to": "https://other.example/auth/steam/return" });
+    const back = await returnUrl({ origin: ORIGIN, searchParams: params });
+    assert.deepEqual(back, { location: `${ORIGIN}/games#steam=denied`, steamId: null });
   });
 });
 
@@ -167,5 +253,22 @@ describe("originFrom", () => {
 
   it("falls back when there is no host header at all", () => {
     assert.equal(originFrom({}, "http://fallback"), "http://fallback");
+  });
+});
+
+describe("publicOriginFromEnv", () => {
+  it("takes PUBLIC_ORIGIN as an origin, whatever the environment", () => {
+    const env = { PUBLIC_ORIGIN: " https://swiff.example/ ", NODE_ENV: "production" };
+    assert.equal(publicOriginFromEnv(env, 8080), ORIGIN);
+  });
+
+  it("defaults to plain-http localhost only outside production", () => {
+    assert.equal(publicOriginFromEnv({}, 8080), "http://localhost:8080");
+    assert.equal(publicOriginFromEnv({ NODE_ENV: "production" }, 8080), null);
+  });
+
+  it("refuses a PUBLIC_ORIGIN that is not an http(s) URL", () => {
+    for (const PUBLIC_ORIGIN of ["swiff.example", "ftp://swiff.example"])
+      assert.equal(publicOriginFromEnv({ PUBLIC_ORIGIN }, 8080), null);
   });
 });

@@ -1,22 +1,22 @@
-/* Steam OpenID 2.0, with no server state at all.
+/* Steam OpenID 2.0, and the profile the page shows for a signed-in renter.
  *
- * Ported from prototypes/steam-auth.mjs, where the approach was settled: the
- * profile rides home in the URL fragment instead of being parked in a Map, so
- * this process holds nothing between requests and the same code runs on a
- * laptop, a Worker or a serverless function.
+ * Ported from prototypes/steam-auth.mjs. Sign-in is two redirects: to Steam,
+ * and back to /auth/steam/return, where the assertion is checked with Steam
+ * itself. What it proves, the 17-digit Steam id, becomes the renter's sign-in
+ * session cookie (signin.ts); the page then reads its profile from GET /api/me.
  *
- * What comes back is deliberately small: persona, avatar, total hours, library
- * size, which of the wall's appids the player owns, and their most-played games
- * with names so the wall can render real titles. The library is capped because
- * the whole payload has to fit in a URL fragment — a 4000-game account must not
- * produce a 200 KB URL.
+ * What the profile holds is deliberately small: persona, avatar, total hours,
+ * library size, which of the wall's appids the player owns, and their
+ * most-played games with names so the wall can render real titles. The library
+ * is capped: a 4000-game account must not make every page load ship it all.
  *
- * Nothing is written down anywhere. No database, no cookie, no file.
+ * Nothing about the profile is written down. It is read from Steam when asked
+ * for and discarded once answered.
  */
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
-/** How many of the player's own games ride home in the fragment. */
+/** How many of the player's own games the profile names. */
 export const LIBRARY_CAP = 14;
 
 /** The nine hand-authored titles on the wall, which keep their own copy. */
@@ -47,7 +47,8 @@ export type SteamProfile = {
   lib: boolean;
 };
 
-const empty = (steamid: string): SteamProfile => ({
+/** The profile of a player Steam vouched for but whose details cannot be read. */
+export const emptyProfile = (steamid: string): SteamProfile => ({
   id: steamid.slice(-4),
   persona: "",
   avatar: "",
@@ -58,20 +59,25 @@ const empty = (steamid: string): SteamProfile => ({
   lib: false,
 });
 
-export function b64urlEncode(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/** Build the redirect to Steam's own login page. */
-export function loginUrl({ origin, returnTo }: { origin: string; returnTo?: string | undefined }): string {
+/**
+ * Build the redirect to Steam's own login page. `state` is the sign-in
+ * attempt's nonce: it rides in return_to, which Steam signs, so the return can
+ * be matched to the browser that started it (signin.ts).
+ */
+export function loginUrl({
+  origin,
+  returnTo,
+  state,
+}: {
+  origin: string;
+  returnTo?: string | undefined;
+  state?: string | undefined;
+}): string {
   // Only same-site returns: an absolute `to` would make this an open redirector.
   const safeReturn = returnTo && returnTo.startsWith("/") ? returnTo : "/";
   const back = new URL("/auth/steam/return", origin);
   back.searchParams.set("to", safeReturn);
+  if (state) back.searchParams.set("state", state);
 
   const params = new URLSearchParams({
     "openid.ns": "http://specs.openid.net/auth/2.0",
@@ -85,10 +91,14 @@ export function loginUrl({ origin, returnTo }: { origin: string; returnTo?: stri
 }
 
 /**
- * Ask Steam whether the assertion it handed the browser is genuine. Returns the
- * 17-digit steamid, or null — never trust the claimed_id without this round trip.
+ * Ask Steam whether the assertion it handed the browser is genuine, and that it
+ * was made by Steam for this site's own return route. Returns the 17-digit
+ * steamid, or null — never trust the claimed_id without both checks.
  */
-export async function verifyAssertion(searchParams: URLSearchParams): Promise<string | null> {
+export async function verifyAssertion(searchParams: URLSearchParams, origin: string): Promise<string | null> {
+  if (searchParams.get("openid.op_endpoint") !== STEAM_OPENID) return null;
+  if (!isOurReturn(searchParams.get("openid.return_to"), origin)) return null;
+
   const body = new URLSearchParams();
   for (const [key, value] of searchParams) if (key.startsWith("openid.")) body.set(key, value);
   body.set("openid.mode", "check_authentication");
@@ -105,37 +115,76 @@ export async function verifyAssertion(searchParams: URLSearchParams): Promise<st
   return match ? match[1]! : null;
 }
 
-async function steamApi(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
+/** The sign-in nonce carried in the signed return_to, or null when it has none. */
+export function returnState(searchParams: URLSearchParams): string | null {
+  const returnTo = searchParams.get("openid.return_to");
+  if (!returnTo || !URL.canParse(returnTo)) return null;
+  return new URL(returnTo).searchParams.get("state");
+}
+
+/** Whether a signed return_to points at this origin's /auth/steam/return. */
+function isOurReturn(returnTo: string | null, origin: string): boolean {
+  if (!returnTo || !URL.canParse(returnTo)) return false;
+  const url = new URL(returnTo);
+  return url.origin === new URL(origin).origin && url.pathname === "/auth/steam/return";
+}
+
+/** How long one Steam Web API call may take before the read gives up. */
+export const STEAM_API_TIMEOUT_MS = 3_000;
+
+/** How long a profile read from Steam is served again without asking Steam. */
+export const PROFILE_TTL_MS = 5 * 60_000;
+
+/** How many signed-in renters' profiles are kept at once. */
+export const PROFILE_CACHE_MAX = 1_000;
+
+/** One Web API call, abandoned after `timeoutMs`. Throws on any failure. */
+async function steamApi(
+  apiKey: string,
+  path: string,
+  params: Record<string, string>,
+  timeoutMs: number,
+): Promise<any> {
   const url = new URL(`https://api.steampowered.com/${path}`);
   url.searchParams.set("key", apiKey);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`steam ${path} -> ${response.status}`);
   return response.json();
 }
 
 /**
  * Read the public profile and owned games, then reduce to the small payload the
- * page needs. The full library is discarded here and never stored.
+ * page needs. The full library is discarded here and never stored. Rejects when
+ * Steam fails or takes longer than `timeoutMs`, so a failed read is never
+ * mistaken for a real profile.
  */
-export async function readProfile(apiKey: string | undefined, steamid: string): Promise<SteamProfile> {
-  const out = empty(steamid);
+export async function readProfile(
+  apiKey: string | undefined,
+  steamid: string,
+  timeoutMs = STEAM_API_TIMEOUT_MS,
+): Promise<SteamProfile> {
+  const out = emptyProfile(steamid);
   if (!apiKey) return out;
 
-  const summaries = await steamApi(apiKey, "ISteamUser/GetPlayerSummaries/v2/", {
-    steamids: steamid,
-  }).catch(() => null);
+  const summaries = await steamApi(
+    apiKey,
+    "ISteamUser/GetPlayerSummaries/v2/",
+    { steamids: steamid },
+    timeoutMs,
+  );
   const player = summaries?.response?.players?.[0];
   if (player) {
     out.persona = String(player.personaname ?? "").slice(0, 40);
     out.avatar = player.avatarfull ?? player.avatarmedium ?? "";
   }
 
-  const owned = await steamApi(apiKey, "IPlayerService/GetOwnedGames/v1/", {
-    steamid,
-    include_appinfo: "1",
-    include_played_free_games: "1",
-  }).catch(() => null);
+  const owned = await steamApi(
+    apiKey,
+    "IPlayerService/GetOwnedGames/v1/",
+    { steamid, include_appinfo: "1", include_played_free_games: "1" },
+    timeoutMs,
+  );
 
   const list = owned?.response?.games;
   if (!Array.isArray(list)) return out;
@@ -156,33 +205,70 @@ export async function readProfile(apiKey: string | undefined, steamid: string): 
   return out;
 }
 
-/** Where to send the browser once Steam has answered. */
+/**
+ * `read`, remembered per Steam id for `ttlMs` so reloads do not spend the shared
+ * Web API quota. Holds at most `max` profiles, dropping the oldest first. A read
+ * that rejects is not remembered: the next request asks Steam again.
+ */
+export function cachedProfiles(
+  read: (steamId: string) => Promise<SteamProfile>,
+  { ttlMs = PROFILE_TTL_MS, max = PROFILE_CACHE_MAX, now = Date.now } = {},
+): (steamId: string) => Promise<SteamProfile> {
+  const cache = new Map<string, { profile: SteamProfile; at: number }>();
+  return async (steamId) => {
+    const hit = cache.get(steamId);
+    if (hit && now() - hit.at < ttlMs) return hit.profile;
+    const profile = await read(steamId);
+    cache.delete(steamId);
+    if (cache.size >= max) cache.delete(cache.keys().next().value!);
+    cache.set(steamId, { profile, at: now() });
+    return profile;
+  };
+}
+
+/** The page on `origin` the player asked to come back to (`to`), or its root for anything else. */
+export function landingUrl(origin: string, to: string | null): URL {
+  const path = to ?? "/";
+  const dest = new URL(path.startsWith("/") ? path : "/", origin);
+  return dest.origin === new URL(origin).origin ? dest : new URL("/", origin);
+}
+
+/**
+ * Where to send the browser once Steam has answered, and the Steam id Steam
+ * vouched for (null when it did not). The page it lands on is flagged
+ * `#steam=ok` or `#steam=denied`; the caller signs the renter in.
+ */
 export async function returnUrl({
   origin,
   searchParams,
-  apiKey,
 }: {
   origin: string;
   searchParams: URLSearchParams;
-  apiKey?: string | undefined;
-}): Promise<string> {
-  const to = searchParams.get("to") ?? "/";
-  const dest = new URL(to.startsWith("/") ? to : "/", origin);
-
-  const steamid = await verifyAssertion(searchParams).catch(() => null);
-  if (!steamid) {
-    dest.hash = "steam=denied";
-    return dest.toString();
-  }
-
-  // A Web API outage must not read as a denied sign-in: the player is who they
-  // said they are, we just cannot list their library yet.
-  const profile = await readProfile(apiKey, steamid).catch(() => empty(steamid));
-  dest.hash = `steam=${b64urlEncode(profile)}`;
-  return dest.toString();
+}): Promise<{ location: string; steamId: string | null }> {
+  const dest = landingUrl(origin, searchParams.get("to"));
+  const steamId = await verifyAssertion(searchParams, origin).catch(() => null);
+  dest.hash = steamId ? "steam=ok" : "steam=denied";
+  return { location: dest.toString(), steamId };
 }
 
-/** Derive the public origin from the request, so deploys need no config. */
+/**
+ * The one origin Steam sign-in trusts: PUBLIC_ORIGIN, or http://localhost:<port>
+ * outside production. Null when PUBLIC_ORIGIN is unset in production or is not
+ * an http(s) URL, and then nobody can sign in. Never read from request headers,
+ * which the client controls.
+ */
+export function publicOriginFromEnv(env: NodeJS.ProcessEnv, port: number): string | null {
+  const configured = env.PUBLIC_ORIGIN?.trim();
+  if (!configured) return env.NODE_ENV === "production" ? null : `http://localhost:${port}`;
+  if (!URL.canParse(configured)) return null;
+  const url = new URL(configured);
+  return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+}
+
+/**
+ * Derive the public origin from the request, for the signaling URL a claim
+ * hands out. Client-controlled: never use it for sign-in (publicOriginFromEnv).
+ */
 export function originFrom(headers: Record<string, string | string[] | undefined>, fallback: string): string {
   if (process.env.PUBLIC_ORIGIN) return process.env.PUBLIC_ORIGIN;
   const forwarded = headers["x-forwarded-host"] ?? headers.host;
