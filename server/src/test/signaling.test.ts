@@ -366,6 +366,7 @@ describe("host sessions", () => {
     return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null };
   }
 
+  /** Start a host session for `room` as the PC service would, with the machine key. */
   async function startSession(room: string): Promise<SessionGrant> {
     const { status, body } = await api(room, "POST");
     // The status only: the body may be a grant, and its key must not reach test output.
@@ -381,6 +382,7 @@ describe("host sessions", () => {
     return ws;
   }
 
+  /** Register a streamer with `sessionKey` and check it is refused as bad-session-key. */
   async function refusedStreamer(room: string, sessionKey: string) {
     const ws = await open();
     const code = closed(ws);
@@ -461,12 +463,9 @@ describe("host sessions", () => {
       method: "POST",
       headers: { authorization: `Bearer ${MACHINE_KEY}` },
     });
-    await renew.body?.cancel();
-    assert.notEqual(
-      renew.headers.get("content-type"),
-      "application/json",
-      `renew answered ${renew.status} with a grant`,
-    );
+    const renewed = (await renew.json()) as Partial<SessionGrant>;
+    assert.equal(renew.status, 404);
+    assert.equal(renewed.sessionKey, undefined, "renew answered with a grant");
 
     // The streamer and the renter never noticed.
     await wait(100);

@@ -65,13 +65,19 @@ The same socket, heartbeat and relay as the phase-1 host (see `protocol.ts` and
 Exactly one of `key` (machine key) or `sessionKey`. The server answers `registered`, or
 `denied` and closes with code `4003`:
 
-| `denied.reason`   | When                                                            | Streamer should           |
-| ----------------- | --------------------------------------------------------------- | ------------------------- |
-| `bad-session-key` | forged, expired, for another room, or its session has ended     | exit; the service decides |
-| `session-ended`   | sent to a registered streamer when the service ends the session | exit                      |
+| `denied.reason`   | When                                                        | Streamer should           |
+| ----------------- | ----------------------------------------------------------- | ------------------------- |
+| `bad-session-key` | forged, expired, for another room, or its session has ended | exit; the service decides |
+| `session-ended`   | sent to a registered streamer when its session ends         | exit                      |
 
 A second `register` with a valid key for the same session replaces the older socket — that
 is the streamer reconnecting, exactly as a phase-1 host does.
+
+The server also ends the host session whenever the renter's platform session ends
+([`host.md`](host.md): the host ends it, the booked time runs out, the machine goes silent
+or the owner takes it back), exactly as `DELETE .../session` does. The service must treat
+a `session-ended` denial, or a heartbeat whose `session.id` has changed or is missing, as
+the signal to tear down the renter account session. Its later `DELETE` still answers `204`.
 
 ## The machine key during a session
 
@@ -95,7 +101,7 @@ more while it closes.
 | Thing       | Lifetime                                                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session key | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
-| Session     | From start until end. The server does not end a session on its own; a new key means a new session.                                                     |
+| Session     | From start until the service ends it or the renter's platform session ends. A new key means a new session.                                             |
 | Everything  | Held in the server's memory. A server restart forgets every session.                                                                                   |
 
 ## Failure behaviour

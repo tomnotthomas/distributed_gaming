@@ -1,4 +1,5 @@
-// Credentials for phase 1, minted by hand until the platform mints them.
+// Credentials minted by hand: machine keys always, join tickets only for
+// testing. A renter gets their ticket by claiming a booking (api.ts).
 //
 //   npm run machine-key -- <machine-id>
 //       A new key for one gaming PC. Prints the key (paste it into the host app)
@@ -12,6 +13,7 @@ import { accessFromEnv, MIN_SECRET_LENGTH, mintTicket, newMachineKey } from "./a
 
 const [command, id, ...rest] = process.argv.slice(2);
 
+/** Print the message and exit with an error. */
 function fail(message: string): never {
   console.error(message);
   process.exit(1);

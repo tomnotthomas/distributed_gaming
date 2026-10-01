@@ -47,6 +47,8 @@ import {
 import { createHostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
+import { Platform } from "./platform.js";
+import { createApi } from "./api.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -64,6 +66,34 @@ const access = accessFromEnv(process.env);
 // Session keys are signed with ROOM_SECRET too, so without it no session can
 // start and the machine key is the only way to register.
 const sessions = access.secret ? createHostSessions(access.secret) : null;
+
+// Machines, bookings, reservations and sessions (platform.ts). In memory unless
+// DATABASE_PATH names a file. Whenever a renter's session ends there, however
+// it ends, the PC's host session ends with it: the next renter never meets a
+// streamer launched for the last one.
+const platform = new Platform({
+  path: process.env.DATABASE_PATH || ":memory:",
+  onSessionEnded: endHostSession,
+});
+const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost:${PORT}` });
+
+// Matching and the liveness sweep. Every request that changes something runs
+// them too; this catches what changes only with time: a machine going silent,
+// a reservation lapsing, and bookings waiting on either. Then any renter still
+// seated on a ticket whose session has ended, however it ended, is put out.
+const PLATFORM_TICK_MS = 1_000;
+setInterval(() => {
+  try {
+    platform.tick();
+    for (const room of rooms.values()) {
+      if (room.client?.ticketId && platform.ticketRevoked(room.client.ticketId))
+        deny(room.client, "bad-ticket");
+    }
+  } catch (error) {
+    // A locked or broken database file must not take signaling down with it.
+    console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
+  }
+}, PLATFORM_TICK_MS).unref();
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -152,6 +182,15 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
 
 // --- host sessions ----------------------------------------------------------
 
+/**
+ * End the live host session in `hostId`, if any: every key of it dies, and the
+ * streamer registered with one is hung up on, so the room really is handed back.
+ */
+function endHostSession(hostId: string): void {
+  const ended = sessions?.end(hostId);
+  if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+}
+
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
 
 /** End the response with uncached JSON, or just the status when no body is supplied. */
@@ -206,10 +245,7 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
   }
 
   if (req.method === "DELETE") {
-    const ended = sessions.end(hostId);
-    // Every key of the session is dead now; the streamer registered with one is
-    // hung up on too, so ending a session really does hand the room back.
-    if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+    endHostSession(hostId);
     json(res, 204);
     return true;
   }
@@ -294,6 +330,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   if (serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
+  if (await serveApi(req, res, urlPath)) return;
 
   // Every screen is the same SPA. A path with no extension is a route, so it
   // gets index.html; a path with one is an asset, so a miss is a real 404.
@@ -388,7 +425,7 @@ wss.on("connection", (socket) => {
       case "join": {
         if (ws.role) return;
         const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-        if (!ticket) return deny(ws, "bad-ticket");
+        if (!ticket || platform.ticketRevoked(ticket.id)) return deny(ws, "bad-ticket");
         const room = roomFor(ticket.room);
         if (room.client && room.client !== ws) {
           // The same ticket again is the same renter refreshing: hand them the
