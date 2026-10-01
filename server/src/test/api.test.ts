@@ -19,6 +19,7 @@ import {
   type Access,
 } from "../access.js";
 import { createApi } from "../api.js";
+import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
 import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
 import { emptyProfile } from "../steam.js";
 import type { SignalMessage } from "../protocol.js";
@@ -70,6 +71,7 @@ describe("booking and host API", () => {
   let call: ReturnType<typeof client>;
   let renter: ReturnType<typeof client>;
   let as: (cookie: string) => ReturnType<typeof client>;
+  let discovery: RequestBudget;
 
   before(async () => {
     access = {
@@ -94,6 +96,7 @@ describe("booking and host API", () => {
         fallbackOrigin: "http://localhost",
         games,
         profile,
+        discovery,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -110,6 +113,7 @@ describe("booking and host API", () => {
   beforeEach(() => {
     now = Date.UTC(2026, 8, 30, 12);
     platform = new Platform({ now: () => now, owners: access.owners });
+    discovery = new RequestBudget({ now: () => now });
     access.secret = SECRET;
   });
 
@@ -533,7 +537,27 @@ describe("booking and host API", () => {
       assert.deepEqual(machines.body.machines, []);
     });
 
+    it("holds each renter to a budget of these reads, with a 429 past it", async () => {
+      await offer();
+      const path = (i: number) =>
+        i % 2 ? "/api/availability?appids=730&rtt=0" : "/api/games/730/machines?minutes=60&rtt=0";
+      for (let i = 0; i < DISCOVERY_BURST; i++) assert.equal((await renter("GET", path(i))).status, 200);
+
+      const refused = await renter("GET", path(0));
+      assert.equal(refused.status, 429);
+      assert.equal(refused.headers.get("retry-after"), String(DISCOVERY_REFILL_MS / 1000));
+      assert.equal((await renter("GET", path(1))).status, 429);
+      // Another renter has a budget of their own, and the rest of the API is not limited.
+      assert.equal((await as(signedIn(OTHER))("GET", path(0))).status, 200);
+      assert.equal((await renter("GET", "/api/me")).status, 200);
+
+      now += DISCOVERY_REFILL_MS;
+      assert.equal((await renter("GET", path(0))).status, 200);
+      assert.equal((await renter("GET", path(0))).status, 429);
+    });
+
     it("rejects a malformed question with a 400", async () => {
+      discovery = new RequestBudget({ burst: 100, now: () => now });
       const bad = [
         "/api/availability?rtt=0",
         "/api/availability?appids=&rtt=0",

@@ -16,7 +16,8 @@
 //   GET  /api/events?booking=:id  (event stream, events.ts)
 //
 // The two reads of what can be played where (candidates.ts) are signed in
-// only: working them out for every visitor would cost too much.
+// only: working them out for every visitor would cost too much. For the same
+// reason each renter has a budget of them (budget.ts), past which they get 429.
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
@@ -29,6 +30,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
+import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
@@ -67,6 +69,8 @@ export type ApiOptions = {
   events?: RenterEvents;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
   profile?: ProfileReader;
+  /** Each renter's budget of availability and machine-list reads. Defaults to one for this API alone. */
+  discovery?: RequestBudget;
 };
 
 /** Answer with a JSON body that no cache keeps. */
@@ -206,7 +210,22 @@ export function createApi({
   games = defaultGames,
   profile = (steamId) => readProfile(undefined, steamId),
   events,
+  discovery = new RequestBudget(),
 }: ApiOptions) {
+  /** The signed-in renter, once they are within their budget of discovery reads; 429 past it. */
+  function requireDiscovery(req: IncomingMessage, res: ServerResponse): string | null {
+    const steamId = requireRenter(req, sessionSecret);
+    const waitMs = discovery.take(steamId);
+    if (waitMs === 0) return steamId;
+    res.writeHead(429, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "retry-after": String(Math.ceil(waitMs / 1000)),
+    });
+    res.end(JSON.stringify({ error: "too many requests" }));
+    return null;
+  }
+
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const method = req.method ?? "GET";
@@ -228,7 +247,8 @@ export function createApi({
     }
 
     if (resource === "availability" && !id && method === "GET") {
-      const steamId = requireRenter(req, sessionSecret);
+      const steamId = requireDiscovery(req, res);
+      if (!steamId) return true;
       const query = queryOf(req);
       const appids = [...new Set((query.get("appids") ?? "").split(",").filter(Boolean))];
       if (!appids.length || appids.length > MAX_AVAILABILITY_APPIDS) {
@@ -242,7 +262,8 @@ export function createApi({
     }
 
     if (resource === "games" && id && action === "machines" && method === "GET") {
-      const steamId = requireRenter(req, sessionSecret);
+      const steamId = requireDiscovery(req, res);
+      if (!steamId) return true;
       const query = queryOf(req);
       const game = platform.requirements(wholeParam(id, "appid", MAX_APPID));
       const minutes = wholeParam(query.get("minutes"), "minutes", MAX_MINUTES);

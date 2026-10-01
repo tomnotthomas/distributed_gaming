@@ -159,7 +159,7 @@ GET  /availability?appids=730,570&rtt=&controls=
   but are taken (`busy`), and the soonest a taken one is free again (`backAt`, Unix
   ms, or null). Same rules as the list below, so the wall and the game page agree.
   → 400 for a missing, malformed or too long `appids`, a missing or bad `rtt`, or a bad
-  `controls`.
+  `controls`. → 429 past the renter's budget of these reads (below).
 
 GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   → 200 { appid, minutes, requirements, machines, reason, busy }
@@ -172,7 +172,7 @@ GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   that put the first above the second (`{ rule, label }`, null with fewer than two);
   `busy` lists the taken machines that would fit, `{ id, name, backAt }`, soonest
   first. → 400 for a bad appid or `minutes`, a missing or bad `rtt`, or a bad
-  `controls` or `picture`.
+  `controls` or `picture`. → 429 past the renter's budget of these reads (below).
 
 GET  /me
   → 200 { steamId, profile }
@@ -282,6 +282,13 @@ its owner. Probing the top few machines directly is a later step.
 A busy machine (reserved or in session) is free again when its session runs out, or,
 while reserved, when a claim at the last moment would run out; one taken until after its
 owner wants it back is not counted as coming back.
+
+Each read ranks every machine on offer, so one signed-in renter cannot hog the server
+with them: each has a budget of 20 of these reads at once, then one more every 2 s (30
+a minute), counted across both calls and keyed on their Steam id
+(`server/src/budget.ts`). Past it the answer is `429` with `Retry-After` in seconds.
+The machines on offer are read from the database at most once every 2 s while nothing
+changes; any change to the platform makes the next call read them again.
 
 ### Matching
 
