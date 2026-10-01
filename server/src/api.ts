@@ -2,7 +2,9 @@
 //
 //   Booking API (renter, signed in)        Host API (gaming PC, machine key)
 //   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
-//   GET  /api/me                           POST /api/machines/:id/heartbeat
+//   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat
+//   GET  /api/games/:appid/machines?minutes=
+//   GET  /api/me
 //   POST /api/me/refresh
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start
 //   POST /api/bookings                     POST /api/sessions/:id/end
@@ -13,6 +15,9 @@
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
 //
+// The two reads of what can be played where (candidates.ts) are signed in
+// only: working them out for every visitor would cost too much.
+//
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
@@ -22,7 +27,9 @@
 // ticket as its bearer.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Control, PicturePref } from "@swiff/rank";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
+import { availabilityFor, machinesFor, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
@@ -36,6 +43,12 @@ import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./ste
 const MAX_HOST_BODY_BYTES = 32 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
+/** The most games one availability call may ask about: a wall's worth. */
+const MAX_AVAILABILITY_APPIDS = 100;
+/** The slowest round trip to the server a renter may report, in ms. */
+const MAX_RENTER_RTT_MS = 10_000;
+const CONTROLS: readonly Control[] = ["kb", "mouse", "pad"];
+const PICTURES: readonly PicturePref[] = ["best", "4k", "120fps"];
 
 type Json = Record<string, unknown>;
 
@@ -142,6 +155,39 @@ function renterRefusal(result: "not-found" | "wrong-ticket" | "over"): HttpError
   return new HttpError(409, "the session is over");
 }
 
+/** A whole number from 1 to `max` in a path or query, or a 400 naming the field. */
+const wholeParam = (value: string | null, field: string, max: number) =>
+  positiveInt(value !== null && /^\d+$/.test(value) ? Number(value) : NaN, field, max);
+
+/** The highest Steam appid. */
+const MAX_APPID = 2 ** 31 - 1;
+
+/** The request's query string. */
+const queryOf = (req: IncomingMessage) => new URL(req.url ?? "/", "http://localhost").searchParams;
+
+/**
+ * Who is asking and how, from the query: the renter's round trip to the
+ * server (`rtt`, ms, as the page measured it; 0 when left out), the controls
+ * they play with (`controls`, comma-separated) and their Picture setting
+ * (`picture`, default best).
+ */
+function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
+  const rtt = query.get("rtt");
+  const rttMs = rtt === null ? 0 : Number(rtt);
+  if (rtt !== null && (rtt.trim() === "" || !(rttMs >= 0 && rttMs <= MAX_RENTER_RTT_MS))) {
+    throw new HttpError(400, `rtt must be a number from 0 to ${MAX_RENTER_RTT_MS}`);
+  }
+  const controls = (query.get("controls") ?? "").split(",").filter(Boolean);
+  if (!controls.every((c) => CONTROLS.includes(c as Control))) {
+    throw new HttpError(400, `controls must be a list of ${CONTROLS.join(", ")}`);
+  }
+  const picture = query.get("picture") ?? "best";
+  if (!PICTURES.includes(picture as PicturePref)) {
+    throw new HttpError(400, `picture must be one of ${PICTURES.join(", ")}`);
+  }
+  return { steamId, rttMs, controls: [...new Set(controls as Control[])], picture: picture as PicturePref };
+}
+
 const defaultGames = async () =>
   (await popularGames()).map((g) => ({ id: g.appid, name: g.name, image: g.art.capsule ?? g.art.hero }));
 
@@ -181,9 +227,34 @@ export function createApi({
       return true;
     }
 
+    if (resource === "availability" && !id && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const query = queryOf(req);
+      const appids = [...new Set((query.get("appids") ?? "").split(",").filter(Boolean))];
+      if (!appids.length || appids.length > MAX_AVAILABILITY_APPIDS) {
+        throw new HttpError(400, `appids must list 1 to ${MAX_AVAILABILITY_APPIDS} Steam appids`);
+      }
+      const games = appids.map((a) => platform.requirements(wholeParam(a, "appids[]", MAX_APPID)));
+      const ask = renterAsk(steamId, query);
+      const { at, machines } = platform.offeredMachines();
+      reply(res, 200, availabilityFor(games, ask, machines, at));
+      return true;
+    }
+
+    if (resource === "games" && id && action === "machines" && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const query = queryOf(req);
+      const game = platform.requirements(wholeParam(id, "appid", MAX_APPID));
+      const minutes = wholeParam(query.get("minutes"), "minutes", MAX_MINUTES);
+      const ask = renterAsk(steamId, query);
+      const { at, machines } = platform.offeredMachines();
+      reply(res, 200, machinesFor(game, minutes, ask, machines, at));
+      return true;
+    }
+
     if (resource === "events" && !id && method === "GET" && events) {
       const session = requireRenterSession(req, sessionSecret);
-      const bookingId = new URL(req.url ?? "/", "http://localhost").searchParams.get("booking");
+      const bookingId = queryOf(req).get("booking");
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
       // The stream ends when the session does, as any other call would be refused then.

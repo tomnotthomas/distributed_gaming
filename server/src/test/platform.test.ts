@@ -1357,3 +1357,45 @@ describe("renters and owners", () => {
     assert.ok(platform.claim(bookingId, RENTER).ok);
   });
 });
+
+describe("machines on offer", () => {
+  const ids = () => platform.offeredMachines().machines.map((m) => m.host.id);
+
+  it("lists what is offered and answering, with no machine taken back or gone silent", () => {
+    offer("pc-1");
+    offer("pc-2");
+    offer("pc-3");
+    platform.setAvailability("pc-2", false);
+    assert.deepEqual(ids(), ["pc-1", "pc-3"]);
+    advance(LIVENESS_MS);
+    platform.heartbeat("pc-3");
+    assert.deepEqual(ids(), ["pc-3"]);
+    const [pc3] = platform.offeredMachines().machines;
+    assert.equal(pc3!.host.status, "available");
+    assert.deepEqual(pc3!.host.installed, [570, 730]);
+    assert.equal(pc3!.profile.name, REPORT.name);
+    assert.equal(pc3!.backAt, null);
+  });
+
+  it("counts a machine whose socket is open as seen now", () => {
+    offer("pc-1");
+    platform.hostConnected("pc-1");
+    now += 10 * LIVENESS_MS; // no tick: nothing has been settled since
+    const { at, machines } = platform.offeredMachines();
+    assert.equal(at, now);
+    assert.equal(machines[0]!.host.lastHeartbeatAt, now);
+  });
+
+  it("says when a busy machine is free again at the latest", () => {
+    offer("pc-1");
+    const { bookingId } = platform.book(730, 30);
+    const reserved = platform.offeredMachines().machines[0]!;
+    assert.equal(reserved.host.status, "busy");
+    assert.equal(reserved.backAt, now + RESERVATION_MS + 30 * 60_000);
+
+    advance(10_000);
+    platform.heartbeat("pc-1");
+    assert.ok(platform.claim(bookingId).ok);
+    assert.equal(platform.offeredMachines().machines[0]!.backAt, now + 30 * 60_000);
+  });
+});

@@ -194,7 +194,8 @@ plain heartbeat. A body is at most 32 KB.
 A bad field is a `400` naming it; nothing in that body is stored. The matcher gives a
 booking only to a machine that lists the game in `games` and meets the game's minimum
 GPU score, RAM and VRAM, so a PC that has not sent `hardware` and `games` is never
-matched.
+matched. Renters' lists of machines (renter.md, "What can be played where") estimate
+each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not listed.
 
 ### Connection setup (WebSocket)
 
