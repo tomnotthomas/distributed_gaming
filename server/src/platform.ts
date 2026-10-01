@@ -654,6 +654,8 @@ export class Platform {
    * The machine's last seven days as rank()'s StabilityStats, and the bucket
    * they fall in. Offered time since the last check-in counts too, so a machine
    * that went offline and stayed away loses coverage without checking in again.
+   * Uptime is kept per whole UTC day, so its window can reach up to a day
+   * further back than the exact cutoff used for sessions.
    */
   stability(machineId: string): ReturnType<typeof stabilityFrom> {
     const now = this.#now();
@@ -662,7 +664,7 @@ export class Platform {
       .prepare(
         `SELECT coalesce(sum(offered_ms), 0) AS offeredMs, coalesce(sum(seen_ms), 0) AS seenMs,
                 coalesce(sum(drops), 0) AS drops
-           FROM machine_uptime WHERE machine_id = ? AND day > ?`,
+           FROM machine_uptime WHERE machine_id = ? AND day >= ?`,
       )
       .get(machineId, utcDay(since)) as UptimeTotals;
     const machine = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
@@ -699,7 +701,11 @@ export class Platform {
     this.#transaction(() => this.#tick(this.#now()));
   }
 
-  /** Drop silent machines, settle lapsed reservations and overrun sessions, then match. */
+  /**
+   * Drop silent machines, settle lapsed reservations and overrun sessions, then
+   * match. A silent machine counts a drop only if it was still offered when it
+   * went quiet; one whose offer had already ended just stopped as planned.
+   */
   #tick(now: number): void {
     // Silent machines first, so nothing below hands a booking to one.
     const silent = this.#db
@@ -707,12 +713,14 @@ export class Platform {
       .all(now - LIVENESS_MS) as MachineRow[];
     for (const machine of silent) {
       this.#accrue(machine, now);
-      this.#db
-        .prepare(
-          `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
-             ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
-        )
-        .run(machine.id, utcDay(now));
+      if (machine.available_until === null || machine.available_until > machine.last_seen_at) {
+        this.#db
+          .prepare(
+            `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
+               ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
+          )
+          .run(machine.id, utcDay(now));
+      }
       this.#release(machine, machine.last_seen_at, "host_offline");
       this.#setStatus(machine.id, "offline");
     }
@@ -897,7 +905,8 @@ export class Platform {
    * Add the machine's offered time from uptime_at to `now` to machine_uptime,
    * split by UTC day, and move uptime_at to `now`. Offered time ends early at
    * available_until; the stretch within LIVENESS_MS of the last check-in counts
-   * as seen. Rows older than the stability window are dropped.
+   * as seen. Rows for days before the one the stability window starts in are
+   * dropped.
    */
   #accrue(machine: MachineRow, now: number): void {
     const add = this.#db.prepare(
@@ -910,7 +919,7 @@ export class Platform {
     }
     this.#db.prepare("UPDATE machines SET uptime_at = ? WHERE id = ?").run(now, machine.id);
     this.#db
-      .prepare("DELETE FROM machine_uptime WHERE machine_id = ? AND day <= ?")
+      .prepare("DELETE FROM machine_uptime WHERE machine_id = ? AND day < ?")
       .run(machine.id, utcDay(now - STABILITY_WINDOW_MS));
   }
 

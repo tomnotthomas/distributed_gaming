@@ -710,6 +710,23 @@ describe("machine uptime", () => {
     assert.equal(platform.stability("pc-1").stats.dropsPerHour, 1 / (120 / 3600));
   });
 
+  it("does not count a drop when the host shuts down after its offer ended", () => {
+    offer("pc-1", { availableUntil: now + 60_000 });
+    beatFor("pc-1", 60_000);
+    advance(LIVENESS_MS + 60_000);
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
+    assert.deepEqual(uptime(), { offeredMs: 60_000, coverage: 1 });
+  });
+
+  it("keeps the whole UTC day the seven-day window starts in", () => {
+    offer("pc-1");
+    beatFor("pc-1", 60 * 60_000);
+    platform.setAvailability("pc-1", false);
+    advance(7 * 24 * 3_600_000 - 30 * 60_000);
+    platform.heartbeat("pc-1");
+    assert.deepEqual(uptime(), { offeredMs: 60 * 60_000, coverage: 1 });
+  });
+
   it("does not count time the machine was taken back", () => {
     offer("pc-1");
     beatFor("pc-1", 60_000);
