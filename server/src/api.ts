@@ -84,17 +84,6 @@ function hostReport(body: Json): HostReport {
   }
 }
 
-/**
- * The renter's address, for the per-client stream cap: the one Cloudflare
- * reports in CF-Connecting-IP (it overwrites any the client sent), else the
- * socket's own. A request that skips Cloudflare and forges the header escapes
- * only the per-client cap; the server-wide cap still holds.
- */
-function clientAddress(req: IncomingMessage): string {
-  const forwarded = req.headers["cf-connecting-ip"];
-  return (Array.isArray(forwarded) ? forwarded[0] : forwarded) || req.socket.remoteAddress || "unknown";
-}
-
 /** An ISO date or unix ms, as unix ms. */
 const optionalTime = (value: unknown, field: string): number | undefined => {
   if (value === undefined || value === null) return undefined;
@@ -192,7 +181,7 @@ export function createApi({
       const bookingId = new URL(req.url ?? "/", "http://localhost").searchParams.get("booking");
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
-      const opened = events.open(res, bookingId, renter, clientAddress(req));
+      const opened = events.open(res, bookingId, renter);
       if (opened === "not-found") throw new HttpError(404, "no such booking");
       if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true;

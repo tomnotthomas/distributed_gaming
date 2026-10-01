@@ -58,7 +58,7 @@ describe("renter event stream", () => {
     // Wired as index.ts wires it: every booking change goes to the streams.
     const events = createRenterEvents(
       (platform = new Platform({ now: () => now, onBookingChanged: (id) => events.bookingChanged(id) })),
-      { keepAliveMs: 20, maxStreams: 8, maxStreamsPerClient: 5 },
+      { keepAliveMs: 20, maxStreams: 8, maxStreamsPerRenter: 5 },
     );
     api = createApi({
       platform,
@@ -285,7 +285,7 @@ describe("renter event stream", () => {
     const { bookingId } = platform.book(730, 30, RENTER);
     const events = createRenterEvents(platform, { keepAliveMs: 60_000 });
     const res = fakeResponse(false); // its send buffer is already full
-    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, "renter-1"), "opened");
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER), "opened");
     assert.equal(res.destroyed, true);
   });
 
@@ -295,38 +295,43 @@ describe("renter event stream", () => {
     platform.claim(bookingId, RENTER);
     const events = createRenterEvents(platform, { keepAliveMs: 60_000 });
     const res = fakeResponse(); // ended, but its close event has not come yet
-    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER, "renter-1"), "opened");
+    assert.equal(events.open(res as unknown as ServerResponse, bookingId, RENTER), "opened");
     assert.equal(res.writableEnded, true);
     events.bookingChanged(bookingId);
     assert.equal(res.writesAfterEnd, 0);
   });
 
-  it("refuses a client its streams beyond the per-client cap with 429, and leaves other clients alone", async () => {
-    const one = { "cf-connecting-ip": "203.0.113.1" };
-    const bookings = [platform.book(730, 30, RENTER), platform.book(730, 30, RENTER)].map((b) => b.bookingId);
+  it("holds a renter to the per-renter cap however the client address header is rotated, and leaves other renters alone", async () => {
+    const bookings = [1, 2, 3].map(() => platform.book(730, 30, RENTER).bookingId);
+    /** A fresh CF-Connecting-IP on every request, as a renter dodging an address cap would send. */
+    let address = 0;
+    const rotated = () => ({ "cf-connecting-ip": `203.0.113.${++address}` });
     const open: Stream[] = [];
-    for (let i = 0; i < 5; i++) open.push(await stream(`?booking=${bookings[i % 2]}`, one));
+    for (let i = 0; i < 5; i++) open.push(await stream(`?booking=${bookings[i % 3]}`, rotated()));
     assert.deepEqual(
       open.map((s) => s.status),
       [200, 200, 200, 200, 200],
     );
-    assert.equal((await stream(`?booking=${bookings[0]}`, one)).status, 429, "its sixth");
-    const other = await stream(`?booking=${bookings[1]}`, { "cf-connecting-ip": "203.0.113.2" });
-    assert.equal(other.status, 200, "another client is not held to the first one's count");
+    // Booking 3 holds one stream, well under its own cap: only the renter's cap refuses this.
+    assert.equal((await stream(`?booking=${bookings[2]}`, rotated())).status, 429, "their sixth");
+    const theirs = platform.book(730, 30, OTHER).bookingId;
+    const other = await stream(`?booking=${theirs}`, rotated(), signedIn(OTHER));
+    assert.equal(other.status, 200, "another renter is not held to the first one's count");
     for (const s of [...open, other]) s.close();
   });
 
   it("refuses any stream beyond the server-wide cap until one closes", () => {
     const events: RenterEvents = createRenterEvents(platform, { maxStreams: 2, keepAliveMs: 60_000 });
-    const [a, b, c] = [1, 2, 3].map(() => platform.book(730, 30, RENTER).bookingId);
+    const renters = ["76561198000000011", "76561198000000012", "76561198000000013"];
+    const [a, b, c] = renters.map((renter) => ({ renter, bookingId: platform.book(730, 30, renter).bookingId }));
     const first = fakeResponse();
-    const open = (bookingId: string, client: string, res = fakeResponse()) =>
-      events.open(res as unknown as ServerResponse, bookingId, RENTER, client);
-    assert.equal(open(a!, "renter-1", first), "opened");
-    assert.equal(open(b!, "renter-2"), "opened");
-    assert.equal(open(c!, "renter-3"), "too-many", "a third client, a third booking: the server is full");
+    const open = ({ renter, bookingId }: { renter: string; bookingId: string }, res = fakeResponse()) =>
+      events.open(res as unknown as ServerResponse, bookingId, renter);
+    assert.equal(open(a!, first), "opened");
+    assert.equal(open(b!), "opened");
+    assert.equal(open(c!), "too-many", "a third renter, a third booking: the server is full");
 
     first.destroy();
-    assert.equal(open(c!, "renter-3"), "opened");
+    assert.equal(open(c!), "opened");
   });
 });

@@ -99,10 +99,10 @@ const platform = new Platform({
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => renterEvents.bookingChanged(bookingId),
 });
-// Open renter streams are capped server-wide and per client address (events.ts).
+// Open renter streams are capped server-wide and per signed-in renter (events.ts).
 const renterEvents = createRenterEvents(platform, {
   maxStreams: Number(process.env.MAX_EVENT_STREAMS) || undefined,
-  maxStreamsPerClient: Number(process.env.MAX_EVENT_STREAMS_PER_CLIENT) || undefined,
+  maxStreamsPerRenter: Number(process.env.MAX_EVENT_STREAMS_PER_RENTER) || undefined,
 });
 
 // Session keys are signed with ROOM_SECRET too, so without it no session can

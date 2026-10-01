@@ -24,9 +24,11 @@
 // Only the signed-in renter who made the booking can open a stream on it, as
 // with the rest of the Booking API. So that streams cannot hold the server's
 // resources open, a booking takes at most MAX_STREAMS_PER_BOOKING streams, one
-// client address at most `maxStreamsPerClient` and the server at most
+// signed-in renter at most `maxStreamsPerRenter` and the server at most
 // `maxStreams` in all; a stream ends once the booking needs no more watching,
-// and a stream whose renter does not read what it is sent is dropped.
+// and a stream whose renter does not read what it is sent is dropped. The
+// per-renter cap is keyed on the signed-in renter, not on an address a request
+// can claim in a header, so no renter can hold more than their share.
 
 import type { ServerResponse } from "node:http";
 import type { BookingStatus, BookingView, Platform } from "./platform.js";
@@ -37,24 +39,24 @@ export const KEEP_ALIVE_MS = 25_000;
 export const MAX_STREAMS_PER_BOOKING = 3;
 /** Open streams the whole server holds at most, by default (MAX_EVENT_STREAMS). */
 export const MAX_STREAMS = 500;
-/** Open streams one client address holds at most, by default (MAX_EVENT_STREAMS_PER_CLIENT). */
-export const MAX_STREAMS_PER_CLIENT = 10;
+/** Open streams one signed-in renter holds at most, by default (MAX_EVENT_STREAMS_PER_RENTER). */
+export const MAX_STREAMS_PER_RENTER = 10;
 /** Past these the renter has nothing left to wait for, so the stream ends (web/src/swiff/booking.ts stops at the same). */
 const DONE: readonly BookingStatus[] = ["claimed", "playing", "ended", "expired"];
 
 /**
  * What open() did: answered with a stream, or answered nothing because the
- * booking is unknown, or it, the client or the server has its fill of streams.
+ * booking is unknown, or it, the renter or the server has its fill of streams.
  */
 export type OpenResult = "opened" | "not-found" | "too-many";
 
 export type RenterEvents = {
   /**
    * Answer GET /api/events for `bookingId` with a stream for the signed-in
-   * `renterId`, from `client` (its address), unless the booking is unknown or
-   * not theirs, or a stream cap is reached.
+   * `renterId`, unless the booking is unknown or not theirs, or a stream cap
+   * is reached.
    */
-  open(res: ServerResponse, bookingId: string, renterId: string, client: string): OpenResult;
+  open(res: ServerResponse, bookingId: string, renterId: string): OpenResult;
   /** Send the booking as it now stands to every stream open on it. The platform calls this on each change. */
   bookingChanged(bookingId: string): void;
 };
@@ -85,23 +87,23 @@ export function createRenterEvents(
   {
     keepAliveMs = KEEP_ALIVE_MS,
     maxStreams = MAX_STREAMS,
-    maxStreamsPerClient = MAX_STREAMS_PER_CLIENT,
+    maxStreamsPerRenter = MAX_STREAMS_PER_RENTER,
   }: {
     keepAliveMs?: number | undefined;
     maxStreams?: number | undefined;
-    maxStreamsPerClient?: number | undefined;
+    maxStreamsPerRenter?: number | undefined;
   } = {},
 ): RenterEvents {
   const streams = new Map<string, Set<ServerResponse>>();
-  /** Open streams per client address, and in all. */
-  const perClient = new Map<string, number>();
+  /** Open streams per signed-in renter, and in all. */
+  const perRenter = new Map<string, number>();
   let total = 0;
 
   return {
-    open(res, bookingId, renterId, client) {
+    open(res, bookingId, renterId) {
       if (
         (streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING ||
-        (perClient.get(client) ?? 0) >= maxStreamsPerClient ||
+        (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter ||
         total >= maxStreams
       ) {
         return "too-many";
@@ -121,7 +123,7 @@ export function createRenterEvents(
       let open = streams.get(bookingId);
       if (!open) streams.set(bookingId, (open = new Set()));
       open.add(res);
-      perClient.set(client, (perClient.get(client) ?? 0) + 1);
+      perRenter.set(renterId, (perRenter.get(renterId) ?? 0) + 1);
       total += 1;
       const keepAlive = setInterval(() => write(res, ": keep-alive\n\n"), keepAliveMs);
       keepAlive.unref();
@@ -130,9 +132,9 @@ export function createRenterEvents(
         clearInterval(keepAlive);
         open.delete(res);
         total -= 1;
-        const left = (perClient.get(client) ?? 1) - 1;
-        if (left > 0) perClient.set(client, left);
-        else perClient.delete(client);
+        const left = (perRenter.get(renterId) ?? 1) - 1;
+        if (left > 0) perRenter.set(renterId, left);
+        else perRenter.delete(renterId);
         if (!open.size && streams.get(bookingId) === open) streams.delete(bookingId);
       });
       sendBooking(res, booking);
