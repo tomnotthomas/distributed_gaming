@@ -74,7 +74,7 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
 | **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                     |
 | **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                                                        |
-| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`, `ticket_id`                                      |
+| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `end_reason`, `price`, `ticket_id`, `qos`                 |
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
@@ -125,6 +125,10 @@ POST /bookings/:id/claim
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired).
+
+POST /sessions/:id/qos
+  Report stream quality during the session, with the join ticket as bearer. Feeds the
+  machine's stability; see host.md, "Stability".
 ```
 
 Matching runs in the server process, every second and on every change: the oldest
