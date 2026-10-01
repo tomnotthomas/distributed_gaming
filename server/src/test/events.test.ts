@@ -323,7 +323,10 @@ describe("renter event stream", () => {
   it("refuses any stream beyond the server-wide cap until one closes", () => {
     const events: RenterEvents = createRenterEvents(platform, { maxStreams: 2, keepAliveMs: 60_000 });
     const renters = ["76561198000000011", "76561198000000012", "76561198000000013"];
-    const [a, b, c] = renters.map((renter) => ({ renter, bookingId: platform.book(730, 30, renter).bookingId }));
+    const [a, b, c] = renters.map((renter) => ({
+      renter,
+      bookingId: platform.book(730, 30, renter).bookingId,
+    }));
     const first = fakeResponse();
     const open = ({ renter, bookingId }: { renter: string; bookingId: string }, res = fakeResponse()) =>
       events.open(res as unknown as ServerResponse, bookingId, renter);
