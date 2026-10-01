@@ -107,6 +107,8 @@ export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
 //                                            | 400 bad-request | 409 not-claimed | 409 session-active
 //   DELETE /api/machines/:id/session  end    → 204, whether or not one was live
 //
+// Either answers 500 internal-error when the database fails; try again.
+//
 // A host session is the PC's side of the platform session a renter claimed,
 // under the same id: start names it, and the platform ending it ends this too.
 // Every refusal is a SessionError body. Full contract:
@@ -133,7 +135,13 @@ export type SessionGrant = {
 
 export type SessionError = {
   error:
-    "bad-machine-key" | "bad-request" | "not-claimed" | "session-active" | "not-configured" | "not-found";
+    | "bad-machine-key"
+    | "bad-request"
+    | "not-claimed"
+    | "session-active"
+    | "not-configured"
+    | "not-found"
+    | "internal-error";
 };
 
 /**

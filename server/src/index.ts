@@ -46,7 +46,7 @@ import {
   type SessionGrant,
   type SignalMessage,
 } from "./protocol.js";
-import { createHostSessions } from "./sessions.js";
+import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
 import { Platform, type ClaimedSession } from "./platform.js";
@@ -199,10 +199,9 @@ function endHostSession(hostId: string): void {
 /**
  * Hang up on the streamer serving session `sessionId` in `hostId`, if it is
  * the room's host. The platform calls this when that session ends, having
- * already ended its host session; the end is repeated here in case it had not.
+ * already ended its host session in the same transaction.
  */
 function evictStreamer(hostId: string, sessionId: string): void {
-  sessions?.end(hostId);
   if (rooms.get(hostId)?.host?.sessionId === sessionId) evictHost(hostId, "session-ended");
 }
 
@@ -276,15 +275,33 @@ async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath:
     json(res, 503, { error: "not-configured" });
     return true;
   }
+  try {
+    await answerSession(req, res, hostId, sessions);
+  } catch (error) {
+    // A locked or broken database file must not take signaling down with it.
+    // Only the kind of failure is logged: the request carries the machine key.
+    console.error("[swiff] session request failed:", error instanceof Error ? error.name : typeof error);
+    if (!res.headersSent) json(res, 500, { error: "internal-error" });
+  }
+  return true;
+}
+
+/** Authenticate, then start or end the host session in `hostId`. Throws on a database failure. */
+async function answerSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+  hostId: string,
+  sessions: HostSessions,
+): Promise<void> {
   if (!verifyMachineKey(access.machines, hostId, bearer(req))) {
     json(res, 401, { error: "bad-machine-key" });
-    return true;
+    return;
   }
 
   if (req.method === "DELETE") {
     endHostSession(hostId);
     json(res, 204);
-    return true;
+    return;
   }
 
   let sessionId: unknown;
@@ -293,29 +310,28 @@ async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath:
   } catch (error) {
     // Not JSON, too large, or the client gave up mid-body: never a crash.
     json(res, error instanceof HttpError ? error.status : 400, { error: "bad-request" });
-    return true;
+    return;
   }
   if (typeof sessionId !== "string" || !sessionId) {
     json(res, 400, { error: "bad-request" });
-    return true;
+    return;
   }
   // Only the session a renter has claimed on this machine, and only while it
   // runs: a host session can never outlive or stand in for its platform session.
   if (platform.claimedSession(hostId) !== sessionId) {
     json(res, 409, { error: "not-claimed" });
-    return true;
+    return;
   }
   const grant = sessions.start(hostId, sessionId);
   if (!grant) {
     json(res, 409, { error: "session-active" });
-    return true;
+    return;
   }
   // From here the room belongs to the session. A host registered with the
   // machine key is put out now rather than left serving until the streamer
   // arrives.
   if (rooms.get(hostId)?.host?.sessionId === null) evictHost(hostId, "session-active");
   json(res, 201, grant);
-  return true;
 }
 
 // --- static files -----------------------------------------------------------
@@ -414,6 +430,67 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 
 // --- signaling --------------------------------------------------------------
 
+/** Answer a message from `ws` that is not relayed. Throws when the database does. */
+function answer(ws: PeerSocket, msg: SignalMessage): void {
+  switch (msg.type) {
+    case "ping":
+      ws.missedBeats = 0;
+      send(ws, { type: "pong" });
+      return;
+
+    case "register": {
+      if (ws.role) return; // one room per socket, decided once
+      let sessionId: string | null = null;
+      if ("sessionKey" in msg) {
+        // The streamer: the key must name this room and its session be live.
+        const key = sessions?.verify(msg.sessionKey);
+        if (!key || key.room !== msg.hostId) return deny(ws, "bad-session-key");
+        sessionId = key.session;
+      } else {
+        if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
+        // The machine key never displaces a renter's session, live streamer
+        // or not: the room is the session's until the service ends it.
+        if (sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
+      }
+      const room = roomFor(msg.hostId);
+      // A reconnecting host replaces the stale socket rather than being
+      // refused — otherwise a crashed host locks itself out of its own room.
+      if (room.host && room.host !== ws) room.host.close(4000, "replaced by a newer host");
+      ws.hostId = msg.hostId;
+      ws.role = "host";
+      ws.sessionId = sessionId;
+      room.host = ws;
+      send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
+      // A client that arrived first is still waiting; tell the host now.
+      if (room.client) send(ws, { type: "peer-joined" });
+      return;
+    }
+
+    case "join": {
+      if (ws.role) return;
+      const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
+      if (!ticket || platform.ticketRevoked(ticket.id)) return deny(ws, "bad-ticket");
+      const room = roomFor(ticket.room);
+      if (room.client && room.client !== ws) {
+        // The same ticket again is the same renter refreshing: hand them the
+        // seat. A different ticket is somebody else, and the seat is taken.
+        if (room.client.ticketId !== ticket.id) return deny(ws, "room-taken");
+        room.client.close(4001, "replaced by a newer client");
+      }
+      ws.hostId = ticket.room;
+      ws.role = "client";
+      ws.ticketId = ticket.id;
+      room.client = ws;
+      send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
+      send(room.host, { type: "peer-joined" });
+      return;
+    }
+
+    default:
+      return;
+  }
+}
+
 const server = createServer(serveStatic);
 const wss = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES });
 
@@ -443,62 +520,13 @@ wss.on("connection", (socket) => {
       return;
     }
 
-    switch (msg.type) {
-      case "ping":
-        ws.missedBeats = 0;
-        send(ws, { type: "pong" });
-        return;
-
-      case "register": {
-        if (ws.role) return; // one room per socket, decided once
-        let sessionId: string | null = null;
-        if ("sessionKey" in msg) {
-          // The streamer: the key must name this room and its session be live.
-          const key = sessions?.verify(msg.sessionKey);
-          if (!key || key.room !== msg.hostId) return deny(ws, "bad-session-key");
-          sessionId = key.session;
-        } else {
-          if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
-          // The machine key never displaces a renter's session, live streamer
-          // or not: the room is the session's until the service ends it.
-          if (sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
-        }
-        const room = roomFor(msg.hostId);
-        // A reconnecting host replaces the stale socket rather than being
-        // refused — otherwise a crashed host locks itself out of its own room.
-        if (room.host && room.host !== ws) room.host.close(4000, "replaced by a newer host");
-        ws.hostId = msg.hostId;
-        ws.role = "host";
-        ws.sessionId = sessionId;
-        room.host = ws;
-        send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
-        // A client that arrived first is still waiting; tell the host now.
-        if (room.client) send(ws, { type: "peer-joined" });
-        return;
-      }
-
-      case "join": {
-        if (ws.role) return;
-        const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-        if (!ticket || platform.ticketRevoked(ticket.id)) return deny(ws, "bad-ticket");
-        const room = roomFor(ticket.room);
-        if (room.client && room.client !== ws) {
-          // The same ticket again is the same renter refreshing: hand them the
-          // seat. A different ticket is somebody else, and the seat is taken.
-          if (room.client.ticketId !== ticket.id) return deny(ws, "room-taken");
-          room.client.close(4001, "replaced by a newer client");
-        }
-        ws.hostId = ticket.room;
-        ws.role = "client";
-        ws.ticketId = ticket.id;
-        room.client = ws;
-        send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
-        send(room.host, { type: "peer-joined" });
-        return;
-      }
-
-      default:
-        return;
+    try {
+      answer(ws, msg);
+    } catch (error) {
+      // Register and join read the database. Failing, it must not take the
+      // process down; hanging up without `denied` lets the peer retry.
+      console.error("[swiff] signaling message failed:", error instanceof Error ? error.name : typeof error);
+      ws.close(1011, "internal error");
     }
   });
 

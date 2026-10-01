@@ -6,8 +6,10 @@
 //
 // With `serveClaims`, it also stands in for the PC service of
 // docs/system-design/session-keys.md: on `session-claimed` it starts that
-// session's host session and registers again with the session key, and when
-// the session ends it goes back to the machine key to wait for the next claim.
+// session's host session and registers again with the session key. A key
+// refused mid-session (expired after a drop) is replaced by ending and starting
+// the same session again; when the session ends it goes back to the machine key
+// to wait for the next claim.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
@@ -129,24 +131,27 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
    * Leave the room as it is held now and register again with `credential`:
    * the machine key between sessions, a session key during one.
    */
-  const reconnect = (credential: { key: string } | { sessionKey: string }) => {
+  const reconnect = (
+    credential: { key: string } | { sessionKey: string },
+    claim: SessionClaim | null = null,
+  ) => {
     signaling?.close();
     teardown();
     opts.onPeerHere(false);
-    signaling = connect(credential);
+    signaling = connect(credential, claim);
   };
 
-  /** Start the claimed session's host session and serve it; on failure, wait for the next claim. */
-  const serve = (claim: SessionClaim) => {
+  /**
+   * Start the claimed session's host session and serve it; with `restart`, end
+   * the live one first for a fresh key. On failure, wait for the next claim.
+   */
+  const serve = (claim: SessionClaim, restart = false) => {
     signaling?.close();
     signaling = null;
-    requestSessionKey({
-      url: opts.url,
-      hostId: opts.hostId,
-      machineKey: opts.machineKey,
-      sessionId: claim.sessionId,
-    })
-      .then((sessionKey) => !stopped && reconnect({ sessionKey }))
+    const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
+    (restart ? endSession(machine) : Promise.resolve())
+      .then(() => requestSessionKey({ ...machine, sessionId: claim.sessionId }))
+      .then((sessionKey) => !stopped && reconnect({ sessionKey }, claim))
       .catch((cause: unknown) => {
         console.warn(
           "[swiff] could not start the claimed session:",
@@ -156,29 +161,31 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       });
   };
 
-  const connect = (credential: { key: string } | { sessionKey: string }) =>
+  /** Register with `credential`; `claim` is the session served with it, null for the machine key. */
+  const connect = (credential: { key: string } | { sessionKey: string }, claim: SessionClaim | null) =>
     connectSignaling({
       url: opts.url,
       onOpen: (send) => send({ type: "register", hostId: opts.hostId, ...credential }),
-      onMessage: (msg, send) => onMessage(msg, send, "sessionKey" in credential),
+      onMessage: (msg, send) => onMessage(msg, send, claim),
     });
 
-  const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void, inSession: boolean) => {
+  const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void, claim: SessionClaim | null) => {
     switch (msg.type) {
       case "denied":
-        // A session key is refused once its session is over: back to waiting
-        // for the next renter with the machine key. The machine key refused
-        // is final.
-        if (inSession && opts.serveClaims) reconnect({ key: opts.machineKey });
-        else opts.onDenied?.();
+        // The machine key refused is final. A session key refused may only
+        // have expired: end and start the same session for a fresh one. Once
+        // the session is over, back to waiting for the next renter.
+        if (!claim) opts.onDenied?.();
+        else if (msg.reason === "bad-session-key") serve(claim, true);
+        else reconnect({ key: opts.machineKey });
         break;
       case "registered":
         serverIce = msg.iceServers ?? [];
         break;
       case "session-claimed": {
-        const claim = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
-        opts.onSessionClaimed?.(claim);
-        if (opts.serveClaims && !inSession) serve(claim);
+        const next = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
+        opts.onSessionClaimed?.(next);
+        if (opts.serveClaims && !claim) serve(next);
         break;
       }
       case "peer-joined":
@@ -202,7 +209,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     }
   };
 
-  let signaling: Signaling | null = connect({ key: opts.machineKey });
+  let signaling: Signaling | null = connect({ key: opts.machineKey }, null);
 
   return {
     stop: () => {
@@ -211,6 +218,24 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       teardown();
     },
   };
+}
+
+type MachineAuth = { url: string; hostId: string; machineKey: string };
+
+/** The session route for `hostId` on the signaling server's own HTTP origin. */
+function sessionRoute(url: string, hostId: string): string {
+  const origin = new URL(url);
+  origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
+  return `${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`;
+}
+
+/** End this machine's live host session, if any. Throws with the status alone when refused. */
+async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<void> {
+  const res = await fetch(sessionRoute(url, hostId), {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${machineKey}` },
+  });
+  if (res.status !== 204) throw new Error(`session end answered ${res.status}`);
 }
 
 /**
@@ -224,15 +249,8 @@ export async function requestSessionKey({
   hostId,
   machineKey,
   sessionId,
-}: {
-  url: string;
-  hostId: string;
-  machineKey: string;
-  sessionId: string;
-}): Promise<string> {
-  const origin = new URL(url);
-  origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
-  const res = await fetch(`${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`, {
+}: MachineAuth & { sessionId: string }): Promise<string> {
+  const res = await fetch(sessionRoute(url, hostId), {
     method: "POST",
     headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
     body: JSON.stringify({ sessionId }),

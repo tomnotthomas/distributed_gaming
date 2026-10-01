@@ -67,7 +67,8 @@ If the service was not connected when the claim happened, the heartbeat
 Until the Windows service exists, the host app (the desktop app and the web host page)
 stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
 starting that session, registers again with the session key, and goes back to the machine
-key once the session is over.
+key once the session is over. A session key refused with `bad-session-key` is replaced as
+the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
 
 Starting the host session puts the machine-key socket out with `denied session-active`,
 and the machine key cannot register again while the session is live. Once the session has
@@ -81,10 +82,10 @@ Both are called by the **PC service only**, over HTTPS to the signaling server, 
 body (`SessionStart` in `protocol.ts`); end has none. Responses are JSON with
 `cache-control: no-store`.
 
-| Call                                             | Success                                    | Refusals                                                                                                |
-| ------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured` |
-| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `503 not-configured`                                                             |
+| Call                                             | Success                                    | Refusals                                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured`, `500 internal-error` |
+| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `503 not-configured`, `500 internal-error`                                                             |
 
 - A refusal body is `{ "error": "<code>" }` (`SessionError` in `protocol.ts`). A wrong
   method answers `405`.

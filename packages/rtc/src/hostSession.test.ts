@@ -28,6 +28,16 @@ function fakeFetch(status: number, body: unknown = {}) {
   return fetch;
 }
 
+/** A fetch that answers its calls with `answers` in order, recording the calls. */
+function fakeFetches(...answers: [status: number, body?: unknown][]) {
+  const fetch = vi.fn(async (_url: string, _init: RequestInit) => {
+    const [status, body] = answers.shift()!;
+    return new Response(body === undefined ? null : JSON.stringify(body), { status });
+  });
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
 /** Let the handover's fetch and its continuations settle. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
@@ -108,6 +118,56 @@ describe("startHostSession", () => {
     streamer.accept();
 
     streamer.deliver({ type: "denied", reason: "session-ended" });
+    const next = FakeSocket.instances[2]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    expect(denied).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("ends and starts the same session again when its key is refused", async () => {
+    const fetch = fakeFetches(
+      [201, { sessionKey: "test-session-key" }],
+      [204],
+      [201, { sessionKey: "test-session-key-2" }],
+    );
+    const { session, socket, denied } = start(true);
+    socket.deliver(CLAIM);
+    await settle();
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+
+    streamer.deliver({ type: "denied", reason: "bad-session-key" });
+    await settle();
+    const calls = fetch.mock.calls.map(([url, init]) => [url, init.method, init.body]);
+    expect(calls.slice(1)).toEqual([
+      ["https://signal.test/api/machines/pc-1/session", "DELETE", undefined],
+      ["https://signal.test/api/machines/pc-1/session", "POST", JSON.stringify({ sessionId: "s1" })],
+    ]);
+    const next = FakeSocket.instances[2]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", sessionKey: "test-session-key-2" }]);
+    expect(denied).not.toHaveBeenCalled();
+
+    // Served like the first: once the session ends, back to the machine key.
+    next.deliver({ type: "denied", reason: "session-ended" });
+    const machine = FakeSocket.instances[3]!;
+    machine.accept();
+    expect(machine.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    session.stop();
+  });
+
+  it("goes back to the machine key when the session cannot be started again", async () => {
+    fakeFetches([201, { sessionKey: "test-session-key" }], [204], [409, { error: "not-claimed" }]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { session, socket, denied } = start(true);
+    socket.deliver(CLAIM);
+    await settle();
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+
+    streamer.deliver({ type: "denied", reason: "bad-session-key" });
+    await settle();
     const next = FakeSocket.instances[2]!;
     next.accept();
     expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);

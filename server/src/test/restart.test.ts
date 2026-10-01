@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
@@ -85,6 +86,18 @@ function register(credential: { key: string } | { sessionKey: string }): Promise
   });
 }
 
+/** Register on pc-1 with a session key and resolve with how the server hangs up. */
+function registerUntilClosed(sessionKey: string): Promise<{ code: number; messages: SignalMessage[] }> {
+  const ws = new WebSocket(`ws://localhost:${PORT}`);
+  const messages: SignalMessage[] = [];
+  return new Promise((resolve, reject) => {
+    ws.once("open", () => ws.send(JSON.stringify({ type: "register", hostId: "pc-1", sessionKey })));
+    ws.on("message", (raw) => messages.push(JSON.parse(String(raw)) as SignalMessage));
+    ws.once("close", (code) => resolve({ code, messages }));
+    ws.once("error", reject);
+  });
+}
+
 after(async () => {
   await stopServer();
   rmSync(DIR, { recursive: true, force: true });
@@ -117,5 +130,30 @@ describe("server restart", () => {
       type: "denied",
       reason: "bad-session-key",
     });
+  });
+
+  it("answers a database failure without crashing, and the peer may retry", async () => {
+    if (!server) await startServer();
+    await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+    const started = await call("POST", sessionPath("pc-1"), { sessionId: claim.body.sessionId }, MACHINE_KEY);
+    assert.equal(started.status, 201);
+    const grant = started.body as SessionGrant;
+
+    // Every host-session statement fails from here on.
+    const db = new DatabaseSync(DATABASE_PATH);
+    db.exec("DROP TABLE key_sessions");
+    db.close();
+
+    // No `denied`: that would be final, and the failure may pass.
+    assert.deepEqual(await registerUntilClosed(grant.sessionKey), { code: 1011, messages: [] });
+    assert.deepEqual(await call("DELETE", sessionPath("pc-1"), undefined, MACHINE_KEY), {
+      status: 500,
+      body: { error: "internal-error" },
+    });
+    assert.equal(server?.exitCode, null);
+    assert.equal((await call("GET", "/api/bookings/none")).status, 404);
   });
 });
