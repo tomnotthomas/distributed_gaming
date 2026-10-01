@@ -10,7 +10,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
-import { parseMachineKeys, verifyTicket, type Access } from "../access.js";
+import { mintTicket, parseMachineKeys, verifyTicket, type Access } from "../access.js";
 import { createApi } from "../api.js";
 import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
 import type { SignalMessage } from "../protocol.js";
@@ -241,6 +241,8 @@ describe("booking and host API", () => {
       assert.equal((await call("POST", first.path, QOS, MACHINE_KEY)).status, 401);
       assert.equal((await call("POST", first.path, QOS, other.body.ticket)).status, 403);
       assert.equal((await call("POST", "/api/sessions/nope/qos", QOS, first.ticket)).status, 404);
+      const expired = mintTicket(SECRET, "pc-1", 60, Date.now() - 61_000);
+      assert.equal((await call("POST", first.path, QOS, expired)).status, 401);
       assert.equal(platform.sessionQos(first.sessionId), null);
     });
 

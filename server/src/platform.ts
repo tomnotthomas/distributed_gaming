@@ -69,7 +69,7 @@ export const RESERVATION_MS = 60_000;
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 /** The longest booking accepted. */
 export const MAX_MINUTES = 12 * 60;
-/** A renter's last QoS report may arrive this long after the session ended. */
+/** A renter's last QoS report may arrive this long after the session ended, while its join ticket is still valid. */
 export const QOS_GRACE_MS = 60_000;
 
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";

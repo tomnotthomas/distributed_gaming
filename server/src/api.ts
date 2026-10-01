@@ -16,7 +16,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
 import { popularGames } from "./catalog.js";
-import { MAX_MINUTES, QOS_GRACE_MS, type Platform } from "./platform.js";
+import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import { HOST_END_REASONS, type EndReason, type QosReport } from "./stability.js";
 import { originFrom } from "./steam.js";
@@ -218,11 +218,10 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
     // --- Renter QoS (join ticket) ---------------------------------------------
 
     if (resource === "sessions" && id && action === "qos" && method === "POST") {
-      // A last report may follow a session that ran its full time, when the
-      // ticket has just run out too; the platform holds it to QOS_GRACE_MS.
-      const ticket = access.secret
-        ? verifyTicket(access.secret, bearer(req), Date.now() - QOS_GRACE_MS)
-        : null;
+      // An expired ticket is refused here as it is at join. A last report after
+      // the session ends is taken while the ticket is still valid, for at most
+      // QOS_GRACE_MS (platform.ts).
+      const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
       if (!ticket) throw new HttpError(401, "bad ticket");
       const report = qosReport(await readJson(req, MAX_QOS_BODY_BYTES));
       const result = platform.recordQos(id, ticket.id, report);
