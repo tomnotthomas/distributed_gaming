@@ -703,8 +703,9 @@ export class Platform {
 
   /**
    * Drop silent machines, settle lapsed reservations and overrun sessions, then
-   * match. A silent machine counts a drop only if it was still offered when it
-   * went quiet; one whose offer had already ended just stopped as planned.
+   * match. A silent machine counts a drop unless its offer ended within
+   * LIVENESS_MS of its last check-in: a host that beat until the end of its
+   * offer and then went quiet stopped as planned.
    */
   #tick(now: number): void {
     // Silent machines first, so nothing below hands a booking to one.
@@ -713,7 +714,7 @@ export class Platform {
       .all(now - LIVENESS_MS) as MachineRow[];
     for (const machine of silent) {
       this.#accrue(machine, now);
-      if (machine.available_until === null || machine.available_until > machine.last_seen_at) {
+      if (machine.available_until === null || machine.available_until > machine.last_seen_at + LIVENESS_MS) {
         this.#db
           .prepare(
             `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
