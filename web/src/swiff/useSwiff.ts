@@ -12,8 +12,9 @@ import {
   readSteamFragment,
   refreshRenter,
   withMedia,
-  type CatalogGame,
+  storeGames,
   type SteamProfile,
+  type StoreData,
 } from "./steam";
 
 export type Screen = "home" | "game" | "profile";
@@ -99,7 +100,7 @@ export function useSwiff() {
   const libraryLoad = useRef(0);
   // The last store data read, so a retry swaps games in place rather than
   // blanking the free-to-play tiles until the store answers again.
-  const lastCatalog = useRef<CatalogGame[]>([]);
+  const lastCatalog = useRef<StoreData>({ media: [], popular: [] });
   /**
    * Put a signed-in renter's wall up: their own games at once, beside whatever
    * free-to-play games the last store read found, then, once Steam's store data
@@ -110,14 +111,15 @@ export function useSwiff() {
     (next: SteamProfile) => {
       const load = ++libraryLoad.current;
       setProfile(next);
-      const library = applySteam(next, sharedMachineIds, lastCatalog.current);
-      setGames(withMedia(library, lastCatalog.current));
+      const kept = storeGames(lastCatalog.current);
+      const library = applySteam(next, sharedMachineIds, kept);
+      setGames(withMedia(library, kept));
       const curated = GAMES.map((g) => g.appid);
       void Promise.all([fetchMedia([...library.map((g) => g.appid), ...curated]), fetchPopular()]).then(
         ([media, popular]) => {
           if (load !== libraryLoad.current) return;
-          const catalog = nextCatalog(lastCatalog.current, media, popular);
-          lastCatalog.current = catalog;
+          lastCatalog.current = nextCatalog(lastCatalog.current, media, popular);
+          const catalog = storeGames(lastCatalog.current);
           setGames(withMedia(applySteam(next, sharedMachineIds, catalog), catalog));
         },
       );

@@ -14,6 +14,7 @@ import {
   readSteamFragment,
   refreshRenter,
   signOut,
+  storeGames,
   withMedia,
   type CatalogGame,
   type SteamProfile,
@@ -96,10 +97,23 @@ describe("applySteam", () => {
   ];
   const appids = (games: { appid: number }[]) => games.map((g) => g.appid).sort((a, b) => a - b);
 
-  it("shows no games at all for a private library before the store says what is free", () => {
+  it("falls back to the curated free-to-play games for a private library when there is no store data", () => {
     const wall = applySteam(profile({ lib: false }), pool);
-    expect(wall).toEqual([]);
+    expect(appids(wall)).toEqual([730, 2073850]);
+    for (const game of wall)
+      expect(game).toMatchObject({
+        owned: false,
+        f2p: true,
+        hours: 0,
+        last: undefined,
+        personal: "Free to play",
+      });
     expect(libraryState(profile({ lib: false }))).toBe("unreadable");
+  });
+
+  it("lets the store data, when there is any, say what is free over the curated set", () => {
+    const paid = store.map((g) => (g.appid === 730 ? { ...g, free: false } : g));
+    expect(appids(applySteam(profile({ lib: false }), pool, paid))).toEqual([2073850]);
   });
 
   it("shows a private library only the free-to-play games, marked free and not owned", () => {
@@ -138,14 +152,25 @@ describe("applySteam", () => {
 });
 
 describe("nextCatalog", () => {
+  const [cs, bf] = catalog;
+  const previous = { media: [bf!], popular: [cs!] };
+
   it("keeps the store data it has when both store reads fail", () => {
-    expect(nextCatalog(catalog, [], [])).toBe(catalog);
+    expect(nextCatalog(previous, [], [])).toEqual(previous);
   });
 
-  it("replaces it with whatever a read brings back", () => {
-    const [cs, bf] = catalog;
-    expect(nextCatalog(catalog, [bf!], [])).toEqual([bf]);
-    expect(nextCatalog([], [], [cs!])).toEqual([cs]);
+  it("keeps the last chart when only the chart read fails, so its free games stay up", () => {
+    const next = nextCatalog(previous, [cs!], []);
+    expect(next).toEqual({ media: [cs], popular: [cs] });
+    expect(storeGames(next).filter((g) => g.free)).not.toHaveLength(0);
+  });
+
+  it("keeps the last art when only the art read fails", () => {
+    expect(nextCatalog(previous, [], [bf!])).toEqual({ media: [bf], popular: [bf] });
+  });
+
+  it("replaces each source with whatever its read brings back", () => {
+    expect(nextCatalog(previous, [cs!], [bf!])).toEqual({ media: [cs], popular: [bf] });
   });
 });
 

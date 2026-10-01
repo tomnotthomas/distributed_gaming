@@ -60,11 +60,13 @@ describe("Wall", () => {
     })) as unknown as typeof window.matchMedia;
   });
 
-  it("tells a renter with a private library why, and shows them no games", () => {
+  it("tells a renter with a private library why, and still offers the curated free games with no store data", () => {
     render(<Wall swiff={swiffWith(applySteam(privateLibrary, pool), privateLibrary)} />);
     expect(screen.getByTestId("library-state").textContent).toMatch(/Game details to Public/);
+    expect(screen.getAllByText("Counter-Strike 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("THE FINALS").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Play free" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Cyberpunk 2077")).toBeNull();
-    expect(screen.queryByText("Counter-Strike 2")).toBeNull();
   });
 
   it("still offers a private library the free-to-play games, marked Free", () => {
