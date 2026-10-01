@@ -7,6 +7,7 @@ import {
   applySteam,
   endSignIn,
   fetchRenter,
+  nextCatalog,
   popularCards,
   readSteamFragment,
   refreshRenter,
@@ -115,7 +116,7 @@ export function useSwiff() {
       void Promise.all([fetchMedia([...library.map((g) => g.appid), ...curated]), fetchPopular()]).then(
         ([media, popular]) => {
           if (load !== libraryLoad.current) return;
-          const catalog = [...media, ...popular];
+          const catalog = nextCatalog(lastCatalog.current, media, popular);
           lastCatalog.current = catalog;
           setGames(withMedia(applySteam(next, sharedMachineIds, catalog), catalog));
         },

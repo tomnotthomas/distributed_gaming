@@ -9,6 +9,7 @@ import {
   gamePreview,
   gameTrailer,
   libraryState,
+  nextCatalog,
   popularCards,
   readSteamFragment,
   refreshRenter,
@@ -133,6 +134,18 @@ describe("applySteam", () => {
   it("says a readable library with nothing to show is empty, rather than unreadable", () => {
     expect(libraryState(profile({ size: 3 }))).toBe("none");
     expect(applySteam(profile({ size: 3 }), pool, store).every((g) => g.f2p && !g.owned)).toBe(true);
+  });
+});
+
+describe("nextCatalog", () => {
+  it("keeps the store data it has when both store reads fail", () => {
+    expect(nextCatalog(catalog, [], [])).toBe(catalog);
+  });
+
+  it("replaces it with whatever a read brings back", () => {
+    const [cs, bf] = catalog;
+    expect(nextCatalog(catalog, [bf!], [])).toEqual([bf]);
+    expect(nextCatalog([], [], [cs!])).toEqual([cs]);
   });
 });
 

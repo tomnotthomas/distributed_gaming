@@ -180,6 +180,19 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
     }),
   );
 
+/**
+ * The store data to keep after a new read. Both reads fail soft to an empty
+ * list, which means "keep what you have" (catalog.ts), so an outage during a
+ * retry never takes the free-to-play games off the wall.
+ */
+export function nextCatalog(
+  previous: CatalogGame[],
+  media: CatalogGame[],
+  popular: CatalogGame[],
+): CatalogGame[] {
+  return media.length || popular.length ? [...media, ...popular] : previous;
+}
+
 /** Put the catalog's art and trailers onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
   const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));

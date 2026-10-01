@@ -204,6 +204,41 @@ describe("cachedProfiles", () => {
     assert.equal(read.calls.length, 2);
   });
 
+  it("shares one Steam read between concurrent fresh lookups, and reads again once it settles", async () => {
+    let release!: () => void;
+    const read = counted(
+      () => new Promise((resolve) => (release = () => resolve({ ...emptyProfile(ID), persona: "kai_nx" }))),
+    );
+    const profile = cachedProfiles(read, { refreshMinMs: 0 });
+
+    const both = Promise.all([profile(ID, { fresh: true }), profile(ID, { fresh: true })]);
+    release();
+    assert.deepEqual(
+      (await both).map((p) => p.persona),
+      ["kai_nx", "kai_nx"],
+    );
+    assert.equal(read.calls.length, 1);
+
+    const again = profile(ID, { fresh: true });
+    release();
+    await again;
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("lets a lookup after a failed shared read ask Steam again", async () => {
+    let fail = true;
+    const read = counted(async () => {
+      if (fail) throw new Error("steam down");
+      return emptyProfile(ID);
+    });
+    const profile = cachedProfiles(read);
+    await Promise.all([assert.rejects(profile(ID)), assert.rejects(profile(ID))]);
+    assert.equal(read.calls.length, 1);
+    fail = false;
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
   it("does not remember a failed read", async () => {
     let fail = true;
     const read = counted(async () => {

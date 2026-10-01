@@ -217,6 +217,7 @@ export type ProfileReader = (steamId: string, options?: { fresh?: boolean }) => 
  * that rejects is not remembered: the next request asks Steam again. `fresh`
  * skips the remembered read, e.g. after the renter makes their library public,
  * unless it is under `refreshMinMs` old, so a mashed retry button costs one read.
+ * Concurrent lookups for one Steam id share the read already in flight.
  */
 export function cachedProfiles(
   read: (steamId: string) => Promise<SteamProfile>,
@@ -228,14 +229,25 @@ export function cachedProfiles(
   } = {},
 ): ProfileReader {
   const cache = new Map<string, { profile: SteamProfile; at: number }>();
+  // Reads still waiting on Steam, so two tabs refreshing at once share one.
+  const pending = new Map<string, Promise<SteamProfile>>();
   return async (steamId, { fresh = false } = {}) => {
+    const inFlight = pending.get(steamId);
+    if (inFlight) return inFlight;
     const hit = cache.get(steamId);
     if (hit && now() - hit.at < (fresh ? refreshMinMs : ttlMs)) return hit.profile;
-    const profile = await read(steamId);
-    cache.delete(steamId);
-    if (cache.size >= max) cache.delete(cache.keys().next().value!);
-    cache.set(steamId, { profile, at: now() });
-    return profile;
+    const reading = read(steamId).then((profile) => {
+      cache.delete(steamId);
+      if (cache.size >= max) cache.delete(cache.keys().next().value!);
+      cache.set(steamId, { profile, at: now() });
+      return profile;
+    });
+    pending.set(steamId, reading);
+    try {
+      return await reading;
+    } finally {
+      pending.delete(steamId);
+    }
   };
 }
 
