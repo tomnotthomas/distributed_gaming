@@ -31,7 +31,7 @@ import type { Requirements } from "./requirements.js";
 /** Who is asking: their Steam id, their round trip to the server, and their settings. */
 export type RenterAsk = {
   steamId: string;
-  /** The renter's round trip to the server in ms, as the page measured it; 0 when it did not say. */
+  /** The renter's round trip to the server in ms, as the page measured it. */
   rttMs: number;
   controls: Control[];
   picture: PicturePref;

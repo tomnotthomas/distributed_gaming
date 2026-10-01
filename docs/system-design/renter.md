@@ -158,7 +158,8 @@ GET  /availability?appids=730,570&rtt=&controls=
   many machines the renter could play it on right now (`free`), how many would fit
   but are taken (`busy`), and the soonest a taken one is free again (`backAt`, Unix
   ms, or null). Same rules as the list below, so the wall and the game page agree.
-  → 400 for a missing, malformed or too long `appids`, or a bad `rtt` or `controls`.
+  → 400 for a missing, malformed or too long `appids`, a missing or bad `rtt`, or a bad
+  `controls`.
 
 GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   → 200 { appid, minutes, requirements, machines, reason, busy }
@@ -170,7 +171,8 @@ GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   judged against and its `source` (curated, steam or default); `reason` is the rule
   that put the first above the second (`{ rule, label }`, null with fewer than two);
   `busy` lists the taken machines that would fit, `{ id, name, backAt }`, soonest
-  first. → 400 for a bad appid, `minutes`, `rtt`, `controls` or `picture`.
+  first. → 400 for a bad appid or `minutes`, a missing or bad `rtt`, or a bad
+  `controls` or `picture`.
 
 GET  /me
   → 200 { steamId, profile }
@@ -262,11 +264,12 @@ POST /sessions/:id/leave
 signed-in renter: gates E1–E6, then the fixed sort, with the game's requirements from
 the requirements table. Both are signed in only: working them out for every visitor
 would cost too much, so signed-out visitors see no availability (requirement 2). The
-renter's own machine is never counted or listed (E5). Optional query parameters say how
-the renter plays: `rtt`, their round trip to the server in ms as the page measured it
-(0 to 10000; 0 when left out), `controls`, a comma-separated list of `kb`, `mouse`,
-`pad` the machine must take (E4), and `picture`, `best` (default), `4k` or `120fps`
-(the sort's O3).
+renter's own machine is never counted or listed (E5), nor is one whose offer has run
+out (its `available_until` has passed). Query parameters say how the renter plays:
+`rtt`, their round trip to the server in ms as the page measured it (required, 0 to
+10000), and, optionally, `controls`, a comma-separated list of `kb`, `mouse`, `pad`
+the machine must take (E4), and `picture`, `best` (default), `4k` or `120fps` (the
+sort's O3).
 
 Latency is estimated through the server for every machine: the renter's `rtt` plus the
 PC's own round trip to the server from its host report (`net.rttMs`), with the PC's

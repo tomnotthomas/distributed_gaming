@@ -429,8 +429,8 @@ describe("booking and host API", () => {
 
     it("is signed in only", async () => {
       await offer();
-      assert.equal((await call("GET", "/api/availability?appids=730")).status, 401);
-      assert.equal((await call("GET", "/api/games/730/machines?minutes=60")).status, 401);
+      assert.equal((await call("GET", "/api/availability?appids=730&rtt=8")).status, 401);
+      assert.equal((await call("GET", "/api/games/730/machines?minutes=60&rtt=8")).status, 401);
     });
 
     it("ranks the machines for a game with the latency estimated through the server", async () => {
@@ -478,7 +478,7 @@ describe("booking and host API", () => {
       const { name: _name, net: _net, ...silent } = REPORT;
       await offer("pc-4", { available: true, ...silent });
 
-      const ids = async (who: ReturnType<typeof client>, query = "") =>
+      const ids = async (who: ReturnType<typeof client>, query = "&rtt=0") =>
         (await who("GET", `/api/games/730/machines?minutes=60${query}`)).body.machines.map((m: any) => m.id);
       assert.deepEqual(await ids(renter), ["pc-3", "pc-2"]);
       assert.deepEqual(await ids(renter, "&rtt=10"), ["pc-3"]);
@@ -488,7 +488,7 @@ describe("booking and host API", () => {
     it("leaves out a machine that lacks a control the renter plays with", async () => {
       await offer("pc-1", { available: true, ...REPORT, controls: ["kb", "mouse"] });
       await offer("pc-2");
-      const { body } = await renter("GET", "/api/games/730/machines?minutes=60&controls=kb,pad");
+      const { body } = await renter("GET", "/api/games/730/machines?minutes=60&rtt=0&controls=kb,pad");
       assert.deepEqual(
         body.machines.map((m: any) => m.id),
         ["pc-2"],
@@ -501,7 +501,7 @@ describe("booking and host API", () => {
       const booked = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 570, minutes: 30 });
       const { claimBy } = (await as(signedIn(OTHER))("GET", `/api/bookings/${booked.body.bookingId}`)).body;
 
-      const { status, body } = await renter("GET", "/api/availability?appids=570,730,440,570");
+      const { status, body } = await renter("GET", "/api/availability?appids=570,730,440,570&rtt=0");
       assert.equal(status, 200);
       // The booking took pc-1, the cheapest by id; pc-2 is free for Dota 2 only.
       assert.deepEqual(body, [
@@ -509,7 +509,7 @@ describe("booking and host API", () => {
         { appid: 730, free: 0, busy: 1, backAt: claimBy + 30 * 60_000 },
         { appid: 440, free: 0, busy: 0, backAt: null },
       ]);
-      const machines = (await renter("GET", "/api/games/730/machines?minutes=60")).body;
+      const machines = (await renter("GET", "/api/games/730/machines?minutes=60&rtt=0")).body;
       assert.deepEqual(machines.machines, []);
       assert.deepEqual(machines.busy, [{ id: "pc-1", name: "Nova-01", backAt: claimBy + 30 * 60_000 }]);
     });
@@ -517,29 +517,48 @@ describe("booking and host API", () => {
     it("does not count a busy machine that is taken until its owner wants it back", async () => {
       await offer("pc-1", { available: true, ...REPORT, until: now + 31 * 60_000 });
       await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-      const { body } = await renter("GET", "/api/availability?appids=730");
+      const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
       assert.deepEqual(body, [{ appid: 730, free: 0, busy: 0, backAt: null }]);
-      const machines = await renter("GET", "/api/games/730/machines?minutes=30");
+      const machines = await renter("GET", "/api/games/730/machines?minutes=30&rtt=0");
       assert.deepEqual(machines.body.busy, []);
+    });
+
+    it("neither counts nor lists a machine whose offer has run out", async () => {
+      await offer("pc-1", { available: true, ...REPORT, until: now + 10 * 60_000 });
+      now += 15 * 60_000;
+      await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
+      const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
+      assert.deepEqual(body, [{ appid: 730, free: 0, busy: 0, backAt: null }]);
+      const machines = await renter("GET", "/api/games/730/machines?minutes=1&rtt=0");
+      assert.deepEqual(machines.body.machines, []);
     });
 
     it("rejects a malformed question with a 400", async () => {
       const bad = [
-        "/api/availability",
-        "/api/availability?appids=",
-        "/api/availability?appids=730,abc",
-        "/api/availability?appids=0",
-        `/api/availability?appids=${Array.from({ length: 101 }, (_, i) => i + 1).join(",")}`,
+        "/api/availability?rtt=0",
+        "/api/availability?appids=&rtt=0",
+        "/api/availability?appids=730,abc&rtt=0",
+        "/api/availability?appids=0&rtt=0",
+        `/api/availability?appids=${Array.from({ length: 101 }, (_, i) => i + 1).join(",")}&rtt=0`,
+        "/api/availability?appids=730",
         "/api/availability?appids=730&rtt=-1",
         "/api/availability?appids=730&rtt=",
-        "/api/availability?appids=730&controls=joystick",
-        "/api/games/730/machines",
-        "/api/games/730/machines?minutes=0",
-        "/api/games/730/machines?minutes=721",
-        "/api/games/730/machines?minutes=1.5",
-        "/api/games/abc/machines?minutes=60",
+        "/api/availability?appids=730&rtt=abc",
+        "/api/availability?appids=730&rtt=Infinity",
+        "/api/availability?appids=730&rtt=10001",
+        "/api/availability?appids=730&rtt=0&controls=joystick",
+        "/api/games/730/machines?rtt=0",
+        "/api/games/730/machines?minutes=0&rtt=0",
+        "/api/games/730/machines?minutes=721&rtt=0",
+        "/api/games/730/machines?minutes=1.5&rtt=0",
+        "/api/games/abc/machines?minutes=60&rtt=0",
+        "/api/games/730/machines?minutes=60",
+        "/api/games/730/machines?minutes=60&rtt=",
+        "/api/games/730/machines?minutes=60&rtt=-1",
         "/api/games/730/machines?minutes=60&rtt=abc",
-        "/api/games/730/machines?minutes=60&picture=8k",
+        "/api/games/730/machines?minutes=60&rtt=NaN",
+        "/api/games/730/machines?minutes=60&rtt=10001",
+        "/api/games/730/machines?minutes=60&rtt=0&picture=8k",
       ];
       for (const path of bad) assert.equal((await renter("GET", path)).status, 400, path);
     });

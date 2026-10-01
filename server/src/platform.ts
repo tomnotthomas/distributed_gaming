@@ -643,7 +643,7 @@ export class Platform {
 
   /**
    * Every machine on offer that is not offline (available, reserved or in
-   * session), for the renter-facing reads of what can be played where. A
+   * session) and whose offer has not run out, for the renter-facing reads of what can be played where. A
    * machine whose socket is open counts as seen now. A busy machine is free
    * again when its session runs out, or, while reserved, when a claim at the
    * last moment would run out. Read only: nothing is settled or matched.
@@ -652,8 +652,11 @@ export class Platform {
   offeredMachines(): { at: number; machines: OfferedMachine[] } {
     const now = this.#now();
     const rows = this.#db
-      .prepare("SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session') ORDER BY id")
-      .all() as MachineRow[];
+      .prepare(
+        `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
+           AND (available_until IS NULL OR available_until > ?) ORDER BY id`,
+      )
+      .all(now) as MachineRow[];
     const installed = new Map<string, number[]>();
     const games = this.#db
       .prepare(

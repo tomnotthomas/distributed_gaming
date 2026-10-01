@@ -167,14 +167,14 @@ const queryOf = (req: IncomingMessage) => new URL(req.url ?? "/", "http://localh
 
 /**
  * Who is asking and how, from the query: the renter's round trip to the
- * server (`rtt`, ms, as the page measured it; 0 when left out), the controls
+ * server (`rtt`, ms, as the page measured it; required), the controls
  * they play with (`controls`, comma-separated) and their Picture setting
  * (`picture`, default best).
  */
 function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
   const rtt = query.get("rtt");
-  const rttMs = rtt === null ? 0 : Number(rtt);
-  if (rtt !== null && (rtt.trim() === "" || !(rttMs >= 0 && rttMs <= MAX_RENTER_RTT_MS))) {
+  const rttMs = Number(rtt);
+  if (rtt === null || rtt.trim() === "" || !(rttMs >= 0 && rttMs <= MAX_RENTER_RTT_MS)) {
     throw new HttpError(400, `rtt must be a number from 0 to ${MAX_RENTER_RTT_MS}`);
   }
   const controls = (query.get("controls") ?? "").split(",").filter(Boolean);
