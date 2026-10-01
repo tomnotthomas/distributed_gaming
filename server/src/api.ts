@@ -17,9 +17,8 @@ import { popularGames } from "./catalog.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import { originFrom } from "./steam.js";
+import { bearer, HttpError, readJson } from "./http.js";
 
-/** Every renter body here is a handful of fields. */
-const MAX_BODY_BYTES = 16 * 1024;
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
 
@@ -34,46 +33,10 @@ export type ApiOptions = {
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
 };
 
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 /** Answer with a JSON body that no cache keeps. */
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
-}
-
-/** The body as a JSON object; empty is {}. 413 when over `limit` bytes, 400 when not an object. */
-async function readJson(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Json> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > limit) throw new HttpError(413, "body too large");
-    chunks.push(chunk as Buffer);
-  }
-  if (!size) return {};
-  let body: unknown;
-  try {
-    body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new HttpError(400, "body is not JSON");
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    throw new HttpError(400, "body is not an object");
-  return body as Json;
-}
-
-/** The machine key from `Authorization: Bearer …`, if there is one. */
-function bearer(req: IncomingMessage): string | null {
-  const match = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
-  return match?.[1] ?? null;
 }
 
 /** 401 unless the request carries this machine's own key. */

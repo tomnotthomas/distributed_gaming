@@ -277,7 +277,12 @@ describe("the real server", () => {
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
     assert.equal(claim.body.roomId, "pc-1");
 
-    const started = await call("POST", "/api/machines/pc-1/session", undefined, MACHINE_KEY);
+    const started = await call(
+      "POST",
+      "/api/machines/pc-1/session",
+      { sessionId: claim.body.sessionId },
+      MACHINE_KEY,
+    );
     assert.equal(started.status, 201);
     const streamer = () => {
       const ws = new WebSocket(`ws://localhost:${PORT}`);
@@ -305,7 +310,13 @@ describe("the real server", () => {
     assert.equal(await again.closed, 4003);
     assert.deepEqual(again.received, [{ type: "denied", reason: "bad-session-key" }]);
 
-    const renterB = await call("POST", "/api/machines/pc-1/session", undefined, MACHINE_KEY);
-    assert.equal(renterB.status, 201);
+    // Nor can the ended session be started again: there is nothing to serve.
+    const restarted = await call(
+      "POST",
+      "/api/machines/pc-1/session",
+      { sessionId: claim.body.sessionId },
+      MACHINE_KEY,
+    );
+    assert.deepEqual(restarted, { status: 409, body: { error: "not-claimed" } });
   });
 });

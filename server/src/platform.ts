@@ -22,6 +22,10 @@
 // that can free a machine or add a booking runs it straight away. A booking is
 // matched only to a machine with its game installed and the hardware the game
 // asks for, judged by @swiff/rank's gates against the requirements table.
+//
+// The host sessions of sessions.ts live here too, in key_sessions, so a server
+// restart keeps them and ending a platform session revokes its keys in the
+// same transaction.
 
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -38,6 +42,7 @@ import {
 } from "@swiff/rank";
 import type { Display, Hardware, HostReport, Net } from "./profile.js";
 import { RequirementsTable } from "./requirements.js";
+import type { KeySession, KeySessionStore } from "./sessions.js";
 
 /** A machine that has not checked in for this long is no longer offered. Hosts beat every 5 s. */
 export const LIVENESS_MS = 15_000;
@@ -94,8 +99,11 @@ export type BookingView = {
   price?: number;
 };
 
+/** What the PC is told when a renter claims it: the session to start, the game and the time booked. */
+export type ClaimedSession = { sessionId: string; gameId: number; minutes: number };
+
 export type ClaimResult =
-  | { ok: true; sessionId: string; roomId: string; minutes: number }
+  | ({ ok: true; roomId: string } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
 type MachineRow = {
@@ -183,6 +191,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL,
   price      INTEGER,
   ticket_id  TEXT UNIQUE
+);
+-- The live host session (sessions.ts) of a machine's open session: which
+-- session keys still register its room. grant_id is new with every start, so
+-- keys from a host session that was ended stay dead if the same session starts
+-- again. The row goes when the host session or the session ends.
+CREATE TABLE IF NOT EXISTS key_sessions (
+  machine_id TEXT PRIMARY KEY REFERENCES machines (id),
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions (id),
+  grant_id   TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_open_per_machine
   ON sessions (machine_id) WHERE ended_at IS NULL;
@@ -291,23 +308,33 @@ export class Platform {
   readonly #now: () => number;
   /** What each game needs, on the same database: gate E3 compares a machine with it. */
   readonly #requirements: RequirementsTable;
-  readonly #onSessionEnded: (machineId: string) => void;
-  /** Machines whose session ended in the open transaction, told once it commits. */
-  #endedMachines: string[] = [];
+  readonly #onSessionEnded: (machineId: string, sessionId: string) => void;
+  readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
+  /** Notices from the open transaction, delivered once it commits. */
+  #notices: (() => void)[] = [];
 
   /**
    * `onSessionEnded` hears of every session that ends, however it ends, with its
-   * machine. It runs after the change is committed, so what it does (evicting a
-   * streamer) never outlives a rolled-back end, and its failure undoes nothing.
+   * machine and id; `onSessionClaimed` of every claim, with the machine claimed.
+   * Both run after the change is committed, so what they do (evicting a
+   * streamer, telling the PC) never outlives a rolled-back change, and their
+   * failure undoes nothing.
    */
   constructor({
     path = ":memory:",
     now = Date.now,
     onSessionEnded = () => {},
-  }: { path?: string; now?: () => number; onSessionEnded?: (machineId: string) => void } = {}) {
+    onSessionClaimed = () => {},
+  }: {
+    path?: string;
+    now?: () => number;
+    onSessionEnded?: (machineId: string, sessionId: string) => void;
+    onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
+  } = {}) {
     this.#db = new DatabaseSync(path);
     this.#now = now;
     this.#onSessionEnded = onSessionEnded;
+    this.#onSessionClaimed = onSessionClaimed;
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
     const columns = this.#db.prepare("PRAGMA table_info(machines)").all() as { name: string }[];
@@ -402,6 +429,36 @@ export class Platform {
     return row?.machine_id ?? null;
   }
 
+  /** The id of the session running on the machine, if any: the only one its host session may start for. */
+  claimedSession(machineId: string): string | null {
+    const row = this.#db
+      .prepare("SELECT id FROM sessions WHERE machine_id = ? AND ended_at IS NULL")
+      .get(machineId) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  /** The host sessions of sessions.ts, kept in key_sessions. */
+  readonly keySessions: KeySessionStore = {
+    get: (machineId) => {
+      const row = this.#db
+        .prepare("SELECT session_id, grant_id FROM key_sessions WHERE machine_id = ?")
+        .get(machineId) as { session_id: string; grant_id: string } | undefined;
+      return row ? { sessionId: row.session_id, grantId: row.grant_id } : null;
+    },
+    add: (machineId, { sessionId, grantId }: KeySession) =>
+      this.#db
+        .prepare(
+          "INSERT INTO key_sessions (machine_id, session_id, grant_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+        )
+        .run(machineId, sessionId, grantId).changes > 0,
+    remove: (machineId) => {
+      const row = this.#db
+        .prepare("DELETE FROM key_sessions WHERE machine_id = ? RETURNING session_id")
+        .get(machineId) as { session_id: string } | undefined;
+      return row?.session_id ?? null;
+    },
+  };
+
   /** The renter arrived. False when the session is not this machine's or is already over. */
   startSession(machineId: string, sessionId: string): boolean {
     return this.#transaction(() => {
@@ -483,7 +540,9 @@ export class Platform {
         .run(sessionId, bookingId, reservation.machine_id, now + booking.minutes * 60_000);
       this.#setBookingStatus(bookingId, "claimed");
       this.#setStatus(reservation.machine_id, "in_session");
-      return { ok: true, sessionId, roomId: reservation.machine_id, minutes: booking.minutes };
+      const claimed = { sessionId, gameId: booking.game_id, minutes: booking.minutes };
+      this.#notices.push(() => this.#onSessionClaimed(reservation.machine_id, claimed));
+      return { ok: true, roomId: reservation.machine_id, ...claimed };
     });
   }
 
@@ -606,7 +665,10 @@ export class Platform {
     }
   }
 
-  /** Close the session and price the time actually played at the machine's hourly rate. */
+  /**
+   * Close the session, price the time actually played at the machine's hourly
+   * rate, and end its host session so its keys die with it.
+   */
   #endSession(session: SessionRow, endedAt: number): void {
     const { price } = this.#db.prepare("SELECT price FROM machines WHERE id = ?").get(session.machine_id) as {
       price: number;
@@ -615,8 +677,9 @@ export class Platform {
     this.#db
       .prepare("UPDATE sessions SET ended_at = ?, price = ? WHERE id = ?")
       .run(endedAt, Math.round((price * played) / 3_600_000), session.id);
+    this.#db.prepare("DELETE FROM key_sessions WHERE session_id = ?").run(session.id);
     this.#setBookingStatus(session.booking_id, "ended");
-    this.#endedMachines.push(session.machine_id);
+    this.#notices.push(() => this.#onSessionEnded(session.machine_id, session.id));
   }
 
   // --- rows ------------------------------------------------------------------
@@ -748,22 +811,19 @@ export class Platform {
       result = work();
       this.#db.exec("COMMIT");
     } catch (error) {
-      this.#endedMachines = [];
+      this.#notices = [];
       this.#db.exec("ROLLBACK");
       throw error;
     }
-    const ended = this.#endedMachines;
-    this.#endedMachines = [];
-    for (const machineId of ended) {
+    const notices = this.#notices;
+    this.#notices = [];
+    for (const notice of notices) {
       try {
-        this.#onSessionEnded(machineId);
+        notice();
       } catch (error) {
-        // The session is over in the database either way; one failed eviction
-        // must not stop the rest, or the sweep that ended it.
-        console.error(
-          "[swiff] session-ended hook failed:",
-          error instanceof Error ? error.name : typeof error,
-        );
+        // The change is committed either way; one failed notice must not stop
+        // the rest, or the sweep that made it.
+        console.error("[swiff] platform notice failed:", error instanceof Error ? error.name : typeof error);
       }
     }
     return result;

@@ -2,7 +2,7 @@
 // server relays these and the browser sends them, so a change here is a change
 // to both or it is a bug.
 //
-//   host    register ──► registered, peer-joined, answer, ice, peer-left
+//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
 //   client  join     ──► joined, offer, ice, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
@@ -58,6 +58,18 @@ export type DeniedMessage = {
   reason:
     "bad-machine-key" | "bad-session-key" | "session-active" | "session-ended" | "bad-ticket" | "room-taken";
 };
+/**
+ * Pushed to a machine-key host the moment a renter claims its machine, so the
+ * PC service need not wait for its next heartbeat. It starts the host session
+ * for exactly this `sessionId` (see the session API below). `appid` is the
+ * Steam game booked; `minutes` the time booked.
+ */
+export type SessionClaimedMessage = {
+  type: "session-claimed";
+  sessionId: string;
+  appid: number;
+  minutes: number;
+};
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -73,6 +85,7 @@ export type SignalMessage =
   | RegisteredMessage
   | JoinedMessage
   | DeniedMessage
+  | SessionClaimedMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
@@ -90,9 +103,12 @@ export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
 // Called by the background service on the gaming PC, never by the streamer or
 // the browser. Authenticated with the machine key as `Authorization: Bearer`.
 //
-//   POST   /api/machines/:id/session  start  → 201 SessionGrant | 409 session-active
+//   POST   /api/machines/:id/session  start  SessionStart → 201 SessionGrant
+//                                            | 400 bad-request | 409 not-claimed | 409 session-active
 //   DELETE /api/machines/:id/session  end    → 204, whether or not one was live
 //
+// A host session is the PC's side of the platform session a renter claimed,
+// under the same id: start names it, and the platform ending it ends this too.
 // Every refusal is a SessionError body. Full contract:
 // docs/system-design/session-keys.md.
 
@@ -102,8 +118,12 @@ export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
  */
 export const sessionPath = (hostId: string) => `/api/machines/${encodeURIComponent(hostId)}/session`;
 
+/** What start is sent: the claimed platform session, from `session-claimed` or a heartbeat. */
+export type SessionStart = { sessionId: string };
+
 /** What start returns. */
 export type SessionGrant = {
+  /** The platform session the key is for: the one start named. */
   sessionId: string;
   /** Hand to the streamer; it sends it in `register`. */
   sessionKey: string;
@@ -112,7 +132,8 @@ export type SessionGrant = {
 };
 
 export type SessionError = {
-  error: "bad-machine-key" | "session-active" | "not-configured" | "not-found";
+  error:
+    "bad-machine-key" | "bad-request" | "not-claimed" | "session-active" | "not-configured" | "not-found";
 };
 
 /**

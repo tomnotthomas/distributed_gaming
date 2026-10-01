@@ -94,7 +94,16 @@ POST /machines/:id/heartbeat
   → 200 { id, status, gpu, cpu, price, session? }
   Sent every 5 s. A machine silent for 15 s is `offline` and no longer offered: its
   reserved booking goes to another machine, its running session ends. Its next
-  heartbeat offers it again. `session.id` names the session a renter has claimed.
+  heartbeat offers it again. `session.id` names the session a renter has claimed; the
+  PC normally hears of it sooner, pushed as `session-claimed` (below).
+
+POST /machines/:id/session
+  { sessionId }
+  → 201 { sessionId, sessionKey, expiresAt }
+  Start the host session for the claimed session `sessionId`: its short-lived key is
+  what the streamer in the renter's account registers with. → 409 not-claimed when
+  `sessionId` is not the session running on this machine. Contract:
+  [`session-keys.md`](session-keys.md).
 
 POST /sessions/:id/start
 POST /sessions/:id/end
@@ -166,13 +175,14 @@ matched.
 
 ### Connection setup (WebSocket)
 
-| Message                    | Direction   | Meaning                                                                |
-| -------------------------- | ----------- | ---------------------------------------------------------------------- |
-| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.        |
-| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry. |
-| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                      |
-| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                       |
-| `ping`                     | every 25 s  | Keeps the socket alive.                                                |
+| Message                    | Direction   | Meaning                                                                                                                      |
+| -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.                                                              |
+| `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once. |
+| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry.                                                       |
+| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                            |
+| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                             |
+| `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                      |
 
 The machine key comes from `npm run machine-key -- <machine-id>`. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it

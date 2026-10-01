@@ -25,6 +25,9 @@ export const DEFAULT_CAPTURE: CaptureSettings = {
   audioBitrate: DEFAULT_AUDIO_BITRATE,
 };
 
+/** What `session-claimed` says: the platform session to start, the Steam appid and the minutes booked. */
+export type SessionClaim = Omit<Extract<SignalMessage, { type: "session-claimed" }>, "type">;
+
 export type HostSessionOptions = IceConfig & {
   url: string;
   hostId: string;
@@ -36,6 +39,12 @@ export type HostSessionOptions = IceConfig & {
   onPeerConnection: (pc: RTCPeerConnection | null) => void;
   /** The server refused the machine key. Final: the session does not retry. */
   onDenied?: () => void;
+  /**
+   * A renter has claimed this machine. The PC's service starts the host session
+   * for exactly `sessionId` (POST /api/machines/:id/session); see
+   * docs/system-design/session-keys.md.
+   */
+  onSessionClaimed?: (claim: SessionClaim) => void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -115,6 +124,9 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
           break;
         case "registered":
           serverIce = msg.iceServers ?? [];
+          break;
+        case "session-claimed":
+          opts.onSessionClaimed?.({ sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes });
           break;
         case "peer-joined":
           opts.onPeerHere(true);

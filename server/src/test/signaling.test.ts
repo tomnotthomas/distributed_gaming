@@ -11,8 +11,9 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintSessionKey, mintTicket } from "../access.js";
+import { mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
+import { REPORT } from "./report.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8100 + Math.floor(Math.random() * 400);
@@ -356,23 +357,65 @@ describe("host sessions", () => {
       ws.once("close", (code) => resolve(code));
     });
 
-  /** One call to the session API, as the PC's background service makes it. */
-  async function api(room: string, method: "POST" | "DELETE" | "GET", path = "", key = MACHINE_KEY) {
-    const res = await fetch(`${HTTP}${sessionPath(room)}${path}`, {
+  /** One JSON call to the server, with the machine key as bearer when given one. */
+  async function call(method: string, path: string, body?: unknown, key?: string) {
+    const res = await fetch(`${HTTP}${path}`, {
       method,
-      headers: { authorization: `Bearer ${key}` },
+      headers: {
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
     });
     const text = await res.text();
-    return { status: res.status, body: text ? (JSON.parse(text) as unknown) : null };
+    return { status: res.status, body: text ? (JSON.parse(text) as any) : null };
   }
 
-  /** Start a host session for `room` as the PC service would, with the machine key. */
-  async function startSession(room: string): Promise<SessionGrant> {
-    const { status, body } = await api(room, "POST");
+  /** One call to the session API, as the PC's background service makes it. */
+  const api = (
+    room: string,
+    method: "POST" | "DELETE" | "GET",
+    path = "",
+    key = MACHINE_KEY,
+    body?: unknown,
+  ) => call(method, `${sessionPath(room)}${path}`, body, key);
+
+  /**
+   * A renter books and claims `room`, the only machine on offer, as the
+   * platform's booking flow does. Returns the claimed platform session's id.
+   */
+  async function claimRoom(room: string, minutes = 30): Promise<string> {
+    const offered = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(offered.status, 200);
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes });
+    const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+    // The status and room only: the body carries the renter's ticket.
+    assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+    assert.equal(claim.body.roomId, room);
+    return claim.body.sessionId as string;
+  }
+
+  /**
+   * Start a host session for `room` as the PC service would, with the machine
+   * key, for `sessionId`; without one, a renter claims the room first.
+   */
+  async function startSession(room: string, sessionId?: string): Promise<SessionGrant> {
+    const { status, body } = await api(room, "POST", "", MACHINE_KEY, {
+      sessionId: sessionId ?? (await claimRoom(room)),
+    });
     // The status only: the body may be a grant, and its key must not reach test output.
     assert.equal(status, 201, `start answered ${status}`);
     return body as SessionGrant;
   }
+
+  /** The fields of a session key, read without verifying it. */
+  const keyFields = (sessionKey: string) =>
+    JSON.parse(Buffer.from(sessionKey.split(".")[0]!, "base64url").toString("utf8")) as SessionKey;
 
   /** The streamer in the renter's account: registers with the session key only. */
   async function streamer(room: string, sessionKey: string): Promise<RecordingSocket> {
@@ -424,7 +467,7 @@ describe("host sessions", () => {
   it("refuses an expired session key even while its session is live", async () => {
     const room = nextRoom();
     const grant = await startSession(room);
-    const expired = mintSessionKey(SECRET, room, grant.sessionId, 60, Date.now() - 120_000);
+    const expired = mintSessionKey(SECRET, keyFields(grant.sessionKey), 60, Date.now() - 120_000);
     await refusedStreamer(room, expired);
     await api(room, "DELETE");
   });
@@ -455,8 +498,11 @@ describe("host sessions", () => {
     assert.equal(await code, 4003);
     assert.deepEqual(denial(intruder), { type: "denied", reason: "session-active" });
 
-    // So is a second session.
-    assert.deepEqual(await api(room, "POST"), { status: 409, body: { error: "session-active" } });
+    // So is a second start for the session.
+    assert.deepEqual(await api(room, "POST", "", MACHINE_KEY, { sessionId: grant.sessionId }), {
+      status: 409,
+      body: { error: "session-active" },
+    });
 
     // And there is no way to mint another key for the live session.
     const renew = await fetch(`${HTTP}${sessionPath(room)}/renew`, {
@@ -542,7 +588,7 @@ describe("host sessions", () => {
     // close event for it has not fired when the next streamer registers.
     host.pause();
     assert.equal((await api(room, "DELETE")).status, 204);
-    const next = await startSession(room);
+    const next = await startSession(room, grant.sessionId);
     const intruder = await streamer(room, next.sessionKey);
     assert.ok(types(intruder).includes("registered"));
 
@@ -619,11 +665,93 @@ describe("host sessions", () => {
     });
     assert.equal((await api("not-a-machine", "POST")).status, 401);
     // Ending needs the key as well: nobody else may hang up on a renter.
-    await startSession(room);
+    const grant = await startSession(room);
     assert.equal((await api(room, "DELETE", "", "not-the-key")).status, 401);
-    assert.deepEqual(await api(room, "POST"), { status: 409, body: { error: "session-active" } });
+    assert.deepEqual(await api(room, "POST", "", MACHINE_KEY, { sessionId: grant.sessionId }), {
+      status: 409,
+      body: { error: "session-active" },
+    });
     assert.equal((await api(room, "GET")).status, 405);
     assert.equal((await api(room, "DELETE")).status, 204);
     assert.equal((await api(room, "DELETE")).status, 204, "ending twice is fine");
+  });
+
+  it("pushes session-claimed to the claimed machine only, the moment it is claimed", async () => {
+    const [room, other] = [nextRoom(), nextRoom()];
+    const host = await open();
+    send(host, register(room));
+    const bystander = await open();
+    send(bystander, register(other));
+    await wait(100);
+
+    const sessionId = await claimRoom(room, 45);
+    await wait(100);
+    assert.deepEqual(
+      host.received.filter((m) => m.type === "session-claimed"),
+      [{ type: "session-claimed", sessionId, appid: 730, minutes: 45 }],
+    );
+    assert.deepEqual(types(bystander), ["registered"]);
+
+    // The pushed id is the one start takes, and the key it grants is for it.
+    const grant = await startSession(room, sessionId);
+    assert.equal(grant.sessionId, sessionId);
+    assert.equal(keyFields(grant.sessionKey).session, sessionId);
+    bystander.close();
+    await api(room, "DELETE");
+  });
+
+  it("starts a session only for the machine's own claimed session", async () => {
+    const [room, other] = [nextRoom(), nextRoom()];
+    const otherSession = await claimRoom(other);
+    const start = (body?: unknown) => api(room, "POST", "", MACHINE_KEY, body);
+    const notClaimed = { status: 409, body: { error: "not-claimed" } };
+
+    // Nothing claimed on this machine yet.
+    assert.deepEqual(await start({ sessionId: otherSession }), notClaimed);
+
+    const sessionId = await claimRoom(room);
+    assert.deepEqual(await start({ sessionId: otherSession }), notClaimed, "another machine's session");
+    assert.deepEqual(await start({ sessionId: "made-up" }), notClaimed);
+    const badRequest = { status: 400, body: { error: "bad-request" } };
+    assert.deepEqual(await start(), badRequest);
+    assert.deepEqual(await start({ sessionId: 42 }), badRequest);
+    assert.deepEqual(await start("not json"), badRequest);
+    // The machine key still comes first.
+    assert.equal((await api(room, "POST", "", "not-the-key", { sessionId })).status, 401);
+
+    assert.equal((await start({ sessionId })).status, 201);
+    await api(room, "DELETE");
+    await api(other, "DELETE");
+  });
+
+  it("starts the same claimed session again after an end, without reviving its old keys", async () => {
+    const room = nextRoom();
+    const first = await startSession(room);
+    assert.equal((await api(room, "DELETE")).status, 204);
+    const again = await startSession(room, first.sessionId);
+    assert.equal(again.sessionId, first.sessionId);
+    await refusedStreamer(room, first.sessionKey);
+    const host = await streamer(room, again.sessionKey);
+    assert.ok(types(host).includes("registered"));
+    host.close();
+    await api(room, "DELETE");
+  });
+
+  it("hangs up on the streamer and kills its keys when the host ends the platform session", async () => {
+    const room = nextRoom();
+    const grant = await startSession(room);
+    const host = await streamer(room, grant.sessionKey);
+    const code = closed(host);
+
+    const ended = await call("POST", `/api/sessions/${grant.sessionId}/end`, {}, MACHINE_KEY);
+    assert.equal(ended.status, 200);
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "session-ended" });
+    await refusedStreamer(room, grant.sessionKey);
+    // And the ended session cannot be started again.
+    assert.deepEqual(await api(room, "POST", "", MACHINE_KEY, { sessionId: grant.sessionId }), {
+      status: 409,
+      body: { error: "not-claimed" },
+    });
   });
 });

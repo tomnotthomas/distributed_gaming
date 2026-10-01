@@ -116,24 +116,28 @@ export function verifyTicket(secret: string, token: unknown, now = Date.now()): 
 export type SessionKey = {
   /** The room (machine id) this key may register. */
   room: string;
-  /** The session it belongs to. Dead the moment that session ends. */
+  /** The platform session it belongs to. Dead the moment that session ends. */
   session: string;
+  /**
+   * The start that issued it. A session started again after its host session
+   * was ended gets a new grant, so keys from before the end stay dead.
+   */
+  grant: string;
   /** Unix seconds after which the key registers nothing. */
   exp: number;
 };
 
 /**
- * Mint a signed key for the given room and session without creating a live session.
+ * Mint a signed key for the given room, session and grant without creating a live session.
  * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
  */
 export function mintSessionKey(
   secret: string,
-  room: string,
-  session: string,
+  { room, session, grant }: Omit<SessionKey, "exp">,
   ttlSeconds: number,
   now = Date.now(),
 ): string {
-  const key: SessionKey = { room, session, exp: Math.floor(now / 1000) + ttlSeconds };
+  const key: SessionKey = { room, session, grant, exp: Math.floor(now / 1000) + ttlSeconds };
   return seal(secret, key, "session");
 }
 
@@ -148,8 +152,9 @@ export function verifySessionKey(secret: string, token: unknown, now = Date.now(
   if (!key) return null;
   if (typeof key.room !== "string" || !key.room) return null;
   if (typeof key.session !== "string" || !key.session) return null;
+  if (typeof key.grant !== "string" || !key.grant) return null;
   if (typeof key.exp !== "number" || key.exp * 1000 <= now) return null;
-  return { room: key.room, session: key.session, exp: key.exp };
+  return { room: key.room, session: key.session, grant: key.grant, exp: key.exp };
 }
 
 /** A new machine key and the hash the server stores for it. */

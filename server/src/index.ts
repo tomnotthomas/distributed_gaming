@@ -25,8 +25,10 @@
 // register it; only a renter holding a ticket for it may join, and only one
 // renter at a time. See access.ts.
 //
-// While a renter's session runs, the room is registered by the streamer in the
-// renter's Windows account with a short-lived session key instead, and the
+// When a renter claims the machine, its machine-key socket is told at once
+// (session-claimed), and the PC service starts the host session for that
+// platform session. While it runs, the room is registered by the streamer in
+// the renter's Windows account with a short-lived session key instead, and the
 // machine key cannot register it at all. See sessions.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -47,8 +49,9 @@ import {
 import { createHostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { loginUrl, originFrom, returnUrl } from "./steam.js";
-import { Platform } from "./platform.js";
+import { Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
+import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -63,18 +66,20 @@ const iceServers = () => {
 
 const access = accessFromEnv(process.env);
 
-// Session keys are signed with ROOM_SECRET too, so without it no session can
-// start and the machine key is the only way to register.
-const sessions = access.secret ? createHostSessions(access.secret) : null;
-
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
-// DATABASE_PATH names a file. Whenever a renter's session ends there, however
-// it ends, the PC's host session ends with it: the next renter never meets a
-// streamer launched for the last one.
+// DATABASE_PATH names a file. A claim is pushed to the claimed PC. Whenever a
+// renter's session ends there, however it ends, the PC's host session ends
+// with it: the next renter never meets a streamer launched for the last one.
 const platform = new Platform({
   path: process.env.DATABASE_PATH || ":memory:",
-  onSessionEnded: endHostSession,
+  onSessionEnded: evictStreamer,
+  onSessionClaimed: pushClaim,
 });
+
+// Session keys are signed with ROOM_SECRET too, so without it no session can
+// start and the machine key is the only way to register. Live sessions are kept
+// in the platform database, so they and their keys survive a restart.
+const sessions = access.secret ? createHostSessions(access.secret, platform.keySessions) : null;
 const serveApi = createApi({ platform, access, fallbackOrigin: `http://localhost:${PORT}` });
 
 // Matching and the liveness sweep. Every request that changes something runs
@@ -188,7 +193,28 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
  */
 function endHostSession(hostId: string): void {
   const ended = sessions?.end(hostId);
-  if (ended && rooms.get(hostId)?.host?.sessionId === ended) evictHost(hostId, "session-ended");
+  if (ended) evictStreamer(hostId, ended);
+}
+
+/**
+ * Hang up on the streamer serving session `sessionId` in `hostId`, if it is
+ * the room's host. The platform calls this when that session ends, having
+ * already ended its host session; the end is repeated here in case it had not.
+ */
+function evictStreamer(hostId: string, sessionId: string): void {
+  sessions?.end(hostId);
+  if (rooms.get(hostId)?.host?.sessionId === sessionId) evictHost(hostId, "session-ended");
+}
+
+/**
+ * Tell the claimed PC now rather than at its next heartbeat. Only a host
+ * registered with the machine key hears it: that is the PC service, never a
+ * streamer in a renter's account. A PC that is not connected learns from its
+ * heartbeat instead.
+ */
+function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
+  const host = rooms.get(hostId)?.host;
+  if (host?.sessionId === null) send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
 }
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
@@ -204,21 +230,16 @@ function json(res: ServerResponse, status: number, body?: SessionGrant | Session
   res.end(JSON.stringify(body));
 }
 
-/** The bearer credential, or null. Never logged. */
-function bearer(req: IncomingMessage): string | null {
-  const match = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "");
-  return match?.[1] ?? null;
-}
-
 /**
  * Start and end a renter's session on one gaming PC. Called by the PC's
  * background service with its machine key; see protocol.ts for the routes.
- * Returns false without responding if `urlPath` does not match, otherwise true
+ * Resolves false without responding if `urlPath` does not match, otherwise true
  * after responding, including refusals. `urlPath` is the encoded URL pathname.
- * Starting closes any machine-key host; ending revokes the session's keys and
- * closes its registered host. Ending an absent session still succeeds.
+ * Starting requires the machine's claimed platform session id and closes any
+ * machine-key host; ending revokes the session's keys and closes its registered
+ * host. Ending an absent session still succeeds.
  */
-function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): boolean {
+async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): Promise<boolean> {
   const match = SESSION_ROUTE.exec(urlPath);
   if (!match) return false;
 
@@ -250,7 +271,25 @@ function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: strin
     return true;
   }
 
-  const grant = sessions.start(hostId);
+  let sessionId: unknown;
+  try {
+    ({ sessionId } = await readJson(req));
+  } catch (error) {
+    // Not JSON, too large, or the client gave up mid-body: never a crash.
+    json(res, error instanceof HttpError ? error.status : 400, { error: "bad-request" });
+    return true;
+  }
+  if (typeof sessionId !== "string" || !sessionId) {
+    json(res, 400, { error: "bad-request" });
+    return true;
+  }
+  // Only the session a renter has claimed on this machine, and only while it
+  // runs: a host session can never outlive or stand in for its platform session.
+  if (platform.claimedSession(hostId) !== sessionId) {
+    json(res, 409, { error: "not-claimed" });
+    return true;
+  }
+  const grant = sessions.start(hostId, sessionId);
   if (!grant) {
     json(res, 409, { error: "session-active" });
     return true;
@@ -327,7 +366,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
 
-  if (serveSessions(req, res, urlPath)) return;
+  if (await serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
   if (await serveApi(req, res, urlPath)) return;
