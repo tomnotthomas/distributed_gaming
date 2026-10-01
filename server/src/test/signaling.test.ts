@@ -753,5 +753,41 @@ describe("host sessions", () => {
       status: 409,
       body: { error: "not-claimed" },
     });
+    // Ending the session offers the machine again; take it back so the next
+    // test's booking is matched to its own room.
+    await call("PUT", `/api/machines/${room}/availability`, { available: false }, MACHINE_KEY);
+  });
+
+  it("lets the desktop app call the session API from its own origin", async () => {
+    const room = nextRoom();
+    const preflight = await fetch(`${HTTP}${sessionPath(room)}`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "file://",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization, content-type",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+    assert.match(preflight.headers.get("access-control-allow-methods") ?? "", /POST/);
+    assert.match(preflight.headers.get("access-control-allow-headers") ?? "", /authorization/);
+    assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
+
+    const sessionId = await claimRoom(room);
+    const res = await fetch(`${HTTP}${sessionPath(room)}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${MACHINE_KEY}`,
+        "content-type": "application/json",
+        origin: "file://",
+      },
+      body: JSON.stringify({ sessionId }),
+    });
+    // The status and header only: the body carries the session key.
+    assert.equal(res.status, 201);
+    assert.equal(res.headers.get("access-control-allow-origin"), "*");
+    await res.body?.cancel();
+    await api(room, "DELETE");
   });
 });

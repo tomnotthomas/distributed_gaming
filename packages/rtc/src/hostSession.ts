@@ -3,12 +3,17 @@
 // code, the browser shows a picker); everything from here down is identical.
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► input channels ──► offer ──► answer
+//
+// With `serveClaims`, it also stands in for the PC service of
+// docs/system-design/session-keys.md: on `session-claimed` it starts that
+// session's host session and registers again with the session key, and when
+// the session ends it goes back to the machine key to wait for the next claim.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
 import { DEFAULT_AUDIO_BITRATE, setLocalWithStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
-import { connectSignaling, type SignalMessage } from "./signaling";
+import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
 
 export type CaptureSettings = {
   width: number;
@@ -46,6 +51,11 @@ export type HostSessionOptions = IceConfig & {
    */
   onSessionClaimed?: (claim: SessionClaim) => void;
   /**
+   * Start each claimed session itself and serve it with its session key, as the
+   * PC service will. Off, a claim is only reported.
+   */
+  serveClaims?: boolean;
+  /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
    * says the connection is gone: a connection closed from this side fires no
@@ -60,6 +70,7 @@ export type HostSessionOptions = IceConfig & {
  * tears down the current peer connection.
  */
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
+  let stopped = false;
   const capture = opts.capture ?? DEFAULT_CAPTURE;
   let pc: RTCPeerConnection | null = null;
   // Holds the renter's candidates until the answer has been applied.
@@ -114,46 +125,120 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     send({ type: "offer", sdp: pc.localDescription ?? offer });
   };
 
-  const signaling = connectSignaling({
-    url: opts.url,
-    onOpen: (send) => send({ type: "register", hostId: opts.hostId, key: opts.machineKey }),
-    onMessage: (msg, send) => {
-      switch (msg.type) {
-        case "denied":
-          opts.onDenied?.();
-          break;
-        case "registered":
-          serverIce = msg.iceServers ?? [];
-          break;
-        case "session-claimed":
-          opts.onSessionClaimed?.({ sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes });
-          break;
-        case "peer-joined":
-          opts.onPeerHere(true);
-          void offerTo(send);
-          break;
-        case "answer":
-          if (msg.sdp) {
-            void inbox?.setRemote(msg.sdp).catch((cause) => {
-              console.warn("[swiff] could not apply the renter's answer", cause);
-            });
-          }
-          break;
-        case "ice":
-          if (msg.candidate) inbox?.add(msg.candidate);
-          break;
-        case "peer-left":
-          opts.onPeerHere(false);
-          teardown();
-          break;
+  /**
+   * Leave the room as it is held now and register again with `credential`:
+   * the machine key between sessions, a session key during one.
+   */
+  const reconnect = (credential: { key: string } | { sessionKey: string }) => {
+    signaling?.close();
+    teardown();
+    opts.onPeerHere(false);
+    signaling = connect(credential);
+  };
+
+  /** Start the claimed session's host session and serve it; on failure, wait for the next claim. */
+  const serve = (claim: SessionClaim) => {
+    signaling?.close();
+    signaling = null;
+    requestSessionKey({
+      url: opts.url,
+      hostId: opts.hostId,
+      machineKey: opts.machineKey,
+      sessionId: claim.sessionId,
+    })
+      .then((sessionKey) => !stopped && reconnect({ sessionKey }))
+      .catch((cause: unknown) => {
+        console.warn(
+          "[swiff] could not start the claimed session:",
+          cause instanceof Error ? cause.message : cause,
+        );
+        if (!stopped) reconnect({ key: opts.machineKey });
+      });
+  };
+
+  const connect = (credential: { key: string } | { sessionKey: string }) =>
+    connectSignaling({
+      url: opts.url,
+      onOpen: (send) => send({ type: "register", hostId: opts.hostId, ...credential }),
+      onMessage: (msg, send) => onMessage(msg, send, "sessionKey" in credential),
+    });
+
+  const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void, inSession: boolean) => {
+    switch (msg.type) {
+      case "denied":
+        // A session key is refused once its session is over: back to waiting
+        // for the next renter with the machine key. The machine key refused
+        // is final.
+        if (inSession && opts.serveClaims) reconnect({ key: opts.machineKey });
+        else opts.onDenied?.();
+        break;
+      case "registered":
+        serverIce = msg.iceServers ?? [];
+        break;
+      case "session-claimed": {
+        const claim = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
+        opts.onSessionClaimed?.(claim);
+        if (opts.serveClaims && !inSession) serve(claim);
+        break;
       }
-    },
-  });
+      case "peer-joined":
+        opts.onPeerHere(true);
+        void offerTo(send);
+        break;
+      case "answer":
+        if (msg.sdp) {
+          void inbox?.setRemote(msg.sdp).catch((cause) => {
+            console.warn("[swiff] could not apply the renter's answer", cause);
+          });
+        }
+        break;
+      case "ice":
+        if (msg.candidate) inbox?.add(msg.candidate);
+        break;
+      case "peer-left":
+        opts.onPeerHere(false);
+        teardown();
+        break;
+    }
+  };
+
+  let signaling: Signaling | null = connect({ key: opts.machineKey });
 
   return {
     stop: () => {
-      signaling.close();
+      stopped = true;
+      signaling?.close();
       teardown();
     },
   };
+}
+
+/**
+ * Start the host session for claimed platform session `sessionId` with this
+ * machine's key, and return its session key. The HTTP origin is the signaling
+ * server's. Throws with the status alone when the server refuses: the body is
+ * never surfaced.
+ */
+export async function requestSessionKey({
+  url,
+  hostId,
+  machineKey,
+  sessionId,
+}: {
+  url: string;
+  hostId: string;
+  machineKey: string;
+  sessionId: string;
+}): Promise<string> {
+  const origin = new URL(url);
+  origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
+  const res = await fetch(`${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (res.status !== 201) throw new Error(`session start answered ${res.status}`);
+  const { sessionKey } = (await res.json()) as { sessionKey?: unknown };
+  if (typeof sessionKey !== "string") throw new Error("session start answered no key");
+  return sessionKey;
 }

@@ -64,6 +64,11 @@ session key never receives it.
 If the service was not connected when the claim happened, the heartbeat
 (`POST /api/machines/:id/heartbeat`) carries the same id as `session.id`; start with that.
 
+Until the Windows service exists, the host app (the desktop app and the web host page)
+stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
+starting that session, registers again with the session key, and goes back to the machine
+key once the session is over.
+
 Starting the host session puts the machine-key socket out with `denied session-active`,
 and the machine key cannot register again while the session is live. Once the session has
 ended (`session.id` gone from the heartbeat), the service registers its machine-key socket
@@ -84,6 +89,9 @@ body (`SessionStart` in `protocol.ts`); end has none. Responses are JSON with
 - A refusal body is `{ "error": "<code>" }` (`SessionError` in `protocol.ts`). A wrong
   method answers `405`.
 - `400 bad-request`: the body is not JSON or has no `sessionId` string.
+- Both answer CORS (`access-control-allow-origin: *`, and an `OPTIONS` preflight), so the
+  desktop app can call them from its own origin. The machine key in the header is the only
+  credential; nothing ambient rides along.
 - `409 not-claimed`: `sessionId` is not the session running on this machine: unknown,
   another machine's, or already ended.
 - `expiresAt` is Unix seconds. The key registers nothing after it.

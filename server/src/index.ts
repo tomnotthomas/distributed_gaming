@@ -222,13 +222,25 @@ const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
 /** End the response with uncached JSON, or just the status when no body is supplied. */
 function json(res: ServerResponse, status: number, body?: SessionGrant | SessionError): void {
   if (!body) {
-    res.writeHead(status).end();
+    res.writeHead(status, SESSION_CORS).end();
     return;
   }
   // A session key is a credential: nothing between here and the PC may keep it.
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  res.writeHead(status, { ...SESSION_CORS, "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }
+
+// The desktop host app calls the session API from its own origin, not this
+// server's. Any origin may, because the only credential is the machine key in
+// the Authorization header: no cookie or other ambient credential rides along,
+// so a page cannot act with a key it does not already hold.
+const SESSION_CORS = { "access-control-allow-origin": "*" };
+const SESSION_PREFLIGHT = {
+  ...SESSION_CORS,
+  "access-control-allow-methods": "POST, DELETE",
+  "access-control-allow-headers": "authorization, content-type",
+  "access-control-max-age": "600",
+};
 
 /**
  * Start and end a renter's session on one gaming PC. Called by the PC's
@@ -248,6 +260,10 @@ async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath:
     hostId = decodeURIComponent(match[1]!);
   } catch {
     json(res, 404, { error: "not-found" });
+    return true;
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, SESSION_PREFLIGHT).end();
     return true;
   }
   const allowed = ["POST", "DELETE"];

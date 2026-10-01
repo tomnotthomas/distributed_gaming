@@ -13,12 +13,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { connectSignaling } from "@swiff/rtc";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { connectSignaling, startHostSession, type SessionClaim } from "@swiff/rtc";
 import { mintTicket } from "../../../server/src/access";
+import { REPORT } from "../../../server/src/test/report";
 
 const PORT = 8500 + Math.floor(Math.random() * 400);
 const SIGNALING_URL = `ws://127.0.0.1:${PORT}`;
+const HTTP_URL = `http://127.0.0.1:${PORT}`;
 
 /**
  * The member of the protocol union carrying tag `T`.
@@ -169,7 +171,30 @@ beforeAll(async () => {
 
 afterEach(() => {
   openPeers.splice(0).forEach((s) => s.close());
+  vi.restoreAllMocks();
 });
+
+/** Poll `check` until it holds, or fail the test naming `what`. */
+async function until(check: () => boolean, what: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await wait(20);
+  }
+}
+
+/** One JSON call to the server's HTTP API, with the machine key when given. */
+async function call(method: string, path: string, body?: unknown, key?: string) {
+  const res = await fetch(`${HTTP_URL}${path}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      ...(key ? { authorization: `Bearer ${key}` } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
 
 // One process, so no process-group dance: this ends it on Windows and on macOS.
 afterAll(() => {
@@ -333,5 +358,66 @@ describe("web client against the real signaling server", () => {
     await host.waitFor("registered");
 
     expect(host.statuses).toEqual(["connecting", "open"]);
+  });
+
+  it("pushes a claim to the host app, which starts exactly that session and serves it", async () => {
+    const room = nextRoom();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    // Every frame sent, to see which credential the host registers with. No
+    // renter joins: this host has no RTCPeerConnection to offer with.
+    const sent: string[] = [];
+    const send = WebSocket.prototype.send;
+    vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (this: WebSocket, data) {
+      if (typeof data === "string") sent.push(data);
+      return send.call(this, data);
+    });
+    const claims: SessionClaim[] = [];
+    const host = startHostSession({
+      url: SIGNALING_URL,
+      hostId: room,
+      machineKey: MACHINE_KEY,
+      stream: {} as MediaStream, // never read: no offer is made here
+      onPeerHere: () => {},
+      onPeerConnection: () => {},
+      serveClaims: true,
+      onSessionClaimed: (claim) => claims.push(claim),
+    });
+    openPeers.push({ send: () => {}, close: host.stop });
+    await wait(300); // registered with the machine key
+
+    // A renter books and claims the only machine on offer.
+    expect(
+      (await call("PUT", `/api/machines/${room}/availability`, { available: true, ...REPORT }, MACHINE_KEY))
+        .status,
+    ).toBe(200);
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 45 });
+    const claim = await call("POST", `/api/bookings/${String(booking.body.bookingId)}/claim`);
+    expect(claim.status).toBe(200);
+    const sessionId = claim.body.sessionId as string;
+
+    // The exact message reached the host...
+    await until(() => claims.length > 0, "session-claimed");
+    expect(claims).toEqual([{ sessionId, appid: 730, minutes: 45 }]);
+
+    // ...and the host started that session, by its id.
+    const startPath = `${HTTP_URL}/api/machines/${room}/session`;
+    const isStart = (args: Parameters<typeof fetch>) => String(args[0]) === startPath;
+    await until(() => fetchSpy.mock.calls.some(isStart), "the session start");
+    const [, init] = fetchSpy.mock.calls.find(isStart)!;
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ sessionId });
+
+    // It registers again with the session key, and the server keeps it: a
+    // refused key would send it back to the machine key. The machine key is
+    // kept out of the room while the session lives.
+    await wait(300);
+    const registers = sent
+      .map((data) => JSON.parse(data) as SignalMessage)
+      .filter((m) => m.type === "register" && m.hostId === room);
+    expect(registers.map((m) => ("sessionKey" in m && m.sessionKey ? "session key" : "machine key"))).toEqual(
+      ["machine key", "session key"],
+    );
+    const intruder = peer(register(room));
+    expect((await intruder.waitFor("denied")).reason).toBe("session-active");
   });
 });
