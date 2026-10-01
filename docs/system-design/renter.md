@@ -181,7 +181,8 @@ POST /bookings/:id/claim
   Take the matched machine before the reservation expires (60 s). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
-  → 409 if the booking is not matched (its reservation lapsed, or it has expired).
+  → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
+  is matched to the renter's own machine (the booking goes back to the queue).
   → 404 for a booking another renter made.
 
 POST /sessions/:id/qos
