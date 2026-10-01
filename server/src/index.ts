@@ -48,7 +48,7 @@ import {
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
-import { publicOriginFromEnv, readProfile } from "./steam.js";
+import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
@@ -99,7 +99,7 @@ const serveApi = createApi({
   sessionSecret,
   publicOrigin,
   fallbackOrigin: `http://localhost:${PORT}`,
-  profile: (steamId) => readProfile(process.env.STEAM_API_KEY, steamId),
+  profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
 });
 
 // Matching and the liveness sweep. Every request that changes something runs

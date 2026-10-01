@@ -109,37 +109,62 @@ function isOurReturn(returnTo: string | null, origin: string): boolean {
   return url.origin === new URL(origin).origin && url.pathname === "/auth/steam/return";
 }
 
-async function steamApi(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
+/** How long one Steam Web API call may take before the read gives up. */
+export const STEAM_API_TIMEOUT_MS = 3_000;
+
+/** How long a profile read from Steam is served again without asking Steam. */
+export const PROFILE_TTL_MS = 5 * 60_000;
+
+/** How many signed-in renters' profiles are kept at once. */
+export const PROFILE_CACHE_MAX = 1_000;
+
+/** One Web API call, abandoned after `timeoutMs`. Throws on any failure. */
+async function steamApi(
+  apiKey: string,
+  path: string,
+  params: Record<string, string>,
+  timeoutMs: number,
+): Promise<any> {
   const url = new URL(`https://api.steampowered.com/${path}`);
   url.searchParams.set("key", apiKey);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`steam ${path} -> ${response.status}`);
   return response.json();
 }
 
 /**
  * Read the public profile and owned games, then reduce to the small payload the
- * page needs. The full library is discarded here and never stored.
+ * page needs. The full library is discarded here and never stored. Rejects when
+ * Steam fails or takes longer than `timeoutMs`, so a failed read is never
+ * mistaken for a real profile.
  */
-export async function readProfile(apiKey: string | undefined, steamid: string): Promise<SteamProfile> {
+export async function readProfile(
+  apiKey: string | undefined,
+  steamid: string,
+  timeoutMs = STEAM_API_TIMEOUT_MS,
+): Promise<SteamProfile> {
   const out = emptyProfile(steamid);
   if (!apiKey) return out;
 
-  const summaries = await steamApi(apiKey, "ISteamUser/GetPlayerSummaries/v2/", {
-    steamids: steamid,
-  }).catch(() => null);
+  const summaries = await steamApi(
+    apiKey,
+    "ISteamUser/GetPlayerSummaries/v2/",
+    { steamids: steamid },
+    timeoutMs,
+  );
   const player = summaries?.response?.players?.[0];
   if (player) {
     out.persona = String(player.personaname ?? "").slice(0, 40);
     out.avatar = player.avatarfull ?? player.avatarmedium ?? "";
   }
 
-  const owned = await steamApi(apiKey, "IPlayerService/GetOwnedGames/v1/", {
-    steamid,
-    include_appinfo: "1",
-    include_played_free_games: "1",
-  }).catch(() => null);
+  const owned = await steamApi(
+    apiKey,
+    "IPlayerService/GetOwnedGames/v1/",
+    { steamid, include_appinfo: "1", include_played_free_games: "1" },
+    timeoutMs,
+  );
 
   const list = owned?.response?.games;
   if (!Array.isArray(list)) return out;
@@ -158,6 +183,27 @@ export async function readProfile(apiKey: string | undefined, steamid: string): 
     .slice(0, LIBRARY_CAP)
     .map((g: any): LibraryEntry => [g.appid, String(g.name).slice(0, 48), hours(g)]);
   return out;
+}
+
+/**
+ * `read`, remembered per Steam id for `ttlMs` so reloads do not spend the shared
+ * Web API quota. Holds at most `max` profiles, dropping the oldest first. A read
+ * that rejects is not remembered: the next request asks Steam again.
+ */
+export function cachedProfiles(
+  read: (steamId: string) => Promise<SteamProfile>,
+  { ttlMs = PROFILE_TTL_MS, max = PROFILE_CACHE_MAX, now = Date.now } = {},
+): (steamId: string) => Promise<SteamProfile> {
+  const cache = new Map<string, { profile: SteamProfile; at: number }>();
+  return async (steamId) => {
+    const hit = cache.get(steamId);
+    if (hit && now() - hit.at < ttlMs) return hit.profile;
+    const profile = await read(steamId);
+    cache.delete(steamId);
+    if (cache.size >= max) cache.delete(cache.keys().next().value!);
+    cache.set(steamId, { profile, at: now() });
+    return profile;
+  };
 }
 
 /**

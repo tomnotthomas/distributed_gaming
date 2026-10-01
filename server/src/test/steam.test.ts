@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
   LIBRARY_CAP,
+  PROFILE_TTL_MS,
+  cachedProfiles,
+  emptyProfile,
   loginUrl,
   originFrom,
   publicOriginFromEnv,
@@ -135,6 +138,71 @@ describe("readProfile", () => {
     assert.equal(profile.games[0]![1], "Game 0");
     assert.ok(!profile.games.some(([appid]) => appid === 730));
     assert.equal(profile.size, games.length);
+  });
+
+  it("gives up on a Steam that does not answer in time", async () => {
+    globalThis.fetch = ((_: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+      )) as typeof fetch;
+    // AbortSignal.timeout does not hold the event loop open on its own.
+    const alive = setInterval(() => {}, 1_000);
+    try {
+      await assert.rejects(readProfile("key", "76561198000000001", 20));
+    } finally {
+      clearInterval(alive);
+    }
+  });
+});
+
+describe("cachedProfiles", () => {
+  const ID = "76561198000000001";
+
+  /** A read that counts its calls and answers `result` (a rejection when it is an Error). */
+  function counted(result: () => Promise<ReturnType<typeof emptyProfile>>) {
+    const read = async (steamId: string) => {
+      read.calls.push(steamId);
+      return result();
+    };
+    read.calls = [] as string[];
+    return read;
+  }
+
+  it("serves a profile again within the ttl without asking Steam, and reads again after", async () => {
+    let now = 0;
+    const read = counted(async () => ({ ...emptyProfile(ID), persona: "kai_nx" }));
+    const profile = cachedProfiles(read, { now: () => now });
+
+    assert.equal((await profile(ID)).persona, "kai_nx");
+    now += PROFILE_TTL_MS - 1;
+    await profile(ID);
+    assert.equal(read.calls.length, 1);
+
+    now += 1;
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("does not remember a failed read", async () => {
+    let fail = true;
+    const read = counted(async () => {
+      if (fail) throw new Error("steam down");
+      return emptyProfile(ID);
+    });
+    const profile = cachedProfiles(read);
+
+    await assert.rejects(profile(ID));
+    fail = false;
+    await profile(ID);
+    await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("holds at most max profiles, dropping the oldest", async () => {
+    const read = counted(async () => emptyProfile(ID));
+    const profile = cachedProfiles(read, { max: 2 });
+    for (const id of ["a", "b", "c", "b", "a"]) await profile(id);
+    assert.deepEqual(read.calls, ["a", "b", "c", "a"]);
   });
 });
 

@@ -142,6 +142,9 @@ GET  /games
 GET  /me
   → 200 { steamId, profile }
   Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
+  A profile read is kept in memory for 5 minutes per renter, so reloads do not spend the
+  Web API quota; a read Steam fails or takes over 3 s to answer is not kept, and the
+  renter gets an empty profile until the next one succeeds.
   → 401 when nobody is.
 
 POST /signout
