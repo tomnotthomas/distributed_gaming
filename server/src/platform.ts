@@ -26,6 +26,11 @@
 // The host sessions of sessions.ts live here too, in key_sessions, so a server
 // restart keeps them and ending a platform session revokes its keys in the
 // same transaction.
+//
+// Every session records why it ended, and machine_uptime keeps each machine's
+// offered and heartbeat-covered time and its liveness drops per day: with the
+// renter's QoS reports, that is the seven-day stability rank() sorts by
+// (stability.ts).
 
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -43,6 +48,18 @@ import {
 import type { Display, Hardware, HostReport, Net } from "./profile.js";
 import { RequirementsTable } from "./requirements.js";
 import type { KeySession, KeySessionStore } from "./sessions.js";
+import {
+  addQos,
+  splitByDay,
+  stabilityFrom,
+  STABILITY_WINDOW_MS,
+  utcDay,
+  type EndedSession,
+  type EndReason,
+  type QosReport,
+  type QosSummary,
+  type UptimeTotals,
+} from "./stability.js";
 
 /** A machine that has not checked in for this long is no longer offered. Hosts beat every 5 s. */
 export const LIVENESS_MS = 15_000;
@@ -52,8 +69,12 @@ export const RESERVATION_MS = 60_000;
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 /** The longest booking accepted. */
 export const MAX_MINUTES = 12 * 60;
+/** A renter's last QoS report may arrive this long after the session ended. */
+export const QOS_GRACE_MS = 60_000;
 
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
+/** Every status but idle: the owner is offering the machine, whether or not it is answering. */
+const OFFERED: MachineStatus[] = ["available", "reserved", "in_session", "offline"];
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
 
 /** What an availability call carries: the host's report, plus its terms. */
@@ -106,6 +127,9 @@ export type ClaimResult =
   | ({ ok: true; roomId: string } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
+/** A QoS report's fate: stored, or why not. */
+export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
+
 type MachineRow = {
   id: string;
   owner_id: string | null;
@@ -127,6 +151,8 @@ type MachineRow = {
   status: MachineStatus;
   available_until: number | null;
   last_seen_at: number;
+  /** The instant offered time has been counted up to in machine_uptime. */
+  uptime_at: number | null;
 };
 type BookingRow = {
   id: string;
@@ -146,6 +172,9 @@ type SessionRow = {
   expires_at: number;
   price: number | null;
   ticket_id: string | null;
+  end_reason: EndReason | null;
+  /** JSON QosSummary, null until the renter reports. */
+  qos: string | null;
 };
 
 // The host's report fills the columns in REPORT_COLUMNS, added below.
@@ -203,12 +232,23 @@ CREATE TABLE IF NOT EXISTS key_sessions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_open_per_machine
   ON sessions (machine_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS sessions_by_machine ON sessions (machine_id, ended_at);
 CREATE INDEX IF NOT EXISTS bookings_queue ON bookings (status, created_at);
 -- The Steam games installed on each machine, replaced whole when the host reports them.
 CREATE TABLE IF NOT EXISTS machine_games (
   machine_id TEXT NOT NULL REFERENCES machines (id),
   appid      INTEGER NOT NULL,
   PRIMARY KEY (machine_id, appid)
+) WITHOUT ROWID;
+-- Per machine and UTC day (YYYY-MM-DD): how long it was offered, how much of
+-- that a heartbeat covered, and how often the liveness sweep dropped it.
+CREATE TABLE IF NOT EXISTS machine_uptime (
+  machine_id TEXT NOT NULL REFERENCES machines (id),
+  day        TEXT NOT NULL,
+  offered_ms INTEGER NOT NULL DEFAULT 0,
+  seen_ms    INTEGER NOT NULL DEFAULT 0,
+  drops      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (machine_id, day)
 ) WITHOUT ROWID;
 `;
 
@@ -232,6 +272,18 @@ const REPORT_COLUMNS: [name: string, type: string][] = [
   ["rtt_ms", "REAL"],
   ["jitter_ms", "REAL"],
   ["up_mbps", "REAL"],
+];
+
+/**
+ * Session columns added after the table, the same way. end_reason is set when
+ * the session ends; qos holds the renter's QosSummary as JSON.
+ */
+const SESSION_COLUMNS: [name: string, type: string][] = [
+  [
+    "end_reason",
+    "TEXT CHECK (end_reason IN ('renter', 'time_up', 'host_offline', 'owner_kill', 'grace_expired'))",
+  ],
+  ["qos", "TEXT"],
 ];
 
 /**
@@ -337,17 +389,24 @@ export class Platform {
     this.#onSessionClaimed = onSessionClaimed;
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
-    const columns = this.#db.prepare("PRAGMA table_info(machines)").all() as { name: string }[];
-    const present = new Set(columns.map((column) => column.name));
-    for (const [name, type] of REPORT_COLUMNS) {
-      if (!present.has(name)) this.#db.exec(`ALTER TABLE machines ADD COLUMN ${name} ${type}`);
-    }
+    this.#addMissingColumns("machines", [...REPORT_COLUMNS, ["uptime_at", "INTEGER"]]);
+    this.#addMissingColumns("sessions", SESSION_COLUMNS);
     this.#requirements = new RequirementsTable(this.#db, now);
   }
 
   /** Close the database. */
   close(): void {
     this.#db.close();
+  }
+
+  /** Add each column the table lacks, so a database file made before it gains it on open. */
+  #addMissingColumns(table: string, columns: [name: string, type: string][]): void {
+    const present = new Set(
+      (this.#db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+    );
+    for (const [name, type] of columns) {
+      if (!present.has(name)) this.#db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
   }
 
   // --- host ------------------------------------------------------------------
@@ -366,7 +425,7 @@ export class Platform {
         .run(spec.price ?? null, spec.availableUntil ?? null, machineId);
 
       if (!available) {
-        this.#release(machine, now);
+        this.#release(machine, now, "owner_kill");
         this.#setStatus(machineId, "idle");
       } else if (machine.status === "idle" || machine.status === "offline") {
         this.#setStatus(machineId, "available");
@@ -480,15 +539,18 @@ export class Platform {
   /**
    * The renter left, the time ran out or the owner pressed the kill switch.
    * `endedAt` is the host's own clock, kept only between the start and now.
+   * Without a `reason`, an end at or past the session's expiry is time_up and
+   * any earlier one is the renter leaving.
    */
-  endSession(machineId: string, sessionId: string, endedAt?: number): boolean {
+  endSession(machineId: string, sessionId: string, endedAt?: number, reason?: EndReason): boolean {
     return this.#transaction(() => {
       const now = this.#now();
       const machine = this.#touch(machineId, now);
       const session = this.#openSession(machineId, sessionId);
       if (!session) return false;
       const floor = session.started_at ?? now;
-      this.#endSession(session, Math.min(now, Math.max(floor, endedAt ?? now)));
+      const at = Math.min(now, Math.max(floor, endedAt ?? now));
+      this.#endSession(session, at, reason ?? (at >= session.expires_at ? "time_up" : "renter"));
       if (machine.status === "in_session") this.#setStatus(machineId, "available");
       this.#tick(now);
       return true;
@@ -554,6 +616,76 @@ export class Platform {
     this.#db.prepare("UPDATE sessions SET ticket_id = ? WHERE id = ?").run(ticketId, sessionId);
   }
 
+  /**
+   * Fold a renter's stream-quality report into the session's summary. Only the
+   * join ticket handed out for this session may report, while it runs and for
+   * QOS_GRACE_MS after it ends.
+   */
+  recordQos(sessionId: string, ticketId: string, report: QosReport): QosResult {
+    return this.#transaction(() => {
+      const session = this.#db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
+        SessionRow | undefined;
+      if (!session) return "not-found";
+      if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
+      if (session.ended_at !== null && this.#now() - session.ended_at > QOS_GRACE_MS) return "over";
+      const summary = addQos(fromJson<QosSummary | null>(session.qos, null), report);
+      this.#db.prepare("UPDATE sessions SET qos = ? WHERE id = ?").run(JSON.stringify(summary), sessionId);
+      return "ok";
+    });
+  }
+
+  /** The renter's QoS summary for a session, or null when none has been reported. */
+  sessionQos(sessionId: string): QosSummary | null {
+    const row = this.#db.prepare("SELECT qos FROM sessions WHERE id = ?").get(sessionId) as
+      { qos: string | null } | undefined;
+    return fromJson<QosSummary | null>(row?.qos ?? null, null);
+  }
+
+  /** Why a session ended, or null while it runs (or for one ended before reasons were kept). */
+  sessionEndReason(sessionId: string): EndReason | null {
+    const row = this.#db.prepare("SELECT end_reason FROM sessions WHERE id = ?").get(sessionId) as
+      { end_reason: EndReason | null } | undefined;
+    return row?.end_reason ?? null;
+  }
+
+  // --- stability ---------------------------------------------------------------
+
+  /**
+   * The machine's last seven days as rank()'s StabilityStats, and the bucket
+   * they fall in. Offered time since the last check-in counts too, so a machine
+   * that went offline and stayed away loses coverage without checking in again.
+   */
+  stability(machineId: string): ReturnType<typeof stabilityFrom> {
+    const now = this.#now();
+    const since = now - STABILITY_WINDOW_MS;
+    const totals = this.#db
+      .prepare(
+        `SELECT coalesce(sum(offered_ms), 0) AS offeredMs, coalesce(sum(seen_ms), 0) AS seenMs,
+                coalesce(sum(drops), 0) AS drops
+           FROM machine_uptime WHERE machine_id = ? AND day > ?`,
+      )
+      .get(machineId, utcDay(since)) as UptimeTotals;
+    const machine = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
+      MachineRow | undefined;
+    if (machine) {
+      for (const piece of this.#pendingUptime(machine, now, since)) {
+        totals.offeredMs += piece.offeredMs;
+        totals.seenMs += piece.seenMs;
+      }
+    }
+    const rows = this.#db
+      .prepare(
+        `SELECT end_reason, qos FROM sessions
+           WHERE machine_id = ? AND ended_at > ? AND end_reason IS NOT NULL`,
+      )
+      .all(machineId, since) as Pick<SessionRow, "end_reason" | "qos">[];
+    const sessions: EndedSession[] = rows.map((row) => ({
+      endReason: row.end_reason!,
+      packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
+    }));
+    return stabilityFrom(totals, sessions);
+  }
+
   /** True when the ticket was handed out for a session that has since ended. A ticket minted by hand has none. */
   ticketRevoked(ticketId: string): boolean {
     return Boolean(
@@ -574,7 +706,14 @@ export class Platform {
       .prepare("SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= ?")
       .all(now - LIVENESS_MS) as MachineRow[];
     for (const machine of silent) {
-      this.#release(machine, machine.last_seen_at);
+      this.#accrue(machine, now);
+      this.#db
+        .prepare(
+          `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
+             ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
+        )
+        .run(machine.id, utcDay(now));
+      this.#release(machine, machine.last_seen_at, "host_offline");
       this.#setStatus(machine.id, "offline");
     }
 
@@ -594,12 +733,17 @@ export class Platform {
     }
 
     // The host ends a session when the time runs out; this is the backstop for
-    // one that never says so, and for a renter who claimed and never arrived.
+    // one that never says so (time_up), and for a renter who claimed and never
+    // arrived (grace_expired).
     const overrun = this.#db
       .prepare("SELECT * FROM sessions WHERE ended_at IS NULL AND expires_at <= ?")
       .all(now) as SessionRow[];
     for (const session of overrun) {
-      this.#endSession(session, session.expires_at);
+      this.#endSession(
+        session,
+        session.expires_at,
+        session.started_at === null ? "grace_expired" : "time_up",
+      );
       this.#setStatus(session.machine_id, "available");
     }
 
@@ -648,9 +792,10 @@ export class Platform {
 
   /**
    * Let go of whatever the machine holds: a waiting booking goes back to the
-   * front of the queue for another machine, a running session ends at `at`.
+   * front of the queue for another machine, a running session ends at `at`
+   * for `reason`.
    */
-  #release(machine: MachineRow, at: number): void {
+  #release(machine: MachineRow, at: number, reason: EndReason): void {
     if (machine.status === "reserved") {
       const reservation = this.#db
         .prepare("SELECT * FROM reservations WHERE machine_id = ?")
@@ -664,22 +809,23 @@ export class Platform {
       const session = this.#db
         .prepare("SELECT * FROM sessions WHERE machine_id = ? AND ended_at IS NULL")
         .get(machine.id) as SessionRow | undefined;
-      if (session) this.#endSession(session, Math.max(at, session.started_at ?? at));
+      if (session) this.#endSession(session, Math.max(at, session.started_at ?? at), reason);
     }
   }
 
   /**
-   * Close the session, price the time actually played at the machine's hourly
-   * rate, and end its host session so its keys die with it.
+   * The one way a session ends: close it, record why, price the time actually
+   * played at the machine's hourly rate, and end its host session so its keys
+   * die with it.
    */
-  #endSession(session: SessionRow, endedAt: number): void {
+  #endSession(session: SessionRow, endedAt: number, reason: EndReason): void {
     const { price } = this.#db.prepare("SELECT price FROM machines WHERE id = ?").get(session.machine_id) as {
       price: number;
     };
     const played = session.started_at === null ? 0 : Math.max(0, endedAt - session.started_at);
     this.#db
-      .prepare("UPDATE sessions SET ended_at = ?, price = ? WHERE id = ?")
-      .run(endedAt, Math.round((price * played) / 3_600_000), session.id);
+      .prepare("UPDATE sessions SET ended_at = ?, price = ?, end_reason = ? WHERE id = ?")
+      .run(endedAt, Math.round((price * played) / 3_600_000), reason, session.id);
     this.#db.prepare("DELETE FROM key_sessions WHERE session_id = ?").run(session.id);
     this.#setBookingStatus(session.booking_id, "ended");
     this.#notices.push(() => this.#onSessionEnded(session.machine_id, session.id));
@@ -730,15 +876,50 @@ export class Platform {
     }
   }
 
-  /** Record a check-in, creating the machine the first time it is heard from. */
+  /**
+   * Record a check-in, creating the machine the first time it is heard from.
+   * Time offered since the last one is counted first (see #accrue).
+   */
   #touch(machineId: string, now: number): MachineRow {
+    const before = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
+      MachineRow | undefined;
+    if (before) this.#accrue(before, now);
     this.#db
       .prepare(
-        `INSERT INTO machines (id, status, last_seen_at) VALUES (?, 'idle', ?)
-           ON CONFLICT (id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO machines (id, status, last_seen_at, uptime_at) VALUES (?, 'idle', ?, ?)
+           ON CONFLICT (id) DO UPDATE SET last_seen_at = excluded.last_seen_at, uptime_at = excluded.uptime_at`,
       )
-      .run(machineId, now);
+      .run(machineId, now, now);
     return this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
+  }
+
+  /**
+   * Add the machine's offered time from uptime_at to `now` to machine_uptime,
+   * split by UTC day, and move uptime_at to `now`. Offered time ends early at
+   * available_until; the stretch within LIVENESS_MS of the last check-in counts
+   * as seen. Rows older than the stability window are dropped.
+   */
+  #accrue(machine: MachineRow, now: number): void {
+    const add = this.#db.prepare(
+      `INSERT INTO machine_uptime (machine_id, day, offered_ms, seen_ms) VALUES (?, ?, ?, ?)
+         ON CONFLICT (machine_id, day) DO UPDATE
+           SET offered_ms = offered_ms + excluded.offered_ms, seen_ms = seen_ms + excluded.seen_ms`,
+    );
+    for (const piece of this.#pendingUptime(machine, now)) {
+      add.run(machine.id, piece.day, piece.offeredMs, piece.seenMs);
+    }
+    this.#db.prepare("UPDATE machines SET uptime_at = ? WHERE id = ?").run(now, machine.id);
+    this.#db
+      .prepare("DELETE FROM machine_uptime WHERE machine_id = ? AND day <= ?")
+      .run(machine.id, utcDay(now - STABILITY_WINDOW_MS));
+  }
+
+  /** Offered time not yet in machine_uptime, from uptime_at (or `since`, if later) to `now`, by day. */
+  #pendingUptime(machine: MachineRow, now: number, since = -Infinity) {
+    if (!OFFERED.includes(machine.status)) return [];
+    const start = Math.max(machine.uptime_at ?? machine.last_seen_at, since);
+    const end = Math.min(now, machine.available_until ?? now);
+    return splitByDay(start, end, machine.last_seen_at + LIVENESS_MS);
   }
 
   /** The session, if it runs on this machine and has not ended. */

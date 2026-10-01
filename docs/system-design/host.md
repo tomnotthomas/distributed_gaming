@@ -107,10 +107,13 @@ POST /machines/:id/session
 
 POST /sessions/:id/start
 POST /sessions/:id/end
-  { endedAt? }
+  { endedAt?, reason?: "renter" | "time_up" | "owner_kill" }
   Mark the session started (the renter arrived), and ended (renter left, time ran out,
-  or kill switch). → 409 once the session is over. The platform ends a session itself
-  when its join ticket runs out.
+  or kill switch). → 409 once the session is over. Without a `reason`, an end at the
+  session's expiry is `time_up` and an earlier one `renter`. The platform ends a session
+  itself when its join ticket runs out (`time_up`, or `grace_expired` if the renter never
+  arrived), when the machine goes silent (`host_offline`) and when the owner takes it
+  back (`owner_kill`). The reason feeds the machine's stability (below).
 
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }
@@ -126,6 +129,15 @@ session ([`session-keys.md`](session-keys.md)): its session keys die and the str
 put out with `session-ended`. The Windows service must treat that denial, or a heartbeat
 whose `session.id` has changed or is missing, as the signal to tear down the renter
 account session.
+
+### Stability
+
+The server keeps seven days of each machine's history (`server/src/stability.ts`):
+how long it was offered and how much of that its heartbeats covered, how often it
+dropped offline, how its sessions ended, and the renter's stream quality
+(`POST /api/sessions/:id/qos`, authenticated with the session's join ticket:
+`{ fps, bitrate, rttMs, packetLoss }`). `@swiff/rank` buckets that into Steady, OK,
+Shaky or New.
 
 ### Host report
 
