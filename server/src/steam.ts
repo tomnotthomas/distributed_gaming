@@ -205,19 +205,32 @@ export async function readProfile(
   return out;
 }
 
+/** How soon after the last read a renter's refresh may ask Steam again. */
+export const PROFILE_REFRESH_MIN_MS = 10_000;
+
+/** A profile lookup; `fresh` asks Steam again rather than serving a remembered read. */
+export type ProfileReader = (steamId: string, options?: { fresh?: boolean }) => Promise<SteamProfile>;
+
 /**
  * `read`, remembered per Steam id for `ttlMs` so reloads do not spend the shared
  * Web API quota. Holds at most `max` profiles, dropping the oldest first. A read
- * that rejects is not remembered: the next request asks Steam again.
+ * that rejects is not remembered: the next request asks Steam again. `fresh`
+ * skips the remembered read, e.g. after the renter makes their library public,
+ * unless it is under `refreshMinMs` old, so a mashed retry button costs one read.
  */
 export function cachedProfiles(
   read: (steamId: string) => Promise<SteamProfile>,
-  { ttlMs = PROFILE_TTL_MS, max = PROFILE_CACHE_MAX, now = Date.now } = {},
-): (steamId: string) => Promise<SteamProfile> {
+  {
+    ttlMs = PROFILE_TTL_MS,
+    max = PROFILE_CACHE_MAX,
+    refreshMinMs = PROFILE_REFRESH_MIN_MS,
+    now = Date.now,
+  } = {},
+): ProfileReader {
   const cache = new Map<string, { profile: SteamProfile; at: number }>();
-  return async (steamId) => {
+  return async (steamId, { fresh = false } = {}) => {
     const hit = cache.get(steamId);
-    if (hit && now() - hit.at < ttlMs) return hit.profile;
+    if (hit && now() - hit.at < (fresh ? refreshMinMs : ttlMs)) return hit.profile;
     const profile = await read(steamId);
     cache.delete(steamId);
     if (cache.size >= max) cache.delete(cache.keys().next().value!);

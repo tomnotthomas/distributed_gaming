@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, EmptyState, Hero, Mosaic, StatusDot, SteamButton, Tag, Tile } from "@swiff/ui";
 import type { Game } from "./data";
 import { useDisplay } from "./display";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
-import { STEAM_LOGIN_URL, gameArt, gameArtFallbacks, gamePreview, gameTrailer } from "./steam";
+import {
+  STEAM_LOGIN_URL,
+  gameArt,
+  gameArtFallbacks,
+  gamePreview,
+  gameTrailer,
+  libraryState,
+  type LibraryState,
+} from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /** Seven tiles fill the grid exactly: one hero, two wide, four small. */
@@ -49,10 +57,24 @@ export function Wall({ swiff }: { swiff: Swiff }) {
   const previewId = usePreview(swiff.hoverId);
   const display = useDisplay();
 
-  if (!anythingFree) return <WallEmpty />;
+  const library = swiff.profile ? libraryState(swiff.profile) : "ok";
+  const note =
+    library === "ok" ? null : (
+      <LibraryNote state={library} retrying={swiff.libraryRetrying} onRetry={swiff.retryLibrary} />
+    );
+
+  // A renter with nothing to show still needs to hear why, not "everything is busy".
+  if (!games.length && note)
+    return (
+      <main className="wall-main" data-testid="wall">
+        {note}
+      </main>
+    );
+  if (!anythingFree) return <WallEmpty note={note} />;
 
   return (
     <main className="wall-main" data-testid="wall">
+      {note}
       <Mosaic layout={display === "ultra" ? "horizontal" : "grid"}>
         {wall.map((game, index) => (
           <WallTile
@@ -121,7 +143,12 @@ function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }
       // itself is MotionContext's job.
       video={!playable ? null : size === "hero" ? gameTrailer(game) : preview ? gamePreview(game) : null}
       sub={size === "hero" ? undefined : sub}
-      badge={!libraryConnected && game.f2p && size !== "hero" ? <Tag tone="accent">Free</Tag> : null}
+      // Free-to-play is marked wherever it is not one of your own games.
+      badge={
+        game.f2p && size !== "hero" && (!libraryConnected || !game.owned) ? (
+          <Tag tone="accent">Free</Tag>
+        ) : null
+      }
       dim={!playable || (!libraryConnected && !game.f2p)}
       onOpen={() => swiff.openGame(game)}
       onHoverChange={(on) => swiff.setHoverId(on ? game.id : null)}
@@ -137,13 +164,13 @@ function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }
   );
 }
 
-/** The signed-in hero: what you were doing, and one button back into it. */
+/** The signed-in hero: what you were doing, and one button back into it (or into a free game). */
 function HeroResume({ game, sub, onResume }: { game: Game; sub: string; onResume: () => void }) {
   return (
     <div className="wall-hero">
       <Hero kicker={game.personal} title={game.title} meta={sub} />
       <Button size="lg" onClick={onResume}>
-        Resume
+        {game.owned ? "Resume" : "Play free"}
       </Button>
     </div>
   );
@@ -178,9 +205,48 @@ function HeroFirstRun({ game, gpu, freeMachines }: { game: Game; gpu?: string; f
   );
 }
 
-function WallEmpty() {
+const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: string }> = {
+  unreadable: {
+    title: "We couldn't read your Steam library.",
+    body: "In Steam, set Profile → Privacy → Game details to Public, then retry.",
+  },
+  none: {
+    title: "None of your Steam games can be played here yet.",
+    body: "Free-to-play games still work.",
+  },
+};
+
+/**
+ * Why a signed-in renter sees none of their own games, and a retry that reads
+ * the library from Steam again. Only free-to-play games are shown beside it.
+ */
+function LibraryNote({
+  state,
+  retrying,
+  onRetry,
+}: {
+  state: Exclude<LibraryState, "ok">;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const { title, body } = LIBRARY_COPY[state];
+  return (
+    <div className="wall-library" role="status" data-testid="library-state">
+      <p className="wall-library-text">
+        <strong>{title}</strong> {body}
+      </p>
+      <Button size="sm" variant="secondary" onClick={onRetry} disabled={retrying}>
+        {retrying ? "Checking…" : "Retry"}
+      </Button>
+    </div>
+  );
+}
+
+/** Every shared machine is busy; a library note, when there is one, still leads. */
+function WallEmpty({ note }: { note?: ReactNode }) {
   return (
     <main className="wall-main wall-empty" data-testid="wall">
+      {note}
       <EmptyState
         title="Nothing is ready right now"
         body="Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."

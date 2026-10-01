@@ -3,6 +3,7 @@
 //   Booking API (renter, signed in)        Host API (gaming PC, machine key)
 //   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
 //   GET  /api/me                           POST /api/machines/:id/heartbeat
+//   POST /api/me/refresh
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start
 //   POST /api/bookings                     POST /api/sessions/:id/end
 //   GET  /api/bookings/:id
@@ -26,7 +27,7 @@ import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterOf } from "./signin.js";
-import { emptyProfile, originFrom, readProfile, type SteamProfile } from "./steam.js";
+import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
@@ -47,7 +48,7 @@ export type ApiOptions = {
   /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
-  profile?: (steamId: string) => Promise<SteamProfile>;
+  profile?: ProfileReader;
 };
 
 /** Answer with a JSON body that no cache keeps. */
@@ -173,6 +174,15 @@ export function createApi({
       const steamId = requireRenter(req, sessionSecret);
       // A Steam outage must not read as signed out: the session stands.
       reply(res, 200, { steamId, profile: await profile(steamId).catch(() => emptyProfile(steamId)) });
+      return true;
+    }
+
+    // The wall's retry after a renter makes their library public: read it from
+    // Steam again rather than serving the copy remembered from before.
+    if (resource === "me" && id === "refresh" && !action && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const fresh = await profile(steamId, { fresh: true }).catch(() => emptyProfile(steamId));
+      reply(res, 200, { steamId, profile: fresh });
       return true;
     }
 

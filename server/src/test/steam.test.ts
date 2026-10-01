@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
   LIBRARY_CAP,
+  PROFILE_REFRESH_MIN_MS,
   PROFILE_TTL_MS,
   cachedProfiles,
   emptyProfile,
@@ -180,6 +181,26 @@ describe("cachedProfiles", () => {
 
     now += 1;
     await profile(ID);
+    assert.equal(read.calls.length, 2);
+  });
+
+  it("asks Steam again on a fresh read, but not twice within the refresh floor", async () => {
+    let now = 0;
+    let persona = "private";
+    const read = counted(async () => ({ ...emptyProfile(ID), persona }));
+    const profile = cachedProfiles(read, { now: () => now });
+
+    await profile(ID);
+    persona = "public";
+    now += PROFILE_REFRESH_MIN_MS - 1;
+    assert.equal((await profile(ID, { fresh: true })).persona, "private");
+    assert.equal(read.calls.length, 1);
+
+    now += 1;
+    assert.equal((await profile(ID, { fresh: true })).persona, "public");
+    assert.equal(read.calls.length, 2);
+    // The fresh read is what later page loads are served.
+    assert.equal((await profile(ID)).persona, "public");
     assert.equal(read.calls.length, 2);
   });
 

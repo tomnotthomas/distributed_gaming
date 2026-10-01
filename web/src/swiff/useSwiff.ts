@@ -9,6 +9,7 @@ import {
   fetchRenter,
   popularCards,
   readSteamFragment,
+  refreshRenter,
   withMedia,
   type SteamProfile,
 } from "./steam";
@@ -41,6 +42,7 @@ export function useSwiff() {
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const [steamDenied, setSteamDenied] = useState(false);
   const [signOutFailed, setSignOutFailed] = useState(false);
+  const [libraryRetrying, setLibraryRetrying] = useState(false);
 
   const [session, setSession] = useState<SessionLength>("evening");
   // Start still for anyone who has asked their OS for less motion.
@@ -90,6 +92,42 @@ export function useSwiff() {
   const openGameId = useRef(gameId);
   openGameId.current = gameId;
 
+  // Which showLibrary call is current, so a slow catalog answer for a profile a
+  // retry has since replaced never puts the old wall back.
+  const libraryLoad = useRef(0);
+  /**
+   * Put a signed-in renter's wall up: their own games at once, then, once
+   * Steam's store data says which games are free to play, those too, with
+   * every card's real art and trailers.
+   */
+  const showLibrary = useCallback(
+    (next: SteamProfile) => {
+      const load = ++libraryLoad.current;
+      setProfile(next);
+      const library = applySteam(next, sharedMachineIds);
+      setGames(library);
+      const curated = GAMES.map((g) => g.appid);
+      void Promise.all([fetchMedia([...library.map((g) => g.appid), ...curated]), fetchPopular()]).then(
+        ([media, popular]) => {
+          if (load !== libraryLoad.current) return;
+          const catalog = [...media, ...popular];
+          setGames(withMedia(applySteam(next, sharedMachineIds, catalog), catalog));
+        },
+      );
+    },
+    [sharedMachineIds],
+  );
+
+  /** Read the renter's library from Steam again, after they have made it public. */
+  const retryLibrary = useCallback(() => {
+    setLibraryRetrying(true);
+    track("library_retried");
+    void refreshRenter().then((renter) => {
+      setLibraryRetrying(false);
+      if (renter) showLibrary(renter.profile);
+    });
+  }, [showLibrary]);
+
   useEffect(() => {
     const result = readSteamFragment();
     if (result === "denied") {
@@ -112,14 +150,7 @@ export function useSwiff() {
         return;
       }
       const { profile } = renter;
-      setProfile(profile);
-      const library = applySteam(profile, sharedMachineIds);
-      setGames(library);
-      // Every card asks the catalog for its real header image; the ones without
-      // a curated trailer get theirs from there too.
-      void fetchMedia(library.map((g) => g.appid)).then((catalog) =>
-        setGames((prev) => withMedia(prev, catalog)),
-      );
+      showLibrary(profile);
       // Counted once per sign-in, not on every page load of a signed-in renter.
       if (result === "ok") {
         track("library_matched", {
@@ -301,6 +332,7 @@ export function useSwiff() {
     steamDenied,
     signOutFailed,
     profile,
+    libraryRetrying,
     motion,
     sound,
     quality,
@@ -328,6 +360,7 @@ export function useSwiff() {
     setQuality,
     setShowAll,
     signOut,
+    retryLibrary,
   };
 }
 

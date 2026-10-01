@@ -78,7 +78,12 @@ describe("booking and host API", () => {
       owners: parseMachineOwners(MACHINE_KEYS),
     };
     const games = async () => [{ id: 730, name: "Counter-Strike 2", image: null }];
-    const profile = async (steamId: string) => ({ ...emptyProfile(steamId), persona: "kai_nx" });
+    // A fresh read is the one a renter asks for after making their library public.
+    const profile = async (steamId: string, { fresh = false } = {}) => ({
+      ...emptyProfile(steamId),
+      persona: "kai_nx",
+      lib: fresh,
+    });
     server = createServer(async (req, res) => {
       // Built per request so each test's fresh platform is the one served.
       const api = createApi({
@@ -215,6 +220,7 @@ describe("booking and host API", () => {
       assert.equal((await caller("GET", `/api/bookings/${body.bookingId}`)).status, 401);
       assert.equal((await caller("POST", `/api/bookings/${body.bookingId}/claim`)).status, 401);
       assert.equal((await caller("GET", "/api/me")).status, 401);
+      assert.equal((await caller("POST", "/api/me/refresh")).status, 401);
     }
     assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
   });
@@ -251,6 +257,12 @@ describe("booking and host API", () => {
     assert.equal(me.body.steamId, RENTER);
     assert.equal(me.body.profile.persona, "kai_nx");
     assert.equal(me.headers.get("cache-control"), "no-store");
+    assert.equal(me.body.profile.lib, false);
+
+    const refreshed = await renter("POST", "/api/me/refresh");
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.steamId, RENTER);
+    assert.equal(refreshed.body.profile.lib, true);
 
     const out = await renter("POST", "/api/signout");
     assert.equal(out.status, 204);
