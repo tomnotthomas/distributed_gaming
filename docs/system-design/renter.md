@@ -51,12 +51,17 @@ one session per machine.
 
 ![Workflow](../diagrams/workflow.png)
 
-1. The renter chooses a game.
-2. The system finds a free gaming PC.
-3. The renter gets an answer with the available machine.
-4. The renter connects to it.
-5. The gaming PC starts Steam and locks the PC.
+1. The renter signs in with Steam.
+2. The renter chooses a game.
+3. The renter picks one of the ranked available PCs, or joins the queue when none fits;
+   matching only serves the queue.
+4. The page claims the reserved PC (booking `claimed`).
+5. The gaming PC starts the streamer and Steam in the separate Windows account and locks
+   the PC.
 6. The renter plays.
+
+Steps 1 and 3 are the design; today sign-in hands the profile to the page but the server
+keeps no session, and the Booking API matches every booking through the queue.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 

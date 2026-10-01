@@ -19,14 +19,15 @@ config:
 flowchart LR
   Owner["Owner"]
   Installer["Swiff installer"]
-  HostApp["Swiff host app"]
-  Account["Separate Windows account"]
-  Steam["Steam"]
-  Capture["Capture + WebRTC"]
+  Service["Swiff background service<br/>holds the machine key"]
+  subgraph Account["Separate Windows account"]
+    Streamer["Streamer · capture + WebRTC<br/>short-lived session key"]
+    Steam["Steam"]
+  end
   Wiped["Account wiped"]
   subgraph Platform["Swiff platform"]
     API["Host API"]
-    DB[("Database")]
+    DB[("Database · SQLite for now")]
     S3[("Save storage · S3")]
   end
   subgraph Connect["Connecting host and renter"]
@@ -40,29 +41,30 @@ flowchart LR
   Renter["Renter"]
 
   Owner --> Installer
-  Installer -- "creates" --> Account
-  Installer --> HostApp
-  HostApp -- "session start" --> Account
-  HostApp -- "session end" --> Wiped
-  Account -- "launches" --> Steam
-  Steam -- "game screen" --> Capture
-  HostApp -- "available now · heartbeat<br/>session started / ended" --> API
+  Installer -- "creates the account" --> Account
+  Installer --> Service
+  Service -- "session start · launches<br/>with the session key" --> Streamer
+  Service -- "session end" --> Wiped
+  Steam -- "game screen" --> Streamer
+  Service -- "available now · heartbeat<br/>session started / ended" --> API
   API -- "write" --> DB
-  HostApp -- "session start · download saves<br/>session end · upload saves, then wipe" --> S3
-  HostApp <-- "WebSocket · register + machine key<br/>SDP/ICE" --> SIG
+  Service -- "session start · download saves<br/>session end · upload saves, then wipe" --> S3
+  Service -- "POST /api/machines/:id/session<br/>machine key → session key" --> SIG
+  Streamer <-- "WebSocket · register + session key<br/>SDP/ICE" --> SIG
   SIG <-- "WebSocket · join<br/>SDP/ICE" --> Renter
-  HostApp -. "my public address?" .-> STUN
-  Capture -. "fallback" .-> TURN
+  Streamer -. "my public address?" .-> STUN
+  Streamer -. "fallback" .-> TURN
   TURN -.- Renter
-  Capture <== "video + audio + input" ==> Renter
+  Streamer <== "video + audio + input" ==> Renter
 
   classDef owner fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
   classDef session fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   classDef platform fill:#f7f7f7,stroke:#999,stroke-dasharray:4 3,color:#444
-  class Owner,Installer,HostApp owner
-  class Account,Steam,Capture,Wiped,Renter session
+  class Owner,Installer,Service owner
+  class Streamer,Steam,Wiped,Renter session
   class API,DB,S3,SIG,STUN platform
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   class TURN turn
+  style Account fill:#fffaf0,stroke:#e0a458,color:#8a5300
   style Platform fill:#ffffff,stroke:#ccc,color:#444
   style Connect fill:#ffffff,stroke:#ccc,color:#444
