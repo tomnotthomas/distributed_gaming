@@ -2,7 +2,7 @@
 // in memory and a clock the tests move by hand.
 
 import assert from "node:assert/strict";
-import { beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import {
   LIVENESS_MS,
   Platform,
@@ -925,6 +925,305 @@ describe("machine stability", () => {
       reopened.endSession("pc-1", claim.sessionId);
       assert.equal(reopened.sessionEndReason(claim.sessionId), "host_end");
       reopened.close();
+    });
+  });
+});
+
+describe("deadline timer", () => {
+  let changed: string[];
+
+  beforeEach(() => {
+    // Only setTimeout is faked: the platform's own timer is the only thing
+    // that can move these bookings, and nothing here calls tick().
+    mock.timers.enable({ apis: ["setTimeout"] });
+    changed = [];
+    platform = new Platform({ now: () => now, onBookingChanged: (id) => changed.push(id) });
+  });
+
+  afterEach(() => {
+    platform.close();
+    mock.timers.reset();
+  });
+
+  /** Let `ms` pass on both the clock and the timers, without calling tick(). */
+  const pass = (ms: number) => {
+    now += ms;
+    mock.timers.tick(ms);
+  };
+
+  it("arms no timer while nothing waits on time", () => {
+    assert.equal(platform.nextDeadline(), null);
+    platform.book(730, 30);
+    assert.equal(platform.nextDeadline(), now + QUEUE_TIMEOUT_MS);
+  });
+
+  it("lapses a reservation at its deadline, not a moment before", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    const { bookingId, claimBy } = platform.book(730, 30);
+    assert.equal(claimBy, now + RESERVATION_MS);
+    assert.equal(platform.nextDeadline(), claimBy);
+    changed = [];
+
+    pass(RESERVATION_MS - 1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "matched");
+    assert.deepEqual(changed, []);
+
+    pass(1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "expired");
+    assert.deepEqual(changed, [bookingId]);
+  });
+
+  it("ends a session at its booked time", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    pass(30 * 60_000 - 1);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+    pass(1);
+    assert.equal(platform.claimedSession("pc-1"), null);
+  });
+
+  it("drops a machine with no socket once its heartbeat is LIVENESS_MS old", () => {
+    offer("pc-1");
+    const { bookingId } = platform.book(730, 30);
+    pass(LIVENESS_MS - 1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "matched");
+    pass(1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "queued", "back in the queue for another machine");
+  });
+
+  it("drops a queued booking nobody checks on after QUEUE_TIMEOUT_MS", () => {
+    const { bookingId } = platform.book(730, 30);
+    pass(QUEUE_TIMEOUT_MS - 1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "queued");
+    pass(1);
+    assert.equal(platform.viewBooking(bookingId)!.status, "expired");
+    assert.equal(platform.nextDeadline(), null);
+  });
+
+  it("re-arms for an earlier deadline a change brings in", () => {
+    const { bookingId } = platform.book(730, 30);
+    offer("pc-1"); // matched now: the reservation lapses before the queue timeout would
+    assert.equal(platform.nextDeadline(), now + LIVENESS_MS);
+    pass(LIVENESS_MS);
+    assert.equal(platform.viewBooking(bookingId)!.status, "queued");
+  });
+});
+
+describe("presence", () => {
+  it("keeps a machine whose socket is open offered with no heartbeat", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    advance(10 * LIVENESS_MS);
+    const booking = platform.book(730, 30);
+    assert.equal(booking.status, "matched");
+    assert.equal(booking.machine?.id, "pc-1");
+  });
+
+  it("takes a machine offline the moment its socket drops, handing its booking back", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    const { bookingId } = platform.book(730, 30);
+    platform.hostDisconnected("pc-1", true);
+    assert.equal(platform.booking(bookingId)!.status, "queued");
+    assert.equal(platform.heartbeat("pc-1").status, "reserved", "a heartbeat offers it again");
+  });
+
+  it("keeps a claimed session through a dropped socket for the liveness window, no longer", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    platform.hostDisconnected("pc-1", true);
+    advance(LIVENESS_MS - 1);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+    advance(1);
+    assert.equal(platform.claimedSession("pc-1"), null);
+  });
+
+  it("gives a machine handed over to its streamer the liveness window", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    advance(10 * LIVENESS_MS);
+    platform.hostDisconnected("pc-1", false);
+    advance(LIVENESS_MS - 1);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+    platform.hostConnected("pc-1"); // the streamer registers
+    advance(10 * LIVENESS_MS);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+  });
+
+  it("brings a machine dropped as offline back when its socket reconnects", () => {
+    offer("pc-1");
+    advance(LIVENESS_MS);
+    assert.equal(platform.book(730, 30).status, "queued");
+    platform.hostConnected("pc-1");
+    assert.equal(platform.heartbeat("pc-1").status, "reserved");
+  });
+
+  it("stores nothing for a socket from a machine never heard from", () => {
+    platform.hostConnected("pc-9");
+    platform.hostDisconnected("pc-9", true);
+    assert.equal(platform.machineProfile("pc-9"), null);
+  });
+
+  it("gives every machine on offer and every queued booking a fresh deadline after a restart", async () => {
+    await withDatabaseFile((path) => {
+      const first = new Platform({ path, now: () => now });
+      first.hostConnected("pc-1");
+      first.setAvailability("pc-1", true, REPORT);
+      const queued = first.book(1, 30); // a game no machine has
+      now += 10 * QUEUE_TIMEOUT_MS;
+      first.close();
+
+      const second = new Platform({ path, now: () => now });
+      assert.equal(second.nextDeadline(), now + LIVENESS_MS);
+      assert.equal(second.viewBooking(queued.bookingId)!.status, "queued");
+      second.close();
+    });
+  });
+
+  it("drops a machine that never comes back after a restart as of its last contact", async () => {
+    await withDatabaseFile(async (path) => {
+      const lastContact = now;
+      const first = new Platform({ path, now: () => now });
+      first.setAvailability("pc-1", true, REPORT);
+      const claim = first.claim(first.book(730, 120).bookingId);
+      assert.ok(claim.ok);
+      const { sessionId } = claim;
+      first.close();
+
+      now = lastContact + 60 * 60_000;
+      const second = new Platform({ path, now: () => now });
+      now += LIVENESS_MS - 1;
+      second.tick();
+      assert.equal(second.sessionEndReason(sessionId), null);
+      now += 1;
+      second.tick();
+      assert.equal(second.sessionEndReason(sessionId), "host_offline");
+      const { stats } = second.stability("pc-1");
+      assert.equal(Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000), LIVENESS_MS);
+      second.close();
+
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(path);
+      const { ended_at } = db.prepare("SELECT ended_at FROM sessions WHERE id = ?").get(sessionId) as {
+        ended_at: number;
+      };
+      db.close();
+      assert.equal(ended_at, lastContact);
+    });
+  });
+
+  it("ends a game on a present machine that never comes back after a restart as of its last ping round", async () => {
+    await withDatabaseFile(async (path) => {
+      const first = new Platform({ path, now: () => now });
+      first.hostConnected("pc-1");
+      first.setAvailability("pc-1", true, { ...REPORT, price: 120 });
+      const { bookingId } = first.book(730, 180);
+      const claim = first.claim(bookingId);
+      assert.ok(claim.ok);
+      const { sessionId } = claim;
+      first.startSession("pc-1", sessionId);
+      const startedAt = now;
+      // Two hours of play with nothing touching the database but the ping rounds.
+      for (let t = 0; t < 2 * 60 * 60_000; t += 25_000) {
+        now += 25_000;
+        first.hostsAlive(["pc-1"]);
+      }
+      const lastPing = now;
+      now += 20_000; // the server dies before the next round
+      first.close();
+
+      now += 60 * 60_000;
+      const second = new Platform({ path, now: () => now });
+      now += LIVENESS_MS;
+      second.tick();
+      assert.equal(second.sessionEndReason(sessionId), "host_offline");
+      assert.equal(second.booking(bookingId)!.price, Math.round((120 * (lastPing - startedAt)) / 3_600_000));
+      const { stats } = second.stability("pc-1");
+      const seenMs = Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000);
+      assert.equal(seenMs, lastPing - startedAt + LIVENESS_MS);
+      second.close();
+
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(path);
+      const { ended_at } = db.prepare("SELECT ended_at FROM sessions WHERE id = ?").get(sessionId) as {
+        ended_at: number;
+      };
+      db.close();
+      assert.equal(ended_at, lastPing);
+    });
+  });
+});
+
+describe("presence and uptime", () => {
+  const uptime = () => {
+    const { stats } = platform.stability("pc-1");
+    return { offeredMs: Math.round(stats.offeredHours * 3_600_000), coverage: stats.heartbeatCoverage };
+  };
+
+  it("counts the time a socket is open as seen, with no heartbeat", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    advance(10 * 60_000);
+    assert.deepEqual(uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
+    now += 60_000; // no tick in between: still seen
+    assert.deepEqual(uptime(), { offeredMs: 11 * 60_000, coverage: 1 });
+  });
+
+  it("counts a dropped socket as a liveness drop, and the time since as unseen", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    advance(60_000);
+    platform.hostDisconnected("pc-1", true);
+    advance(45_000);
+    // Seen for the liveness window after its last contact, as after a heartbeat.
+    assert.deepEqual(uptime(), { offeredMs: 105_000, coverage: 75 / 105 });
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 1 / (105 / 3600));
+  });
+
+  it("counts no drop for a room the server handed over", () => {
+    platform.hostConnected("pc-1");
+    offer("pc-1");
+    advance(60_000);
+    platform.hostDisconnected("pc-1", false);
+    platform.hostConnected("pc-1");
+    advance(60_000);
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
+    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 1 });
+  });
+});
+
+describe("a host disconnect the database fails", () => {
+  afterEach(() => mock.timers.reset());
+
+  it("still drops the presence, and the retried tick takes the machine offline", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    await withDatabaseFile((path) => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      const db = new Platform({ path, now: () => now });
+      db.hostConnected("pc-1");
+      db.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = db.book(730, 30);
+      assert.equal(db.viewBooking(bookingId)!.status, "matched");
+      now += 2 * LIVENESS_MS; // no tick: the machine has not been touched since
+
+      // Every write to machine_uptime fails from here.
+      const other = new DatabaseSync(path);
+      other.exec("ALTER TABLE machine_uptime RENAME TO machine_uptime_away");
+      assert.throws(() => db.hostDisconnected("pc-1", true));
+      assert.equal(db.viewBooking(bookingId)!.status, "matched", "rolled back");
+      other.exec("ALTER TABLE machine_uptime_away RENAME TO machine_uptime");
+      other.close();
+
+      mock.timers.tick(1_000);
+      assert.equal(db.viewBooking(bookingId)!.status, "queued", "offline, so the booking is handed back");
+      db.close();
     });
   });
 });

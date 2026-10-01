@@ -8,7 +8,7 @@
 //                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
 //
 //   machine idle ─► available ─► reserved ─► in_session ─► available
-//                 (silent for LIVENESS_MS: offline; taken back: idle)
+//                 (socket dropped, or silent for LIVENESS_MS: offline; taken back: idle)
 //
 // SQLite through node:sqlite: built into Node 22, so local dev, the tests and
 // CI need no database server, no native build and no new dependency. The file
@@ -18,23 +18,34 @@
 // one transaction and nothing else can interleave with it. That, plus the
 // unique indexes below, is what gives a machine to at most one booking.
 //
-// Matching runs in tick(): the server calls it every second, and every call
-// that can free a machine or add a booking runs it straight away. A booking is
-// matched only to a machine with its game installed and the hardware the game
-// asks for, judged by @swiff/rank's gates against the requirements table.
+// Matching runs in tick(): every call that can free a machine or add a booking
+// runs it straight away, and one timer is armed for the next deadline (a
+// machine's liveness, a reservation or queued booking lapsing, a session
+// running out), so nothing polls. A booking is matched only to a machine with
+// its game installed and the hardware the game asks for, judged by
+// @swiff/rank's gates against the requirements table.
+//
+// Presence: a machine whose PC holds its socket open to the server is there
+// for as long as it stays open, with no check-in needed. That is kept in
+// memory, not in the table: after a restart nobody is connected until they
+// reconnect. A renter is there only while their page speaks: a check on the
+// booking, opening its event stream, or the page's heartbeat while the stream
+// is open. A stream merely held open is no contact: a sleeping laptop's can
+// stay open long after the page stopped running.
 //
 // The host sessions of sessions.ts live here too, in key_sessions, so a server
 // restart keeps them and ending a platform session revokes its keys in the
 // same transaction.
 //
 // Every session records why it ended, and machine_uptime keeps each machine's
-// offered and heartbeat-covered time and its liveness drops per day: with the
-// renter's QoS reports, that is the seven-day stability rank() sorts by
-// (stability.ts).
+// offered time, the part a heartbeat or open socket covered and its liveness
+// drops per day: with the renter's QoS reports, that is the seven-day
+// stability rank() sorts by (stability.ts).
 //
 // A booking belongs to the renter who made it (renter_id, their Steam id): only
-// they can check on it or claim it. A machine records its owner's Steam id
-// (owner_id) each time it checks in, and gate E5 keeps it from its own owner.
+// they can check on it, watch it or claim it. A machine records its owner's
+// Steam id (owner_id) each time it checks in, and gate E5 keeps it from its own
+// owner.
 
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -65,7 +76,10 @@ import {
   type UptimeTotals,
 } from "./stability.js";
 
-/** A machine that has not checked in for this long is no longer offered. Hosts beat every 5 s. */
+/**
+ * A machine with no open socket that has not checked in for this long is no
+ * longer offered. A host without its socket beats every 5 s.
+ */
 export const LIVENESS_MS = 15_000;
 /** How long a matched renter has to claim the machine. A renter who checked in since the match and let it lapse loses the booking. */
 export const RESERVATION_MS = 60_000;
@@ -247,7 +261,7 @@ CREATE TABLE IF NOT EXISTS machine_games (
   PRIMARY KEY (machine_id, appid)
 ) WITHOUT ROWID;
 -- Per machine and UTC day (YYYY-MM-DD): how long it was offered, how much of
--- that a heartbeat covered, and how often the liveness sweep dropped it.
+-- that a heartbeat or open socket covered, and how often it was dropped as offline.
 CREATE TABLE IF NOT EXISTS machine_uptime (
   machine_id TEXT NOT NULL REFERENCES machines (id),
   day        TEXT NOT NULL,
@@ -361,6 +375,11 @@ function passesMatchGates(
 /** Unguessable, so one id cannot be guessed from another. */
 const newId = () => randomBytes(16).toString("base64url");
 
+/** The longest delay setTimeout takes; a later deadline is woken for early and re-armed. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+/** How soon a wake that failed (a locked database) is tried again. */
+const RETRY_MS = 1_000;
+
 export class Platform {
   readonly #db: DatabaseSync;
   readonly #now: () => number;
@@ -368,16 +387,33 @@ export class Platform {
   readonly #requirements: RequirementsTable;
   readonly #onSessionEnded: (machineId: string, sessionId: string) => void;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
+  readonly #onBookingChanged: (bookingId: string) => void;
   readonly #owners: ReadonlyMap<string, string>;
   /** Notices from the open transaction, delivered once it commits. */
   #notices: (() => void)[] = [];
+  /** Bookings whose status the open transaction changed, told once it commits. */
+  #changed = new Set<string>();
+  /** Machines whose PC holds a socket open to the server. */
+  readonly #present = new Set<string>();
+  /** The one timer, armed for the next deadline. */
+  #timer: ReturnType<typeof setTimeout> | undefined;
+  #closed = false;
+  /** No machine is dropped for silence before this: after a restart nobody is connected yet. */
+  readonly #graceUntil: number;
 
   /**
    * `onSessionEnded` hears of every session that ends, however it ends, with its
-   * machine and id; `onSessionClaimed` of every claim, with the machine claimed.
-   * Both run after the change is committed, so what they do (evicting a
-   * streamer, telling the PC) never outlives a rolled-back change, and their
-   * failure undoes nothing.
+   * machine and id; `onSessionClaimed` of every claim, with the machine claimed;
+   * `onBookingChanged` of every booking whose status moved, once per change.
+   * All run after the change is committed, so what they do (evicting a
+   * streamer, telling the PC or the renter) never outlives a rolled-back
+   * change, and their failure undoes nothing.
+   *
+   * Opening grants every machine on offer and every queued booking a fresh
+   * deadline: nobody is connected yet after a restart, and each gets
+   * LIVENESS_MS or QUEUE_TIMEOUT_MS to reconnect before it is dropped. A
+   * machine keeps its real last contact meanwhile, so one that never comes
+   * back is seen, and lets go of what it held, as of then.
    * `owners` maps a machine id to its owner's Steam id; a machine missing from
    * it has no recorded owner.
    */
@@ -387,27 +423,39 @@ export class Platform {
     owners = new Map(),
     onSessionEnded = () => {},
     onSessionClaimed = () => {},
+    onBookingChanged = () => {},
   }: {
     path?: string;
     now?: () => number;
     owners?: ReadonlyMap<string, string>;
     onSessionEnded?: (machineId: string, sessionId: string) => void;
     onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
+    onBookingChanged?: (bookingId: string) => void;
   } = {}) {
     this.#db = new DatabaseSync(path);
     this.#now = now;
     this.#owners = owners;
     this.#onSessionEnded = onSessionEnded;
     this.#onSessionClaimed = onSessionClaimed;
+    this.#onBookingChanged = onBookingChanged;
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
     this.#addMissingColumns("machines", [...REPORT_COLUMNS, ["uptime_at", "INTEGER"]]);
     this.#addMissingColumns("sessions", SESSION_COLUMNS);
     this.#requirements = new RequirementsTable(this.#db, now);
+    const start = this.#now();
+    this.#graceUntil = start + LIVENESS_MS;
+    this.#transaction(() => {
+      this.#db
+        .prepare("UPDATE bookings SET last_seen_at = max(last_seen_at, ?) WHERE status = 'queued'")
+        .run(start);
+    });
   }
 
-  /** Close the database. */
+  /** Stop the deadline timer and close the database. */
   close(): void {
+    this.#closed = true;
+    clearTimeout(this.#timer);
     this.#db.close();
   }
 
@@ -460,6 +508,67 @@ export class Platform {
       // Back online, or a new game or more hardware, can match a waiting booking.
       if (machine.status === "offline" || Object.keys(report).length) this.#tick(now);
       return this.#machineView(machineId);
+    });
+  }
+
+  /**
+   * The PC opened its socket to the server: the machine is there for as long as
+   * it stays open, with no heartbeat needed. A machine dropped as offline comes
+   * back as it was offered. Nothing is stored for a machine never heard from.
+   */
+  hostConnected(machineId: string): void {
+    this.#transaction(() => {
+      this.#present.add(machineId);
+      const now = this.#now();
+      const machine = this.#machineRow(machineId);
+      if (!machine) return;
+      this.#touch(machineId, now);
+      if (machine.status === "offline") this.#setStatus(machineId, "available");
+      this.#tick(now);
+    });
+  }
+
+  /**
+   * The PC's socket is gone. `dropped`: it closed or stopped answering, so a
+   * machine on offer (available or reserved) is offline at once, as if it had
+   * gone silent. A claimed machine is not: from the claim the room is being
+   * handed to the streamer, and a renter's session must not end with one
+   * socket. Neither is one the server handed over (to the streamer, or back
+   * from it). Those have LIVENESS_MS from now to reconnect or beat.
+   */
+  hostDisconnected(machineId: string, dropped: boolean): void {
+    try {
+      this.#transaction(() => {
+        const now = this.#now();
+        // Touched while still present: its offered time up to now counts as seen.
+        const machine = this.#machineRow(machineId) && this.#touch(machineId, now);
+        this.#present.delete(machineId);
+        if (!machine) return;
+        if (dropped && (machine.status === "available" || machine.status === "reserved")) {
+          this.#goOffline(machine, now);
+        }
+        this.#tick(now);
+      });
+    } finally {
+      // Gone whatever the database says: a socket that closed is not presence.
+      // If the work above failed, the retried tick finds the machine silent.
+      this.#present.delete(machineId);
+    }
+  }
+
+  /**
+   * The PCs whose sockets answered a ping lately are still there: store that
+   * contact, with their offered time up to now counted as seen. Called once per
+   * ping round rather than per ping, so a crash or restart leaves each present
+   * machine's last contact at most one round stale. A machine whose socket has
+   * since gone, or that was never heard from, is left alone.
+   */
+  hostsAlive(machineIds: Iterable<string>): void {
+    this.#transaction(() => {
+      const now = this.#now();
+      for (const machineId of machineIds) {
+        if (this.#present.has(machineId) && this.#machineRow(machineId)) this.#touch(machineId, now);
+      }
     });
   }
 
@@ -590,7 +699,9 @@ export class Platform {
 
   /**
    * The booking as it stands, or null when there is none or it is not
-   * `renterId`'s. Checking on it is what keeps a queued booking in the queue.
+   * `renterId`'s. It counts as the renter's contact: a check on it, an event
+   * stream opening on it, or the page's heartbeat. That contact is what keeps
+   * a queued booking in the queue.
    */
   booking(bookingId: string, renterId: string | null = null): BookingView | null {
     return this.#transaction(() => {
@@ -600,6 +711,14 @@ export class Platform {
       this.#db.prepare("UPDATE bookings SET last_seen_at = ? WHERE id = ?").run(now, bookingId);
       return this.#bookingView(bookingId);
     });
+  }
+
+  /**
+   * The booking as it stands, without counting as the renter's contact or
+   * running the matcher: what an event stream sends after a change.
+   */
+  viewBooking(bookingId: string): BookingView | null {
+    return this.#bookingView(bookingId);
   }
 
   /**
@@ -750,36 +869,97 @@ export class Platform {
     );
   }
 
-  // --- matching and sweeps ---------------------------------------------------
+  // --- matching and deadlines ------------------------------------------------
 
+  /** Settle whatever is due now and match. The deadline timer calls it; so may a test. */
   tick(): void {
     this.#transaction(() => this.#tick(this.#now()));
   }
 
   /**
-   * Drop silent machines, settle lapsed reservations and overrun sessions, then
-   * match. A silent machine counts a drop unless its offer ended within
-   * LIVENESS_MS of its last check-in: a host that beat until the end of its
-   * offer and then went quiet stopped as planned.
+   * When the next thing falls due with no call to cause it: a machine with no
+   * socket going silent, a reservation lapsing, a session running out, a queued
+   * booking nobody checks on timing out. Null when nothing is waiting on time.
+   */
+  nextDeadline(): number | null {
+    const row = this.#db
+      .prepare(
+        `SELECT min(at) AS at FROM (
+           SELECT max(last_seen_at + ?, ?) AS at FROM machines
+             WHERE status NOT IN ('idle', 'offline') AND id NOT IN (SELECT value FROM json_each(?))
+           UNION ALL SELECT expires_at FROM reservations
+           UNION ALL SELECT expires_at FROM sessions WHERE ended_at IS NULL
+           UNION ALL SELECT last_seen_at + ? FROM bookings WHERE status = 'queued'
+         )`,
+      )
+      .get(LIVENESS_MS, this.#graceUntil, this.#presentJson(), QUEUE_TIMEOUT_MS) as { at: number | null };
+    return row.at;
+  }
+
+  /** Arm the one timer for the next deadline, replacing the last. */
+  #arm(): void {
+    clearTimeout(this.#timer);
+    this.#timer = undefined;
+    if (this.#closed) return;
+    let delay: number;
+    try {
+      const at = this.nextDeadline();
+      if (at === null) return;
+      delay = Math.min(MAX_TIMER_MS, Math.max(0, at - this.#now()));
+    } catch (error) {
+      console.error("[swiff] platform timer failed:", error instanceof Error ? error.name : typeof error);
+      delay = RETRY_MS;
+    }
+    this.#timer = setTimeout(() => this.#wake(), delay);
+    this.#timer.unref?.();
+  }
+
+  /** The timer fired: settle what fell due. A failure is retried rather than left unarmed. */
+  #wake(): void {
+    this.#timer = undefined;
+    try {
+      this.tick();
+    } catch (error) {
+      // A locked or broken database file must not take the server down with it.
+      console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
+      this.#retrySoon();
+    }
+  }
+
+  /**
+   * Wake again in RETRY_MS: a transaction failed, so whatever it would have
+   * settled is settled by the next tick that succeeds rather than left waiting
+   * for the next call.
+   */
+  #retrySoon(): void {
+    if (this.#closed) return;
+    clearTimeout(this.#timer);
+    this.#timer = setTimeout(() => this.#wake(), RETRY_MS);
+    this.#timer.unref?.();
+  }
+
+  /**
+   * Refresh what is present, drop silent machines, settle lapsed reservations
+   * and overrun sessions, then match. A silent machine counts a drop unless its
+   * offer ended within LIVENESS_MS of its last check-in: a host that beat until
+   * the end of its offer and then went quiet stopped as planned.
    */
   #tick(now: number): void {
+    // An open socket is contact right now, so the rules below that read
+    // last_seen_at treat it as such.
+    this.#db
+      .prepare("UPDATE machines SET last_seen_at = ? WHERE id IN (SELECT value FROM json_each(?))")
+      .run(now, this.#presentJson());
+
     // Silent machines first, so nothing below hands a booking to one.
-    const silent = this.#db
-      .prepare("SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= ?")
-      .all(now - LIVENESS_MS) as MachineRow[];
-    for (const machine of silent) {
-      this.#accrue(machine, now);
-      if (machine.available_until === null || machine.available_until > machine.last_seen_at + LIVENESS_MS) {
-        this.#db
-          .prepare(
-            `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
-               ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
-          )
-          .run(machine.id, utcDay(now));
-      }
-      this.#release(machine, machine.last_seen_at, "host_offline");
-      this.#setStatus(machine.id, "offline");
-    }
+    const silent = (
+      now < this.#graceUntil
+        ? []
+        : this.#db
+            .prepare("SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= ?")
+            .all(now - LIVENESS_MS)
+    ) as MachineRow[];
+    for (const machine of silent) this.#goOffline(machine, now);
 
     // An unclaimed reservation: a renter who checked in since the match saw it
     // and let it go, so the booking expires. One who has not been heard from
@@ -813,11 +993,32 @@ export class Platform {
 
     // A renter who stopped checking on a queued booking has gone; matching it
     // would only hold a machine for nobody.
-    this.#db
-      .prepare("UPDATE bookings SET status = 'expired' WHERE status = 'queued' AND last_seen_at <= ?")
-      .run(now - QUEUE_TIMEOUT_MS);
+    const gone = this.#db
+      .prepare("SELECT id FROM bookings WHERE status = 'queued' AND last_seen_at <= ?")
+      .all(now - QUEUE_TIMEOUT_MS) as { id: string }[];
+    for (const { id } of gone) this.#setBookingStatus(id, "expired");
 
     this.#match(now);
+  }
+
+  /**
+   * Take a machine that stopped answering offline: count its offered time,
+   * count a liveness drop unless its offer ended within LIVENESS_MS of its last
+   * check-in (it stopped as planned), and let go of what it held as of that
+   * check-in.
+   */
+  #goOffline(machine: MachineRow, now: number): void {
+    this.#accrue(machine, now);
+    if (machine.available_until === null || machine.available_until > machine.last_seen_at + LIVENESS_MS) {
+      this.#db
+        .prepare(
+          `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
+             ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
+        )
+        .run(machine.id, utcDay(now));
+    }
+    this.#release(machine, machine.last_seen_at, "host_offline");
+    this.#setStatus(machine.id, "offline");
   }
 
   /**
@@ -1012,12 +1213,17 @@ export class Platform {
       .run(machine.id, utcDay(now - STABILITY_WINDOW_MS));
   }
 
-  /** Offered time not yet in machine_uptime, from uptime_at (or `since`, if later) to `now`, by day. */
+  /**
+   * Offered time not yet in machine_uptime, from uptime_at (or `since`, if
+   * later) to `now`, by day. A machine whose socket is open is seen right up
+   * to now, whenever it last beat.
+   */
   #pendingUptime(machine: MachineRow, now: number, since = -Infinity) {
     if (!OFFERED.includes(machine.status)) return [];
     const start = Math.max(machine.uptime_at ?? machine.last_seen_at, since);
     const end = Math.min(now, machine.available_until ?? now);
-    return splitByDay(start, end, machine.last_seen_at + LIVENESS_MS);
+    const lastSeen = this.#present.has(machine.id) ? now : machine.last_seen_at;
+    return splitByDay(start, end, lastSeen + LIVENESS_MS);
   }
 
   /** The session, if it runs on this machine and has not ended. */
@@ -1026,6 +1232,18 @@ export class Platform {
       .prepare("SELECT * FROM sessions WHERE id = ? AND machine_id = ? AND ended_at IS NULL")
       .get(sessionId, machineId) as SessionRow | undefined;
     return row ?? null;
+  }
+
+  /** The machine row, or null when it has never been heard from. */
+  #machineRow(machineId: string): MachineRow | null {
+    const row = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
+      MachineRow | undefined;
+    return row ?? null;
+  }
+
+  /** The machines holding a socket open, as a JSON array for json_each(). */
+  #presentJson(): string {
+    return JSON.stringify([...this.#present]);
   }
 
   /** The booking row, or null when there is none or, given a renter, it is not theirs. */
@@ -1041,9 +1259,10 @@ export class Platform {
     this.#db.prepare("UPDATE machines SET status = ? WHERE id = ?").run(status, machineId);
   }
 
-  /** Move a booking to `status`. */
+  /** Move a booking to `status`; whoever watches it is told once the change commits. */
   #setBookingStatus(bookingId: string, status: BookingStatus): void {
     this.#db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, bookingId);
+    this.#changed.add(bookingId);
   }
 
   /** What the host is told about its machine, with the session running on it. */
@@ -1087,6 +1306,10 @@ export class Platform {
     return view;
   }
 
+  /**
+   * Run `work` as one transaction. Once it commits, re-arm the deadline timer
+   * and deliver the notices it queued; a rollback drops them and arms a retry.
+   */
   #transaction<T>(work: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
     let result: T;
@@ -1095,17 +1318,22 @@ export class Platform {
       this.#db.exec("COMMIT");
     } catch (error) {
       this.#notices = [];
+      this.#changed.clear();
+      this.#retrySoon();
       this.#db.exec("ROLLBACK");
       throw error;
     }
+    this.#arm();
     const notices = this.#notices;
     this.#notices = [];
+    for (const bookingId of this.#changed) notices.push(() => this.#onBookingChanged(bookingId));
+    this.#changed.clear();
     for (const notice of notices) {
       try {
         notice();
       } catch (error) {
         // The change is committed either way; one failed notice must not stop
-        // the rest, or the sweep that made it.
+        // the rest, or the tick that made it.
         console.error("[swiff] platform notice failed:", error instanceof Error ? error.name : typeof error);
       }
     }

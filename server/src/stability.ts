@@ -19,7 +19,7 @@ export const STABILITY_WINDOW_MS = 7 * 24 * 3_600_000;
  * credit: renter only through the renter's own ticket, time_up only once the
  * session reaches (or nearly reaches) its expiry, host_end for any earlier end
  * the host reports, owner_kill when the owner takes the machine back,
- * host_offline and grace_expired from the server's own sweeps.
+ * host_offline and grace_expired from the server's own deadlines.
  */
 export const END_REASONS = [
   "renter",

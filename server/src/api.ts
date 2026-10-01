@@ -8,8 +8,10 @@
 //   POST /api/bookings                     POST /api/sessions/:id/end
 //   GET  /api/bookings/:id
 //   POST /api/bookings/:id/claim
+//   POST /api/bookings/:id/seen
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
+//   GET  /api/events?booking=:id  (event stream, events.ts)
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
@@ -22,6 +24,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
 import { popularGames } from "./catalog.js";
+import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
@@ -47,6 +50,8 @@ export type ApiOptions = {
   fallbackOrigin: string;
   /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
+  /** The renter event streams. Without them GET /api/events is not served. */
+  events?: RenterEvents;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
   profile?: ProfileReader;
 };
@@ -77,6 +82,17 @@ function hostReport(body: Json): HostReport {
     if (error instanceof ReportError) throw new HttpError(400, error.message);
     throw error;
   }
+}
+
+/**
+ * The renter's address, for the per-client stream cap: the one Cloudflare
+ * reports in CF-Connecting-IP (it overwrites any the client sent), else the
+ * socket's own. A request that skips Cloudflare and forges the header escapes
+ * only the per-client cap; the server-wide cap still holds.
+ */
+function clientAddress(req: IncomingMessage): string {
+  const forwarded = req.headers["cf-connecting-ip"];
+  return (Array.isArray(forwarded) ? forwarded[0] : forwarded) || req.socket.remoteAddress || "unknown";
 }
 
 /** An ISO date or unix ms, as unix ms. */
@@ -149,6 +165,7 @@ export function createApi({
   fallbackOrigin,
   games = defaultGames,
   profile = (steamId) => readProfile(undefined, steamId),
+  events,
 }: ApiOptions) {
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -167,6 +184,17 @@ export function createApi({
 
     if (resource === "games" && !id && method === "GET") {
       reply(res, 200, await games().catch(() => []));
+      return true;
+    }
+
+    if (resource === "events" && !id && method === "GET" && events) {
+      const renter = requireRenter(req, sessionSecret);
+      const bookingId = new URL(req.url ?? "/", "http://localhost").searchParams.get("booking");
+      if (!bookingId) throw new HttpError(400, "booking is required");
+      // Somebody else's booking reads exactly like one that does not exist.
+      const opened = events.open(res, bookingId, renter, clientAddress(req));
+      if (opened === "not-found") throw new HttpError(404, "no such booking");
+      if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true;
     }
 
@@ -213,6 +241,15 @@ export function createApi({
       const booking = platform.booking(id, requireRenter(req, sessionSecret));
       if (!booking) throw new HttpError(404, "no such booking");
       reply(res, 200, booking);
+      return true;
+    }
+
+    if (resource === "bookings" && id && action === "seen" && method === "POST") {
+      // The renter's page is still there: counts as checking on the booking.
+      if (!platform.booking(id, requireRenter(req, sessionSecret)))
+        throw new HttpError(404, "no such booking");
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
       return true;
     }
 

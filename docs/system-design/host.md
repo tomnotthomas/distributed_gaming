@@ -37,7 +37,7 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 | **Isolation**            | The system runs the session in a separate Windows account and wipes it afterwards.                                    | The renter must never reach the owner's files, passwords or signed-in accounts.      |
 | **Latency**              | The system injects input as OS-level input the moment it arrives.                                                     | Input delay is felt far more than video delay.                                       |
 | **Correctness of input** | The system never leaves a key held down.                                                                              | A dropped key-up walks the character into a wall until the session ends.             |
-| **Liveness**             | The system reports the PC's state every few seconds, and stops offering it within seconds of it going offline.        | Matching a renter to a dead machine wastes their time.                               |
+| **Liveness**             | The system holds a socket open to the platform, and the platform stops offering the PC the moment it closes.          | Matching a renter to a dead machine wastes their time.                               |
 | **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds. | The wipe would otherwise delete the renter's progress.                               |
 | **Control**              | The system hands the PC back to the owner instantly on the kill switch, and stops input at the same moment.           | The owner has to trust they can always take their machine back.                      |
 | **Trust**                | The system ships as a signed installer.                                                                               | Screen capture plus input injection looks like malware to antivirus and SmartScreen. |
@@ -70,7 +70,8 @@ Source: [`../diagrams/host-workflow.mmd`](../diagrams/host-workflow.mmd).
 | **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC                                                                                       |
 
 Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
-`idle` when the owner takes it back, `offline` when it stops sending heartbeats).
+`idle` when the owner takes it back, `offline` when its socket drops or, with no socket,
+it stops sending heartbeats).
 
 ---
 
@@ -92,10 +93,14 @@ PUT  /machines/:id/availability
 POST /machines/:id/heartbeat
   { ...report }
   → 200 { id, status, gpu, cpu, price, session? }
-  Sent every 5 s. A machine silent for 15 s is `offline` and no longer offered: its
-  reserved booking goes to another machine, its running session ends. Its next
-  heartbeat offers it again. `session.id` names the session a renter has claimed; the
-  PC normally hears of it sooner, pushed as `session-claimed` (below).
+  Sent when part of the report changes. Liveness is the PC's socket (below), not this
+  call: while the socket is open the machine needs no heartbeat. Without one (the
+  service was handed over to the streamer, or cannot connect) the service sends this
+  every 5 s, and a machine silent for 15 s is `offline`. `offline` means no longer
+  offered: its reserved booking goes to another machine, its running session ends. Its
+  next heartbeat, or its socket registering again, offers it again. `session.id` names
+  the session a renter has claimed; the PC normally hears of it sooner, pushed as
+  `session-claimed` (below).
 
 POST /machines/:id/session
   { sessionId }
@@ -115,9 +120,9 @@ POST /sessions/:id/end
   end the host reports (often a renter who disconnected without leaving; it counts
   neither for nor against completion), `owner_kill` when the owner takes the machine
   back mid-session, `renter` only when the renter leaves with their own ticket
-  (renter.md), and from its own sweeps `time_up` or `grace_expired` (the renter never
+  (renter.md), and from its own deadlines `time_up` or `grace_expired` (the renter never
   arrived) when the join ticket runs out and `host_offline` when the machine goes
-  silent. The reason feeds the machine's stability (below).
+  silent or its socket drops. The reason feeds the machine's stability (below).
 
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }
@@ -137,7 +142,7 @@ account session.
 ### Stability
 
 The server keeps seven days of each machine's history (`server/src/stability.ts`):
-how long it was offered and how much of that its heartbeats covered, how often it
+how long it was offered and how much of that its socket or heartbeats covered, how often it
 dropped offline, how its sessions ended, and the renter's stream quality
 (`POST /api/sessions/:id/qos`, authenticated with the session's join ticket:
 `{ fps, bitrate, rttMs, packetLoss }`). Session completion counts every session not
@@ -201,6 +206,19 @@ matched.
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
 | `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
 | `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
+
+The open socket is the PC's presence. The machine stays offered for as long as it is
+open, and goes `offline` the moment the service's socket closes while the PC is on offer
+(`available` or `reserved`); a socket that stops answering `ping` is closed by the server
+after two missed rounds. Once a renter has claimed the PC the room is being handed to the
+streamer, so a socket that closes from then on (the service's or the streamer's) leaves
+the machine the 15 s heartbeat window to come back on its new credential: a renter's
+session does not end with one socket.
+
+Presence itself lives in the server's memory, so once per 25 s round the server stores,
+in one write, that each PC whose socket pinged since the last round was there then. After
+a crash or restart a PC that never comes back is taken offline as of that last stored
+round, and a session it was running ends, priced for the time played, at that moment.
 
 The machine key comes from `npm run machine-key -- <machine-id> <owner-steam-id>`, which
 also records the owner, so the owner is never matched to their own PC. The host app keeps it

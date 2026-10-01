@@ -34,7 +34,7 @@ const RENTER = "76561198000000001";
 const OTHER = "76561198000000002";
 const OWNER = "76561198000000003";
 // pc-3 belongs to OWNER: it must never be matched to OWNER's own bookings.
-const MACHINE_KEYS = `pc-1:${HASH},pc-2:${HASH},pc-3:${HASH}:${OWNER}`;
+const MACHINE_KEYS = `pc-1:${HASH},pc-2:${HASH},pc-3:${HASH}:${OWNER},pc-4:${HASH},pc-5:${HASH}`;
 
 /** The Cookie header of `steamId` signed in, with a session that lasts `ttlSeconds`. */
 const signedIn = (steamId: string, ttlSeconds = 3600, secret = SESSION) =>
@@ -536,5 +536,52 @@ describe("the real server", () => {
     );
     assert.equal(restarted.status, 409);
     assert.deepEqual(restarted.body, { error: "not-claimed" });
+  });
+
+  it("pushes the match to the renter's event stream as it happens", async () => {
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    assert.equal(body.status, "queued", "every machine is busy or taken back");
+    const abort = new AbortController();
+    const response = await fetch(`http://localhost:${PORT}/api/events?booking=${body.bookingId}`, {
+      signal: abort.signal,
+      headers: { cookie: signedIn(RENTER) },
+    });
+    assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+    const reader = response.body!.getReader();
+    let text = "";
+    /** Read the stream until `needle` has arrived. */
+    const readUntil = async (needle: string) => {
+      while (!text.includes(needle)) {
+        const { done, value } = await reader.read();
+        assert.ok(!done, `the stream ended before ${needle}`);
+        text += new TextDecoder().decode(value);
+      }
+    };
+    await readUntil('"status":"queued"');
+
+    await call("PUT", "/api/machines/pc-5/availability", { available: true, ...REPORT }, MACHINE_KEY);
+    await readUntil('"status":"matched"');
+    assert.match(text, /"machine":\{"id":"pc-5"/);
+    abort.abort();
+    assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
+  });
+
+  it("takes a PC offline the moment its socket closes, handing its booking back", async () => {
+    await call("PUT", "/api/machines/pc-4/availability", { available: true, ...REPORT }, MACHINE_KEY);
+    const ws = new WebSocket(`ws://localhost:${PORT}`);
+    const registered = new Promise<SignalMessage>((resolve, reject) => {
+      ws.once("open", () => ws.send(JSON.stringify({ type: "register", hostId: "pc-4", key: MACHINE_KEY })));
+      ws.once("message", (raw) => resolve(JSON.parse(String(raw)) as SignalMessage));
+      ws.once("error", reject);
+    });
+    assert.equal((await registered).type, "registered");
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    assert.equal(body.machine?.id, "pc-4");
+
+    ws.close();
+    await new Promise((resolve) => ws.once("close", resolve));
+    await new Promise((r) => setTimeout(r, 100));
+    // Well inside the 15 s a silent heartbeat would take.
+    assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "queued");
   });
 });
