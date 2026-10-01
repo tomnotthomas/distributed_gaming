@@ -86,6 +86,7 @@ export function Host() {
       // served with its session key, then the page waits for the next claim.
       serveClaims: true,
       onSessionClaimed: setClaim,
+      onClaimOver: () => setClaim(null),
       onPeerConnection: (next) => {
         if (!next) closeInput();
         setPc(next);

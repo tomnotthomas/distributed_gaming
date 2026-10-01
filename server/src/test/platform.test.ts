@@ -563,7 +563,11 @@ describe("claim notice and host sessions", () => {
     assert.equal(platform.claimedSession("pc-1"), null);
     const claim = platform.claim(platform.book(730, 30).bookingId);
     assert.ok(claim.ok);
-    assert.equal(platform.claimedSession("pc-1"), claim.sessionId);
+    assert.deepEqual(platform.claimedSession("pc-1"), {
+      sessionId: claim.sessionId,
+      gameId: 730,
+      minutes: 30,
+    });
     assert.equal(platform.claimedSession("pc-2"), null);
     platform.endSession("pc-1", claim.sessionId);
     assert.equal(platform.claimedSession("pc-1"), null);
@@ -596,7 +600,7 @@ describe("claim notice and host sessions", () => {
     store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
     assert.equal(store.remove("pc-1"), claim.sessionId);
     assert.equal(store.remove("pc-1"), null);
-    assert.equal(platform.claimedSession("pc-1"), claim.sessionId);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
   });
 
   it("keeps host sessions in the database file across restarts", async () => {

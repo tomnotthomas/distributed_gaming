@@ -28,10 +28,15 @@ function fakeFetch(status: number, body: unknown = {}) {
   return fetch;
 }
 
-/** A fetch that answers its calls with `answers` in order, recording the calls. */
-function fakeFetches(...answers: [status: number, body?: unknown][]) {
+/**
+ * A fetch that answers its calls with `answers` in order, recording the calls.
+ * `"network"` fails the call as an unreachable server does.
+ */
+function fakeFetches(...answers: ([status: number, body?: unknown] | "network")[]) {
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => {
-    const [status, body] = answers.shift()!;
+    const answer = answers.shift()!;
+    if (answer === "network") throw new TypeError("fetch failed");
+    const [status, body] = answer;
     return new Response(body === undefined ? null : JSON.stringify(body), { status });
   });
   vi.stubGlobal("fetch", fetch);
@@ -41,13 +46,22 @@ function fakeFetches(...answers: [status: number, body?: unknown][]) {
 /** Let the handover's fetch and its continuations settle. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
+/** Let every retry of a failed session call run. */
+const settleRetries = () => vi.advanceTimersByTimeAsync(5_000);
+
+/** The method and body of each session call made. */
+const callsOf = (fetch: ReturnType<typeof fakeFetches>) =>
+  fetch.mock.calls.map(([, init]) => [init.method, init.body ?? null]);
+
 /** Start a host session on a fresh fake socket, recording what it reports. */
 function start(serveClaims = false) {
   const claims: SessionClaim[] = [];
   const denied = vi.fn();
+  const claimOver = vi.fn();
   const session = startHostSession({
     serveClaims,
     onDenied: denied,
+    onClaimOver: claimOver,
     url: "wss://signal.test",
     hostId: "pc-1",
     machineKey: "test-machine-key",
@@ -58,7 +72,7 @@ function start(serveClaims = false) {
   });
   const socket = FakeSocket.instances[0]!;
   socket.accept();
-  return { session, socket, claims, denied };
+  return { session, socket, claims, denied, claimOver };
 }
 
 describe("startHostSession", () => {
@@ -111,7 +125,7 @@ describe("startHostSession", () => {
 
   it("goes back to the machine key when the session ends, without reporting a denial", async () => {
     fakeFetch(201, { sessionKey: "test-session-key" });
-    const { session, socket, denied } = start(true);
+    const { session, socket, denied, claimOver } = start(true);
     socket.deliver(CLAIM);
     await settle();
     const streamer = FakeSocket.instances[1]!;
@@ -122,6 +136,90 @@ describe("startHostSession", () => {
     next.accept();
     expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
     expect(denied).not.toHaveBeenCalled();
+    expect(claimOver).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("tries a start again after a network error or a 5xx, keeping the claim", async () => {
+    const fetch = fakeFetches(
+      "network",
+      [503, { error: "internal-error" }],
+      [201, { sessionKey: "test-session-key" }],
+    );
+    const { session, socket, claimOver } = start(true);
+    socket.deliver(CLAIM);
+    await settleRetries();
+    expect(callsOf(fetch)).toEqual(Array(3).fill(["POST", JSON.stringify({ sessionId: "s1" })]));
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+    expect(streamer.messages).toEqual([{ type: "register", hostId: "pc-1", sessionKey: "test-session-key" }]);
+    expect(claimOver).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("tries an end again when it fails, then starts the same session", async () => {
+    const fetch = fakeFetches(
+      [201, { sessionKey: "test-session-key" }],
+      [500, { error: "internal-error" }],
+      "network",
+      [204],
+      [201, { sessionKey: "test-session-key-2" }],
+    );
+    const { session, socket, denied } = start(true);
+    socket.deliver(CLAIM);
+    await settle();
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+
+    streamer.deliver({ type: "denied", reason: "bad-session-key" });
+    await settleRetries();
+    expect(callsOf(fetch).slice(1)).toEqual([
+      ["DELETE", null],
+      ["DELETE", null],
+      ["DELETE", null],
+      ["POST", JSON.stringify({ sessionId: "s1" })],
+    ]);
+    const next = FakeSocket.instances[2]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", sessionKey: "test-session-key-2" }]);
+    expect(denied).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("does not try a refused start again", async () => {
+    const fetch = fakeFetches([401, { error: "bad-machine-key" }]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { session, socket, claimOver } = start(true);
+    socket.deliver(CLAIM);
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const next = FakeSocket.instances[1]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    expect(claimOver).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("ends a session it no longer serves when the machine key is kept out, and registers again", async () => {
+    const fetch = fakeFetches([204]);
+    const { session, socket, denied } = start(true);
+    socket.deliver({ type: "denied", reason: "session-active" });
+    await settle();
+    expect(callsOf(fetch)).toEqual([["DELETE", null]]);
+    const next = FakeSocket.instances[1]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    expect(denied).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("reports the machine key kept out when the session holding the room cannot be ended", async () => {
+    fakeFetches([401, { error: "bad-machine-key" }]);
+    const { session, socket, denied } = start(true);
+    socket.deliver({ type: "denied", reason: "session-active" });
+    await settle();
+    expect(denied).toHaveBeenCalledTimes(1);
+    expect(FakeSocket.instances).toHaveLength(1);
     session.stop();
   });
 

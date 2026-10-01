@@ -700,6 +700,32 @@ describe("host sessions", () => {
     await api(room, "DELETE");
   });
 
+  it("pushes the claim again when the machine key registers with no host session live", async () => {
+    const room = nextRoom();
+    const claimsOf = (ws: RecordingSocket) => ws.received.filter((m) => m.type === "session-claimed");
+    const machine = async () => {
+      const ws = await open();
+      send(ws, register(room));
+      await wait(100);
+      ws.close();
+      return ws;
+    };
+
+    assert.deepEqual(claimsOf(await machine()), [], "nothing claimed");
+
+    const sessionId = await claimRoom(room, 45);
+    const claimed = [{ type: "session-claimed", sessionId, appid: 730, minutes: 45 }];
+    assert.deepEqual(claimsOf(await machine()), claimed, "claimed while the PC was away");
+
+    await startSession(room, sessionId);
+    const kept = await machine();
+    assert.deepEqual(denial(kept), { type: "denied", reason: "session-active" });
+    assert.deepEqual(claimsOf(kept), [], "a host session is live");
+
+    await api(room, "DELETE");
+    assert.deepEqual(claimsOf(await machine()), claimed, "the host session was ended, the claim runs on");
+  });
+
   it("starts a session only for the machine's own claimed session", async () => {
     const [room, other] = [nextRoom(), nextRoom()];
     const otherSession = await claimRoom(other);

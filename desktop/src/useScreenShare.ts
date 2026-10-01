@@ -62,6 +62,7 @@ export function useScreenShare() {
       // served with its session key, then the app waits for the next claim.
       serveClaims: true,
       onSessionClaimed: setClaim,
+      onClaimOver: () => setClaim(null),
       onDenied: () => {
         setError("The server refused this machine id and key.");
         stream.getTracks().forEach((t) => t.stop());

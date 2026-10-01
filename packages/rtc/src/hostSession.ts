@@ -9,7 +9,8 @@
 // session's host session and registers again with the session key. A key
 // refused mid-session (expired after a drop) is replaced by ending and starting
 // the same session again; when the session ends it goes back to the machine key
-// to wait for the next claim.
+// to wait for the next claim. A machine key kept out by a session this app lost
+// (reloaded mid-session) ends that session, and the server pushes its claim again.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
@@ -52,6 +53,11 @@ export type HostSessionOptions = IceConfig & {
    * docs/system-design/session-keys.md.
    */
   onSessionClaimed?: (claim: SessionClaim) => void;
+  /**
+   * With `serveClaims`: the claimed session is over or could not be started,
+   * and this machine waits for the next claim with its machine key again.
+   */
+  onClaimOver?: () => void;
   /**
    * Start each claimed session itself and serve it with its session key, as the
    * PC service will. Off, a claim is only reported.
@@ -141,6 +147,14 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     signaling = connect(credential, claim);
   };
 
+  const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
+
+  /** Leave the claim behind and wait for the next one with the machine key. */
+  const backToMachineKey = () => {
+    opts.onClaimOver?.();
+    reconnect({ key: opts.machineKey });
+  };
+
   /**
    * Start the claimed session's host session and serve it; with `restart`, end
    * the live one first for a fresh key. On failure, wait for the next claim.
@@ -148,7 +162,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   const serve = (claim: SessionClaim, restart = false) => {
     signaling?.close();
     signaling = null;
-    const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
     (restart ? endSession(machine) : Promise.resolve())
       .then(() => requestSessionKey({ ...machine, sessionId: claim.sessionId }))
       .then((sessionKey) => !stopped && reconnect({ sessionKey }, claim))
@@ -157,8 +170,17 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
           "[swiff] could not start the claimed session:",
           cause instanceof Error ? cause.message : cause,
         );
-        if (!stopped) reconnect({ key: opts.machineKey });
+        if (!stopped) backToMachineKey();
       });
+  };
+
+  /** End the session holding the room, then register with the machine key; the claim is pushed again. */
+  const reclaim = () => {
+    signaling?.close();
+    signaling = null;
+    endSession(machine)
+      .then(() => !stopped && reconnect({ key: opts.machineKey }))
+      .catch(() => opts.onDenied?.());
   };
 
   /** Register with `credential`; `claim` is the session served with it, null for the machine key. */
@@ -172,12 +194,15 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void, claim: SessionClaim | null) => {
     switch (msg.type) {
       case "denied":
-        // The machine key refused is final. A session key refused may only
-        // have expired: end and start the same session for a fresh one. Once
-        // the session is over, back to waiting for the next renter.
-        if (!claim) opts.onDenied?.();
-        else if (msg.reason === "bad-session-key") serve(claim, true);
-        else reconnect({ key: opts.machineKey });
+        // A session key refused may only have expired: end and start the
+        // same session for a fresh one. Once the session is over, back to
+        // waiting for the next renter. A machine key kept out by a session
+        // this app no longer serves ends it; otherwise its refusal is final.
+        if (claim) {
+          if (msg.reason === "bad-session-key") serve(claim, true);
+          else backToMachineKey();
+        } else if (opts.serveClaims && msg.reason === "session-active") reclaim();
+        else opts.onDenied?.();
         break;
       case "registered":
         serverIce = msg.iceServers ?? [];
@@ -229,9 +254,29 @@ function sessionRoute(url: string, hostId: string): string {
   return `${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`;
 }
 
+/** Waits between tries of a session call that failed on the network or the server. */
+const RETRY_DELAYS_MS = [500, 1_000];
+
+/**
+ * `fetch`, tried again after a network error or a 5xx answer, up to three tries
+ * in all. Any other answer, a refusal included, is returned at once.
+ */
+async function sessionFetch(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const last = attempt === RETRY_DELAYS_MS.length;
+    try {
+      const res = await fetch(url, init);
+      if (res.status < 500 || last) return res;
+    } catch (cause) {
+      if (last) throw cause;
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+  }
+}
+
 /** End this machine's live host session, if any. Throws with the status alone when refused. */
 async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<void> {
-  const res = await fetch(sessionRoute(url, hostId), {
+  const res = await sessionFetch(sessionRoute(url, hostId), {
     method: "DELETE",
     headers: { authorization: `Bearer ${machineKey}` },
   });
@@ -241,8 +286,8 @@ async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<voi
 /**
  * Start the host session for claimed platform session `sessionId` with this
  * machine's key, and return its session key. The HTTP origin is the signaling
- * server's. Throws with the status alone when the server refuses: the body is
- * never surfaced.
+ * server's. Tried again on a network error or a 5xx. Throws with the status
+ * alone when the server refuses: the body is never surfaced.
  */
 export async function requestSessionKey({
   url,
@@ -250,7 +295,7 @@ export async function requestSessionKey({
   machineKey,
   sessionId,
 }: MachineAuth & { sessionId: string }): Promise<string> {
-  const res = await fetch(sessionRoute(url, hostId), {
+  const res = await sessionFetch(sessionRoute(url, hostId), {
     method: "POST",
     headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
     body: JSON.stringify({ sessionId }),

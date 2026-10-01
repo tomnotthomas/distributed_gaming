@@ -208,8 +208,8 @@ function evictStreamer(hostId: string, sessionId: string): void {
 /**
  * Tell the claimed PC now rather than at its next heartbeat. Only a host
  * registered with the machine key hears it: that is the PC service, never a
- * streamer in a renter's account. A PC that is not connected learns from its
- * heartbeat instead.
+ * streamer in a renter's account. A PC that is not connected hears it when it
+ * registers, or learns from its heartbeat.
  */
 function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
   const host = rooms.get(hostId)?.host;
@@ -318,7 +318,7 @@ async function answerSession(
   }
   // Only the session a renter has claimed on this machine, and only while it
   // runs: a host session can never outlive or stand in for its platform session.
-  if (platform.claimedSession(hostId) !== sessionId) {
+  if (platform.claimedSession(hostId)?.sessionId !== sessionId) {
     json(res, 409, { error: "not-claimed" });
     return;
   }
@@ -463,6 +463,12 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
       // A client that arrived first is still waiting; tell the host now.
       if (room.client) send(ws, { type: "peer-joined" });
+      // A PC that missed its claim, or lost it before starting the session,
+      // hears it again: the machine key only registers with no session live.
+      if (sessionId === null) {
+        const claimed = platform.claimedSession(msg.hostId);
+        if (claimed) pushClaim(msg.hostId, claimed);
+      }
       return;
     }
 

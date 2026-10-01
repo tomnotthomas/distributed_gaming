@@ -61,14 +61,20 @@ machine, the server pushes to that socket, and to no other machine's:
 starting the host session for exactly that `sessionId`. A streamer registered with a
 session key never receives it.
 
-If the service was not connected when the claim happened, the heartbeat
-(`POST /api/machines/:id/heartbeat`) carries the same id as `session.id`; start with that.
+If the service was not connected when the claim happened, it hears `session-claimed` as
+soon as it registers with the machine key while that session runs with no host session
+live; the heartbeat (`POST /api/machines/:id/heartbeat`) also carries the same id as
+`session.id`. Start with that.
 
 Until the Windows service exists, the host app (the desktop app and the web host page)
 stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
 starting that session, registers again with the session key, and goes back to the machine
 key once the session is over. A session key refused with `bad-session-key` is replaced as
 the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
+A start or end that fails on the network or with a `5xx` is tried up to three times; a
+`4xx` refusal goes back to the machine key at once. A machine key refused with
+`session-active` (the app reloaded mid-session) ends that session with `DELETE` and
+registers again, and the claim is pushed to it again.
 
 Starting the host session puts the machine-key socket out with `denied session-active`,
 and the machine key cannot register again while the session is live. Once the session has

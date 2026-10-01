@@ -429,12 +429,15 @@ export class Platform {
     return row?.machine_id ?? null;
   }
 
-  /** The id of the session running on the machine, if any: the only one its host session may start for. */
-  claimedSession(machineId: string): string | null {
+  /** The session running on the machine, if any: the only one its host session may start for. */
+  claimedSession(machineId: string): ClaimedSession | null {
     const row = this.#db
-      .prepare("SELECT id FROM sessions WHERE machine_id = ? AND ended_at IS NULL")
-      .get(machineId) as { id: string } | undefined;
-    return row?.id ?? null;
+      .prepare(
+        `SELECT s.id, b.game_id, b.minutes FROM sessions s JOIN bookings b ON b.id = s.booking_id
+         WHERE s.machine_id = ? AND s.ended_at IS NULL`,
+      )
+      .get(machineId) as { id: string; game_id: number; minutes: number } | undefined;
+    return row ? { sessionId: row.id, gameId: row.game_id, minutes: row.minutes } : null;
   }
 
   /** The host sessions of sessions.ts, kept in key_sessions. */
