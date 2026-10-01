@@ -12,12 +12,17 @@ import { DatabaseSync } from "node:sqlite";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
+import { mintRenterSession } from "../access.js";
 import { sessionPath, type SessionGrant, type SignalMessage } from "../protocol.js";
+import { SESSION_COOKIE } from "../signin.js";
 import { REPORT } from "./report.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8900 + Math.floor(Math.random() * 300);
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
+const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
+/** A signed-in renter, who alone may book and claim. */
+const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 const DIR = mkdtempSync(join(tmpdir(), "swiff-restart-"));
@@ -34,6 +39,7 @@ async function startServer(): Promise<void> {
       ...process.env,
       PORT: String(PORT),
       ROOM_SECRET: SECRET,
+      SESSION_SECRET,
       MACHINE_KEYS: `pc-1:${HASH}`,
       DATABASE_PATH,
     },
@@ -59,11 +65,12 @@ async function stopServer(): Promise<void> {
   server = undefined;
 }
 
-/** One JSON call, with the machine key as bearer when given one. */
+/** One JSON call as the signed-in renter, with the machine key as bearer when given one. */
 async function call(method: string, path: string, body?: unknown, key?: string) {
   const res = await fetch(`http://localhost:${PORT}${path}`, {
     method,
     headers: {
+      cookie: RENTER_COOKIE,
       ...(key ? { authorization: `Bearer ${key}` } : {}),
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },

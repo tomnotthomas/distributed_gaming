@@ -928,3 +928,52 @@ describe("machine stability", () => {
     });
   });
 });
+
+describe("renters and owners", () => {
+  const RENTER = "76561198000000001";
+  const OWNER = "76561198000000003";
+
+  beforeEach(() => {
+    platform = new Platform({ now: () => now, owners: new Map([["pc-own", OWNER]]) });
+  });
+
+  it("never matches a booking to a machine its renter owns", () => {
+    platform.setAvailability("pc-own", true, { ...REPORT, price: 10 });
+    const own = platform.book(730, 30, OWNER);
+    assert.equal(own.status, "queued");
+
+    beatFor("pc-own", 30_000);
+    platform.book(730, 30, OWNER); // touching the queue again changes nothing
+    assert.equal(platform.booking(own.bookingId, OWNER)!.status, "queued");
+
+    // The same machine goes to the next renter in line instead.
+    assert.equal(platform.book(730, 30, RENTER).machine?.id, "pc-own");
+    platform.setAvailability("pc-1", true, { ...REPORT, price: 99 });
+    assert.equal(platform.booking(own.bookingId, OWNER)!.machine?.id, "pc-1");
+  });
+
+  it("takes the owner from the configuration each time the machine checks in", async () => {
+    await withDatabaseFile((path) => {
+      const before = new Platform({ path, now: () => now });
+      before.setAvailability("pc-1", true, REPORT);
+      before.close();
+
+      // Restarted with pc-1's owner configured: the stored machine learns it.
+      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
+      after.heartbeat("pc-1");
+      assert.equal(after.book(730, 30, OWNER).status, "queued");
+      assert.equal(after.book(730, 30, RENTER).status, "matched");
+      after.close();
+    });
+  });
+
+  it("shows and hands a booking only to the renter who made it", () => {
+    platform.setAvailability("pc-1", true, REPORT);
+    const { bookingId } = platform.book(730, 30, RENTER);
+    assert.equal(platform.booking(bookingId, OWNER), null);
+    assert.equal(platform.booking(bookingId), null); // nor to nobody
+    assert.deepEqual(platform.claim(bookingId, OWNER), { ok: false, reason: "not-found" });
+    assert.equal(platform.booking(bookingId, RENTER)!.status, "matched");
+    assert.ok(platform.claim(bookingId, RENTER).ok);
+  });
+});

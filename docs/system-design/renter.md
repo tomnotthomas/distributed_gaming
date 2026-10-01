@@ -88,36 +88,69 @@ match puts the booking back in the queue in its old place.
 Machines, bookings, reservations and sessions are one SQLite table each
 (`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
 need no database server). The file is `DATABASE_PATH`; unset, the data lives in memory
-and resets with the server. Users, games and saves have no table yet: games come from
-Steam, and saves are not built.
+and resets with the server. Users, games and saves have no table yet: a user is their
+Steam id (a booking's `renter_id`, a machine's `owner_id`), games come from Steam, and
+saves are not built.
 
 ---
 
 ## 5. API
 
-All requests are HTTPS, served under `/api` (`server/src/api.ts`). The design is that
-they carry the Steam sign-in session and only `GET /games` works signed out. **Not built
-yet:** the server keeps no sign-in session, so today the unguessable booking id is the
-renter's only credential and anyone who can reach the server can book.
+All requests are HTTPS, served under `/api` (`server/src/api.ts`). They carry the
+renter's sign-in session, and only `GET /games` and `POST /signout` work signed out;
+everything else answers `401` without one.
+
+### Sign-in session
+
+Sign-in is Steam OpenID (`server/src/steam.ts`): `/auth/steam/login` sends the browser to
+Steam, and `/auth/steam/return` checks Steam's answer with Steam itself. When Steam vouches
+for the player, the server signs them in with a cookie (`server/src/signin.ts`) and sends
+them back to the page they came from, flagged `#steam=ok` (or `#steam=denied`). Nothing
+about the player rides in the URL.
+
+| Cookie          | Holds                                                                                     | Attributes                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `swiff_session` | The renter's Steam id and an expiry (7 days), signed with `SESSION_SECRET` (HMAC-SHA256). | `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` whenever the site is on https. |
+
+- **`SESSION_SECRET` is its own secret,** at least 32 characters and never `ROOM_SECRET`,
+  so a leak of one forges neither the other's tickets nor sessions. Without it nobody can
+  sign in, and so nobody can book.
+- **The server keeps no session state.** Signing out clears the browser's cookie; a copy
+  of the cookie taken before then stays valid until it expires. `HttpOnly` keeps it out of
+  reach of scripts on the page, and `SameSite=Lax` keeps it off another site's POSTs, so
+  another site cannot book or claim as the renter.
+- **The page asks the server who is signed in** (`GET /me`), on every load, so a signed-in
+  renter stays signed in across reloads until the cookie expires or they sign out.
 
 ### Booking API
 
 ```
 GET  /games
   → 200 [{ id, name, image }]
-  List the games that can be booked.
+  List the games that can be booked. Works signed out.
+
+GET  /me
+  → 200 { steamId, profile }
+  Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
+  → 401 when nobody is.
+
+POST /signout
+  → 204
+  Clear the sign-in cookie. Works signed out.
 
 POST /bookings
   { gameId, minutes }
   → 202 { bookingId, status }
-  Request a game for N minutes (at most 720). Matching happens in the background;
-  `status` is "matched" already when a machine was free.
+  Request a game for N minutes (at most 720), as the signed-in renter. Matching happens
+  in the background; `status` is "matched" already when a machine was free.
 
 GET  /bookings/:id
   → 200 { bookingId, status, machine?, claimBy?, price? }
   Check whether a machine has been found yet. `claimBy` is when the reservation
   lapses; `price` (cents) is set once the session has ended. Checking also keeps a
   queued booking in the queue: one nobody has checked on for 2 minutes expires.
+  → 404 for an unknown booking, and for one another renter made: a renter only ever
+  sees their own.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
@@ -125,6 +158,7 @@ POST /bookings/:id/claim
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired).
+  → 404 for a booking another renter made.
 
 POST /sessions/:id/qos
   { fps, bitrate, rttMs, packetLoss }
@@ -145,11 +179,14 @@ POST /sessions/:id/leave
 Matching runs in the server process, every second and on every change: the oldest
 queued booking gets the cheapest live machine that is free for all of its minutes, has
 the game installed and meets the game's minimum hardware (ranking gates E2 and E3), and
-is not the renter's own (E5); the machine is reserved for it. A reservation lasts 60 s. When it lapses unclaimed, a
-renter who checked on the booking since the match saw it and let it go, so the booking
-expires and the machine goes to the next in line; a renter who has not been heard from
-since the match was away, so the booking goes back to the queue in its old place. A
-machine that goes silent also hands its reserved booking back to the queue.
+is not the renter's own (E5); the machine is reserved for it. A machine's owner is the
+Steam id on its `MACHINE_KEYS` entry, recorded on the machine each time it checks in; a
+machine whose entry names no owner can be matched to anyone, and the server warns about
+it at startup. A reservation lasts 60 s. When it lapses unclaimed, a renter who checked
+on the booking since the match saw it and let it go, so the booking expires and the
+machine goes to the next in line; a renter who has not been heard from since the match
+was away, so the booking goes back to the queue in its old place. A machine that goes
+silent also hands its reserved booking back to the queue.
 
 A queued booking expires 2 minutes after the renter last checked on it, so a renter who
 closed the tab does not hold a machine when one frees up. Until then the server keeps it
@@ -200,8 +237,9 @@ configured the server lets nobody in (`server/src/access.ts`).
   session ends (the host ends it, the owner takes the machine back, the machine goes
   silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
   and a renter still in the room with it is put out within a second.
-- **Tickets come from `claim`.** `npm run ticket -- <machine-id>` still mints one by
-  hand for testing. Machine keys are made by hand: `npm run machine-key -- <machine-id>`.
+- **Tickets come from `claim`,** which only the signed-in renter who made the booking
+  can call. `npm run ticket -- <machine-id>` still mints one by hand for testing. Machine keys are made by hand:
+  `npm run machine-key -- <machine-id> <owner-steam-id>`.
 
 The server hands both peers the STUN/TURN settings when they join, with short-lived TURN
 credentials it mints itself (`server/src/ice.ts`).

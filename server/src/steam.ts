@@ -1,22 +1,22 @@
-/* Steam OpenID 2.0, with no server state at all.
+/* Steam OpenID 2.0, and the profile the page shows for a signed-in renter.
  *
- * Ported from prototypes/steam-auth.mjs, where the approach was settled: the
- * profile rides home in the URL fragment instead of being parked in a Map, so
- * this process holds nothing between requests and the same code runs on a
- * laptop, a Worker or a serverless function.
+ * Ported from prototypes/steam-auth.mjs. Sign-in is two redirects: to Steam,
+ * and back to /auth/steam/return, where the assertion is checked with Steam
+ * itself. What it proves, the 17-digit Steam id, becomes the renter's sign-in
+ * session cookie (signin.ts); the page then reads its profile from GET /api/me.
  *
- * What comes back is deliberately small: persona, avatar, total hours, library
- * size, which of the wall's appids the player owns, and their most-played games
- * with names so the wall can render real titles. The library is capped because
- * the whole payload has to fit in a URL fragment — a 4000-game account must not
- * produce a 200 KB URL.
+ * What the profile holds is deliberately small: persona, avatar, total hours,
+ * library size, which of the wall's appids the player owns, and their
+ * most-played games with names so the wall can render real titles. The library
+ * is capped: a 4000-game account must not make every page load ship it all.
  *
- * Nothing is written down anywhere. No database, no cookie, no file.
+ * Nothing about the profile is written down. It is read from Steam when asked
+ * for and discarded once answered.
  */
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
-/** How many of the player's own games ride home in the fragment. */
+/** How many of the player's own games the profile names. */
 export const LIBRARY_CAP = 14;
 
 /** The nine hand-authored titles on the wall, which keep their own copy. */
@@ -47,7 +47,8 @@ export type SteamProfile = {
   lib: boolean;
 };
 
-const empty = (steamid: string): SteamProfile => ({
+/** The profile of a player Steam vouched for but whose details cannot be read. */
+export const emptyProfile = (steamid: string): SteamProfile => ({
   id: steamid.slice(-4),
   persona: "",
   avatar: "",
@@ -57,14 +58,6 @@ const empty = (steamid: string): SteamProfile => ({
   games: [],
   lib: false,
 });
-
-export function b64urlEncode(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
 
 /** Build the redirect to Steam's own login page. */
 export function loginUrl({ origin, returnTo }: { origin: string; returnTo?: string | undefined }): string {
@@ -119,7 +112,7 @@ async function steamApi(apiKey: string, path: string, params: Record<string, str
  * page needs. The full library is discarded here and never stored.
  */
 export async function readProfile(apiKey: string | undefined, steamid: string): Promise<SteamProfile> {
-  const out = empty(steamid);
+  const out = emptyProfile(steamid);
   if (!apiKey) return out;
 
   const summaries = await steamApi(apiKey, "ISteamUser/GetPlayerSummaries/v2/", {
@@ -156,30 +149,24 @@ export async function readProfile(apiKey: string | undefined, steamid: string): 
   return out;
 }
 
-/** Where to send the browser once Steam has answered. */
+/**
+ * Where to send the browser once Steam has answered, and the Steam id Steam
+ * vouched for (null when it did not). The page it lands on is flagged
+ * `#steam=ok` or `#steam=denied`; the caller signs the renter in.
+ */
 export async function returnUrl({
   origin,
   searchParams,
-  apiKey,
 }: {
   origin: string;
   searchParams: URLSearchParams;
-  apiKey?: string | undefined;
-}): Promise<string> {
+}): Promise<{ location: string; steamId: string | null }> {
   const to = searchParams.get("to") ?? "/";
   const dest = new URL(to.startsWith("/") ? to : "/", origin);
 
-  const steamid = await verifyAssertion(searchParams).catch(() => null);
-  if (!steamid) {
-    dest.hash = "steam=denied";
-    return dest.toString();
-  }
-
-  // A Web API outage must not read as a denied sign-in: the player is who they
-  // said they are, we just cannot list their library yet.
-  const profile = await readProfile(apiKey, steamid).catch(() => empty(steamid));
-  dest.hash = `steam=${b64urlEncode(profile)}`;
-  return dest.toString();
+  const steamId = await verifyAssertion(searchParams).catch(() => null);
+  dest.hash = steamId ? "steam=ok" : "steam=denied";
+  return { location: dest.toString(), steamId };
 }
 
 /** Derive the public origin from the request, so deploys need no config. */

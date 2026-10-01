@@ -11,7 +11,8 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { REPORT } from "./report.js";
 
@@ -21,6 +22,9 @@ const ORIGIN = `ws://localhost:${PORT}`;
 
 // Every room a test may use is a registered machine, all sharing one key.
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
+const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
+/** A signed-in renter, who alone may book and claim. */
+const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const ROOMS = Array.from({ length: 60 }, (_, i) => `pc-${i}`);
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
@@ -69,6 +73,7 @@ before(async () => {
       ...process.env,
       PORT: String(PORT),
       ROOM_SECRET: SECRET,
+      SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
     },
     stdio: "ignore",
@@ -357,11 +362,12 @@ describe("host sessions", () => {
       ws.once("close", (code) => resolve(code));
     });
 
-  /** One JSON call to the server, with the machine key as bearer when given one. */
+  /** One JSON call to the server as the signed-in renter, with the machine key as bearer when given one. */
   async function call(method: string, path: string, body?: unknown, key?: string) {
     const res = await fetch(`${HTTP}${path}`, {
       method,
       headers: {
+        cookie: RENTER_COOKIE,
         ...(key ? { authorization: `Bearer ${key}` } : {}),
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
       },

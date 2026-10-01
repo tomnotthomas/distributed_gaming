@@ -1,16 +1,19 @@
 // The platform's HTTP API, over the state in platform.ts.
 //
-//   Booking API (renter)                   Host API (gaming PC, machine key)
-//   GET  /api/games                        PUT  /api/machines/:id/availability
-//   POST /api/bookings                     POST /api/machines/:id/heartbeat
-//   GET  /api/bookings/:id                 POST /api/sessions/:id/start
-//   POST /api/bookings/:id/claim           POST /api/sessions/:id/end
-//   POST /api/sessions/:id/qos (ticket)
+//   Booking API (renter, signed in)        Host API (gaming PC, machine key)
+//   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
+//   GET  /api/me                           POST /api/machines/:id/heartbeat
+//   POST /api/signout        (signed out)  POST /api/sessions/:id/start
+//   POST /api/bookings                     POST /api/sessions/:id/end
+//   GET  /api/bookings/:id
+//   POST /api/bookings/:id/claim
+//   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
-// key it registers its room with (access.ts). A renter holds nothing but the
-// booking id, which is unguessable. Claiming mints the join ticket the way
+// key it registers its room with (access.ts). The renter authenticates with the
+// sign-in session cookie set after Steam sign-in (signin.ts), and sees and
+// claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
 // The renter's page reports stream quality, and says it is leaving, with that
 // ticket as its bearer.
@@ -21,8 +24,9 @@ import { popularGames } from "./catalog.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
-import { originFrom } from "./steam.js";
 import { bearer, HttpError, readJson } from "./http.js";
+import { clearedCookie, renterOf } from "./signin.js";
+import { emptyProfile, originFrom, readProfile, type SteamProfile } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
@@ -34,16 +38,27 @@ type Json = Record<string, unknown>;
 export type ApiOptions = {
   platform: Platform;
   access: Access;
+  /** Signs renters' session cookies (signin.ts). Null: nobody is signed in. */
+  sessionSecret: string | null;
   /** Used when the request carries no host header. */
   fallbackOrigin: string;
   /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
+  /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
+  profile?: (steamId: string) => Promise<SteamProfile>;
 };
 
 /** Answer with a JSON body that no cache keeps. */
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
+}
+
+/** The signed-in renter's Steam id; 401 when the request carries no live session. */
+function requireRenter(req: IncomingMessage, sessionSecret: string | null): string {
+  const renter = renterOf(req, sessionSecret);
+  if (!renter) throw new HttpError(401, "sign in with Steam first");
+  return renter;
 }
 
 /** 401 unless the request carries this machine's own key. */
@@ -123,7 +138,14 @@ const defaultGames = async () =>
  * answered. Mount it after the catalog, which owns /api/games/popular and
  * /api/games/media.
  */
-export function createApi({ platform, access, fallbackOrigin, games = defaultGames }: ApiOptions) {
+export function createApi({
+  platform,
+  access,
+  sessionSecret,
+  fallbackOrigin,
+  games = defaultGames,
+  profile = (steamId) => readProfile(undefined, steamId),
+}: ApiOptions) {
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const method = req.method ?? "GET";
@@ -144,28 +166,49 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
       return true;
     }
 
+    if (resource === "me" && !id && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      // A Steam outage must not read as signed out: the session stands.
+      reply(res, 200, { steamId, profile: await profile(steamId).catch(() => emptyProfile(steamId)) });
+      return true;
+    }
+
+    if (resource === "signout" && !id && method === "POST") {
+      // Stateless: clearing the browser's cookie is the whole of signing out.
+      res.writeHead(204, {
+        "set-cookie": clearedCookie(originFrom(req.headers, fallbackOrigin)),
+        "cache-control": "no-store",
+      });
+      res.end();
+      return true;
+    }
+
     if (resource === "bookings" && !id && method === "POST") {
+      const renter = requireRenter(req, sessionSecret);
       const body = await readJson(req);
       const booking = platform.book(
         positiveInt(body.gameId, "gameId"),
         positiveInt(body.minutes, "minutes", MAX_MINUTES),
+        renter,
       );
       reply(res, 202, booking);
       return true;
     }
 
     if (resource === "bookings" && id && !action && method === "GET") {
-      const booking = platform.booking(id);
+      // Somebody else's booking reads exactly like one that does not exist.
+      const booking = platform.booking(id, requireRenter(req, sessionSecret));
       if (!booking) throw new HttpError(404, "no such booking");
       reply(res, 200, booking);
       return true;
     }
 
     if (resource === "bookings" && id && action === "claim" && method === "POST") {
+      const renter = requireRenter(req, sessionSecret);
       // Checked before the reservation is spent: a claim that cannot hand out
       // a ticket must not use up the renter's machine.
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
-      const claim = platform.claim(id);
+      const claim = platform.claim(id, renter);
       if (!claim.ok) {
         if (claim.reason === "not-found") throw new HttpError(404, "no such booking");
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });

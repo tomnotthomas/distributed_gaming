@@ -4,15 +4,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import {
-  LIBRARY_CAP,
-  b64urlEncode,
-  loginUrl,
-  originFrom,
-  readProfile,
-  returnUrl,
-  verifyAssertion,
-} from "../steam.js";
+import { LIBRARY_CAP, loginUrl, originFrom, readProfile, returnUrl, verifyAssertion } from "../steam.js";
 
 const ORIGIN = "https://swiff.example";
 
@@ -109,37 +101,21 @@ describe("readProfile", () => {
 });
 
 describe("returnUrl", () => {
-  it("flags a denied sign-in on the page the player came from", async () => {
+  it("flags a denied sign-in on the page the player came from, naming nobody", async () => {
     stubFetch("is_valid:false\n");
-    const url = await returnUrl({
-      origin: ORIGIN,
-      searchParams: new URLSearchParams({ to: "/" }),
-      apiKey: "key",
-    });
-    assert.equal(url, `${ORIGIN}/#steam=denied`);
+    const back = await returnUrl({ origin: ORIGIN, searchParams: new URLSearchParams({ to: "/" }) });
+    assert.deepEqual(back, { location: `${ORIGIN}/#steam=denied`, steamId: null });
   });
 
-  it("carries the profile home in the fragment, never the query", async () => {
+  it("names the Steam id Steam vouched for and carries no profile in the URL", async () => {
     stubFetch("is_valid:true\n");
     const params = new URLSearchParams({
-      to: "/",
+      to: "/games",
       "openid.claimed_id": "https://steamcommunity.com/openid/id/76561198000000001",
     });
-    const url = new URL(await returnUrl({ origin: ORIGIN, searchParams: params, apiKey: undefined }));
-    assert.equal(url.search, "");
-    assert.ok(url.hash.startsWith("#steam="));
-    const json = Buffer.from(
-      url.hash.slice("#steam=".length).replace(/-/g, "+").replace(/_/g, "/"),
-      "base64",
-    ).toString("utf8");
-    assert.equal(JSON.parse(json).id, "0001");
-  });
-});
-
-describe("b64urlEncode", () => {
-  it("emits fragment-safe base64", () => {
-    const encoded = b64urlEncode({ persona: "kai?+/=nx" });
-    assert.ok(!/[+/=]/.test(encoded));
+    const back = await returnUrl({ origin: ORIGIN, searchParams: params });
+    assert.equal(back.steamId, "76561198000000001");
+    assert.equal(back.location, `${ORIGIN}/games#steam=ok`);
   });
 });
 

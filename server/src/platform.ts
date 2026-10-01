@@ -31,6 +31,10 @@
 // offered and heartbeat-covered time and its liveness drops per day: with the
 // renter's QoS reports, that is the seven-day stability rank() sorts by
 // (stability.ts).
+//
+// A booking belongs to the renter who made it (renter_id, their Steam id): only
+// they can check on it or claim it. A machine records its owner's Steam id
+// (owner_id) each time it checks in, and gate E5 keeps it from its own owner.
 
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -354,7 +358,7 @@ function passesMatchGates(
   return !failed.some((gate) => MATCH_GATES.includes(gate));
 }
 
-/** Unguessable: a booking id is all a renter needs to claim it. */
+/** Unguessable, so one id cannot be guessed from another. */
 const newId = () => randomBytes(16).toString("base64url");
 
 export class Platform {
@@ -364,6 +368,7 @@ export class Platform {
   readonly #requirements: RequirementsTable;
   readonly #onSessionEnded: (machineId: string, sessionId: string) => void;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
+  readonly #owners: ReadonlyMap<string, string>;
   /** Notices from the open transaction, delivered once it commits. */
   #notices: (() => void)[] = [];
 
@@ -373,20 +378,25 @@ export class Platform {
    * Both run after the change is committed, so what they do (evicting a
    * streamer, telling the PC) never outlives a rolled-back change, and their
    * failure undoes nothing.
+   * `owners` maps a machine id to its owner's Steam id; a machine missing from
+   * it has no recorded owner.
    */
   constructor({
     path = ":memory:",
     now = Date.now,
+    owners = new Map(),
     onSessionEnded = () => {},
     onSessionClaimed = () => {},
   }: {
     path?: string;
     now?: () => number;
+    owners?: ReadonlyMap<string, string>;
     onSessionEnded?: (machineId: string, sessionId: string) => void;
     onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   } = {}) {
     this.#db = new DatabaseSync(path);
     this.#now = now;
+    this.#owners = owners;
     this.#onSessionEnded = onSessionEnded;
     this.#onSessionClaimed = onSessionClaimed;
     this.#db.exec("PRAGMA foreign_keys = ON");
@@ -562,6 +572,7 @@ export class Platform {
 
   // --- renter ----------------------------------------------------------------
 
+  /** Queue a booking for `renterId` (a Steam id; null only in tests) and match at once. */
   book(gameId: number, minutes: number, renterId: string | null = null): BookingView {
     return this.#transaction(() => {
       const now = this.#now();
@@ -577,22 +588,29 @@ export class Platform {
     });
   }
 
-  /** The booking as it stands. Checking on it is what keeps a queued booking in the queue. */
-  booking(bookingId: string): BookingView | null {
+  /**
+   * The booking as it stands, or null when there is none or it is not
+   * `renterId`'s. Checking on it is what keeps a queued booking in the queue.
+   */
+  booking(bookingId: string, renterId: string | null = null): BookingView | null {
     return this.#transaction(() => {
       const now = this.#now();
       this.#tick(now);
+      if (!this.#bookingRow(bookingId, renterId)) return null;
       this.#db.prepare("UPDATE bookings SET last_seen_at = ? WHERE id = ?").run(now, bookingId);
       return this.#bookingView(bookingId);
     });
   }
 
-  /** Take the matched machine. Only a matched booking whose reservation is still live can be claimed. */
-  claim(bookingId: string): ClaimResult {
+  /**
+   * Take the matched machine. Only `renterId`'s own matched booking whose
+   * reservation is still live can be claimed; anyone else's reads as not found.
+   */
+  claim(bookingId: string, renterId: string | null = null): ClaimResult {
     return this.#transaction(() => {
       const now = this.#now();
       this.#tick(now); // a reservation that lapsed a moment ago is not claimable
-      const booking = this.#bookingRow(bookingId);
+      const booking = this.#bookingRow(bookingId, renterId);
       if (!booking) return { ok: false, reason: "not-found" };
       const reservation = this.#db
         .prepare("SELECT * FROM reservations WHERE booking_id = ?")
@@ -913,7 +931,8 @@ export class Platform {
   }
 
   /**
-   * Record a check-in, creating the machine the first time it is heard from.
+   * Record a check-in, creating the machine the first time it is heard from,
+   * and its owner as configured now, so a changed owner applies at once.
    * Time offered since the last one is counted first (see #accrue).
    */
   #touch(machineId: string, now: number): MachineRow {
@@ -922,10 +941,11 @@ export class Platform {
     if (before) this.#accrue(before, now);
     this.#db
       .prepare(
-        `INSERT INTO machines (id, status, last_seen_at, uptime_at) VALUES (?, 'idle', ?, ?)
-           ON CONFLICT (id) DO UPDATE SET last_seen_at = excluded.last_seen_at, uptime_at = excluded.uptime_at`,
+        `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at) VALUES (?, ?, 'idle', ?, ?)
+           ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
+             uptime_at = excluded.uptime_at`,
       )
-      .run(machineId, now, now);
+      .run(machineId, this.#owners.get(machineId) ?? null, now, now);
     return this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
   }
 
@@ -967,11 +987,12 @@ export class Platform {
     return row ?? null;
   }
 
-  /** The booking row, or null when there is none. */
-  #bookingRow(bookingId: string): BookingRow | null {
+  /** The booking row, or null when there is none or, given a renter, it is not theirs. */
+  #bookingRow(bookingId: string, renterId?: string | null): BookingRow | null {
     const row = this.#db.prepare("SELECT * FROM bookings WHERE id = ?").get(bookingId) as
       BookingRow | undefined;
-    return row ?? null;
+    if (!row || (renterId !== undefined && row.renter_id !== renterId)) return null;
+    return row;
   }
 
   /** Move a machine to `status`. */

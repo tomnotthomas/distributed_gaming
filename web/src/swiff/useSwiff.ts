@@ -3,7 +3,15 @@ import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
 import { closeCall, freeFor, machinesFor } from "./derive";
 import { fetchMedia, fetchPopular } from "./catalog";
-import { applySteam, popularCards, readSteamFragment, withMedia, type SteamProfile } from "./steam";
+import {
+  applySteam,
+  fetchRenter,
+  popularCards,
+  readSteamFragment,
+  signOut as endSignIn,
+  withMedia,
+  type SteamProfile,
+} from "./steam";
 
 export type Screen = "home" | "game" | "profile";
 export type Phase = "idle" | "connecting" | "live";
@@ -83,39 +91,54 @@ export function useSwiff() {
 
   useEffect(() => {
     const result = readSteamFragment();
-    if (result === null || result === "denied") {
-      if (result === "denied") {
-        setSteamDenied(true);
-        track("steam_sign_in_denied");
-      }
-      // Signed out: lead with what people are actually playing on Steam. Until
-      // it arrives, or if Steam is down, the hand-authored nine stay up.
-      void fetchPopular().then((catalog) => {
-        if (!catalog.length) return;
-        const cards = popularCards(catalog, sharedMachineIds);
-        setGames((prev) => {
-          const open = prev.find((g) => g.id === openGameId.current);
-          return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;
-        });
-      });
-      return;
+    if (result === "denied") {
+      setSteamDenied(true);
+      track("steam_sign_in_denied");
     }
-    setProfile(result);
-    const library = applySteam(result, sharedMachineIds);
-    setGames(library);
-    // Every card asks the catalog for its real header image; the ones without
-    // a curated trailer get theirs from there too.
-    void fetchMedia(library.map((g) => g.appid)).then((catalog) =>
-      setGames((prev) => withMedia(prev, catalog)),
-    );
-    track("library_matched", {
-      owned_here: result.owned.length,
-      library_rendered: result.games.length,
-      library_size: result.size,
+    // The session cookie, not the URL, says who is signed in.
+    void fetchRenter().then((renter) => {
+      if (!renter) {
+        // Signed out: lead with what people are actually playing on Steam. Until
+        // it arrives, or if Steam is down, the hand-authored nine stay up.
+        void fetchPopular().then((catalog) => {
+          if (!catalog.length) return;
+          const cards = popularCards(catalog, sharedMachineIds);
+          setGames((prev) => {
+            const open = prev.find((g) => g.id === openGameId.current);
+            return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;
+          });
+        });
+        return;
+      }
+      const { profile } = renter;
+      setProfile(profile);
+      const library = applySteam(profile, sharedMachineIds);
+      setGames(library);
+      // Every card asks the catalog for its real header image; the ones without
+      // a curated trailer get theirs from there too.
+      void fetchMedia(library.map((g) => g.appid)).then((catalog) =>
+        setGames((prev) => withMedia(prev, catalog)),
+      );
+      // Counted once per sign-in, not on every page load of a signed-in renter.
+      if (result === "ok") {
+        track("library_matched", {
+          owned_here: profile.owned.length,
+          library_rendered: profile.games.length,
+          library_size: profile.size,
+        });
+      }
     });
     // sharedMachineIds is stable for the seed pool; re-running on Moss freeing
-    // would re-decode a fragment that has already been cleared.
+    // would re-read a fragment that has already been cleared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Sign out, then start over on the signed-out wall. */
+  const signOut = useCallback(() => {
+    track("steam_signed_out");
+    void endSignIn()
+      .catch(() => {})
+      .then(() => window.location.assign("/"));
   }, []);
 
   // --- timers ----------------------------------------------------------------
@@ -298,6 +321,7 @@ export function useSwiff() {
     setSound,
     setQuality,
     setShowAll,
+    signOut,
   };
 }
 

@@ -40,6 +40,9 @@ export function Profile({ swiff }: { swiff: Swiff }) {
             <div className="profile-line">
               <StatusDot />
               Steam connected · {owned} games · {profile.size} in your library
+              <Button variant="link" size="sm" onClick={swiff.signOut}>
+                Sign out
+              </Button>
             </div>
           ) : (
             <div className="profile-connect">
