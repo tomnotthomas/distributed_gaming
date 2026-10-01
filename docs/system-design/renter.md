@@ -207,8 +207,8 @@ GET  /events?booking=:id
   heartbeat or poll. A booking takes at most 3 streams at a time, a signed-in renter 10
   and the server 500 (`MAX_EVENT_STREAMS_PER_RENTER`, `MAX_EVENT_STREAMS`); more are
   refused with 429. A stream the renter does not read fast enough is dropped (EventSource
-  reconnects it). → 404 for an unknown booking or another renter's, even one whose own
-  streams are full.
+  reconnects it). → 404 for an unknown booking or another renter's, even while a stream
+  cap is full.
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }

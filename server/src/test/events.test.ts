@@ -347,6 +347,11 @@ describe("renter event stream", () => {
     );
     // Booking 3 holds one stream, well under its own cap: only the renter's cap refuses this.
     assert.equal((await stream(`?booking=${bookings[2]}`, rotated())).status, 429, "their sixth");
+    assert.equal(
+      (await stream("?booking=no-such-booking", rotated())).status,
+      404,
+      "an unknown one is still 404",
+    );
     const theirs = platform.book(730, 30, OTHER).bookingId;
     const other = await stream(`?booking=${theirs}`, rotated(), signedIn(OTHER));
     assert.equal(other.status, 200, "another renter is not held to the first one's count");
@@ -366,6 +371,16 @@ describe("renter event stream", () => {
     assert.equal(open(a!, first), "opened");
     assert.equal(open(b!), "opened");
     assert.equal(open(c!), "too-many", "a third renter, a third booking: the server is full");
+    assert.equal(
+      open({ renter: c!.renter, bookingId: "no-such-booking" }),
+      "not-found",
+      "an unknown booking reads as not found even when the server is full",
+    );
+    assert.equal(
+      open({ renter: c!.renter, bookingId: a!.bookingId }),
+      "not-found",
+      "and so does somebody else's",
+    );
 
     first.destroy();
     assert.equal(open(c!), "opened");

@@ -113,13 +113,17 @@ export function createRenterEvents(
 
   return {
     open(res, bookingId, renterId, until) {
-      // The renter's own count and the server's say nothing about the booking.
-      if ((perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter || total >= maxStreams) return "too-many";
-      // Somebody else's booking reads as not found, before its own count can
-      // tell anyone it is being watched.
+      // An unknown booking, or somebody else's, reads as not found before any
+      // stream count is checked: a 429 would tell that it exists and is watched.
       const booking = platform.booking(bookingId, renterId);
       if (!booking) return "not-found";
-      if ((streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING) return "too-many";
+      if (
+        (streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING ||
+        (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter ||
+        total >= maxStreams
+      ) {
+        return "too-many";
+      }
 
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
