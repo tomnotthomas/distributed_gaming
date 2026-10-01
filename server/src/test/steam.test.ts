@@ -4,7 +4,15 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { LIBRARY_CAP, loginUrl, originFrom, readProfile, returnUrl, verifyAssertion } from "../steam.js";
+import {
+  LIBRARY_CAP,
+  loginUrl,
+  originFrom,
+  publicOriginFromEnv,
+  readProfile,
+  returnUrl,
+  verifyAssertion,
+} from "../steam.js";
 
 const ORIGIN = "https://swiff.example";
 
@@ -177,5 +185,22 @@ describe("originFrom", () => {
 
   it("falls back when there is no host header at all", () => {
     assert.equal(originFrom({}, "http://fallback"), "http://fallback");
+  });
+});
+
+describe("publicOriginFromEnv", () => {
+  it("takes PUBLIC_ORIGIN as an origin, whatever the environment", () => {
+    const env = { PUBLIC_ORIGIN: " https://swiff.example/ ", NODE_ENV: "production" };
+    assert.equal(publicOriginFromEnv(env, 8080), ORIGIN);
+  });
+
+  it("defaults to plain-http localhost only outside production", () => {
+    assert.equal(publicOriginFromEnv({}, 8080), "http://localhost:8080");
+    assert.equal(publicOriginFromEnv({ NODE_ENV: "production" }, 8080), null);
+  });
+
+  it("refuses a PUBLIC_ORIGIN that is not an http(s) URL", () => {
+    for (const PUBLIC_ORIGIN of ["swiff.example", "ftp://swiff.example"])
+      assert.equal(publicOriginFromEnv({ PUBLIC_ORIGIN }, 8080), null);
   });
 });

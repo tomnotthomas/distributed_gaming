@@ -108,6 +108,16 @@ for the player, the server signs them in with a cookie (`server/src/signin.ts`) 
 them back to the page they came from, flagged `#steam=ok` (or `#steam=denied`). Nothing
 about the player rides in the URL.
 
+Steam's answer only counts when it is from Steam's own endpoint and was made for this
+site's `/auth/steam/return`. "This site" is `PUBLIC_ORIGIN`, never the request's `Host` or
+`X-Forwarded-*` headers, which the client controls; the same origin decides the cookie's
+`Secure` flag and where the browser lands afterwards. Unset, it defaults to
+`http://localhost:<PORT>` outside production; with `NODE_ENV=production` and no
+`PUBLIC_ORIGIN`, every sign-in is refused (`#steam=denied`, no cookie) and the server warns.
+
+Deployment: set both `SESSION_SECRET` (below) and `PUBLIC_ORIGIN` (the site's public
+origin, e.g. `https://swiff.example`) in the server's environment.
+
 | Cookie          | Holds                                                                                     | Attributes                                                                    |
 | --------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `swiff_session` | The renter's Steam id and an expiry (7 days), signed with `SESSION_SECRET` (HMAC-SHA256). | `HttpOnly`, `SameSite=Lax`, `Path=/`; `Secure` whenever the site is on https. |

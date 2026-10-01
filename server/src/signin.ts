@@ -12,8 +12,9 @@
 // the browser's copy. A copied cookie stays valid until it expires, which is why
 // it is HttpOnly (no script on the page can read it) and expires in a week.
 
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { MIN_SECRET_LENGTH, mintRenterSession, verifyRenterSession } from "./access.js";
+import { loginUrl, returnUrl } from "./steam.js";
 
 export const SESSION_COOKIE = "swiff_session";
 
@@ -72,4 +73,57 @@ export function renterOf(req: IncomingMessage, secret: string | null, now = Date
     if (session) return session.steamId;
   }
   return null;
+}
+
+/**
+ * Steam sign-in on `origin`, the configured public origin (publicOriginFromEnv),
+ * never one read from the request. `/auth/steam/login` bounces to Steam;
+ * `/auth/steam/return` verifies what comes back and, when Steam vouches for the
+ * player, signs them in with a session cookie. Without an origin or a
+ * `sessionSecret` every sign-in reads as denied. Returns the handler, which
+ * answers false for every other path.
+ */
+export function createSteamAuth({
+  origin,
+  sessionSecret,
+}: {
+  origin: string | null;
+  sessionSecret: string | null;
+}) {
+  return async function serveSteamAuth(
+    res: ServerResponse,
+    urlPath: string,
+    query: URLSearchParams,
+  ): Promise<boolean> {
+    if (urlPath !== "/auth/steam/login" && urlPath !== "/auth/steam/return") return false;
+
+    if (!origin) {
+      console.warn("[swiff] Steam sign-in refused: PUBLIC_ORIGIN is not set");
+      res.writeHead(302, { location: "/#steam=denied", "cache-control": "no-store" }).end();
+      return true;
+    }
+
+    if (urlPath === "/auth/steam/login") {
+      res.writeHead(302, { location: loginUrl({ origin, returnTo: query.get("to") ?? "/" }) }).end();
+      return true;
+    }
+
+    // Any failure here still lands the player back on the wall, flagged, rather
+    // than on an error page they cannot act on.
+    const back = await returnUrl({ origin, searchParams: query }).catch(() => null);
+    if (!back?.steamId || !sessionSecret) {
+      const denied = new URL(back?.location ?? `${origin}/`);
+      denied.hash = "steam=denied";
+      res.writeHead(302, { location: denied.toString(), "cache-control": "no-store" }).end();
+      return true;
+    }
+    res
+      .writeHead(302, {
+        location: back.location,
+        "set-cookie": sessionCookie(sessionSecret, back.steamId, origin),
+        "cache-control": "no-store",
+      })
+      .end();
+    return true;
+  };
 }

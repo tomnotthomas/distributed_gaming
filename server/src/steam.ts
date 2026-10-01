@@ -173,14 +173,32 @@ export async function returnUrl({
   searchParams: URLSearchParams;
 }): Promise<{ location: string; steamId: string | null }> {
   const to = searchParams.get("to") ?? "/";
-  const dest = new URL(to.startsWith("/") ? to : "/", origin);
+  let dest = new URL(to.startsWith("/") ? to : "/", origin);
+  if (dest.origin !== new URL(origin).origin) dest = new URL("/", origin);
 
   const steamId = await verifyAssertion(searchParams, origin).catch(() => null);
   dest.hash = steamId ? "steam=ok" : "steam=denied";
   return { location: dest.toString(), steamId };
 }
 
-/** Derive the public origin from the request, so deploys need no config. */
+/**
+ * The one origin Steam sign-in trusts: PUBLIC_ORIGIN, or http://localhost:<port>
+ * outside production. Null when PUBLIC_ORIGIN is unset in production or is not
+ * an http(s) URL, and then nobody can sign in. Never read from request headers,
+ * which the client controls.
+ */
+export function publicOriginFromEnv(env: NodeJS.ProcessEnv, port: number): string | null {
+  const configured = env.PUBLIC_ORIGIN?.trim();
+  if (!configured) return env.NODE_ENV === "production" ? null : `http://localhost:${port}`;
+  if (!URL.canParse(configured)) return null;
+  const url = new URL(configured);
+  return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+}
+
+/**
+ * Derive the public origin from the request, for the signaling URL a claim
+ * hands out. Client-controlled: never use it for sign-in (publicOriginFromEnv).
+ */
 export function originFrom(headers: Record<string, string | string[] | undefined>, fallback: string): string {
   if (process.env.PUBLIC_ORIGIN) return process.env.PUBLIC_ORIGIN;
   const forwarded = headers["x-forwarded-host"] ?? headers.host;

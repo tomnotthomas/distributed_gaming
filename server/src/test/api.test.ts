@@ -85,6 +85,7 @@ describe("booking and host API", () => {
         platform,
         access,
         sessionSecret: SESSION,
+        publicOrigin: "http://localhost",
         fallbackOrigin: "http://localhost",
         games,
         profile,

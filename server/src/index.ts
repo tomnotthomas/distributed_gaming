@@ -48,8 +48,8 @@ import {
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
-import { loginUrl, originFrom, readProfile, returnUrl } from "./steam.js";
-import { sessionCookie, sessionSecretFromEnv } from "./signin.js";
+import { publicOriginFromEnv, readProfile } from "./steam.js";
+import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { bearer, HttpError, readJson } from "./http.js";
@@ -70,6 +70,11 @@ const access = accessFromEnv(process.env);
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can
 // sign in, so nobody can book.
 const sessionSecret = sessionSecretFromEnv(process.env);
+
+// The only origin Steam sign-in trusts, for its return route, its redirects and
+// the cookie's Secure flag. Without it in production nobody can sign in.
+const publicOrigin = publicOriginFromEnv(process.env, PORT);
+const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
 // DATABASE_PATH names a file. A claim is pushed to the claimed PC. Whenever a
@@ -92,6 +97,7 @@ const serveApi = createApi({
   platform,
   access,
   sessionSecret,
+  publicOrigin,
   fallbackOrigin: `http://localhost:${PORT}`,
   profile: (steamId) => readProfile(process.env.STEAM_API_KEY, steamId),
 });
@@ -351,49 +357,6 @@ async function answerSession(
 // --- static files -----------------------------------------------------------
 
 /**
- * Steam sign-in. `/auth/steam/login` bounces to Steam; `/auth/steam/return`
- * verifies what comes back and, when Steam vouches for the player, signs them
- * in with a session cookie (signin.ts). Without SESSION_SECRET nobody can be
- * signed in, so the return reads as denied. STEAM_API_KEY never leaves this
- * process.
- */
-async function serveSteamAuth(
-  req: IncomingMessage,
-  res: ServerResponse,
-  urlPath: string,
-  query: URLSearchParams,
-): Promise<boolean> {
-  const origin = originFrom(req.headers, `http://localhost:${PORT}`);
-
-  if (urlPath === "/auth/steam/login") {
-    res.writeHead(302, { location: loginUrl({ origin, returnTo: query.get("to") ?? "/" }) }).end();
-    return true;
-  }
-
-  if (urlPath === "/auth/steam/return") {
-    // Any failure here still lands the player back on the wall, flagged, rather
-    // than on an error page they cannot act on.
-    const back = await returnUrl({ origin, searchParams: query }).catch(() => null);
-    if (!back?.steamId || !sessionSecret) {
-      const denied = new URL(back?.location ?? `${origin}/`);
-      denied.hash = "steam=denied";
-      res.writeHead(302, { location: denied.toString() }).end();
-      return true;
-    }
-    res
-      .writeHead(302, {
-        location: back.location,
-        "set-cookie": sessionCookie(sessionSecret, back.steamId, origin),
-        "cache-control": "no-store",
-      })
-      .end();
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * The game catalog: Steam's most played games for the signed-out wall, and
  * names plus trailers for any appids (a signed-in library). Keyless and cached
  * in catalog.ts; a Steam outage answers an empty list and the client falls back
@@ -423,7 +386,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   const urlPath = url.pathname;
 
   if (await serveSessions(req, res, urlPath)) return;
-  if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
+  if (await serveSteamAuth(res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
   if (await serveApi(req, res, urlPath)) return;
 
@@ -603,6 +566,8 @@ server.listen(PORT, () => {
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
   if (!sessionSecret)
     console.warn("[swiff] SESSION_SECRET missing, too short or equal to ROOM_SECRET — no renter can sign in");
+  if (!publicOrigin)
+    console.warn("[swiff] PUBLIC_ORIGIN missing or not an http(s) URL — no renter can sign in with Steam");
   const ownerless = [...access.machines.keys()].filter((id) => !access.owners.has(id)).length;
   if (ownerless) console.warn(`[swiff] ${ownerless} machine(s) in MACHINE_KEYS name no owner Steam id`);
   // Warm the catalog so the first visitor's wall does not wait on Steam.

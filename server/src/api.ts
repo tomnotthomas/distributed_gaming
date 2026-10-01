@@ -40,6 +40,8 @@ export type ApiOptions = {
   access: Access;
   /** Signs renters' session cookies (signin.ts). Null: nobody is signed in. */
   sessionSecret: string | null;
+  /** The configured public origin sign-in uses (publicOriginFromEnv); null when there is none. */
+  publicOrigin: string | null;
   /** Used when the request carries no host header. */
   fallbackOrigin: string;
   /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
@@ -142,6 +144,7 @@ export function createApi({
   platform,
   access,
   sessionSecret,
+  publicOrigin,
   fallbackOrigin,
   games = defaultGames,
   profile = (steamId) => readProfile(undefined, steamId),
@@ -176,7 +179,7 @@ export function createApi({
     if (resource === "signout" && !id && method === "POST") {
       // Stateless: clearing the browser's cookie is the whole of signing out.
       res.writeHead(204, {
-        "set-cookie": clearedCookie(originFrom(req.headers, fallbackOrigin)),
+        "set-cookie": clearedCookie(publicOrigin ?? fallbackOrigin),
         "cache-control": "no-store",
       });
       res.end();

@@ -14,6 +14,9 @@ System design: [renter](docs/system-design/renter.md), [host](docs/system-design
 ```bash
 npm install
 cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
+# Steam sign-in also needs PUBLIC_ORIGIN (e.g. https://swiff.example) in .env when
+# NODE_ENV=production; without it every sign-in is refused. Elsewhere it defaults to
+# http://localhost:$PORT.
 npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
 ```
 

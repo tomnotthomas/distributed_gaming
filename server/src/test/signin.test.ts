@@ -3,8 +3,9 @@
 // that require it.
 
 import assert from "node:assert/strict";
-import type { IncomingMessage } from "node:http";
-import { describe, it } from "node:test";
+import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { after, afterEach, before, describe, it } from "node:test";
 import {
   mintRenterSession,
   mintSessionKey,
@@ -16,6 +17,7 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   clearedCookie,
+  createSteamAuth,
   renterOf,
   sessionCookie,
   sessionSecretFromEnv,
@@ -131,5 +133,103 @@ describe("parseMachineOwners", () => {
 
   it("skips an owner on an entry whose key is malformed", () => {
     assert.equal(parseMachineOwners(`pc-1:nothex:${STEAM_ID}`).size, 0);
+  });
+});
+
+describe("Steam sign-in", () => {
+  const ORIGIN = "https://swiff.example";
+  const realFetch = globalThis.fetch;
+  let steamAsked = 0;
+  let server: Server;
+  let port: number;
+  let auth: ReturnType<typeof createSteamAuth>;
+
+  before(async () => {
+    server = createServer(async (req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (!(await auth(res, url.pathname, url.searchParams))) res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    port = (server.address() as AddressInfo).port;
+    // Steam vouches for every assertion: only our own checks can refuse one.
+    globalThis.fetch = (async () => {
+      steamAsked += 1;
+      return { ok: true, text: async () => "is_valid:true\n" };
+    }) as unknown as typeof fetch;
+  });
+
+  after(() => {
+    globalThis.fetch = realFetch;
+    server.close();
+  });
+
+  afterEach(() => {
+    steamAsked = 0;
+  });
+
+  /** GET `path` with `headers`, answering the status and headers without following redirects. */
+  const get = (path: string, headers: Record<string, string> = {}) =>
+    new Promise<IncomingMessage>((resolve, reject) => {
+      httpRequest({ host: "127.0.0.1", port, path, headers }, (res) => resolve(res.resume()))
+        .on("error", reject)
+        .end();
+    });
+
+  /** The return route as Steam would call it, for an assertion made for `site`. */
+  const returnPath = (site: string, to = "/games") =>
+    `/auth/steam/return?${new URLSearchParams({
+      to,
+      "openid.op_endpoint": "https://steamcommunity.com/openid/login",
+      "openid.return_to": `${site}/auth/steam/return?to=%2Fgames`,
+      "openid.claimed_id": `https://steamcommunity.com/openid/id/${STEAM_ID}`,
+      "openid.sig": "abc",
+    })}`;
+
+  const spoofed = {
+    host: "other.example",
+    "x-forwarded-host": "other.example",
+    "x-forwarded-proto": "https",
+  };
+
+  it("refuses another site's assertion however the request names its host", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const res = await get(returnPath("https://other.example"), spoofed);
+    assert.equal(res.statusCode, 302);
+    assert.equal(res.headers.location, `${ORIGIN}/games#steam=denied`);
+    assert.equal(res.headers["set-cookie"], undefined);
+    assert.equal(steamAsked, 0);
+  });
+
+  it("signs in on the configured origin only, with its cookie attributes", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const res = await get(returnPath(ORIGIN), { host: "localhost", "x-forwarded-proto": "http" });
+    assert.equal(res.headers.location, `${ORIGIN}/games#steam=ok`);
+    const [cookie] = res.headers["set-cookie"] ?? [];
+    assert.ok(cookie?.includes("; Secure"));
+    assert.equal(renterOf(request(pair(cookie!)), SECRET), STEAM_ID);
+  });
+
+  it("never redirects off the configured origin after sign-in", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const res = await get(returnPath(ORIGIN, "//evil.example/steal"));
+    assert.equal(res.headers.location, `${ORIGIN}/#steam=ok`);
+  });
+
+  it("refuses every sign-in when no public origin is configured", async () => {
+    auth = createSteamAuth({ origin: null, sessionSecret: SECRET });
+    for (const path of ["/auth/steam/login", returnPath("https://other.example")]) {
+      const res = await get(path, spoofed);
+      assert.equal(res.headers.location, "/#steam=denied");
+      assert.equal(res.headers["set-cookie"], undefined);
+    }
+    assert.equal(steamAsked, 0);
+  });
+
+  it("sends the login to Steam with the configured origin as realm", async () => {
+    auth = createSteamAuth({ origin: ORIGIN, sessionSecret: SECRET });
+    const res = await get("/auth/steam/login?to=%2Fgames", spoofed);
+    const steam = new URL(res.headers.location!);
+    assert.equal(steam.searchParams.get("openid.realm"), ORIGIN);
+    assert.equal(steam.searchParams.get("openid.return_to"), `${ORIGIN}/auth/steam/return?to=%2Fgames`);
   });
 });
