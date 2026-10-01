@@ -9,7 +9,7 @@ export function ShareScreen() {
   const [machineId, setMachineId] = useState(loadMachineId);
   const [machineKey, setMachineKey] = useState("");
   const [keyNote, setKeyNote] = useState<string | null>(null);
-  const { stream, pc, peerHere, error, start, stop } = useScreenShare();
+  const { stream, pc, peerHere, claim, error, start, stop } = useScreenShare();
 
   useEffect(() => {
     void loadMachineKey().then((saved) => setMachineKey((typed) => typed || saved));
@@ -72,7 +72,10 @@ export function ShareScreen() {
               <Button variant="secondary" onClick={stop}>
                 Stop sharing
               </Button>
-              <span className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</span>
+              <span className="muted">
+                {peerHere ? "A renter is connected." : "Waiting for a renter…"}
+                {claim ? ` Claimed for ${claim.minutes} minutes.` : ""}
+              </span>
             </>
           )}
         </div>

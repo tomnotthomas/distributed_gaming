@@ -18,6 +18,7 @@ import {
   startHostSession,
   type HeldInput,
   type InputReceiver,
+  type SessionClaim,
 } from "@swiff/rtc";
 import { Button, Field, Input, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { HOST_ID, SIGNALING_URL } from "./config";
@@ -33,6 +34,7 @@ export function Host() {
   const [peerHere, setPeerHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldInput | null>(null);
+  const [claim, setClaim] = useState<SessionClaim | null>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
 
   const startSharing = async () => {
@@ -80,6 +82,11 @@ export function Host() {
       machineKey: machineKey.trim(),
       stream,
       onPeerHere: setPeerHere,
+      // Stands in for the PC service: a claimed session is started here and
+      // served with its session key, then the page waits for the next claim.
+      serveClaims: true,
+      onSessionClaimed: setClaim,
+      onClaimOver: () => setClaim(null),
       onPeerConnection: (next) => {
         if (!next) closeInput();
         setPc(next);
@@ -104,6 +111,7 @@ export function Host() {
     return () => {
       session.stop();
       closeInput();
+      setClaim(null);
     };
     // The key is read when sharing starts; editing it mid-session changes nothing.
   }, [stream]);
@@ -135,6 +143,8 @@ export function Host() {
       </div>
 
       {error ? <Notice>{error}</Notice> : null}
+
+      {claim ? <p className="muted">Claimed by a renter for {claim.minutes} minutes.</p> : null}
 
       {held ? <p className="muted">Renter is holding: {describeHeld(held)}</p> : null}
 

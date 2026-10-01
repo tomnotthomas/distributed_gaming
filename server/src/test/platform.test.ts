@@ -540,3 +540,81 @@ describe("matching on the game and the hardware", () => {
     });
   });
 });
+
+describe("claim notice and host sessions", () => {
+  it("tells the server which machine was claimed, with the session, game and minutes", () => {
+    const claims: unknown[] = [];
+    platform = new Platform({
+      now: () => now,
+      onSessionClaimed: (machineId, claim) => claims.push({ machineId, ...claim }),
+    });
+    offer("pc-1");
+    const { bookingId } = platform.book(730, 45);
+    assert.deepEqual(claims, [], "not told on a match");
+    const claim = platform.claim(bookingId);
+    assert.ok(claim.ok);
+    assert.deepEqual(claims, [{ machineId: "pc-1", sessionId: claim.sessionId, gameId: 730, minutes: 45 }]);
+    assert.ok(!platform.claim(bookingId).ok);
+    assert.equal(claims.length, 1, "a refused claim tells nothing");
+  });
+
+  it("names the session claimed on a machine only while it runs", () => {
+    offer("pc-1");
+    assert.equal(platform.claimedSession("pc-1"), null);
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    assert.deepEqual(platform.claimedSession("pc-1"), {
+      sessionId: claim.sessionId,
+      gameId: 730,
+      minutes: 30,
+    });
+    assert.equal(platform.claimedSession("pc-2"), null);
+    platform.endSession("pc-1", claim.sessionId);
+    assert.equal(platform.claimedSession("pc-1"), null);
+  });
+
+  it("removes the host session together with the session it serves, and tells the server its id", () => {
+    const ended: [string, string][] = [];
+    platform = new Platform({
+      now: () => now,
+      onSessionEnded: (machineId, id) => ended.push([machineId, id]),
+    });
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    const store = platform.keySessions;
+    assert.ok(store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" }));
+    assert.ok(!store.add("pc-1", { sessionId: claim.sessionId, grantId: "g2" }), "one per machine");
+    assert.deepEqual(store.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
+
+    advance(LIVENESS_MS); // the machine goes silent and its session ends
+    assert.equal(store.get("pc-1"), null);
+    assert.deepEqual(ended, [["pc-1", claim.sessionId]]);
+  });
+
+  it("ends a host session on its own, leaving the session running", () => {
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    const store = platform.keySessions;
+    store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
+    assert.equal(store.remove("pc-1"), claim.sessionId);
+    assert.equal(store.remove("pc-1"), null);
+    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+  });
+
+  it("keeps host sessions in the database file across restarts", async () => {
+    await withDatabaseFile((path) => {
+      const first = new Platform({ path, now: () => now });
+      first.setAvailability("pc-1", true, REPORT);
+      const claim = first.claim(first.book(730, 30).bookingId);
+      assert.ok(claim.ok);
+      first.keySessions.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
+      first.close();
+
+      const second = new Platform({ path, now: () => now });
+      assert.deepEqual(second.keySessions.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
+      second.close();
+    });
+  });
+});

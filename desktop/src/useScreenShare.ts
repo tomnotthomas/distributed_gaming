@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_CAPTURE, startHostSession } from "@swiff/rtc";
+import { DEFAULT_CAPTURE, startHostSession, type SessionClaim } from "@swiff/rtc";
 import { toSocketUrl } from "./settings";
 
 export type Credentials = { machineId: string; machineKey: string };
@@ -10,6 +10,7 @@ export function useScreenShare() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [peerHere, setPeerHere] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claim, setClaim] = useState<SessionClaim | null>(null);
   const urlRef = useRef("");
   const credentialsRef = useRef<Credentials>({ machineId: "", machineKey: "" });
 
@@ -57,14 +58,22 @@ export function useScreenShare() {
       stream,
       onPeerHere: setPeerHere,
       onPeerConnection: setPc,
+      // Stands in for the PC service: a claimed session is started here and
+      // served with its session key, then the app waits for the next claim.
+      serveClaims: true,
+      onSessionClaimed: setClaim,
+      onClaimOver: () => setClaim(null),
       onDenied: () => {
         setError("The server refused this machine id and key.");
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
       },
     });
-    return () => session.stop();
+    return () => {
+      session.stop();
+      setClaim(null);
+    };
   }, [stream]);
 
-  return { stream, pc, peerHere, error, start, stop };
+  return { stream, pc, peerHere, claim, error, start, stop };
 }
