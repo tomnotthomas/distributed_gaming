@@ -175,14 +175,14 @@ matched.
 
 ### Connection setup (WebSocket)
 
-| Message                    | Direction   | Meaning                                                                                                                      |
-| -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.                                                              |
-| `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once. |
-| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry.                                                       |
-| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                            |
-| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                             |
-| `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                      |
+| Message                    | Direction   | Meaning                                                                                                                                   |
+| -------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.                                                                           |
+| `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once.              |
+| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
+| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
+| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
+| `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
 
 The machine key comes from `npm run machine-key -- <machine-id>`. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
