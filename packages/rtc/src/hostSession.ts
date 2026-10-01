@@ -180,7 +180,11 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     signaling = null;
     endSession(machine)
       .then(() => !stopped && reconnect({ key: opts.machineKey }))
-      .catch(() => opts.onDenied?.());
+      .catch((cause: unknown) => {
+        if (stopped) return;
+        if (cause instanceof SessionRefused && cause.status < 500) opts.onDenied?.();
+        else reconnect({ key: opts.machineKey });
+      });
   };
 
   /** Register with `credential`; `claim` is the session served with it, null for the machine key. */
@@ -245,6 +249,15 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   };
 }
 
+/** A session call the server answered with something other than success. Carries the status alone. */
+class SessionRefused extends Error {
+  readonly status: number;
+  constructor(call: "start" | "end", status: number) {
+    super(`session ${call} answered ${status}`);
+    this.status = status;
+  }
+}
+
 type MachineAuth = { url: string; hostId: string; machineKey: string };
 
 /** The session route for `hostId` on the signaling server's own HTTP origin. */
@@ -280,7 +293,7 @@ async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<voi
     method: "DELETE",
     headers: { authorization: `Bearer ${machineKey}` },
   });
-  if (res.status !== 204) throw new Error(`session end answered ${res.status}`);
+  if (res.status !== 204) throw new SessionRefused("end", res.status);
 }
 
 /**
@@ -300,7 +313,7 @@ export async function requestSessionKey({
     headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
     body: JSON.stringify({ sessionId }),
   });
-  if (res.status !== 201) throw new Error(`session start answered ${res.status}`);
+  if (res.status !== 201) throw new SessionRefused("start", res.status);
   const { sessionKey } = (await res.json()) as { sessionKey?: unknown };
   if (typeof sessionKey !== "string") throw new Error("session start answered no key");
   return sessionKey;

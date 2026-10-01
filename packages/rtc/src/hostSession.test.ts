@@ -223,6 +223,29 @@ describe("startHostSession", () => {
     session.stop();
   });
 
+  it("registers with the machine key again when the session holding the room cannot be reached", async () => {
+    const fetch = fakeFetches("network", [503, { error: "internal-error" }], "network");
+    const { session, socket, denied } = start(true);
+    socket.deliver({ type: "denied", reason: "session-active" });
+    await settleRetries();
+    expect(callsOf(fetch)).toEqual(Array(3).fill(["DELETE", null]));
+    const next = FakeSocket.instances[1]!;
+    next.accept();
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    expect(denied).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("reports nothing when the session holding the room fails to end after stop", async () => {
+    fakeFetches([401, { error: "bad-machine-key" }]);
+    const { session, socket, denied } = start(true);
+    socket.deliver({ type: "denied", reason: "session-active" });
+    session.stop();
+    await settle();
+    expect(denied).not.toHaveBeenCalled();
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
   it("ends and starts the same session again when its key is refused", async () => {
     const fetch = fakeFetches(
       [201, { sessionKey: "test-session-key" }],
