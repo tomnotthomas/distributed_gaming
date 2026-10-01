@@ -1,0 +1,15 @@
+{
+  // Shared by every bundler-flavoured workspace (web, desktop, packages/*,
+  // e2e). The server compiles for Node and emits, so it keeps its own.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  }
+}

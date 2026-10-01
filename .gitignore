@@ -26,4 +26,12 @@ e2e/.results/
 
 # Electron build output
 desktop/release/
+
+# Windows prototype build output
+prototypes/credential-provider/**/build/
+prototypes/credential-provider/**/out/
+prototypes/isolation-proof/**/out/
+prototypes/session-splash/**/build/
+
+# local secrets
 .env
