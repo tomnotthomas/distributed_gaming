@@ -263,7 +263,9 @@ export function applySteam(
   const byApp = new Map<number, CatalogGame>();
   for (const game of catalog) if (!byApp.has(game.appid)) byApp.set(game.appid, game);
   const free = catalog.length
-    ? [...byApp.values()].filter((g) => g.free && !mine.has(g.appid)).map((g) => freeCard(g, sharedMachineIds))
+    ? [...byApp.values()]
+        .filter((g) => g.free && !mine.has(g.appid))
+        .map((g) => freeCard(g, sharedMachineIds))
     : GAMES.filter((g) => g.f2p && !mine.has(g.appid)).map(freeCurated);
 
   return [...curated, ...extra, ...free];
