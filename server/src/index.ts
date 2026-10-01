@@ -29,8 +29,8 @@
 // stays offered while the socket is open and goes offline the moment it
 // closes, or when the ping below stops being answered. Once a renter has
 // claimed it, a closed socket leaves the PC the heartbeat window instead. A
-// renter's open event stream (events.ts) is likewise how the platform knows
-// the renter is there.
+// renter is there while their page speaks: opening the event stream
+// (events.ts), then its heartbeat.
 //
 // When a renter claims the machine, its machine-key socket is told at once
 // (session-claimed), and the PC service starts the host session for that
