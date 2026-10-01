@@ -60,8 +60,7 @@ one session per machine.
    the PC.
 6. The renter plays.
 
-Steps 1 and 3 are the design; today sign-in hands the profile to the page but the server
-keeps no session, and the Booking API matches every booking through the queue.
+Step 3 is the design; today the Booking API matches every booking through the queue.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
