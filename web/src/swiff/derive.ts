@@ -204,17 +204,6 @@ export function freeFor(
 }
 
 /**
- * Whether the top two free machines are within 3 ms of each other, so the
- * choice is genuinely the player's. Ranking is not ping order (the Picture
- * setting can put a slower machine first), so the gap is measured either way.
- */
-export function closeCall(free: Machine[]): boolean {
-  const [first, second] = free;
-  if (!first || !second) return false;
-  return Math.abs(second.ping - first.ping) <= 3;
-}
-
-/**
  * Wall order: playable first, then the ones you have played, then the rest.
  * A game with nothing free sinks but never disappears — it is still yours.
  */

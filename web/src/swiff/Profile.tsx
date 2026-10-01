@@ -10,6 +10,7 @@ import {
   SteamButton,
 } from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
+import { initials } from "./Chrome";
 import type { Device, Quality, Swiff } from "./useSwiff";
 
 const QUALITY = [
@@ -33,7 +34,7 @@ export function Profile({ swiff }: { swiff: Swiff }) {
   return (
     <main className="profile">
       <header className="profile-head">
-        <Avatar initial={(profile?.persona || "?")[0]!.toUpperCase()} size={72} />
+        <Avatar initial={initials(profile?.persona || "?")} size={72} />
         <div className="profile-id">
           <div className="profile-name">{persona}</div>
           {profile ? (

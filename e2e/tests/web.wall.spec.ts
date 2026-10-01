@@ -1,6 +1,6 @@
 // The wall is what "/" serves now, so this pins the two things a first-time
-// visitor must see: the grid, and Valve's own sign-in button rather than a
-// lookalike we drew ourselves.
+// visitor must see: the band of games, and Valve's own sign-in button rather
+// than a lookalike we drew ourselves.
 
 import { expect, test } from "@playwright/test";
 
@@ -9,8 +9,8 @@ test.describe("live wall", () => {
     await page.goto("/");
 
     await expect(page.getByTestId("wall")).toBeVisible();
-    // Seven tiles fill the grid: one hero, two wide, four small.
-    await expect(page.locator(".tile")).toHaveCount(7);
+    // One game leads the hero; one ruled row of four fills the band under it.
+    await expect(page.locator(".band-tile")).toHaveCount(4);
   });
 
   test("offers Steam's published sign-in button before any library is connected", async ({ page }) => {
@@ -37,23 +37,18 @@ test.describe("live wall", () => {
 
   test("opens a game with a machine already chosen", async ({ page }) => {
     await page.goto("/");
-    await page.locator("button.tile").first().click();
+    await page.locator("button.band-tile").first().click();
 
-    // A machine is picked for you, so Launch is live on arrival.
-    await expect(page.getByRole("button", { name: /Launch/ })).toBeEnabled();
-    await expect(page.getByText(/hold to launch/)).toBeVisible();
+    // A machine is picked for you, so the hold-to-launch reticle is live on arrival.
+    await expect(page.getByRole("button", { name: /^Hold to launch on / })).toBeEnabled();
+    await expect(page.locator(".ledger-row.on")).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("opens the machine selector on demand", async ({ page }) => {
+  test("lists the ranked machines beside the game", async ({ page }) => {
     await page.goto("/");
-    await page.locator("button.tile").first().click();
+    await page.locator("button.band-tile").first().click();
 
-    // The selector folds itself when the top two machines are not close, so
-    // reaching the cards can take a click.
-    const change = page.getByRole("button", { name: "Change machine" });
-    if (await change.isVisible()) await change.click();
-
-    await expect(page.locator(".machine").first()).toBeVisible();
-    await expect(page.locator(".machine").first()).toContainText("ms");
+    await expect(page.locator(".ledger-row").first()).toBeVisible();
+    await expect(page.locator(".ledger-row").first()).toContainText("ms");
   });
 });

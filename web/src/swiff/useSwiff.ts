@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
-import { closeCall, freeFor, machinesFor } from "./derive";
+import { freeFor, machinesFor } from "./derive";
 import { fetchMedia, fetchPopular } from "./catalog";
 import {
   applySteam,
@@ -39,7 +39,6 @@ export function useSwiff() {
   const [gameId, setGameId] = useState<string | null>(null);
   const [machineId, setMachineId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [machinesOpen, setMachinesOpen] = useState(true);
 
   const [games, setGames] = useState<Game[]>(GAMES);
   const [profile, setProfile] = useState<SteamProfile | null>(null);
@@ -231,9 +230,6 @@ export function useSwiff() {
       setScreen("game");
       setPhase("idle");
       setBeat(0);
-      // Fold the selector away unless the top two are close enough that the
-      // choice is genuinely the player's.
-      setMachinesOpen(closeCall(free));
     },
     [pool, session, prefs],
   );
@@ -336,7 +332,6 @@ export function useSwiff() {
     session,
     prefs,
     hoverId,
-    machinesOpen,
     libraryConnected,
     steamDenied,
     signOutFailed,
@@ -362,7 +357,6 @@ export function useSwiff() {
     toggleDevice,
     setHoverId,
     setMachineId,
-    setMachinesOpen,
     setScreen,
     setMotion,
     setSound,

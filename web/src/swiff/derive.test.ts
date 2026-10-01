@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GAMES, MACHINES, type Machine } from "./data";
 import {
-  closeCall,
   feel,
   fmtLeft,
   freeFor,
@@ -152,20 +151,11 @@ describe("freeFor", () => {
   });
 });
 
-describe("closeCall", () => {
-  it("measures the gap between the top two either way round", () => {
-    // 120 fps first puts 21 ms Tide above 9 ms Glasshouse: 12 ms apart, not close.
+describe("freeFor with a picture preference", () => {
+  it("can put a slower machine first", () => {
+    // 120 fps first puts 21 ms Tide above 9 ms Glasshouse.
     const free = freeFor(elden, MACHINES, "evening", { quality: "fps", devices: [] });
     expect(free.map((m) => m.id)).toEqual(["tide", "glass"]);
-    expect(closeCall(free)).toBe(false);
-  });
-
-  it("calls two machines within 3 ms close, and one machine never", () => {
-    const glass = MACHINES.glass!;
-    expect(closeCall([glass, { ...glass, ping: 12 }])).toBe(true);
-    expect(closeCall([{ ...glass, ping: 12 }, glass])).toBe(true);
-    expect(closeCall([glass, { ...glass, ping: 13 }])).toBe(false);
-    expect(closeCall([glass])).toBe(false);
   });
 });
 

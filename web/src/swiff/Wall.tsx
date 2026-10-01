@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, EmptyState, Hero, Mosaic, StatusDot, SteamButton, Tag, Tile } from "@swiff/ui";
-import type { Game } from "./data";
-import { useDisplay } from "./display";
+import { Backdrop, Button, EmptyState, SteamButton } from "@swiff/ui";
+import type { Game, Machine } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
+import { Glyph } from "./Glyph";
+import { CountDial, ResumeDial, TimeMark, useSpin } from "./instruments";
 import {
   STEAM_LOGIN_URL,
   gameArt,
@@ -14,10 +15,8 @@ import {
 } from "./steam";
 import type { Swiff } from "./useSwiff";
 
-/** Seven tiles fill the grid exactly: one hero, two wide, four small. */
-const LIMIT = 7;
-
-const sizeAt = (index: number) => (index === 0 ? "hero" : index <= 2 ? "wide" : "small");
+/** The hero and one ruled row of four fill the first screen; the rest wait behind "All games". */
+const LIMIT = 5;
 
 /** How long the pointer has to rest on a tile before its trailer starts. */
 const PREVIEW_DELAY_MS = 380;
@@ -39,6 +38,22 @@ function usePreview(hoverId: string | null): string | null {
   return previewId;
 }
 
+/** "4 h 30" or "All night": the time a machine stays free, as the band prints it. */
+const leftLabel = (machine: Machine) => {
+  const left = fmtLeft(minsLeft(machine));
+  return left === "all night" ? "All night" : left;
+};
+
+/** "free until 00:30", or "free all night" for a machine its owner leaves on. */
+const untilLabel = (machine: Machine) =>
+  machine.until === "late" ? "free all night" : `free until ${machine.until}`;
+
+/** Why a game cannot start now: who comes back, and when. */
+function waitLabel(game: Game, pool: Record<string, Machine>): string {
+  const backSoon = game.machines.map((id) => pool[id]).find((m) => m?.back);
+  return backSoon ? `Back at ${backSoon.back}` : "In use";
+}
+
 export function Wall({ swiff }: { swiff: Swiff }) {
   const { games, pool, session, prefs, libraryConnected, showAll } = swiff;
 
@@ -53,9 +68,8 @@ export function Wall({ swiff }: { swiff: Swiff }) {
     return [...shown].sort((a, b) => Number(Boolean(b.f2p)) - Number(Boolean(a.f2p)));
   }, [ordered, showAll, libraryConnected]);
 
-  const freeMachines = Object.values(pool).filter((m) => !m.busy && !m.self).length;
+  const shared = Object.values(pool).filter((m) => !m.busy && !m.self);
   const previewId = usePreview(swiff.hoverId);
-  const display = useDisplay();
 
   const library = swiff.profile ? libraryState(swiff.profile) : "ok";
   const note =
@@ -66,142 +80,266 @@ export function Wall({ swiff }: { swiff: Swiff }) {
   // A renter with nothing to show still needs to hear why, not "everything is busy".
   if (!games.length && note)
     return (
-      <main className="wall-main" data-testid="wall">
+      <main className="wall wall-bare" data-testid="wall">
         {note}
       </main>
     );
   if (!anythingFree) return <WallEmpty note={note} />;
 
-  return (
-    <main className="wall-main" data-testid="wall">
-      {note}
-      <Mosaic layout={display === "ultra" ? "horizontal" : "grid"}>
-        {wall.map((game, index) => (
-          <WallTile
-            key={game.id}
-            game={game}
-            size={sizeAt(index)}
-            preview={previewId === game.id}
-            swiff={swiff}
-            freeMachines={freeMachines}
-            libraryConnected={libraryConnected}
-          />
-        ))}
-        {!showAll && ordered.length > LIMIT ? (
-          <button
-            type="button"
-            className="wall-more"
-            data-span="small"
-            onClick={() => swiff.setShowAll(true)}
-          >
-            All {ordered.length} games →
-          </button>
-        ) : null}
-      </Mosaic>
+  const [hero, ...rest] = wall;
+  const busy = ordered.filter((g) => !freeFor(g, pool, session, prefs).length);
+  const more = !showAll && ordered.length > LIMIT;
 
-      {swiff.steamDenied ? (
-        <p className="wall-note">Steam sign-in was cancelled. The free-to-play wall still works.</p>
-      ) : null}
-      <p className="wall-credit">
-        Game artwork and trailers are the property of their respective publishers, served from Steam.
-      </p>
+  return (
+    <main className="wall" data-testid="wall">
+      {hero ? <WallHero game={hero} swiff={swiff} shared={shared} /> : null}
+
+      <section className="band" aria-label="Games">
+        {note}
+        <div className="band-tabs">
+          {libraryConnected && library === "ok" ? (
+            <>
+              <BandTab on label="Your library" n={ordered.length} />
+              <BandTab label="Free to play" n={ordered.filter((g) => g.f2p).length} />
+              <BandTab label="Ready now" n={ordered.length - busy.length} />
+            </>
+          ) : libraryConnected ? (
+            // Nothing of their own to show: the wall is free-to-play only, and says so.
+            <>
+              <BandTab on label="Free to play" n={ordered.length} />
+              <BandTab label="Ready now" n={ordered.length - busy.length} />
+              <BandTab label="Your library" n={0} />
+            </>
+          ) : (
+            <>
+              <BandTab on label="Free to play" n={ordered.filter((g) => g.f2p).length} />
+              <BandTab label="Popular on Steam" n={ordered.length} />
+              <a className="band-tab" href={STEAM_LOGIN_URL} aria-label="Sign in to see your library">
+                <span>Your library</span>
+                <Glyph name="lock" size={16} />
+              </a>
+            </>
+          )}
+          {more ? (
+            <button type="button" className="band-tab" onClick={() => swiff.setShowAll(true)}>
+              <span>All {ordered.length} games</span>
+              <Glyph name="arrow" size={16} />
+            </button>
+          ) : busy.length ? (
+            <BandTab label={waitLabel(busy[0]!, pool)} n={busy.length} />
+          ) : (
+            <span className="band-tab" />
+          )}
+        </div>
+
+        <div className="band-tiles">
+          {rest.map((game) => (
+            <BandTile
+              key={game.id}
+              game={game}
+              preview={previewId === game.id}
+              swiff={swiff}
+              libraryConnected={libraryConnected}
+            />
+          ))}
+        </div>
+
+        <footer className="band-foot mono">
+          {swiff.steamDenied ? (
+            <p className="band-denied">Steam sign-in was cancelled. The free-to-play wall still works.</p>
+          ) : null}
+          <p>Game artwork and trailers are the property of their respective publishers, served from Steam.</p>
+        </footer>
+      </section>
     </main>
+  );
+}
+
+function BandTab({ label, n, on }: { label: string; n: number; on?: boolean }) {
+  return (
+    <span className={on ? "band-tab on" : "band-tab"}>
+      <span>{label}</span>
+      <span className="band-n">{n}</span>
+    </span>
+  );
+}
+
+/** The wall's lead game: full-colour key art, its copy, and the instrument column on the right. */
+function WallHero({ game, swiff, shared }: { game: Game; swiff: Swiff; shared: Machine[] }) {
+  const { pool, session, prefs, libraryConnected } = swiff;
+  const best = freeFor(game, pool, session, prefs)[0];
+  const spin = useSpin();
+
+  return (
+    <section className="hero" onMouseEnter={() => swiff.setHoverId(null)}>
+      <Backdrop
+        className="hero-art"
+        image={gameArt(game, 2)}
+        fallback={gameArtFallbacks(game)}
+        video={best ? gameTrailer(game) : null}
+        position={game.focus}
+      />
+      <div className="hero-scrim" />
+
+      {libraryConnected ? (
+        <div className="hero-copy">
+          <div className="mono hero-kicker">{game.personal}</div>
+          <h1 className="hero-title">{game.title}</h1>
+          <p className="hero-line">
+            {best ? (
+              <>
+                On <b>{best.name}</b>, {untilLabel(best)}
+              </>
+            ) : (
+              waitLabel(game, pool)
+            )}
+          </p>
+          {best ? (
+            <div className="hero-facts mono">
+              <span>
+                <b>{best.gpu}</b>
+              </span>
+              <span>
+                <b>{best.ping} ms</b>
+              </span>
+              <span>
+                <b>{best.quality}</b>
+              </span>
+              <span>{game.save}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="hero-copy hero-copy-out">
+          <div className="mono hero-kicker">
+            <span className="live-dot" />
+            Tonight, no download
+          </div>
+          <h1 className="hero-title">{game.title}</h1>
+          <p className="hero-line">
+            on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
+            <b>No download.</b>
+          </p>
+          <p className="hero-body">
+            We read your Steam library and stream the games you own from players' idle PCs. Your saves come
+            with you.
+          </p>
+          <div className="hero-actions">
+            <SteamButton href={STEAM_LOGIN_URL} />
+            <span className="mono hero-fine">Signs in through Steam. We only read your game library.</span>
+          </div>
+        </div>
+      )}
+
+      <aside className={libraryConnected ? "inst inst-lift" : "inst"} aria-label="Tonight">
+        {libraryConnected ? (
+          <>
+            <ResumeDial spin={spin}>
+              <button
+                type="button"
+                className="ring-btn"
+                onClick={() => swiff.openGame(game)}
+                aria-describedby={best ? "hero-left" : undefined}
+                {...spin.trigger}
+              >
+                <Glyph name="play" />
+                {game.owned ? "Resume" : "Play free"}
+                {best ? (
+                  <small id="hero-left" aria-hidden="true">
+                    {leftLabel(best)} free
+                  </small>
+                ) : null}
+              </button>
+            </ResumeDial>
+            {best ? (
+              <div className="inst-cap mono">
+                <span>{best.name}</span>
+                <span>{best.ping} ms</span>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <CountDial count={shared.length} />
+            <NearestCaption machines={shared} />
+          </>
+        )}
+      </aside>
+    </section>
+  );
+}
+
+/** Under the signed-out count: the nearest free machine, and how long it stays free. */
+function NearestCaption({ machines }: { machines: Machine[] }) {
+  const nearest = [...machines].sort((a, b) => a.ping - b.ping)[0];
+  if (!nearest) return null;
+  return (
+    <div className="inst-cap mono">
+      <span>Nearest {nearest.ping} ms</span>
+      <span>{nearest.until === "late" ? "All night" : `Until ${nearest.until}`}</span>
+    </div>
   );
 }
 
 type TileProps = {
   game: Game;
-  size: "hero" | "wide" | "small";
   /** The pointer has rested on this tile: play its trailer. */
   preview: boolean;
   swiff: Swiff;
-  freeMachines: number;
   libraryConnected: boolean;
 };
 
-function WallTile({ game, size, preview, swiff, freeMachines, libraryConnected }: TileProps) {
+/** One game in the ruled band: art flush in its cell, the title, and where it would run. */
+function BandTile({ game, preview, swiff, libraryConnected }: TileProps) {
   const { pool, session, prefs } = swiff;
-  const free = freeFor(game, pool, session, prefs);
-  const best = free[0];
-  const playable = free.length > 0;
+  const best = freeFor(game, pool, session, prefs)[0];
+  const signInFirst = !libraryConnected && !game.f2p;
+  const locked = !best || signInFirst;
 
-  const sub = best
-    ? `${best.name} · ${fmtLeft(minsLeft(best))}`
-    : (() => {
-        const backSoon = game.machines.map((id) => pool[id]).find((m) => m?.back);
-        return backSoon ? `Back at ${backSoon.back}` : "In use";
-      })();
+  let meta: ReactNode;
+  if (signInFirst) meta = <span>Sign in to play if you own it</span>;
+  else if (!best) meta = <span>{waitLabel(game, pool)}</span>;
+  else
+    meta = (
+      <>
+        <span>{best.name}</span>
+        <span className="band-tile-left">
+          <TimeMark minutes={minsLeft(best)} />
+          {leftLabel(best)}
+        </span>
+      </>
+    );
 
   return (
-    <Tile
-      title={game.title}
-      art={gameArt(game, size === "hero" ? 2 : 1)}
-      fallbackArt={gameArtFallbacks(game)}
-      size={size}
-      // The hero always moves; a smaller tile only once it is being looked at,
-      // as in the prototype. Unplayable games stay still. The motion setting
-      // itself is MotionContext's job.
-      video={!playable ? null : size === "hero" ? gameTrailer(game) : preview ? gamePreview(game) : null}
-      sub={size === "hero" ? undefined : sub}
-      // Free-to-play is marked wherever it is not one of your own games.
-      badge={
-        game.f2p && size !== "hero" && (!libraryConnected || !game.owned) ? (
-          <Tag tone="accent">Free</Tag>
-        ) : null
-      }
-      dim={!playable || (!libraryConnected && !game.f2p)}
-      onOpen={() => swiff.openGame(game)}
-      onHoverChange={(on) => swiff.setHoverId(on ? game.id : null)}
+    <button
+      type="button"
+      className={locked ? "band-tile band-tile-locked" : "band-tile"}
+      onClick={() => swiff.openGame(game)}
+      onMouseEnter={() => swiff.setHoverId(game.id)}
+      onMouseLeave={() => swiff.setHoverId(null)}
     >
-      {size === "hero" ? (
-        libraryConnected ? (
-          <HeroResume game={game} sub={sub} onResume={() => swiff.openGame(game)} />
-        ) : (
-          <HeroFirstRun game={game} gpu={best?.gpu} freeMachines={freeMachines} />
-        )
-      ) : null}
-    </Tile>
-  );
-}
-
-/** The signed-in hero: what you were doing, and one button back into it (or into a free game). */
-function HeroResume({ game, sub, onResume }: { game: Game; sub: string; onResume: () => void }) {
-  return (
-    <div className="wall-hero">
-      <Hero kicker={game.personal} title={game.title} meta={sub} />
-      <Button size="lg" onClick={onResume}>
-        {game.owned ? "Resume" : "Play free"}
-      </Button>
-    </div>
-  );
-}
-
-/**
- * The first-run hero. It has to answer one question — what can I play tonight,
- * on what, with no download — and then offer Steam's own sign-in button.
- */
-function HeroFirstRun({ game, gpu, freeMachines }: { game: Game; gpu?: string; freeMachines: number }) {
-  return (
-    <div className="wall-hero">
-      <Hero
-        kicker={
-          <>
-            <StatusDot />
-            {freeMachines} machines free near you
-          </>
-        }
-        title={
-          <>
-            {game.title} on a {gpu ? gpu.replace(/^(RTX|RX) /, "") : "shared PC"}.
-            <br />
-            Tonight. No download.
-          </>
-        }
-        body="We read your Steam library and stream the games you own from players' idle PCs. Your saves come with you."
-        actions={<SteamButton href={STEAM_LOGIN_URL} />}
-        fine="Signs in through Steam. We only read your game library."
-      />
-    </div>
+      <span className="band-tile-frame">
+        <Backdrop
+          className="band-tile-art"
+          image={gameArt(game, 1)}
+          fallback={gameArtFallbacks(game)}
+          // A tile moves only once it is being looked at, and only if it can be played.
+          video={!locked && preview ? gamePreview(game) : null}
+          position={game.focus}
+        />
+        {locked ? (
+          <span className="band-tile-lock">
+            <Glyph name={signInFirst ? "lock" : "clock"} size={20} />
+          </span>
+        ) : null}
+      </span>
+      <span className="band-tile-title">
+        <span>{game.title}</span>
+        {/* Free-to-play is marked wherever it is not one of your own games. */}
+        {game.f2p && (!libraryConnected || !game.owned) ? <span className="free-mark">Free</span> : null}
+      </span>
+      <span className="band-tile-meta mono">{meta}</span>
+    </button>
   );
 }
 
@@ -232,14 +370,14 @@ function LibraryNote({
 }) {
   const { title, body } = LIBRARY_COPY[state];
   return (
-    <div className="wall-library" role="status" data-testid="library-state">
-      <p className="wall-library-text">
+    <div className="library-note" role="status" data-testid="library-state">
+      <p>
         <strong>{title}</strong> {body}
       </p>
       {state === "unreadable" ? (
-        <Button size="sm" variant="secondary" onClick={onRetry} disabled={retrying}>
+        <button type="button" className="lpill lpill-sm" onClick={onRetry} disabled={retrying}>
           {retrying ? "Checking…" : "Retry"}
-        </Button>
+        </button>
       ) : null}
     </div>
   );
@@ -248,7 +386,7 @@ function LibraryNote({
 /** Every shared machine is busy; a library note, when there is one, still leads. */
 function WallEmpty({ note }: { note?: ReactNode }) {
   return (
-    <main className="wall-main wall-empty" data-testid="wall">
+    <main className="wall wall-bare" data-testid="wall">
       {note}
       <EmptyState
         title="Nothing is ready right now"

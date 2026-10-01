@@ -1,177 +1,1297 @@
-/* Screen layout for the Swiff wall. Everything reusable lives in @swiff/ui;
-   this file is only the arrangement of those pieces per screen. */
+/* The renter app in the Paper Band look (prototypes/Swiff v7.dc.html): full-colour
+   key art, black, white and paper chrome, hairline instruments, and lime only as
+   a mark. Colours live here rather than in @swiff/ui because the host app keeps
+   the library's own palette; the renter screens re-point the library's tokens
+   below so the primitives they still use (Button, Segment, EmptyState) match. */
+@import url("https://fonts.googleapis.com/css2?family=Michroma&family=Outfit:wght@200;300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
-/* — live wall — */
-.wall-main {
+.sw {
+  --bg: #121212;
+  --ink: #efefed;
+  --ink-2: rgb(239 239 237 / 0.72);
+  --ink-3: rgb(239 239 237 / 0.45);
+  --line: rgb(239 239 237 / 0.16);
+  --line-2: rgb(239 239 237 / 0.34);
+  --paper: #e8e9e8;
+  --on-paper: #131313;
+  --on-paper-2: #4f5050;
+  --on-paper-3: #838484;
+  --pline: rgb(19 19 19 / 0.16);
+  --pline-2: rgb(19 19 19 / 0.34);
+  --grey: #d3d4d3;
+  --lime: #d4f53c;
+  /* lime that holds up on paper: hover, focus and the Free outline */
+  --lime-edge: #9cb52a;
+  --wide: "Michroma", system-ui, sans-serif;
+  --f: "Outfit", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* The 1440 × 900 mockup's grid, made fluid: a 300 / 1fr / 400 strip under an
+     80px bar, with copy set in 64px from the left edge. */
+  --bar: 80px;
+  --cl: clamp(220px, 20.83vw, 400px);
+  --cr: clamp(320px, 27.78vw, 520px);
+  --gut: clamp(28px, 4.44vw, 96px);
+  /* the band's first row: tabs and one row of tiles, kept on the first screen */
+  --band-h: 352px;
+
   position: relative;
-  flex: 1;
-  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+  /* One scroller for every screen, so the bar scrolls away with the page
+     instead of sitting over it. */
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-8) var(--space-8);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
   scrollbar-width: thin;
-}
-.wall-more {
-  border: 1px dashed var(--color-divider);
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--color-neutral-400);
-  font: inherit;
-  font-size: var(--text-14);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition:
-    border-color var(--dur-micro),
-    color var(--dur-micro);
-}
-.wall-more:hover {
-  border-color: var(--color-accent);
-  color: var(--color-text);
-}
-.wall-note {
-  margin: 0;
-  font-size: var(--text-12);
-  color: var(--color-time);
-}
-.wall-library {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-}
-.wall-library-text {
-  margin: 0;
-  font-size: var(--text-12);
-  color: var(--color-time);
-}
-.wall-credit {
-  margin: 0;
-  font-size: var(--text-12);
-  color: var(--color-neutral-700);
-}
-.wall-empty {
-  display: grid;
-  place-items: center;
+  scrollbar-color: var(--line-2) transparent;
+  background: var(--bg);
+  color: var(--ink);
+  font: 300 16px/1.5 var(--f);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* — wall hero —
-   Positions the Hero block over the hero tile's art, action on the right. */
-.wall-hero {
-  position: absolute;
+/* The library's tokens, re-pointed for every renter screen except the in-session
+   HUD, which keeps its own look. */
+.bar,
+.wall,
+.menu,
+.profile,
+.ignition {
+  --color-bg: var(--bg);
+  --color-text: var(--ink);
+  --color-text-2: var(--ink-2);
+  --color-text-3: var(--ink-3);
+  --color-accent: var(--ink);
+  --color-accent-hover: #d6d7d6;
+  --color-accent-100: var(--ink);
+  --color-accent-200: var(--ink);
+  --color-accent-300: var(--ink);
+  --color-accent-800: #2a2a2a;
+  --color-accent-900: #1d1d1d;
+  --color-on-accent: var(--on-paper);
+  --btn-primary-from: var(--ink);
+  --btn-primary-to: var(--ink);
+  --btn-primary-hover-from: #ffffff;
+  --btn-primary-hover-to: #ffffff;
+  --color-live: var(--lime);
+  --color-time: var(--ink-2);
+  --color-divider: var(--line);
+  --color-neutral-200: #dcdddc;
+  --color-neutral-300: #c4c5c4;
+  --color-neutral-400: #9a9b9a;
+  --color-neutral-500: #7a7b7a;
+  --color-neutral-700: #4f5050;
+  --glass: rgb(239 239 237 / 0.06);
+  --glass-strong: rgb(239 239 237 / 0.1);
+  --glass-edge: var(--line-2);
+  --glass-hi: none;
+  --selected-bg: rgb(212 245 60 / 0.12);
+  --selected-border: var(--lime);
+  --selected-fg: var(--ink);
+  --focus-ring: 0 0 0 2px var(--lime-edge);
+  --font-body: var(--f);
+  --font-heading: var(--f);
+  --font-heading-weight: 500;
+  --display-track: 0;
+  /* everything you press is a circle or a pill */
+  --radius-md: 999px;
+}
+
+/* One static grain layer over the screens, lighter than the photos' own. */
+.sw::after {
+  content: "";
+  position: fixed;
   inset: 0;
-  padding: var(--space-8) var(--space-8) var(--space-12);
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-6);
-  text-align: left;
+  z-index: 15;
+  pointer-events: none;
+  opacity: 0.14;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* — game menu — */
-.menu {
-  position: relative;
-  flex: 1;
-  min-height: 0;
+/* zero specificity, so every class below can still set its own font */
+:where(.sw) button {
+  font: inherit;
+  color: inherit;
+}
+.sw :focus-visible {
+  outline: 2px solid var(--lime-edge);
+  outline-offset: 3px;
+}
+.mono {
+  font: 400 11.5px/1.55 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.wm {
+  font: 400 17px/1 var(--wide);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.live-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+}
+.glyph {
+  display: block;
+  flex: none;
+}
+
+/* outline pill with a hairline circle arrow: sign in, retry, cancel */
+.lpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  padding: 6px 6px 6px 22px;
+  font: 500 16px/1 var(--f);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.3s var(--ease);
+}
+.lpill-c {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.3s var(--ease);
+}
+.lpill:hover,
+.lpill:hover .lpill-c {
+  border-color: var(--lime-edge);
+}
+.lpill:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+.lpill-sm {
+  padding: 4px 4px 4px 18px;
+  font-size: 14px;
+}
+.lpill-sm:not(:has(.lpill-c)) {
+  padding: 9px 18px;
+}
+.lpill-sm .lpill-c {
+  width: 32px;
+  height: 32px;
+}
+
+/* — top bar: the cell strip — */
+.bar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 10;
+  height: var(--bar);
+  display: grid;
+  grid-template-columns: var(--cl) minmax(0, 1fr) var(--cr);
+  border-bottom: 1px solid var(--line);
+}
+.bar > * {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 28px;
+  border-right: 1px solid var(--line);
+}
+.bar-home {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: -6px;
+  padding: 8px 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.bar-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+}
+.bar-nav > * {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: none;
+  color: var(--ink-3);
+  font: 500 14px/1 var(--f);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.bar-nav > :last-child {
+  border-right: 0;
+}
+.bar-nav button {
+  cursor: pointer;
+  transition: color 0.3s var(--ease);
+}
+.bar-nav button:hover {
+  color: var(--ink-2);
+}
+.bar-nav [aria-current="page"] {
+  color: var(--ink);
+}
+.bar-nav .bar-live {
+  color: var(--ink-2);
+}
+.bar .bar-acct {
+  justify-content: space-between;
+  padding-right: 20px;
+  border-right: 0;
+  background: var(--paper);
+  color: var(--on-paper);
+}
+.acct {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 6px;
+  margin-left: -6px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.acct-out {
+  color: var(--on-paper-3);
+}
+.acct-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font: 500 13px/1 var(--f);
+}
+.acct-who {
+  min-width: 0;
+  line-height: 1.25;
+}
+.acct-who b,
+.acct-who span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acct-who b {
+  font-weight: 600;
+}
+.acct-who span {
+  font-size: 13px;
+  opacity: 0.6;
+}
+.acct-session {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  flex: none;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  transition: background 0.3s var(--ease);
+}
+.acct-session:hover {
+  background: rgb(19 19 19 / 0.06);
+}
+.acct-session .mono {
+  font-size: 10.5px;
+  color: var(--on-paper-3);
+}
+.acct-session b {
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* — wall — */
+.wall {
+  position: relative;
+}
+.wall-bare {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 24px;
+  padding: calc(var(--bar) + 32px) var(--gut) 48px;
+}
+.wall-bare .library-note {
+  max-width: 60ch;
+  border: 1px solid var(--line);
+}
+
+.hero {
+  position: relative;
+  height: max(480px, calc(100vh - var(--band-h)));
+  height: max(480px, calc(100dvh - var(--band-h)));
   overflow: hidden;
 }
-.menu-hero {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-end;
-  padding: 68px var(--space-8) 0;
-  max-width: min(860px, 64%);
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgb(18 18 18 / 0.84) 0, rgb(18 18 18 / 0.45) 34%, transparent 54%),
+    linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 18%);
 }
-/* With the selector folded there is no row below to sit against, so the stack
-   centres and keeps a floor — otherwise the meters hang off the bottom edge. */
-.menu-hero-folded {
-  justify-content: center;
-  padding-bottom: 6vh;
+.hero-copy {
+  position: absolute;
+  z-index: 5;
+  left: var(--gut);
+  top: calc(var(--bar) + clamp(28px, 7.4vh, 72px));
+  width: min(680px, calc(100% - var(--cr) - 2 * var(--gut)));
 }
-.menu-launch {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: clamp(12px, 4vh, 32px);
-  animation: swiff-rise 0.45s 0.3s var(--ease-out) both;
-}
-.menu-sub {
+.hero-kicker {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: 10px;
+  color: var(--ink-2);
+}
+.hero-title {
+  margin: 16px 0 14px;
+  font: 400 clamp(40px, 4.6vw, 72px) / 1.02 var(--wide);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+.hero-copy-out .hero-title {
+  font-size: clamp(38px, 4vw, 58px);
+}
+.hero-line {
+  margin: 0 0 22px;
+  font: 200 clamp(22px, 2.1vw, 30px) / 1.2 var(--f);
+}
+.hero-line b {
+  font-weight: 600;
+}
+.hero-body {
+  max-width: 46ch;
+  margin: 0 0 22px;
+  color: var(--ink-2);
+  font-size: 16px;
+}
+.hero-facts {
+  display: flex;
   flex-wrap: wrap;
-  font-size: var(--text-14);
-  line-height: var(--lh-20);
+  row-gap: 8px;
+  color: var(--ink-2);
 }
-.menu-sub-main {
-  font-variant-numeric: tabular-nums;
-  color: var(--color-neutral-400);
+.hero-facts span {
+  padding: 0 18px;
+  border-left: 1px solid var(--line-2);
 }
-.menu-until {
-  color: var(--color-time);
+.hero-facts span:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.hero-facts b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px 22px;
+}
+.hero-fine {
+  max-width: 36ch;
+  color: var(--ink-3);
 }
 
-/* — machine selector — */
-.selector {
-  position: relative;
-  padding: clamp(8px, 2.5vh, 17px) var(--space-8) clamp(12px, 3vh, 22px);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  animation: swiff-rise 0.45s ease both;
+/* the instrument column: translucent grey under the account cell, art showing through */
+.inst {
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--bar) - 1px);
+  right: 0;
+  bottom: 0;
+  width: var(--cr);
+  border-top: 1px solid var(--pline);
+  border-left: 1px solid var(--pline);
+  background: rgb(211 212 211 / 0.76);
+  -webkit-backdrop-filter: blur(8px) saturate(0.7);
+  backdrop-filter: blur(8px) saturate(0.7);
+  color: var(--on-paper);
 }
-.selector-head {
+/* Signed in, the art behind is usually darker: brighten it before the glass. */
+.inst-lift {
+  background: rgb(211 212 211 / 0.5);
+  -webkit-backdrop-filter: blur(8px) brightness(1.9) saturate(0.75);
+  backdrop-filter: blur(8px) brightness(1.9) saturate(0.75);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .inst,
+  .inst-lift {
+    background: var(--grey);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.dial-box {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: min(100%, calc(var(--cr) * 1.2));
+  aspect-ratio: 400 / 480;
+  transform: translate(-50%, -50%);
+}
+.dial-box > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.dial-orbit {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+}
+.spinning .dial-orbit {
+  opacity: 0.55;
+}
+.dial-count {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+.dial-count b {
+  font: 400 64px/1 var(--wide);
+}
+.dial-count span {
+  margin-top: 10px;
+  color: var(--on-paper-2);
+}
+.inst-cap {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 22px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--space-4);
+  gap: 12px;
+  color: var(--on-paper-2);
 }
-.selector-count,
-.selector-hint {
-  font-size: var(--text-12);
-  line-height: var(--lh-16);
-  color: var(--color-neutral-500);
+.inst-lift .inst-cap {
+  color: var(--on-paper);
 }
-.selector-cards {
+
+/* Resume: a primary action drawn as two hairline circles, with lime as one mark at twelve */
+.ring-btn {
+  position: absolute;
+  left: 27.5%;
+  top: 31.25%;
+  width: 45%;
+  aspect-ratio: 1;
+  isolation: isolate;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--space-3);
-  align-items: end;
+  place-content: center;
+  justify-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-paper);
+  font: 500 16px/1.15 var(--f);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.3s var(--ease),
+    transform 0.4s var(--ease);
 }
-.selector-cards > .machine {
-  animation: swiff-deal 0.38s var(--ease-out) backwards;
+.ring-btn::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  z-index: -1;
+  border: 1px solid var(--pline-2);
+  border-radius: 50%;
+  transition: border-color 0.3s var(--ease);
 }
-.selector-busy {
+.ring-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: var(--lime);
+}
+.ring-btn:hover {
+  border-color: var(--lime);
+  transform: scale(1.03);
+}
+.ring-btn:hover::before {
+  border-color: rgb(212 245 60 / 0.45);
+}
+.ring-btn:active {
+  transform: scale(0.98);
+}
+.ring-btn .glyph {
+  margin-bottom: 4px;
+}
+.ring-btn small {
+  display: block;
+  margin-top: 4px;
+  font: 400 10.5px/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* — the band: a ruled grid on paper, on the bar's columns, with a tick ruler underneath — */
+.band {
+  position: relative;
+  min-height: var(--band-h);
+  padding-bottom: 12px;
+  background: var(--paper);
+  color: var(--on-paper);
+}
+.band::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9px;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, rgb(19 19 19 / 0.5) 0 1px, transparent 1px 100px) bottom / 100% 9px
+      no-repeat,
+    repeating-linear-gradient(90deg, rgb(19 19 19 / 0.28) 0 1px, transparent 1px 50px) bottom / 100% 6px
+      no-repeat,
+    repeating-linear-gradient(90deg, rgb(19 19 19 / 0.28) 0 1px, transparent 1px 10px) bottom / 100% 3px
+      no-repeat;
+}
+.band-tabs,
+.band-tiles {
+  display: grid;
+  grid-template-columns: var(--cl) minmax(0, 1fr) minmax(0, 1fr) var(--cr);
+}
+.band-tabs {
+  height: 46px;
+  border-bottom: 1px solid var(--pline);
+}
+.band-tab {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 28px 0;
+  border: 0;
+  border-right: 1px solid var(--pline);
+  background: none;
+  color: var(--on-paper-3);
+  font: 500 14px/1 var(--f);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.band-tab > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.band-tab .glyph {
   align-self: center;
-  justify-self: start;
+  margin-top: -14px;
+}
+a.band-tab,
+button.band-tab {
+  cursor: pointer;
+  transition: color 0.3s var(--ease);
+}
+a.band-tab:hover,
+button.band-tab:hover {
+  color: var(--on-paper);
+}
+.band-tab:nth-child(4) {
+  border-right: 0;
+  background: rgb(198 199 198 / 0.32);
+}
+.band-tab.on {
+  color: var(--on-paper);
+}
+.band-tab.on::after {
+  content: "";
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--on-paper);
+}
+.band-tab.on::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  bottom: -2px;
+  width: 18px;
+  height: 3px;
+  background: var(--lime);
+}
+.band-n {
+  font: 400 12px/1 var(--mono);
+}
+
+.band-tile {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 28px 26px;
+  border: 0;
+  border-right: 1px solid var(--pline);
+  background: transparent;
+  color: var(--on-paper);
+  text-align: left;
+  cursor: pointer;
+}
+.band-tile:nth-child(4n) {
+  border-right: 0;
+  background: rgb(198 199 198 / 0.32);
+}
+.band-tile:nth-child(n + 5) {
+  border-top: 1px solid var(--pline);
+}
+.sw .band-tile:focus-visible {
+  outline: none;
+}
+.band-tile-frame {
+  position: relative;
+  display: block;
+  height: clamp(150px, 13.6vw, 260px);
+  overflow: hidden;
+}
+.band-tile-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  box-shadow: inset 0 0 0 1px var(--pline);
+  pointer-events: none;
+}
+.band-tile:focus-visible .band-tile-frame::after {
+  box-shadow: inset 0 0 0 2px var(--lime-edge);
+}
+.band-tile-art {
+  transition:
+    transform 0.7s var(--ease),
+    filter 0.5s var(--ease);
+}
+.band-tile:hover .band-tile-art {
+  transform: scale(1.03);
+}
+/* Locked: grey art under an ink veil, so the band-tile reads as unavailable but its text stays readable. */
+.band-tile-locked .band-tile-art {
+  filter: grayscale(1) contrast(1.05) brightness(0.9);
+  transform: none !important;
+}
+.band-tile-locked .band-tile-frame::after {
+  background: linear-gradient(180deg, rgb(19 19 19 / 0.5), rgb(19 19 19 / 0.62));
+}
+.band-tile-lock {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(239 239 237 / 0.75);
+  border-radius: 50%;
+  background: rgb(19 19 19 / 0.35);
+  color: var(--ink);
+}
+.band-tile-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font: 500 17px/1.2 var(--f);
+}
+.band-tile-title > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.band-tile:focus-visible .band-tile-title > span:first-child {
+  text-decoration: underline;
+  text-decoration-color: var(--lime-edge);
+  text-underline-offset: 4px;
+}
+.free-mark {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--lime-edge);
+  border-radius: 999px;
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.band-tile-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -2px;
+  color: var(--on-paper-3);
+}
+.band-tile-locked .band-tile-meta {
+  color: var(--on-paper-2);
+}
+.band-tile-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+/* time free: an ink arc out of eight hours, in a hairline ring; lime-dark on hover */
+.time-mark {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--pline-2);
+  background: conic-gradient(var(--on-paper) calc(var(--h) * 1%), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+}
+.band-tile:hover .time-mark,
+.band-tile:focus-visible .time-mark {
+  background: conic-gradient(var(--lime-edge) calc(var(--h) * 1%), transparent 0);
+}
+
+.library-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--pline);
+  font-size: 15px;
+}
+.library-note p {
+  margin: 0;
+}
+.library-note strong {
+  font-weight: 600;
+}
+.band-foot {
+  padding: 18px 28px 14px;
+  border-top: 1px solid var(--pline);
+  color: var(--on-paper-3);
+  font-size: 10.5px;
+}
+.band-foot p {
+  margin: 0;
+}
+.band-foot .band-denied {
+  margin-bottom: 6px;
+  color: var(--on-paper);
+}
+
+/* — game page — */
+.menu {
+  --lx: 63.46%;
+  --ly: 55.56%;
+  --lr: min(calc((100vw - var(--cr)) * 0.202), 23.3vh);
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+.menu-art {
+  position: absolute;
+  inset: 0 var(--cr) 0 0;
+  overflow: hidden;
+}
+/* A light grey veil over the art, with the lens circle left in full colour. */
+.menu-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgb(128 129 128 / 0.3);
+  -webkit-backdrop-filter: saturate(0.3);
+  backdrop-filter: saturate(0.3);
+  -webkit-mask: radial-gradient(
+    circle var(--lr) at var(--lx) var(--ly),
+    transparent calc(100% - 0.5px),
+    #000 100%
+  );
+  mask: radial-gradient(circle var(--lr) at var(--lx) var(--ly), transparent calc(100% - 0.5px), #000 100%);
+}
+.menu-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgb(18 18 18 / 0.7),
+    transparent 34%,
+    transparent 76%,
+    rgb(18 18 18 / 0.7)
+  );
+}
+.menu-cross {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.menu-cross::before,
+.menu-cross::after {
+  content: "";
+  position: absolute;
+  background: rgb(239 239 237 / 0.3);
+}
+.menu-cross::before {
+  left: 0;
+  right: 0;
+  top: var(--ly);
+  height: 1px;
+}
+.menu-cross::after {
+  top: var(--bar);
+  bottom: 0;
+  left: var(--lx);
+  width: 1px;
+}
+.lens-dial {
+  position: absolute;
+  z-index: 3;
+  left: var(--lx);
+  top: var(--ly);
+  width: calc(var(--lr) * 600 / 210);
+  height: calc(var(--lr) * 600 / 210);
+  transform: translate(-50%, -50%);
+  color: var(--ink);
+  pointer-events: none;
+}
+.menu-copy {
+  position: absolute;
+  z-index: 5;
+  left: var(--gut);
+  right: var(--gut);
+  top: calc(var(--bar) + clamp(24px, 4.9vh, 48px));
+}
+.menu-kicker {
+  color: var(--ink-2);
+}
+.menu-title {
+  max-width: 14ch;
+  margin: 16px 0 14px;
+  font: 400 clamp(34px, 3.9vw, 56px) / 1.02 var(--wide);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+.menu-line {
+  margin: 0;
+  font: 200 clamp(20px, 1.8vw, 26px) / 1.2 var(--f);
+}
+.menu-reads {
+  position: absolute;
+  z-index: 5;
+  left: var(--gut);
+  bottom: clamp(24px, 4.9vh, 44px);
+  display: flex;
+  margin: 0;
+}
+.menu-reads div {
+  display: grid;
+  gap: 4px;
+  padding: 0 26px;
+  border-left: 1px solid var(--line-2);
+}
+.menu-reads div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.menu-reads dt {
+  color: var(--ink-3);
+}
+.menu-reads dd {
+  margin: 0;
+  font: 500 20px/1 var(--f);
+  white-space: nowrap;
+}
+
+/* the Ledger: latency as the large figure, the chosen machine printed in ink */
+.ledger-panel {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--cr);
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--bar) + 28px) 28px clamp(24px, 4.9vh, 44px);
+  overflow-y: auto;
+  border-left: 1px solid var(--pline);
+  background: var(--paper);
+  color: var(--on-paper);
+  scrollbar-width: thin;
+}
+.ledger-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: var(--on-paper-3);
+}
+.ledger-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  align-items: center;
+  gap: 0 16px;
+  width: 100%;
+  padding: 16px 16px 16px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--pline);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.3s var(--ease);
+}
+.ledger-row:first-child {
+  border-top: 1px solid var(--on-paper);
+}
+.sw .ledger-row:focus-visible {
+  outline-offset: -2px;
+}
+.ledger-row:not(.on):hover {
+  background: rgb(19 19 19 / 0.05);
+}
+.ledger-row.on {
+  background: var(--on-paper);
+  color: var(--paper);
+}
+.ledger-ms {
+  font: 400 40px/1 var(--wide);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.ledger-ms small {
+  margin-left: 4px;
+  font: 400 13px/1 var(--mono);
+  opacity: 0.6;
+}
+.ledger-body {
+  min-width: 0;
+}
+.ledger-body b {
+  display: block;
+  font: 600 19px/1.2 var(--f);
+}
+.ledger-who {
+  display: block;
+  margin-top: 2px;
+  color: var(--on-paper-3);
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 7px;
+  color: var(--on-paper-3);
+  font: 400 10.5px/1.6 var(--mono);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ledger-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--on-paper-2);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.ledger-tag.best::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-edge);
+}
+.ledger-row.on .ledger-who,
+.ledger-row.on .ledger-meta {
+  color: rgb(232 233 232 / 0.66);
+}
+.ledger-row.on .ledger-tag {
+  color: var(--paper);
+}
+.ledger-row.on .ledger-tag.best::before {
+  box-shadow: none;
+}
+.ledger-busy {
+  margin: 12px 0 0;
+  color: var(--on-paper-3);
+}
+.ledger-launch {
+  flex: 1 0 auto;
+  display: grid;
+  place-items: center;
+  min-height: 236px;
+  padding: 18px 0;
+}
+.ledger-foot {
+  margin: 0;
+  color: var(--on-paper-3);
+  text-align: center;
+}
+
+/* the Reticle: the crosshair is the button; hold draws the outer ring and pulls the brackets in */
+.reticle {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--on-paper);
+  font: 500 15px/1.15 var(--f);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.sw .reticle:focus-visible {
+  outline: none;
+}
+.reticle > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.reticle-face {
+  fill: var(--paper);
+  transition:
+    stroke 0.3s var(--ease),
+    stroke-width 0.3s var(--ease);
+}
+.reticle:hover .reticle-face,
+.reticle:focus-visible .reticle-face {
+  stroke: var(--lime-edge);
+}
+.reticle:focus-visible .reticle-face {
+  stroke-width: 2;
+}
+.reticle-brackets {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  transition: transform 0.5s var(--ease);
+}
+.reticle[data-phase="hold"] .reticle-brackets {
+  transform: scale(0.9);
+}
+.reticle[data-phase="done"] .reticle-brackets {
+  transform: scale(0.8);
+}
+.reticle-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  text-align: center;
+  pointer-events: none;
+}
+.reticle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .reticle[data-phase="idle"]:not(:disabled) .reticle-brackets {
+    animation: reticle-settle 3s ease-in-out infinite;
+  }
+}
+@keyframes reticle-settle {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.94);
+  }
 }
 
 /* — ignition — */
-.ignition-text {
-  text-align: center;
+.ignition {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--ink);
+  font: 300 16px/1.5 var(--f);
 }
-.ignition-step {
-  font-size: var(--text-22);
-  font-family: var(--font-heading);
-  font-weight: 500;
-  min-height: 32px;
+.ig-art {
+  position: relative;
+  overflow: hidden;
 }
-.ignition-where {
-  font-size: 13px;
-  color: var(--color-neutral-400);
-  margin-top: 6px;
+.ig-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgb(18 18 18 / 0.85));
+}
+.ig-wm {
+  position: absolute;
+  z-index: 5;
+  left: 28px;
+  top: 30px;
+}
+.ig-copy {
+  position: absolute;
+  z-index: 5;
+  left: var(--gut);
+  right: var(--gut);
+  bottom: clamp(28px, 6.2vh, 56px);
+}
+.ig-copy .mono {
+  color: var(--ink-2);
+}
+.ig-title {
+  margin: 12px 0 10px;
+  font: 400 clamp(34px, 4.2vw, 60px) / 1.05 var(--wide);
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+.ig-where {
+  font: 200 clamp(20px, 1.8vw, 26px) / 1.2 var(--f);
+}
+.ig-where b {
+  font-weight: 600;
+}
+.ig-paper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 40px var(--gut) clamp(28px, 4.9vh, 44px) 44px;
+  background: var(--paper);
+  color: var(--on-paper);
+  overflow: hidden;
+}
+.ig-step {
+  color: var(--on-paper-3);
+}
+.ig-pct {
+  font: 400 64px/1.1 var(--wide);
+  font-variant-numeric: tabular-nums;
+}
+.ig-pct span {
+  font-size: 24px;
+  color: var(--on-paper-3);
+}
+.ig-cancel {
+  position: absolute;
+  top: 52px;
+  right: var(--gut);
+  color: var(--on-paper);
+}
+.ig-dial {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: calc(100% + 44px + var(--gut));
+  margin: 0 calc(-1 * var(--gut)) 12px -44px;
+  color: var(--on-paper);
+}
+.ig-dial-n {
+  fill: var(--on-paper-2);
+  font: 400 11px var(--mono);
+}
+.ig-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ig-legend li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--pline);
+}
+.ig-dot {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--on-paper);
+  border-radius: 50%;
+}
+.ig-legend [data-state="done"] {
+  color: var(--on-paper-2);
+}
+.ig-legend [data-state="done"] .ig-dot {
+  background: var(--on-paper);
+}
+.ig-legend [data-state="now"] {
+  color: var(--on-paper);
+}
+.ig-legend [data-state="now"] .ig-dot::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-edge);
+}
+.ig-legend [data-state="next"] {
+  color: var(--on-paper-3);
+}
+.ig-legend [data-state="next"] .ig-dot {
+  border-color: var(--on-paper-3);
 }
 
-/* — live session — */
+/* — live session (the HUD keeps its own look) — */
 .session {
   position: fixed;
   inset: 0;
@@ -205,15 +1325,16 @@
 /* — profile — */
 .profile {
   position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-8) var(--space-8) 56px;
+  min-height: 100%;
+  padding: calc(var(--bar) + 44px) var(--gut) 56px;
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  max-width: 780px;
   animation: swiff-rise 0.5s ease both;
+}
+.profile > * {
+  width: 100%;
+  max-width: 780px;
 }
 .profile-head {
   display: flex;
@@ -223,23 +1344,22 @@
 .profile-id {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .profile-name {
-  font-family: var(--font-heading);
-  font-weight: 500;
-  font-size: 30px;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  font: 400 30px/1.05 var(--wide);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 .profile-line {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: var(--text-12);
   line-height: var(--lh-16);
-  color: var(--color-neutral-300);
+  color: var(--ink-2);
 }
 .profile-connect {
   display: flex;
@@ -249,7 +1369,7 @@
 }
 .profile-sub {
   font-size: 13px;
-  color: var(--color-neutral-400);
+  color: var(--ink-2);
 }
 .profile-section {
   display: flex;
@@ -264,102 +1384,228 @@
 .profile-fine {
   margin: 0;
   font-size: var(--text-12);
-  color: var(--color-neutral-500);
+  color: var(--ink-3);
 }
 .device-row {
   display: flex;
   gap: var(--space-2);
 }
+.profile input[type="checkbox"] {
+  accent-color: var(--lime);
+}
 
 /* — big displays —
-   The prototype's two tiers. display.ts decides which one applies and puts it
-   on <html data-display>; this file only sets the size variables components
-   expose. From "wide" the game screen grows; on "ultra" the wall is Mosaic's
-   sideways strip and every screen scales up again. */
-:root:is([data-display="wide"], [data-display="ultra"]) {
-  .menu {
-    --pocket-shape: ellipse 34vw 75% at 14vw 50%;
-    --pocket-from: 80%;
-    --pocket-mid: 35%;
-    --hero-xl-max: min(1100px, 56vw);
-    --hero-xl-title: clamp(96px, min(10vw, 22vh), 180px);
-    --hero-xl-title-lh: 0.86;
-    --hero-xl-meta: clamp(14px, 0.9vw, 17px);
-    --hero-xl-meta-lh: 1.4;
-    --hero-xl-meta-gap: clamp(12px, 2vh, 24px);
-    --hero-xl-body: clamp(20px, 1.4vw, 28px);
-    --hero-xl-body-max: 30ch;
-    --btn-xl-height: clamp(60px, 4.4vw, 80px);
-    --btn-xl-padding: 0 clamp(36px, 2.8vw, 56px);
-    --btn-xl-size: 20px;
+   display.ts puts the tier on <html data-display>. The fluid sizes above reach
+   their caps by then; the bar and the band grow a step with the screen. */
+:root[data-display="ultra"] .sw {
+  --bar: 96px;
+  --band-h: 400px;
+}
+
+/* — reduced motion: nothing moves on its own — */
+@media (prefers-reduced-motion: reduce) {
+  .band-tile-art,
+  .ring-btn,
+  .dial-orbit,
+  .reticle-brackets {
+    transition: none;
   }
-  .menu-hero {
-    justify-content: center;
-    padding-bottom: 2vh;
-    padding-left: 5vw;
-    max-width: none;
+  .band-tile:hover .band-tile-art,
+  .ring-btn:hover {
+    transform: none;
   }
-  .menu-launch {
-    margin-top: clamp(24px, 4vh, 48px);
-    gap: 12px;
-  }
-  .menu-sub {
-    font-size: 17px;
-    line-height: 24px;
-    gap: var(--space-8);
-    --meter-label-size: 14px;
-    --meter-seg-w: 22px;
-    --meter-seg-h: 6px;
-    --meter-gap: 4px;
-  }
-  .selector-cards {
-    --meter-label-size: 14px;
-    --meter-seg-w: 20px;
-    --meter-seg-h: 5px;
+  .profile {
+    animation: none;
   }
 }
 
-/* At 2200px and up the prototype's fluid values have all reached their caps,
-   so they are plain numbers here. */
-:root[data-display="ultra"] {
-  /* The strip fills what is left under the header; the page does not scroll. */
-  .wall-main {
-    overflow: hidden;
+/* — phones and narrow windows: one column; the instrument column and the
+   Ledger sit under the art instead of beside it — */
+@media (max-width: 860px) {
+  .sw {
+    --bar: 64px;
+    --gut: 20px;
+    --cr: 100%;
   }
+  .bar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .bar > * {
+    padding: 0 16px;
+  }
+  .bar-nav {
+    display: none;
+  }
+  .bar .bar-acct {
+    padding-right: 10px;
+    gap: 8px;
+  }
+  .acct-avatar {
+    width: 34px;
+    height: 34px;
+  }
+
+  .hero {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+  .hero-scrim {
+    background: linear-gradient(
+      180deg,
+      rgb(18 18 18 / 0.78) 0,
+      rgb(18 18 18 / 0.6) 40%,
+      rgb(18 18 18 / 0.2) 62%
+    );
+  }
+  .hero-copy {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: auto;
+    padding: calc(var(--bar) + 32px) var(--gut) 32px;
+  }
+  .hero-title,
+  .hero-copy-out .hero-title {
+    font-size: clamp(30px, 9vw, 44px);
+  }
+  .inst {
+    position: relative;
+    top: auto;
+    width: auto;
+    height: 380px;
+    border-left: 0;
+  }
+  .dial-box {
+    height: 100%;
+  }
+
+  .band-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+  }
+  .band-tab {
+    min-height: 46px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--pline);
+  }
+  .band-tab:nth-child(2n) {
+    border-right: 0;
+  }
+  .band-tab:nth-child(n + 3) {
+    border-bottom: 0;
+  }
+  .band-tab.on::after,
+  .band-tab.on::before {
+    left: 20px;
+  }
+  .band-tab.on::after {
+    right: 20px;
+  }
+  .band-tab .glyph {
+    margin-top: 0;
+  }
+  .band-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .band-tile,
+  .band-tile:nth-child(4n) {
+    padding: 16px 20px 22px;
+    border-right: 0;
+    background: none;
+  }
+  .band-tile:nth-child(n + 2) {
+    border-top: 1px solid var(--pline);
+  }
+  .band-tile-frame {
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .library-note,
+  .band-foot {
+    padding-inline: 20px;
+  }
+
   .menu {
-    --pocket-shape: ellipse 30vw 70% at 12vw 58%;
-    --pocket-from: 78%;
-    --pocket-mid: 30%;
-    --hero-xl-max: 900px;
-    --hero-xl-meta: 20px;
-    --hero-xl-body: 22px;
-    --btn-xl-height: 76px;
-    --btn-xl-padding: 0 2.4vw;
-    --btn-xl-size: 26px;
+    --lx: 50%;
+    --ly: 60%;
+    --lr: min(30vw, 16vh);
+    height: auto;
+    overflow: visible;
   }
-  .menu-hero,
-  .selector {
-    padding-inline: 6vw;
+  .menu-art {
+    position: relative;
+    inset: auto;
+    height: max(560px, 82vh);
   }
-  .menu-sub {
-    font-size: 16px;
+  .menu-copy {
+    top: calc(var(--bar) + 24px);
   }
-  .selector-cards {
-    gap: 14px;
-    --machine-min-h: clamp(104px, 9vh, 140px);
-    --machine-rec-min-h: clamp(128px, 11vh, 168px);
+  .menu-reads {
+    left: var(--gut);
+    right: var(--gut);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 0;
   }
+  .menu-reads div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .menu-reads dd {
+    font-size: 17px;
+    white-space: normal;
+  }
+  .ledger-panel {
+    position: relative;
+    inset: auto;
+    width: auto;
+    padding: 28px var(--gut) 36px;
+    overflow: visible;
+    border-left: 0;
+  }
+  .ledger-row {
+    grid-template-columns: 74px minmax(0, 1fr);
+    padding-inline: 12px;
+  }
+  .ledger-ms {
+    font-size: 32px;
+  }
+
   .ignition {
-    --ring-size: 160px;
-    --ring-label-size: 28px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 34vh minmax(0, 1fr);
+    overflow-y: auto;
   }
-  .session {
-    font-size: 20px;
+  .ig-wm {
+    left: 20px;
+    top: 22px;
   }
-  .hud-stats {
-    --tag-size: 16px;
+  .ig-paper {
+    min-height: 560px;
+    padding: 28px var(--gut) 28px;
   }
-  .hud-clock {
-    font-size: 30px;
+  .ig-pct {
+    font-size: 48px;
+  }
+  .ig-cancel {
+    top: 30px;
+  }
+  .ig-dial {
+    min-height: 260px;
+    width: calc(100% + 2 * var(--gut));
+    margin-inline: calc(-1 * var(--gut));
+  }
+
+  .profile {
+    padding-top: calc(var(--bar) + 28px);
+  }
+}
+@media (max-width: 520px) {
+  .acct-who {
+    display: none;
+  }
+  .hero-facts span {
+    padding: 0 12px;
   }
 }
