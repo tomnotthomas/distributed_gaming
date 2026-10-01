@@ -10,7 +10,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
-import { parseMachineKeys, verifyTicket, type Access } from "../access.js";
+import { mintTicket, parseMachineKeys, verifyTicket, type Access } from "../access.js";
 import { createApi } from "../api.js";
 import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
 import type { SignalMessage } from "../protocol.js";
@@ -194,6 +194,98 @@ describe("booking and host API", () => {
     assert.equal(platform.machineProfile("pc-1")!.games.length, MAX_GAMES);
     const huge = { available: true, name: "x".repeat(40_000) };
     assert.equal((await offer("pc-1", huge)).status, 413);
+  });
+
+  it("ignores any reason the host sends: an early end is host_end, whatever it claims", async () => {
+    await offer();
+    for (const reason of ["renter", "time_up"]) {
+      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      const end = await call("POST", `/api/sessions/${claim.body.sessionId}/end`, { reason }, MACHINE_KEY);
+      assert.equal(end.status, 200, reason);
+      assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end", reason);
+    }
+  });
+
+  it("ends a session as renter when the renter leaves with the session's own ticket", async () => {
+    await offer();
+    await offer("pc-2");
+    const first = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const second = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const mine = await call("POST", `/api/bookings/${first.body.bookingId}/claim`);
+    const theirs = await call("POST", `/api/bookings/${second.body.bookingId}/claim`);
+    const leave = `/api/sessions/${mine.body.sessionId}/leave`;
+
+    assert.equal((await call("POST", leave)).status, 401);
+    assert.equal((await call("POST", leave, undefined, MACHINE_KEY)).status, 401);
+    assert.equal((await call("POST", leave, undefined, theirs.body.ticket)).status, 403);
+    assert.equal((await call("POST", "/api/sessions/nope/leave", undefined, mine.body.ticket)).status, 404);
+    assert.equal(platform.sessionEndReason(mine.body.sessionId), null);
+
+    const left = await call("POST", leave, undefined, mine.body.ticket);
+    assert.equal(left.status, 200);
+    assert.deepEqual(left.body, { sessionId: mine.body.sessionId });
+    assert.equal(platform.sessionEndReason(mine.body.sessionId), "renter");
+    assert.equal((await call("POST", leave, undefined, mine.body.ticket)).status, 409);
+  });
+
+  describe("renter QoS", () => {
+    const QOS = { fps: 59.8, bitrate: 18_500_000, rttMs: 14.2, packetLoss: 0.004 };
+
+    /** A claimed session and the join ticket handed out for it. */
+    const claimed = async () => {
+      await offer();
+      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      return { path: `/api/sessions/${claim.body.sessionId}/qos`, ...claim.body };
+    };
+
+    it("stores the renter's report under the session, with the session's own ticket", async () => {
+      const { path, sessionId, ticket } = await claimed();
+      const reply = await call("POST", path, QOS, ticket);
+      assert.equal(reply.status, 200);
+      assert.deepEqual(reply.body, { sessionId });
+      assert.deepEqual(platform.sessionQos(sessionId), { reports: 1, ...QOS });
+    });
+
+    it("refuses a missing, forged or other session's ticket, and the machine key", async () => {
+      const first = await claimed();
+      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      await offer("pc-2");
+      const other = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      assert.equal(other.status, 200);
+
+      assert.equal((await call("POST", first.path, QOS)).status, 401);
+      assert.equal((await call("POST", first.path, QOS, "forged")).status, 401);
+      assert.equal((await call("POST", first.path, QOS, MACHINE_KEY)).status, 401);
+      assert.equal((await call("POST", first.path, QOS, other.body.ticket)).status, 403);
+      assert.equal((await call("POST", "/api/sessions/nope/qos", QOS, first.ticket)).status, 404);
+      const expired = mintTicket(SECRET, "pc-1", 60, Date.now() - 61_000);
+      assert.equal((await call("POST", first.path, QOS, expired)).status, 401);
+      assert.equal(platform.sessionQos(first.sessionId), null);
+    });
+
+    it("refuses a report once the session is long over", async () => {
+      const { path, sessionId, ticket } = await claimed();
+      await call("POST", `/api/sessions/${sessionId}/end`, {}, MACHINE_KEY);
+      now += 5 * 60_000;
+      assert.equal((await call("POST", path, QOS, ticket)).status, 409);
+    });
+
+    it("rejects a malformed or oversized report with a 400 or 413", async () => {
+      const { path, sessionId, ticket } = await claimed();
+      for (const bad of [
+        {},
+        { ...QOS, fps: "60" },
+        { ...QOS, packetLoss: 1.5 },
+        { ...QOS, rttMs: -1 },
+        { ...QOS, bitrate: null },
+      ]) {
+        assert.equal((await call("POST", path, bad, ticket)).status, 400, JSON.stringify(bad));
+      }
+      assert.equal((await call("POST", path, { ...QOS, pad: "x".repeat(2_000) }, ticket)).status, 413);
+      assert.equal(platform.sessionQos(sessionId), null);
+    });
   });
 });
 

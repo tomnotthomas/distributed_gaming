@@ -3,7 +3,15 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { LIVENESS_MS, Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS, type MachineSpec } from "../platform.js";
+import {
+  LIVENESS_MS,
+  Platform,
+  QOS_GRACE_MS,
+  QUEUE_TIMEOUT_MS,
+  RESERVATION_MS,
+  TIME_UP_GRACE_MS,
+  type MachineSpec,
+} from "../platform.js";
 import { REPORT } from "./report.js";
 
 let now: number;
@@ -615,6 +623,308 @@ describe("claim notice and host sessions", () => {
       const second = new Platform({ path, now: () => now });
       assert.deepEqual(second.keySessions.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
       second.close();
+    });
+  });
+});
+
+describe("session end reasons", () => {
+  /** A claimed 30-minute session on pc-1 with join ticket "ticket-1", started unless told otherwise. */
+  const session = (start = true) => {
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    platform.recordTicket(claim.sessionId, "ticket-1");
+    if (start) assert.ok(platform.startSession("pc-1", claim.sessionId));
+    return claim.sessionId;
+  };
+
+  it("is renter when the renter leaves with the session's own ticket", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    assert.equal(platform.leaveSession(id, "ticket-1"), "ok");
+    assert.equal(platform.sessionEndReason(id), "renter");
+    assert.equal(platform.heartbeat("pc-1").status, "available");
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("lets only the session's own ticket leave it, and only while it runs", () => {
+    const id = session();
+    assert.equal(platform.leaveSession(id, "ticket-2"), "wrong-ticket");
+    assert.equal(platform.leaveSession("no-such-session", "ticket-1"), "not-found");
+    assert.equal(platform.sessionEndReason(id), null);
+    platform.setAvailability("pc-1", false);
+    assert.equal(platform.leaveSession(id, "ticket-1"), "over");
+    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  });
+
+  it("is host_end when the host ends a session before its expiry, whatever the host meant", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "host_end");
+  });
+
+  it("is host_end when the host backdates its end to look like it ran its time", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    platform.endSession("pc-1", id, now + 30 * 60_000);
+    assert.equal(platform.sessionEndReason(id), "host_end");
+  });
+
+  it("is time_up when the host ends it within the grace before its expiry", () => {
+    const id = session();
+    now += 30 * 60_000 - 5_000; // no tick: the host's timer runs slightly ahead of the server's
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "time_up");
+  });
+
+  it("is host_end when the host ends it just outside the grace before its expiry", () => {
+    const id = session();
+    now += 30 * 60_000 - TIME_UP_GRACE_MS - 1_000;
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "host_end");
+  });
+
+  it("is time_up when the host ends it once the server sees it past its expiry", () => {
+    const id = session();
+    now += 30 * 60_000; // no tick: the host's end arrives before the backstop
+    platform.endSession("pc-1", id);
+    assert.equal(platform.sessionEndReason(id), "time_up");
+  });
+
+  it("is owner_kill when the owner takes the machine back", () => {
+    const id = session();
+    platform.setAvailability("pc-1", false);
+    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  });
+
+  it("is host_offline when the machine goes silent", () => {
+    const id = session();
+    advance(LIVENESS_MS);
+    assert.equal(platform.sessionEndReason(id), "host_offline");
+  });
+
+  it("is time_up when a started session runs past its time unended", () => {
+    const id = session();
+    beatFor("pc-1", 30 * 60_000);
+    assert.equal(platform.sessionEndReason(id), "time_up");
+  });
+
+  it("is grace_expired when the renter claimed and never arrived", () => {
+    const id = session(false);
+    beatFor("pc-1", 30 * 60_000);
+    assert.equal(platform.sessionEndReason(id), "grace_expired");
+  });
+
+  it("is null while the session runs", () => {
+    assert.equal(platform.sessionEndReason(session()), null);
+  });
+});
+
+describe("machine uptime", () => {
+  const uptime = () => {
+    const { stats } = platform.stability("pc-1");
+    return { offeredMs: Math.round(stats.offeredHours * 3_600_000), coverage: stats.heartbeatCoverage };
+  };
+
+  it("counts every heartbeat-covered moment while offered", () => {
+    offer("pc-1");
+    beatFor("pc-1", 10 * 60_000);
+    assert.deepEqual(uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
+  });
+
+  it("counts a liveness drop, and the time offline as offered but unseen", () => {
+    offer("pc-1");
+    beatFor("pc-1", 60_000);
+    advance(LIVENESS_MS); // dropped: seen until now, then nothing
+    advance(45_000);
+    // Still offline: the time since the drop counts without a check-in.
+    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
+    platform.heartbeat("pc-1");
+    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 1 / (120 / 3600));
+  });
+
+  it("does not count a drop when the host shuts down after its offer ended", () => {
+    offer("pc-1", { availableUntil: now + 62_000 });
+    beatFor("pc-1", 60_000);
+    advance(LIVENESS_MS + 60_000);
+    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
+    assert.deepEqual(uptime(), { offeredMs: 62_000, coverage: 1 });
+  });
+
+  it("counts a drop when the host goes silent well before its offer ends", () => {
+    offer("pc-1", { availableUntil: now + 10 * 60_000 });
+    beatFor("pc-1", 60_000);
+    advance(LIVENESS_MS + 60_000);
+    const { stats } = platform.stability("pc-1");
+    assert.equal(Math.round(stats.dropsPerHour * stats.offeredHours), 1);
+  });
+
+  it("keeps the whole UTC day the seven-day window starts in", () => {
+    offer("pc-1");
+    beatFor("pc-1", 60 * 60_000);
+    platform.setAvailability("pc-1", false);
+    advance(7 * 24 * 3_600_000 - 30 * 60_000);
+    platform.heartbeat("pc-1");
+    assert.deepEqual(uptime(), { offeredMs: 60 * 60_000, coverage: 1 });
+  });
+
+  it("does not count time the machine was taken back", () => {
+    offer("pc-1");
+    beatFor("pc-1", 60_000);
+    platform.setAvailability("pc-1", false);
+    advance(60 * 60_000);
+    platform.heartbeat("pc-1");
+    offer("pc-1");
+    beatFor("pc-1", 10_000);
+    assert.deepEqual(uptime(), { offeredMs: 70_000, coverage: 1 });
+  });
+
+  it("stops counting at the end of the offer", () => {
+    offer("pc-1", { availableUntil: now + 30_000 });
+    beatFor("pc-1", 60_000);
+    assert.deepEqual(uptime(), { offeredMs: 30_000, coverage: 1 });
+  });
+
+  it("splits time across UTC midnight into each day's row", () => {
+    now = Date.UTC(2026, 8, 30, 23, 59, 50);
+    offer("pc-1");
+    beatFor("pc-1", 20_000);
+    assert.deepEqual(uptime(), { offeredMs: 20_000, coverage: 1 });
+  });
+
+  it("forgets days older than the seven-day window", () => {
+    offer("pc-1");
+    beatFor("pc-1", 10_000);
+    platform.setAvailability("pc-1", false);
+    advance(8 * 24 * 3_600_000);
+    assert.deepEqual(uptime(), { offeredMs: 0, coverage: 1 });
+  });
+});
+
+describe("renter QoS", () => {
+  const REPORT_GOOD = { fps: 60, bitrate: 20e6, rttMs: 12, packetLoss: 0.001 };
+
+  /** A claimed session on pc-1 whose join ticket is "ticket-1". */
+  const claimed = () => {
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    platform.recordTicket(claim.sessionId, "ticket-1");
+    return claim.sessionId;
+  };
+
+  it("keeps a summary of the session's reports", () => {
+    const id = claimed();
+    assert.equal(platform.sessionQos(id), null);
+    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
+    assert.equal(platform.recordQos(id, "ticket-1", { ...REPORT_GOOD, fps: 30, packetLoss: 0.003 }), "ok");
+    assert.deepEqual(platform.sessionQos(id), {
+      reports: 2,
+      fps: 45,
+      bitrate: 20e6,
+      rttMs: 12,
+      packetLoss: 0.002,
+    });
+  });
+
+  it("takes reports only with the session's own ticket", () => {
+    const id = claimed();
+    assert.equal(platform.recordQos(id, "ticket-2", REPORT_GOOD), "wrong-ticket");
+    assert.equal(platform.recordQos("no-such-session", "ticket-1", REPORT_GOOD), "not-found");
+    assert.equal(platform.sessionQos(id), null);
+  });
+
+  it("refuses every report for a session handed out with no ticket", () => {
+    offer("pc-1");
+    const claim = platform.claim(platform.book(730, 30).bookingId);
+    assert.ok(claim.ok);
+    assert.equal(platform.recordQos(claim.sessionId, "", REPORT_GOOD), "wrong-ticket");
+  });
+
+  it("takes a last report shortly after the session ends, and none later", () => {
+    const id = claimed();
+    platform.endSession("pc-1", id);
+    now += QOS_GRACE_MS;
+    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
+    now += 1;
+    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "over");
+  });
+});
+
+describe("machine stability", () => {
+  /** A two-hour session on pc-1, left by the renter, reporting `packetLoss`. */
+  const play = (packetLoss: number) => {
+    const claim = platform.claim(platform.book(730, 180).bookingId);
+    assert.ok(claim.ok);
+    platform.recordTicket(claim.sessionId, `ticket-${claim.sessionId}`);
+    assert.ok(platform.startSession("pc-1", claim.sessionId));
+    beatFor("pc-1", 2 * 3_600_000);
+    platform.recordQos(claim.sessionId, `ticket-${claim.sessionId}`, {
+      fps: 60,
+      bitrate: 20e6,
+      rttMs: 12,
+      packetLoss,
+    });
+    assert.equal(platform.leaveSession(claim.sessionId, `ticket-${claim.sessionId}`), "ok");
+  };
+
+  it("is New for a machine never heard from", () => {
+    assert.equal(platform.stability("pc-9").stability, "new");
+  });
+
+  it("is New until five sessions and ten offered hours, then reads the week", () => {
+    offer("pc-1");
+    for (let i = 0; i < 4; i++) play(0.002);
+    assert.equal(platform.stability("pc-1").stability, "new");
+    play(0.002);
+    const { stats, stability } = platform.stability("pc-1");
+    assert.deepEqual(stats, {
+      heartbeatCoverage: 1,
+      dropsPerHour: 0,
+      sessionCompletion: 1,
+      packetLoss: 0.002,
+      sessions: 5,
+      offeredHours: 10,
+    });
+    assert.equal(stability, "steady");
+  });
+
+  it("is Shaky for a machine whose renters lose too many packets", () => {
+    offer("pc-1");
+    for (let i = 0; i < 5; i++) play(0.05);
+    assert.equal(platform.stability("pc-1").stability, "shaky");
+  });
+
+  it("only counts the last seven days of sessions", () => {
+    offer("pc-1");
+    for (let i = 0; i < 5; i++) play(0.05);
+    platform.setAvailability("pc-1", false);
+    advance(8 * 24 * 3_600_000);
+    const { stats } = platform.stability("pc-1");
+    assert.equal(stats.sessions, 0);
+    assert.equal(stats.offeredHours, 0);
+  });
+
+  it("adds the end reason and QoS columns to a database file made before them", async () => {
+    await withDatabaseFile(async (path) => {
+      const { DatabaseSync } = await import("node:sqlite");
+      const old = new DatabaseSync(path);
+      old.exec(`CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, booking_id TEXT NOT NULL UNIQUE, machine_id TEXT NOT NULL,
+        started_at INTEGER, ended_at INTEGER, expires_at INTEGER NOT NULL, price INTEGER,
+        ticket_id TEXT UNIQUE)`);
+      old.close();
+
+      const reopened = new Platform({ path, now: () => now });
+      reopened.setAvailability("pc-1", true, REPORT);
+      const claim = reopened.claim(reopened.book(730, 30).bookingId);
+      assert.ok(claim.ok);
+      reopened.endSession("pc-1", claim.sessionId);
+      assert.equal(reopened.sessionEndReason(claim.sessionId), "host_end");
+      reopened.close();
     });
   });
 });

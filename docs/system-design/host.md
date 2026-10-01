@@ -108,9 +108,16 @@ POST /machines/:id/session
 POST /sessions/:id/start
 POST /sessions/:id/end
   { endedAt? }
-  Mark the session started (the renter arrived), and ended (renter left, time ran out,
-  or kill switch). → 409 once the session is over. The platform ends a session itself
-  when its join ticket runs out.
+  Mark the session started (the renter arrived), and ended. → 409 once the session is
+  over. Any `reason` the host sends is ignored: the server alone decides why a session
+  ended, so a host can never claim credit for one: `time_up` once the server sees the
+  session within 10 s of its expiry (to absorb clock skew), `host_end` for any earlier
+  end the host reports (often a renter who disconnected without leaving; it counts
+  neither for nor against completion), `owner_kill` when the owner takes the machine
+  back mid-session, `renter` only when the renter leaves with their own ticket
+  (renter.md), and from its own sweeps `time_up` or `grace_expired` (the renter never
+  arrived) when the join ticket runs out and `host_offline` when the machine goes
+  silent. The reason feeds the machine's stability (below).
 
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }
@@ -126,6 +133,17 @@ session ([`session-keys.md`](session-keys.md)): its session keys die and the str
 put out with `session-ended`. The Windows service must treat that denial, or a heartbeat
 whose `session.id` has changed or is missing, as the signal to tear down the renter
 account session.
+
+### Stability
+
+The server keeps seven days of each machine's history (`server/src/stability.ts`):
+how long it was offered and how much of that its heartbeats covered, how often it
+dropped offline, how its sessions ended, and the renter's stream quality
+(`POST /api/sessions/:id/qos`, authenticated with the session's join ticket:
+`{ fps, bitrate, rttMs, packetLoss }`). Session completion counts every session not
+ended by `host_offline` or `owner_kill`, out of those not ended early by the host
+(`host_end` is left out of completion but still counts as a session and towards the
+loss median). `@swiff/rank` buckets that into Steady, OK, Shaky or New.
 
 ### Host report
 

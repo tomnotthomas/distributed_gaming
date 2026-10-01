@@ -74,7 +74,7 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
 | **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                     |
 | **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                                                        |
-| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`, `ticket_id`                                      |
+| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `end_reason`, `price`, `ticket_id`, `qos`                 |
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
@@ -125,6 +125,21 @@ POST /bookings/:id/claim
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired).
+
+POST /sessions/:id/qos
+  { fps, bitrate, rttMs, packetLoss }
+  Report stream quality during the session, with the join ticket as bearer, and once
+  more up to 60 s after it ends while the ticket is still valid. Feeds the machine's
+  stability; see host.md, "Stability". Later concern: each report counts equally in the
+  session's running mean, so a policy for duplicate or uneven sampling (bounded report
+  intervals, report ids, and telling sparse from absent telemetry) is still to come.
+
+POST /sessions/:id/leave
+  The renter is leaving: ends the session as `renter`, with the join ticket as bearer.
+  → 403 for another session's ticket, → 409 once the session is over. The only way a
+  session is recorded as the renter's own choice to end it. A renter who just closes the
+  page leaves the host to end the session, which is recorded as `host_end` (or `time_up`
+  within 10 s of its expiry) and counts neither for nor against the machine's completion.
 ```
 
 Matching runs in the server process, every second and on every change: the oldest
