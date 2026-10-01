@@ -33,7 +33,7 @@ export function Profile({ swiff }: { swiff: Swiff }) {
   return (
     <main className="profile">
       <header className="profile-head">
-        <Avatar initial={(profile?.persona ?? "?")[0]!.toUpperCase()} size={72} />
+        <Avatar initial={(profile?.persona || "?")[0]!.toUpperCase()} size={72} />
         <div className="profile-id">
           <div className="profile-name">{persona}</div>
           {profile ? (

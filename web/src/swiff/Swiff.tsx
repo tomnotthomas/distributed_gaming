@@ -16,7 +16,7 @@ export function Swiff() {
   const { screen, phase, profile, libraryConnected, hoverId, games } = swiff;
 
   const hovered = games.find((game) => game.id === hoverId);
-  const initial = libraryConnected ? (profile?.persona ?? "?")[0]!.toUpperCase() : "?";
+  const initial = libraryConnected ? (profile?.persona || "?")[0]!.toUpperCase() : "?";
 
   return (
     <AppShell
