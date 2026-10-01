@@ -304,8 +304,8 @@ describe("booking and host API", () => {
   it("ignores any reason the host sends: an early end is host_end, whatever it claims", async () => {
     await offer();
     for (const reason of ["renter", "time_up"]) {
-      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-      const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
       const end = await call("POST", `/api/sessions/${claim.body.sessionId}/end`, { reason }, MACHINE_KEY);
       assert.equal(end.status, 200, reason);
       assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end", reason);
@@ -315,10 +315,10 @@ describe("booking and host API", () => {
   it("ends a session as renter when the renter leaves with the session's own ticket", async () => {
     await offer();
     await offer("pc-2");
-    const first = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    const second = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    const mine = await call("POST", `/api/bookings/${first.body.bookingId}/claim`);
-    const theirs = await call("POST", `/api/bookings/${second.body.bookingId}/claim`);
+    const first = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const second = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const mine = await renter("POST", `/api/bookings/${first.body.bookingId}/claim`);
+    const theirs = await renter("POST", `/api/bookings/${second.body.bookingId}/claim`);
     const leave = `/api/sessions/${mine.body.sessionId}/leave`;
 
     assert.equal((await call("POST", leave)).status, 401);
@@ -340,8 +340,8 @@ describe("booking and host API", () => {
     /** A claimed session and the join ticket handed out for it. */
     const claimed = async () => {
       await offer();
-      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-      const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
       return { path: `/api/sessions/${claim.body.sessionId}/qos`, ...claim.body };
     };
 
@@ -355,9 +355,9 @@ describe("booking and host API", () => {
 
     it("refuses a missing, forged or other session's ticket, and the machine key", async () => {
       const first = await claimed();
-      const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
       await offer("pc-2");
-      const other = await call("POST", `/api/bookings/${body.bookingId}/claim`);
+      const other = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
       assert.equal(other.status, 200);
 
       assert.equal((await call("POST", first.path, QOS)).status, 401);
