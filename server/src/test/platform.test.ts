@@ -967,6 +967,45 @@ describe("renters and owners", () => {
     });
   });
 
+  it("takes back a reservation made before its renter was known to own the machine", async () => {
+    await withDatabaseFile((path) => {
+      // Matched while pc-1 had no owner on record.
+      const before = new Platform({ path, now: () => now });
+      before.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = before.book(730, 30, OWNER);
+      assert.equal(before.booking(bookingId, OWNER)!.machine?.id, "pc-1");
+      before.close();
+
+      // Restarted knowing OWNER owns pc-1: the next check-in hands it back.
+      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
+      assert.equal(after.heartbeat("pc-1").status, "available");
+      const requeued = after.booking(bookingId, OWNER)!;
+      assert.equal(requeued.status, "queued");
+      assert.equal(requeued.machine, undefined);
+      assert.equal(after.book(730, 30, RENTER).machine?.id, "pc-1");
+      after.close();
+    });
+  });
+
+  it("refuses to claim the renter's own machine before it has checked in again", async () => {
+    await withDatabaseFile((path) => {
+      const before = new Platform({ path, now: () => now });
+      before.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = before.book(730, 30, OWNER);
+      before.close();
+
+      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
+      assert.deepEqual(after.claim(bookingId, OWNER), {
+        ok: false,
+        reason: "not-claimable",
+        status: "queued",
+      });
+      assert.equal(after.booking(bookingId, OWNER)!.status, "queued");
+      assert.equal(after.book(730, 30, RENTER).machine?.id, "pc-1");
+      after.close();
+    });
+  });
+
   it("shows and hands a booking only to the renter who made it", () => {
     platform.setAvailability("pc-1", true, REPORT);
     const { bookingId } = platform.book(730, 30, RENTER);

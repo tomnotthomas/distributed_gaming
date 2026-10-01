@@ -618,6 +618,16 @@ export class Platform {
       if (booking.status !== "matched" || !reservation) {
         return { ok: false, reason: "not-claimable", status: booking.status };
       }
+      // Never the renter's own machine, even when the reservation predates its
+      // owner being known (configured since, the machine not yet checked in).
+      const { owner_id } = this.#db
+        .prepare("SELECT owner_id FROM machines WHERE id = ?")
+        .get(reservation.machine_id) as { owner_id: string | null };
+      const owner = this.#owners.get(reservation.machine_id) ?? owner_id;
+      if (owner !== null && owner === booking.renter_id) {
+        this.#releaseOwnersReservation(reservation.machine_id, owner);
+        return { ok: false, reason: "not-claimable", status: "queued" };
+      }
 
       const sessionId = newId();
       this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
@@ -832,8 +842,16 @@ export class Platform {
         now - LIVENESS_MS,
         now + booking.minutes * 60_000,
       ) as (MachineRow & { has_game: number })[];
+      // The configured owner counts at once, before the machine next checks in
+      // and #touch records it, so a restart never matches an owner to their PC.
       const machine = machines.find((m) =>
-        passesMatchGates(m, m.has_game ? [booking.game_id] : [], booking, game, now),
+        passesMatchGates(
+          { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id },
+          m.has_game ? [booking.game_id] : [],
+          booking,
+          game,
+          now,
+        ),
       );
       if (!machine) continue; // a booking behind this one may still fit
       this.#db
@@ -932,21 +950,44 @@ export class Platform {
 
   /**
    * Record a check-in, creating the machine the first time it is heard from,
-   * and its owner as configured now, so a changed owner applies at once.
+   * and its owner as configured now, so a changed owner applies at once: a
+   * reservation the new owner already holds on it goes back to the queue.
    * Time offered since the last one is counted first (see #accrue).
    */
   #touch(machineId: string, now: number): MachineRow {
     const before = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
       MachineRow | undefined;
     if (before) this.#accrue(before, now);
+    const owner = this.#owners.get(machineId) ?? null;
     this.#db
       .prepare(
         `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at) VALUES (?, ?, 'idle', ?, ?)
            ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
              uptime_at = excluded.uptime_at`,
       )
-      .run(machineId, this.#owners.get(machineId) ?? null, now, now);
+      .run(machineId, owner, now, now);
+    if (owner !== null && owner !== before?.owner_id) this.#releaseOwnersReservation(machineId, owner);
     return this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
+  }
+
+  /**
+   * Hand back a reservation on the machine held by a booking of its own owner,
+   * made before the owner was known: the booking returns to the queue, where
+   * matching keeps it off this machine, and the machine is free again.
+   * True when there was one.
+   */
+  #releaseOwnersReservation(machineId: string, owner: string): boolean {
+    const reservation = this.#db
+      .prepare(
+        `SELECT r.* FROM reservations r JOIN bookings b ON b.id = r.booking_id
+           WHERE r.machine_id = ? AND b.renter_id = ?`,
+      )
+      .get(machineId, owner) as ReservationRow | undefined;
+    if (!reservation) return false;
+    this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
+    this.#setBookingStatus(reservation.booking_id, "queued");
+    this.#setStatus(machineId, "available");
+    return true;
   }
 
   /**

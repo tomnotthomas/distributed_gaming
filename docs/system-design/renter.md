@@ -206,7 +206,9 @@ the game installed and meets the game's minimum hardware (ranking gates E2 and E
 is not the renter's own (E5); the machine is reserved for it. A machine's owner is the
 Steam id on its `MACHINE_KEYS` entry, recorded on the machine each time it checks in; a
 machine whose entry names no owner can be matched to anyone, and the server warns about
-it at startup. A reservation lasts 60 s. When it lapses unclaimed, a renter who checked
+it at startup. A newly configured owner counts at once: a reservation they already hold
+on their own machine goes back to the queue, and `claim` refuses it. A reservation lasts
+60 s. When it lapses unclaimed, a renter who checked
 on the booking since the match saw it and let it go, so the booking expires and the
 machine goes to the next in line; a renter who has not been heard from since the match
 was away, so the booking goes back to the queue in its old place. A machine that goes
