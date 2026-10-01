@@ -217,8 +217,9 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
 };
 
 /**
- * Why a signed-in renter sees none of their own games, and a retry that reads
- * the library from Steam again. Only free-to-play games are shown beside it.
+ * Why a signed-in renter sees none of their own games. Only free-to-play games
+ * are shown beside it. An unreadable library also gets a retry that reads it
+ * from Steam again; a readable one would read the same, so it gets none.
  */
 function LibraryNote({
   state,
@@ -235,9 +236,11 @@ function LibraryNote({
       <p className="wall-library-text">
         <strong>{title}</strong> {body}
       </p>
-      <Button size="sm" variant="secondary" onClick={onRetry} disabled={retrying}>
-        {retrying ? "Checking…" : "Retry"}
-      </Button>
+      {state === "unreadable" ? (
+        <Button size="sm" variant="secondary" onClick={onRetry} disabled={retrying}>
+          {retrying ? "Checking…" : "Retry"}
+        </Button>
+      ) : null}
     </div>
   );
 }

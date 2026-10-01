@@ -11,6 +11,7 @@ import {
   readSteamFragment,
   refreshRenter,
   withMedia,
+  type CatalogGame,
   type SteamProfile,
 } from "./steam";
 
@@ -95,22 +96,27 @@ export function useSwiff() {
   // Which showLibrary call is current, so a slow catalog answer for a profile a
   // retry has since replaced never puts the old wall back.
   const libraryLoad = useRef(0);
+  // The last store data read, so a retry swaps games in place rather than
+  // blanking the free-to-play tiles until the store answers again.
+  const lastCatalog = useRef<CatalogGame[]>([]);
   /**
-   * Put a signed-in renter's wall up: their own games at once, then, once
-   * Steam's store data says which games are free to play, those too, with
-   * every card's real art and trailers.
+   * Put a signed-in renter's wall up: their own games at once, beside whatever
+   * free-to-play games the last store read found, then, once Steam's store data
+   * says which games are free to play, those, with every card's real art and
+   * trailers.
    */
   const showLibrary = useCallback(
     (next: SteamProfile) => {
       const load = ++libraryLoad.current;
       setProfile(next);
-      const library = applySteam(next, sharedMachineIds);
-      setGames(library);
+      const library = applySteam(next, sharedMachineIds, lastCatalog.current);
+      setGames(withMedia(library, lastCatalog.current));
       const curated = GAMES.map((g) => g.appid);
       void Promise.all([fetchMedia([...library.map((g) => g.appid), ...curated]), fetchPopular()]).then(
         ([media, popular]) => {
           if (load !== libraryLoad.current) return;
           const catalog = [...media, ...popular];
+          lastCatalog.current = catalog;
           setGames(withMedia(applySteam(next, sharedMachineIds, catalog), catalog));
         },
       );
