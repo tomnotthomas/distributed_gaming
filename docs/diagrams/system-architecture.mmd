@@ -18,7 +18,7 @@ config:
 ---
 flowchart LR
   Renter["Renter"]
-  PC["Gaming PC"]
+  SteamID["Steam"]
   TURN["TURN relay"]
   STUN["STUN"]
   TURNnote["carries the stream when<br/>the direct path is blocked"]
@@ -26,12 +26,17 @@ flowchart LR
   TURN -.- TURNnote
   STUN -.- STUNnote
 
-  subgraph Platform["Swiff platform"]
+  subgraph PC["Gaming PC"]
+    direction TB
+    SVC["Background service<br/>holds the machine key"]
+    STR["Streamer<br/>separate Windows account<br/>short-lived session key"]
+  end
+
+  subgraph Platform["Swiff platform · one server"]
     API["Booking API"]
     HAPI["Host API"]
-    Q["Queue"]
-    MM["Matchmaker worker"]
-    DB[("Database")]
+    MM["Matching<br/>queued bookings only<br/>on every change + timer for<br/>the next deadline"]
+    DB[("Database · SQLite for now")]
     S3[("Save storage · S3")]
     SIG["Connection setup<br/>swaps public addresses"]
   end
@@ -39,31 +44,31 @@ flowchart LR
   subgraph Data["Database · stored data"]
     direction TB
     T1["machines<br/>id (PK)<br/>owner_id (FK)<br/>gpu · cpu · price<br/>status<br/>available_until<br/>last_seen_at"]
-    T2["bookings<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>minutes · status"]
+    T2["bookings<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>minutes · status<br/>queued → matched →<br/>claimed → playing → ended"]
     T3["reservations<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>expires_at"]
-    T4["sessions<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>started_at<br/>ended_at · price"]
+    T4["sessions<br/>id (PK)<br/>booking_id (FK)<br/>machine_id (FK)<br/>started_at · ended_at<br/>expires_at · price<br/>ticket_id"]
     T5["saves<br/>id (PK)<br/>renter_id (FK)<br/>game_id (FK)<br/>s3_key · updated_at"]
     T1 ~~~ T2 ~~~ T3 ~~~ T4 ~~~ T5
   end
 
 
-  Renter -- "HTTPS · booking requests" --> API
-  API -- "enqueue" --> Q
-  API -- "store booking · read status" --> DB
-  Q ~~~ MM
-  MM -- "pulls next booking" --> Q
-  MM -- "polls every 5s · free machines" --> DB
-  MM -- "write · reservation + expires_at" --> DB
+  Renter -- "sign in" --> SteamID
+  Renter -- "HTTPS · ranked PCs for a game<br/>book the picked PC or join the queue<br/>claim" --> API
+  API -- "rank live PCs · reserve the pick<br/>store booking · claimed" --> DB
+  API -- "no PC free: queue" --> MM
+  MM -- "reserve a free PC<br/>for the oldest booking" --> DB
   API -. "join ticket signed with ROOM_SECRET<br/>checked here, no call needed" .- SIG
   Renter <-- "WebSocket · join ticket<br/>SDP/ICE + machine ready" --> SIG
-  SIG <-- "WebSocket · machine key" --> PC
-  PC -- "available now · heartbeat<br/>session started / ended" --> HAPI
+  SVC -- "POST /api/machines/:id/session<br/>machine key → session key" --> SIG
+  SVC -- "launches with the session key" --> STR
+  STR <-- "WebSocket · session key" --> SIG
+  SVC -- "available now · heartbeat<br/>session started / ended" --> HAPI
   HAPI -- "write" --> DB
-  PC -- "download saves at start<br/>upload saves at end" --> S3
-  Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> PC
-  PC -. "fallback" .-> TURN
+  SVC -- "download saves at start<br/>upload saves at end" --> S3
+  Renter <== "WebRTC · one peer connection<br/>video + audio + input" ==> STR
+  STR -. "fallback" .-> TURN
   Renter <-.- TURN
-  PC -. "public address" .-> STUN
+  STR -. "public address" .-> STUN
   Renter -. "public address" .-> STUN
   DB -.- Data
 
@@ -72,11 +77,12 @@ flowchart LR
   classDef turn fill:#fdf1dc,stroke:#e0a458,color:#8a5300
   classDef note fill:none,stroke:none,color:#666,font-style:italic
   classDef table fill:#fffbe8,stroke:#e0d58a,color:#333
-  class API,HAPI,Q,MM,DB,S3 platform
-  class Renter,PC,SIG,STUN endpoint
-  class TURN turn
+  class API,HAPI,MM,DB,S3 platform
+  class Renter,SVC,SIG,STUN,SteamID endpoint
+  class STR,TURN turn
   class T1,T2,T3,T4,T5 table
   class TURNnote,STUNnote note
   style Platform fill:#ffffff,stroke:#ccc,color:#444
+  style PC fill:#ffffff,stroke:#ccc,color:#444
   style Data fill:#ffffff,stroke:#ccc,color:#444
   linkStyle 0,1 stroke:#aaa,stroke-width:1px

@@ -50,8 +50,9 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 1. The owner installs the host app.
 2. The owner makes the PC available.
-3. The system matches a renter to it.
-4. The gaming PC starts Steam and locks the PC.
+3. A renter picks it, or the queue matches a renter to it.
+4. The background service gets a session key and starts the streamer and Steam in the
+   separate Windows account.
 5. The renter plays.
 6. The session ends and the PC goes back to the owner.
 
