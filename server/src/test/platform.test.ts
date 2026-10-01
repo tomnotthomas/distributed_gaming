@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import {
   LIVENESS_MS,
-  OFFERED_SNAPSHOT_MS,
   Platform,
   QOS_GRACE_MS,
   QUEUE_TIMEOUT_MS,
@@ -1398,29 +1397,5 @@ describe("machines on offer", () => {
     platform.heartbeat("pc-1");
     assert.ok(platform.claim(bookingId).ok);
     assert.equal(platform.offeredMachines().machines[0]!.backAt, now + 30 * 60_000);
-  });
-});
-
-describe("machines on offer, read once", () => {
-  it("hands the same read out again until something changes or it grows old", () => {
-    offer("pc-1");
-    const first = platform.offeredMachines();
-    assert.equal(platform.offeredMachines(), first);
-    now += OFFERED_SNAPSHOT_MS - 1;
-    assert.equal(platform.offeredMachines(), first);
-
-    platform.heartbeat("pc-1");
-    const second = platform.offeredMachines();
-    assert.notEqual(second, first);
-    assert.equal(second.at, now);
-
-    offer("pc-2");
-    assert.deepEqual(
-      platform.offeredMachines().machines.map((m) => m.host.id),
-      ["pc-1", "pc-2"],
-    );
-    const third = platform.offeredMachines();
-    now += OFFERED_SNAPSHOT_MS;
-    assert.notEqual(platform.offeredMachines(), third);
   });
 });

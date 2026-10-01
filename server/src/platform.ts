@@ -91,9 +91,6 @@ export const MAX_MINUTES = 12 * 60;
 export const QOS_GRACE_MS = 60_000;
 /** A host's end this close to the session's expiry is time_up, to absorb clock skew between host and server. */
 export const TIME_UP_GRACE_MS = 10_000;
-/** How long one read of the machines on offer is handed out again while nothing changes. */
-export const OFFERED_SNAPSHOT_MS = 2_000;
-
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
 /** Every status but idle: the owner is offering the machine, whether or not it is answering. */
 const OFFERED: MachineStatus[] = ["available", "reserved", "in_session", "offline"];
@@ -453,10 +450,6 @@ export class Platform {
   /** The one timer, armed for the next deadline. */
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
-  /** Bumped by every committed transaction: a snapshot from an older one is stale. */
-  #generation = 0;
-  /** The last read of the machines on offer, and the generation it was read in. */
-  #offered: (OfferedSnapshot & { generation: number }) | undefined;
   /** No machine is dropped for silence before this: after a restart nobody is connected yet. */
   readonly #graceUntil: number;
 
@@ -658,21 +651,9 @@ export class Platform {
    * reserved, when a claim at the last moment would run out. Read only:
    * nothing is settled or matched. `at` is the time they were read at, for
    * judging them.
-   *
-   * Reading them costs a few queries per machine, so one read is handed out
-   * again for OFFERED_SNAPSHOT_MS, until anything changes.
    */
   offeredMachines(): OfferedSnapshot {
     const now = this.#now();
-    const last = this.#offered;
-    if (last && last.generation === this.#generation && now - last.at < OFFERED_SNAPSHOT_MS) return last;
-    const machines = this.#readOffered(now);
-    this.#offered = { generation: this.#generation, at: now, machines };
-    return this.#offered;
-  }
-
-  /** The machines offeredMachines() lists, read now. */
-  #readOffered(now: number): OfferedMachine[] {
     const rows = this.#db
       .prepare(
         `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
@@ -697,7 +678,7 @@ export class Platform {
        SELECT r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
          WHERE r.machine_id = ?`,
     );
-    return rows.map((m) => {
+    const machines = rows.map((m) => {
       const appids = installed.get(m.id) ?? [];
       const busy = m.status !== "available";
       const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
@@ -711,6 +692,7 @@ export class Platform {
         backAt: back?.at ?? null,
       };
     });
+    return { at: now, machines };
   }
 
   /** What a game needs, from the requirements table: curated, seeded from Steam, or the labelled default. */
@@ -1439,7 +1421,6 @@ export class Platform {
       this.#db.exec("ROLLBACK");
       throw error;
     }
-    this.#generation++;
     this.#arm();
     const notices = this.#notices;
     this.#notices = [];

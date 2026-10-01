@@ -287,8 +287,6 @@ Each read ranks every machine on offer, so one signed-in renter cannot hog the s
 with them: each has a budget of 20 of these reads at once, then one more every 2 s (30
 a minute), counted across both calls and keyed on their Steam id
 (`server/src/budget.ts`). Past it the answer is `429` with `Retry-After` in seconds.
-The machines on offer are read from the database at most once every 2 s while nothing
-changes; any change to the platform makes the next call read them again.
 
 ### Matching
 
