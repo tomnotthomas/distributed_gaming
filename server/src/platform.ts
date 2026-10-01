@@ -438,6 +438,9 @@ export class Platform {
     this.#onSessionEnded = onSessionEnded;
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
+    // Another connection may write the file (seed-requirements, a test): wait
+    // out its lock rather than failing the read or write that meets it.
+    this.#db.exec("PRAGMA busy_timeout = 2000");
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
     this.#addMissingColumns("machines", [...REPORT_COLUMNS, ["uptime_at", "INTEGER"]]);

@@ -255,6 +255,32 @@ describe("join ticket revocation", () => {
   it("leaves a ticket minted by hand, with no session, alone", () => {
     assert.equal(platform.ticketRevoked("hand-minted"), false);
   });
+
+  it("waits out another connection's write lock on the file instead of failing the check", async () => {
+    const { spawn } = await import("node:child_process");
+    await withDatabaseFile(async (path) => {
+      platform = new Platform({ path, now: () => now });
+      claimed();
+      // Another process ends the session, holding the lock a moment first.
+      const writer = spawn(
+        process.execPath,
+        [
+          "-e",
+          `const db = new (require("node:sqlite").DatabaseSync)(process.argv[1]);
+           db.exec("BEGIN EXCLUSIVE");
+           db.exec("UPDATE sessions SET ended_at = 1");
+           console.log("locked");
+           setTimeout(() => { db.exec("COMMIT"); db.close(); }, 300);`,
+          path,
+        ],
+        { stdio: ["ignore", "pipe", "inherit"] },
+      );
+      await new Promise((resolve) => writer.stdout.once("data", resolve));
+      assert.equal(platform.ticketRevoked("ticket-1"), true);
+      await new Promise((resolve) => writer.once("exit", resolve));
+      platform.close();
+    });
+  });
 });
 
 describe("session end notice", () => {
