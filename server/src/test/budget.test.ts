@@ -50,4 +50,27 @@ describe("request budget", () => {
     for (let i = 0; i < 3; i++) assert.equal(budget.take("a"), 0);
     assert.ok(budget.take("a") > 0);
   });
+
+  it("never tracks more renters than its cap", () => {
+    budget = new RequestBudget({ burst: 3, refillMs: 1_000, now: () => now, maxTracked: 10 });
+    for (let i = 0; i < 1_000; i++) {
+      budget.take(`renter-${i}`);
+      assert.ok(budget.tracked <= 10);
+    }
+  });
+
+  it("makes room a tenth of the cap at a time, forgetting the least recently active first", () => {
+    budget = new RequestBudget({ burst: 3, refillMs: 1_000, now: () => now, maxTracked: 100 });
+    for (let i = 0; i < 100; i++) budget.take(`renter-${i}`);
+    budget.take("renter-0"); // active again: now the most recent
+    budget.take("new-0");
+    assert.equal(budget.tracked, 91);
+    for (let i = 1; i < 10; i++) budget.take(`new-${i}`);
+    assert.equal(budget.tracked, 100);
+
+    // renter-0 kept its spent budget; renter-1, the least recently active, was forgotten.
+    assert.equal(budget.take("renter-0"), 0);
+    assert.ok(budget.take("renter-0") > 0);
+    for (let i = 0; i < 3; i++) assert.equal(budget.take("renter-1"), 0);
+  });
 });
