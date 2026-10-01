@@ -66,9 +66,11 @@ function whole(value: unknown, field: string, min: number, max: number): number 
   return value as number;
 }
 
-/** Whole MB from 0 to `max`, rounded to the nearest whole GB. */
+/** Whole MB from 0 to `max`, snapped to a whole GB when within 3% of it. */
 function memory(value: unknown, field: string, max: number): number {
-  return Math.round(whole(value, field, 0, max) / 1024) * 1024;
+  const mb = whole(value, field, 0, max);
+  const gb = Math.round(mb / 1024) * 1024;
+  return Math.abs(mb - gb) <= gb * 0.03 ? gb : mb;
 }
 
 /** A finite number from 0 to `max`. */
