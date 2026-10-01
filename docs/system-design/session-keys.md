@@ -74,7 +74,9 @@ the table under Failure behaviour says: `DELETE`, then start the same `sessionId
 A start or end that fails on the network or with a `5xx` is tried up to three times; a
 `4xx` refusal goes back to the machine key at once. A machine key refused with
 `session-active` (the app reloaded mid-session) ends that session with `DELETE` and
-registers again, and the claim is pushed to it again.
+registers again, and the claim is pushed to it again; a `DELETE` that still fails on the
+network or with a `5xx` registers again and retries, and only a `4xx` refusal of that
+`DELETE` stops the app as a denial.
 
 Starting the host session puts the machine-key socket out with `denied session-active`,
 and the machine key cannot register again while the session is live. Once the session has
