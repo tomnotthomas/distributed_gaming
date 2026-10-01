@@ -34,6 +34,14 @@ describe("parseHostReport", () => {
     assert.deepEqual(report.hardware?.encoders, ["hevc"]);
   });
 
+  it("rounds VRAM and RAM to the nearest whole GB", () => {
+    const report = parseHostReport({
+      hardware: { ...REPORT.hardware, vramMb: 8028, ramMb: 16311 },
+    });
+    assert.equal(report.hardware?.vramMb, 8192);
+    assert.equal(report.hardware?.ramMb, 16384);
+  });
+
   it("accepts an empty games list: nothing installed", () => {
     assert.deepEqual(parseHostReport({ games: [] }), { games: [] });
   });

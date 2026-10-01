@@ -66,6 +66,11 @@ function whole(value: unknown, field: string, min: number, max: number): number 
   return value as number;
 }
 
+/** Whole MB from 0 to `max`, rounded to the nearest whole GB. */
+function memory(value: unknown, field: string, max: number): number {
+  return Math.round(whole(value, field, 0, max) / 1024) * 1024;
+}
+
 /** A finite number from 0 to `max`. */
 function amount(value: unknown, field: string, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max)
@@ -86,8 +91,8 @@ function hardware(value: unknown): Hardware {
   const display = object(hw.display, "hardware.display");
   return {
     gpu: text(hw.gpu, "hardware.gpu", 200),
-    vramMb: whole(hw.vramMb, "hardware.vramMb", 0, 256 * 1024),
-    ramMb: whole(hw.ramMb, "hardware.ramMb", 0, 4096 * 1024),
+    vramMb: memory(hw.vramMb, "hardware.vramMb", 256 * 1024),
+    ramMb: memory(hw.ramMb, "hardware.ramMb", 4096 * 1024),
     cpu: text(hw.cpu, "hardware.cpu", 200),
     cores: whole(hw.cores, "hardware.cores", 1, 1024),
     encoders: subset(hw.encoders, "hardware.encoders", ENCODERS),
