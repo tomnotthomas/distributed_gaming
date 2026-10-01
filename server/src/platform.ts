@@ -19,10 +19,25 @@
 // unique indexes below, is what gives a machine to at most one booking.
 //
 // Matching runs in tick(): the server calls it every second, and every call
-// that can free a machine or add a booking runs it straight away.
+// that can free a machine or add a booking runs it straight away. A booking is
+// matched only to a machine with its game installed and the hardware the game
+// asks for, judged by @swiff/rank's gates against the requirements table.
 
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import {
+  failedGates,
+  gpuScore,
+  type Control,
+  type Encoder,
+  type GameRequirements,
+  type GateId,
+  type HostProfile,
+  type RenterPrefs,
+  type StabilityStats,
+} from "@swiff/rank";
+import type { Display, Hardware, HostReport, Net } from "./profile.js";
+import { RequirementsTable } from "./requirements.js";
 
 /** A machine that has not checked in for this long is no longer offered. Hosts beat every 5 s. */
 export const LIVENESS_MS = 15_000;
@@ -36,9 +51,8 @@ export const MAX_MINUTES = 12 * 60;
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
 
-export type MachineSpec = {
-  gpu?: string | undefined;
-  cpu?: string | undefined;
+/** What an availability call carries: the host's report, plus its terms. */
+export type MachineSpec = HostReport & {
   /** Cents per hour. */
   price?: number | undefined;
   /** Unix ms after which the machine is not offered. Omitted: until taken back. */
@@ -53,6 +67,17 @@ export type MachineView = {
   price: number;
   /** The session running on it, when there is one: the host starts and ends it by this id. */
   session?: { id: string };
+};
+
+/** A machine's stored report, as its host last sent it. */
+export type MachineProfile = {
+  id: string;
+  name: string | null;
+  /** Null until the host reports its hardware. `gpuScore` is from the GPU score table, 0 when unknown. */
+  hardware: (Hardware & { gpuScore: number }) | null;
+  games: number[];
+  controls: Control[];
+  net: Net | null;
 };
 
 export type BookingView = {
@@ -75,8 +100,21 @@ export type ClaimResult =
 
 type MachineRow = {
   id: string;
-  gpu: string | null;
-  cpu: string | null;
+  owner_id: string | null;
+  name: string | null;
+  gpu_model: string | null;
+  gpu_score: number | null;
+  vram_mb: number | null;
+  ram_mb: number | null;
+  cpu_model: string | null;
+  cpu_cores: number | null;
+  /** JSON, as are display and controls. */
+  encoders: string | null;
+  display: string | null;
+  controls: string | null;
+  rtt_ms: number | null;
+  jitter_ms: number | null;
+  up_mbps: number | null;
   price: number;
   status: MachineStatus;
   available_until: number | null;
@@ -84,6 +122,7 @@ type MachineRow = {
 };
 type BookingRow = {
   id: string;
+  renter_id: string | null;
   game_id: number;
   minutes: number;
   status: BookingStatus;
@@ -101,12 +140,11 @@ type SessionRow = {
   ticket_id: string | null;
 };
 
+// The host's report fills the columns in REPORT_COLUMNS, added below.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS machines (
   id              TEXT PRIMARY KEY,
   owner_id        TEXT,
-  gpu             TEXT,
-  cpu             TEXT,
   price           INTEGER NOT NULL DEFAULT 0,
   status          TEXT NOT NULL
                   CHECK (status IN ('idle', 'available', 'reserved', 'in_session', 'offline')),
@@ -149,7 +187,101 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_open_per_machine
   ON sessions (machine_id) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS bookings_queue ON bookings (status, created_at);
+-- The Steam games installed on each machine, replaced whole when the host reports them.
+CREATE TABLE IF NOT EXISTS machine_games (
+  machine_id TEXT NOT NULL REFERENCES machines (id),
+  appid      INTEGER NOT NULL,
+  PRIMARY KEY (machine_id, appid)
+) WITHOUT ROWID;
 `;
+
+/**
+ * The machine columns the host's report fills, all null until it sends one.
+ * Added when missing, so a database file made before them gains them on open.
+ * gpu_score is gpu_model's score in @swiff/rank's GPU table (RTX 3060 = 100);
+ * encoders, display and controls hold JSON.
+ */
+const REPORT_COLUMNS: [name: string, type: string][] = [
+  ["name", "TEXT"],
+  ["gpu_model", "TEXT"],
+  ["gpu_score", "INTEGER"],
+  ["vram_mb", "INTEGER"],
+  ["ram_mb", "INTEGER"],
+  ["cpu_model", "TEXT"],
+  ["cpu_cores", "INTEGER"],
+  ["encoders", "TEXT"],
+  ["display", "TEXT"],
+  ["controls", "TEXT"],
+  ["rtt_ms", "REAL"],
+  ["jitter_ms", "REAL"],
+  ["up_mbps", "REAL"],
+];
+
+/**
+ * The gates a match must pass. E4 needs the renter's controls and E6 a probe
+ * from the renter; a booking carries neither yet.
+ */
+const MATCH_GATES: GateId[] = ["E1", "E2", "E3", "E5"];
+
+const MB_PER_GB = 1024;
+
+/** A JSON column read back, or `fallback` when it is empty. */
+function fromJson<T>(value: string | null, fallback: T): T {
+  return value === null ? fallback : (JSON.parse(value) as T);
+}
+
+/** rank() wants a history with every candidate; the match gates never read it. */
+const NO_HISTORY: StabilityStats = {
+  heartbeatCoverage: 0,
+  dropsPerHour: 0,
+  sessionCompletion: 0,
+  packetLoss: 0,
+  sessions: 0,
+  offeredHours: 0,
+};
+
+/**
+ * Whether the machine passes MATCH_GATES for this booking's game. `installed`
+ * need only say whether the booking's game is there. A machine with no
+ * reported hardware has no GPU score, so it fails E3.
+ */
+function passesMatchGates(
+  machine: MachineRow,
+  installed: number[],
+  booking: BookingRow,
+  game: GameRequirements,
+  now: number,
+): boolean {
+  const display = fromJson<Display | null>(machine.display, null);
+  const host: HostProfile = {
+    id: machine.id,
+    // Unknown on either side, it cannot be the renter's own machine.
+    ownerId: machine.owner_id ?? `machine:${machine.id}`,
+    status: "available",
+    lastHeartbeatAt: machine.last_seen_at,
+    installed,
+    gpu: machine.gpu_model ?? "",
+    ramGb: (machine.ram_mb ?? 0) / MB_PER_GB,
+    vramGb: (machine.vram_mb ?? 0) / MB_PER_GB,
+    controls: fromJson<Control[]>(machine.controls, []),
+    encoders: fromJson<Encoder[]>(machine.encoders, []),
+    uploadMbps: machine.up_mbps ?? 0,
+    fps120: (display?.refreshHz ?? 0) >= 120,
+    priceCentsPerHour: machine.price,
+    availableUntil: machine.available_until ?? Number.MAX_SAFE_INTEGER,
+  };
+  const renter: RenterPrefs = {
+    id: booking.renter_id ?? `booking:${booking.id}`,
+    controls: [],
+    picture: "best",
+    sessionMinutes: booking.minutes,
+  };
+  const failed = failedGates({ host, link: null, history: NO_HISTORY }, game, renter, {
+    now,
+    heartbeatMaxAgeMs: LIVENESS_MS,
+  });
+  return !failed.some((gate) => MATCH_GATES.includes(gate));
+}
 
 /** Unguessable: a booking id is all a renter needs to claim it. */
 const newId = () => randomBytes(16).toString("base64url");
@@ -157,6 +289,8 @@ const newId = () => randomBytes(16).toString("base64url");
 export class Platform {
   readonly #db: DatabaseSync;
   readonly #now: () => number;
+  /** What each game needs, on the same database: gate E3 compares a machine with it. */
+  readonly #requirements: RequirementsTable;
   readonly #onSessionEnded: (machineId: string) => void;
   /** Machines whose session ended in the open transaction, told once it commits. */
   #endedMachines: string[] = [];
@@ -176,6 +310,12 @@ export class Platform {
     this.#onSessionEnded = onSessionEnded;
     this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec(SCHEMA);
+    const columns = this.#db.prepare("PRAGMA table_info(machines)").all() as { name: string }[];
+    const present = new Set(columns.map((column) => column.name));
+    for (const [name, type] of REPORT_COLUMNS) {
+      if (!present.has(name)) this.#db.exec(`ALTER TABLE machines ADD COLUMN ${name} ${type}`);
+    }
+    this.#requirements = new RequirementsTable(this.#db, now);
   }
 
   /** Close the database. */
@@ -185,17 +325,18 @@ export class Platform {
 
   // --- host ------------------------------------------------------------------
 
-  /** Offer the machine (available) or take it back (not). Taking it back ends whatever it was doing. */
+  /**
+   * Offer the machine (available) or take it back (not), storing whatever the
+   * host reported with it. Taking it back ends whatever it was doing.
+   */
   setAvailability(machineId: string, available: boolean, spec: MachineSpec = {}): MachineView {
     return this.#transaction(() => {
       const now = this.#now();
       const machine = this.#touch(machineId, now);
+      this.#saveReport(machineId, spec);
       this.#db
-        .prepare(
-          `UPDATE machines SET gpu = coalesce(?, gpu), cpu = coalesce(?, cpu), price = coalesce(?, price),
-             available_until = ? WHERE id = ?`,
-        )
-        .run(spec.gpu ?? null, spec.cpu ?? null, spec.price ?? null, spec.availableUntil ?? null, machineId);
+        .prepare("UPDATE machines SET price = coalesce(?, price), available_until = ? WHERE id = ?")
+        .run(spec.price ?? null, spec.availableUntil ?? null, machineId);
 
       if (!available) {
         this.#release(machine, now);
@@ -208,17 +349,50 @@ export class Platform {
     });
   }
 
-  /** The machine is alive. A machine dropped for silence comes back as it was offered. */
-  heartbeat(machineId: string): MachineView {
+  /**
+   * The machine is alive, and any part of its report that changed. A machine
+   * dropped for silence comes back as it was offered.
+   */
+  heartbeat(machineId: string, report: HostReport = {}): MachineView {
     return this.#transaction(() => {
       const now = this.#now();
       const machine = this.#touch(machineId, now);
-      if (machine.status === "offline") {
-        this.#setStatus(machineId, "available");
-        this.#tick(now);
-      }
+      this.#saveReport(machineId, report);
+      if (machine.status === "offline") this.#setStatus(machineId, "available");
+      // Back online, or a new game or more hardware, can match a waiting booking.
+      if (machine.status === "offline" || Object.keys(report).length) this.#tick(now);
       return this.#machineView(machineId);
     });
+  }
+
+  /** The machine's stored report, or null when it has never been heard from. */
+  machineProfile(machineId: string): MachineProfile | null {
+    const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
+      MachineRow | undefined;
+    if (!m) return null;
+    const games = this.#db
+      .prepare("SELECT appid FROM machine_games WHERE machine_id = ? ORDER BY appid")
+      .all(machineId) as { appid: number }[];
+    return {
+      id: m.id,
+      name: m.name,
+      hardware:
+        m.gpu_model === null
+          ? null
+          : {
+              gpu: m.gpu_model,
+              gpuScore: m.gpu_score ?? 0,
+              vramMb: m.vram_mb ?? 0,
+              ramMb: m.ram_mb ?? 0,
+              cpu: m.cpu_model ?? "",
+              cores: m.cpu_cores ?? 0,
+              encoders: fromJson<Encoder[]>(m.encoders, []),
+              display: fromJson<Display>(m.display, { width: 0, height: 0, refreshHz: 0 }),
+            },
+      games: games.map((g) => g.appid),
+      controls: fromJson<Control[]>(m.controls, []),
+      net: m.rtt_ms === null ? null : { rttMs: m.rtt_ms, jitterMs: m.jitter_ms ?? 0, upMbps: m.up_mbps ?? 0 },
+    };
   }
 
   /** The machine a session runs on, so the caller can check that machine's key. */
@@ -376,21 +550,32 @@ export class Platform {
     this.#match(now);
   }
 
-  /** Oldest booking first, each to the cheapest live machine free for the whole booking. */
+  /**
+   * Oldest booking first, each to the cheapest live machine free for the whole
+   * booking that has the game installed and meets its minimum (MATCH_GATES).
+   */
   #match(now: number): void {
     const queued = this.#db
       .prepare("SELECT * FROM bookings WHERE status = 'queued' ORDER BY created_at, rowid")
       .all() as BookingRow[];
-    const pick = this.#db.prepare(
-      `SELECT id FROM machines
+    const free = this.#db.prepare(
+      `SELECT m.*, EXISTS (SELECT 1 FROM machine_games g WHERE g.machine_id = m.id AND g.appid = ?) AS has_game
+         FROM machines m
          WHERE status = 'available' AND last_seen_at > ?
            AND (available_until IS NULL OR available_until >= ?)
-         ORDER BY price, id LIMIT 1`,
+         ORDER BY price, id`,
     );
     for (const booking of queued) {
-      const machine = pick.get(now - LIVENESS_MS, now + booking.minutes * 60_000) as
-        { id: string } | undefined;
-      if (!machine) continue; // a shorter booking behind this one may still fit
+      const game = this.#requirements.lookup(booking.game_id);
+      const machines = free.all(
+        booking.game_id,
+        now - LIVENESS_MS,
+        now + booking.minutes * 60_000,
+      ) as (MachineRow & { has_game: number })[];
+      const machine = machines.find((m) =>
+        passesMatchGates(m, m.has_game ? [booking.game_id] : [], booking, game, now),
+      );
+      if (!machine) continue; // a booking behind this one may still fit
       this.#db
         .prepare("INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES (?, ?, ?, ?)")
         .run(newId(), booking.id, machine.id, now + RESERVATION_MS);
@@ -435,6 +620,49 @@ export class Platform {
   }
 
   // --- rows ------------------------------------------------------------------
+
+  /** Store each section the report carries; a section it leaves out keeps what was stored. */
+  #saveReport(machineId: string, report: HostReport): void {
+    if (report.name !== undefined) {
+      this.#db.prepare("UPDATE machines SET name = ? WHERE id = ?").run(report.name, machineId);
+    }
+    const hw = report.hardware;
+    if (hw) {
+      this.#db
+        .prepare(
+          `UPDATE machines SET gpu_model = ?, gpu_score = ?, vram_mb = ?, ram_mb = ?, cpu_model = ?,
+             cpu_cores = ?, encoders = ?, display = ? WHERE id = ?`,
+        )
+        .run(
+          hw.gpu,
+          gpuScore(hw.gpu),
+          hw.vramMb,
+          hw.ramMb,
+          hw.cpu,
+          hw.cores,
+          JSON.stringify(hw.encoders),
+          JSON.stringify(hw.display),
+          machineId,
+        );
+    }
+    if (report.controls) {
+      this.#db
+        .prepare("UPDATE machines SET controls = ? WHERE id = ?")
+        .run(JSON.stringify(report.controls), machineId);
+    }
+    if (report.net) {
+      this.#db
+        .prepare("UPDATE machines SET rtt_ms = ?, jitter_ms = ?, up_mbps = ? WHERE id = ?")
+        .run(report.net.rttMs, report.net.jitterMs, report.net.upMbps, machineId);
+    }
+    if (report.games) {
+      this.#db.prepare("DELETE FROM machine_games WHERE machine_id = ?").run(machineId);
+      const insert = this.#db.prepare(
+        "INSERT OR IGNORE INTO machine_games (machine_id, appid) VALUES (?, ?)",
+      );
+      for (const appid of report.games) insert.run(machineId, appid);
+    }
+  }
 
   /** Record a check-in, creating the machine the first time it is heard from. */
   #touch(machineId: string, now: number): MachineRow {
@@ -481,8 +709,8 @@ export class Platform {
     return {
       id: m.id,
       status: m.status,
-      gpu: m.gpu,
-      cpu: m.cpu,
+      gpu: m.gpu_model,
+      cpu: m.cpu_model,
       price: m.price,
       ...(session ? { session: { id: session.id } } : {}),
     };
@@ -505,7 +733,7 @@ export class Platform {
     const machineId = reservation?.machine_id ?? session?.machine_id;
     if (machineId) {
       const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
-      view.machine = { id: m.id, gpu: m.gpu, cpu: m.cpu, price: m.price };
+      view.machine = { id: m.id, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
     }
     if (reservation) view.claimBy = reservation.expires_at;
     if (session) view.sessionId = session.id;

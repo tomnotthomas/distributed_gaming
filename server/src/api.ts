@@ -15,10 +15,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access } from "./access.js";
 import { popularGames } from "./catalog.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
+import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import { originFrom } from "./steam.js";
 
-/** Every body here is a handful of fields. */
+/** Every renter body here is a handful of fields. */
 const MAX_BODY_BYTES = 16 * 1024;
+/** A host report can list up to MAX_GAMES installed appids (profile.ts). */
+const MAX_HOST_BODY_BYTES = 32 * 1024;
 
 type Json = Record<string, unknown>;
 
@@ -46,13 +49,13 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-/** The body as a JSON object; empty is {}. 413 when too large, 400 when not an object. */
-async function readJson(req: IncomingMessage): Promise<Json> {
+/** The body as a JSON object; empty is {}. 413 when over `limit` bytes, 400 when not an object. */
+async function readJson(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Json> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, "body too large");
     chunks.push(chunk as Buffer);
   }
   if (!size) return {};
@@ -78,12 +81,15 @@ function requireMachine(req: IncomingMessage, access: Access, machineId: string)
   if (!verifyMachineKey(access.machines, machineId, bearer(req))) throw new HttpError(401, "bad machine key");
 }
 
-const optionalText = (value: unknown, field: string): string | undefined => {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string" || value.length > 200)
-    throw new HttpError(400, `${field} must be a short string`);
-  return value;
-};
+/** The host report in a Host API body, or a 400 naming the bad field. */
+function hostReport(body: Json): HostReport {
+  try {
+    return parseHostReport(body);
+  } catch (error) {
+    if (error instanceof ReportError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
 
 /** An ISO date or unix ms, as unix ms. */
 const optionalTime = (value: unknown, field: string): number | undefined => {
@@ -176,12 +182,11 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
 
     if (resource === "machines" && id && action === "availability" && method === "PUT") {
       requireMachine(req, access, id);
-      const body = await readJson(req);
+      const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
       const machine = platform.setAvailability(id, body.available, {
-        gpu: optionalText(body.gpu, "gpu"),
-        cpu: optionalText(body.cpu, "cpu"),
+        ...hostReport(body),
         price,
         availableUntil: optionalTime(body.until, "until"),
       });
@@ -191,7 +196,8 @@ export function createApi({ platform, access, fallbackOrigin, games = defaultGam
 
     if (resource === "machines" && id && action === "heartbeat" && method === "POST") {
       requireMachine(req, access, id);
-      reply(res, 200, platform.heartbeat(id));
+      const body = await readJson(req, MAX_HOST_BODY_BYTES);
+      reply(res, 200, platform.heartbeat(id, hostReport(body)));
       return true;
     }
 

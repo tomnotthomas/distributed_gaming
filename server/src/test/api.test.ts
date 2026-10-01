@@ -14,6 +14,8 @@ import { parseMachineKeys, verifyTicket, type Access } from "../access.js";
 import { createApi } from "../api.js";
 import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
 import type { SignalMessage } from "../protocol.js";
+import { MAX_GAMES } from "../profile.js";
+import { REPORT } from "./report.js";
 
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const MACHINE_KEY = "test-machine-key";
@@ -65,7 +67,7 @@ describe("booking and host API", () => {
     access.secret = SECRET;
   });
 
-  const offer = (id = "pc-1", body: object = { available: true }) =>
+  const offer = (id = "pc-1", body: object = { available: true, ...REPORT }) =>
     call("PUT", `/api/machines/${id}/availability`, body, MACHINE_KEY);
 
   it("lists the games that can be booked", async () => {
@@ -80,11 +82,11 @@ describe("booking and host API", () => {
     assert.equal(booked.body.status, "queued");
     const id = booked.body.bookingId;
 
-    assert.equal((await offer("pc-1", { available: true, gpu: "RTX 4070", price: 120 })).status, 200);
+    assert.equal((await offer("pc-1", { available: true, ...REPORT, price: 120 })).status, 200);
     const matched = await call("GET", `/api/bookings/${id}`);
     assert.equal(matched.body.status, "matched");
     assert.equal(matched.body.machine.id, "pc-1");
-    assert.equal(matched.body.machine.gpu, "RTX 4070");
+    assert.equal(matched.body.machine.gpu, REPORT.hardware.gpu);
 
     const claim = await call("POST", `/api/bookings/${id}/claim`);
     assert.equal(claim.status, 200);
@@ -167,6 +169,32 @@ describe("booking and host API", () => {
     assert.equal((await call("GET", "/api/nothing-here")).status, 404);
     assert.equal((await call("GET", "/api/games")).status, 200);
   });
+
+  it("stores the host report sent with availability and heartbeat", async () => {
+    assert.equal((await offer()).status, 200);
+    assert.equal(platform.machineProfile("pc-1")!.hardware?.gpu, REPORT.hardware.gpu);
+
+    const beat = await call("POST", "/api/machines/pc-1/heartbeat", { games: [440] }, MACHINE_KEY);
+    assert.equal(beat.status, 200);
+    assert.deepEqual(platform.machineProfile("pc-1")!.games, [440]);
+  });
+
+  it("refuses a bad host report with a 400 naming the field, and stores none of it", async () => {
+    const bad = await offer("pc-1", { available: true, ...REPORT, net: { rttMs: "fast" } });
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.error, /^net\.rttMs /);
+    const beat = await call("POST", "/api/machines/pc-1/heartbeat", { controls: ["wheel"] }, MACHINE_KEY);
+    assert.equal(beat.status, 400);
+    assert.equal(platform.machineProfile("pc-1"), null);
+  });
+
+  it("takes a full library within the host body limit, and refuses a larger body", async () => {
+    const games = Array.from({ length: MAX_GAMES }, (_, i) => 2_000_000 + i);
+    assert.equal((await offer("pc-1", { available: true, ...REPORT, games })).status, 200);
+    assert.equal(platform.machineProfile("pc-1")!.games.length, MAX_GAMES);
+    const huge = { available: true, name: "x".repeat(40_000) };
+    assert.equal((await offer("pc-1", huge)).status, 413);
+  });
 });
 
 describe("the real server", () => {
@@ -194,7 +222,7 @@ describe("the real server", () => {
   after(() => server?.kill());
 
   it("hands out a ticket that opens the matched room", async () => {
-    await call("PUT", "/api/machines/pc-2/availability", { available: true }, MACHINE_KEY);
+    await call("PUT", "/api/machines/pc-2/availability", { available: true, ...REPORT }, MACHINE_KEY);
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
     assert.equal(claim.status, 200);
@@ -212,7 +240,7 @@ describe("the real server", () => {
   });
 
   it("puts the renter out and refuses the ticket once the session has ended", async () => {
-    await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    await call("PUT", "/api/machines/pc-1/availability", { available: true, ...REPORT }, MACHINE_KEY);
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
     assert.equal(claim.status, 200);
@@ -244,7 +272,7 @@ describe("the real server", () => {
   });
 
   it("ends the PC's host session when the platform ends the renter's session", async () => {
-    await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    await call("PUT", "/api/machines/pc-1/availability", { available: true, ...REPORT }, MACHINE_KEY);
     const { body } = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${body.bookingId}/claim`);
     assert.equal(claim.body.roomId, "pc-1");
