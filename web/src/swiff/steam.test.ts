@@ -116,6 +116,13 @@ describe("applySteam", () => {
     expect(appids(applySteam(profile({ lib: false }), pool, paid))).toEqual([2073850]);
   });
 
+  it("lets a refreshed art read that marks a game paid beat a kept chart entry that still says free", () => {
+    const finals = store.find((g) => g.appid === 2073850)!;
+    const kept = { media: [], popular: [finals] };
+    const next = nextCatalog(kept, [{ ...finals, free: false }], []);
+    expect(appids(applySteam(profile({ lib: false }), pool, storeGames(next)))).toEqual([]);
+  });
+
   it("shows a private library only the free-to-play games, marked free and not owned", () => {
     const wall = applySteam(profile({ lib: false }), pool, store);
     expect(appids(wall)).toEqual([730, 2073850]);
