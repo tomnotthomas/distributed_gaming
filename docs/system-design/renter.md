@@ -158,6 +158,13 @@ GET  /me
   renter gets an empty profile until the next one succeeds.
   → 401 when nobody is.
 
+POST /me/refresh
+  → 200 { steamId, profile }
+  As `GET /me`, but read from Steam again rather than the kept copy, e.g. after the
+  renter makes their game details public. A read under 10 s old is served as is, so
+  repeated retries cost one Steam read.
+  → 401 when nobody is signed in.
+
 POST /signout
   → 204
   Clear the sign-in cookie. Works signed out.
