@@ -131,8 +131,8 @@ A second `register` with a valid key for the same session replaces the older soc
 is the streamer reconnecting, exactly as a phase-1 host does.
 
 The server also ends the host session whenever the renter's platform session ends
-([`host.md`](host.md): the host ends it, the booked time runs out, the machine goes silent
-or the owner takes it back), exactly as `DELETE .../session` does. The service must treat
+([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the
+machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. The service must treat
 a `session-ended` denial, or a heartbeat whose `session.id` has changed or is missing, as
 the signal to tear down the renter account session. Its later `DELETE` still answers `204`.
 
