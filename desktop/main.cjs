@@ -23,6 +23,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamRootOnce } = require("./pc.cjs");
+const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
 const INDEX = path.join(__dirname, "dist", "index.html");
 // Each window gets only its own calls: the app window its preload, the tray
@@ -160,18 +161,8 @@ let latest = null;
 
 /** A ring with a dot in it, drawn in code: the menu bar's and the tray's icon. */
 function trayIcon() {
-  const size = 32;
-  const pixels = Buffer.alloc(size * size * 4);
-  const c = (size - 1) / 2;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x - c, y - c);
-      const ring = Math.max(0, 1 - Math.abs(d - 12.5) / 1.4);
-      const dot = Math.max(0, Math.min(1, 6.5 - d));
-      const alpha = Math.round(255 * Math.min(1, ring + dot));
-      pixels.writeUInt32LE(alpha << 24, (y * size + x) * 4); // BGRA: black at `alpha`
-    }
-  }
+  const size = TRAY_ICON_SIZE;
+  const pixels = trayIconPixels(size);
   const image = nativeImage.createFromBitmap(pixels, { width: size, height: size, scaleFactor: 2 });
   if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
