@@ -1,13 +1,15 @@
 import { Glyph } from "./Glyph";
 import { STEAM_LOGIN_URL } from "./steam";
+import type { Screen } from "./useSwiff";
 
 type Props = {
-  screen: "home" | "game" | "profile";
+  screen: Screen;
   onHome: () => void;
   onProfile: () => void;
+  onShare: () => void;
   /** The back chevron, which only the game screen needs. */
   onBack?: () => void;
-  /** The live count in the third nav cell: "4 free near you". */
+  /** The live count in the fourth nav cell: "4 free near you". */
   live: string;
   /** Signed in: who, and how long they have tonight. Absent signed out. */
   renter?: { persona: string; session: { label: string; onCycle: () => void } };
@@ -20,10 +22,10 @@ export function initials(persona: string): string {
 }
 
 /**
- * The cell strip every renter screen shares: wordmark, three nav cells and the
+ * The cell strip every renter screen shares: wordmark, four nav cells and the
  * paper account cell, on the same 300 / 1fr / 400 columns as the band below.
  */
-export function Chrome({ screen, onHome, onProfile, onBack, live, renter }: Props) {
+export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, renter }: Props) {
   return (
     <header className="bar">
       <div className="bar-brand">
@@ -50,6 +52,9 @@ export function Chrome({ screen, onHome, onProfile, onBack, live, renter }: Prop
         </button>
         <button type="button" aria-current={screen === "profile" ? "page" : undefined} onClick={onProfile}>
           Profile
+        </button>
+        <button type="button" aria-current={screen === "share" ? "page" : undefined} onClick={onShare}>
+          Share your PC
         </button>
         <span className="bar-live">
           <span className="live-dot" />

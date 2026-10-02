@@ -5,6 +5,7 @@ import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { Profile } from "./Profile";
 import { Session } from "./Session";
+import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";
 import { useSwiff } from "./useSwiff";
@@ -19,12 +20,14 @@ export function Swiff() {
 
   // The app scrolls as one page; a new screen starts at its top.
   const page = useRef<HTMLDivElement>(null);
-  // While Ignition or a session covers the page, nothing behind it can be
-  // focused or pressed: a second hold must not start the launch over.
+  // While Ignition, a session or the estimate sheet covers the page, nothing
+  // behind it can be focused or pressed: a second hold must not start the
+  // launch over.
+  const sheet = screen === "share" && swiff.estimateOpen;
   const behind = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    behind.current?.toggleAttribute("inert", phase !== "idle");
-  }, [phase]);
+    behind.current?.toggleAttribute("inert", phase !== "idle" || sheet);
+  }, [phase, sheet]);
   useEffect(() => {
     page.current?.scrollTo(0, 0);
   }, [screen, swiff.game?.id]);
@@ -42,6 +45,7 @@ export function Swiff() {
             screen={screen}
             onHome={swiff.goHome}
             onProfile={() => swiff.setScreen("profile")}
+            onShare={swiff.openShare}
             onBack={screen === "game" ? swiff.goHome : undefined}
             live={live}
             renter={
@@ -56,7 +60,9 @@ export function Swiff() {
           {screen === "home" ? <Wall swiff={swiff} /> : null}
           {screen === "game" ? <GameMenu swiff={swiff} /> : null}
           {screen === "profile" ? <Profile swiff={swiff} /> : null}
+          {screen === "share" ? <SharePC swiff={swiff} /> : null}
         </div>
+        {sheet ? <EstimateSheet swiff={swiff} /> : null}
         {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
         {phase === "live" ? <Session swiff={swiff} /> : null}
       </MotionContext.Provider>
