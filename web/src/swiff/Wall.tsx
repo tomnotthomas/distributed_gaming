@@ -61,7 +61,8 @@ function useReducedMotion(): boolean {
 /**
  * Which of `count` hero games is up. It moves on every ROTATE_MS while motion
  * is on, the OS has not asked for less of it, and nothing has paused it: a
- * pointer over the hero or focus inside it holds the current game.
+ * pointer over the hero or focus inside it holds the current game. `last` is
+ * the game before it, the one fading out.
  */
 function useRotation(count: number, motion: boolean) {
   const [index, setIndex] = useState(0);
@@ -75,7 +76,8 @@ function useRotation(count: number, motion: boolean) {
     return () => window.clearInterval(timer);
   }, [turning, count]);
   // A shorter list (the wall changed under it) must not leave the index past its end.
-  return { index: index < count ? index : 0, hold };
+  const at = index < count ? index : 0;
+  return { index: at, last: (at + count - 1) % count, hold };
 }
 
 /** "4 h 30" or "All night": the time a machine stays free, as the band prints it. */
@@ -231,7 +233,7 @@ function useFitTitle(text: string) {
     };
     fit();
     const box = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
-    box?.observe(el.parentElement ?? el);
+    box?.observe(el.closest(".hero-3b-art") ?? el);
     void document.fonts?.ready.then(fit);
     return () => box?.disconnect();
   }, [text]);
@@ -270,7 +272,8 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
     >
       <div className="hero-3b-art">
         {/* Every game in the turn is painted, so the next image is loaded before
-            it fades in; only the current one is opaque. */}
+            it fades in; only the current one is opaque, and only it and the one
+            fading out drift. */}
         {games.map((g, i) => (
           <Backdrop
             key={g.id}
@@ -279,7 +282,7 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
             image={gameArt(g, 2)}
             fallback={gameArtFallbacks(g)}
             position={g.focus}
-            drift
+            drift={i === at.index || i === at.last}
           />
         ))}
         <div className="hero-3b-scrim" />

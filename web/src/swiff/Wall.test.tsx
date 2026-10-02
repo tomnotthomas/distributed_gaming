@@ -220,6 +220,17 @@ describe("Wall", () => {
       expect(container.querySelectorAll(".hero-slide").length).toBeGreaterThan(1);
       expect(container.querySelectorAll(".hero-slide.on")).toHaveLength(1);
     });
+
+    it("drifts only the game on show and the one fading out", () => {
+      vi.useFakeTimers();
+      const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const slides = () => [...container.querySelectorAll(".hero-slide")];
+      const drifting = () => slides().filter((s) => s.querySelector(".backdrop-drift"));
+      expect(slides().length).toBeGreaterThan(2);
+      act(() => vi.advanceTimersByTime(7000));
+      const on = container.querySelector(".hero-slide.on")!;
+      expect(drifting()).toEqual([slides()[0], on]);
+    });
   });
 
   it("keeps a signed-in renter's hero on their own lead game", () => {
