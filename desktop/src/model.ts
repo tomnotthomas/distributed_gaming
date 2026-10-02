@@ -254,7 +254,7 @@ export function nextAt(hhmm: string, now: number): number | null {
 /** One sentence on what the chosen end time means. */
 export function untilSentence(machine: string, until: number | null): string {
   const window = until === null ? "until you stop sharing" : `until ${clock(until)}`;
-  return `Players can claim ${machine} ${window}. A session that starts before then is protected until it ends.`;
+  return `Players can claim ${machine} ${window}. A session that starts before then is protected until its claimed end.`;
 }
 
 // --- screens --------------------------------------------------------------------

@@ -108,7 +108,7 @@ describe("share until", () => {
 
   it("states what the choice means for players, and for a running session", () => {
     expect(untilSentence("Nova-01", evening(1))).toBe(
-      "Players can claim Nova-01 until 01:00. A session that starts before then is protected until it ends.",
+      "Players can claim Nova-01 until 01:00. A session that starts before then is protected until its claimed end.",
     );
     expect(untilSentence("Nova-01", null)).toMatch(/^Players can claim Nova-01 until you stop sharing\./);
   });
