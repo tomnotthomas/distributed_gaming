@@ -1,4 +1,4 @@
-// The first run: read this PC, then choose the games players can stream.
+// The first run: read this PC, then the games players can stream.
 
 import { count, shortGpu } from "../format";
 import { installUrl, type DemandRow, type Game } from "../model";
@@ -6,7 +6,7 @@ import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
 import { Art, Eur, Figure, Kv, Plate, Zone } from "../ui/parts";
 import { Pill } from "../ui/Pill";
-import { offeredGames, type ScreenProps } from "./types";
+import { listedGames, type ScreenProps } from "./types";
 
 /** A1: what the app read about this PC, part by part. */
 export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boolean }) {
@@ -64,14 +64,14 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
         <Zone title="Next">
           <p className="soft">
             {games
-              ? `${count(games, "game is", "games are")} installed. Choose which ones players can stream.`
+              ? `${count(games, "game is", "games are")} installed.${view.games.offered ? " Choose which ones players can stream." : ""}`
               : reading
                 ? "Looking for installed Steam games."
                 : "No installed Steam games were found on this PC."}
           </p>
           <div className="acts">
             <Pill icon="arrow" onClick={() => go("games")} disabled={reading}>
-              Choose games
+              {view.games.offered ? "Choose games" : "See games"}
             </Pill>
           </div>
         </Zone>
@@ -110,9 +110,13 @@ function rows(installed: Game[], demand: DemandRow[] | null): Row[] {
   return [...ranked, ...rest];
 }
 
-/** A2: which installed games players can stream here, with demand where Swiff reports it. */
+/**
+ * A2: which installed games players can stream here, with demand where Swiff
+ * reports it. Read-only where the choice has no effect yet.
+ */
 export function Games({ view, actions, go, finishSetup }: ScreenProps & { finishSetup: () => void }) {
   const { installed, offered, demand } = view.games;
+  const toggle = offered ? actions.toggleOffer : null;
   const top = demand?.[0]?.looking ?? 0;
   const list = rows(installed, demand);
 
@@ -121,26 +125,35 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
       <section className="hz games">
         <div className="cp">
           <p className="mono ctx">{demand ? "Demand, last hour" : "Installed on this PC"}</p>
-          <h1>Choose the games you offer</h1>
+          <h1>{toggle ? "Choose the games you offer" : "Your installed games"}</h1>
           <p className="ln">
             Players can stream a game only if they own it too.
             {demand ? " Offer the games you have; install the popular ones you don't." : ""}
+            {toggle ? "" : " Choosing which ones to offer comes with a later update."}
           </p>
         </div>
         <div className="gcount">
-          <b>{offeredGames(view).length}</b>
-          <span className="mono">
-            of {installed.length} installed
-            <br />
-            games offered
-          </span>
+          <b>{listedGames(view).length}</b>
+          {toggle ? (
+            <span className="mono">
+              of {installed.length} installed
+              <br />
+              games offered
+            </span>
+          ) : (
+            <span className="mono">
+              installed
+              <br />
+              {installed.length === 1 ? "game" : "games"}
+            </span>
+          )}
         </div>
       </section>
 
       {list.length ? (
         <div className="ggrid">
           {list.map(({ game, rank, demand: d, installed: has }) => {
-            const on = has && offered.includes(game.appid);
+            const on = has && Boolean(offered?.includes(game.appid));
             const body = (
               <>
                 <span className="gimg">
@@ -171,13 +184,23 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
                 </div>
               );
             }
+            if (!toggle) {
+              return (
+                <div key={game.appid} className="gtile installed">
+                  {body}
+                  <span className="gact">
+                    <span className="mono gst">Installed</span>
+                  </span>
+                </div>
+              );
+            }
             return (
               <button
                 key={game.appid}
                 type="button"
                 className={["gtile", on ? "on offered" : "installed"].join(" ")}
                 aria-pressed={on}
-                onClick={() => actions.toggleOffer(game.appid)}
+                onClick={() => toggle(game.appid)}
               >
                 {body}
                 <span className="gact">

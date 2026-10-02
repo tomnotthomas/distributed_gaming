@@ -61,7 +61,7 @@ export const DEMO_EARNINGS: Earnings = {
   firstPayoutAt: 5,
   nextPayout: "1 Oct",
   accountEnding: "31",
-  month: { name: "September", amount: 12.4, estimate: 62, sessions: 18, hours: 31 },
+  month: { name: "September", amount: 12.4, sessions: 18, hours: 31 },
   payouts: [
     { month: "August", sessions: 61, hours: 132, amount: 65 },
     { month: "July", sessions: 48, hours: 104, amount: 51 },

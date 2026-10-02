@@ -30,7 +30,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [mountedAt, setMountedAt] = useState(() => Date.now());
   const [tick, setTick] = useState(() => Date.now());
   const [offered, setOffered] = useState(DEMO_OFFERED);
-  const [plan, setPlan] = useState<number | null>(() => untilChoices(state.clockAt)[1]!.at);
+  const [picked, setPicked] = useState<{ at: number | null } | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -38,6 +38,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   }, []);
 
   const now = state.clockAt + (tick - mountedAt);
+  const plan = picked ? picked.at : untilChoices(now)[1]!.at;
   const setLive = useCallback((live: Live) => setState((s) => ({ ...s, live })), []);
 
   // The warned player's grace runs out: the PC is the owner's again, and paused.
@@ -72,12 +73,13 @@ export function useDemoHost(screen: DemoScreen): Host & {
 
   const waiting = (until: number | null): Live => ({ kind: "waiting", since: now, until, registered: true });
   const actions = {
-    plan: setPlan,
+    plan: (at: number | null) => setPicked({ at }),
     goLive: () => setLive(waiting(plan)),
     setUntil: (until: number | null) =>
       setState((s) => (s.live.kind === "waiting" ? { ...s, live: { ...s.live, until } } : s)),
-    pause: () => setLive({ kind: "paused", at: now }),
-    resume: () => setLive(waiting(plan)),
+    pause: () =>
+      setState((s) => (s.live.kind === "waiting" ? { ...s, live: { kind: "paused", at: now } } : s)),
+    resume: () => setState((s) => (s.live.kind === "paused" ? { ...s, live: waiting(plan) } : s)),
     setStopNew: (stopNew: boolean) =>
       setState((s) => (s.live.kind === "session" ? { ...s, live: { ...s.live, stopNew } } : s)),
     notifyAtEnd: () =>
@@ -114,7 +116,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
             }
           : s,
       ),
-    retry: () => setLive(waiting(state.live.kind === "offline" ? state.live.until : plan)),
+    retry: () => setState((s) => (s.live.kind === "offline" ? { ...s, live: waiting(s.live.until) } : s)),
     toggleOffer: (appid: number) =>
       setOffered((list) => (list.includes(appid) ? list.filter((id) => id !== appid) : [...list, appid])),
     saveConnection: async () => setLive(waiting(plan)),

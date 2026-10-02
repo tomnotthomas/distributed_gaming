@@ -4,9 +4,11 @@
 // read anything itself. Every read is best effort: a part that cannot be read
 // comes back null, a library that cannot be read is skipped.
 
+const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { promisify } = require("node:util");
 
 /** At most this many games are listed, as the platform's host report allows (docs/system-design/host.md). */
 const MAX_GAMES = 2000;
@@ -109,12 +111,37 @@ function manifestGame(acf) {
   return { appid, name };
 }
 
-/** Where Steam keeps its own install, by platform: the first that exists wins. */
-function steamRoots(platform, env, home) {
+/** Steam's own install folder, from what `reg query` prints for HKCU\Software\Valve\Steam: `c:/games/steam` → `c:\games\steam`. */
+function steamPathFromReg(output) {
+  const value = /^\s*SteamPath\s+REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/im.exec(String(output))?.[1];
+  return value ? path.win32.normalize(value) : null;
+}
+
+/** Where Steam says it is installed, on Windows; null anywhere else or when it cannot be read. */
+async function registrySteamPath() {
+  if (process.platform !== "win32") return null;
+  try {
+    const { stdout } = await promisify(execFile)(
+      "reg",
+      ["query", "HKCU\\Software\\Valve\\Steam", "/v", "SteamPath"],
+      { timeout: 3000, windowsHide: true },
+    );
+    return steamPathFromReg(stdout);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where Steam keeps its own install, by platform: the first that exists wins.
+ * On Windows, where Steam says it is (`steamPath`) comes before the defaults.
+ */
+function steamRoots(platform, env, home, steamPath = null) {
   if (platform === "win32") {
-    return [env["ProgramFiles(x86)"], env.ProgramFiles]
+    const defaults = [env["ProgramFiles(x86)"], env.ProgramFiles]
       .filter(Boolean)
       .map((dir) => path.win32.join(dir, "Steam"));
+    return steamPath ? [steamPath, ...defaults] : defaults;
   }
   if (platform === "darwin") return [path.join(home, "Library", "Application Support", "Steam")];
   return [path.join(home, ".steam", "steam"), path.join(home, ".local", "share", "Steam")];
@@ -125,6 +152,7 @@ function readSteamGames({
   platform = process.platform,
   env = process.env,
   home = os.homedir(),
+  steamPath = null,
   files = fs,
 } = {}) {
   const read = (file) => {
@@ -134,14 +162,14 @@ function readSteamGames({
       return null;
     }
   };
-  const root = steamRoots(platform, env, home).find((dir) =>
+  const root = steamRoots(platform, env, home, steamPath).find((dir) =>
     read(path.join(dir, "steamapps", "libraryfolders.vdf")),
   );
   if (!root) return [];
 
   const libraries = [root, ...libraryPaths(read(path.join(root, "steamapps", "libraryfolders.vdf")))];
   const seen = new Map();
-  for (const library of [...new Set(libraries)].slice(0, MAX_LIBRARIES)) {
+  libraries: for (const library of [...new Set(libraries)].slice(0, MAX_LIBRARIES)) {
     const apps = path.join(library, "steamapps");
     let names = [];
     try {
@@ -150,9 +178,9 @@ function readSteamGames({
       continue;
     }
     for (const name of names) {
+      if (seen.size >= MAX_GAMES) break libraries;
       const game = manifestGame(read(path.join(apps, name)) ?? "");
       if (game && !seen.has(game.appid)) seen.set(game.appid, game);
-      if (seen.size >= MAX_GAMES) break;
     }
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -174,17 +202,19 @@ async function readPc({ app, screen }) {
       ramGb: wholeGb(os.totalmem()),
       display: displayOf(screen.getPrimaryDisplay()),
     },
-    games: readSteamGames(),
+    games: readSteamGames({ steamPath: await registrySteamPath() }),
   };
 }
 
 module.exports = {
+  MAX_GAMES,
   cpuName,
   gpuName,
   wholeGb,
   displayOf,
   libraryPaths,
   manifestGame,
+  steamPathFromReg,
   steamRoots,
   readSteamGames,
   readPc,

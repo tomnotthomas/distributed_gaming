@@ -4,6 +4,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostBridge } from "./bridge";
+import { untilChoices } from "./model";
 import type { ShareEvents } from "./useScreenShare";
 
 type Share = {
@@ -31,6 +32,7 @@ vi.mock("./useScreenShare", () => ({
 }));
 
 const { useHost } = await import("./useHost");
+const { trayDo } = await import("./App");
 
 const STREAM = {} as MediaStream;
 const NOW = new Date(2026, 8, 24, 21, 0).getTime();
@@ -105,12 +107,14 @@ async function host() {
 }
 
 describe("useHost", () => {
-  it("reads this PC, and offers every installed game until the owner chooses", async () => {
+  it("reads this PC, and lists its games with no offer choice that has no effect yet", async () => {
     const { result } = await host();
     const { view } = result.current;
     expect(view.demo).toBe(false);
     expect(view.pc.hardware?.gpu).toBe("NVIDIA GeForce RTX 4080");
-    expect(view.games.offered).toEqual([730, 1245620]);
+    expect(view.games.installed.map((g) => g.appid)).toEqual([730, 1245620]);
+    expect(view.games.offered).toBeNull();
+    expect(result.current.actions.toggleOffer).toBeNull();
     // Nothing the platform does not report.
     expect([view.rate, view.standing, view.earnings, view.games.demand, view.earlyEnd]).toEqual([
       null,
@@ -121,11 +125,18 @@ describe("useHost", () => {
     ]);
   });
 
-  it("keeps the owner's choice of games on this PC", async () => {
+  it("keeps the default end time the ~4 hours choice from now until the owner picks one", async () => {
     const { result } = await host();
-    act(() => result.current.actions.toggleOffer(730));
-    expect(result.current.view.games.offered).toEqual([1245620]);
-    expect(localStorage.getItem("swiff.offeredGames")).toBe("[1245620]");
+    expect(result.current.view.plan).toBe(untilChoices(NOW)[1]!.at);
+
+    act(() => void vi.advanceTimersByTime(5 * 3_600_000));
+    const later = result.current.view.now;
+    expect(result.current.view.plan).toBe(untilChoices(later)[1]!.at);
+    expect(result.current.view.plan).toBeGreaterThan(later);
+
+    act(() => result.current.actions.plan(null));
+    act(() => void vi.advanceTimersByTime(3_600_000));
+    expect(result.current.view.plan).toBeNull();
   });
 
   it("goes live with the saved connection and the planned end time", async () => {
@@ -233,6 +244,29 @@ describe("useHost", () => {
     });
     act(() => result.current.actions.retry());
     expect(share.restart).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a pause or a retry that no longer fits, so a player's session runs on", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    share.claim = { sessionId: "s1", appid: 730, minutes: 45, at: NOW };
+    rerender();
+    expect(result.current.view.live.kind).toBe("session");
+
+    // The tray still showed "Pause sharing" or "Try again" when the claim came.
+    act(() => trayDo(result.current, "pause"));
+    act(() => trayDo(result.current, "retry"));
+    act(() => result.current.actions.pause());
+    act(() => result.current.actions.retry());
+    await act(async () => result.current.actions.resume());
+    rerender();
+    expect(share.stop).not.toHaveBeenCalled();
+    expect(share.restart).not.toHaveBeenCalled();
+    expect(share.start).toHaveBeenCalledOnce();
+    expect(result.current.view.live.kind).toBe("session");
+
+    act(() => trayDo(result.current, "stop-new"));
+    expect(result.current.view.live).toMatchObject({ kind: "session", stopNew: true });
   });
 
   it("knows the owner sat down when the keyboard is touched during a session", async () => {

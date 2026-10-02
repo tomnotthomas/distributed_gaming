@@ -18,7 +18,7 @@ import { Glyph } from "../ui/Glyph";
 import { Art, Eur, Figure, Plate, Thumbs, Zone } from "../ui/parts";
 import { HoldPill, Pill } from "../ui/Pill";
 import { UntilPicker } from "./GoLive";
-import { offeredGames, tonight, type ScreenProps } from "./types";
+import { gamesTitle, listedGames, tonight, type ScreenProps } from "./types";
 
 type Of<K extends Live["kind"]> = ScreenProps & { live: Extract<Live, { kind: K }> };
 
@@ -44,9 +44,10 @@ function HowItWorks({ view }: { view: HostView }) {
 
 /** How many of the two most wanted games this PC offers, said plainly. */
 function wantedLine(view: HostView): string | null {
-  const top = view.games.demand?.slice(0, 2) ?? [];
-  if (top.length < 2) return null;
-  const on = top.filter((d) => view.games.offered.includes(d.appid)).length;
+  const { demand, offered } = view.games;
+  const top = demand?.slice(0, 2) ?? [];
+  if (top.length < 2 || !offered) return null;
+  const on = top.filter((d) => offered.includes(d.appid)).length;
   if (on === 2) return `The two games they want most are on ${view.machine}.`;
   if (on === 1) return `One of the two games they want most is on ${view.machine}.`;
   return `Neither of the two games they want most is on ${view.machine}.`;
@@ -129,8 +130,8 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
       </section>
 
       <div className={near !== null ? "sz three" : "sz two"}>
-        <Zone title="Offering">
-          <Thumbs games={offeredGames(view)} columns={2} />
+        <Zone title={gamesTitle(view)}>
+          <Thumbs games={listedGames(view)} columns={2} />
         </Zone>
         {near !== null ? (
           <Zone title="Near you now">
@@ -410,8 +411,8 @@ export function Paused({ view, actions, live }: Of<"paused">) {
             </Figure>
           )}
         </Zone>
-        <Zone title="Offering">
-          <Thumbs games={offeredGames(view)} />
+        <Zone title={gamesTitle(view)}>
+          <Thumbs games={listedGames(view)} />
         </Zone>
       </div>
       <i className="ruler" aria-hidden="true" />

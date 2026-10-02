@@ -5,7 +5,7 @@ import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
 import { Reticle } from "../ui/Reticle";
-import { offeredGames, tonight, type ScreenProps } from "./types";
+import { listedGames, tonight, type ScreenProps } from "./types";
 
 /** Four plain choices and an exact time. */
 export function UntilPicker({
@@ -54,7 +54,7 @@ export function UntilPicker({
 export function GoLive({ view, actions, go }: ScreenProps) {
   const { machine, rate, plan, live, connection, now } = view;
   const ready = connectionReady(connection);
-  const games = offeredGames(view);
+  const games = listedGames(view);
   const note = live.kind === "off" ? live.note : null;
   const gpu = view.pc.hardware?.gpu;
 
@@ -98,10 +98,14 @@ export function GoLive({ view, actions, go }: ScreenProps) {
 
       <div className={rate ? "sz two wide" : "sz one"}>
         <Zone
-          title={`Offering ${count(games.length, "game", "games")}`}
+          title={
+            view.games.offered === null
+              ? `${count(games.length, "game", "games")} installed`
+              : `Offering ${count(games.length, "game", "games")}`
+          }
           action={
             <button type="button" className="lnk" onClick={() => go("games")}>
-              Edit
+              {view.games.offered === null ? "See all" : "Edit"}
             </button>
           }
         >

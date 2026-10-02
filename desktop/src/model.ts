@@ -100,11 +100,21 @@ export type Earnings = {
   firstPayoutAt: number;
   nextPayout: string;
   accountEnding: string | null;
-  month: { name: string; amount: number; estimate: number; sessions: number; hours: number };
+  month: { name: string; amount: number; sessions: number; hours: number };
   payouts: Payout[];
   /** Earned today, over `sessionsToday`. */
   today: number;
 };
+
+/** Every evening, from 18:00 to midnight. */
+export const EVENING_HOURS = 6;
+
+/** The most `now`'s month can pay at `rate`, live every evening of it: a ceiling, not a forecast. */
+export function monthCeiling(rate: number, now: number): number {
+  const d = new Date(now);
+  const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  return rate * EVENING_HOURS * days;
+}
 
 // --- the live session -----------------------------------------------------------
 
@@ -163,8 +173,11 @@ export type HostView = {
   /** The name players see: the machine id until the app can set a name. */
   machine: string;
   pc: { reading: boolean; hardware: Hardware | null; hardwareRate: number | null };
-  /** `near`: players looking for a PC near this one now. Both null until the platform reports demand. */
-  games: { installed: Game[]; offered: number[]; demand: DemandRow[] | null; near: number | null };
+  /**
+   * `offered`: the games the owner offers, null where the choice has no effect yet.
+   * `near`: players looking for a PC near this one now. Both it and `demand` are null until the platform reports demand.
+   */
+  games: { installed: Game[]; offered: number[] | null; demand: DemandRow[] | null; near: number | null };
   standing: Standing | null;
   /** What ending a session early would leave the reliability score at; null where it cannot be done. */
   earlyEnd: { reliability: number } | null;
@@ -194,7 +207,8 @@ export type HostActions = {
   endEarly: (() => void) | null;
   cancelEnd: (() => void) | null;
   retry(): void;
-  toggleOffer(appid: number): void;
+  /** Choosing the games offered needs the platform to match on them: demo only until it can. */
+  toggleOffer: ((appid: number) => void) | null;
   saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey">): Promise<void>;
   savePayout(): void;
 };

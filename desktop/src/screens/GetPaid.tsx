@@ -6,7 +6,7 @@
 
 import { useState, type FormEvent } from "react";
 import { count, shortGpu } from "../format";
-import { LEVELS, levelAt, type Earnings, type Level } from "../model";
+import { LEVELS, levelAt, monthCeiling, type Earnings, type Level } from "../model";
 import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
 import { Notice } from "../ui/Notice";
@@ -126,6 +126,7 @@ function SetUp({ view, earnings, onChange }: ScreenProps & { earnings: Earnings;
   const { month } = earnings;
   const { rate, standing } = view;
   const gpu = view.pc.hardware?.gpu;
+  const ceiling = rate ? monthCeiling(rate.total, view.now) : null;
   return (
     <main className="step">
       <section className="hz">
@@ -142,15 +143,25 @@ function SetUp({ view, earnings, onChange }: ScreenProps & { earnings: Earnings;
               Change payout details
             </button>
           </p>
+          {ceiling !== null ? (
+            <p className="soft fine">
+              Up to <Eur n={ceiling} decimals={0} /> this month at your current rate, if live every evening
+              from 18:00 to midnight.
+            </p>
+          ) : null}
         </div>
         <Plate caption={["Month", `${count(month.sessions, "session", "sessions")}, ${month.hours} h`]}>
           <Dial
-            progress={month.amount / month.estimate}
+            progress={ceiling ? month.amount / ceiling : null}
             big={<Eur n={month.amount} />}
             small={
-              <>
-                of <Eur n={month.estimate} decimals={0} /> estimate
-              </>
+              ceiling !== null ? (
+                <>
+                  of up to <Eur n={ceiling} decimals={0} />
+                </>
+              ) : (
+                "so far"
+              )
             }
           />
         </Plate>

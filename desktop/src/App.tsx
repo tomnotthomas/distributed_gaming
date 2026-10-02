@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { bridge } from "./bridge";
 import { DEMO_SCREENS, type DemoScreen } from "./demo";
 import { clock } from "./format";
-import { glanceOf, type Host, type HostActions, type Step, type TrayAction } from "./model";
+import { glanceOf, type Host, type Step, type TrayAction } from "./model";
 import { GetPaid } from "./screens/GetPaid";
 import { GoLive } from "./screens/GoLive";
 import { Ending, InUse, Offline, Paused, Streaming, Waiting } from "./screens/Live";
@@ -15,8 +15,12 @@ import { Rail } from "./ui/Rail";
 import { useDemoHost } from "./useDemoHost";
 import { useHost } from "./useHost";
 
-/** Carry out an action the tray glance asked for. */
-export function trayDo(actions: HostActions, action: TrayAction) {
+/**
+ * Carry out an action the tray glance asked for, only while it is still the
+ * action the glance offers: a click on a stale glance does nothing.
+ */
+export function trayDo({ view, actions }: Host, action: TrayAction) {
+  if (glanceOf(view).action?.id !== action) return;
   switch (action) {
     case "stop-new":
       return actions.setStopNew(true);
@@ -37,8 +41,8 @@ function useTray({ view, actions }: Host) {
   useEffect(() => {
     bridge()?.setGlance(JSON.parse(snapshot));
   }, [snapshot]);
-  const latest = useRef(actions);
-  latest.current = actions;
+  const latest = useRef({ view, actions });
+  latest.current = { view, actions };
   useEffect(() => bridge()?.onTrayAction((action) => trayDo(latest.current, action)), []);
 }
 
@@ -151,7 +155,7 @@ export function DemoApp({ screen: first }: { screen: DemoScreen }) {
         <TrayDesk
           glance={glanceOf(demo.view)}
           clock={clock(demo.view.now)}
-          onAction={(action) => (action === "open" ? jump("streaming") : trayDo(demo.actions, action))}
+          onAction={(action) => (action === "open" ? jump("streaming") : trayDo(demo, action))}
         />
         <div className="desk-pick">{picker}</div>
       </div>

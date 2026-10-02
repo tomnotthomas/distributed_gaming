@@ -7,12 +7,10 @@ import {
   countSession,
   loadMachineId,
   loadMachineKey,
-  loadOffered,
   loadSessionsToday,
   loadUrl,
   saveMachineId,
   saveMachineKey,
-  saveOffered,
   saveUrl,
 } from "./settings";
 import { useScreenShare } from "./useScreenShare";
@@ -66,11 +64,11 @@ export function useHost(): Host {
   }, []);
 
   const installed = pc?.games ?? [];
-  const [chosen, setChosen] = useState(loadOffered);
-  const offered = chosen ?? installed.map((g) => g.appid);
 
   // --- the owner's plan, and the live session
-  const [plan, setPlan] = useState<number | null>(() => untilChoices(Date.now())[1]!.at);
+  // Until the owner picks one, the plan is the ~4 hours choice from now.
+  const [picked, setPicked] = useState<{ at: number | null } | null>(null);
+  const plan = picked ? picked.at : untilChoices(now)[1]!.at;
   const [until, setUntil] = useState<number | null>(null);
   const [since, setSince] = useState<number | null>(null);
   const [pausedAt, setPausedAt] = useState<number | null>(null);
@@ -187,7 +185,7 @@ export function useHost(): Host {
     now,
     machine,
     pc: { reading, hardware: pc?.hardware ?? null, hardwareRate: null },
-    games: { installed, offered, demand: null, near: null },
+    games: { installed, offered: null, demand: null, near: null },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -203,16 +201,18 @@ export function useHost(): Host {
   return {
     view,
     actions: {
-      plan: setPlan,
+      plan: (at) => setPicked({ at }),
       goLive: () => {
         if (connectionReady(settings)) void begin(settings, plan);
       },
       setUntil,
       pause: () => {
+        if (live.kind !== "waiting") return;
         share.stop();
         setPausedAt(Date.now());
       },
       resume: () => {
+        if (live.kind !== "paused") return;
         setPausedAt(null);
         // A share-until time that has passed while paused is not stretched: Go live again.
         if (until === null || until > Date.now()) void begin(settings, until);
@@ -226,12 +226,10 @@ export function useHost(): Host {
       },
       endEarly: null,
       cancelEnd: null,
-      retry: () => void share.restart(),
-      toggleOffer: (appid) => {
-        const next = offered.includes(appid) ? offered.filter((id) => id !== appid) : [...offered, appid];
-        setChosen(next);
-        saveOffered(next);
+      retry: () => {
+        if (live.kind === "offline") void share.restart();
       },
+      toggleOffer: null,
       saveConnection: async (next) => {
         const key = next.machineKey.trim();
         setUrl(next.url);

@@ -9,7 +9,9 @@ import {
   gpuName,
   libraryPaths,
   manifestGame,
+  MAX_GAMES,
   readSteamGames,
+  steamPathFromReg,
   steamRoots,
   wholeGb,
 } from "../pc.cjs";
@@ -105,6 +107,26 @@ const LIBRARY_FOLDERS = `"libraryfolders"
 	}
 }`;
 
+/** A file tree to read from, either separator matching either. */
+function fakeFiles(tree: Record<string, string>) {
+  const slash = (p: string) => p.replace(/\\/g, "/");
+  const files = new Map(Object.entries(tree).map(([file, text]) => [slash(file), text]));
+  return {
+    readFileSync(file: string) {
+      const text = files.get(slash(file));
+      if (text === undefined) throw new Error("ENOENT");
+      return text;
+    },
+    readdirSync(dir: string) {
+      const names = [...files.keys()]
+        .filter((file) => file.startsWith(`${slash(dir)}/`))
+        .map((file) => file.slice(slash(dir).length + 1));
+      if (!names.length) throw new Error("ENOENT");
+      return names;
+    },
+  };
+}
+
 const manifest = (appid: number, name: string, flags = 4) => `"AppState"
 {
 	"appid"		"${appid}"
@@ -129,6 +151,9 @@ describe("Steam library", () => {
     expect(steamRoots("win32", { "ProgramFiles(x86)": "C:\\Program Files (x86)" }, "C:\\Users\\kai")).toEqual(
       ["C:\\Program Files (x86)\\Steam"],
     );
+    expect(
+      steamRoots("win32", { "ProgramFiles(x86)": "C:\\Program Files (x86)" }, "C:\\Users\\kai", "D:\\Steam"),
+    ).toEqual(["D:\\Steam", "C:\\Program Files (x86)\\Steam"]);
     expect(steamRoots("darwin", {}, "/Users/kai")).toEqual(["/Users/kai/Library/Application Support/Steam"]);
     expect(steamRoots("linux", {}, "/home/kai")).toEqual([
       "/home/kai/.steam/steam",
@@ -164,6 +189,52 @@ describe("Steam library", () => {
       { appid: 1091500, name: "Cyberpunk 2077" },
       { appid: 1245620, name: "ELDEN RING" },
     ]);
+  });
+
+  it("reads where Steam says it is installed out of the registry, with Windows separators", () => {
+    const output = [
+      "",
+      "HKEY_CURRENT_USER\\Software\\Valve\\Steam",
+      "    SteamPath    REG_SZ    d:/games/steam",
+      "",
+    ].join("\r\n");
+    expect(steamPathFromReg(output)).toBe("d:\\games\\steam");
+    expect(
+      steamPathFromReg("ERROR: The system was unable to find the specified registry key or value."),
+    ).toBeNull();
+    expect(steamPathFromReg("")).toBeNull();
+  });
+
+  it("finds a Steam installed where the registry says, before the defaults", () => {
+    const root = "D:\\Steam";
+    const tree: Record<string, string> = {
+      [`${root}\\steamapps\\libraryfolders.vdf`]: `"libraryfolders" { "0" { "path" "D:\\\\Steam" } }`,
+      [`${root}\\steamapps\\appmanifest_730.acf`]: manifest(730, "Counter-Strike 2"),
+    };
+    const files = fakeFiles(tree);
+    const env = { "ProgramFiles(x86)": "C:\\Program Files (x86)" };
+    expect(readSteamGames({ platform: "win32", env, home: "C:\\Users\\kai", files })).toEqual([]);
+    expect(
+      readSteamGames({ platform: "win32", env, home: "C:\\Users\\kai", steamPath: root, files }),
+    ).toEqual([{ appid: 730, name: "Counter-Strike 2" }]);
+  });
+
+  it("lists no more games than the host report allows, across every library", () => {
+    const root = "/home/kai/.local/share/Steam";
+    const libraries = ["/mnt/a", "/mnt/b", "/mnt/c"];
+    const tree: Record<string, string> = {
+      [`${root}/steamapps/libraryfolders.vdf`]: `"libraryfolders" { ${libraries
+        .map((lib, i) => `"${i}" { "path" "${lib}" }`)
+        .join(" ")} }`,
+    };
+    let appid = 1;
+    for (const lib of [root, ...libraries]) {
+      const n = lib === root ? MAX_GAMES : 2;
+      for (let i = 0; i < n; i++, appid++)
+        tree[`${lib}/steamapps/appmanifest_${appid}.acf`] = manifest(appid, `Game ${appid}`);
+    }
+    const files = fakeFiles(tree);
+    expect(readSteamGames({ platform: "linux", env: {}, home: "/home/kai", files })).toHaveLength(MAX_GAMES);
   });
 
   it("finds nothing where Steam is not installed", () => {

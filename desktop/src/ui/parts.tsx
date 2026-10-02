@@ -1,5 +1,5 @@
 // The small pieces every screen is built from: the instrument plate, game art,
-// offered-game thumbnails, key-value rows and the euro figure.
+// game thumbnails, key-value rows and the euro figure.
 
 import type { ReactNode } from "react";
 import { Backdrop } from "@swiff/ui";
@@ -73,9 +73,9 @@ export function Plate({
   );
 }
 
-/** Small thumbnails of the games on offer, each with its name. */
+/** Small thumbnails of games, each with its name. */
 export function Thumbs({ games, columns = 4 }: { games: Game[]; columns?: 2 | 4 }) {
-  if (!games.length) return <p className="soft">No games offered.</p>;
+  if (!games.length) return <p className="soft">No games.</p>;
   return (
     <div className={`gmini c${columns}`}>
       {games.map((game) => (

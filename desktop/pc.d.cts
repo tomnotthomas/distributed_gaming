@@ -21,11 +21,19 @@ export function wholeGb(bytes: number): number | null;
 export function displayOf(display: unknown): Display | null;
 export function libraryPaths(vdf: string): string[];
 export function manifestGame(acf: string): SteamGame | null;
-export function steamRoots(platform: string, env: Record<string, string | undefined>, home: string): string[];
+export const MAX_GAMES: number;
+export function steamPathFromReg(output: string): string | null;
+export function steamRoots(
+  platform: string,
+  env: Record<string, string | undefined>,
+  home: string,
+  steamPath?: string | null,
+): string[];
 export function readSteamGames(options?: {
   platform?: string;
   env?: Record<string, string | undefined>;
   home?: string;
+  steamPath?: string | null;
   files?: Files;
 }): SteamGame[];
 export function readPc(electron: { app: unknown; screen: unknown }): Promise<PcRead>;

@@ -46,7 +46,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
         { appid: 730, name: "Counter-Strike 2" },
         { appid: 1245620, name: "ELDEN RING" },
       ],
-      offered: [730],
+      offered: null,
       demand: null,
       near: null,
     },
@@ -81,7 +81,7 @@ function actions(): HostActions {
     endEarly: null,
     cancelEnd: null,
     retry: vi.fn(),
-    toggleOffer: vi.fn(),
+    toggleOffer: null,
     saveConnection: vi.fn(async () => {}),
     savePayout: vi.fn(),
   };
@@ -165,6 +165,15 @@ describe("demo", () => {
     expect(rate).toHaveTextContent("Reliability 96100%");
     expect(rate).toHaveTextContent("Level Steady+5%");
     expect(rate).toHaveTextContent("At most €4,20 tonight, if a player stays until 01:00.");
+  });
+
+  it("shows the month against a ceiling at the current rate, not a forecast", () => {
+    render(<DemoApp screen="paid" />);
+    // €1,05 an hour, six evening hours, thirty days in September.
+    expect(screen.getByText(/this month at your current rate, if live every evening/)).toHaveTextContent(
+      "Up to €189 this month at your current rate, if live every evening from 18:00 to midnight.",
+    );
+    expect(document.body.textContent).not.toMatch(/estimate/i);
   });
 
   describe("walked through", () => {
@@ -262,20 +271,25 @@ describe("this PC's screens", () => {
     expectNoDemoData();
   });
 
-  it("offers the installed games, without demand", () => {
-    const acts = renderReal("games", off);
-    expect(screen.getByRole("button", { name: /Counter-Strike 2/ })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: /ELDEN RING/ }));
-    expect(acts.toggleOffer).toHaveBeenCalledWith(1245620);
+  it("lists the installed games read-only, with no offer choice that has no effect yet", () => {
+    renderReal("games", off);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your installed games");
+    expect(screen.getByText(/Choosing which ones to offer comes with a later update\./)).toBeInTheDocument();
+    expect(screen.getByText("Counter-Strike 2")).toBeInTheDocument();
+    expect(screen.getByText("ELDEN RING")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ELDEN RING/ })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/offered|Offering/);
+    expect(screen.getByText("2 games installed")).toBeInTheDocument();
     expect(screen.queryByText("Install on Steam")).not.toBeInTheDocument();
     expect(screen.getByText("Read from this PC's Steam library.")).toBeInTheDocument();
     expectNoDemoData();
   });
 
-  it("goes live without a rate, offering the chosen games", () => {
+  it("goes live without a rate, listing the installed games", () => {
     renderReal("live", off, { now: evening(21) });
     expect(screen.queryByText("Your rate")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Offering 1 game/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2 games installed See all" })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/offered|Offering/);
     expect(screen.getByRole("radio", { name: /01:00/ })).toHaveAttribute("aria-checked", "true");
     expectNoDemoData();
   });

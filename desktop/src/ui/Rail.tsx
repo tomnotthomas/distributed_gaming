@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { clock, euros, shortGpu } from "../format";
+import { clock, count, euros, shortGpu } from "../format";
 import { claimEnd, levelProgress, type HostView, type Standing, type Step } from "../model";
 import { DemoTag } from "./parts";
 
@@ -42,8 +42,11 @@ function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): strin
     }
     case "games": {
       const installed = games.installed.length;
+      const { offered: chosen } = games;
+      if (chosen === null)
+        return pc.reading ? "Reading Steam library" : `${count(installed, "game", "games")} installed`;
       if (!setupDone) return "Choose what players can stream";
-      const offered = games.installed.filter((g) => games.offered.includes(g.appid)).length;
+      const offered = games.installed.filter((g) => chosen.includes(g.appid)).length;
       return `${offered} of ${installed} games offered`;
     }
     case "live":

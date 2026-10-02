@@ -61,22 +61,10 @@ export function toSocketUrl(input: string): string {
   return `wss://${trimmed}`;
 }
 
-// The owner's choices in the app, kept on this PC: which installed games they
-// offer, and whether they have been through the first run.
-const OFFERED_KEY = "swiff.offeredGames";
+// What the app keeps on this PC: whether the owner has been through the first
+// run, and today's session count.
 const SETUP_KEY = "swiff.setupDone";
 const SESSIONS_KEY = "swiff.sessions";
-
-/** The games the owner chose to offer; null until they choose, which offers every installed game. */
-export function loadOffered(): number[] | null {
-  try {
-    const list: unknown = JSON.parse(load(OFFERED_KEY) || "null");
-    return Array.isArray(list) ? list.filter((id): id is number => Number.isInteger(id) && id > 0) : null;
-  } catch {
-    return null;
-  }
-}
-export const saveOffered = (appids: number[]) => save(OFFERED_KEY, JSON.stringify(appids));
 
 export const loadSetupDone = () => load(SETUP_KEY) === "1";
 export const saveSetupDone = () => save(SETUP_KEY, "1");
