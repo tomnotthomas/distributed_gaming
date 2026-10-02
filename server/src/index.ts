@@ -163,6 +163,8 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
+  /** When the database last said a renter's ticket was not revoked (Unix ms): at join, then each reconcile. */
+  confirmedAt: number;
   /** The session a host registered under with a session key; null for a machine key. */
   sessionId: string | null;
   missedBeats: number;
@@ -299,7 +301,10 @@ async function seatStillValid(client: PeerSocket): Promise<boolean> {
     return false;
   }
   try {
-    if (!(await platform.ticketRevoked(client.ticketId))) return true;
+    if (!(await platform.ticketRevoked(client.ticketId))) {
+      client.confirmedAt = Date.now();
+      return true;
+    }
     putOut(client);
   } catch (error) {
     console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
@@ -588,6 +593,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.hostId = ticket.room;
       ws.role = "client";
       ws.ticketId = ticket.id;
+      ws.confirmedAt = Date.now();
       room.client = ws;
       send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
       send(room.host, { type: "peer-joined" });
@@ -669,6 +675,7 @@ wss.on("connection", (socket) => {
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;
+  ws.confirmedAt = 0;
   ws.sessionId = null;
   ws.missedBeats = 0;
   ws.turn = Promise.resolve();
@@ -686,10 +693,13 @@ wss.on("connection", (socket) => {
 
 /**
  * Check every seated renter's ticket with the database in one read: a revoked
- * one is recorded and put out, even one that sends nothing. When the database
- * cannot say, the round is skipped and every renter keeps its seat: relayed
- * frames are still checked against the revocations already known, and the
- * next round tries again. Also forgets revocations no ticket could still be in
+ * one is recorded and put out, even one that sends nothing, and every other
+ * seat counts as confirmed now. When the database cannot say, every renter
+ * keeps its seat through the blip (relayed frames are still checked against
+ * the revocations already known, and the next round tries again) but for no
+ * longer than MAX_UNCONFIRMED_MS since its ticket was last confirmed: past
+ * that, the seat is closed without `denied`, so the renter may come back once
+ * the database answers. Also forgets revocations no ticket could still be in
  * use for.
  */
 async function reconcileSeats(): Promise<void> {
@@ -703,9 +713,19 @@ async function reconcileSeats(): Promise<void> {
     }
   } catch (error) {
     console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+    const stale = seated.filter((client) => now - client.confirmedAt >= MAX_UNCONFIRMED_MS);
+    if (stale.length) {
+      console.error(
+        `[swiff] tickets unconfirmed for ${MAX_UNCONFIRMED_MS / 1000} s: closing ${stale.length} seat(s)`,
+      );
+      for (const client of stale) client.close(1011, "ticket unconfirmed");
+    }
     return;
   }
-  for (const client of seated) if (seatRevoked(client)) putOut(client);
+  for (const client of seated) {
+    if (seatRevoked(client)) putOut(client);
+    else client.confirmedAt = now;
+  }
 }
 
 // The safety net under the session-end notice, for a ticket revoked where no
@@ -714,6 +734,13 @@ async function reconcileSeats(): Promise<void> {
 // check at a time.
 // SWIFF_TICKET_RECONCILE_MS shortens it for tests.
 const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 5_000;
+/**
+ * The longest a seated renter's ticket goes unconfirmed while the reconcile
+ * cannot read the database, before the seat is closed: a blip keeps every
+ * seat, an outage does not keep a revoked one open for good.
+ * SWIFF_TICKET_UNCONFIRMED_MS shortens it for tests.
+ */
+const MAX_UNCONFIRMED_MS = Number(process.env.SWIFF_TICKET_UNCONFIRMED_MS) || 5 * 60_000;
 let reconciling: Promise<void> | null = null;
 setInterval(() => {
   reconciling ??= reconcileSeats().finally(() => (reconciling = null));

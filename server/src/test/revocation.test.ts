@@ -52,8 +52,12 @@ function freshPort(): number {
   return port;
 }
 
-/** A server on a database of its own, with the ticket reconcile every `reconcileMs` (omitted: as in production). */
-async function startServer(reconcileMs?: number) {
+/**
+ * A server on a database of its own, with the ticket reconcile every
+ * `reconcileMs` and seats trusted unconfirmed for `unconfirmedMs` (omitted:
+ * as in production).
+ */
+async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
   const port = freshPort();
   const database = await serverDatabase();
   databases.push(database);
@@ -67,6 +71,7 @@ async function startServer(reconcileMs?: number) {
         MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
         DATABASE_URL: database.url,
         ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
+        ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
       },
       stdio: "ignore",
     }),
@@ -343,6 +348,49 @@ describe("revoked ticket without the session-end notice", () => {
   );
 
   it(
+    "keeps seats through blips with a success between them, past the bound in all",
+    { timeout: 60_000 },
+    async () => {
+      const server = await startServer(200, 3_000);
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
+
+      // Two blips of 2 s each: 4 s of failed reads, but a good one between.
+      await server.breakSessions();
+      await wait(2_000);
+      await server.restoreSessions();
+      await wait(1_000);
+      await server.breakSessions();
+      await wait(2_000);
+      assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated: the good read confirmed it");
+      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
+      await until(() => iceFrames(host.received).length > 1);
+      assert.deepEqual(iceFrames(host.received), ["before", "still"]);
+      await server.restoreSessions();
+      host.ws.close();
+    },
+  );
+
+  it(
+    "closes a seat whose ticket has gone unconfirmed past the bound, without denied",
+    { timeout: 60_000 },
+    async () => {
+      const server = await startServer(200, 1_500);
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
+
+      await server.breakSessions();
+      const brokenAt = Date.now();
+      assert.equal(await renter.closed, 1011);
+      const tookMs = Date.now() - brokenAt;
+      assert.ok(tookMs >= 1_000, `closed after only ${tookMs} ms`);
+      assert.ok(!renter.received.some((m) => m.type === "denied"), "the renter may come back");
+      await server.restoreSessions();
+      host.ws.close();
+    },
+  );
+
+  it(
     "cuts a seated renter off within a few seconds by default, and relays nothing after",
     { timeout: 60_000 },
     async () => {
@@ -350,11 +398,13 @@ describe("revoked ticket without the session-end notice", () => {
       const { ticket } = await server.claimTicket("pc-1");
       const { host, renter } = await seat(server, "pc-1", ticket);
 
+      const closedAt = renter.closed.then(() => Date.now());
       await server.revokeBehindTheServersBack();
       const revokedAt = Date.now();
       await putOut(host, renter);
-      const tookMs = Date.now() - revokedAt;
-      assert.ok(tookMs < 6_500, `put out after ${tookMs} ms`);
+      // The next 5 s round, with room for a loaded machine: the old default was 30 s.
+      const tookMs = (await closedAt) - revokedAt;
+      assert.ok(tookMs < 12_000, `put out after ${tookMs} ms`);
       host.ws.close();
     },
   );

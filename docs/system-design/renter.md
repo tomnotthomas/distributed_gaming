@@ -369,8 +369,10 @@ configured the server lets nobody in (`server/src/access.ts`).
   database. A session ended straight in the database, where no notice is sent, is
   caught at the next join or host registration, and within 5 s for every seated
   renter, all checked in one read. When that read fails, every seated renter keeps its
-  seat and the read is tried again 5 s later: a renter is never cut off because the
-  database could not answer.
+  seat through the blip and the read is tried again 5 s later, but no seat is trusted
+  for more than 5 minutes since its ticket was last confirmed: past that, it is closed
+  without `denied`, and the renter can come back once the database answers. Any
+  successful read confirms every seat again.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
