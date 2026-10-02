@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { RequestBudget } from "../budget.js";
+import { MAX_TRACKED, RequestBudget } from "../budget.js";
 
 describe("request budget", () => {
   let now: number;
@@ -46,7 +46,7 @@ describe("request budget", () => {
   it("starts a renter who was forgotten among many others from a full bucket", () => {
     for (let i = 0; i < 3; i++) budget.take("a");
     now += 3_000;
-    for (let i = 0; i < 10_001; i++) budget.take(`renter-${i}`);
+    for (let i = 0; i <= MAX_TRACKED; i++) budget.take(`renter-${i}`);
     for (let i = 0; i < 3; i++) assert.equal(budget.take("a"), 0);
     assert.ok(budget.take("a") > 0);
   });

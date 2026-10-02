@@ -15,8 +15,11 @@
 export const DISCOVERY_BURST = 20;
 /** After the burst, one more request per this many ms: 30 a minute. */
 export const DISCOVERY_REFILL_MS = 2_000;
-/** The most renters tracked at once. */
-export const MAX_TRACKED = 10_000;
+/**
+ * The most renters tracked at once: about 10 MB, and far more than are signed
+ * in at once, so forgetting a renter whose bucket has not refilled is a last resort.
+ */
+export const MAX_TRACKED = 100_000;
 
 export class RequestBudget {
   readonly #burst: number;

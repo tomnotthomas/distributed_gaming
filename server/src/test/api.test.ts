@@ -505,9 +505,10 @@ describe("booking and host API", () => {
       const booked = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 570, minutes: 30 });
       const { claimBy } = (await as(signedIn(OTHER))("GET", `/api/bookings/${booked.body.bookingId}`)).body;
 
-      const { status, body } = await renter("GET", "/api/availability?appids=570,730,440,570&rtt=0");
+      const { status, body } = await renter("GET", "/api/availability?appids=570,730,440,0570,570&rtt=0");
       assert.equal(status, 200);
-      // The booking took pc-1, the cheapest by id; pc-2 is free for Dota 2 only.
+      // Each game once, however it is spelled. The booking took pc-1, the cheapest by id;
+      // pc-2 is free for Dota 2 only.
       assert.deepEqual(body, [
         { appid: 570, free: 1, busy: 1, backAt: claimBy + 30 * 60_000 },
         { appid: 730, free: 0, busy: 1, backAt: claimBy + 30 * 60_000 },

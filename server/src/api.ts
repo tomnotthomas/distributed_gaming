@@ -254,7 +254,9 @@ export function createApi({
       if (!appids.length || appids.length > MAX_AVAILABILITY_APPIDS) {
         throw new HttpError(400, `appids must list 1 to ${MAX_AVAILABILITY_APPIDS} Steam appids`);
       }
-      const games = appids.map((a) => platform.requirements(wholeParam(a, "appids[]", MAX_APPID)));
+      // Repeats are answered once, however they are spelled ("730" and "0730").
+      const parsed = new Set(appids.map((a) => wholeParam(a, "appids[]", MAX_APPID)));
+      const games = [...parsed].map((appid) => platform.requirements(appid));
       const ask = renterAsk(steamId, query);
       const { at, machines } = platform.offeredMachines();
       reply(res, 200, availabilityFor(games, ask, machines, at));

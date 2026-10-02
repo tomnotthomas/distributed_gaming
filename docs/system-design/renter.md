@@ -287,7 +287,7 @@ Each read ranks every machine on offer, so one signed-in renter cannot hog the s
 with them: each has a budget of 20 of these reads at once, then one more every 2 s (30
 a minute), counted across both calls and keyed on their Steam id
 (`server/src/budget.ts`). Past it the answer is `429` with `Retry-After` in seconds.
-At most 10,000 renters are tracked at once; past that, those whose budget is full again
+At most 100,000 renters are tracked at once; past that, those whose budget is full again
 and then the least recently active are forgotten, and start again from a full budget.
 
 ### Matching
