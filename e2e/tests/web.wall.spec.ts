@@ -1,6 +1,7 @@
 // The wall is what "/" serves now, so this pins what a first-time visitor must
-// see: a hero that fills the first screen with the band peeking under it, one
-// Sign in with Steam, and no way to play until they have signed in.
+// see: hero 3b (the art with its drafted title, the strip under it) filling the
+// first screen with the band peeking below, one Sign in with Steam, and no way
+// to play until they have signed in.
 
 import { expect, test } from "@playwright/test";
 import { signIn } from "./credentials";
@@ -35,6 +36,39 @@ test.describe("live wall", () => {
       expect(peek).toBeGreaterThanOrEqual(40);
       expect(peek).toBeLessThanOrEqual(120);
     });
+
+    for (const signedIn of [false, true]) {
+      test(`lays the hero out without collisions at ${viewport.width}x${viewport.height}, ${
+        signedIn ? "signed in" : "signed out"
+      }`, async ({ page, context, baseURL }) => {
+        if (signedIn) await signIn(context, baseURL!);
+        await page.setViewportSize(viewport);
+        await page.goto("/");
+        await page.evaluate(() => document.fonts.ready);
+
+        const art = (await page.locator(".hero-3b-art").boundingBox())!;
+        const strip = (await page.locator(".hero-strip").boundingBox())!;
+        const title = (await page.locator(".hero-3b-title").boundingBox())!;
+        const action = (await page
+          .locator(".hero-strip")
+          .getByRole(signedIn ? "button" : "link")
+          .first()
+          .boundingBox())!;
+
+        // The drafted title stays on the art, clear of the header and the strip.
+        expect(title.x).toBeGreaterThanOrEqual(art.x);
+        expect(title.x + title.width).toBeLessThanOrEqual(art.x + art.width);
+        expect(title.y + title.height).toBeLessThanOrEqual(art.y + art.height);
+        const bar = (await page.locator(".bar").boundingBox())!;
+        expect(title.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+        // Resume or Sign in with Steam sits inside the strip, below the art.
+        expect(strip.y).toBeGreaterThanOrEqual(art.y + art.height - 1);
+        expect(action.y).toBeGreaterThanOrEqual(strip.y);
+        expect(action.y + action.height).toBeLessThanOrEqual(strip.y + strip.height);
+        // Nothing runs off the side of the page.
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+      });
+    }
   }
 
   test("offers a signed-out visitor exactly one way in: Sign in with Steam", async ({ page }) => {
@@ -58,8 +92,8 @@ test.describe("live wall", () => {
 
   test("plays no trailer behind the hero or the game page", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator(".hero .backdrop-still").first()).toBeVisible();
-    await expect(page.locator(".hero video")).toHaveCount(0);
+    await expect(page.getByTestId("hero").locator(".backdrop-still").first()).toBeVisible();
+    await expect(page.getByTestId("hero").locator("video")).toHaveCount(0);
 
     await page.locator("button.band-tile").first().click();
     await expect(page.locator(".menu-photo .backdrop-still")).toBeVisible();

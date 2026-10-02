@@ -379,14 +379,13 @@
   border: 1px solid var(--line);
 }
 
+/* Share your PC's estimate over full-colour art (.share-hero sizes it) */
 .hero {
   position: relative;
-  height: max(480px, calc(100vh - var(--peek)));
-  height: max(480px, calc(100dvh - var(--peek)));
   overflow: hidden;
 }
-/* Signed out the hero turns through a few games: each one's art is painted,
-   only the current one is opaque, and they crossfade. */
+/* Signed out the wall hero turns through a few games: each one's art is
+   painted, only the current one is opaque, and they crossfade. */
 .hero-slide {
   transition: opacity 1.4s var(--ease);
 }
@@ -404,6 +403,247 @@
     transform: translateY(6px);
   }
 }
+/* — wall hero 3b, "Drafted title" (prototypes/Swiff v7.dc.html): the art shown
+   whole, the name drafted bottom left between cap and base lines with a tick
+   ruler along the art's foot, and a grey strip under the art holding the line,
+   the machine or the pitch, and Resume or Sign in with Steam — */
+.sw[data-screen="home"] .bar {
+  background: rgb(18 18 18 / 0.32);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.hero-3b {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: max(560px, calc(100vh - var(--peek)));
+  height: max(560px, calc(100dvh - var(--peek)));
+}
+.hero-3b-art {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+.hero-3b-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgb(18 18 18 / 0.72), rgb(18 18 18 / 0.28) 32%, transparent 52%),
+    linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 22%);
+}
+/* a tick every 10px, a long one every 100px, along the art's foot */
+.hero-3b-ruler {
+  position: absolute;
+  left: 40px;
+  right: 40px;
+  bottom: 30px;
+  height: 10px;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, rgb(239 239 237 / 0.6) 0 1px, transparent 1px 100px) bottom / 100% 10px
+      no-repeat,
+    repeating-linear-gradient(90deg, rgb(239 239 237 / 0.3) 0 1px, transparent 1px 10px) bottom / 100% 5px
+      no-repeat;
+}
+.hero-3b-draft {
+  position: absolute;
+  z-index: 5;
+  left: var(--gut);
+  bottom: clamp(56px, 7.6vh, 72px);
+  width: min(820px, calc(100% - 2 * var(--gut)));
+}
+.hero-3b-leader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: var(--ink-2);
+}
+.hero-3b-leader::before {
+  content: "";
+  width: 28px;
+  border-top: 1px solid currentColor;
+}
+/* the cap and base construction lines run just past the word, with end ticks */
+.hero-3b-dline {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.hero-3b-title {
+  max-width: min(760px, 100%);
+  margin: 0;
+  font: 400 clamp(48px, 7.8vw, 112px) / 1 var(--wide);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.hero-3b-rule {
+  position: absolute;
+  left: -24px;
+  width: calc(100% + 64px);
+  border-top: 1px solid rgb(239 239 237 / 0.45);
+  pointer-events: none;
+}
+.hero-3b-rule::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: -5px;
+  height: 9px;
+  border-left: 1px solid rgb(239 239 237 / 0.7);
+}
+.hero-3b-cap {
+  top: -10px;
+}
+.hero-3b-base {
+  bottom: -8px;
+}
+
+.hero-strip {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.25fr) minmax(320px, 1fr);
+  min-height: clamp(150px, 20vh, 190px);
+  border-top: 1px solid var(--pline);
+  background: var(--grey);
+  color: var(--on-paper);
+}
+.hero-strip-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 18px 32px;
+  border-right: 1px solid var(--pline);
+}
+.hero-strip-cell:last-child {
+  border-right: 0;
+}
+.hero-strip-kick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--on-paper-2);
+}
+.hero-strip-line {
+  margin: 10px 0 0;
+  font: 200 clamp(20px, 1.7vw, 24px) / 1.2 var(--f);
+}
+.hero-strip-line b {
+  font-weight: 600;
+}
+.hero-kv {
+  display: grid;
+  grid-template-columns: 110px auto;
+  justify-content: start;
+  gap: 6px 18px;
+  margin: 0;
+}
+.hero-kv dt {
+  color: var(--on-paper-2);
+}
+.hero-kv dd {
+  margin: 0;
+  font-weight: 500;
+}
+.hero-strip-pitch {
+  max-width: 38ch;
+  margin: 0;
+  color: var(--on-paper-2);
+  font-size: 15px;
+}
+.hero-strip-near {
+  margin: 14px 0 0;
+  color: var(--on-paper-2);
+}
+.hero-strip-act {
+  align-items: flex-start;
+  gap: 12px;
+  padding-block: 10px;
+}
+.hero-strip-fine {
+  color: var(--on-paper-2);
+}
+
+/* Resume: the paper disc in a tick ring and corner brackets; the ring turns and
+   the brackets draw in while it is pointed at or focused */
+.resume {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: clamp(150px, 10.5vw, 160px);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--on-paper);
+  cursor: pointer;
+}
+.resume-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.resume-disc {
+  fill: var(--paper);
+  transition: stroke 0.3s var(--ease);
+}
+.resume-ticks,
+.resume-brackets {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+}
+.resume-ticks {
+  opacity: 0.55;
+  transition: opacity 0.4s var(--ease);
+}
+.resume-brackets {
+  transition: transform 0.5s var(--ease);
+}
+.resume:hover .resume-ticks,
+.resume:focus-visible .resume-ticks {
+  opacity: 0.9;
+}
+.resume:hover .resume-brackets,
+.resume:focus-visible .resume-brackets {
+  transform: scale(0.93);
+}
+.resume:hover .resume-disc,
+.resume:focus-visible .resume-disc {
+  stroke: var(--lime-edge);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .resume:hover .resume-ticks,
+  .resume:focus-visible .resume-ticks {
+    animation: resume-spin 6s linear infinite;
+  }
+}
+@keyframes resume-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.resume-label {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  font: 500 15px/1.15 var(--f);
+}
+.resume-label .glyph {
+  margin-bottom: 4px;
+}
+.resume-label small {
+  margin-top: 4px;
+  font: 400 10.5px/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
 .hero-scrim {
   position: absolute;
   inset: 0;
@@ -412,93 +652,11 @@
     linear-gradient(90deg, rgb(18 18 18 / 0.84) 0, rgb(18 18 18 / 0.45) 34%, transparent 54%),
     linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 18%);
 }
-.hero-copy {
-  position: absolute;
-  z-index: 5;
-  left: var(--gut);
-  top: calc(var(--bar) + clamp(28px, 7.4vh, 72px));
-  width: min(680px, calc(100% - var(--cr) - 2 * var(--gut)));
-}
 .hero-kicker {
   display: flex;
   align-items: center;
   gap: 10px;
   color: var(--ink-2);
-}
-.hero-title {
-  margin: 16px 0 14px;
-  font: 400 clamp(40px, 4.6vw, 72px) / 1.02 var(--wide);
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
-  overflow-wrap: break-word;
-  text-wrap: balance;
-}
-.hero-copy-out .hero-title {
-  font-size: clamp(38px, 4vw, 58px);
-}
-.hero-line {
-  margin: 0 0 22px;
-  font: 200 clamp(22px, 2.1vw, 30px) / 1.2 var(--f);
-}
-.hero-line b {
-  font-weight: 600;
-}
-.hero-body {
-  max-width: 46ch;
-  margin: 0 0 22px;
-  color: var(--ink-2);
-  font-size: 16px;
-}
-.hero-facts {
-  display: flex;
-  flex-wrap: wrap;
-  row-gap: 8px;
-  color: var(--ink-2);
-}
-.hero-facts span {
-  padding: 0 18px;
-  border-left: 1px solid var(--line-2);
-}
-.hero-facts span:first-child {
-  padding-left: 0;
-  border-left: 0;
-}
-.hero-facts b {
-  color: var(--ink);
-  font-weight: 500;
-}
-.hero-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px 22px;
-}
-.hero-fine {
-  max-width: 36ch;
-  color: var(--ink-2);
-}
-
-/* Sign in with Steam: the one filled pill, so the way in is never mistaken for
-   another outline. Ink on the dark screens, paper-dark on the paper ones. */
-.steam-cta {
-  --cta-bg: var(--ink);
-  --cta-fg: var(--on-paper);
-  border-color: var(--cta-bg);
-  background: var(--cta-bg);
-  color: var(--cta-fg);
-  transition:
-    background 0.3s var(--ease),
-    border-color 0.3s var(--ease);
-}
-.steam-cta:hover {
-  background: #ffffff;
-}
-.ledger-panel .steam-cta {
-  --cta-bg: var(--on-paper);
-  --cta-fg: var(--paper);
-}
-.ledger-panel .steam-cta:hover {
-  background: #000000;
 }
 
 /* the instrument column: translucent grey under the account cell, art showing through */
@@ -545,13 +703,6 @@
   height: 100%;
   pointer-events: none;
 }
-.dial-orbit {
-  opacity: 0;
-  transition: opacity 0.6s var(--ease);
-}
-.spinning .dial-orbit {
-  opacity: 0.55;
-}
 .dial-count {
   position: absolute;
   inset: 0;
@@ -578,69 +729,6 @@
 }
 .inst-lift .inst-cap {
   color: var(--on-paper);
-}
-
-/* Resume: a primary action drawn as two hairline circles, with lime as one mark at twelve */
-.ring-btn {
-  position: absolute;
-  left: 27.5%;
-  top: 31.25%;
-  width: 45%;
-  aspect-ratio: 1;
-  isolation: isolate;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--on-paper);
-  font: 500 16px/1.15 var(--f);
-  text-align: center;
-  cursor: pointer;
-  transition:
-    border-color 0.3s var(--ease),
-    transform 0.4s var(--ease);
-}
-.ring-btn::before {
-  content: "";
-  position: absolute;
-  inset: 9px;
-  z-index: -1;
-  border: 1px solid var(--pline-2);
-  border-radius: 50%;
-  transition: border-color 0.3s var(--ease);
-}
-.ring-btn::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -4px;
-  width: 7px;
-  height: 7px;
-  margin-left: -3.5px;
-  border-radius: 50%;
-  background: var(--lime);
-}
-.ring-btn:hover {
-  border-color: var(--lime);
-  transform: scale(1.03);
-}
-.ring-btn:hover::before {
-  border-color: rgb(212 245 60 / 0.45);
-}
-.ring-btn:active {
-  transform: scale(0.98);
-}
-.ring-btn .glyph {
-  margin-bottom: 4px;
-}
-.ring-btn small {
-  display: block;
-  margin-top: 4px;
-  font: 400 10.5px/1.4 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 /* — the band: a ruled grid on paper, on the bar's columns, with a tick ruler underneath — */
@@ -1948,13 +2036,14 @@ button.band-tab:hover {
 /* — reduced motion: nothing moves on its own — */
 @media (prefers-reduced-motion: reduce) {
   .band-tile-art,
-  .ring-btn,
-  .dial-orbit,
+  .resume,
+  .resume-brackets,
   .reticle-brackets {
     transition: none;
   }
   .band-tile:hover .band-tile-art,
-  .ring-btn:hover {
+  .resume:hover .resume-brackets,
+  .resume:focus-visible .resume-brackets {
     transform: none;
   }
   .profile,
@@ -1998,33 +2087,86 @@ button.band-tab:hover {
     height: auto;
   }
   /* The wall hero still fills the first screen but for the band's peek: the
-     instrument column takes whatever the copy leaves. */
-  .wall .hero {
+     art takes whatever the strip leaves, and the strip stacks. */
+  .hero-3b {
+    display: flex;
+    flex-direction: column;
+    height: auto;
     min-height: calc(100vh - var(--peek));
     min-height: calc(100dvh - var(--peek));
   }
-  .wall .inst {
-    flex: 1 0 260px;
-    height: auto;
+  .hero-3b-art {
+    flex: 1 0 clamp(300px, 46vh, 420px);
   }
-  .hero-scrim {
-    background: linear-gradient(
-      180deg,
-      rgb(18 18 18 / 0.78) 0,
-      rgb(18 18 18 / 0.6) 40%,
-      rgb(18 18 18 / 0.2) 62%
-    );
+  .hero-3b-scrim {
+    background:
+      linear-gradient(90deg, rgb(18 18 18 / 0.7), rgb(18 18 18 / 0.2) 55%, transparent 80%),
+      linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 30%);
   }
-  .hero-copy {
-    position: relative;
-    left: auto;
-    top: auto;
-    width: auto;
-    padding: calc(var(--bar) + 32px) var(--gut) 32px;
+  .hero-3b-ruler {
+    left: 18px;
+    right: 18px;
+    bottom: 22px;
   }
-  .hero-title,
-  .hero-copy-out .hero-title {
-    font-size: clamp(30px, 9vw, 44px);
+  .hero-3b-draft {
+    bottom: 44px;
+  }
+  .hero-3b-leader {
+    margin-bottom: 10px;
+  }
+  .hero-3b-leader::before {
+    display: none;
+  }
+  .hero-3b-title {
+    font-size: clamp(34px, 13.8vw, 54px);
+  }
+  /* signed in: the line, then Resume beside the machine */
+  .hero-strip {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "say say" "act facts";
+    align-items: center;
+    gap: 18px;
+    min-height: 0;
+    padding: 22px var(--gut) 26px;
+  }
+  /* signed out: the line, the sign-in, then the count; the pitch is the band's job here */
+  .hero-strip-out {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "say" "act" "facts";
+  }
+  .hero-strip-cell {
+    padding: 0;
+    border-right: 0;
+  }
+  .hero-strip-say {
+    grid-area: say;
+  }
+  .hero-strip-facts {
+    grid-area: facts;
+  }
+  .hero-strip-act {
+    grid-area: act;
+  }
+  .hero-strip-line {
+    margin-top: 8px;
+    font-size: 18px;
+  }
+  .hero-kv {
+    grid-template-columns: auto auto;
+    gap: 4px 12px;
+  }
+  .hero-strip-pitch {
+    display: none;
+  }
+  .hero-strip-near {
+    margin: 0;
+  }
+  .resume {
+    width: 140px;
+  }
+  /* too small a disc for the time left; it is beside the button already */
+  .resume-label small {
+    display: none;
   }
   .inst {
     position: relative;
@@ -2211,8 +2353,5 @@ button.band-tab:hover {
 @media (max-width: 520px) {
   .acct-who {
     display: none;
-  }
-  .hero-facts span {
-    padding: 0 12px;
   }
 }

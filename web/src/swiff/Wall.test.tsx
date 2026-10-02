@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "./derive";
 import { GAMES, MACHINES, type Game } from "./data";
@@ -81,7 +81,7 @@ describe("Wall", () => {
     expect(screen.getByTestId("library-state").textContent).toMatch(/Game details to Public/);
     expect(screen.getAllByText("Counter-Strike 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("THE FINALS").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Play free" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Play" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Cyberpunk 2077")).toBeNull();
   });
 
@@ -90,7 +90,7 @@ describe("Wall", () => {
     expect(screen.getByTestId("library-state")).toBeTruthy();
     expect(screen.getAllByText("Counter-Strike 2").length).toBeGreaterThan(0);
     expect(screen.queryByText("Cyberpunk 2077")).toBeNull();
-    expect(screen.getByRole("button", { name: "Play free" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
   });
 
   it("reads the library again when the renter retries", () => {
@@ -133,8 +133,32 @@ describe("Wall", () => {
 
   it("shows still art in the hero, drifting, never a trailer", () => {
     const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
-    expect(container.querySelector(".hero video")).toBeNull();
-    expect(container.querySelector(".hero .backdrop-still.backdrop-drift")).not.toBeNull();
+    expect(container.querySelector('[data-testid="hero"] video')).toBeNull();
+    expect(container.querySelector('[data-testid="hero"] .backdrop-still.backdrop-drift')).not.toBeNull();
+  });
+
+  it("drafts a signed-out visitor's hero as tonight's game, with the pitch and the free count in the strip", () => {
+    render(<Wall swiff={swiffWith(GAMES, null)} />);
+    const hero = within(screen.getByTestId("hero"));
+    expect(hero.getByText("Tonight on Swiff")).toBeInTheDocument();
+    expect(hero.getByText(/We read your Steam library/)).toBeInTheDocument();
+    expect(hero.getByText(/PCs? free near you/)).toBeInTheDocument();
+    expect(hero.queryByRole("button", { name: /resume|play/i })).toBeNull();
+  });
+
+  it("puts a signed-in renter's own game in the hero, with its machine and Resume in the strip", () => {
+    const openGame = vi.fn();
+    const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+    render(<Wall swiff={{ ...swiffWith(applySteam(profile, pool), profile), openGame }} />);
+    const hero = within(screen.getByTestId("hero"));
+    expect(hero.getByRole("heading", { level: 1 })).toHaveTextContent("Elden Ring");
+    expect(hero.getByText("From your library")).toBeInTheDocument();
+    expect(hero.getByText("Response")).toBeInTheDocument();
+    expect(hero.queryByRole("link", { name: /sign in/i })).toBeNull();
+
+    fireEvent.click(hero.getByRole("button", { name: "Resume" }));
+    expect(openGame).toHaveBeenCalledOnce();
+    expect((openGame.mock.calls[0]![0] as Game).title).toBe("Elden Ring");
   });
 
   describe("signed out, the hero turns through games", () => {

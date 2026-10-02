@@ -8,6 +8,7 @@ import { STEAM_LOGIN_URL } from "./steam";
 export function SignInWithSteam({ small }: { small?: boolean }) {
   return (
     <a className={small ? "lpill lpill-sm steam-cta" : "lpill steam-cta"} href={STEAM_LOGIN_URL}>
+      <span className="live-dot" aria-hidden="true" />
       Sign in with Steam
       <span className="lpill-c">
         <Glyph name="arrow" size={small ? 16 : 18} />

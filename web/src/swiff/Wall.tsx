@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Backdrop, Button, EmptyState } from "@swiff/ui";
 import type { Game, Machine } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
-import { CountDial, ResumeDial, TimeMark, useSpin } from "./instruments";
+import { ResumeFace, TimeMark } from "./instruments";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -201,17 +209,54 @@ function BandTab({ label, n, on }: { label: string; n: number; on?: boolean }) {
   );
 }
 
-/** The wall's lead game: full-colour key art, its copy, and the instrument column on the right. */
+/**
+ * Shrink a title until it fits its box in at most two lines: any game's name,
+ * from "Hades" to "Counter-Strike 2", sets as large as its box allows. The box
+ * comes from CSS (max-width), so this only ever steps the size down from the
+ * CSS size, and measures again when the box or the font changes.
+ */
+function useFitTitle(text: string) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.fontSize = "";
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      const tooBig = () => el.scrollWidth > el.clientWidth + 1 || el.offsetHeight > 2 * size * 1.08;
+      while (size > 20 && tooBig()) {
+        size -= 2;
+        el.style.fontSize = `${size}px`;
+      }
+    };
+    fit();
+    const box = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    box?.observe(el.parentElement ?? el);
+    void document.fonts?.ready.then(fit);
+    return () => box?.disconnect();
+  }, [text]);
+  return ref;
+}
+
+/**
+ * The wall's lead game, hero 3b "Drafted title": the art shown whole with the
+ * name drafted bottom left between cap and base lines and a tick ruler along
+ * the art's foot, all tied to the frame, never to anything in the picture.
+ * Everything to read or press sits in the grey strip under the art: the line,
+ * the machine (signed in) or the pitch (signed out), and Resume or the one
+ * Sign in with Steam.
+ */
 function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; shared: Machine[] }) {
   const { pool, session, prefs, signedIn } = swiff;
   const at = useRotation(games.length, swiff.motion);
   const game = games[at.index] ?? games[0]!;
   const best = freeFor(game, pool, session, prefs)[0];
-  const spin = useSpin();
+  const title = useFitTitle(game.title);
+  const leader = !signedIn ? "Tonight on Swiff" : game.owned ? "From your library" : "Free to play";
 
   return (
     <section
-      className="hero"
+      className="hero-3b"
       data-testid="hero"
       onMouseEnter={() => {
         swiff.setHoverId(null);
@@ -223,121 +268,122 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
         if (!event.currentTarget.contains(event.relatedTarget)) at.hold("focus", false);
       }}
     >
-      {/* Every game in the turn is painted, so the next image is loaded before
-          it fades in; only the current one is opaque. */}
-      {games.map((g, i) => (
-        <Backdrop
-          key={g.id}
-          className={i === at.index ? "hero-art hero-slide on" : "hero-art hero-slide"}
-          aria-hidden={i === at.index ? undefined : true}
-          image={gameArt(g, 2)}
-          fallback={gameArtFallbacks(g)}
-          position={g.focus}
-          drift
-        />
-      ))}
-      <div className="hero-scrim" />
+      <div className="hero-3b-art">
+        {/* Every game in the turn is painted, so the next image is loaded before
+            it fades in; only the current one is opaque. */}
+        {games.map((g, i) => (
+          <Backdrop
+            key={g.id}
+            className={i === at.index ? "hero-slide on" : "hero-slide"}
+            aria-hidden={i === at.index ? undefined : true}
+            image={gameArt(g, 2)}
+            fallback={gameArtFallbacks(g)}
+            position={g.focus}
+            drift
+          />
+        ))}
+        <div className="hero-3b-scrim" />
+        <div className="hero-3b-ruler" aria-hidden="true" />
+        {/* Keyed by game, so the drafted title fades in with its art. */}
+        <div className="hero-3b-draft hero-turn" key={game.id}>
+          <div className="mono hero-3b-leader">{leader}</div>
+          <div className="hero-3b-dline">
+            <span className="hero-3b-rule hero-3b-cap" aria-hidden="true" />
+            <h1 className="hero-3b-title" ref={title}>
+              {game.title}
+            </h1>
+            <span className="hero-3b-rule hero-3b-base" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
 
       {signedIn ? (
-        <div className="hero-copy">
-          <div className="mono hero-kicker">{game.personal}</div>
-          <h1 className="hero-title">{game.title}</h1>
-          <p className="hero-line">
-            {best ? (
-              <>
-                On <b>{best.name}</b>, {untilLabel(best)}
-              </>
-            ) : (
-              waitLabel(game, pool)
-            )}
-          </p>
-          {best ? (
-            <div className="hero-facts mono">
-              <span>
-                <b>{best.gpu}</b>
-              </span>
-              <span>
-                <b>{best.ping} ms</b>
-              </span>
-              <span>
-                <b>{best.quality}</b>
-              </span>
-              <span>{game.save}</span>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="hero-copy hero-copy-out">
-          <div className="mono hero-kicker">
-            <span className="live-dot" />
-            Tonight, no download
-          </div>
-          {/* Keyed by game, so the title and its line fade in with the art. */}
-          <div className="hero-turn" key={game.id}>
-            <h1 className="hero-title">{game.title}</h1>
-            <p className="hero-line">
-              on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
-              <b>No download.</b>
+        <div className="hero-strip">
+          <div className="hero-strip-cell hero-strip-say">
+            <div className="mono hero-strip-kick">{game.personal}</div>
+            <p className="hero-strip-line">
+              {best ? (
+                <>
+                  On <b>{best.name}</b>, {untilLabel(best)}
+                </>
+              ) : (
+                waitLabel(game, pool)
+              )}
             </p>
           </div>
-          <p className="hero-body">
-            We read your Steam library and stream the games you own from players' idle PCs. Your saves come
-            with you.
-          </p>
-          <div className="hero-actions">
-            <SignInWithSteam />
-            <span className="mono hero-fine">We only read your game library.</span>
+          <div className="hero-strip-cell hero-strip-facts">
+            {best ? (
+              <dl className="hero-kv mono">
+                <dt>On</dt>
+                <dd>{best.name}</dd>
+                <dt>GPU</dt>
+                <dd>{best.gpu}</dd>
+                <dt>Response</dt>
+                <dd>{best.ping} ms</dd>
+                <dt>Free until</dt>
+                <dd>{best.until === "late" ? "All night" : best.until}</dd>
+              </dl>
+            ) : null}
           </div>
-        </div>
-      )}
-
-      <aside className={signedIn ? "inst inst-lift" : "inst"} aria-label="Tonight">
-        {signedIn ? (
-          <>
-            <ResumeDial spin={spin}>
-              <button
-                type="button"
-                className="ring-btn"
-                onClick={() => swiff.openGame(game)}
-                aria-describedby={best ? "hero-left" : undefined}
-                {...spin.trigger}
-              >
-                <Glyph name="play" />
-                {game.owned ? "Resume" : "Play free"}
+          <div className="hero-strip-cell hero-strip-act">
+            <button
+              type="button"
+              className="resume"
+              onClick={() => swiff.openGame(game)}
+              aria-describedby={best ? "hero-left" : undefined}
+            >
+              <ResumeFace />
+              <span className="resume-label">
+                <Glyph name="play" size={20} />
+                {game.owned ? "Resume" : "Play"}
                 {best ? (
                   <small id="hero-left" aria-hidden="true">
                     {leftLabel(best)} free
                   </small>
                 ) : null}
-              </button>
-            </ResumeDial>
-            {best ? (
-              <div className="inst-cap mono">
-                <span>{best.name}</span>
-                <span>{best.ping} ms</span>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <CountDial count={shared.length} />
-            <NearestCaption machines={shared} />
-          </>
-        )}
-      </aside>
+              </span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="hero-strip hero-strip-out">
+          <div className="hero-strip-cell hero-strip-say">
+            <div className="mono hero-strip-kick">
+              <span className="live-dot" />
+              Tonight, no download
+            </div>
+            <p className="hero-strip-line hero-turn" key={game.id}>
+              on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
+              <b>No download.</b>
+            </p>
+          </div>
+          <div className="hero-strip-cell hero-strip-facts">
+            <p className="hero-strip-pitch">
+              We read your Steam library and stream the games you own from players&rsquo; idle PCs. Your saves
+              come with you.
+            </p>
+            <NearestLine machines={shared} />
+          </div>
+          <div className="hero-strip-cell hero-strip-act">
+            <SignInWithSteam />
+            <span className="mono hero-strip-fine">We only read your game library.</span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
-/** Under the signed-out count: the nearest free machine, and how long it stays free. */
-function NearestCaption({ machines }: { machines: Machine[] }) {
+/** Under the signed-out pitch: how many PCs are free, and the nearest one's response. */
+function NearestLine({ machines }: { machines: Machine[] }) {
   const nearest = [...machines].sort((a, b) => a.ping - b.ping)[0];
   if (!nearest) return null;
+  const count = `${machines.length} ${machines.length === 1 ? "PC" : "PCs"} free near you`;
   return (
-    <div className="inst-cap mono">
-      <span>Nearest {nearest.ping} ms</span>
-      <span>{nearest.until === "late" ? "All night" : `Until ${nearest.until}`}</span>
-    </div>
+    <p className="mono hero-strip-near">
+      {count}
+      <span>, nearest {nearest.ping} ms</span>
+    </p>
   );
 }
 
