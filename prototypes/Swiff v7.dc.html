@@ -516,6 +516,133 @@ button{font:inherit;color:inherit}
   .hb-c:not(.holding):not(.done) .brk{animation:settle 3s ease-in-out infinite}
 }
 @keyframes settle{0%,100%{transform:scale(1)}50%{transform:scale(.94)}}
+
+/* ==== Share your PC: the host website ====
+   The host mockup's website screens (Swiff Host round 4, 8-web) on this prototype's black, paper and grey:
+   the estimate over full-colour art with the tier picker and one Download for Windows button, the
+   How we got this number sheet, and a read-only earnings page for a signed-in host. Reading the PC,
+   choosing games, going live and payout details all live in the desktop app. */
+.top11 .nv{grid-template-columns:repeat(4,minmax(0,1fr))}
+.top11 .nv a{letter-spacing:.06em;white-space:nowrap}
+.cur{font-family:var(--f);font-weight:200;font-size:.8em;margin-right:.05em}
+.sh-copy{position:absolute;left:64px;top:118px;z-index:5;width:820px}
+.sh-eb{color:var(--ink-2);margin:0 0 12px}
+.sh-copy h2{font:400 44px/1.06 var(--wide);text-transform:uppercase;margin:0;letter-spacing:.01em}
+.sh-fg{display:flex;align-items:baseline;gap:14px;margin-top:6px}
+.sh-fg b{font:400 80px/1 var(--wide);letter-spacing:-.01em}
+.sh-fg > span{font:200 22px/1 var(--f);color:var(--ink-2)}
+.sh-ln{color:var(--ink-2);font-size:17px;line-height:1.5;margin:8px 0 0;max-width:640px}
+.sh-lnk{background:none;border:0;padding:0;font:inherit;color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:#9cb52a;text-underline-offset:3px}
+.sh-lnk:hover{text-decoration-color:var(--lime)}
+/* the tier picker: four cells on a hairline, the chosen one in ink with a lime tick on its ruler */
+.sh-segs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);max-width:640px;margin-top:18px;border-top:1px solid var(--line)}
+.sh-sg{position:relative;display:grid;gap:3px;padding:11px 14px 18px;border:0;border-right:1px solid var(--line);background:none;text-align:left;color:var(--ink-3);cursor:pointer;transition:color .3s var(--ease)}
+.sh-sg:first-child{padding-left:0}
+.sh-sg:last-child{border-right:0}
+.sh-sg > span{font:500 13.5px/1.2 var(--f);text-transform:uppercase;letter-spacing:.06em}
+.sh-sg small{font:400 11.5px/1 var(--mono)}
+.sh-sg .sh-rl{position:absolute;left:0;right:14px;bottom:0;height:8px}
+.sh-sg:hover{color:var(--ink-2)}
+.sh-sg.on{color:var(--ink)}
+.sh-sg.on::after{content:"";position:absolute;left:0;bottom:-1px;width:18px;height:3px;background:var(--lime)}
+.sh-sg:focus-visible{outline:2px solid #9cb52a;outline-offset:2px}
+.sh-rl{display:block;opacity:.5;background:
+  linear-gradient(currentColor,currentColor) left bottom/100% 1px no-repeat,
+  repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 8px) left bottom/100% 4px no-repeat,
+  repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 40px) left bottom/100% 8px no-repeat}
+.sh-acts{display:flex;align-items:center;gap:24px;margin-top:20px}
+.sh-acts .lpill{color:var(--ink);text-decoration:none}
+.sh-dln{color:var(--ink-2);text-transform:none;letter-spacing:.02em;line-height:1.5}
+.sh-dln .sh-lnk{font-size:13px}
+.sh-note{color:var(--ink-2);text-transform:none;letter-spacing:.02em;font-size:12.5px;margin:12px 0 0}
+/* the away dial: a 24-hour clock with the away window as an ink arc */
+.sh-col .big b{font-size:52px}
+.sh-dl{font:400 10.5px var(--mono);fill:currentColor;opacity:.7}
+/* the band: three reasons and the four-step path, on the bar's columns */
+.sh-band{position:absolute;left:0;right:0;top:560px;bottom:0;border-top:1px solid var(--pline);z-index:4}
+.sh-cells{display:grid;grid-template-columns:300px 370px 370px 400px;height:100%}
+.sh-cells.three{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 400px}
+.sh-c{display:grid;align-content:start;gap:6px;padding:24px 28px;border-right:1px solid var(--pline);min-width:0}
+.sh-c:last-child{border-right:0;background:rgb(198 199 198 / .32)}
+.sh-c > .ms{font-size:22px}
+.sh-c > b{font:600 16px/1.2 var(--f)}
+.sh-c p{margin:0;color:var(--on-paper-2);font-size:14px;line-height:1.45}
+.sh-c h5{margin:0 0 4px;color:var(--on-paper-3);font-weight:400}
+.sh-steps{list-style:none;margin:0;padding:0;position:relative}
+.sh-steps::before{content:"";position:absolute;left:6px;top:10px;bottom:10px;width:1px;background:var(--pline-2)}
+.sh-steps li{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;padding:5px 0}
+.sh-steps .pd{width:13px;height:13px;border-radius:50%;border:1px solid var(--on-paper-3);background:#d6d7d6;grid-row:span 2;margin-top:3px;z-index:1}
+.sh-steps .now .pd{border-color:var(--on-paper);display:grid;place-items:center}
+.sh-steps .now .pd::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 1px #9cb52a}
+.sh-steps b{font:500 13.5px/1.2 var(--f);text-transform:uppercase;letter-spacing:.06em}
+.sh-steps small{color:var(--on-paper-3);font-size:12.5px}
+.sh-ruler{position:absolute;left:0;right:0;bottom:0;height:10px;opacity:.35;pointer-events:none;color:var(--on-paper);background:
+  repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 10px) left bottom/100% 3px no-repeat,
+  repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 50px) left bottom/100% 6px no-repeat,
+  repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 100px) left bottom/100% 9px no-repeat}
+/* How we got this number: a paper sheet over the dimmed estimate */
+.sh:not(.open) .sh-dim,.sh:not(.open) .sh-sheet{display:none}
+.sh-dim{position:absolute;inset:80px 0 0 0;z-index:8;background:rgb(18 18 18 / .55)}
+.sh-sheet{position:absolute;right:0;top:80px;bottom:0;width:560px;z-index:9;padding:26px 34px;background:var(--paper);color:var(--on-paper);overflow:auto}
+.sh-sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.sh-sh h3{font:400 20px/1.1 var(--wide);text-transform:uppercase;margin:0}
+.sh-x{width:34px;height:34px;border-radius:50%;border:1px solid currentColor;background:none;display:grid;place-items:center;cursor:pointer;color:inherit}
+.sh-x:hover{border-color:#9cb52a}
+.sh-x:focus-visible,.sh-lnk:focus-visible{outline:2px solid #9cb52a;outline-offset:3px}
+.sh-eqr{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;padding:9px 0;border-top:1px solid var(--pline);font-size:14.5px;color:var(--on-paper-2)}
+.sh-eqr .op{color:var(--on-paper-3)}
+.sh-eqr b{margin-left:auto;font:400 17px/1 var(--wide);color:var(--on-paper)}
+.sh-eqr.tot{border-top-color:var(--on-paper)}
+.sh-eqr.tot b{font-size:26px}
+.sh-rng{color:var(--on-paper-3);margin:4px 0 12px;text-transform:none;letter-spacing:.02em;font-size:12.5px}
+.sh-sheet h5{margin:0 0 4px;color:var(--on-paper-3);font-weight:400}
+.sh-sl{padding:4px 0}
+.sh-slh{display:flex;justify-content:space-between;font-size:13.5px;color:var(--on-paper-2)}
+.sh-slh b{font-weight:500;color:var(--on-paper)}
+/* a ruler slider: a real range input laid transparently over the drawn track */
+.sh-slr{position:relative;height:16px;margin-top:4px;color:var(--on-paper)}
+.sh-slr .sh-rl{position:absolute;inset:0}
+.sh-fill{position:absolute;left:0;bottom:0;height:2px;width:var(--v);background:currentColor}
+.sh-knob{position:absolute;left:var(--v);bottom:-6px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--paper);border:1px solid currentColor;pointer-events:none}
+.sh-knob::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--lime)}
+.sh-slr input{position:absolute;left:-7px;right:-7px;top:-6px;bottom:-10px;width:calc(100% + 14px);margin:0;opacity:0;cursor:pointer}
+.sh-slr:has(input:focus-visible) .sh-knob{outline:2px solid #9cb52a;outline-offset:2px}
+.sh-more{margin-top:12px}
+.sh-more summary{cursor:pointer;color:var(--on-paper-2);list-style:none}
+.sh-more summary::-webkit-details-marker{display:none}
+.sh-more summary::after{content:" +";color:var(--on-paper-3)}
+.sh-more[open] summary::after{content:" −"}
+.sh-kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:baseline;padding:7px 0;border-top:1px solid var(--pline);font-size:14px}
+.sh-kv span{color:var(--on-paper-2)}
+.sh-kv b{font-weight:500;text-align:right}
+.sh-fine{color:var(--on-paper-2);font-size:12.5px;margin:8px 0 0}
+/* earnings from anywhere */
+.sh-earn .sh-copy{top:124px}
+.sh-chart{display:flex;align-items:flex-end;max-width:560px;height:56px;margin-top:22px;border-bottom:1px solid var(--line-2)}
+.sh-chart i{flex:1;display:flex;justify-content:center;align-items:flex-end;height:100%;position:relative}
+.sh-chart i::before{content:"";width:1px;height:max(4px,var(--h));background:currentColor;opacity:.4}
+.sh-chart i:nth-child(5n+1)::before{height:max(8px,var(--h))}
+.sh-chart i[style*="--h:1"]::before,.sh-chart i[style*="--h:2"]::before,.sh-chart i[style*="--h:3"]::before,.sh-chart i[style*="--h:4"]::before{opacity:1;width:3px}
+.sh-chart i.t::after{content:"";position:absolute;bottom:-4px;width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 1px #9cb52a}
+.sh-chl{display:flex;justify-content:space-between;max-width:560px;color:var(--ink-3);margin-top:8px;font-size:10.5px}
+.hp6.sh-mcol{display:grid;place-items:center;padding:0 32px;background:var(--grey6);-webkit-backdrop-filter:none;backdrop-filter:none}
+.sh-mcard{width:100%;background:var(--paper);color:var(--on-paper);box-shadow:0 0 0 1px var(--pline)}
+.sh-mcard figure{margin:0}
+.sh-mcard img{display:block;width:100%;height:150px;object-fit:cover}
+.sh-mbody{display:grid;gap:4px;padding:16px 18px 18px}
+.sh-mbody .mono{margin:0;color:var(--on-paper-2)}
+.sh-mbody b{font:600 17px/1.25 var(--f)}
+.sh-mbody > span{color:var(--on-paper-2);font-size:14px}
+.sh-acts.sm{gap:16px;margin-top:12px}
+.lpill.sm{font-size:13.5px;padding:3px 3px 3px 14px;gap:10px;color:var(--on-paper)}
+.lpill.sm .c{width:30px;height:30px}
+.sh-mbody .sh-lnk{color:var(--on-paper);font-size:14px}
+.sh-hr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:6px 0;border-top:1px solid var(--pline)}
+.sh-hr b{display:block;font-weight:600;font-size:14.5px}
+.sh-hr small{color:var(--on-paper-3);font-size:12.5px}
+.sh-fig{font:400 17px/1.2 var(--wide)}
+.sh-tag{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:1px 9px;font:500 10px/1.5 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--on-paper-2)}
+@media (prefers-reduced-motion:no-preference){.sh-sg,.sh-fill,.sh-knob{transition:color .3s var(--ease)}}
 </style>
 </head>
 <body class="v1">
@@ -528,6 +655,7 @@ button{font:inherit;color:inherit}
       <li>Point at or tab to Resume on the signed-in wall: its tick ring spins up and a short arc orbits the other way, then both ease to a stop.</li>
       <li>Game page: crosshair reticle, with its own attention cue; press and hold fills it over 1.2 s, release drains it, a full hold shows Launching.</li>
       <li>Ignition runs through all four steps on a 12 s loop: arc, lime head, needle, percentage and step legend move together.</li>
+      <li>Share your PC, in every top bar: signed out it opens the estimate (pick a tier, open How we got this number, drag the sliders); signed in as a host it opens the read-only earnings page. Setup and payout details stay in the desktop app.</li>
       <li>Everything that moves on its own stops under reduced motion; the hold still works.</li>
     </ul>
   </div>
@@ -551,7 +679,7 @@ button{font:inherit;color:inherit}
     <div class="photo11 pic g-er" style="--op:62% 35%"><img class="c" src="assets/er-library_hero.jpg" alt=""><img class="m" src="assets/er-library_hero.jpg" alt="" aria-hidden="true"><div class="sc"></div></div>
     <div class="top11">
       <div><span class="wm">SWIFF</span></div>
-      <nav class="nv"><a class="on" href="#">Home</a><a href="#">Profile</a><a href="#"><span class="live"></span>4 free near you</a></nav>
+      <nav class="nv"><a class="on" href="#">Home</a><a href="#">Profile</a><a href="#share-earnings">Share your PC</a><a href="#"><span class="live"></span>4 free near you</a></nav>
       <div class="pp"><span class="av3">KN</span><span class="who3"><b>kai_nx</b><span>Nova-01 sharing</span></span><span class="ms">menu</span></div>
     </div>
     <div class="hp6 lift" data-spin>
@@ -586,7 +714,7 @@ button{font:inherit;color:inherit}
     <div class="photo11 pic g-cs2" style="--op:75% 35%"><img class="c" src="assets/cs2-library_hero.jpg" alt=""><img class="m" src="assets/cs2-library_hero.jpg" alt="" aria-hidden="true"><div class="sc"></div></div>
     <div class="top11">
       <div><span class="wm">SWIFF</span></div>
-      <nav class="nv"><a class="on" href="#">Home</a><a href="#">How it works</a><a href="#"><span class="live"></span>4 free near you</a></nav>
+      <nav class="nv"><a class="on" href="#">Home</a><a href="#">How it works</a><a href="#share-estimate">Share your PC</a><a href="#"><span class="live"></span>4 free near you</a></nav>
       <div class="pp" style="justify-content:space-between"><span class="mono" style="color:var(--on-paper-3)">Not signed in</span><button class="lpill" type="button" style="padding:4px 4px 4px 18px;font-size:14px">Sign in<span class="c" style="width:32px;height:32px"><span class="ms">north_east</span></span></button></div>
     </div>
     <div class="hp6">
@@ -634,7 +762,7 @@ button{font:inherit;color:inherit}
     </svg>
     <div class="top11" style="grid-template-columns:300px 1fr 400px">
       <div style="gap:10px"><span class="ms">chevron_left</span><span class="wm">SWIFF</span></div>
-      <nav class="nv"><a href="#">Home</a><a href="#">Profile</a><a href="#"><span class="live"></span>3 free for this game</a></nav>
+      <nav class="nv"><a href="#">Home</a><a href="#">Profile</a><a href="#share-earnings">Share your PC</a><a href="#"><span class="live"></span>3 free for this game</a></nav>
       <div class="pp"><span class="av3">KN</span><span class="who3"><b>kai_nx</b><span>Nova-01 sharing</span></span><span class="ms">menu</span></div>
     </div>
     <div class="copy11" style="top:124px">
@@ -695,6 +823,23 @@ button{font:inherit;color:inherit}
     </div>
     <button class="lpill" type="button" style="position:absolute;right:64px;top:52px;z-index:5;color:var(--on-paper)">Cancel<span class="c"><span class="ms">close</span></span></button>
   </div>
+</section>
+
+
+<!-- Share your PC: the host website (Swiff Host round 4, 8-web), reached from the top bar's Share your PC -->
+<section class="frame" id="share-estimate">
+  <div class="cap"><b>Share your PC, estimate and download</b><span class="mono" style="color:var(--ink-3)">Pick a tier; How we got this number opens the sheet</span></div>
+  <div class="screen sh" data-est id="est1-screen"><div class="photo11 pic g-er" style="--op:62% 35%"><img class="c" src="assets/er-library_hero.jpg" alt=""><img class="m" src="assets/er-library_hero.jpg" alt="" aria-hidden="true"><div class="sc"></div></div><div class="top11"><div><span class="wm">SWIFF</span></div><nav class="nv"><a href="#">Home</a><a href="#">How it works</a><a class="on" href="#share-estimate" aria-current="page">Share your PC</a><a href="#"><span class="live"></span>4 free near you</a></nav><div class="pp" style="justify-content:space-between"><span class="mono" style="color:var(--on-paper-3)">Not signed in</span><button class="lpill" type="button" style="padding:4px 4px 4px 18px;font-size:14px">Sign in<span class="c" style="width:32px;height:32px"><span class="ms">north_east</span></span></button></div></div><div class="hp6 sh-col"><svg viewBox="0 0 400 480" aria-hidden="true" data-away><line x1="0" y1="240" x2="76" y2="240" stroke="currentColor" opacity=".22"/><line x1="324" y1="240" x2="400" y2="240" stroke="currentColor" opacity=".22"/><line x1="200" y1="40" x2="200" y2="116" stroke="currentColor" opacity=".22"/><line x1="200" y1="364" x2="200" y2="440" stroke="currentColor" opacity=".22"/><circle cx="200" cy="240" r="184" fill="none" stroke="currentColor" opacity=".2"/><circle cx="200" cy="240" r="150" fill="none" stroke="currentColor" opacity=".6"/><path d="M209.8 90.3L209.5 95.3M219.6 91.3L218.9 96.2M229.3 92.9L228.3 97.8M248.2 98.0L246.6 102.7M257.4 101.4L255.5 106.0M266.3 105.5L264.1 110.0M283.3 115.3L280.6 119.4M291.3 121.0L288.3 125.0M298.9 127.2L295.6 131.0M312.8 141.1L309.0 144.4M319.0 148.7L315.0 151.7M324.7 156.7L320.6 159.4M334.5 173.7L330.0 175.9M338.6 182.6L334.0 184.5M342.0 191.8L337.3 193.4M347.1 210.7L342.2 211.7M348.7 220.4L343.8 221.1M349.7 230.2L344.7 230.5M349.7 249.8L344.7 249.5M348.7 259.6L343.8 258.9M347.1 269.3L342.2 268.3M342.0 288.2L337.3 286.6M338.6 297.4L334.0 295.5M334.5 306.3L330.0 304.1M324.7 323.3L320.6 320.6M319.0 331.3L315.0 328.3M312.8 338.9L309.0 335.6M298.9 352.8L295.6 349.0M291.3 359.0L288.3 355.0M283.3 364.7L280.6 360.6M266.3 374.5L264.1 370.0M257.4 378.6L255.5 374.0M248.2 382.0L246.6 377.3M229.3 387.1L228.3 382.2M219.6 388.7L218.9 383.8M209.8 389.7L209.5 384.7M190.2 389.7L190.5 384.7M180.4 388.7L181.1 383.8M170.7 387.1L171.7 382.2M151.8 382.0L153.4 377.3M142.6 378.6L144.5 374.0M133.7 374.5L135.9 370.0M116.7 364.7L119.4 360.6M108.7 359.0L111.7 355.0M101.1 352.8L104.4 349.0M87.2 338.9L91.0 335.6M81.0 331.3L85.0 328.3M75.3 323.3L79.4 320.6M65.5 306.3L70.0 304.1M61.4 297.4L66.0 295.5M58.0 288.2L62.7 286.6M52.9 269.3L57.8 268.3M51.3 259.6L56.2 258.9M50.3 249.8L55.3 249.5M50.3 230.2L55.3 230.5M51.3 220.4L56.2 221.1M52.9 210.7L57.8 211.7M58.0 191.8L62.7 193.4M61.4 182.6L66.0 184.5M65.5 173.7L70.0 175.9M75.3 156.7L79.4 159.4M81.0 148.7L85.0 151.7M87.2 141.1L91.0 144.4M101.1 127.2L104.4 131.0M108.7 121.0L111.7 125.0M116.7 115.3L119.4 119.4M133.7 105.5L135.9 110.0M142.6 101.4L144.5 106.0M151.8 98.0L153.4 102.7M170.7 92.9L171.7 97.8M180.4 91.3L181.1 96.2M190.2 90.3L190.5 95.3" stroke="currentColor" opacity=".4"/><path d="M238.8 95.1L236.2 104.8M275.0 110.1L270.0 118.8M306.1 133.9L299.0 141.0M329.9 165.0L321.2 170.0M344.9 201.2L335.2 203.8M344.9 278.8L335.2 276.2M329.9 315.0L321.2 310.0M306.1 346.1L299.0 339.0M275.0 369.9L270.0 361.2M238.8 384.9L236.2 375.2M161.2 384.9L163.8 375.2M125.0 369.9L130.0 361.2M93.9 346.1L101.0 339.0M70.1 315.0L78.8 310.0M55.1 278.8L64.8 276.2M55.1 201.2L64.8 203.8M70.1 165.0L78.8 170.0M93.9 133.9L101.0 141.0M125.0 110.1L130.0 118.8M161.2 95.1L163.8 104.8" stroke="currentColor" opacity=".7"/><path d="M200.0 90.0L200.0 108.0M350.0 240.0L332.0 240.0M200.0 390.0L200.0 372.0M50.0 240.0L68.0 240.0" stroke="currentColor" opacity=".9"/><text x="200.0" y="128.0" text-anchor="middle" class="sh-dl">00</text><text x="316.0" y="244.0" text-anchor="middle" class="sh-dl">06</text><text x="200.0" y="360.0" text-anchor="middle" class="sh-dl">12</text><text x="84.0" y="244.0" text-anchor="middle" class="sh-dl">18</text><path data-arc d="M56.2 157.0A166 166 0 0 1 283.0 96.2" fill="none" stroke="currentColor" stroke-width="2.4"/><circle data-dot cx="283.0" cy="96.2" r="5" fill="#d4f53c" stroke="currentColor"/></svg><div class="big"><b data-v="week-h">30 h</b><span class="mono">a week away</span></div><div class="cap6 mono"><span>Away window</span><span data-v="window">20:00 to 02:00</span></div></div><div class="sh-copy"><p class="mono sh-eb">Share your PC</p><h2>Your PC could earn</h2><div class="sh-fg"><b><span class="cur">€</span><span data-v="net">62</span></b><span>a month</span></div><p class="sh-ln">After electricity, only while you're away: <span data-v="hpd-words">6 hours a night</span>, <span data-v="days-words">5 nights a week</span>. <button type="button" class="sh-lnk" data-open>How we got this number</button></p><div class="sh-segs" role="radiogroup" aria-label="Your PC"><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="entry"><span>Entry</span><small><span class="cur">€</span>0,45/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="solid"><span>Solid</span><small><span class="cur">€</span>0,65/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="true" class="sh-sg on" data-tier="high"><span>High-end</span><small><span class="cur">€</span>1,00/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="enthusiast"><span>Enthusiast</span><small><span class="cur">€</span>1,30/h</small><i class="sh-rl"></i></button></div><div class="sh-acts"><a class="lpill" href="#share-estimate" data-download>Download for Windows<span class="c"><span class="ms">download</span></span></a><span class="mono sh-dln">SwiffSetup.exe, 92 MB<br>Also for <a class="sh-lnk" href="#share-estimate">Linux</a></span></div><p class="mono sh-note">Open it on the PC you want to share. The app reads your hardware and sets your exact rate.</p></div><div class="sh-band paper"><div class="sh-cells"><div class="sh-c"><span class="ms" aria-hidden="true">schedule</span><b>Only while you're away</b><p>Sharing stops the moment you touch the keyboard.</p></div><div class="sh-c"><span class="ms" aria-hidden="true">lock</span><b>Sandboxed sessions</b><p>Players get an isolated account with no access to your files or logins.</p></div><div class="sh-c"><span class="ms" aria-hidden="true">payments</span><b>Paid on the 1st</b><p>Bank, PayPal or Steam wallet, from <span class="cur">€</span>5, no fees.</p></div><div class="sh-c sh-path"><h5 class="mono">How it works</h5><ol class="sh-steps"><li class="now"><span class="pd"></span><b>Estimate</b><small>Here on the website</small></li><li><span class="pd"></span><b>Download</b><small>The button above</small></li><li><span class="pd"></span><b>Set up and go live</b><small>In the app on your PC</small></li><li><span class="pd"></span><b>Get paid</b><small>In the app, on the 1st</small></li></ol></div></div><i class="sh-ruler"></i></div><div class="sh-dim" data-close></div><aside class="sh-sheet" role="dialog" aria-modal="false" aria-labelledby="est1-h"><div class="sh-sh"><h3 id="est1-h">How we got <span class="cur">€</span><span data-v="net">62</span></h3><button class="sh-x" type="button" aria-label="Close" data-close><span class="ms" style="font-size:18px">close</span></button></div><div class="sh-eq"><div class="sh-eqr"><span><span data-v="week">30</span> h away a week</span><span class="op">×</span><span>55% booked</span><span class="op">×</span><span>4.33 weeks</span><b><span data-v="hours">71</span> h streamed</b></div><div class="sh-eqr"><span><span data-v="hours">71</span> h</span><span class="op">×</span><span><span class="cur">€</span><span data-v="rate">1,00</span>/h for <span data-v="tier">a High-end</span> rig</span><b><span class="cur">€</span><span data-v="gross">71</span></b></div><div class="sh-eqr"><span>Electricity: <span data-v="hours">71</span> h at <span data-v="watts">420</span> W, <span class="cur">€</span><span data-v="price">0,30</span>/kWh</span><b>−<span class="cur">€</span><span data-v="power">9</span></b></div><div class="sh-eqr tot"><span>A month, after electricity</span><b><span class="cur">€</span><span data-v="net">62</span></b></div><p class="mono sh-rng">Quiet to busy months: <span class="cur">€</span><span data-v="low">40</span> to <span class="cur">€</span><span data-v="high">85</span></p></div><h5 class="mono">Try your own week</h5><div class="sh-sl"><div class="sh-slh"><label for="est1-hpd">Hours away per day</label><b data-v="hpd">6 h</b></div><div class="sh-slr" style="--v:33.3%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est1-hpd" type="range" min="1" max="16" step="1" value="6" data-in="hpd"></div></div><div class="sh-sl"><div class="sh-slh"><label for="est1-days">Days per week</label><b data-v="days">5</b></div><div class="sh-slr" style="--v:66.7%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est1-days" type="range" min="1" max="7" step="1" value="5" data-in="days"></div></div><div class="sh-sl"><div class="sh-slh"><label for="est1-kwh">Electricity price</label><b data-v="kwh"><span class="cur">€</span>0,30/kWh</b></div><div class="sh-slr" style="--v:40.0%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est1-kwh" type="range" min="0.1" max="0.6" step="0.01" value="0.3" data-in="kwh"></div></div><details class="sh-more"><summary class="mono">Where the rate comes from</summary><div data-parts><div class="sh-kv"><span>GPU, RTX 4080</span><b><span class="cur">€</span>0,60</b></div><div class="sh-kv"><span>CPU, Ryzen 7 7800X3D</span><b><span class="cur">€</span>0,20</b></div><div class="sh-kv"><span>Memory, 32 GB</span><b><span class="cur">€</span>0,10</b></div><div class="sh-kv"><span>Connection, 500 Mbit</span><b><span class="cur">€</span>0,10</b></div></div><p class="sh-fine">Based on 412 sessions near you over the last 90 days. Hosts keep 100% of the tier rate. Your own play time is never shared.</p></details></aside></div>
+</section>
+
+<section class="frame" id="share-sheet">
+  <div class="cap"><b>Share your PC, how we got this number</b><span class="mono" style="color:var(--ink-3)">Drag the sliders to try your own week</span></div>
+  <div class="screen sh open" data-est id="est2-screen"><div class="photo11 pic g-er" style="--op:62% 35%"><img class="c" src="assets/er-library_hero.jpg" alt=""><img class="m" src="assets/er-library_hero.jpg" alt="" aria-hidden="true"><div class="sc"></div></div><div class="top11"><div><span class="wm">SWIFF</span></div><nav class="nv"><a href="#">Home</a><a href="#">How it works</a><a class="on" href="#share-estimate" aria-current="page">Share your PC</a><a href="#"><span class="live"></span>4 free near you</a></nav><div class="pp" style="justify-content:space-between"><span class="mono" style="color:var(--on-paper-3)">Not signed in</span><button class="lpill" type="button" style="padding:4px 4px 4px 18px;font-size:14px">Sign in<span class="c" style="width:32px;height:32px"><span class="ms">north_east</span></span></button></div></div><div class="hp6 sh-col"><svg viewBox="0 0 400 480" aria-hidden="true" data-away><line x1="0" y1="240" x2="76" y2="240" stroke="currentColor" opacity=".22"/><line x1="324" y1="240" x2="400" y2="240" stroke="currentColor" opacity=".22"/><line x1="200" y1="40" x2="200" y2="116" stroke="currentColor" opacity=".22"/><line x1="200" y1="364" x2="200" y2="440" stroke="currentColor" opacity=".22"/><circle cx="200" cy="240" r="184" fill="none" stroke="currentColor" opacity=".2"/><circle cx="200" cy="240" r="150" fill="none" stroke="currentColor" opacity=".6"/><path d="M209.8 90.3L209.5 95.3M219.6 91.3L218.9 96.2M229.3 92.9L228.3 97.8M248.2 98.0L246.6 102.7M257.4 101.4L255.5 106.0M266.3 105.5L264.1 110.0M283.3 115.3L280.6 119.4M291.3 121.0L288.3 125.0M298.9 127.2L295.6 131.0M312.8 141.1L309.0 144.4M319.0 148.7L315.0 151.7M324.7 156.7L320.6 159.4M334.5 173.7L330.0 175.9M338.6 182.6L334.0 184.5M342.0 191.8L337.3 193.4M347.1 210.7L342.2 211.7M348.7 220.4L343.8 221.1M349.7 230.2L344.7 230.5M349.7 249.8L344.7 249.5M348.7 259.6L343.8 258.9M347.1 269.3L342.2 268.3M342.0 288.2L337.3 286.6M338.6 297.4L334.0 295.5M334.5 306.3L330.0 304.1M324.7 323.3L320.6 320.6M319.0 331.3L315.0 328.3M312.8 338.9L309.0 335.6M298.9 352.8L295.6 349.0M291.3 359.0L288.3 355.0M283.3 364.7L280.6 360.6M266.3 374.5L264.1 370.0M257.4 378.6L255.5 374.0M248.2 382.0L246.6 377.3M229.3 387.1L228.3 382.2M219.6 388.7L218.9 383.8M209.8 389.7L209.5 384.7M190.2 389.7L190.5 384.7M180.4 388.7L181.1 383.8M170.7 387.1L171.7 382.2M151.8 382.0L153.4 377.3M142.6 378.6L144.5 374.0M133.7 374.5L135.9 370.0M116.7 364.7L119.4 360.6M108.7 359.0L111.7 355.0M101.1 352.8L104.4 349.0M87.2 338.9L91.0 335.6M81.0 331.3L85.0 328.3M75.3 323.3L79.4 320.6M65.5 306.3L70.0 304.1M61.4 297.4L66.0 295.5M58.0 288.2L62.7 286.6M52.9 269.3L57.8 268.3M51.3 259.6L56.2 258.9M50.3 249.8L55.3 249.5M50.3 230.2L55.3 230.5M51.3 220.4L56.2 221.1M52.9 210.7L57.8 211.7M58.0 191.8L62.7 193.4M61.4 182.6L66.0 184.5M65.5 173.7L70.0 175.9M75.3 156.7L79.4 159.4M81.0 148.7L85.0 151.7M87.2 141.1L91.0 144.4M101.1 127.2L104.4 131.0M108.7 121.0L111.7 125.0M116.7 115.3L119.4 119.4M133.7 105.5L135.9 110.0M142.6 101.4L144.5 106.0M151.8 98.0L153.4 102.7M170.7 92.9L171.7 97.8M180.4 91.3L181.1 96.2M190.2 90.3L190.5 95.3" stroke="currentColor" opacity=".4"/><path d="M238.8 95.1L236.2 104.8M275.0 110.1L270.0 118.8M306.1 133.9L299.0 141.0M329.9 165.0L321.2 170.0M344.9 201.2L335.2 203.8M344.9 278.8L335.2 276.2M329.9 315.0L321.2 310.0M306.1 346.1L299.0 339.0M275.0 369.9L270.0 361.2M238.8 384.9L236.2 375.2M161.2 384.9L163.8 375.2M125.0 369.9L130.0 361.2M93.9 346.1L101.0 339.0M70.1 315.0L78.8 310.0M55.1 278.8L64.8 276.2M55.1 201.2L64.8 203.8M70.1 165.0L78.8 170.0M93.9 133.9L101.0 141.0M125.0 110.1L130.0 118.8M161.2 95.1L163.8 104.8" stroke="currentColor" opacity=".7"/><path d="M200.0 90.0L200.0 108.0M350.0 240.0L332.0 240.0M200.0 390.0L200.0 372.0M50.0 240.0L68.0 240.0" stroke="currentColor" opacity=".9"/><text x="200.0" y="128.0" text-anchor="middle" class="sh-dl">00</text><text x="316.0" y="244.0" text-anchor="middle" class="sh-dl">06</text><text x="200.0" y="360.0" text-anchor="middle" class="sh-dl">12</text><text x="84.0" y="244.0" text-anchor="middle" class="sh-dl">18</text><path data-arc d="M56.2 157.0A166 166 0 0 1 283.0 96.2" fill="none" stroke="currentColor" stroke-width="2.4"/><circle data-dot cx="283.0" cy="96.2" r="5" fill="#d4f53c" stroke="currentColor"/></svg><div class="big"><b data-v="week-h">30 h</b><span class="mono">a week away</span></div><div class="cap6 mono"><span>Away window</span><span data-v="window">20:00 to 02:00</span></div></div><div class="sh-copy"><p class="mono sh-eb">Share your PC</p><h2>Your PC could earn</h2><div class="sh-fg"><b><span class="cur">€</span><span data-v="net">62</span></b><span>a month</span></div><p class="sh-ln">After electricity, only while you're away: <span data-v="hpd-words">6 hours a night</span>, <span data-v="days-words">5 nights a week</span>. <button type="button" class="sh-lnk" data-open>How we got this number</button></p><div class="sh-segs" role="radiogroup" aria-label="Your PC"><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="entry"><span>Entry</span><small><span class="cur">€</span>0,45/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="solid"><span>Solid</span><small><span class="cur">€</span>0,65/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="true" class="sh-sg on" data-tier="high"><span>High-end</span><small><span class="cur">€</span>1,00/h</small><i class="sh-rl"></i></button><button type="button" role="radio" aria-checked="false" class="sh-sg" data-tier="enthusiast"><span>Enthusiast</span><small><span class="cur">€</span>1,30/h</small><i class="sh-rl"></i></button></div><div class="sh-acts"><a class="lpill" href="#share-estimate" data-download>Download for Windows<span class="c"><span class="ms">download</span></span></a><span class="mono sh-dln">SwiffSetup.exe, 92 MB<br>Also for <a class="sh-lnk" href="#share-estimate">Linux</a></span></div><p class="mono sh-note">Open it on the PC you want to share. The app reads your hardware and sets your exact rate.</p></div><div class="sh-band paper"><div class="sh-cells"><div class="sh-c"><span class="ms" aria-hidden="true">schedule</span><b>Only while you're away</b><p>Sharing stops the moment you touch the keyboard.</p></div><div class="sh-c"><span class="ms" aria-hidden="true">lock</span><b>Sandboxed sessions</b><p>Players get an isolated account with no access to your files or logins.</p></div><div class="sh-c"><span class="ms" aria-hidden="true">payments</span><b>Paid on the 1st</b><p>Bank, PayPal or Steam wallet, from <span class="cur">€</span>5, no fees.</p></div><div class="sh-c sh-path"><h5 class="mono">How it works</h5><ol class="sh-steps"><li class="now"><span class="pd"></span><b>Estimate</b><small>Here on the website</small></li><li><span class="pd"></span><b>Download</b><small>The button above</small></li><li><span class="pd"></span><b>Set up and go live</b><small>In the app on your PC</small></li><li><span class="pd"></span><b>Get paid</b><small>In the app, on the 1st</small></li></ol></div></div><i class="sh-ruler"></i></div><div class="sh-dim" data-close></div><aside class="sh-sheet" role="dialog" aria-modal="false" aria-labelledby="est2-h"><div class="sh-sh"><h3 id="est2-h">How we got <span class="cur">€</span><span data-v="net">62</span></h3><button class="sh-x" type="button" aria-label="Close" data-close><span class="ms" style="font-size:18px">close</span></button></div><div class="sh-eq"><div class="sh-eqr"><span><span data-v="week">30</span> h away a week</span><span class="op">×</span><span>55% booked</span><span class="op">×</span><span>4.33 weeks</span><b><span data-v="hours">71</span> h streamed</b></div><div class="sh-eqr"><span><span data-v="hours">71</span> h</span><span class="op">×</span><span><span class="cur">€</span><span data-v="rate">1,00</span>/h for <span data-v="tier">a High-end</span> rig</span><b><span class="cur">€</span><span data-v="gross">71</span></b></div><div class="sh-eqr"><span>Electricity: <span data-v="hours">71</span> h at <span data-v="watts">420</span> W, <span class="cur">€</span><span data-v="price">0,30</span>/kWh</span><b>−<span class="cur">€</span><span data-v="power">9</span></b></div><div class="sh-eqr tot"><span>A month, after electricity</span><b><span class="cur">€</span><span data-v="net">62</span></b></div><p class="mono sh-rng">Quiet to busy months: <span class="cur">€</span><span data-v="low">40</span> to <span class="cur">€</span><span data-v="high">85</span></p></div><h5 class="mono">Try your own week</h5><div class="sh-sl"><div class="sh-slh"><label for="est2-hpd">Hours away per day</label><b data-v="hpd">6 h</b></div><div class="sh-slr" style="--v:33.3%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est2-hpd" type="range" min="1" max="16" step="1" value="6" data-in="hpd"></div></div><div class="sh-sl"><div class="sh-slh"><label for="est2-days">Days per week</label><b data-v="days">5</b></div><div class="sh-slr" style="--v:66.7%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est2-days" type="range" min="1" max="7" step="1" value="5" data-in="days"></div></div><div class="sh-sl"><div class="sh-slh"><label for="est2-kwh">Electricity price</label><b data-v="kwh"><span class="cur">€</span>0,30/kWh</b></div><div class="sh-slr" style="--v:40.0%"><i class="sh-rl"></i><span class="sh-fill"></span><span class="sh-knob"></span><input id="est2-kwh" type="range" min="0.1" max="0.6" step="0.01" value="0.3" data-in="kwh"></div></div><details class="sh-more"><summary class="mono">Where the rate comes from</summary><div data-parts><div class="sh-kv"><span>GPU, RTX 4080</span><b><span class="cur">€</span>0,60</b></div><div class="sh-kv"><span>CPU, Ryzen 7 7800X3D</span><b><span class="cur">€</span>0,20</b></div><div class="sh-kv"><span>Memory, 32 GB</span><b><span class="cur">€</span>0,10</b></div><div class="sh-kv"><span>Connection, 500 Mbit</span><b><span class="cur">€</span>0,10</b></div></div><p class="sh-fine">Based on 412 sessions near you over the last 90 days. Hosts keep 100% of the tier rate. Your own play time is never shared.</p></details></aside></div>
+</section>
+
+<section class="frame" id="share-earnings">
+  <div class="cap"><b>Share your PC, earnings from anywhere</b><span class="mono" style="color:var(--ink-3)">Signed in as a host: read-only, setup and payout details stay in the app</span></div>
+  <div class="screen sh sh-earn"><div class="top11"><div><span class="wm">SWIFF</span></div><nav class="nv"><a href="#">Home</a><a href="#">Profile</a><a class="on" href="#share-earnings" aria-current="page">Share your PC</a><a href="#"><span class="live"></span>4 free near you</a></nav><div class="pp"><span class="av3">KN</span><span class="who3"><b>kai_nx</b><span>Host of Nova-01</span></span><span class="ms">menu</span></div></div><div class="sh-copy"><p class="mono sh-eb">September</p><h2>This month</h2><div class="sh-fg"><b data-tick><span class="cur">€</span>12,40</b><span>so far</span></div><p class="sh-ln">Next payout 1 Oct. Payout details are managed in the app on your PC.</p><div class="sh-chart" aria-hidden="true"><i style="--h:30px"></i><i style="--h:40px"></i><i style="--h:35px"></i><i style="--h:18px"></i><i style="--h:23px"></i><i style="--h:18px" class="t"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i><i style="--h:0px"></i></div><div class="sh-chl mono"><span>1 Sep</span><span>Today, 6 Sep</span></div></div><div class="hp6 sh-col sh-mcol"><div class="sh-mcard"><figure><img src="assets/er-library_hero.jpg" alt="" style="object-position:55% 40%"></figure><div class="sh-mbody"><p class="mono"><span class="live" style="margin-right:8px"></span>Nova-01, live</p><b>A player is streaming Elden Ring</b><span>23 of 90 minutes, <span class="cur">€</span>0,42 so far</span><div class="sh-acts sm"><button class="lpill sm" type="button">Stop sharing at 22:00<span class="c"><span class="ms">schedule</span></span></button><a class="sh-lnk" href="#share-earnings">Pause now</a></div></div></div></div><div class="sh-band paper"><div class="sh-cells three"><div class="sh-c"><h5 class="mono">Payout history</h5><div class="sh-hr"><div><b>August</b><small>61 sessions, 132 h</small></div><span class="sh-fig"><span class="cur">€</span>65</span><span class="sh-tag">Paid</span></div><div class="sh-hr"><div><b>July</b><small>48 sessions, 104 h</small></div><span class="sh-fig"><span class="cur">€</span>51</span><span class="sh-tag">Paid</span></div><div class="sh-hr"><div><b>June</b><small>17 sessions, 39 h</small></div><span class="sh-fig"><span class="cur">€</span>19</span><span class="sh-tag">Paid</span></div></div><div class="sh-c"><h5 class="mono">Machines</h5><div class="sh-kv"><span>Nova-01</span><b>Live until 01:00</b></div><div class="sh-kv"><span>Rate</span><b><span class="cur">€</span>1,00/h</b></div><div class="sh-kv"><span>Offering</span><b>6 games</b></div></div><div class="sh-c"><h5 class="mono">Why this page exists</h5><p>To check how tonight is going, or stop sharing, without being at your PC. Nothing is set up here.</p></div></div><i class="sh-ruler"></i></div></div>
 </section>
 
 <script>
@@ -779,10 +924,83 @@ button{font:inherit;color:inherit}
 </script>
 
 <script>
+/* Share your PC: the estimate. Same model as web/src/swiff/estimate.ts: hours away a week, 55% of them
+   booked (35% quiet, 75% busy), 4.33 weeks a month, at the tier's rate, less the rig's electricity. */
+(function(){
+  var TIERS = {
+    entry:{name:'Entry', rate:.45, watts:250, parts:[['GPU, GTX 1660 Super',.25],['CPU, Ryzen 5 3600',.10],['Memory, 16 GB',.05],['Connection, 100 Mbit',.05]]},
+    solid:{name:'Solid', rate:.65, watts:320, parts:[['GPU, RTX 3060 Ti',.35],['CPU, Ryzen 5 5600X',.15],['Memory, 16 GB',.05],['Connection, 250 Mbit',.10]]},
+    high:{name:'High-end', rate:1, watts:420, parts:[['GPU, RTX 4080',.60],['CPU, Ryzen 7 7800X3D',.20],['Memory, 32 GB',.10],['Connection, 500 Mbit',.10]]},
+    enthusiast:{name:'Enthusiast', rate:1.3, watts:550, parts:[['GPU, RTX 4090',.80],['CPU, Ryzen 9 7950X3D',.25],['Memory, 64 GB',.10],['Connection, 1 Gbit',.15]]}
+  };
+  var WEEKS = 4.33, BOOKED = .55, QUIET = .35, BUSY = .75, FROM = 20;
+  function eur(n, dp){ return n.toFixed(dp).replace('.', ','); }
+  function hh(h){ return (h % 24 < 10 ? '0' : '') + (h % 24) + ':00'; }
+  function month(s, booked){
+    var t = TIERS[s.tier], hours = s.hpd * s.days * booked * WEEKS;
+    return { hours: hours, gross: hours * t.rate, power: hours * t.watts / 1000 * s.kwh };
+  }
+  function estimate(s){
+    var m = month(s, BOOKED), q = month(s, QUIET), b = month(s, BUSY);
+    var gross = Math.round(m.gross), power = Math.round(m.power);
+    return { week: s.hpd * s.days, hours: Math.round(m.hours), gross: gross, power: power, net: gross - power,
+      low: Math.round(q.gross - q.power), high: Math.round(b.gross - b.power) };
+  }
+  function polar(r, deg){ var a = (deg - 90) * Math.PI / 180; return [200 + r * Math.cos(a), 240 + r * Math.sin(a)]; }
+  document.querySelectorAll('[data-est]').forEach(function(scr){
+    var s = { tier:'high', hpd:6, days:5, kwh:.3 };
+    function set(key, text){ scr.querySelectorAll('[data-v="' + key + '"]').forEach(function(el){ el.innerHTML = text; }); }
+    function render(){
+      var e = estimate(s), t = TIERS[s.tier];
+      ['week','hours','gross','power','net','low','high'].forEach(function(k){ set(k, e[k]); });
+      set('rate', eur(t.rate, 2)); set('tier', (/^[AEIOU]/.test(t.name) ? 'an ' : 'a ') + t.name); set('watts', t.watts); set('price', eur(s.kwh, 2));
+      set('hpd', s.hpd + ' h'); set('week-h', e.week + ' h'); set('days', s.days); set('kwh', '<span class="cur">€</span>' + eur(s.kwh, 2) + '/kWh');
+      set('hpd-words', s.hpd + (s.hpd === 1 ? ' hour' : ' hours') + ' a night');
+      set('days-words', s.days + (s.days === 1 ? ' night' : ' nights') + ' a week');
+      set('window', hh(FROM) + ' to ' + hh(FROM + s.hpd));
+      scr.querySelectorAll('[data-parts]').forEach(function(el){
+        el.innerHTML = t.parts.map(function(p){ return '<div class="sh-kv"><span>' + p[0] + '</span><b><span class="cur">€</span>' + eur(p[1], 2) + '</b></div>'; }).join('');
+      });
+      scr.querySelectorAll('.sh-sg').forEach(function(b){ var on = b.dataset.tier === s.tier; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+      var a0 = FROM * 15, a1 = (FROM + s.hpd) * 15, p0 = polar(166, a0), p1 = polar(166, a1);
+      var arc = scr.querySelector('[data-arc]'), dot = scr.querySelector('[data-dot]');
+      if (arc) arc.setAttribute('d', 'M' + p0[0].toFixed(1) + ' ' + p0[1].toFixed(1) + 'A166 166 0 ' + (a1 - a0 > 180 ? 1 : 0) + ' 1 ' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1));
+      if (dot){ dot.setAttribute('cx', p1[0].toFixed(1)); dot.setAttribute('cy', p1[1].toFixed(1)); }
+    }
+    scr.querySelectorAll('.sh-sg').forEach(function(b){ b.addEventListener('click', function(){ s.tier = b.dataset.tier; render(); }); });
+    var group = scr.querySelector('.sh-segs');
+    if (group) group.addEventListener('keydown', function(e){
+      var keys = Object.keys(TIERS), i = keys.indexOf(s.tier), d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+      if (!d) return; e.preventDefault(); s.tier = keys[(i + d + keys.length) % keys.length]; render();
+      scr.querySelector('.sh-sg[data-tier="' + s.tier + '"]').focus();
+    });
+    scr.querySelectorAll('[data-in]').forEach(function(inp){
+      inp.addEventListener('input', function(){
+        s[inp.dataset.in] = +inp.value;
+        inp.parentNode.style.setProperty('--v', ((inp.value - inp.min) / (inp.max - inp.min) * 100).toFixed(1) + '%');
+        render();
+      });
+    });
+    scr.querySelectorAll('[data-open]').forEach(function(b){ b.addEventListener('click', function(){ scr.classList.add('open'); var x = scr.querySelector('.sh-x'); if (x) x.focus(); }); });
+    scr.querySelectorAll('[data-close]').forEach(function(b){ b.addEventListener('click', function(){ scr.classList.remove('open'); var o = scr.querySelector('[data-open]'); if (o) o.focus(); }); });
+    scr.addEventListener('keydown', function(e){ if (e.key === 'Escape' && scr.classList.contains('open')) scr.classList.remove('open'); });
+    render();
+  });
+  /* the read-only earnings tick up while a player streams */
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.querySelectorAll('[data-tick]').forEach(function(el){
+    var v = 12.4;
+    setInterval(function(){ v += .01; el.innerHTML = '<span class="cur">€</span>' + eur(v, 2); }, 2200);
+  });
+})();
+</script>
+
+<script>
 /* Analytics through swiff-test.js: the CTAs and a completed hold. */
 (function(){
   function t(e,p){ if (window.swiff) window.swiff.track(e,p); }
-  document.querySelectorAll('.lpill').forEach(function(b){ b.addEventListener('click', function(){ t('cta_clicked', {cta:'connect_steam'}); }); });
+  document.querySelectorAll('.lpill:not([data-download]):not(.sm)').forEach(function(b){ b.addEventListener('click', function(){ t('cta_clicked', {cta:'connect_steam'}); }); });
+  document.querySelectorAll('[data-download]').forEach(function(b){ b.addEventListener('click', function(){ t('cta_clicked', {cta:'download_windows'}); }); });
+  document.querySelectorAll('.nv a[href^="#share-"]').forEach(function(b){ b.addEventListener('click', function(){ t('cta_clicked', {cta:'share_your_pc'}); }); });
   document.querySelectorAll('[data-hold]').forEach(function(b){
     new MutationObserver(function(){ if (b.classList.contains('done') && window.swiff) window.swiff.step('launch_confirmed', {game:'er', machine:'glass'}); }).observe(b, {attributes:true, attributeFilter:['class']});
   });
