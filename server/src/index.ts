@@ -710,7 +710,8 @@ async function reconcileSeats(): Promise<void> {
 
 // The safety net under the session-end notice, for a ticket revoked where no
 // notice is sent (straight in the database): every few seconds, so a revoked
-// renter keeps its seat for that long at most. One check at a time.
+// renter keeps its seat for that long at most while the database answers. One
+// check at a time.
 // SWIFF_TICKET_RECONCILE_MS shortens it for tests.
 const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 5_000;
 let reconciling: Promise<void> | null = null;
