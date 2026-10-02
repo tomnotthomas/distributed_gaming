@@ -1,8 +1,9 @@
 // A renter whose ticket is revoked is put out, and nothing more is relayed to or
-// from it. The session-end notice does it at once, however the platform ends
-// the session. A ticket revoked straight in the database, behind the server's
-// back, is caught by the host registration check, a join and the slow
-// reconcile; relayed frames never read the database.
+// from it. The session-end notice does it as the end commits, however the
+// platform ends the session, so the very next frame is refused. A ticket
+// revoked straight in the database, behind the server's back, is caught by the
+// host registration check, a join and the reconcile within a few seconds;
+// relayed frames never read the database.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -51,8 +52,8 @@ function freshPort(): number {
   return port;
 }
 
-/** A server on a database of its own, with the ticket reconcile every `reconcileMs`. */
-async function startServer(reconcileMs: number) {
+/** A server on a database of its own, with the ticket reconcile every `reconcileMs` (omitted: as in production). */
+async function startServer(reconcileMs?: number) {
   const port = freshPort();
   const database = await serverDatabase();
   databases.push(database);
@@ -65,7 +66,7 @@ async function startServer(reconcileMs: number) {
         SESSION_SECRET: SESSION,
         MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
         DATABASE_URL: database.url,
-        SWIFF_TICKET_RECONCILE_MS: String(reconcileMs),
+        ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
       },
       stdio: "ignore",
     }),
@@ -134,6 +135,8 @@ async function startServer(reconcileMs: number) {
 
 const ICE = { type: "ice", candidate: { candidate: "before" } } as SignalMessage;
 const AFTER = { type: "ice", candidate: { candidate: "after" } } as SignalMessage;
+/** Sent the moment the call that ends the session has answered. */
+const NEXT = { type: "ice", candidate: { candidate: "next" } } as SignalMessage;
 const iceFrames = (received: SignalMessage[]) =>
   received
     .filter((m) => m.type === "ice")
@@ -157,11 +160,16 @@ async function seat(server: Awaited<ReturnType<typeof startServer>>, room: strin
   return { host, renter };
 }
 
-/** The renter was put out with bad-ticket, and nothing it sent once put out reached the host. */
-async function putOut(
-  host: ReturnType<Awaited<ReturnType<typeof startServer>>["peer"]>,
-  renter: ReturnType<Awaited<ReturnType<typeof startServer>>["peer"]>,
-) {
+type Peer = ReturnType<Awaited<ReturnType<typeof startServer>>["peer"]>;
+
+/** Both sides send a frame at once, as soon as the call that revoked the ticket has answered. */
+function sendNext(host: Peer, renter: Peer) {
+  renter.ws.send(JSON.stringify(NEXT));
+  host.ws.send(JSON.stringify(NEXT));
+}
+
+/** The renter was put out with bad-ticket, and nothing either side sent since reached the other. */
+async function putOut(host: Peer, renter: Peer) {
   assert.equal(await renter.closed, 4003);
   assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
   host.ws.send(JSON.stringify(AFTER));
@@ -176,6 +184,17 @@ describe("revoked ticket through the platform", () => {
     const { ticket, sessionId } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
     assert.equal((await server.call("POST", `/api/sessions/${sessionId}/end`, {}, MACHINE_KEY)).status, 200);
+    sendNext(host, renter);
+    await putOut(host, renter);
+    host.ws.close();
+  });
+
+  it("puts the renter out at once when the renter leaves", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket, sessionId } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    assert.equal((await server.call("POST", `/api/sessions/${sessionId}/leave`, {}, ticket)).status, 200);
+    sendNext(host, renter);
     await putOut(host, renter);
     host.ws.close();
   });
@@ -191,6 +210,7 @@ describe("revoked ticket through the platform", () => {
       MACHINE_KEY,
     );
     assert.equal(back.status, 200);
+    sendNext(host, renter);
     await putOut(host, renter);
     host.ws.close();
   });
@@ -208,8 +228,23 @@ describe("revoked ticket through the platform", () => {
       MACHINE_KEY,
     );
     assert.equal(offered.status, 200);
+    sendNext(host, renter);
     await putOut(host, renter);
     host.ws.close();
+  });
+
+  it("puts the renter out once the machine has gone silent", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    // A claimed PC's socket going leaves it the liveness window to come back;
+    // past that, the platform's own timer takes it offline and ends the session.
+    host.ws.close();
+    await until(() => renter.received.some((m) => m.type === "peer-left"));
+    assert.equal(await renter.closed, 4003);
+    assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
+    const again = server.peer({ type: "join", ticket });
+    assert.equal(await again.closed, 4003);
   });
 });
 
@@ -269,4 +304,21 @@ describe("revoked ticket without the session-end notice", () => {
     assert.equal(await renter.closed, 4003);
     assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
   });
+
+  it(
+    "cuts a seated renter off within a few seconds by default, and relays nothing after",
+    { timeout: 60_000 },
+    async () => {
+      const server = await startServer();
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
+
+      await server.revokeBehindTheServersBack();
+      const revokedAt = Date.now();
+      await putOut(host, renter);
+      const tookMs = Date.now() - revokedAt;
+      assert.ok(tookMs < 6_500, `put out after ${tookMs} ms`);
+      host.ws.close();
+    },
+  );
 });

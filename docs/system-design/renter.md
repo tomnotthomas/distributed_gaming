@@ -361,13 +361,14 @@ configured the server lets nobody in (`server/src/access.ts`).
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
 - **A ticket dies with its session.** `claim` records the ticket on the session. Once the
-  session ends (the host ends it, the owner takes the machine back, the machine goes
-  silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
-  and a renter still in the room with it is put out at once. That does not rest on the
-  one notice alone: the database is asked again when the host registers, and every 30 s
-  for every seated renter. Once a revocation is known, nothing more is relayed to or
-  from that renter; relayed frames are checked against that in-memory record, not the
-  database.
+  session ends (the host ends it, the renter leaves, the owner takes the machine back,
+  the machine goes silent or the booked time runs out), the server records the ticket
+  as revoked as the end commits: a join with it is refused (`bad-ticket`), a renter
+  still in the room with it is put out at once, and nothing more is relayed to or from
+  that renter. Relayed frames are checked against that in-memory record, never the
+  database. A session ended straight in the database, where no notice is sent, is
+  caught at the next join or host registration, and within 5 s for every seated
+  renter, all checked in one read.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.

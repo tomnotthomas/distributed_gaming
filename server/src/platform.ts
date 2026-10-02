@@ -325,8 +325,11 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 /** How soon a wake that failed (the database unreachable) is tried again. */
 export const RETRY_MS = 1_000;
 
-/** Opens a call that may write: it takes the machines table first, so one such call runs at a time on the database. */
-const WRITE = "BEGIN; LOCK TABLE machines IN EXCLUSIVE MODE";
+/**
+ * What a call that may write does first: take the machines table, so one such
+ * call runs at a time on the database, whichever server makes it.
+ */
+const WRITE = "LOCK TABLE machines IN EXCLUSIVE MODE";
 /** Opens a call that only reads: one consistent view, however many statements it takes. */
 const READ = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY";
 
@@ -563,7 +566,8 @@ export class Platform {
    * now. A busy machine is free again when its session runs out, or, while
    * reserved, when a claim at the last moment would run out. Read only:
    * nothing is settled or matched. `at` is the time they were read at, for
-   * judging them.
+   * judging them. The same few statements however many machines are on offer:
+   * the calls behind this one wait on it.
    */
   offeredMachines(): Promise<OfferedSnapshot> {
     return this.#read(async () => {
@@ -583,29 +587,32 @@ export class Platform {
         list.push(appid);
         installed.set(machine_id, list);
       }
-      const machines: OfferedMachine[] = [];
-      for (const m of rows) {
+      const busy = rows.filter((m) => m.status !== "available").map((m) => m.id);
+      const backAt = new Map<string, number>();
+      if (busy.length) {
+        const backs = await this.#all<{ machine_id: string; at: number }>(
+          `SELECT machine_id, expires_at AS at FROM sessions WHERE machine_id = ANY ($1::text[]) AND ended_at IS NULL
+           UNION ALL
+           SELECT r.machine_id, r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
+             WHERE r.machine_id = ANY ($1::text[])`,
+          busy,
+        );
+        for (const { machine_id, at } of backs) if (!backAt.has(machine_id)) backAt.set(machine_id, at);
+      }
+      const histories = await this.#stabilities(rows, now);
+      const machines = rows.map((m): OfferedMachine => {
         const appids = installed.get(m.id) ?? [];
-        const busy = m.status !== "available";
+        const isBusy = m.status !== "available";
         const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
         // The configured owner counts before the machine next checks in, as in matching.
         const row = { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id };
-        const back = busy
-          ? await this.#get<{ at: number }>(
-              `SELECT expires_at AS at FROM sessions WHERE machine_id = $1 AND ended_at IS NULL
-               UNION ALL
-               SELECT r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
-                 WHERE r.machine_id = $1`,
-              m.id,
-            )
-          : undefined;
-        machines.push({
-          host: hostProfileOf(row, appids, busy ? "busy" : "available", lastSeenAt),
+        return {
+          host: hostProfileOf(row, appids, isBusy ? "busy" : "available", lastSeenAt),
           profile: profileOf(m, appids),
-          history: (await this.#stability(m.id)).stats,
-          backAt: back?.at ?? null,
-        });
-      }
+          history: histories.get(m.id)!.stats,
+          backAt: isBusy ? (backAt.get(m.id) ?? null) : null,
+        };
+      });
       return { at: now, machines };
     });
   }
@@ -889,16 +896,30 @@ export class Platform {
    * further back than the exact cutoff used for sessions.
    */
   stability(machineId: string): Promise<ReturnType<typeof stabilityFrom>> {
-    return this.#read(() => this.#stability(machineId));
+    return this.#read(async () => {
+      const machine = await this.#machineRow(machineId);
+      const histories = await this.#stabilities(machine ? [machine] : [], this.#now(), [machineId]);
+      return histories.get(machineId)!;
+    });
   }
 
   /** True when the ticket was handed out for a session that has since ended. A ticket minted by hand has none. */
   ticketRevoked(ticketId: string): Promise<boolean> {
-    return this.#read(async () =>
-      Boolean(
-        await this.#get("SELECT 1 FROM sessions WHERE ticket_id = $1 AND ended_at IS NOT NULL", ticketId),
-      ),
+    return this.#read(async () => (await this.#revoked([ticketId])).length > 0);
+  }
+
+  /** ticketRevoked() for many tickets, with one read: the ones revoked. */
+  ticketsRevoked(ticketIds: string[]): Promise<string[]> {
+    return this.#read(() => this.#revoked(ticketIds));
+  }
+
+  async #revoked(ticketIds: string[]): Promise<string[]> {
+    if (!ticketIds.length) return [];
+    const rows = await this.#all<{ ticket_id: string }>(
+      "SELECT ticket_id FROM sessions WHERE ticket_id = ANY ($1::text[]) AND ended_at IS NOT NULL",
+      ticketIds,
     );
+    return rows.map((row) => row.ticket_id);
   }
 
   // --- matching and deadlines ------------------------------------------------
@@ -1286,35 +1307,59 @@ export class Platform {
     return splitByDay(start, end, lastSeen + LIVENESS_MS);
   }
 
-  /** stability(), within the running call. */
-  async #stability(machineId: string): Promise<ReturnType<typeof stabilityFrom>> {
-    const now = this.#now();
+  /**
+   * stability() for each of `ids` as of `now`, within the running call, from
+   * two statements however many there are. `machines` are the rows already
+   * read for them; an id with none has never been heard from.
+   */
+  async #stabilities(
+    machines: MachineRow[],
+    now: number,
+    ids: string[] = machines.map((m) => m.id),
+  ): Promise<Map<string, ReturnType<typeof stabilityFrom>>> {
     const since = now - STABILITY_WINDOW_MS;
-    const totals = (await this.#get<UptimeTotals>(
-      `SELECT coalesce(sum(offered_ms), 0)::bigint AS "offeredMs", coalesce(sum(seen_ms), 0)::bigint AS "seenMs",
-              coalesce(sum(drops), 0)::bigint AS drops
-         FROM machine_uptime WHERE machine_id = $1 AND day >= $2`,
-      machineId,
-      utcDay(since),
-    ))!;
-    const machine = await this.#machineRow(machineId);
-    if (machine) {
-      for (const piece of this.#pendingUptime(machine, now, since)) {
-        totals.offeredMs += piece.offeredMs;
-        totals.seenMs += piece.seenMs;
+    const totals = new Map<string, UptimeTotals>();
+    const ended = new Map<string, EndedSession[]>();
+    if (ids.length) {
+      const uptime = await this.#all<UptimeTotals & { machine_id: string }>(
+        `SELECT machine_id, sum(offered_ms)::bigint AS "offeredMs", sum(seen_ms)::bigint AS "seenMs",
+                sum(drops)::bigint AS drops
+           FROM machine_uptime WHERE machine_id = ANY ($1::text[]) AND day >= $2 GROUP BY machine_id`,
+        ids,
+        utcDay(since),
+      );
+      for (const { machine_id, offeredMs, seenMs, drops } of uptime) {
+        totals.set(machine_id, { offeredMs, seenMs, drops });
+      }
+      const sessions = await this.#all<Pick<SessionRow, "machine_id" | "end_reason" | "qos">>(
+        `SELECT machine_id, end_reason, qos FROM sessions
+           WHERE machine_id = ANY ($1::text[]) AND ended_at > $2 AND end_reason IS NOT NULL`,
+        ids,
+        since,
+      );
+      for (const row of sessions) {
+        const list = ended.get(row.machine_id) ?? [];
+        list.push({
+          endReason: row.end_reason!,
+          packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
+        });
+        ended.set(row.machine_id, list);
       }
     }
-    const rows = await this.#all<Pick<SessionRow, "end_reason" | "qos">>(
-      `SELECT end_reason, qos FROM sessions
-         WHERE machine_id = $1 AND ended_at > $2 AND end_reason IS NOT NULL`,
-      machineId,
-      since,
+    const rows = new Map(machines.map((m) => [m.id, m]));
+    return new Map(
+      ids.map((id) => {
+        const sum = { ...(totals.get(id) ?? { offeredMs: 0, seenMs: 0, drops: 0 }) };
+        const machine = rows.get(id);
+        if (machine) {
+          for (const piece of this.#pendingUptime(machine, now, since)) {
+            sum.offeredMs += piece.offeredMs;
+            sum.seenMs += piece.seenMs;
+          }
+        }
+        return [id, stabilityFrom(sum, ended.get(id) ?? [])];
+      }),
     );
-    const sessions: EndedSession[] = rows.map((row) => ({
-      endReason: row.end_reason!,
-      packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
-    }));
-    return stabilityFrom(totals, sessions);
   }
 
   /** The session, if it runs on this machine and has not ended. */
@@ -1453,15 +1498,19 @@ export class Platform {
     return this.#inTurn(async () => {
       let done: { result: T; next: number | null };
       try {
-        done = await this.#db.transaction(async (tx) => {
-          this.#tx = tx;
-          try {
-            const result = await work();
-            return { result, next: await this.#nextDeadline() };
-          } finally {
-            this.#tx = null;
-          }
-        }, WRITE);
+        done = await this.#db.transaction(
+          async (tx) => {
+            this.#tx = tx;
+            try {
+              const result = await work();
+              return { result, next: await this.#nextDeadline() };
+            } finally {
+              this.#tx = null;
+            }
+          },
+          "BEGIN",
+          WRITE,
+        );
       } catch (error) {
         this.#notices = [];
         this.#changed.clear();

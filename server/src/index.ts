@@ -57,7 +57,7 @@ import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
-import { Platform, type ClaimedSession } from "./platform.js";
+import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
@@ -175,12 +175,23 @@ type Room = { host: PeerSocket | null; client: PeerSocket | null };
 const rooms = new Map<string, Room>();
 
 /**
- * The tickets of seated renters known to be revoked, learned from the
- * session-end notice and from every database check that finds one. A
- * revocation never reverses, so an entry stays until its seat is gone. Relayed
- * frames are checked against this alone, never the database.
+ * Tickets known to be revoked, each until when it could still be in use (Unix
+ * ms). Every way this server ends a session reaches the session-end notice,
+ * which records the session's ticket as the change commits, before any other
+ * frame is handled; a database check that finds a ticket revoked behind the
+ * server's back (a join, a host registering, the reconcile) records it too. A
+ * revocation never reverses. Relayed frames are checked against this alone,
+ * never the database.
  */
-const revokedTickets = new Set<string>();
+const revokedTickets = new Map<string, number>();
+
+/** A booking's ticket runs for its minutes from the claim, so none outlives its revocation by more. */
+const REVOCATION_KEPT_MS = MAX_MINUTES * 60_000;
+
+/** Record that `ticketId` is revoked. */
+function revoke(ticketId: string): void {
+  revokedTickets.set(ticketId, Date.now() + REVOCATION_KEPT_MS);
+}
 
 function roomFor(hostId: string): Room {
   let room = rooms.get(hostId);
@@ -257,16 +268,15 @@ async function endHostSession(hostId: string): Promise<void> {
  * up on, and a renter still seated on the session's revoked ticket is put out.
  */
 function sessionEnded(hostId: string, sessionId: string, ticketId: string | null): void {
+  if (ticketId !== null) revoke(ticketId);
   evictStreamer(hostId, sessionId);
   const client = rooms.get(hostId)?.client;
-  if (client && ticketId !== null && client.ticketId === ticketId) putOut(client);
+  if (client && seatRevoked(client)) putOut(client);
 }
 
 /** Put the renter `client` out with `bad-ticket`: its ticket is revoked, and nothing more is relayed for it. */
 function putOut(client: PeerSocket): void {
-  if (client.ticketId && client.hostId && rooms.get(client.hostId)?.client === client) {
-    revokedTickets.add(client.ticketId);
-  }
+  if (client.ticketId) revoke(client.ticketId);
   deny(client, "bad-ticket");
 }
 
@@ -284,6 +294,10 @@ function seatRevoked(renter: PeerSocket): boolean {
  */
 async function seatStillValid(client: PeerSocket): Promise<boolean> {
   if (!client.ticketId) return true;
+  if (seatRevoked(client)) {
+    putOut(client);
+    return false;
+  }
   try {
     if (!(await platform.ticketRevoked(client.ticketId))) return true;
     putOut(client);
@@ -554,11 +568,14 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
     case "join": {
       if (ws.role) return;
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-      if (!ticket) return deny(ws, "bad-ticket");
-      if (await platform.ticketRevoked(ticket.id)) {
+      if (!ticket || revokedTickets.has(ticket.id)) return deny(ws, "bad-ticket");
+      const revoked = await platform.ticketRevoked(ticket.id);
+      if (revoked) revoke(ticket.id);
+      // Revoked in the database, or by a notice while the database was asked.
+      if (revokedTickets.has(ticket.id)) {
         // A renter still seated on it is put out too.
         const seated = rooms.get(ticket.room)?.client;
-        if (seated?.ticketId === ticket.id) putOut(seated);
+        if (seated && seatRevoked(seated)) putOut(seated);
         return deny(ws, "bad-ticket");
       }
       const room = roomFor(ticket.room);
@@ -638,10 +655,7 @@ function onClose(ws: PeerSocket): void {
   const peer = peerOf(ws);
   const wasHost = room.host === ws;
   if (wasHost) room.host = null;
-  if (room.client === ws) {
-    room.client = null;
-    if (ws.ticketId) revokedTickets.delete(ws.ticketId);
-  }
+  if (room.client === ws) room.client = null;
   send(peer, { type: "peer-left" });
   if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
   // The PC service's own socket going is the PC going: offline now while it
@@ -670,12 +684,37 @@ wss.on("connection", (socket) => {
   ws.on("close", () => inTurn(ws, () => onClose(ws)));
 });
 
-// The safety net under the session-end notice: every so often, any seated
-// renter whose ticket has been revoked is put out, even one that sends nothing.
+/**
+ * Check every seated renter's ticket with the database in one read: a revoked
+ * one is recorded and put out, even one that sends nothing. When the database
+ * cannot say, each is hung up on without `denied`, so it may retry. Also
+ * forgets revocations no ticket could still be in use for.
+ */
+async function reconcileSeats(): Promise<void> {
+  const now = Date.now();
+  for (const [ticketId, until] of revokedTickets) if (until <= now) revokedTickets.delete(ticketId);
+  const seated = [...rooms.values()].flatMap((room) => (room.client?.ticketId ? [room.client] : []));
+  if (!seated.length) return;
+  try {
+    for (const ticketId of await platform.ticketsRevoked(seated.map((client) => client.ticketId!))) {
+      revoke(ticketId);
+    }
+  } catch (error) {
+    console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+    for (const client of seated) client.close(1011, "internal error");
+    return;
+  }
+  for (const client of seated) if (seatRevoked(client)) putOut(client);
+}
+
+// The safety net under the session-end notice, for a ticket revoked where no
+// notice is sent (straight in the database): every few seconds, so a revoked
+// renter keeps its seat for that long at most. One check at a time.
 // SWIFF_TICKET_RECONCILE_MS shortens it for tests.
-const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 30_000;
+const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 5_000;
+let reconciling: Promise<void> | null = null;
 setInterval(() => {
-  for (const room of rooms.values()) if (room.client) void seatStillValid(room.client);
+  reconciling ??= reconcileSeats().finally(() => (reconciling = null));
 }, TICKET_RECONCILE_MS).unref();
 
 // Server-side liveness sweep. Without it a host whose machine slept keeps its

@@ -347,12 +347,16 @@ describe("join ticket revocation", () => {
       let committed = false;
       let locked!: () => void;
       const holding = new Promise<void>((resolve) => (locked = resolve));
-      const writing = other.transaction(async (tx) => {
-        await tx.query("UPDATE sessions SET ended_at = 1");
-        locked();
-        await wait(300);
-        committed = true;
-      }, "BEGIN; LOCK TABLE machines IN EXCLUSIVE MODE");
+      const writing = other.transaction(
+        async (tx) => {
+          await tx.query("UPDATE sessions SET ended_at = 1");
+          locked();
+          await wait(300);
+          committed = true;
+        },
+        "BEGIN",
+        "LOCK TABLE machines IN EXCLUSIVE MODE",
+      );
       await holding;
       assert.equal(
         await platform.endSession("pc-1", claim.sessionId),
@@ -1444,6 +1448,64 @@ describe("renters and owners", () => {
 
 describe("machines on offer", () => {
   const ids = async () => (await platform.offeredMachines()).machines.map((m) => m.host.id);
+
+  it("reads any number of machines with the same few statements", async () => {
+    // Counts what each call sends the database: the calls behind a read wait on all of it.
+    let statements = 0;
+    const counted = (db: Database): Database => ({
+      ...db,
+      transaction: (work, begin, setup) =>
+        db.transaction(
+          (tx) =>
+            work({
+              query: (sql, params) => {
+                statements += 1;
+                return tx.query(sql, params);
+              },
+            }),
+          begin,
+          setup,
+        ),
+    });
+    await platform.close();
+    platform = await Platform.open({ database: counted(await testDatabase()), now: () => now });
+    const read = async () => {
+      statements = 0;
+      const { machines } = await platform.offeredMachines();
+      return { machines: machines.length, statements };
+    };
+
+    await offer("pc-1");
+    await platform.book(730, 30);
+    await offer("pc-2");
+    const few = await read();
+    assert.equal(few.machines, 2);
+    for (let i = 3; i <= 8; i++) {
+      await offer(`pc-${i}`);
+      await platform.book(730, 30);
+    }
+    const many = await read();
+    assert.equal(many.machines, 8);
+    assert.equal(many.statements, few.statements);
+  });
+
+  it("gives each machine its own free-again time and history", async () => {
+    await offer("pc-1", { price: 10 });
+    const reserved = await platform.book(730, 30);
+    await offer("pc-2", { price: 20 });
+    const claim = await platform.claim((await platform.book(570, 60)).bookingId);
+    assert.ok(claim.ok);
+    await offer("pc-3", { price: 30 });
+
+    const { machines } = await platform.offeredMachines();
+    const byId = new Map(machines.map((m) => [m.host.id, m]));
+    assert.equal(byId.get("pc-1")!.backAt, reserved.claimBy! + 30 * 60_000);
+    assert.equal(byId.get("pc-2")!.backAt, now + 60 * 60_000);
+    assert.equal(byId.get("pc-3")!.backAt, null);
+    for (const id of ["pc-1", "pc-2", "pc-3"]) {
+      assert.deepEqual(byId.get(id)!.history, (await platform.stability(id)).stats, id);
+    }
+  });
 
   it("lists what is offered and answering, with no machine taken back or gone silent", async () => {
     await offer("pc-1");

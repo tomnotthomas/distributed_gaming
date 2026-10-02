@@ -79,7 +79,7 @@ export async function testSchema(): Promise<TestSchema> {
   return {
     open: () => ({
       query: (sql, params) => db.transaction((tx) => tx.query(sql, params), `${within}; BEGIN`),
-      transaction: (work, begin = "BEGIN") => db.transaction(work, `${within}; ${begin}`),
+      transaction: (work, begin = "BEGIN", setup) => db.transaction(work, `${within}; ${begin}`, setup),
       close: async () => {},
     }),
     drop: async () => {
