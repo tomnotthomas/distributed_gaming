@@ -502,7 +502,11 @@ function WallEmpty({ note, signedIn }: { note?: ReactNode; signedIn: boolean }) 
       {note}
       <EmptyState
         title="Nothing is ready right now"
-        body="Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
+        body={
+          signedIn
+            ? "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
+            : "Every shared machine is in use. Moss is back at 21:30. Sign in with Steam and we'll tell you when a PC frees up."
+        }
         action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
     </main>

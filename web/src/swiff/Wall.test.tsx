@@ -143,6 +143,8 @@ describe("Wall", () => {
       expect(signIn).toHaveLength(1);
       expect(signIn[0]).toHaveTextContent("Sign in with Steam");
       expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
+      expect(screen.getByText(/Sign in with Steam and we'll tell you when a PC frees up\./)).toBeTruthy();
+      expect(screen.queryByText(/We'll tell you the moment something frees up/)).toBeNull();
     });
 
     it("asks a signed-in renter for nothing more", () => {
@@ -150,6 +152,11 @@ describe("Wall", () => {
       emptyWall(profile, applySteam(profile, pool));
       expect(screen.getByText("Nothing is ready right now")).toBeTruthy();
       expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+      expect(
+        screen.getByText(
+          "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up.",
+        ),
+      ).toBeTruthy();
     });
   });
 
