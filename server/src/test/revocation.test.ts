@@ -135,7 +135,9 @@ async function startServer(reconcileMs: number) {
 const ICE = { type: "ice", candidate: { candidate: "before" } } as SignalMessage;
 const AFTER = { type: "ice", candidate: { candidate: "after" } } as SignalMessage;
 const iceFrames = (received: SignalMessage[]) =>
-  received.filter((m) => m.type === "ice").map((m) => (m as { candidate: { candidate: string } }).candidate.candidate);
+  received
+    .filter((m) => m.type === "ice")
+    .map((m) => (m as { candidate: { candidate: string } }).candidate.candidate);
 
 /** Up to 5 s for `check` to hold: registering and joining each wait on the database. */
 const until = async (check: () => boolean) => {
@@ -182,7 +184,12 @@ describe("revoked ticket through the platform", () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
-    const back = await server.call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+    const back = await server.call(
+      "PUT",
+      "/api/machines/pc-1/availability",
+      { available: false },
+      MACHINE_KEY,
+    );
     assert.equal(back.status, 200);
     await putOut(host, renter);
     host.ws.close();

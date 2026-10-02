@@ -671,7 +671,8 @@ wss.on("connection", (socket) => {
 });
 
 // The safety net under the session-end notice: every so often, any seated
-// renter whose ticket has been revoked is put out, even one that sends nothing. SWIFF_TICKET_RECONCILE_MS shortens it for tests.
+// renter whose ticket has been revoked is put out, even one that sends nothing.
+// SWIFF_TICKET_RECONCILE_MS shortens it for tests.
 const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 30_000;
 setInterval(() => {
   for (const room of rooms.values()) if (room.client) void seatStillValid(room.client);
