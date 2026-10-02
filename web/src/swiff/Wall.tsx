@@ -1,22 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Backdrop, Button, EmptyState, SteamButton } from "@swiff/ui";
+import { Backdrop, Button, EmptyState } from "@swiff/ui";
 import type { Game, Machine } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { CountDial, ResumeDial, TimeMark, useSpin } from "./instruments";
-import {
-  STEAM_LOGIN_URL,
-  gameArt,
-  gameArtFallbacks,
-  gamePreview,
-  gameTrailer,
-  libraryState,
-  type LibraryState,
-} from "./steam";
+import { SignInWithSteam } from "./SignIn";
+import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
 
-/** The hero and one ruled row of four fill the first screen; the rest wait behind "All games". */
+/** The hero and one ruled row of four under it; the rest wait behind "All games". */
 const LIMIT = 5;
+
+/** Signed out, the hero shows this many playable games in turn, each for ROTATE_MS. */
+const ROTATE_COUNT = 4;
+const ROTATE_MS = 7000;
 
 /** How long the pointer has to rest on a tile before its trailer starts. */
 const PREVIEW_DELAY_MS = 380;
@@ -38,6 +35,26 @@ function usePreview(hoverId: string | null): string | null {
   return previewId;
 }
 
+/**
+ * Which of `count` hero games is up. It moves on every ROTATE_MS while motion
+ * is on, the OS has not asked for less of it, and nothing has paused it: a
+ * pointer over the hero or focus inside it holds the current game.
+ */
+function useRotation(count: number, motion: boolean) {
+  const [index, setIndex] = useState(0);
+  const [held, setHeld] = useState({ pointer: false, focus: false });
+  const hold = (by: "pointer" | "focus", on: boolean) => setHeld((h) => ({ ...h, [by]: on }));
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const turning = count > 1 && motion && !reduced && !held.pointer && !held.focus;
+  useEffect(() => {
+    if (!turning) return;
+    const timer = window.setInterval(() => setIndex((i) => (i + 1) % count), ROTATE_MS);
+    return () => window.clearInterval(timer);
+  }, [turning, count]);
+  // A shorter list (the wall changed under it) must not leave the index past its end.
+  return { index: index < count ? index : 0, hold };
+}
+
 /** "4 h 30" or "All night": the time a machine stays free, as the band prints it. */
 const leftLabel = (machine: Machine) => {
   const left = fmtLeft(minsLeft(machine));
@@ -55,18 +72,18 @@ function waitLabel(game: Game, pool: Record<string, Machine>): string {
 }
 
 export function Wall({ swiff }: { swiff: Swiff }) {
-  const { games, pool, session, prefs, libraryConnected, showAll } = swiff;
+  const { games, pool, session, prefs, signedIn, showAll } = swiff;
 
   const ordered = useMemo(() => wallOrder(games, pool, session, prefs), [games, pool, session, prefs]);
   const anythingFree = ordered.some((g) => freeFor(g, pool, session, prefs).length > 0);
 
-  // Before sign-in the wall leads with something playable right now: a
-  // free-to-play title, because that is the one a stranger can actually start.
+  // Before sign-in the wall leads with a free-to-play title: the one game a
+  // stranger can play the moment they sign in, whatever they own.
   const wall = useMemo(() => {
     const shown = showAll ? ordered : ordered.slice(0, LIMIT);
-    if (libraryConnected) return shown;
+    if (signedIn) return shown;
     return [...shown].sort((a, b) => Number(Boolean(b.f2p)) - Number(Boolean(a.f2p)));
-  }, [ordered, showAll, libraryConnected]);
+  }, [ordered, showAll, signedIn]);
 
   const shared = Object.values(pool).filter((m) => !m.busy && !m.self);
   const previewId = usePreview(swiff.hoverId);
@@ -87,23 +104,28 @@ export function Wall({ swiff }: { swiff: Swiff }) {
   if (!anythingFree) return <WallEmpty note={note} />;
 
   const [hero, ...rest] = wall;
+  // Signed out, the hero turns through a few games that are free right now;
+  // signed in it stays on the renter's own lead game.
+  const showcase = signedIn
+    ? []
+    : wall.filter((g) => freeFor(g, pool, session, prefs).length > 0).slice(0, ROTATE_COUNT);
   const busy = ordered.filter((g) => !freeFor(g, pool, session, prefs).length);
   const more = !showAll && ordered.length > LIMIT;
 
   return (
     <main className="wall" data-testid="wall">
-      {hero ? <WallHero game={hero} swiff={swiff} shared={shared} /> : null}
+      {hero ? <WallHero games={showcase.length ? showcase : [hero]} swiff={swiff} shared={shared} /> : null}
 
       <section className="band" aria-label="Games">
         {note}
         <div className="band-tabs">
-          {libraryConnected && library === "ok" ? (
+          {signedIn && library === "ok" ? (
             <>
               <BandTab on label="Your library" n={ordered.length} />
               <BandTab label="Free to play" n={ordered.filter((g) => g.f2p).length} />
               <BandTab label="Ready now" n={ordered.length - busy.length} />
             </>
-          ) : libraryConnected ? (
+          ) : signedIn ? (
             // Nothing of their own to show: the wall is free-to-play only, and says so.
             <>
               <BandTab on label="Free to play" n={ordered.length} />
@@ -114,10 +136,10 @@ export function Wall({ swiff }: { swiff: Swiff }) {
             <>
               <BandTab on label="Free to play" n={ordered.filter((g) => g.f2p).length} />
               <BandTab label="Popular on Steam" n={ordered.length} />
-              <a className="band-tab" href={STEAM_LOGIN_URL} aria-label="Sign in to see your library">
+              <span className="band-tab">
                 <span>Your library</span>
                 <Glyph name="lock" size={16} />
-              </a>
+              </span>
             </>
           )}
           {more ? (
@@ -139,14 +161,14 @@ export function Wall({ swiff }: { swiff: Swiff }) {
               game={game}
               preview={previewId === game.id}
               swiff={swiff}
-              libraryConnected={libraryConnected}
+              signedIn={signedIn}
             />
           ))}
         </div>
 
         <footer className="band-foot mono">
           {swiff.steamDenied ? (
-            <p className="band-denied">Steam sign-in was cancelled. The free-to-play wall still works.</p>
+            <p className="band-denied">Steam sign-in was cancelled. Sign in with Steam to play.</p>
           ) : null}
           <p>Game artwork and trailers are the property of their respective publishers, served from Steam.</p>
         </footer>
@@ -165,23 +187,43 @@ function BandTab({ label, n, on }: { label: string; n: number; on?: boolean }) {
 }
 
 /** The wall's lead game: full-colour key art, its copy, and the instrument column on the right. */
-function WallHero({ game, swiff, shared }: { game: Game; swiff: Swiff; shared: Machine[] }) {
-  const { pool, session, prefs, libraryConnected } = swiff;
+function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; shared: Machine[] }) {
+  const { pool, session, prefs, signedIn } = swiff;
+  const at = useRotation(games.length, swiff.motion);
+  const game = games[at.index] ?? games[0]!;
   const best = freeFor(game, pool, session, prefs)[0];
   const spin = useSpin();
 
   return (
-    <section className="hero" onMouseEnter={() => swiff.setHoverId(null)}>
-      <Backdrop
-        className="hero-art"
-        image={gameArt(game, 2)}
-        fallback={gameArtFallbacks(game)}
-        video={best ? gameTrailer(game) : null}
-        position={game.focus}
-      />
+    <section
+      className="hero"
+      data-testid="hero"
+      onMouseEnter={() => {
+        swiff.setHoverId(null);
+        at.hold("pointer", true);
+      }}
+      onMouseLeave={() => at.hold("pointer", false)}
+      onFocus={() => at.hold("focus", true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) at.hold("focus", false);
+      }}
+    >
+      {/* Every game in the turn is painted, so the next image is loaded before
+          it fades in; only the current one is opaque. */}
+      {games.map((g, i) => (
+        <Backdrop
+          key={g.id}
+          className={i === at.index ? "hero-art hero-slide on" : "hero-art hero-slide"}
+          aria-hidden={i === at.index ? undefined : true}
+          image={gameArt(g, 2)}
+          fallback={gameArtFallbacks(g)}
+          position={g.focus}
+          drift
+        />
+      ))}
       <div className="hero-scrim" />
 
-      {libraryConnected ? (
+      {signedIn ? (
         <div className="hero-copy">
           <div className="mono hero-kicker">{game.personal}</div>
           <h1 className="hero-title">{game.title}</h1>
@@ -215,32 +257,27 @@ function WallHero({ game, swiff, shared }: { game: Game; swiff: Swiff; shared: M
             <span className="live-dot" />
             Tonight, no download
           </div>
-          <h1 className="hero-title">{game.title}</h1>
-          <p className="hero-line">
-            on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
-            <b>No download.</b>
-          </p>
+          {/* Keyed by game, so the title and its line fade in with the art. */}
+          <div className="hero-turn" key={game.id}>
+            <h1 className="hero-title">{game.title}</h1>
+            <p className="hero-line">
+              on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
+              <b>No download.</b>
+            </p>
+          </div>
           <p className="hero-body">
             We read your Steam library and stream the games you own from players' idle PCs. Your saves come
             with you.
           </p>
           <div className="hero-actions">
-            {best && game.f2p ? (
-              <button type="button" className="lpill" onClick={() => swiff.openGame(game)}>
-                Play free
-                <span className="lpill-c">
-                  <Glyph name="play" size={16} />
-                </span>
-              </button>
-            ) : null}
-            <SteamButton href={STEAM_LOGIN_URL} />
-            <span className="mono hero-fine">Signs in through Steam. We only read your game library.</span>
+            <SignInWithSteam />
+            <span className="mono hero-fine">We only read your game library.</span>
           </div>
         </div>
       )}
 
-      <aside className={libraryConnected ? "inst inst-lift" : "inst"} aria-label="Tonight">
-        {libraryConnected ? (
+      <aside className={signedIn ? "inst inst-lift" : "inst"} aria-label="Tonight">
+        {signedIn ? (
           <>
             <ResumeDial spin={spin}>
               <button
@@ -294,14 +331,14 @@ type TileProps = {
   /** The pointer has rested on this tile: play its trailer. */
   preview: boolean;
   swiff: Swiff;
-  libraryConnected: boolean;
+  signedIn: boolean;
 };
 
 /** One game in the ruled band: art flush in its cell, the title, and where it would run. */
-function BandTile({ game, preview, swiff, libraryConnected }: TileProps) {
+function BandTile({ game, preview, swiff, signedIn }: TileProps) {
   const { pool, session, prefs } = swiff;
   const best = freeFor(game, pool, session, prefs)[0];
-  const signInFirst = !libraryConnected && !game.f2p;
+  const signInFirst = !signedIn && !game.f2p;
   const locked = !best || signInFirst;
 
   let meta: ReactNode;
@@ -344,7 +381,7 @@ function BandTile({ game, preview, swiff, libraryConnected }: TileProps) {
       <span className="band-tile-title">
         <span>{game.title}</span>
         {/* Free-to-play is marked wherever it is not one of your own games. */}
-        {game.f2p && (!libraryConnected || !game.owned) ? <span className="free-mark">Free</span> : null}
+        {game.f2p && (!signedIn || !game.owned) ? <span className="free-mark">Free</span> : null}
       </span>
       <span className="band-tile-meta mono">{meta}</span>
     </button>

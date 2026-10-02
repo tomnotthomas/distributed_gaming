@@ -25,6 +25,12 @@ describe("Chrome", () => {
     expect(nav().getByRole("button", { name: "Share your PC" })).toHaveAttribute("aria-current", "page");
     expect(nav().getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");
   });
+
+  it("leaves signing in to the screen below rather than offering it again in the bar", () => {
+    render(<Chrome screen="home" onHome={noop} onProfile={noop} onShare={noop} live="4 free near you" />);
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Profile, not signed in" })).toBeInTheDocument();
+  });
 });
 
 describe("initials", () => {

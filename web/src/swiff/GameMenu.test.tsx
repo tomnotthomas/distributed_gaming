@@ -12,8 +12,9 @@ const bg3 = GAMES.find((game) => game.id === "bg3")!;
 const machines = machinesFor(bg3, MACHINES, "evening");
 
 /** Just the slice of the hook the game page reads. */
-const swiffWith = (phase: Swiff["phase"]) =>
+const swiffWith = (phase: Swiff["phase"], signedIn = true) =>
   ({
+    signedIn,
     game: bg3,
     machines,
     picked: MACHINES.tide,
@@ -37,5 +38,18 @@ describe("GameMenu", () => {
     render(<GameMenu swiff={swiffWith("connecting")} />);
 
     expect(screen.getByRole("button", { name: "Hold to launch on Tide" })).toBeDisabled();
+  });
+
+  it("asks a signed-out visitor to sign in with Steam instead of offering a launch", () => {
+    const { container } = render(<GameMenu swiff={swiffWith("idle", false)} />);
+
+    expect(screen.queryByRole("button", { name: /hold to launch/i })).toBeNull();
+    expect(screen.getByRole("link", { name: "Sign in with Steam" })).toHaveAttribute(
+      "href",
+      "/auth/steam/login",
+    );
+    // The machines can still be compared before signing in.
+    expect(screen.getByRole("button", { name: /Tide/ })).toBeEnabled();
+    expect(container.querySelector("video")).toBeNull();
   });
 });

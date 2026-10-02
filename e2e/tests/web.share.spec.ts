@@ -3,6 +3,7 @@
 // one download. Everything after the download happens in the desktop app.
 
 import { expect, test } from "@playwright/test";
+import { signIn } from "./credentials";
 
 const figure = (page: import("@playwright/test").Page) => page.locator(".share-figure b");
 
@@ -63,7 +64,9 @@ test.describe("share your PC", () => {
     await expect(page).toHaveURL(/\/share$/);
   });
 
-  test("keeps a running launch in place on Back", async ({ page }) => {
+  test("keeps a running launch in place on Back", async ({ page, context, baseURL }) => {
+    // Only a signed-in renter can launch.
+    await signIn(context, baseURL!);
     await page.goto("/share");
     await page.getByRole("navigation").getByRole("button", { name: "Home" }).click();
     await page.locator("button.band-tile").first().click();

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "./derive";
 import { GAMES, MACHINES, type Game } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
@@ -10,11 +10,12 @@ const noop = () => {};
 const pool = ["glass", "ember", "tide", "moss"];
 
 /** Just the slice of the hook the wall reads. */
-function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = noop): Swiff {
+function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = noop, motion = true): Swiff {
   return {
+    motion,
     games,
     profile,
-    libraryConnected: profile !== null,
+    signedIn: profile !== null,
     libraryRetrying: false,
     retryLibrary,
     pool: MACHINES,
@@ -49,16 +50,21 @@ const cs2: CatalogGame = {
   trailer: null,
 };
 
+/** jsdom has no media queries: answer every one as not matching, except `reduce` when asked. */
+function mediaQueries({ reduce = false } = {}) {
+  window.matchMedia = ((query: string) => ({
+    matches: reduce && query.includes("prefers-reduced-motion: reduce"),
+    media: query,
+    addEventListener: noop,
+    removeEventListener: noop,
+  })) as unknown as typeof window.matchMedia;
+}
+
+/** The hero's game title. */
+const heroTitle = () => screen.getByRole("heading", { level: 1 }).textContent;
+
 describe("Wall", () => {
-  // jsdom has no media queries; every display reads as normal.
-  beforeAll(() => {
-    window.matchMedia = ((query: string) => ({
-      matches: false,
-      media: query,
-      addEventListener: noop,
-      removeEventListener: noop,
-    })) as unknown as typeof window.matchMedia;
-  });
+  beforeAll(() => mediaQueries());
 
   it("tells a renter with a private library why, and still offers the curated free games with no store data", () => {
     render(<Wall swiff={swiffWith(applySteam(privateLibrary, pool), privateLibrary)} />);
@@ -105,14 +111,81 @@ describe("Wall", () => {
     expect(screen.getAllByText("Cyberpunk 2077").length).toBeGreaterThan(0);
   });
 
-  it("lets a signed-out visitor play the lead free-to-play game from the hero", () => {
-    const openGame = vi.fn();
-    render(<Wall swiff={{ ...swiffWith(GAMES, null), openGame }} />);
-    const lead = screen.getByRole("heading", { level: 1 }).textContent;
-    fireEvent.click(screen.getByRole("button", { name: "Play free" }));
-    expect(openGame).toHaveBeenCalledOnce();
-    const game = openGame.mock.calls[0]![0] as Game;
-    expect(game.title).toBe(lead);
-    expect(game.f2p).toBe(true);
+  it("offers a signed-out visitor one way in, Sign in with Steam, and no way to play from the hero", () => {
+    render(<Wall swiff={swiffWith(GAMES, null)} />);
+    const signIn = screen.getAllByRole("link", { name: /sign in/i });
+    expect(signIn).toHaveLength(1);
+    expect(signIn[0]).toHaveTextContent("Sign in with Steam");
+    expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
+    expect(screen.queryByRole("button", { name: /play free/i })).toBeNull();
+    expect(screen.queryByAltText("Sign in through Steam")).toBeNull();
+  });
+
+  it("shows still art in the hero, drifting, never a trailer", () => {
+    const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+    expect(container.querySelector(".hero video")).toBeNull();
+    expect(container.querySelector(".hero .backdrop-still.backdrop-drift")).not.toBeNull();
+  });
+
+  describe("signed out, the hero turns through games", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      mediaQueries();
+    });
+
+    it("moves to the next game every few seconds and keeps the one sign-in", () => {
+      vi.useFakeTimers();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      act(() => vi.advanceTimersByTime(7000));
+      expect(heroTitle()).not.toBe(first);
+      expect(screen.getAllByRole("link", { name: /sign in/i })).toHaveLength(1);
+    });
+
+    it("holds while the pointer is on the hero or focus is in it", () => {
+      vi.useFakeTimers();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      fireEvent.mouseEnter(screen.getByTestId("hero"));
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+
+      fireEvent.mouseLeave(screen.getByTestId("hero"));
+      fireEvent.focus(screen.getByRole("link", { name: "Sign in with Steam" }));
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("stays on one game under reduced motion or with motion off", () => {
+      vi.useFakeTimers();
+      mediaQueries({ reduce: true });
+      const { unmount } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+      unmount();
+
+      mediaQueries();
+      render(<Wall swiff={swiffWith(GAMES, null, noop, false)} />);
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("paints every game in the turn so the next image is loaded before it shows", () => {
+      const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      expect(container.querySelectorAll(".hero-slide").length).toBeGreaterThan(1);
+      expect(container.querySelectorAll(".hero-slide.on")).toHaveLength(1);
+    });
+  });
+
+  it("keeps a signed-in renter's hero on their own lead game", () => {
+    vi.useFakeTimers();
+    const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+    const { container } = render(<Wall swiff={swiffWith(applySteam(profile, pool), profile)} />);
+    const first = heroTitle();
+    act(() => vi.advanceTimersByTime(21_000));
+    expect(heroTitle()).toBe(first);
+    expect(container.querySelectorAll(".hero-slide")).toHaveLength(1);
+    vi.useRealTimers();
   });
 });

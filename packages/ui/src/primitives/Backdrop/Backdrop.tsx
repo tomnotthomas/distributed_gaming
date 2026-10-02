@@ -18,6 +18,12 @@ type Props = HTMLAttributes<HTMLDivElement> & {
   scrims?: readonly Scrim[];
   /** Defaults to MotionContext. False always shows the still. */
   motion?: boolean;
+  /**
+   * Let the still drift: a slow pan and zoom in place of a trailer, for a
+   * background that should feel alive without pulling the eye. Held still when
+   * motion is off and under prefers-reduced-motion.
+   */
+  drift?: boolean;
 };
 
 /**
@@ -32,11 +38,13 @@ export function Backdrop({
   position,
   scrims = [],
   motion,
+  drift,
   className,
   ...rest
 }: Props) {
   const allowed = useMotion();
-  const play = Boolean(video && video.length) && (motion ?? allowed);
+  const moving = motion ?? allowed;
+  const play = Boolean(video && video.length) && moving;
   // A new set of sources needs a new <video>: changing <source> children alone does not reload it.
   const videoKey = typeof video === "string" ? video : video?.map((s) => s.src).join(" ");
   const place: CSSProperties = position ? { objectPosition: position, backgroundPosition: position } : {};
@@ -46,7 +54,7 @@ export function Backdrop({
         <Trailer key={videoKey} className="backdrop-media" src={video!} poster={image} style={place} />
       ) : (
         <div
-          className="backdrop-media backdrop-still"
+          className={cx("backdrop-media backdrop-still", drift && moving && "backdrop-drift")}
           style={{
             backgroundImage: [image]
               .concat(fallback ?? [])

@@ -16,7 +16,7 @@ const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as co
 export function Swiff() {
   const swiff = useSwiff();
   useDisplay();
-  const { screen, phase, profile, libraryConnected, pool, machines } = swiff;
+  const { screen, phase, profile, signedIn, pool, machines } = swiff;
 
   // The app scrolls as one page; a new screen starts at its top.
   const page = useRef<HTMLDivElement>(null);
@@ -49,7 +49,7 @@ export function Swiff() {
             onBack={screen === "game" ? swiff.goHome : undefined}
             live={live}
             renter={
-              libraryConnected
+              signedIn
                 ? {
                     persona: profile?.persona ?? "",
                     session: { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession },

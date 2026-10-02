@@ -1,17 +1,8 @@
-import {
-  Avatar,
-  Button,
-  Divider,
-  IconButton,
-  Kicker,
-  Segment,
-  SettingRow,
-  StatusDot,
-  SteamButton,
-} from "@swiff/ui";
+import { Avatar, Button, Divider, IconButton, Kicker, Segment, SettingRow, StatusDot } from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
 import { initials } from "./Chrome";
 import { Glyph } from "./Glyph";
+import { SignInWithSteam } from "./SignIn";
 import type { Device, Quality, Swiff } from "./useSwiff";
 
 const QUALITY = [
@@ -28,20 +19,26 @@ const DEVICES: { id: Device; name: string; icon: IconName }[] = [
 
 /** Who you are on Steam, and the three settings that change how a session feels. */
 export function Profile({ swiff }: { swiff: Swiff }) {
-  const { profile, games, devices, quality, motion, sound } = swiff;
+  const { profile, steamId, signedIn, games, devices, quality, motion, sound } = swiff;
   const owned = games.filter((game) => game.owned).length;
-  const persona = profile?.persona || "Not signed in";
+  // The session says who is signed in. Steam may not have given a name (no Web
+  // API key on the server, or Steam did not answer), which is still signed in.
+  const persona = profile?.persona ?? "";
+  const name = signedIn ? persona || "Signed in with Steam" : "Not signed in";
 
   return (
     <main className="profile">
       <header className="profile-head">
-        <Avatar initial={initials(profile?.persona || "?")} size={72} />
+        <Avatar initial={initials(persona || "?")} size={72} />
         <div className="profile-id">
-          <div className="profile-name">{persona}</div>
-          {profile ? (
+          <div className="profile-name">{name}</div>
+          {signedIn ? (
             <div className="profile-line">
               <StatusDot />
-              Steam connected · {owned} games · {profile.size} in your library
+              Steam connected ·{" "}
+              {profile?.lib
+                ? `${owned} games · ${profile.size} in your library`
+                : `Steam id …${steamId?.slice(-4) ?? ""}`}
               <Button variant="link" size="sm" onClick={swiff.signOut}>
                 Sign out
               </Button>
@@ -53,8 +50,8 @@ export function Profile({ swiff }: { swiff: Swiff }) {
             </div>
           ) : (
             <div className="profile-connect">
-              <span className="profile-sub">Connect Steam to see the games you own.</span>
-              <SteamButton small />
+              <span className="profile-sub">Sign in to play the games you own on Steam.</span>
+              <SignInWithSteam small />
             </div>
           )}
         </div>
@@ -105,7 +102,7 @@ export function Profile({ swiff }: { swiff: Swiff }) {
         <div className="profile-grid">
           <SettingRow
             label="Motion on the wall"
-            hint="Clips play on the hero and on hover. Off shows stills."
+            hint="Game art drifts slowly and the hero turns through games; clips play on hover. Off holds it all still."
             control={
               <input type="checkbox" checked={motion} onChange={(e) => swiff.setMotion(e.target.checked)} />
             }

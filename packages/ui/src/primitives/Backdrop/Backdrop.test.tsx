@@ -26,6 +26,20 @@ describe("Backdrop", () => {
     expect(container.querySelector("video")).toBeNull();
   });
 
+  it("drifts the still instead of playing a video, and holds it when motion is off", () => {
+    const { container, rerender } = render(<Backdrop image="a.jpg" drift />);
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector(".backdrop-still")).toHaveClass("backdrop-drift");
+    rerender(
+      <MotionContext.Provider value={false}>
+        <Backdrop image="a.jpg" drift />
+      </MotionContext.Provider>,
+    );
+    expect(container.querySelector(".backdrop-still")).not.toHaveClass("backdrop-drift");
+    rerender(<Backdrop image="a.jpg" />);
+    expect(container.querySelector(".backdrop-still")).not.toHaveClass("backdrop-drift");
+  });
+
   it("paints the scrims it is asked for, in order", () => {
     const { container } = render(<Backdrop image="a.jpg" scrims={["pocket", "bottom"]} />);
     const scrims = [...container.querySelectorAll(".backdrop-scrim")].map((el) =>

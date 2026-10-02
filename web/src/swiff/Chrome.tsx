@@ -1,5 +1,4 @@
 import { Glyph } from "./Glyph";
-import { STEAM_LOGIN_URL } from "./steam";
 import type { Screen } from "./useSwiff";
 
 type Props = {
@@ -87,22 +86,15 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, rente
             </button>
           </>
         ) : (
-          <>
-            <button
-              type="button"
-              className="acct acct-out"
-              onClick={onProfile}
-              aria-label="Profile, not signed in"
-            >
-              <span className="mono">Not signed in</span>
-            </button>
-            <a className="lpill lpill-sm" href={STEAM_LOGIN_URL}>
-              Sign in
-              <span className="lpill-c">
-                <Glyph name="arrow" size={16} />
-              </span>
-            </a>
-          </>
+          // Signing in is offered once, by the screen below, where you would play.
+          <button
+            type="button"
+            className="acct acct-out"
+            onClick={onProfile}
+            aria-label="Profile, not signed in"
+          >
+            <span className="mono">Not signed in</span>
+          </button>
         )}
       </div>
     </header>
