@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_WEEK, type Week } from "./estimate";
-import { EstimateSheet, HOST_DOWNLOAD_URL, SharePC } from "./SharePC";
+import { EstimateSheet, SharePC } from "./SharePC";
 import { screenAt } from "./route";
 import type { Swiff } from "./useSwiff";
 
@@ -10,10 +10,10 @@ import type { Swiff } from "./useSwiff";
  * Just the slice of the hook Share your PC reads, kept in real state so a
  * change made on the page or the sheet shows on both, as in the app.
  */
-function Harness({ countDownload = () => {} }: { countDownload?: () => void }) {
+function Harness() {
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [estimateOpen, setEstimateOpen] = useState(false);
-  const swiff = { week, setWeek, estimateOpen, setEstimateOpen, countDownload } as unknown as Swiff;
+  const swiff = { week, setWeek, estimateOpen, setEstimateOpen } as unknown as Swiff;
   return (
     <>
       <SharePC swiff={swiff} />
@@ -35,22 +35,12 @@ describe("SharePC", () => {
     expect(screen.getByText("20:00 to 02:00")).toBeInTheDocument();
   });
 
-  it("offers one download, for Windows, at the host download address", () => {
+  it("shows the Windows download as coming soon until an installer is published", () => {
     render(<Harness />);
-    const download = screen.getByRole("link", { name: /Download for Windows/ });
-    expect(download).toHaveAttribute("href", HOST_DOWNLOAD_URL);
-    expect(screen.getAllByRole("link")).toHaveLength(1);
-  });
-
-  it("counts a download click", () => {
-    const countDownload = vi.fn();
-    render(<Harness countDownload={countDownload} />);
-    // jsdom cannot navigate; the click only has to reach the handler.
-    const stop = (event: Event) => event.preventDefault();
-    document.addEventListener("click", stop);
-    fireEvent.click(screen.getByRole("link", { name: /Download for Windows/ }));
-    document.removeEventListener("click", stop);
-    expect(countDownload).toHaveBeenCalledOnce();
+    const download = screen.getByRole("button", { name: /Download for Windows/ });
+    expect(download).toBeDisabled();
+    expect(download).toHaveAccessibleDescription("Coming soon");
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   it("re-estimates when another tier is picked", () => {

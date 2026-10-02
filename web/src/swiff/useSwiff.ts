@@ -3,7 +3,7 @@ import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
 import { freeFor, machinesFor } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
-import { SHARE_PATH, screenAt } from "./route";
+import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
 import {
   applySteam,
@@ -223,13 +223,22 @@ export function useSwiff() {
   // Only Share your PC changes the address: /share while it is up, / once it
   // is left, so Back and Forward move between it and the wall.
   useEffect(() => {
-    const path = screen === "share" ? SHARE_PATH : "/";
+    const path = pathOf(screen);
     if (screenAt(location.pathname) !== screenAt(path)) history.pushState(null, "", path + location.search);
     if (screen !== "share") setEstimateOpen(false);
   }, [screen]);
 
+  // While Ignition or a session covers the page, Back and Forward leave the
+  // screen behind it alone and put its address back.
+  const covered = useRef({ screen, phase });
+  covered.current = { screen, phase };
   useEffect(() => {
-    const onPop = () => setScreen(screenAt(location.pathname));
+    const onPop = () => {
+      const { screen, phase } = covered.current;
+      if (phase === "idle") setScreen(screenAt(location.pathname));
+      else if (screenAt(location.pathname) !== screenAt(pathOf(screen)))
+        history.pushState(null, "", pathOf(screen) + location.search);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -238,11 +247,6 @@ export function useSwiff() {
     track("share_opened");
     setScreen("share");
   }, []);
-
-  /** The download itself is the link; this only counts it, with what the owner had picked. */
-  const countDownload = useCallback(() => {
-    track("host_download_clicked", { tier: week.tier });
-  }, [week.tier]);
 
   const goHome = useCallback(() => {
     setScreen("home");
@@ -383,7 +387,6 @@ export function useSwiff() {
     estimateOpen,
     goHome,
     openShare,
-    countDownload,
     setWeek,
     setEstimateOpen,
     openGame,

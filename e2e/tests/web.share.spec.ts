@@ -52,9 +52,34 @@ test.describe("share your PC", () => {
     await expect(page.getByRole("button", { name: "How we got this number" })).toBeFocused();
   });
 
-  test("offers one download for Windows", async ({ page }) => {
+  test("shows the Windows download as coming soon", async ({ page }) => {
     await page.goto("/share");
-    const download = page.getByRole("link", { name: /Download for Windows/ });
-    await expect(download).toHaveAttribute("href", /^https:\/\//);
+    const download = page.getByRole("button", { name: /Download for Windows/ });
+    await expect(download).toBeDisabled();
+    await expect(download).toHaveAccessibleDescription("Coming soon");
+    await expect(page.getByTestId("share").getByRole("link")).toHaveCount(0);
+
+    await download.click({ force: true });
+    await expect(page).toHaveURL(/\/share$/);
+  });
+
+  test("keeps a running launch in place on Back", async ({ page }) => {
+    await page.goto("/share");
+    await page.getByRole("navigation").getByRole("button", { name: "Home" }).click();
+    await page.locator("button.band-tile").first().click();
+
+    const reticle = page.getByRole("button", { name: /^Hold to launch on / });
+    await reticle.focus();
+    await page.keyboard.down(" ");
+    await expect(page.locator(".sw-page")).toHaveAttribute("inert", "");
+    await page.keyboard.up(" ");
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator(".sw")).toHaveAttribute("data-screen", "game");
+
+    await page.getByRole("button", { name: "End session" }).click({ timeout: 15_000 });
+    await expect(page.locator(".sw")).toHaveAttribute("data-screen", "game");
+    await expect(page.getByTestId("share")).toHaveCount(0);
   });
 });

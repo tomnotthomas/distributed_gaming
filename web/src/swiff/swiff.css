@@ -1503,6 +1503,9 @@ button.band-tab:hover {
 .share-fine {
   color: var(--ink-2);
 }
+.share-actions .lpill:disabled {
+  cursor: not-allowed;
+}
 .share-note {
   max-width: 100%;
   margin: 12px 0 0;

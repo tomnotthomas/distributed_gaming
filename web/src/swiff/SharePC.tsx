@@ -19,12 +19,12 @@ import { gameArt, gameArtFallbacks } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /**
- * PLACEHOLDER: no installer is published yet. CI's package-desktop job builds
- * SwiffHost-<version>.exe but keeps it only as a three-day workflow artifact,
- * so this points at the repository's releases page, where a release would put
- * it. Swap in the real download once there is one.
+ * Where the host installer is downloaded from, or null while none is published:
+ * CI's package-desktop job builds SwiffHost-<version>.exe but keeps it only as a
+ * three-day workflow artifact. Until this is set the button says Coming soon
+ * and goes nowhere; setting it makes the button the download link.
  */
-export const HOST_DOWNLOAD_URL = "https://github.com/tomnotthomas/distributed_gaming/releases/latest";
+export const HOST_DOWNLOAD_URL: string | null = null;
 
 /** The estimate's key art: the mockup's, in full colour. */
 const ART = GAMES.find((g) => g.id === "er")!;
@@ -87,13 +87,29 @@ export function SharePC({ swiff }: { swiff: Swiff }) {
           <TierPicker value={week.tier} onChange={(id) => setWeek({ ...week, tier: id })} />
 
           <div className="share-actions">
-            <a className="lpill" href={HOST_DOWNLOAD_URL} onClick={swiff.countDownload}>
-              Download for Windows
-              <span className="lpill-c">
-                <Glyph name="download" size={18} />
-              </span>
-            </a>
-            <span className="mono share-fine">Windows, 64-bit</span>
+            {HOST_DOWNLOAD_URL ? (
+              <>
+                <a className="lpill" href={HOST_DOWNLOAD_URL}>
+                  Download for Windows
+                  <span className="lpill-c">
+                    <Glyph name="download" size={18} />
+                  </span>
+                </a>
+                <span className="mono share-fine">Windows, 64-bit</span>
+              </>
+            ) : (
+              <>
+                <button type="button" className="lpill" disabled aria-describedby="share-soon">
+                  Download for Windows
+                  <span className="lpill-c">
+                    <Glyph name="download" size={18} />
+                  </span>
+                </button>
+                <span className="mono share-fine" id="share-soon">
+                  Coming soon
+                </span>
+              </>
+            )}
           </div>
           <p className="share-note">
             Open it on the PC you want to share. The app reads your hardware and sets your exact rate.
