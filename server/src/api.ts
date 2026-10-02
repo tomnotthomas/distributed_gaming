@@ -106,12 +106,12 @@ function hostReport(body: Json): HostReport {
   }
 }
 
-/** An ISO date or unix ms, as unix ms. */
+/** An ISO date or unix ms, as whole unix ms: the database keeps times to the ms. */
 const optionalTime = (value: unknown, field: string): number | undefined => {
   if (value === undefined || value === null) return undefined;
   const ms = typeof value === "number" ? value : typeof value === "string" ? Date.parse(value) : NaN;
   if (!Number.isFinite(ms)) throw new HttpError(400, `${field} must be a date`);
-  return ms;
+  return Math.round(ms);
 };
 
 /** A whole number from 1 to `max`, or a 400 naming the field. */
@@ -256,9 +256,9 @@ export function createApi({
       }
       // Repeats are answered once, however they are spelled ("730" and "0730").
       const parsed = new Set(appids.map((a) => wholeParam(a, "appids[]", MAX_APPID)));
-      const games = [...parsed].map((appid) => platform.requirements(appid));
+      const games = await platform.requirements([...parsed]);
       const ask = renterAsk(steamId, query);
-      const { at, machines } = platform.offeredMachines();
+      const { at, machines } = await platform.offeredMachines();
       reply(res, 200, availabilityFor(games, ask, machines, at));
       return true;
     }
@@ -267,11 +267,12 @@ export function createApi({
       const steamId = requireDiscovery(req, res);
       if (!steamId) return true;
       const query = queryOf(req);
-      const game = platform.requirements(wholeParam(id, "appid", MAX_APPID));
+      const appid = wholeParam(id, "appid", MAX_APPID);
       const minutes = wholeParam(query.get("minutes"), "minutes", MAX_MINUTES);
       const ask = renterAsk(steamId, query);
-      const { at, machines } = platform.offeredMachines();
-      reply(res, 200, machinesFor(game, minutes, ask, machines, at));
+      const [game] = await platform.requirements([appid]);
+      const { at, machines } = await platform.offeredMachines();
+      reply(res, 200, machinesFor(game!, minutes, ask, machines, at));
       return true;
     }
 
@@ -281,10 +282,10 @@ export function createApi({
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
       // The stream ends when the session does, as any other call would be refused then.
-      const opened = events.open(res, bookingId, session.steamId, session.exp * 1000);
+      const opened = await events.open(res, bookingId, session.steamId, session.exp * 1000);
       if (opened === "not-found") throw new HttpError(404, "no such booking");
       if (opened === "too-many") throw new HttpError(429, "too many open event streams");
-      return true;
+      return true; // opened, or nobody left to answer
     }
 
     if (resource === "me" && !id && method === "GET") {
@@ -316,7 +317,7 @@ export function createApi({
     if (resource === "bookings" && !id && method === "POST") {
       const renter = requireRenter(req, sessionSecret);
       const body = await readJson(req);
-      const booking = platform.book(
+      const booking = await platform.book(
         positiveInt(body.gameId, "gameId"),
         positiveInt(body.minutes, "minutes", MAX_MINUTES),
         renter,
@@ -327,7 +328,7 @@ export function createApi({
 
     if (resource === "bookings" && id && !action && method === "GET") {
       // Somebody else's booking reads exactly like one that does not exist.
-      const booking = platform.booking(id, requireRenter(req, sessionSecret));
+      const booking = await platform.booking(id, requireRenter(req, sessionSecret));
       if (!booking) throw new HttpError(404, "no such booking");
       reply(res, 200, booking);
       return true;
@@ -335,7 +336,7 @@ export function createApi({
 
     if (resource === "bookings" && id && action === "seen" && method === "POST") {
       // The renter's page is still there: counts as checking on the booking.
-      if (!platform.booking(id, requireRenter(req, sessionSecret)))
+      if (!(await platform.booking(id, requireRenter(req, sessionSecret))))
         throw new HttpError(404, "no such booking");
       res.writeHead(204, { "cache-control": "no-store" });
       res.end();
@@ -347,14 +348,14 @@ export function createApi({
       // Checked before the reservation is spent: a claim that cannot hand out
       // a ticket must not use up the renter's machine.
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
-      const claim = platform.claim(id, renter);
+      const claim = await platform.claim(id, renter);
       if (!claim.ok) {
         if (claim.reason === "not-found") throw new HttpError(404, "no such booking");
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
       const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60);
-      platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
+      await platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
       const origin = originFrom(req.headers, fallbackOrigin);
       reply(res, 200, {
         sessionId: claim.sessionId,
@@ -372,7 +373,7 @@ export function createApi({
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
-      const machine = platform.setAvailability(id, body.available, {
+      const machine = await platform.setAvailability(id, body.available, {
         ...hostReport(body),
         price,
         availableUntil: optionalTime(body.until, "until"),
@@ -384,19 +385,19 @@ export function createApi({
     if (resource === "machines" && id && action === "heartbeat" && method === "POST") {
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
-      reply(res, 200, platform.heartbeat(id, hostReport(body)));
+      reply(res, 200, await platform.heartbeat(id, hostReport(body)));
       return true;
     }
 
     if (resource === "sessions" && id && (action === "start" || action === "end") && method === "POST") {
-      const machineId = platform.sessionMachine(id);
+      const machineId = await platform.sessionMachine(id);
       if (!machineId) throw new HttpError(404, "no such session");
       requireMachine(req, access, machineId);
       const body = await readJson(req);
       const ok =
         action === "start"
-          ? platform.startSession(machineId, id)
-          : platform.endSession(machineId, id, optionalTime(body.endedAt, "endedAt"));
+          ? await platform.startSession(machineId, id)
+          : await platform.endSession(machineId, id, optionalTime(body.endedAt, "endedAt"));
       if (!ok) throw new HttpError(409, "the session is already over");
       reply(res, 200, { sessionId: id, roomId: machineId });
       return true;
@@ -409,14 +410,14 @@ export function createApi({
       // valid, for at most QOS_GRACE_MS (platform.ts).
       const ticket = requireTicket(req, access);
       const report = qosReport(await readJson(req, MAX_QOS_BODY_BYTES));
-      const result = platform.recordQos(id, ticket.id, report);
+      const result = await platform.recordQos(id, ticket.id, report);
       if (result !== "ok") throw renterRefusal(result);
       reply(res, 200, { sessionId: id });
       return true;
     }
 
     if (resource === "sessions" && id && action === "leave" && method === "POST") {
-      const result = platform.leaveSession(id, requireTicket(req, access).id);
+      const result = await platform.leaveSession(id, requireTicket(req, access).id);
       if (result !== "ok") throw renterRefusal(result);
       reply(res, 200, { sessionId: id });
       return true;

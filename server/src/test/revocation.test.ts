@@ -1,21 +1,18 @@
 // A renter whose ticket is revoked is put out even when the session-end notice
 // that normally does it never ran. The ticket is revoked here by ending the
-// session straight in the database file, behind the server's back: only the
-// relay check, the host registration check and the slow reconcile can see it.
+// session straight in the database, behind the server's back: only the relay
+// check, the host registration check and the slow reconcile can see it.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { mintRenterSession } from "../access.js";
 import type { SignalMessage } from "../protocol.js";
 import { SESSION_COOKIE } from "../signin.js";
+import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
@@ -25,14 +22,20 @@ const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 const SESSION = "test-session-secret-that-is-long-enough-too";
 /** A signed-in renter: booking and claiming need one. */
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION, "76561198000000001", 3600)}`;
-const DIR = mkdtempSync(join(tmpdir(), "swiff-revocation-"));
-
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const servers: ChildProcess[] = [];
+const databases: ServerDatabase[] = [];
 
-after(() => {
-  for (const server of servers) server.kill();
-  rmSync(DIR, { recursive: true, force: true });
+after(async () => {
+  await Promise.all(
+    servers.map((server) => {
+      if (server.exitCode !== null || server.signalCode !== null) return;
+      const exited = new Promise((resolve) => server.once("exit", resolve));
+      server.kill();
+      return exited;
+    }),
+  );
+  for (const database of databases) await database.close();
 });
 
 /** Ports already given to a server here: each child server gets its own. */
@@ -47,10 +50,11 @@ function freshPort(): number {
   return port;
 }
 
-/** A server on its own database file, with the ticket reconcile every `reconcileMs`. */
-async function startServer(name: string, reconcileMs: number) {
+/** A server on a database of its own, with the ticket reconcile every `reconcileMs`. */
+async function startServer(reconcileMs: number) {
   const port = freshPort();
-  const databasePath = join(DIR, `${name}.db`);
+  const database = await serverDatabase();
+  databases.push(database);
   servers.push(
     spawn(process.execPath, [SERVER], {
       env: {
@@ -59,14 +63,15 @@ async function startServer(name: string, reconcileMs: number) {
         ROOM_SECRET: SECRET,
         SESSION_SECRET: SESSION,
         MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
-        DATABASE_PATH: databasePath,
+        DATABASE_URL: database.url,
         SWIFF_TICKET_RECONCILE_MS: String(reconcileMs),
       },
       stdio: "ignore",
     }),
   );
   const origin = `http://localhost:${port}`;
-  for (let i = 0; i < 50; i++) {
+  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
+  for (let i = 0; i < 150; i++) {
     try {
       await fetch(`${origin}/api/bookings/none`);
       break;
@@ -97,12 +102,9 @@ async function startServer(name: string, reconcileMs: number) {
     return claim.body.ticket as string;
   };
 
-  /** End every open session in the file without telling the server: its tickets are revoked. */
-  const revokeBehindTheServersBack = () => {
-    const db = new DatabaseSync(databasePath);
-    db.prepare("UPDATE sessions SET ended_at = ? WHERE ended_at IS NULL").run(Date.now());
-    db.close();
-  };
+  /** End every open session in the database without telling the server: its tickets are revoked. */
+  const revokeBehindTheServersBack = () =>
+    database.exec(`UPDATE sessions SET ended_at = ${Date.now()} WHERE ended_at IS NULL`);
 
   /** A socket that sends `first` once open and records what it hears and how it closes. */
   const peer = (first: SignalMessage) => {
@@ -120,9 +122,9 @@ async function startServer(name: string, reconcileMs: number) {
 describe("revoked ticket without the session-end notice", () => {
   it(
     "puts the renter out on its next relayed frame, and relays nothing for it",
-    { timeout: 15_000 },
+    { timeout: 60_000 },
     async () => {
-      const server = await startServer("relay", 60_000);
+      const server = await startServer(60_000);
       const ticket = await server.claimTicket("pc-1");
       const host = server.peer({ type: "register", hostId: "pc-1", key: MACHINE_KEY });
       await wait(200);
@@ -130,7 +132,7 @@ describe("revoked ticket without the session-end notice", () => {
       await wait(200);
       assert.equal(renter.received[0]?.type, "joined");
 
-      server.revokeBehindTheServersBack();
+      await server.revokeBehindTheServersBack();
       renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "x" } }));
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
@@ -142,15 +144,15 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "puts a waiting renter out when the host registers, without telling the host it is there",
-    { timeout: 15_000 },
+    { timeout: 60_000 },
     async () => {
-      const server = await startServer("register", 60_000);
+      const server = await startServer(60_000);
       const ticket = await server.claimTicket("pc-1");
       const renter = server.peer({ type: "join", ticket });
       await wait(200);
       assert.equal(renter.received[0]?.type, "joined");
 
-      server.revokeBehindTheServersBack();
+      await server.revokeBehindTheServersBack();
       const host = server.peer({ type: "register", hostId: "pc-1", key: MACHINE_KEY });
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
@@ -160,14 +162,14 @@ describe("revoked ticket without the session-end notice", () => {
     },
   );
 
-  it("puts a silent renter out at the next reconcile", { timeout: 15_000 }, async () => {
-    const server = await startServer("reconcile", 200);
+  it("puts a silent renter out at the next reconcile", { timeout: 60_000 }, async () => {
+    const server = await startServer(200);
     const ticket = await server.claimTicket("pc-2");
     const renter = server.peer({ type: "join", ticket });
     await wait(150);
     assert.equal(renter.received[0]?.type, "joined");
 
-    server.revokeBehindTheServersBack();
+    await server.revokeBehindTheServersBack();
     assert.equal(await renter.closed, 4003);
     assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
   });

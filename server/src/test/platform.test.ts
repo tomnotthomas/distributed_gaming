@@ -1,284 +1,368 @@
-// The booking lifecycle and machine liveness, against a real SQLite database
-// in memory and a clock the tests move by hand.
+// The booking lifecycle and machine liveness, against a real Postgres
+// database (test/db.ts) and a clock the tests move by hand.
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import type { Database } from "../db.js";
 import {
   LIVENESS_MS,
   Platform,
   QOS_GRACE_MS,
   QUEUE_TIMEOUT_MS,
   RESERVATION_MS,
+  RETRY_MS,
   TIME_UP_GRACE_MS,
+  type BookingView,
   type MachineSpec,
+  type PlatformOptions,
 } from "../platform.js";
+import { testDatabase, testSchema } from "./db.js";
 import { REPORT } from "./report.js";
 
 let now: number;
 let platform: Platform;
 
-beforeEach(() => {
+/** A platform on a fresh database and the test clock, in place of the last one. */
+async function openPlatform(options: Omit<PlatformOptions, "database" | "now"> = {}): Promise<Platform> {
+  await platform?.close();
+  platform = await Platform.open({ database: await testDatabase(), now: () => now, ...options });
+  return platform;
+}
+
+beforeEach(async () => {
   now = Date.UTC(2026, 8, 30, 12);
-  platform = new Platform({ now: () => now });
+  await openPlatform();
 });
+
+afterEach(() => platform.close());
 
 /** Offer a machine that has every test game and the hardware for it. */
 const offer = (machineId: string, spec: MachineSpec = {}) =>
   platform.setAvailability(machineId, true, { ...REPORT, ...spec });
 
-const advance = (ms: number) => {
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const advance = async (ms: number) => {
   now += ms;
-  platform.tick();
+  await platform.tick();
 };
 
 /** Keep a machine alive across `ms`, beating every 5 s as the host app does. */
-const beatFor = (machineId: string, ms: number) => {
+const beatFor = async (machineId: string, ms: number) => {
   for (let t = 0; t < ms; t += 5_000) {
-    advance(Math.min(5_000, ms - t));
-    platform.heartbeat(machineId);
+    await advance(Math.min(5_000, ms - t));
+    await platform.heartbeat(machineId);
   }
 };
 
 describe("booking lifecycle", () => {
-  it("goes queued -> matched -> claimed -> playing -> ended", () => {
-    const booking = platform.book(730, 30);
+  it("goes queued -> matched -> claimed -> playing -> ended", async () => {
+    const booking = await platform.book(730, 30);
     assert.equal(booking.status, "queued");
 
-    offer("pc-1", { price: 120 });
-    const matched = platform.booking(booking.bookingId)!;
+    await offer("pc-1", { price: 120 });
+    const matched = (await platform.booking(booking.bookingId))!;
     assert.equal(matched.status, "matched");
     assert.equal(matched.machine?.id, "pc-1");
     assert.equal(matched.claimBy, now + RESERVATION_MS);
-    assert.equal(platform.heartbeat("pc-1").status, "reserved");
+    assert.equal((await platform.heartbeat("pc-1")).status, "reserved");
 
-    const claim = platform.claim(booking.bookingId);
+    const claim = await platform.claim(booking.bookingId);
     assert.ok(claim.ok);
     assert.equal(claim.roomId, "pc-1");
     assert.equal(claim.minutes, 30);
-    assert.equal(platform.booking(booking.bookingId)!.status, "claimed");
-    const machine = platform.heartbeat("pc-1");
+    assert.equal((await platform.booking(booking.bookingId))!.status, "claimed");
+    const machine = await platform.heartbeat("pc-1");
     assert.equal(machine.status, "in_session");
     assert.equal(machine.session?.id, claim.sessionId);
 
-    assert.ok(platform.startSession("pc-1", claim.sessionId));
-    assert.equal(platform.booking(booking.bookingId)!.status, "playing");
+    assert.ok(await platform.startSession("pc-1", claim.sessionId));
+    assert.equal((await platform.booking(booking.bookingId))!.status, "playing");
 
-    beatFor("pc-1", 20 * 60_000);
-    assert.ok(platform.endSession("pc-1", claim.sessionId));
-    assert.equal(platform.booking(booking.bookingId)!.status, "ended");
-    assert.equal(platform.heartbeat("pc-1").status, "available");
+    await beatFor("pc-1", 20 * 60_000);
+    assert.ok(await platform.endSession("pc-1", claim.sessionId));
+    assert.equal((await platform.booking(booking.bookingId))!.status, "ended");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
   });
 
-  it("matches a booking at once when a machine is already free", () => {
-    offer("pc-1");
-    const booking = platform.book(730, 30);
+  it("matches a booking at once when a machine is already free", async () => {
+    await offer("pc-1");
+    const booking = await platform.book(730, 30);
     assert.equal(booking.status, "matched");
     assert.equal(booking.machine?.id, "pc-1");
   });
 
-  it("refuses a claim once the reservation has lapsed and the renter is gone, and frees the machine", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
+  it("refuses a claim once the reservation has lapsed and the renter is gone, and frees the machine", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
 
-    beatFor("pc-1", QUEUE_TIMEOUT_MS);
-    const claim = platform.claim(bookingId);
+    await beatFor("pc-1", QUEUE_TIMEOUT_MS);
+    const claim = await platform.claim(bookingId);
     assert.deepEqual(claim, { ok: false, reason: "not-claimable", status: "expired" });
-    assert.equal(platform.booking(bookingId)!.status, "expired");
-    assert.equal(platform.heartbeat("pc-1").status, "available");
+    assert.equal((await platform.booking(bookingId))!.status, "expired");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
   });
 
-  it("refuses a claim that is too early, a second claim, and an unknown booking", () => {
-    const { bookingId } = platform.book(730, 30);
-    assert.deepEqual(platform.claim(bookingId), { ok: false, reason: "not-claimable", status: "queued" });
+  it("refuses a claim that is too early, a second claim, and an unknown booking", async () => {
+    const { bookingId } = await platform.book(730, 30);
+    assert.deepEqual(await platform.claim(bookingId), {
+      ok: false,
+      reason: "not-claimable",
+      status: "queued",
+    });
 
-    offer("pc-1");
-    assert.ok(platform.claim(bookingId).ok);
-    assert.deepEqual(platform.claim(bookingId), { ok: false, reason: "not-claimable", status: "claimed" });
-    assert.deepEqual(platform.claim("nope"), { ok: false, reason: "not-found" });
+    await offer("pc-1");
+    assert.ok((await platform.claim(bookingId)).ok);
+    assert.deepEqual(await platform.claim(bookingId), {
+      ok: false,
+      reason: "not-claimable",
+      status: "claimed",
+    });
+    assert.deepEqual(await platform.claim("nope"), { ok: false, reason: "not-found" });
   });
 
-  it("gives a machine to at most one booking, and the next one waits in order", () => {
-    offer("pc-1");
-    const first = platform.book(730, 30);
-    const second = platform.book(570, 30);
+  it("gives a machine to at most one booking, and the next one waits in order", async () => {
+    await offer("pc-1");
+    const first = await platform.book(730, 30);
+    const second = await platform.book(570, 30);
     assert.equal(first.status, "matched");
     assert.equal(second.status, "queued");
 
-    const claim = platform.claim(first.bookingId);
+    const claim = await platform.claim(first.bookingId);
     assert.ok(claim.ok);
-    assert.equal(platform.booking(second.bookingId)!.status, "queued");
+    assert.equal((await platform.booking(second.bookingId))!.status, "queued");
 
-    platform.endSession("pc-1", claim.sessionId);
-    assert.equal(platform.booking(second.bookingId)!.status, "matched");
+    await platform.endSession("pc-1", claim.sessionId);
+    assert.equal((await platform.booking(second.bookingId))!.status, "matched");
   });
 
-  it("does not match a machine that is not free for the whole booking", () => {
-    offer("pc-1", { availableUntil: now + 20 * 60_000 });
-    const long = platform.book(730, 30);
-    const short = platform.book(570, 15);
-    assert.equal(platform.booking(long.bookingId)!.status, "queued");
-    assert.equal(platform.booking(short.bookingId)!.machine?.id, "pc-1");
+  it("does not match a machine that is not free for the whole booking", async () => {
+    await offer("pc-1", { availableUntil: now + 20 * 60_000 });
+    const long = await platform.book(730, 30);
+    const short = await platform.book(570, 15);
+    assert.equal((await platform.booking(long.bookingId))!.status, "queued");
+    assert.equal((await platform.booking(short.bookingId))!.machine?.id, "pc-1");
   });
 
-  it("prices only the time actually played", () => {
-    offer("pc-1", { price: 120 }); // cents per hour
-    const { bookingId } = platform.book(730, 60);
-    const claim = platform.claim(bookingId);
+  it("prices only the time actually played", async () => {
+    await offer("pc-1", { price: 120 }); // cents per hour
+    const { bookingId } = await platform.book(730, 60);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
-    beatFor("pc-1", 5 * 60_000); // the renter takes five minutes to arrive
-    platform.startSession("pc-1", claim.sessionId);
-    beatFor("pc-1", 30 * 60_000);
-    platform.endSession("pc-1", claim.sessionId);
-    assert.equal(platform.booking(bookingId)!.price, 60);
+    await beatFor("pc-1", 5 * 60_000); // the renter takes five minutes to arrive
+    await platform.startSession("pc-1", claim.sessionId);
+    await beatFor("pc-1", 30 * 60_000);
+    await platform.endSession("pc-1", claim.sessionId);
+    assert.equal((await platform.booking(bookingId))!.price, 60);
   });
 
-  it("ends a session the host never ends when its ticket runs out", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 10);
-    const claim = platform.claim(bookingId);
+  it("ends a session the host never ends when its ticket runs out", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 10);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
 
-    beatFor("pc-1", 10 * 60_000);
-    assert.equal(platform.booking(bookingId)!.status, "ended");
-    assert.equal(platform.heartbeat("pc-1").status, "available");
-    assert.equal(platform.startSession("pc-1", claim.sessionId), false);
+    await beatFor("pc-1", 10 * 60_000);
+    assert.equal((await platform.booking(bookingId))!.status, "ended");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+    assert.equal(await platform.startSession("pc-1", claim.sessionId), false);
   });
 
-  it("only lets a machine start and end its own sessions", () => {
-    offer("pc-1");
-    platform.setAvailability("pc-2", false);
-    const { bookingId } = platform.book(730, 30);
-    const claim = platform.claim(bookingId);
+  it("only lets a machine start and end its own sessions", async () => {
+    await offer("pc-1");
+    await platform.setAvailability("pc-2", false);
+    const { bookingId } = await platform.book(730, 30);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
-    assert.equal(platform.sessionMachine(claim.sessionId), "pc-1");
-    assert.equal(platform.startSession("pc-2", claim.sessionId), false);
-    assert.equal(platform.endSession("pc-2", claim.sessionId), false);
-    assert.equal(platform.booking(bookingId)!.status, "claimed");
+    assert.equal(await platform.sessionMachine(claim.sessionId), "pc-1");
+    assert.equal(await platform.startSession("pc-2", claim.sessionId), false);
+    assert.equal(await platform.endSession("pc-2", claim.sessionId), false);
+    assert.equal((await platform.booking(bookingId))!.status, "claimed");
+  });
+});
+
+describe("calls made at once", () => {
+  it("runs them in the order they were made", async () => {
+    // Not awaited in between: each still sees what the ones before it did.
+    const first = platform.book(730, 30);
+    const machine = offer("pc-1");
+    const second = platform.book(730, 30);
+    assert.equal((await first).status, "queued", "no machine yet when it ran");
+    assert.equal((await machine).status, "reserved", "matched at once to the booking before it");
+    assert.equal((await second).status, "queued", "the one machine is taken");
+    assert.equal((await platform.booking((await first).bookingId))!.status, "matched");
+  });
+
+  it("gives a machine to one booking however many are made at once", async () => {
+    await offer("pc-1");
+    const bookings = await Promise.all(
+      ["r1", "r2", "r3", "r4", "r5"].map((renter) => platform.book(730, 30, renter)),
+    );
+    assert.deepEqual(
+      bookings.map((booking) => booking.status),
+      ["matched", "queued", "queued", "queued", "queued"],
+    );
+  });
+
+  it("lets one of two claims made at once take the machine", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    const claims = await Promise.all([platform.claim(bookingId), platform.claim(bookingId)]);
+    assert.deepEqual(
+      claims.map((claim) => claim.ok),
+      [true, false],
+    );
+    assert.deepEqual(claims[1], { ok: false, reason: "not-claimable", status: "claimed" });
+  });
+
+  it("gives a machine to one booking when two servers on the same database book at once", async () => {
+    await withDatabase(async (open) => {
+      const a = await Platform.open({ database: open(), now: () => now });
+      const b = await Platform.open({ database: open(), now: () => now });
+      await a.setAvailability("pc-1", true, REPORT);
+      const bookings = await Promise.all(
+        [a, b, a, b, a, b].map((server, i) => server.book(730, 30, `renter-${i}`)),
+      );
+      assert.equal(bookings.filter((booking) => booking.status === "matched").length, 1);
+      const db = open();
+      const { rows } = await db.query("SELECT machine_id FROM reservations");
+      assert.deepEqual(rows, [{ machine_id: "pc-1" }]);
+      await db.close();
+      await Promise.all([a.close(), b.close()]);
+    });
   });
 });
 
 describe("queue timeout", () => {
-  it("drops a queued booking the renter stopped checking on, and never matches it", () => {
-    const { bookingId } = platform.book(730, 30);
-    advance(QUEUE_TIMEOUT_MS);
-    offer("pc-1");
-    assert.equal(platform.heartbeat("pc-1").status, "available");
-    assert.equal(platform.booking(bookingId)!.status, "expired");
-    assert.deepEqual(platform.claim(bookingId), { ok: false, reason: "not-claimable", status: "expired" });
+  it("drops a queued booking the renter stopped checking on, and never matches it", async () => {
+    const { bookingId } = await platform.book(730, 30);
+    await advance(QUEUE_TIMEOUT_MS);
+    await offer("pc-1");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+    assert.equal((await platform.booking(bookingId))!.status, "expired");
+    assert.deepEqual(await platform.claim(bookingId), {
+      ok: false,
+      reason: "not-claimable",
+      status: "expired",
+    });
   });
 
-  it("keeps a queued booking whose renter comes back within the timeout", () => {
-    const { bookingId } = platform.book(730, 30);
-    advance(QUEUE_TIMEOUT_MS - 1_000); // the laptop slept
-    assert.equal(platform.booking(bookingId)!.status, "queued");
-    advance(QUEUE_TIMEOUT_MS - 1_000); // the same renter, polling again, keeps it alive
-    assert.equal(platform.booking(bookingId)!.status, "queued");
+  it("keeps a queued booking whose renter comes back within the timeout", async () => {
+    const { bookingId } = await platform.book(730, 30);
+    await advance(QUEUE_TIMEOUT_MS - 1_000); // the laptop slept
+    assert.equal((await platform.booking(bookingId))!.status, "queued");
+    await advance(QUEUE_TIMEOUT_MS - 1_000); // the same renter, polling again, keeps it alive
+    assert.equal((await platform.booking(bookingId))!.status, "queued");
 
-    offer("pc-1");
-    assert.equal(platform.booking(bookingId)!.status, "matched");
+    await offer("pc-1");
+    assert.equal((await platform.booking(bookingId))!.status, "matched");
   });
 
-  it("keeps the booking of a renter who was away while its reservation lapsed", () => {
-    offer("pc-1");
-    const first = platform.claim(platform.book(730, 30).bookingId);
+  it("keeps the booking of a renter who was away while its reservation lapsed", async () => {
+    await offer("pc-1");
+    const first = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(first.ok);
-    const { bookingId } = platform.book(730, 30); // the renter's laptop sleeps
-    const behind = platform.book(570, 30);
+    const { bookingId } = await platform.book(730, 30); // the renter's laptop sleeps
+    const behind = await platform.book(570, 30);
 
-    beatFor("pc-1", 10_000);
-    platform.endSession("pc-1", first.sessionId); // pc-1 frees while they are away
-    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
-    beatFor("pc-1", RESERVATION_MS); // and the reservation lapses unclaimed
+    await beatFor("pc-1", 10_000);
+    await platform.endSession("pc-1", first.sessionId); // pc-1 frees while they are away
+    assert.equal((await platform.booking(behind.bookingId))!.status, "queued");
+    await beatFor("pc-1", RESERVATION_MS); // and the reservation lapses unclaimed
 
-    const back = platform.booking(bookingId)!; // back inside 2 minutes
+    const back = (await platform.booking(bookingId))!; // back inside 2 minutes
     assert.equal(back.status, "matched");
     assert.equal(back.machine?.id, "pc-1");
-    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
-    assert.ok(platform.claim(bookingId).ok);
+    assert.equal((await platform.booking(behind.bookingId))!.status, "queued");
+    assert.ok((await platform.claim(bookingId)).ok);
   });
 
-  it("expires the booking of a renter who saw the match and let it lapse, and serves the next", () => {
-    offer("pc-1");
-    const first = platform.claim(platform.book(730, 30).bookingId);
+  it("expires the booking of a renter who saw the match and let it lapse, and serves the next", async () => {
+    await offer("pc-1");
+    const first = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(first.ok);
-    const { bookingId } = platform.book(730, 30);
-    const behind = platform.book(570, 30);
+    const { bookingId } = await platform.book(730, 30);
+    const behind = await platform.book(570, 30);
 
-    beatFor("pc-1", 10_000);
-    platform.endSession("pc-1", first.sessionId);
-    assert.equal(platform.booking(bookingId)!.status, "matched"); // the renter is there and sees it
-    assert.equal(platform.booking(behind.bookingId)!.status, "queued");
-    beatFor("pc-1", RESERVATION_MS); // and never claims
+    await beatFor("pc-1", 10_000);
+    await platform.endSession("pc-1", first.sessionId);
+    assert.equal((await platform.booking(bookingId))!.status, "matched"); // the renter is there and sees it
+    assert.equal((await platform.booking(behind.bookingId))!.status, "queued");
+    await beatFor("pc-1", RESERVATION_MS); // and never claims
 
-    assert.equal(platform.booking(bookingId)!.status, "expired");
-    const next = platform.booking(behind.bookingId)!;
+    assert.equal((await platform.booking(bookingId))!.status, "expired");
+    const next = (await platform.booking(behind.bookingId))!;
     assert.equal(next.status, "matched");
     assert.equal(next.machine?.id, "pc-1");
   });
 });
 
 describe("join ticket revocation", () => {
-  const claimed = () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    const claim = platform.claim(bookingId);
+  const claimed = async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
-    platform.recordTicket(claim.sessionId, "ticket-1");
-    assert.equal(platform.ticketRevoked("ticket-1"), false);
+    await platform.recordTicket(claim.sessionId, "ticket-1");
+    assert.equal(await platform.ticketRevoked("ticket-1"), false);
     return claim;
   };
 
-  it("revokes the ticket when the host ends the session", () => {
-    const claim = claimed();
-    platform.endSession("pc-1", claim.sessionId);
-    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  it("revokes the ticket when the host ends the session", async () => {
+    const claim = await claimed();
+    await platform.endSession("pc-1", claim.sessionId);
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 
-  it("revokes the ticket when the owner takes the machine back", () => {
-    claimed();
-    platform.setAvailability("pc-1", false);
-    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  it("revokes the ticket when the owner takes the machine back", async () => {
+    await claimed();
+    await platform.setAvailability("pc-1", false);
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 
-  it("revokes the ticket when the machine goes silent", () => {
-    claimed();
-    advance(LIVENESS_MS);
-    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  it("revokes the ticket when the machine goes silent", async () => {
+    await claimed();
+    await advance(LIVENESS_MS);
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 
-  it("revokes the ticket when the session runs past its time", () => {
-    claimed();
-    beatFor("pc-1", 30 * 60_000);
-    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  it("revokes the ticket when the session runs past its time", async () => {
+    await claimed();
+    await beatFor("pc-1", 30 * 60_000);
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 
-  it("leaves a ticket minted by hand, with no session, alone", () => {
-    assert.equal(platform.ticketRevoked("hand-minted"), false);
+  it("leaves a ticket minted by hand, with no session, alone", async () => {
+    assert.equal(await platform.ticketRevoked("hand-minted"), false);
   });
 
-  it("waits out another connection's write lock on the file instead of failing the check", async () => {
-    const { spawn } = await import("node:child_process");
-    await withDatabaseFile(async (path) => {
-      platform = new Platform({ path, now: () => now });
-      claimed();
-      // Another process ends the session, holding the lock a moment first.
-      const writer = spawn(
-        process.execPath,
-        [
-          "-e",
-          `const db = new (require("node:sqlite").DatabaseSync)(process.argv[1]);
-           db.exec("BEGIN EXCLUSIVE");
-           db.exec("UPDATE sessions SET ended_at = 1");
-           console.log("locked");
-           setTimeout(() => { db.exec("COMMIT"); db.close(); }, 300);`,
-          path,
-        ],
-        { stdio: ["ignore", "pipe", "inherit"] },
+  it("takes turns with another server on the same database, and sees what it committed", async () => {
+    await withDatabase(async (open) => {
+      await platform.close();
+      platform = await Platform.open({ database: open(), now: () => now });
+      const claim = await claimed();
+      // Another server ends the session behind this one's back, holding the
+      // machines table as every platform write does, for a moment first.
+      const other = open();
+      let committed = false;
+      let locked!: () => void;
+      const holding = new Promise<void>((resolve) => (locked = resolve));
+      const writing = other.transaction(async (tx) => {
+        await tx.query("UPDATE sessions SET ended_at = 1");
+        locked();
+        await wait(300);
+        committed = true;
+      }, "BEGIN; LOCK TABLE machines IN EXCLUSIVE MODE");
+      await holding;
+      assert.equal(
+        await platform.endSession("pc-1", claim.sessionId),
+        false,
+        "ended already, once its turn came",
       );
-      await new Promise((resolve) => writer.stdout.once("data", resolve));
-      assert.equal(platform.ticketRevoked("ticket-1"), true);
-      await new Promise((resolve) => writer.once("exit", resolve));
-      platform.close();
+      assert.ok(committed);
+      assert.equal(await platform.ticketRevoked("ticket-1"), true);
+      await writing;
+      await other.close();
     });
   });
 });
@@ -286,173 +370,171 @@ describe("join ticket revocation", () => {
 describe("session end notice", () => {
   let ended: string[];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ended = [];
-    platform = new Platform({ now: () => now, onSessionEnded: (machineId) => ended.push(machineId) });
+    await openPlatform({ onSessionEnded: (machineId) => ended.push(machineId) });
   });
 
-  const claimed = () => {
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  const claimed = async () => {
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
     assert.deepEqual(ended, []);
     return claim;
   };
 
-  it("tells the server when the booked time runs out", () => {
-    claimed();
-    beatFor("pc-1", 30 * 60_000);
+  it("tells the server when the booked time runs out", async () => {
+    await claimed();
+    await beatFor("pc-1", 30 * 60_000);
     assert.deepEqual(ended, ["pc-1"]);
   });
 
-  it("tells the server when the machine goes silent", () => {
-    claimed();
-    advance(LIVENESS_MS);
+  it("tells the server when the machine goes silent", async () => {
+    await claimed();
+    await advance(LIVENESS_MS);
     assert.deepEqual(ended, ["pc-1"]);
   });
 
-  it("tells the server when the owner takes the machine back", () => {
-    claimed();
-    platform.setAvailability("pc-1", false);
+  it("tells the server when the owner takes the machine back", async () => {
+    await claimed();
+    await platform.setAvailability("pc-1", false);
     assert.deepEqual(ended, ["pc-1"]);
   });
 
-  it("tells the server when the host ends the session", () => {
-    const claim = claimed();
-    platform.endSession("pc-1", claim.sessionId);
+  it("tells the server when the host ends the session", async () => {
+    const claim = await claimed();
+    await platform.endSession("pc-1", claim.sessionId);
     assert.deepEqual(ended, ["pc-1"]);
   });
 
-  it("tells the server only once the end is committed", () => {
-    // Reading the platform from inside the notice would open a second
-    // transaction if the first were still open, and throw.
-    const seen: (string | undefined)[] = [];
-    platform = new Platform({
-      now: () => now,
-      onSessionEnded: () => seen.push(platform.booking(bookingId)?.status),
-    });
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    assert.ok(platform.claim(bookingId).ok);
-    platform.setAvailability("pc-1", false);
-    assert.deepEqual(seen, ["ended"]);
+  it("tells the server only once the end is committed", async () => {
+    // A call made from inside the notice takes its turn after the call that
+    // ended the session, and sees it ended.
+    const seen: Promise<BookingView | null>[] = [];
+    await openPlatform({ onSessionEnded: () => seen.push(platform.booking(bookingId)) });
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    assert.ok((await platform.claim(bookingId)).ok);
+    await platform.setAvailability("pc-1", false);
+    assert.deepEqual(
+      (await Promise.all(seen)).map((booking) => booking?.status),
+      ["ended"],
+    );
   });
 
-  it("keeps the session ended, and the sweep going, when the notice fails", () => {
-    platform = new Platform({
-      now: () => now,
+  it("keeps the session ended, and the sweep going, when the notice fails", async () => {
+    await openPlatform({
       onSessionEnded: () => {
         throw new Error("eviction failed");
       },
     });
-    offer("pc-1");
-    const first = platform.book(730, 10);
-    assert.ok(platform.claim(first.bookingId).ok);
+    await offer("pc-1");
+    const first = await platform.book(730, 10);
+    assert.ok((await platform.claim(first.bookingId)).ok);
 
-    beatFor("pc-1", 10 * 60_000);
-    assert.equal(platform.booking(first.bookingId)!.status, "ended");
-    assert.equal(platform.book(570, 10).machine?.id, "pc-1");
+    await beatFor("pc-1", 10 * 60_000);
+    assert.equal((await platform.booking(first.bookingId))!.status, "ended");
+    assert.equal((await platform.book(570, 10)).machine?.id, "pc-1");
   });
 });
 
 describe("machine liveness", () => {
-  it("stops offering a machine within seconds of its heartbeats stopping", () => {
-    offer("pc-1");
-    beatFor("pc-1", 60_000);
-    assert.equal(platform.heartbeat("pc-1").status, "available");
+  it("stops offering a machine within seconds of its heartbeats stopping", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 60_000);
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
 
-    advance(LIVENESS_MS);
-    const booking = platform.book(730, 30);
+    await advance(LIVENESS_MS);
+    const booking = await platform.book(730, 30);
     assert.equal(booking.status, "queued");
   });
 
-  it("keeps offering a machine whose heartbeats keep coming", () => {
-    offer("pc-1");
-    beatFor("pc-1", 10 * 60_000);
-    assert.equal(platform.book(730, 30).status, "matched");
+  it("keeps offering a machine whose heartbeats keep coming", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 10 * 60_000);
+    assert.equal((await platform.book(730, 30)).status, "matched");
   });
 
-  it("hands a reserved booking to another machine when its machine goes silent", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    assert.equal(platform.booking(bookingId)!.machine?.id, "pc-1");
+  it("hands a reserved booking to another machine when its machine goes silent", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    assert.equal((await platform.booking(bookingId))!.machine?.id, "pc-1");
 
-    offer("pc-2");
-    beatFor("pc-2", LIVENESS_MS); // pc-1 says nothing
-    const moved = platform.booking(bookingId)!;
+    await offer("pc-2");
+    await beatFor("pc-2", LIVENESS_MS); // pc-1 says nothing
+    const moved = (await platform.booking(bookingId))!;
     assert.equal(moved.status, "matched");
     assert.equal(moved.machine?.id, "pc-2");
   });
 
-  it("ends the session of a machine that goes silent mid-game", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    const claim = platform.claim(bookingId);
+  it("ends the session of a machine that goes silent mid-game", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
-    platform.startSession("pc-1", claim.sessionId);
+    await platform.startSession("pc-1", claim.sessionId);
 
-    advance(LIVENESS_MS);
-    assert.equal(platform.booking(bookingId)!.status, "ended");
+    await advance(LIVENESS_MS);
+    assert.equal((await platform.booking(bookingId))!.status, "ended");
   });
 
-  it("offers a dropped machine again when its heartbeats resume", () => {
-    offer("pc-1");
-    advance(LIVENESS_MS);
-    assert.equal(platform.book(730, 30).status, "queued");
+  it("offers a dropped machine again when its heartbeats resume", async () => {
+    await offer("pc-1");
+    await advance(LIVENESS_MS);
+    assert.equal((await platform.book(730, 30)).status, "queued");
 
-    const machine = platform.heartbeat("pc-1");
+    const machine = await platform.heartbeat("pc-1");
     assert.equal(machine.status, "reserved");
   });
 
-  it("takes a machine back at once, ending what it was doing", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    const claim = platform.claim(bookingId);
+  it("takes a machine back at once, ending what it was doing", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
 
-    assert.equal(platform.setAvailability("pc-1", false).status, "idle");
-    assert.equal(platform.booking(bookingId)!.status, "ended");
-    assert.equal(platform.book(570, 30).status, "queued");
+    assert.equal((await platform.setAvailability("pc-1", false)).status, "idle");
+    assert.equal((await platform.booking(bookingId))!.status, "ended");
+    assert.equal((await platform.book(570, 30)).status, "queued");
   });
 
-  it("keeps its state in the database file across restarts", async () => {
-    const { mkdtemp, rm } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = await mkdtemp(join(tmpdir(), "swiff-platform-"));
-    try {
-      const path = join(dir, "swiff.db");
-      const first = new Platform({ path, now: () => now });
-      first.setAvailability("pc-1", true, REPORT);
-      const { bookingId } = first.book(730, 30);
-      first.close();
+  it("keeps its state in the database across restarts", async () => {
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = await first.book(730, 30);
+      await first.close();
 
-      const second = new Platform({ path, now: () => now });
-      assert.equal(second.booking(bookingId)!.status, "matched");
-      second.close();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+      const second = await Platform.open({ database: open(), now: () => now });
+      assert.equal((await second.booking(bookingId))!.status, "matched");
+      await second.close();
+    });
   });
 });
 
-/** Run `work` with a fresh SQLite file path, removed afterwards. */
-async function withDatabaseFile(work: (path: string) => void | Promise<void>): Promise<void> {
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const dir = await mkdtemp(join(tmpdir(), "swiff-platform-"));
+/** When the session ended, read straight from the database. */
+async function endedAt(db: Database, sessionId: string): Promise<number> {
+  const { rows } = await db.query<{ ended_at: number }>("SELECT ended_at FROM sessions WHERE id = $1", [
+    sessionId,
+  ]);
+  await db.close();
+  return rows[0]!.ended_at;
+}
+
+/** Run `work` on a fresh database, which it may open as often as restarts would, dropped afterwards. */
+async function withDatabase(work: (open: () => Database) => Promise<void>): Promise<void> {
+  const schema = await testSchema();
   try {
-    await work(join(dir, "swiff.db"));
+    await work(() => schema.open());
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await schema.drop();
   }
 }
 
 describe("host profiles", () => {
-  it("stores the report and reads it back, with the GPU's score from the table", () => {
-    offer("pc-1");
-    assert.deepEqual(platform.machineProfile("pc-1"), {
+  it("stores the report and reads it back, with the GPU's score from the table", async () => {
+    await offer("pc-1");
+    assert.deepEqual(await platform.machineProfile("pc-1"), {
       id: "pc-1",
       name: REPORT.name,
       hardware: { ...REPORT.hardware, gpuScore: 230 },
@@ -460,30 +542,30 @@ describe("host profiles", () => {
       controls: REPORT.controls,
       net: REPORT.net,
     });
-    assert.equal(platform.heartbeat("pc-1").gpu, REPORT.hardware.gpu);
+    assert.equal((await platform.heartbeat("pc-1")).gpu, REPORT.hardware.gpu);
   });
 
-  it("scores a GPU the table does not know as 0", () => {
-    offer("pc-1", { hardware: { ...REPORT.hardware, gpu: "Mystery Card 9000" } });
-    assert.equal(platform.machineProfile("pc-1")!.hardware!.gpuScore, 0);
+  it("scores a GPU the table does not know as 0", async () => {
+    await offer("pc-1", { hardware: { ...REPORT.hardware, gpu: "Mystery Card 9000" } });
+    assert.equal((await platform.machineProfile("pc-1"))!.hardware!.gpuScore, 0);
   });
 
-  it("replaces the games list when a heartbeat carries one, and keeps it when it does not", () => {
-    offer("pc-1");
-    platform.heartbeat("pc-1", { games: [440] });
-    assert.deepEqual(platform.machineProfile("pc-1")!.games, [440]);
+  it("replaces the games list when a heartbeat carries one, and keeps it when it does not", async () => {
+    await offer("pc-1");
+    await platform.heartbeat("pc-1", { games: [440] });
+    assert.deepEqual((await platform.machineProfile("pc-1"))!.games, [440]);
 
-    platform.heartbeat("pc-1", { net: { rttMs: 30, jitterMs: 4, upMbps: 20 } });
-    const profile = platform.machineProfile("pc-1")!;
+    await platform.heartbeat("pc-1", { net: { rttMs: 30, jitterMs: 4, upMbps: 20 } });
+    const profile = (await platform.machineProfile("pc-1"))!;
     assert.deepEqual(profile.games, [440]);
     assert.deepEqual(profile.net, { rttMs: 30, jitterMs: 4, upMbps: 20 });
     assert.deepEqual(profile.hardware?.gpu, REPORT.hardware.gpu);
   });
 
-  it("knows nothing about a machine that has not reported", () => {
-    assert.equal(platform.machineProfile("pc-9"), null);
-    platform.heartbeat("pc-1");
-    assert.deepEqual(platform.machineProfile("pc-1"), {
+  it("knows nothing about a machine that has not reported", async () => {
+    assert.equal(await platform.machineProfile("pc-9"), null);
+    await platform.heartbeat("pc-1");
+    assert.deepEqual(await platform.machineProfile("pc-1"), {
       id: "pc-1",
       name: null,
       hardware: null,
@@ -492,341 +574,320 @@ describe("host profiles", () => {
       net: null,
     });
   });
-
-  it("adds the report columns to a database file made before them", async () => {
-    await withDatabaseFile(async (path) => {
-      const { DatabaseSync } = await import("node:sqlite");
-      const old = new DatabaseSync(path);
-      old.exec(`CREATE TABLE machines (
-        id TEXT PRIMARY KEY, owner_id TEXT, gpu TEXT, cpu TEXT, price INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL, available_until INTEGER, last_seen_at INTEGER NOT NULL)`);
-      old.exec(`INSERT INTO machines (id, gpu, status, last_seen_at) VALUES ('pc-1', 'RTX 3060', 'idle', 0)`);
-      old.close();
-
-      const reopened = new Platform({ path, now: () => now });
-      reopened.setAvailability("pc-1", true, REPORT);
-      assert.equal(reopened.machineProfile("pc-1")!.hardware!.gpuScore, 230);
-      assert.equal(reopened.book(730, 30).status, "matched");
-      reopened.close();
-    });
-  });
 });
 
 describe("matching on the game and the hardware", () => {
-  it("skips a machine without the game installed", () => {
-    offer("pc-1", { games: [570] });
-    const booking = platform.book(730, 30);
+  it("skips a machine without the game installed", async () => {
+    await offer("pc-1", { games: [570] });
+    const booking = await platform.book(730, 30);
     assert.equal(booking.status, "queued");
 
-    platform.heartbeat("pc-1", { games: [570, 730] });
-    assert.equal(platform.booking(booking.bookingId)!.status, "matched");
+    await platform.heartbeat("pc-1", { games: [570, 730] });
+    assert.equal((await platform.booking(booking.bookingId))!.status, "matched");
   });
 
-  it("skips a machine below the game's minimum GPU, RAM or VRAM", () => {
+  it("skips a machine below the game's minimum GPU, RAM or VRAM", async () => {
     const low = [
       { ...REPORT.hardware, gpu: "Intel UHD Graphics 630" },
       { ...REPORT.hardware, ramMb: 4_096 },
       { ...REPORT.hardware, vramMb: 512 },
     ];
-    low.forEach((hardware, i) => offer(`low-${i}`, { hardware, price: 10 }));
+    for (const [i, hardware] of low.entries()) await offer(`low-${i}`, { hardware, price: 10 });
     // Counter-Strike 2 asks for a GTX 1050, 8 GB of RAM and 1 GB of VRAM.
-    const { bookingId, status } = platform.book(730, 30);
+    const { bookingId, status } = await platform.book(730, 30);
     assert.equal(status, "queued");
 
-    offer("pc-1", { price: 500 });
-    assert.equal(platform.booking(bookingId)!.machine?.id, "pc-1");
+    await offer("pc-1", { price: 500 });
+    assert.equal((await platform.booking(bookingId))!.machine?.id, "pc-1");
   });
 
-  it("skips a machine that has never reported its hardware or games", () => {
-    platform.setAvailability("pc-1", true);
-    assert.equal(platform.book(730, 30).status, "queued");
+  it("skips a machine that has never reported its hardware or games", async () => {
+    await platform.setAvailability("pc-1", true);
+    assert.equal((await platform.book(730, 30)).status, "queued");
   });
 
-  it("still picks the cheapest of the machines that qualify", () => {
-    offer("pc-1", { price: 300 });
-    offer("pc-2", { price: 100 });
-    offer("pc-3", { price: 50, games: [570] });
-    assert.equal(platform.book(730, 30).machine?.id, "pc-2");
+  it("still picks the cheapest of the machines that qualify", async () => {
+    await offer("pc-1", { price: 300 });
+    await offer("pc-2", { price: 100 });
+    await offer("pc-3", { price: 50, games: [570] });
+    assert.equal((await platform.book(730, 30)).machine?.id, "pc-2");
   });
 
-  it("matches a booking to a machine of the right game when another game is waiting first", () => {
-    offer("pc-1", { games: [570] });
-    const first = platform.book(730, 30);
-    const second = platform.book(570, 30);
-    assert.equal(platform.booking(first.bookingId)!.status, "queued");
-    assert.equal(platform.booking(second.bookingId)!.machine?.id, "pc-1");
+  it("matches a booking to a machine of the right game when another game is waiting first", async () => {
+    await offer("pc-1", { games: [570] });
+    const first = await platform.book(730, 30);
+    const second = await platform.book(570, 30);
+    assert.equal((await platform.booking(first.bookingId))!.status, "queued");
+    assert.equal((await platform.booking(second.bookingId))!.machine?.id, "pc-1");
   });
 
   it("never matches a renter to their own machine", async () => {
-    await withDatabaseFile(async (path) => {
-      const setup = new Platform({ path, now: () => now });
-      setup.setAvailability("pc-1", true, REPORT);
-      setup.close();
-      const { DatabaseSync } = await import("node:sqlite");
-      const db = new DatabaseSync(path);
-      db.exec("UPDATE machines SET owner_id = 'steam:1' WHERE id = 'pc-1'");
-      db.close();
+    await withDatabase(async (open) => {
+      const setup = await Platform.open({ database: open(), now: () => now });
+      await setup.setAvailability("pc-1", true, REPORT);
+      await setup.close();
+      const db = open();
+      await db.query("UPDATE machines SET owner_id = 'steam:1' WHERE id = 'pc-1'");
+      await db.close();
 
-      const reopened = new Platform({ path, now: () => now });
-      assert.equal(reopened.book(730, 30, "steam:1").status, "queued");
-      assert.equal(reopened.book(730, 30, "steam:2").machine?.id, "pc-1");
-      reopened.close();
+      const reopened = await Platform.open({ database: open(), now: () => now });
+      assert.equal((await reopened.book(730, 30, "steam:1")).status, "queued");
+      assert.equal((await reopened.book(730, 30, "steam:2")).machine?.id, "pc-1");
+      await reopened.close();
     });
   });
 });
 
 describe("claim notice and host sessions", () => {
-  it("tells the server which machine was claimed, with the session, game and minutes", () => {
+  it("tells the server which machine was claimed, with the session, game and minutes", async () => {
     const claims: unknown[] = [];
-    platform = new Platform({
-      now: () => now,
+    await openPlatform({
       onSessionClaimed: (machineId, claim) => claims.push({ machineId, ...claim }),
     });
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 45);
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 45);
     assert.deepEqual(claims, [], "not told on a match");
-    const claim = platform.claim(bookingId);
+    const claim = await platform.claim(bookingId);
     assert.ok(claim.ok);
     assert.deepEqual(claims, [{ machineId: "pc-1", sessionId: claim.sessionId, gameId: 730, minutes: 45 }]);
-    assert.ok(!platform.claim(bookingId).ok);
+    assert.ok(!(await platform.claim(bookingId)).ok);
     assert.equal(claims.length, 1, "a refused claim tells nothing");
   });
 
-  it("names the session claimed on a machine only while it runs", () => {
-    offer("pc-1");
-    assert.equal(platform.claimedSession("pc-1"), null);
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("names the session claimed on a machine only while it runs", async () => {
+    await offer("pc-1");
+    assert.equal(await platform.claimedSession("pc-1"), null);
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    assert.deepEqual(platform.claimedSession("pc-1"), {
+    assert.deepEqual(await platform.claimedSession("pc-1"), {
       sessionId: claim.sessionId,
       gameId: 730,
       minutes: 30,
     });
-    assert.equal(platform.claimedSession("pc-2"), null);
-    platform.endSession("pc-1", claim.sessionId);
-    assert.equal(platform.claimedSession("pc-1"), null);
+    assert.equal(await platform.claimedSession("pc-2"), null);
+    await platform.endSession("pc-1", claim.sessionId);
+    assert.equal(await platform.claimedSession("pc-1"), null);
   });
 
-  it("removes the host session together with the session it serves, and tells the server its id", () => {
+  it("removes the host session together with the session it serves, and tells the server its id", async () => {
     const ended: [string, string][] = [];
-    platform = new Platform({
-      now: () => now,
+    await openPlatform({
       onSessionEnded: (machineId, id) => ended.push([machineId, id]),
     });
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
     const store = platform.keySessions;
-    assert.ok(store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" }));
-    assert.ok(!store.add("pc-1", { sessionId: claim.sessionId, grantId: "g2" }), "one per machine");
-    assert.deepEqual(store.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
+    assert.ok(await store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" }));
+    assert.ok(!(await store.add("pc-1", { sessionId: claim.sessionId, grantId: "g2" })), "one per machine");
+    assert.deepEqual(await store.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
 
-    advance(LIVENESS_MS); // the machine goes silent and its session ends
-    assert.equal(store.get("pc-1"), null);
+    await advance(LIVENESS_MS); // the machine goes silent and its session ends
+    assert.equal(await store.get("pc-1"), null);
     assert.deepEqual(ended, [["pc-1", claim.sessionId]]);
   });
 
-  it("ends a host session on its own, leaving the session running", () => {
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("ends a host session on its own, leaving the session running", async () => {
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
     const store = platform.keySessions;
-    store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
-    assert.equal(store.remove("pc-1"), claim.sessionId);
-    assert.equal(store.remove("pc-1"), null);
-    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+    await store.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
+    assert.equal(await store.remove("pc-1"), claim.sessionId);
+    assert.equal(await store.remove("pc-1"), null);
+    assert.equal((await platform.claimedSession("pc-1"))?.sessionId, claim.sessionId);
   });
 
-  it("keeps host sessions in the database file across restarts", async () => {
-    await withDatabaseFile((path) => {
-      const first = new Platform({ path, now: () => now });
-      first.setAvailability("pc-1", true, REPORT);
-      const claim = first.claim(first.book(730, 30).bookingId);
+  it("keeps host sessions in the database across restarts", async () => {
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.setAvailability("pc-1", true, REPORT);
+      const claim = await first.claim((await first.book(730, 30)).bookingId);
       assert.ok(claim.ok);
-      first.keySessions.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
-      first.close();
+      await first.keySessions.add("pc-1", { sessionId: claim.sessionId, grantId: "g1" });
+      await first.close();
 
-      const second = new Platform({ path, now: () => now });
-      assert.deepEqual(second.keySessions.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
-      second.close();
+      const second = await Platform.open({ database: open(), now: () => now });
+      assert.deepEqual(await second.keySessions.get("pc-1"), { sessionId: claim.sessionId, grantId: "g1" });
+      await second.close();
     });
   });
 });
 
 describe("session end reasons", () => {
   /** A claimed 30-minute session on pc-1 with join ticket "ticket-1", started unless told otherwise. */
-  const session = (start = true) => {
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  const session = async (start = true) => {
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    platform.recordTicket(claim.sessionId, "ticket-1");
-    if (start) assert.ok(platform.startSession("pc-1", claim.sessionId));
+    await platform.recordTicket(claim.sessionId, "ticket-1");
+    if (start) assert.ok(await platform.startSession("pc-1", claim.sessionId));
     return claim.sessionId;
   };
 
-  it("is renter when the renter leaves with the session's own ticket", () => {
-    const id = session();
-    beatFor("pc-1", 60_000);
-    assert.equal(platform.leaveSession(id, "ticket-1"), "ok");
-    assert.equal(platform.sessionEndReason(id), "renter");
-    assert.equal(platform.heartbeat("pc-1").status, "available");
-    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  it("is renter when the renter leaves with the session's own ticket", async () => {
+    const id = await session();
+    await beatFor("pc-1", 60_000);
+    assert.equal(await platform.leaveSession(id, "ticket-1"), "ok");
+    assert.equal(await platform.sessionEndReason(id), "renter");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 
-  it("lets only the session's own ticket leave it, and only while it runs", () => {
-    const id = session();
-    assert.equal(platform.leaveSession(id, "ticket-2"), "wrong-ticket");
-    assert.equal(platform.leaveSession("no-such-session", "ticket-1"), "not-found");
-    assert.equal(platform.sessionEndReason(id), null);
-    platform.setAvailability("pc-1", false);
-    assert.equal(platform.leaveSession(id, "ticket-1"), "over");
-    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  it("lets only the session's own ticket leave it, and only while it runs", async () => {
+    const id = await session();
+    assert.equal(await platform.leaveSession(id, "ticket-2"), "wrong-ticket");
+    assert.equal(await platform.leaveSession("no-such-session", "ticket-1"), "not-found");
+    assert.equal(await platform.sessionEndReason(id), null);
+    await platform.setAvailability("pc-1", false);
+    assert.equal(await platform.leaveSession(id, "ticket-1"), "over");
+    assert.equal(await platform.sessionEndReason(id), "owner_kill");
   });
 
-  it("is host_end when the host ends a session before its expiry, whatever the host meant", () => {
-    const id = session();
-    beatFor("pc-1", 60_000);
-    platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "host_end");
+  it("is host_end when the host ends a session before its expiry, whatever the host meant", async () => {
+    const id = await session();
+    await beatFor("pc-1", 60_000);
+    await platform.endSession("pc-1", id);
+    assert.equal(await platform.sessionEndReason(id), "host_end");
   });
 
-  it("is host_end when the host backdates its end to look like it ran its time", () => {
-    const id = session();
-    beatFor("pc-1", 60_000);
-    platform.endSession("pc-1", id, now + 30 * 60_000);
-    assert.equal(platform.sessionEndReason(id), "host_end");
+  it("is host_end when the host backdates its end to look like it ran its time", async () => {
+    const id = await session();
+    await beatFor("pc-1", 60_000);
+    await platform.endSession("pc-1", id, now + 30 * 60_000);
+    assert.equal(await platform.sessionEndReason(id), "host_end");
   });
 
-  it("is time_up when the host ends it within the grace before its expiry", () => {
-    const id = session();
+  it("is time_up when the host ends it within the grace before its expiry", async () => {
+    const id = await session();
     now += 30 * 60_000 - 5_000; // no tick: the host's timer runs slightly ahead of the server's
-    platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "time_up");
+    await platform.endSession("pc-1", id);
+    assert.equal(await platform.sessionEndReason(id), "time_up");
   });
 
-  it("is host_end when the host ends it just outside the grace before its expiry", () => {
-    const id = session();
+  it("is host_end when the host ends it just outside the grace before its expiry", async () => {
+    const id = await session();
     now += 30 * 60_000 - TIME_UP_GRACE_MS - 1_000;
-    platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "host_end");
+    await platform.endSession("pc-1", id);
+    assert.equal(await platform.sessionEndReason(id), "host_end");
   });
 
-  it("is time_up when the host ends it once the server sees it past its expiry", () => {
-    const id = session();
+  it("is time_up when the host ends it once the server sees it past its expiry", async () => {
+    const id = await session();
     now += 30 * 60_000; // no tick: the host's end arrives before the backstop
-    platform.endSession("pc-1", id);
-    assert.equal(platform.sessionEndReason(id), "time_up");
+    await platform.endSession("pc-1", id);
+    assert.equal(await platform.sessionEndReason(id), "time_up");
   });
 
-  it("is owner_kill when the owner takes the machine back", () => {
-    const id = session();
-    platform.setAvailability("pc-1", false);
-    assert.equal(platform.sessionEndReason(id), "owner_kill");
+  it("is owner_kill when the owner takes the machine back", async () => {
+    const id = await session();
+    await platform.setAvailability("pc-1", false);
+    assert.equal(await platform.sessionEndReason(id), "owner_kill");
   });
 
-  it("is host_offline when the machine goes silent", () => {
-    const id = session();
-    advance(LIVENESS_MS);
-    assert.equal(platform.sessionEndReason(id), "host_offline");
+  it("is host_offline when the machine goes silent", async () => {
+    const id = await session();
+    await advance(LIVENESS_MS);
+    assert.equal(await platform.sessionEndReason(id), "host_offline");
   });
 
-  it("is time_up when a started session runs past its time unended", () => {
-    const id = session();
-    beatFor("pc-1", 30 * 60_000);
-    assert.equal(platform.sessionEndReason(id), "time_up");
+  it("is time_up when a started session runs past its time unended", async () => {
+    const id = await session();
+    await beatFor("pc-1", 30 * 60_000);
+    assert.equal(await platform.sessionEndReason(id), "time_up");
   });
 
-  it("is grace_expired when the renter claimed and never arrived", () => {
-    const id = session(false);
-    beatFor("pc-1", 30 * 60_000);
-    assert.equal(platform.sessionEndReason(id), "grace_expired");
+  it("is grace_expired when the renter claimed and never arrived", async () => {
+    const id = await session(false);
+    await beatFor("pc-1", 30 * 60_000);
+    assert.equal(await platform.sessionEndReason(id), "grace_expired");
   });
 
-  it("is null while the session runs", () => {
-    assert.equal(platform.sessionEndReason(session()), null);
+  it("is null while the session runs", async () => {
+    assert.equal(await platform.sessionEndReason(await session()), null);
   });
 });
 
 describe("machine uptime", () => {
-  const uptime = () => {
-    const { stats } = platform.stability("pc-1");
+  const uptime = async () => {
+    const { stats } = await platform.stability("pc-1");
     return { offeredMs: Math.round(stats.offeredHours * 3_600_000), coverage: stats.heartbeatCoverage };
   };
 
-  it("counts every heartbeat-covered moment while offered", () => {
-    offer("pc-1");
-    beatFor("pc-1", 10 * 60_000);
-    assert.deepEqual(uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
-    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
+  it("counts every heartbeat-covered moment while offered", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 10 * 60_000);
+    assert.deepEqual(await uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
+    assert.equal((await platform.stability("pc-1")).stats.dropsPerHour, 0);
   });
 
-  it("counts a liveness drop, and the time offline as offered but unseen", () => {
-    offer("pc-1");
-    beatFor("pc-1", 60_000);
-    advance(LIVENESS_MS); // dropped: seen until now, then nothing
-    advance(45_000);
+  it("counts a liveness drop, and the time offline as offered but unseen", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 60_000);
+    await advance(LIVENESS_MS); // dropped: seen until now, then nothing
+    await advance(45_000);
     // Still offline: the time since the drop counts without a check-in.
-    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
-    platform.heartbeat("pc-1");
-    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
-    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 1 / (120 / 3600));
+    assert.deepEqual(await uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
+    await platform.heartbeat("pc-1");
+    assert.deepEqual(await uptime(), { offeredMs: 120_000, coverage: 75 / 120 });
+    assert.equal((await platform.stability("pc-1")).stats.dropsPerHour, 1 / (120 / 3600));
   });
 
-  it("does not count a drop when the host shuts down after its offer ended", () => {
-    offer("pc-1", { availableUntil: now + 62_000 });
-    beatFor("pc-1", 60_000);
-    advance(LIVENESS_MS + 60_000);
-    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
-    assert.deepEqual(uptime(), { offeredMs: 62_000, coverage: 1 });
+  it("does not count a drop when the host shuts down after its offer ended", async () => {
+    await offer("pc-1", { availableUntil: now + 62_000 });
+    await beatFor("pc-1", 60_000);
+    await advance(LIVENESS_MS + 60_000);
+    assert.equal((await platform.stability("pc-1")).stats.dropsPerHour, 0);
+    assert.deepEqual(await uptime(), { offeredMs: 62_000, coverage: 1 });
   });
 
-  it("counts a drop when the host goes silent well before its offer ends", () => {
-    offer("pc-1", { availableUntil: now + 10 * 60_000 });
-    beatFor("pc-1", 60_000);
-    advance(LIVENESS_MS + 60_000);
-    const { stats } = platform.stability("pc-1");
+  it("counts a drop when the host goes silent well before its offer ends", async () => {
+    await offer("pc-1", { availableUntil: now + 10 * 60_000 });
+    await beatFor("pc-1", 60_000);
+    await advance(LIVENESS_MS + 60_000);
+    const { stats } = await platform.stability("pc-1");
     assert.equal(Math.round(stats.dropsPerHour * stats.offeredHours), 1);
   });
 
-  it("keeps the whole UTC day the seven-day window starts in", () => {
-    offer("pc-1");
-    beatFor("pc-1", 60 * 60_000);
-    platform.setAvailability("pc-1", false);
-    advance(7 * 24 * 3_600_000 - 30 * 60_000);
-    platform.heartbeat("pc-1");
-    assert.deepEqual(uptime(), { offeredMs: 60 * 60_000, coverage: 1 });
+  it("keeps the whole UTC day the seven-day window starts in", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 60 * 60_000);
+    await platform.setAvailability("pc-1", false);
+    await advance(7 * 24 * 3_600_000 - 30 * 60_000);
+    await platform.heartbeat("pc-1");
+    assert.deepEqual(await uptime(), { offeredMs: 60 * 60_000, coverage: 1 });
   });
 
-  it("does not count time the machine was taken back", () => {
-    offer("pc-1");
-    beatFor("pc-1", 60_000);
-    platform.setAvailability("pc-1", false);
-    advance(60 * 60_000);
-    platform.heartbeat("pc-1");
-    offer("pc-1");
-    beatFor("pc-1", 10_000);
-    assert.deepEqual(uptime(), { offeredMs: 70_000, coverage: 1 });
+  it("does not count time the machine was taken back", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 60_000);
+    await platform.setAvailability("pc-1", false);
+    await advance(60 * 60_000);
+    await platform.heartbeat("pc-1");
+    await offer("pc-1");
+    await beatFor("pc-1", 10_000);
+    assert.deepEqual(await uptime(), { offeredMs: 70_000, coverage: 1 });
   });
 
-  it("stops counting at the end of the offer", () => {
-    offer("pc-1", { availableUntil: now + 30_000 });
-    beatFor("pc-1", 60_000);
-    assert.deepEqual(uptime(), { offeredMs: 30_000, coverage: 1 });
+  it("stops counting at the end of the offer", async () => {
+    await offer("pc-1", { availableUntil: now + 30_000 });
+    await beatFor("pc-1", 60_000);
+    assert.deepEqual(await uptime(), { offeredMs: 30_000, coverage: 1 });
   });
 
-  it("splits time across UTC midnight into each day's row", () => {
+  it("splits time across UTC midnight into each day's row", async () => {
     now = Date.UTC(2026, 8, 30, 23, 59, 50);
-    offer("pc-1");
-    beatFor("pc-1", 20_000);
-    assert.deepEqual(uptime(), { offeredMs: 20_000, coverage: 1 });
+    await offer("pc-1");
+    await beatFor("pc-1", 20_000);
+    assert.deepEqual(await uptime(), { offeredMs: 20_000, coverage: 1 });
   });
 
-  it("forgets days older than the seven-day window", () => {
-    offer("pc-1");
-    beatFor("pc-1", 10_000);
-    platform.setAvailability("pc-1", false);
-    advance(8 * 24 * 3_600_000);
-    assert.deepEqual(uptime(), { offeredMs: 0, coverage: 1 });
+  it("forgets days older than the seven-day window", async () => {
+    await offer("pc-1");
+    await beatFor("pc-1", 10_000);
+    await platform.setAvailability("pc-1", false);
+    await advance(8 * 24 * 3_600_000);
+    assert.deepEqual(await uptime(), { offeredMs: 0, coverage: 1 });
   });
 });
 
@@ -834,20 +895,23 @@ describe("renter QoS", () => {
   const REPORT_GOOD = { fps: 60, bitrate: 20e6, rttMs: 12, packetLoss: 0.001 };
 
   /** A claimed session on pc-1 whose join ticket is "ticket-1". */
-  const claimed = () => {
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  const claimed = async () => {
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    platform.recordTicket(claim.sessionId, "ticket-1");
+    await platform.recordTicket(claim.sessionId, "ticket-1");
     return claim.sessionId;
   };
 
-  it("keeps a summary of the session's reports", () => {
-    const id = claimed();
-    assert.equal(platform.sessionQos(id), null);
-    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
-    assert.equal(platform.recordQos(id, "ticket-1", { ...REPORT_GOOD, fps: 30, packetLoss: 0.003 }), "ok");
-    assert.deepEqual(platform.sessionQos(id), {
+  it("keeps a summary of the session's reports", async () => {
+    const id = await claimed();
+    assert.equal(await platform.sessionQos(id), null);
+    assert.equal(await platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
+    assert.equal(
+      await platform.recordQos(id, "ticket-1", { ...REPORT_GOOD, fps: 30, packetLoss: 0.003 }),
+      "ok",
+    );
+    assert.deepEqual(await platform.sessionQos(id), {
       reports: 2,
       fps: 45,
       bitrate: 20e6,
@@ -856,57 +920,63 @@ describe("renter QoS", () => {
     });
   });
 
-  it("takes reports only with the session's own ticket", () => {
-    const id = claimed();
-    assert.equal(platform.recordQos(id, "ticket-2", REPORT_GOOD), "wrong-ticket");
-    assert.equal(platform.recordQos("no-such-session", "ticket-1", REPORT_GOOD), "not-found");
-    assert.equal(platform.sessionQos(id), null);
+  it("takes reports only with the session's own ticket", async () => {
+    const id = await claimed();
+    assert.equal(await platform.recordQos(id, "ticket-2", REPORT_GOOD), "wrong-ticket");
+    assert.equal(await platform.recordQos("no-such-session", "ticket-1", REPORT_GOOD), "not-found");
+    assert.equal(await platform.sessionQos(id), null);
   });
 
-  it("refuses every report for a session handed out with no ticket", () => {
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("refuses every report for a session handed out with no ticket", async () => {
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    assert.equal(platform.recordQos(claim.sessionId, "", REPORT_GOOD), "wrong-ticket");
+    assert.equal(await platform.recordQos(claim.sessionId, "", REPORT_GOOD), "wrong-ticket");
   });
 
-  it("takes a last report shortly after the session ends, and none later", () => {
-    const id = claimed();
-    platform.endSession("pc-1", id);
+  it("takes a last report shortly after the session ends, and none later", async () => {
+    const id = await claimed();
+    await platform.endSession("pc-1", id);
     now += QOS_GRACE_MS;
-    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
+    assert.equal(await platform.recordQos(id, "ticket-1", REPORT_GOOD), "ok");
     now += 1;
-    assert.equal(platform.recordQos(id, "ticket-1", REPORT_GOOD), "over");
+    assert.equal(await platform.recordQos(id, "ticket-1", REPORT_GOOD), "over");
   });
 });
 
 describe("machine stability", () => {
-  /** A two-hour session on pc-1, left by the renter, reporting `packetLoss`. */
-  const play = (packetLoss: number) => {
-    const claim = platform.claim(platform.book(730, 180).bookingId);
+  /**
+   * A two-hour session on pc-1, left by the renter, reporting `packetLoss`.
+   * The PC's socket stays open throughout, so the machine is seen with no
+   * heartbeat: hours of them would make each test a database round trip per
+   * five seconds played.
+   */
+  const play = async (packetLoss: number) => {
+    await platform.hostConnected("pc-1");
+    const claim = await platform.claim((await platform.book(730, 180)).bookingId);
     assert.ok(claim.ok);
-    platform.recordTicket(claim.sessionId, `ticket-${claim.sessionId}`);
-    assert.ok(platform.startSession("pc-1", claim.sessionId));
-    beatFor("pc-1", 2 * 3_600_000);
-    platform.recordQos(claim.sessionId, `ticket-${claim.sessionId}`, {
+    await platform.recordTicket(claim.sessionId, `ticket-${claim.sessionId}`);
+    assert.ok(await platform.startSession("pc-1", claim.sessionId));
+    await advance(2 * 3_600_000);
+    await platform.recordQos(claim.sessionId, `ticket-${claim.sessionId}`, {
       fps: 60,
       bitrate: 20e6,
       rttMs: 12,
       packetLoss,
     });
-    assert.equal(platform.leaveSession(claim.sessionId, `ticket-${claim.sessionId}`), "ok");
+    assert.equal(await platform.leaveSession(claim.sessionId, `ticket-${claim.sessionId}`), "ok");
   };
 
-  it("is New for a machine never heard from", () => {
-    assert.equal(platform.stability("pc-9").stability, "new");
+  it("is New for a machine never heard from", async () => {
+    assert.equal((await platform.stability("pc-9")).stability, "new");
   });
 
-  it("is New until five sessions and ten offered hours, then reads the week", () => {
-    offer("pc-1");
-    for (let i = 0; i < 4; i++) play(0.002);
-    assert.equal(platform.stability("pc-1").stability, "new");
-    play(0.002);
-    const { stats, stability } = platform.stability("pc-1");
+  it("is New until five sessions and ten offered hours, then reads the week", async () => {
+    await offer("pc-1");
+    for (let i = 0; i < 4; i++) await play(0.002);
+    assert.equal((await platform.stability("pc-1")).stability, "new");
+    await play(0.002);
+    const { stats, stability } = await platform.stability("pc-1");
     assert.deepEqual(stats, {
       heartbeatCoverage: 1,
       dropsPerHour: 0,
@@ -918,354 +988,330 @@ describe("machine stability", () => {
     assert.equal(stability, "steady");
   });
 
-  it("is Shaky for a machine whose renters lose too many packets", () => {
-    offer("pc-1");
-    for (let i = 0; i < 5; i++) play(0.05);
-    assert.equal(platform.stability("pc-1").stability, "shaky");
+  it("is Shaky for a machine whose renters lose too many packets", async () => {
+    await offer("pc-1");
+    for (let i = 0; i < 5; i++) await play(0.05);
+    assert.equal((await platform.stability("pc-1")).stability, "shaky");
   });
 
-  it("only counts the last seven days of sessions", () => {
-    offer("pc-1");
-    for (let i = 0; i < 5; i++) play(0.05);
-    platform.setAvailability("pc-1", false);
-    advance(8 * 24 * 3_600_000);
-    const { stats } = platform.stability("pc-1");
+  it("only counts the last seven days of sessions", async () => {
+    await offer("pc-1");
+    for (let i = 0; i < 5; i++) await play(0.05);
+    await platform.setAvailability("pc-1", false);
+    await advance(8 * 24 * 3_600_000);
+    const { stats } = await platform.stability("pc-1");
     assert.equal(stats.sessions, 0);
     assert.equal(stats.offeredHours, 0);
-  });
-
-  it("adds the end reason and QoS columns to a database file made before them", async () => {
-    await withDatabaseFile(async (path) => {
-      const { DatabaseSync } = await import("node:sqlite");
-      const old = new DatabaseSync(path);
-      old.exec(`CREATE TABLE sessions (
-        id TEXT PRIMARY KEY, booking_id TEXT NOT NULL UNIQUE, machine_id TEXT NOT NULL,
-        started_at INTEGER, ended_at INTEGER, expires_at INTEGER NOT NULL, price INTEGER,
-        ticket_id TEXT UNIQUE)`);
-      old.close();
-
-      const reopened = new Platform({ path, now: () => now });
-      reopened.setAvailability("pc-1", true, REPORT);
-      const claim = reopened.claim(reopened.book(730, 30).bookingId);
-      assert.ok(claim.ok);
-      reopened.endSession("pc-1", claim.sessionId);
-      assert.equal(reopened.sessionEndReason(claim.sessionId), "host_end");
-      reopened.close();
-    });
   });
 });
 
 describe("deadline timer", () => {
   let changed: string[];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Only setTimeout is faked: the platform's own timer is the only thing
     // that can move these bookings, and nothing here calls tick().
     mock.timers.enable({ apis: ["setTimeout"] });
     changed = [];
-    platform = new Platform({ now: () => now, onBookingChanged: (id) => changed.push(id) });
+    await openPlatform({ onBookingChanged: (id) => changed.push(id) });
   });
 
-  afterEach(() => {
-    platform.close();
+  afterEach(async () => {
+    await platform.close();
     mock.timers.reset();
   });
 
   /** Let `ms` pass on both the clock and the timers, without calling tick(). */
-  const pass = (ms: number) => {
+  const pass = async (ms: number) => {
     now += ms;
     mock.timers.tick(ms);
   };
 
-  it("arms no timer while nothing waits on time", () => {
-    assert.equal(platform.nextDeadline(), null);
-    platform.book(730, 30);
-    assert.equal(platform.nextDeadline(), now + QUEUE_TIMEOUT_MS);
+  it("arms no timer while nothing waits on time", async () => {
+    assert.equal(await platform.nextDeadline(), null);
+    await platform.book(730, 30);
+    assert.equal(await platform.nextDeadline(), now + QUEUE_TIMEOUT_MS);
   });
 
-  it("lapses a reservation at its deadline, not a moment before", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    const { bookingId, claimBy } = platform.book(730, 30);
+  it("lapses a reservation at its deadline, not a moment before", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const { bookingId, claimBy } = await platform.book(730, 30);
     assert.equal(claimBy, now + RESERVATION_MS);
-    assert.equal(platform.nextDeadline(), claimBy);
+    assert.equal(await platform.nextDeadline(), claimBy);
     changed = [];
 
-    pass(RESERVATION_MS - 1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "matched");
+    await pass(RESERVATION_MS - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
     assert.deepEqual(changed, []);
 
-    pass(1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "expired");
+    await pass(1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "expired");
     assert.deepEqual(changed, [bookingId]);
   });
 
-  it("ends a session at its booked time", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("ends a session at its booked time", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    pass(30 * 60_000 - 1);
-    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
-    pass(1);
-    assert.equal(platform.claimedSession("pc-1"), null);
+    await pass(30 * 60_000 - 1);
+    assert.equal((await platform.claimedSession("pc-1"))?.sessionId, claim.sessionId);
+    await pass(1);
+    assert.equal(await platform.claimedSession("pc-1"), null);
   });
 
-  it("drops a machine with no socket once its heartbeat is LIVENESS_MS old", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    pass(LIVENESS_MS - 1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "matched");
-    pass(1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "queued", "back in the queue for another machine");
+  it("drops a machine with no socket once its heartbeat is LIVENESS_MS old", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    await pass(LIVENESS_MS - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    await pass(1);
+    assert.equal(
+      (await platform.viewBooking(bookingId))!.status,
+      "queued",
+      "back in the queue for another machine",
+    );
   });
 
-  it("drops a queued booking nobody checks on after QUEUE_TIMEOUT_MS", () => {
-    const { bookingId } = platform.book(730, 30);
-    pass(QUEUE_TIMEOUT_MS - 1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "queued");
-    pass(1);
-    assert.equal(platform.viewBooking(bookingId)!.status, "expired");
-    assert.equal(platform.nextDeadline(), null);
+  it("drops a queued booking nobody checks on after QUEUE_TIMEOUT_MS", async () => {
+    const { bookingId } = await platform.book(730, 30);
+    await pass(QUEUE_TIMEOUT_MS - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
+    await pass(1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "expired");
+    assert.equal(await platform.nextDeadline(), null);
   });
 
-  it("re-arms for an earlier deadline a change brings in", () => {
-    const { bookingId } = platform.book(730, 30);
-    offer("pc-1"); // matched now: the reservation lapses before the queue timeout would
-    assert.equal(platform.nextDeadline(), now + LIVENESS_MS);
-    pass(LIVENESS_MS);
-    assert.equal(platform.viewBooking(bookingId)!.status, "queued");
+  it("re-arms for an earlier deadline a change brings in", async () => {
+    const { bookingId } = await platform.book(730, 30);
+    await offer("pc-1"); // matched now: the reservation lapses before the queue timeout would
+    assert.equal(await platform.nextDeadline(), now + LIVENESS_MS);
+    await pass(LIVENESS_MS);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
   });
 });
 
 describe("presence", () => {
-  it("keeps a machine whose socket is open offered with no heartbeat", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    advance(10 * LIVENESS_MS);
-    const booking = platform.book(730, 30);
+  it("keeps a machine whose socket is open offered with no heartbeat", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    await advance(10 * LIVENESS_MS);
+    const booking = await platform.book(730, 30);
     assert.equal(booking.status, "matched");
     assert.equal(booking.machine?.id, "pc-1");
   });
 
-  it("takes a machine offline the moment its socket drops, handing its booking back", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    platform.hostDisconnected("pc-1", true);
-    assert.equal(platform.booking(bookingId)!.status, "queued");
-    assert.equal(platform.heartbeat("pc-1").status, "reserved", "a heartbeat offers it again");
+  it("takes a machine offline the moment its socket drops, handing its booking back", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    await platform.hostDisconnected("pc-1", true);
+    assert.equal((await platform.booking(bookingId))!.status, "queued");
+    assert.equal((await platform.heartbeat("pc-1")).status, "reserved", "a heartbeat offers it again");
   });
 
-  it("keeps a claimed session through a dropped socket for the liveness window, no longer", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("keeps a claimed session through a dropped socket for the liveness window, no longer", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    platform.hostDisconnected("pc-1", true);
-    advance(LIVENESS_MS - 1);
-    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
-    advance(1);
-    assert.equal(platform.claimedSession("pc-1"), null);
+    await platform.hostDisconnected("pc-1", true);
+    await advance(LIVENESS_MS - 1);
+    assert.equal((await platform.claimedSession("pc-1"))?.sessionId, claim.sessionId);
+    await advance(1);
+    assert.equal(await platform.claimedSession("pc-1"), null);
   });
 
-  it("gives a machine handed over to its streamer the liveness window", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    const claim = platform.claim(platform.book(730, 30).bookingId);
+  it("gives a machine handed over to its streamer the liveness window", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const claim = await platform.claim((await platform.book(730, 30)).bookingId);
     assert.ok(claim.ok);
-    advance(10 * LIVENESS_MS);
-    platform.hostDisconnected("pc-1", false);
-    advance(LIVENESS_MS - 1);
-    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
-    platform.hostConnected("pc-1"); // the streamer registers
-    advance(10 * LIVENESS_MS);
-    assert.equal(platform.claimedSession("pc-1")?.sessionId, claim.sessionId);
+    await advance(10 * LIVENESS_MS);
+    await platform.hostDisconnected("pc-1", false);
+    await advance(LIVENESS_MS - 1);
+    assert.equal((await platform.claimedSession("pc-1"))?.sessionId, claim.sessionId);
+    await platform.hostConnected("pc-1"); // the streamer registers
+    await advance(10 * LIVENESS_MS);
+    assert.equal((await platform.claimedSession("pc-1"))?.sessionId, claim.sessionId);
   });
 
-  it("brings a machine dropped as offline back when its socket reconnects", () => {
-    offer("pc-1");
-    advance(LIVENESS_MS);
-    assert.equal(platform.book(730, 30).status, "queued");
-    platform.hostConnected("pc-1");
-    assert.equal(platform.heartbeat("pc-1").status, "reserved");
+  it("brings a machine dropped as offline back when its socket reconnects", async () => {
+    await offer("pc-1");
+    await advance(LIVENESS_MS);
+    assert.equal((await platform.book(730, 30)).status, "queued");
+    await platform.hostConnected("pc-1");
+    assert.equal((await platform.heartbeat("pc-1")).status, "reserved");
   });
 
-  it("stores nothing for a socket from a machine never heard from", () => {
-    platform.hostConnected("pc-9");
-    platform.hostDisconnected("pc-9", true);
-    assert.equal(platform.machineProfile("pc-9"), null);
+  it("stores nothing for a socket from a machine never heard from", async () => {
+    await platform.hostConnected("pc-9");
+    await platform.hostDisconnected("pc-9", true);
+    assert.equal(await platform.machineProfile("pc-9"), null);
   });
 
   it("gives every machine on offer and every queued booking a fresh deadline after a restart", async () => {
-    await withDatabaseFile((path) => {
-      const first = new Platform({ path, now: () => now });
-      first.hostConnected("pc-1");
-      first.setAvailability("pc-1", true, REPORT);
-      const queued = first.book(1, 30); // a game no machine has
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.hostConnected("pc-1");
+      await first.setAvailability("pc-1", true, REPORT);
+      const queued = await first.book(1, 30); // a game no machine has
       now += 10 * QUEUE_TIMEOUT_MS;
-      first.close();
+      await first.close();
 
-      const second = new Platform({ path, now: () => now });
-      assert.equal(second.nextDeadline(), now + LIVENESS_MS);
-      assert.equal(second.viewBooking(queued.bookingId)!.status, "queued");
-      second.close();
+      const second = await Platform.open({ database: open(), now: () => now });
+      assert.equal(await second.nextDeadline(), now + LIVENESS_MS);
+      assert.equal((await second.viewBooking(queued.bookingId))!.status, "queued");
+      await second.close();
     });
   });
 
   it("drops a machine that never comes back after a restart as of its last contact", async () => {
-    await withDatabaseFile(async (path) => {
+    await withDatabase(async (open) => {
       const lastContact = now;
-      const first = new Platform({ path, now: () => now });
-      first.setAvailability("pc-1", true, REPORT);
-      const claim = first.claim(first.book(730, 120).bookingId);
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.setAvailability("pc-1", true, REPORT);
+      const claim = await first.claim((await first.book(730, 120)).bookingId);
       assert.ok(claim.ok);
       const { sessionId } = claim;
-      first.close();
+      await first.close();
 
       now = lastContact + 60 * 60_000;
-      const second = new Platform({ path, now: () => now });
+      const second = await Platform.open({ database: open(), now: () => now });
       now += LIVENESS_MS - 1;
-      second.tick();
-      assert.equal(second.sessionEndReason(sessionId), null);
+      await second.tick();
+      assert.equal(await second.sessionEndReason(sessionId), null);
       now += 1;
-      second.tick();
-      assert.equal(second.sessionEndReason(sessionId), "host_offline");
-      const { stats } = second.stability("pc-1");
+      await second.tick();
+      assert.equal(await second.sessionEndReason(sessionId), "host_offline");
+      const { stats } = await second.stability("pc-1");
       assert.equal(Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000), LIVENESS_MS);
-      second.close();
+      await second.close();
 
-      const { DatabaseSync } = await import("node:sqlite");
-      const db = new DatabaseSync(path);
-      const { ended_at } = db.prepare("SELECT ended_at FROM sessions WHERE id = ?").get(sessionId) as {
-        ended_at: number;
-      };
-      db.close();
-      assert.equal(ended_at, lastContact);
+      assert.equal(await endedAt(open(), sessionId), lastContact);
     });
   });
 
   it("counts the time a machine on offer was gone across a restart as unseen when it reconnects", async () => {
-    await withDatabaseFile((path) => {
-      const first = new Platform({ path, now: () => now });
-      first.setAvailability("pc-1", true, REPORT);
-      first.close();
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.setAvailability("pc-1", true, REPORT);
+      await first.close();
 
       now += 10 * 60_000;
-      const second = new Platform({ path, now: () => now });
-      second.hostConnected("pc-1");
-      const { stats } = second.stability("pc-1");
+      const second = await Platform.open({ database: open(), now: () => now });
+      await second.hostConnected("pc-1");
+      const { stats } = await second.stability("pc-1");
       assert.equal(Math.round(stats.offeredHours * 3_600_000), 10 * 60_000);
       assert.equal(Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000), LIVENESS_MS);
-      second.close();
+      await second.close();
     });
   });
 
   it("ends a game on a present machine that never comes back after a restart as of its last ping round", async () => {
-    await withDatabaseFile(async (path) => {
-      const first = new Platform({ path, now: () => now });
-      first.hostConnected("pc-1");
-      first.setAvailability("pc-1", true, { ...REPORT, price: 120 });
-      const { bookingId } = first.book(730, 180);
-      const claim = first.claim(bookingId);
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      await first.hostConnected("pc-1");
+      await first.setAvailability("pc-1", true, { ...REPORT, price: 120 });
+      const { bookingId } = await first.book(730, 180);
+      const claim = await first.claim(bookingId);
       assert.ok(claim.ok);
       const { sessionId } = claim;
-      first.startSession("pc-1", sessionId);
+      await first.startSession("pc-1", sessionId);
       const startedAt = now;
       // Two hours of play with nothing touching the database but the ping rounds.
       for (let t = 0; t < 2 * 60 * 60_000; t += 25_000) {
         now += 25_000;
-        first.hostsAlive(["pc-1"]);
+        await first.hostsAlive(["pc-1"]);
       }
       const lastPing = now;
       now += 20_000; // the server dies before the next round
-      first.close();
+      await first.close();
 
       now += 60 * 60_000;
-      const second = new Platform({ path, now: () => now });
+      const second = await Platform.open({ database: open(), now: () => now });
       now += LIVENESS_MS;
-      second.tick();
-      assert.equal(second.sessionEndReason(sessionId), "host_offline");
-      assert.equal(second.booking(bookingId)!.price, Math.round((120 * (lastPing - startedAt)) / 3_600_000));
-      const { stats } = second.stability("pc-1");
+      await second.tick();
+      assert.equal(await second.sessionEndReason(sessionId), "host_offline");
+      assert.equal(
+        (await second.booking(bookingId))!.price,
+        Math.round((120 * (lastPing - startedAt)) / 3_600_000),
+      );
+      const { stats } = await second.stability("pc-1");
       const seenMs = Math.round(stats.offeredHours * stats.heartbeatCoverage * 3_600_000);
       assert.equal(seenMs, lastPing - startedAt + LIVENESS_MS);
-      second.close();
+      await second.close();
 
-      const { DatabaseSync } = await import("node:sqlite");
-      const db = new DatabaseSync(path);
-      const { ended_at } = db.prepare("SELECT ended_at FROM sessions WHERE id = ?").get(sessionId) as {
-        ended_at: number;
-      };
-      db.close();
-      assert.equal(ended_at, lastPing);
+      assert.equal(await endedAt(open(), sessionId), lastPing);
     });
   });
 });
 
 describe("presence and uptime", () => {
-  const uptime = () => {
-    const { stats } = platform.stability("pc-1");
+  const uptime = async () => {
+    const { stats } = await platform.stability("pc-1");
     return { offeredMs: Math.round(stats.offeredHours * 3_600_000), coverage: stats.heartbeatCoverage };
   };
 
-  it("counts the time a socket is open as seen, with no heartbeat", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    advance(10 * 60_000);
-    assert.deepEqual(uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
+  it("counts the time a socket is open as seen, with no heartbeat", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    await advance(10 * 60_000);
+    assert.deepEqual(await uptime(), { offeredMs: 10 * 60_000, coverage: 1 });
     now += 60_000; // no tick in between: still seen
-    assert.deepEqual(uptime(), { offeredMs: 11 * 60_000, coverage: 1 });
+    assert.deepEqual(await uptime(), { offeredMs: 11 * 60_000, coverage: 1 });
   });
 
-  it("counts a dropped socket as a liveness drop, and the time since as unseen", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    advance(60_000);
-    platform.hostDisconnected("pc-1", true);
-    advance(45_000);
+  it("counts a dropped socket as a liveness drop, and the time since as unseen", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    await advance(60_000);
+    await platform.hostDisconnected("pc-1", true);
+    await advance(45_000);
     // Seen for the liveness window after its last contact, as after a heartbeat.
-    assert.deepEqual(uptime(), { offeredMs: 105_000, coverage: 75 / 105 });
-    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 1 / (105 / 3600));
+    assert.deepEqual(await uptime(), { offeredMs: 105_000, coverage: 75 / 105 });
+    assert.equal((await platform.stability("pc-1")).stats.dropsPerHour, 1 / (105 / 3600));
   });
 
-  it("counts no drop for a room the server handed over", () => {
-    platform.hostConnected("pc-1");
-    offer("pc-1");
-    advance(60_000);
-    platform.hostDisconnected("pc-1", false);
-    platform.hostConnected("pc-1");
-    advance(60_000);
-    assert.equal(platform.stability("pc-1").stats.dropsPerHour, 0);
-    assert.deepEqual(uptime(), { offeredMs: 120_000, coverage: 1 });
+  it("counts no drop for a room the server handed over", async () => {
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    await advance(60_000);
+    await platform.hostDisconnected("pc-1", false);
+    await platform.hostConnected("pc-1");
+    await advance(60_000);
+    assert.equal((await platform.stability("pc-1")).stats.dropsPerHour, 0);
+    assert.deepEqual(await uptime(), { offeredMs: 120_000, coverage: 1 });
   });
 });
 
 describe("a host disconnect the database fails", () => {
-  afterEach(() => mock.timers.reset());
-
   it("still drops the presence, and the retried tick takes the machine offline", async () => {
-    const { DatabaseSync } = await import("node:sqlite");
-    await withDatabaseFile((path) => {
-      mock.timers.enable({ apis: ["setTimeout"] });
-      const db = new Platform({ path, now: () => now });
-      db.hostConnected("pc-1");
-      db.setAvailability("pc-1", true, REPORT);
-      const { bookingId } = db.book(730, 30);
-      assert.equal(db.viewBooking(bookingId)!.status, "matched");
+    await withDatabase(async (open) => {
+      const db = await Platform.open({ database: open(), now: () => now });
+      await db.hostConnected("pc-1");
+      await db.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = await db.book(730, 30);
+      assert.equal((await db.viewBooking(bookingId))!.status, "matched");
       now += 2 * LIVENESS_MS; // no tick: the machine has not been touched since
 
       // Every write to machine_uptime fails from here.
-      const other = new DatabaseSync(path);
-      other.exec("ALTER TABLE machine_uptime RENAME TO machine_uptime_away");
-      assert.throws(() => db.hostDisconnected("pc-1", true));
-      assert.equal(db.viewBooking(bookingId)!.status, "matched", "rolled back");
-      other.exec("ALTER TABLE machine_uptime_away RENAME TO machine_uptime");
-      other.close();
+      const other = open();
+      await other.query("ALTER TABLE machine_uptime RENAME TO machine_uptime_away");
+      await assert.rejects(db.hostDisconnected("pc-1", true));
+      assert.equal((await db.viewBooking(bookingId))!.status, "matched", "rolled back");
+      await other.query("ALTER TABLE machine_uptime_away RENAME TO machine_uptime");
+      await other.close();
 
-      mock.timers.tick(1_000);
-      assert.equal(db.viewBooking(bookingId)!.status, "queued", "offline, so the booking is handed back");
-      db.close();
+      // The failure armed a retry in RETRY_MS: no call here moves the booking.
+      await wait(RETRY_MS + 500);
+      assert.equal(
+        (await db.viewBooking(bookingId))!.status,
+        "queued",
+        "offline, so the booking is handed back",
+      );
+      await db.close();
     });
   });
 });
@@ -1274,128 +1320,140 @@ describe("renters and owners", () => {
   const RENTER = "76561198000000001";
   const OWNER = "76561198000000003";
 
-  beforeEach(() => {
-    platform = new Platform({ now: () => now, owners: new Map([["pc-own", OWNER]]) });
+  beforeEach(async () => {
+    await openPlatform({ owners: new Map([["pc-own", OWNER]]) });
   });
 
-  it("never matches a booking to a machine its renter owns", () => {
-    platform.setAvailability("pc-own", true, { ...REPORT, price: 10 });
-    const own = platform.book(730, 30, OWNER);
+  it("never matches a booking to a machine its renter owns", async () => {
+    await platform.setAvailability("pc-own", true, { ...REPORT, price: 10 });
+    const own = await platform.book(730, 30, OWNER);
     assert.equal(own.status, "queued");
 
-    beatFor("pc-own", 30_000);
-    platform.book(730, 30, OWNER); // touching the queue again changes nothing
-    assert.equal(platform.booking(own.bookingId, OWNER)!.status, "queued");
+    await beatFor("pc-own", 30_000);
+    await platform.book(730, 30, OWNER); // touching the queue again changes nothing
+    assert.equal((await platform.booking(own.bookingId, OWNER))!.status, "queued");
 
     // The same machine goes to the next renter in line instead.
-    assert.equal(platform.book(730, 30, RENTER).machine?.id, "pc-own");
-    platform.setAvailability("pc-1", true, { ...REPORT, price: 99 });
-    assert.equal(platform.booking(own.bookingId, OWNER)!.machine?.id, "pc-1");
+    assert.equal((await platform.book(730, 30, RENTER)).machine?.id, "pc-own");
+    await platform.setAvailability("pc-1", true, { ...REPORT, price: 99 });
+    assert.equal((await platform.booking(own.bookingId, OWNER))!.machine?.id, "pc-1");
   });
 
   it("takes the owner from the configuration each time the machine checks in", async () => {
-    await withDatabaseFile((path) => {
-      const before = new Platform({ path, now: () => now });
-      before.setAvailability("pc-1", true, REPORT);
-      before.close();
+    await withDatabase(async (open) => {
+      const before = await Platform.open({ database: open(), now: () => now });
+      await before.setAvailability("pc-1", true, REPORT);
+      await before.close();
 
       // Restarted with pc-1's owner configured: the stored machine learns it.
-      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
-      after.heartbeat("pc-1");
-      assert.equal(after.book(730, 30, OWNER).status, "queued");
-      assert.equal(after.book(730, 30, RENTER).status, "matched");
-      after.close();
+      const after = await Platform.open({
+        database: open(),
+        now: () => now,
+        owners: new Map([["pc-1", OWNER]]),
+      });
+      await after.heartbeat("pc-1");
+      assert.equal((await after.book(730, 30, OWNER)).status, "queued");
+      assert.equal((await after.book(730, 30, RENTER)).status, "matched");
+      await after.close();
     });
   });
 
   it("takes back a reservation made before its renter was known to own the machine", async () => {
-    await withDatabaseFile((path) => {
+    await withDatabase(async (open) => {
       // Matched while pc-1 had no owner on record.
-      const before = new Platform({ path, now: () => now });
-      before.setAvailability("pc-1", true, REPORT);
-      const { bookingId } = before.book(730, 30, OWNER);
-      assert.equal(before.booking(bookingId, OWNER)!.machine?.id, "pc-1");
-      before.close();
+      const before = await Platform.open({ database: open(), now: () => now });
+      await before.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = await before.book(730, 30, OWNER);
+      assert.equal((await before.booking(bookingId, OWNER))!.machine?.id, "pc-1");
+      await before.close();
 
       // Restarted knowing OWNER owns pc-1: the next check-in hands it back.
-      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
-      assert.equal(after.heartbeat("pc-1").status, "available");
-      const requeued = after.booking(bookingId, OWNER)!;
+      const after = await Platform.open({
+        database: open(),
+        now: () => now,
+        owners: new Map([["pc-1", OWNER]]),
+      });
+      assert.equal((await after.heartbeat("pc-1")).status, "available");
+      const requeued = (await after.booking(bookingId, OWNER))!;
       assert.equal(requeued.status, "queued");
       assert.equal(requeued.machine, undefined);
-      assert.equal(after.book(730, 30, RENTER).machine?.id, "pc-1");
-      after.close();
+      assert.equal((await after.book(730, 30, RENTER)).machine?.id, "pc-1");
+      await after.close();
     });
   });
 
   it("refuses to claim the renter's own machine before it has checked in again", async () => {
-    await withDatabaseFile((path) => {
-      const before = new Platform({ path, now: () => now });
-      before.setAvailability("pc-1", true, REPORT);
-      const { bookingId } = before.book(730, 30, OWNER);
-      before.close();
+    await withDatabase(async (open) => {
+      const before = await Platform.open({ database: open(), now: () => now });
+      await before.setAvailability("pc-1", true, REPORT);
+      const { bookingId } = await before.book(730, 30, OWNER);
+      await before.close();
 
-      const after = new Platform({ path, now: () => now, owners: new Map([["pc-1", OWNER]]) });
-      assert.deepEqual(after.claim(bookingId, OWNER), {
+      const after = await Platform.open({
+        database: open(),
+        now: () => now,
+        owners: new Map([["pc-1", OWNER]]),
+      });
+      assert.deepEqual(await after.claim(bookingId, OWNER), {
         ok: false,
         reason: "not-claimable",
         status: "queued",
       });
-      assert.equal(after.booking(bookingId, OWNER)!.status, "queued");
-      assert.equal(after.book(730, 30, RENTER).machine?.id, "pc-1");
-      after.close();
+      assert.equal((await after.booking(bookingId, OWNER))!.status, "queued");
+      assert.equal((await after.book(730, 30, RENTER)).machine?.id, "pc-1");
+      await after.close();
     });
   });
 
-  it("shows and hands a booking only to the renter who made it", () => {
-    platform.setAvailability("pc-1", true, REPORT);
-    const { bookingId } = platform.book(730, 30, RENTER);
-    assert.equal(platform.booking(bookingId, OWNER), null);
-    assert.equal(platform.booking(bookingId), null); // nor to nobody
-    assert.deepEqual(platform.claim(bookingId, OWNER), { ok: false, reason: "not-found" });
-    assert.equal(platform.booking(bookingId, RENTER)!.status, "matched");
-    assert.ok(platform.claim(bookingId, RENTER).ok);
+  it("shows and hands a booking only to the renter who made it", async () => {
+    await platform.setAvailability("pc-1", true, REPORT);
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    assert.equal(await platform.booking(bookingId, OWNER), null);
+    assert.equal(await platform.booking(bookingId), null); // nor to nobody
+    assert.deepEqual(await platform.claim(bookingId, OWNER), { ok: false, reason: "not-found" });
+    assert.equal((await platform.booking(bookingId, RENTER))!.status, "matched");
+    assert.ok((await platform.claim(bookingId, RENTER)).ok);
   });
 });
 
 describe("machines on offer", () => {
-  const ids = () => platform.offeredMachines().machines.map((m) => m.host.id);
+  const ids = async () => (await platform.offeredMachines()).machines.map((m) => m.host.id);
 
-  it("lists what is offered and answering, with no machine taken back or gone silent", () => {
-    offer("pc-1");
-    offer("pc-2");
-    offer("pc-3");
-    platform.setAvailability("pc-2", false);
-    assert.deepEqual(ids(), ["pc-1", "pc-3"]);
-    advance(LIVENESS_MS);
-    platform.heartbeat("pc-3");
-    assert.deepEqual(ids(), ["pc-3"]);
-    const [pc3] = platform.offeredMachines().machines;
+  it("lists what is offered and answering, with no machine taken back or gone silent", async () => {
+    await offer("pc-1");
+    await offer("pc-2");
+    await offer("pc-3");
+    await platform.setAvailability("pc-2", false);
+    assert.deepEqual(await ids(), ["pc-1", "pc-3"]);
+    await advance(LIVENESS_MS);
+    await platform.heartbeat("pc-3");
+    assert.deepEqual(await ids(), ["pc-3"]);
+    const [pc3] = (await platform.offeredMachines()).machines;
     assert.equal(pc3!.host.status, "available");
     assert.deepEqual(pc3!.host.installed, [570, 730]);
     assert.equal(pc3!.profile.name, REPORT.name);
     assert.equal(pc3!.backAt, null);
   });
 
-  it("counts a machine whose socket is open as seen now", () => {
-    offer("pc-1");
-    platform.hostConnected("pc-1");
+  it("counts a machine whose socket is open as seen now", async () => {
+    await offer("pc-1");
+    await platform.hostConnected("pc-1");
     now += 10 * LIVENESS_MS; // no tick: nothing has been settled since
-    const { at, machines } = platform.offeredMachines();
+    const { at, machines } = await platform.offeredMachines();
     assert.equal(at, now);
     assert.equal(machines[0]!.host.lastHeartbeatAt, now);
   });
 
-  it("says when a busy machine is free again at the latest", () => {
-    offer("pc-1");
-    const { bookingId } = platform.book(730, 30);
-    const reserved = platform.offeredMachines().machines[0]!;
+  it("says when a busy machine is free again at the latest", async () => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    const reserved = (await platform.offeredMachines()).machines[0]!;
     assert.equal(reserved.host.status, "busy");
     assert.equal(reserved.backAt, now + RESERVATION_MS + 30 * 60_000);
 
-    advance(10_000);
-    platform.heartbeat("pc-1");
-    assert.ok(platform.claim(bookingId).ok);
-    assert.equal(platform.offeredMachines().machines[0]!.backAt, now + 30 * 60_000);
+    await advance(10_000);
+    await platform.heartbeat("pc-1");
+    assert.ok((await platform.claim(bookingId)).ok);
+    assert.equal((await platform.offeredMachines()).machines[0]!.backAt, now + 30 * 60_000);
   });
 });

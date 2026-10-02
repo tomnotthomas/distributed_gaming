@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import {
@@ -26,6 +26,7 @@ import type { SignalMessage } from "../protocol.js";
 import { MAX_GAMES } from "../profile.js";
 import { REPORT } from "./report.js";
 import { SESSION_COOKIE } from "../signin.js";
+import { serverDatabase, testDatabase, type ServerDatabase } from "./db.js";
 
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const MACHINE_KEY = "test-machine-key";
@@ -110,12 +111,14 @@ describe("booking and host API", () => {
 
   after(() => server.close());
 
-  beforeEach(() => {
+  beforeEach(async () => {
     now = Date.UTC(2026, 8, 30, 12);
-    platform = new Platform({ now: () => now, owners: access.owners });
+    platform = await Platform.open({ database: await testDatabase(), now: () => now, owners: access.owners });
     discovery = new RequestBudget({ now: () => now });
     access.secret = SECRET;
   });
+
+  afterEach(() => platform.close());
 
   const offer = (id = "pc-1", body: object = { available: true, ...REPORT }) =>
     call("PUT", `/api/machines/${id}/availability`, body, MACHINE_KEY);
@@ -293,11 +296,11 @@ describe("booking and host API", () => {
 
   it("stores the host report sent with availability and heartbeat", async () => {
     assert.equal((await offer()).status, 200);
-    assert.equal(platform.machineProfile("pc-1")!.hardware?.gpu, REPORT.hardware.gpu);
+    assert.equal((await platform.machineProfile("pc-1"))!.hardware?.gpu, REPORT.hardware.gpu);
 
     const beat = await call("POST", "/api/machines/pc-1/heartbeat", { games: [440] }, MACHINE_KEY);
     assert.equal(beat.status, 200);
-    assert.deepEqual(platform.machineProfile("pc-1")!.games, [440]);
+    assert.deepEqual((await platform.machineProfile("pc-1"))!.games, [440]);
   });
 
   it("refuses a bad host report with a 400 naming the field, and stores none of it", async () => {
@@ -306,13 +309,13 @@ describe("booking and host API", () => {
     assert.match(bad.body.error, /^net\.rttMs /);
     const beat = await call("POST", "/api/machines/pc-1/heartbeat", { controls: ["wheel"] }, MACHINE_KEY);
     assert.equal(beat.status, 400);
-    assert.equal(platform.machineProfile("pc-1"), null);
+    assert.equal(await platform.machineProfile("pc-1"), null);
   });
 
   it("takes a full library within the host body limit, and refuses a larger body", async () => {
     const games = Array.from({ length: MAX_GAMES }, (_, i) => 2_000_000 + i);
     assert.equal((await offer("pc-1", { available: true, ...REPORT, games })).status, 200);
-    assert.equal(platform.machineProfile("pc-1")!.games.length, MAX_GAMES);
+    assert.equal((await platform.machineProfile("pc-1"))!.games.length, MAX_GAMES);
     const huge = { available: true, name: "x".repeat(40_000) };
     assert.equal((await offer("pc-1", huge)).status, 413);
   });
@@ -324,7 +327,7 @@ describe("booking and host API", () => {
       const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
       const end = await call("POST", `/api/sessions/${claim.body.sessionId}/end`, { reason }, MACHINE_KEY);
       assert.equal(end.status, 200, reason);
-      assert.equal(platform.sessionEndReason(claim.body.sessionId), "host_end", reason);
+      assert.equal(await platform.sessionEndReason(claim.body.sessionId), "host_end", reason);
     }
   });
 
@@ -341,12 +344,12 @@ describe("booking and host API", () => {
     assert.equal((await call("POST", leave, undefined, MACHINE_KEY)).status, 401);
     assert.equal((await call("POST", leave, undefined, theirs.body.ticket)).status, 403);
     assert.equal((await call("POST", "/api/sessions/nope/leave", undefined, mine.body.ticket)).status, 404);
-    assert.equal(platform.sessionEndReason(mine.body.sessionId), null);
+    assert.equal(await platform.sessionEndReason(mine.body.sessionId), null);
 
     const left = await call("POST", leave, undefined, mine.body.ticket);
     assert.equal(left.status, 200);
     assert.deepEqual(left.body, { sessionId: mine.body.sessionId });
-    assert.equal(platform.sessionEndReason(mine.body.sessionId), "renter");
+    assert.equal(await platform.sessionEndReason(mine.body.sessionId), "renter");
     assert.equal((await call("POST", leave, undefined, mine.body.ticket)).status, 409);
   });
 
@@ -366,7 +369,7 @@ describe("booking and host API", () => {
       const reply = await call("POST", path, QOS, ticket);
       assert.equal(reply.status, 200);
       assert.deepEqual(reply.body, { sessionId });
-      assert.deepEqual(platform.sessionQos(sessionId), { reports: 1, ...QOS });
+      assert.deepEqual(await platform.sessionQos(sessionId), { reports: 1, ...QOS });
     });
 
     it("refuses a missing, forged or other session's ticket, and the machine key", async () => {
@@ -383,7 +386,7 @@ describe("booking and host API", () => {
       assert.equal((await call("POST", "/api/sessions/nope/qos", QOS, first.ticket)).status, 404);
       const expired = mintTicket(SECRET, "pc-1", 60, Date.now() - 61_000);
       assert.equal((await call("POST", first.path, QOS, expired)).status, 401);
-      assert.equal(platform.sessionQos(first.sessionId), null);
+      assert.equal(await platform.sessionQos(first.sessionId), null);
     });
 
     it("refuses a report once the session is long over", async () => {
@@ -405,7 +408,7 @@ describe("booking and host API", () => {
         assert.equal((await call("POST", path, bad, ticket)).status, 400, JSON.stringify(bad));
       }
       assert.equal((await call("POST", path, { ...QOS, pad: "x".repeat(2_000) }, ticket)).status, 413);
-      assert.equal(platform.sessionQos(sessionId), null);
+      assert.equal(await platform.sessionQos(sessionId), null);
     });
   });
   describe("what can be played where", () => {
@@ -610,8 +613,10 @@ describe("the real server", () => {
   const call = client(`http://localhost:${PORT}`);
   const renter = client(`http://localhost:${PORT}`, signedIn(RENTER));
   let server: ChildProcess | undefined;
+  let database: ServerDatabase;
 
   before(async () => {
+    database = await serverDatabase();
     server = spawn(process.execPath, [SERVER], {
       env: {
         ...process.env,
@@ -619,11 +624,12 @@ describe("the real server", () => {
         ROOM_SECRET: SECRET,
         SESSION_SECRET: SESSION,
         MACHINE_KEYS,
-        DATABASE_PATH: "",
+        DATABASE_URL: database.url,
       },
       stdio: "ignore",
     });
-    for (let i = 0; i < 50; i++) {
+    // Up to 15 s: the server opens its database before it listens, slower under a full test run.
+    for (let i = 0; i < 150; i++) {
       try {
         await fetch(`http://localhost:${PORT}/api/bookings/none`);
         return;
@@ -634,7 +640,14 @@ describe("the real server", () => {
     throw new Error("server did not start");
   });
 
-  after(() => server?.kill());
+  after(async () => {
+    if (server && server.exitCode === null && server.signalCode === null) {
+      const exited = new Promise((resolve) => server!.once("exit", resolve));
+      server.kill();
+      await exited;
+    }
+    await database.close();
+  });
 
   it("hands out a ticket that opens the matched room", async () => {
     await call("PUT", "/api/machines/pc-2/availability", { available: true, ...REPORT }, MACHINE_KEY);

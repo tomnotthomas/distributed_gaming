@@ -1,6 +1,6 @@
 // What hardware each game needs, for the ranking in @swiff/rank: gate E3
 // compares a host with the minimum, and Picture compares it with the
-// recommended GPU. One SQLite row per game, in the game_requirements table.
+// recommended GPU. One row per game, in the game_requirements table.
 //
 //   curated   requirements-overrides.json, checked in; always wins
 //   steam     parsed from the store's pc_requirements text
@@ -18,11 +18,11 @@
 //
 // RAM and VRAM of 0 mean "not stated": E3 then gates on the GPU alone.
 
-import type { DatabaseSync } from "node:sqlite";
 import { gpuScore, normalizeGpu, type GameRequirements } from "@swiff/rank";
 import gpuTable from "@swiff/rank/gpu-scores.json" with { type: "json" };
 import overrides from "./requirements-overrides.json" with { type: "json" };
 import { getJson } from "./catalog.js";
+import type { Queryable } from "./db.js";
 
 export type RequirementsSource = "steam" | "curated" | "default";
 
@@ -65,19 +65,6 @@ export const DEFAULT_REQUIREMENTS: Stored = {
   minVramMb: 0,
   source: "default",
 };
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS game_requirements (
-  appid         INTEGER PRIMARY KEY,
-  min_gpu_score INTEGER NOT NULL,
-  rec_gpu_score INTEGER NOT NULL,
-  -- 0: not stated.
-  min_ram_mb    INTEGER NOT NULL DEFAULT 0,
-  min_vram_mb   INTEGER NOT NULL DEFAULT 0,
-  source        TEXT NOT NULL CHECK (source IN ('steam', 'curated', 'default')),
-  updated_at    INTEGER NOT NULL
-);
-`;
 
 type Row = {
   appid: number;
@@ -253,31 +240,28 @@ const CURATED = curatedRequirements();
 
 // --- the table -------------------------------------------------------------------
 
-/** The game_requirements table, on whatever SQLite database the server opens. */
+/** The game_requirements table (schema.ts), on whatever database the server opens. */
 export class RequirementsTable {
-  readonly #db: DatabaseSync;
+  readonly #db: Queryable;
   readonly #now: () => number;
 
-  /** Creates the table on `db` if it is not there yet. */
-  constructor(db: DatabaseSync, now: () => number = Date.now) {
+  /** Over `db`, which already has the table: migrate() makes it. */
+  constructor(db: Queryable, now: () => number = Date.now) {
     this.#db = db;
     this.#now = now;
-    this.#db.exec(SCHEMA);
   }
 
   /** Insert or replace one game's row, stamped with the current time. */
-  upsert(appid: number, values: Stored): void {
-    this.#db
-      .prepare(
-        `INSERT INTO game_requirements
-           (appid, min_gpu_score, rec_gpu_score, min_ram_mb, min_vram_mb, source, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (appid) DO UPDATE SET
-           min_gpu_score = excluded.min_gpu_score, rec_gpu_score = excluded.rec_gpu_score,
-           min_ram_mb = excluded.min_ram_mb, min_vram_mb = excluded.min_vram_mb,
-           source = excluded.source, updated_at = excluded.updated_at`,
-      )
-      .run(
+  async upsert(appid: number, values: Stored): Promise<void> {
+    await this.#db.query(
+      `INSERT INTO game_requirements
+         (appid, min_gpu_score, rec_gpu_score, min_ram_mb, min_vram_mb, source, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (appid) DO UPDATE SET
+         min_gpu_score = excluded.min_gpu_score, rec_gpu_score = excluded.rec_gpu_score,
+         min_ram_mb = excluded.min_ram_mb, min_vram_mb = excluded.min_vram_mb,
+         source = excluded.source, updated_at = excluded.updated_at`,
+      [
         appid,
         values.minGpuScore,
         values.recGpuScore,
@@ -285,40 +269,60 @@ export class RequirementsTable {
         values.minVramMb,
         values.source,
         this.#now(),
-      );
+      ],
+    );
   }
 
   /** The stored row for a game, or null when it has never been seeded. */
-  row(appid: number): RequirementsRow | null {
-    const row = this.#db.prepare("SELECT * FROM game_requirements WHERE appid = ?").get(appid) as
-      Row | undefined;
-    if (!row) return null;
-    return {
-      appid: row.appid,
-      minGpuScore: row.min_gpu_score,
-      recGpuScore: row.rec_gpu_score,
-      minRamMb: row.min_ram_mb,
-      minVramMb: row.min_vram_mb,
-      source: row.source,
-      updatedAt: row.updated_at,
-    };
+  async row(appid: number): Promise<RequirementsRow | null> {
+    const {
+      rows: [row],
+    } = await this.#db.query<Row>("SELECT * FROM game_requirements WHERE appid = $1", [appid]);
+    return row ? fromRow(row) : null;
   }
 
   /**
    * What a game needs, ready for rank(): the curated override if there is one,
    * else the seeded row, else the labelled default. Never null.
    */
-  lookup(appid: number): Requirements {
-    const values = CURATED.get(appid) ?? this.row(appid) ?? DEFAULT_REQUIREMENTS;
-    return {
-      appid,
-      minGpuScore: values.minGpuScore,
-      recGpuScore: values.recGpuScore,
-      minRamGb: values.minRamMb / MB_PER_GB,
-      minVramGb: values.minVramMb / MB_PER_GB,
-      source: values.source,
-    };
+  async lookup(appid: number): Promise<Requirements> {
+    return (await this.lookupAll([appid]))[0]!;
   }
+
+  /** lookup() for each appid, in the same order, from one read of the table. */
+  async lookupAll(appids: number[]): Promise<Requirements[]> {
+    const wanted = appids.filter((appid) => !CURATED.has(appid));
+    const { rows } = wanted.length
+      ? await this.#db.query<Row>("SELECT * FROM game_requirements WHERE appid = ANY ($1::bigint[])", [
+          wanted,
+        ])
+      : { rows: [] };
+    const seeded = new Map(rows.map((row) => [row.appid, fromRow(row)]));
+    return appids.map((appid) => {
+      const values = CURATED.get(appid) ?? seeded.get(appid) ?? DEFAULT_REQUIREMENTS;
+      return {
+        appid,
+        minGpuScore: values.minGpuScore,
+        recGpuScore: values.recGpuScore,
+        minRamGb: values.minRamMb / MB_PER_GB,
+        minVramGb: values.minVramMb / MB_PER_GB,
+        source: values.source,
+      };
+    });
+  }
+}
+
+/** A game_requirements row as the table hands it out. */
+function fromRow(row: Row): RequirementsRow {
+  return {
+    appid: row.appid,
+    minGpuScore: row.min_gpu_score,
+    recGpuScore: row.rec_gpu_score,
+    minRamMb: row.min_ram_mb,
+    minVramMb: row.min_vram_mb,
+    source: row.source,
+    updatedAt: row.updated_at,
+  };
 }
 
 // --- seeding from Steam ----------------------------------------------------------
@@ -362,7 +366,7 @@ export async function seedRequirements(
   for (const appid of new Set(appids)) {
     const curated = CURATED.get(appid);
     if (curated) {
-      table.upsert(appid, curated);
+      await table.upsert(appid, curated);
       outcomes.push({ appid, source: "curated" });
       continue;
     }
@@ -377,7 +381,7 @@ export async function seedRequirements(
       outcomes.push({ appid, skipped: details ? `not a game (${details.type})` : "no such app" });
     } else {
       const values = requirementsFromSteam(details.pc_requirements);
-      table.upsert(appid, values);
+      await table.upsert(appid, values);
       outcomes.push({ appid, source: values.source });
     }
   }

@@ -42,24 +42,28 @@ export type KeySession = { sessionId: string; grantId: string };
 /** Where live host sessions are kept, at most one per room. */
 export type KeySessionStore = {
   /** The room's live host session, or null. */
-  get: (room: string) => KeySession | null;
-  /** Record a live host session; false, changing nothing, when the room already has one. */
-  add: (room: string, session: KeySession) => boolean;
+  get: (room: string) => Promise<KeySession | null>;
+  /**
+   * Record a live host session; false, changing nothing, when the room already
+   * has one. A store that knows the platform's sessions also refuses one whose
+   * session has ended since the caller checked it.
+   */
+  add: (room: string, session: KeySession) => Promise<boolean>;
   /** Remove the room's live host session; returns its session id, or null if none was live. */
-  remove: (room: string) => string | null;
+  remove: (room: string) => Promise<string | null>;
 };
 
 /** A store that lives and dies with the process. For tests and tools. */
 export function memoryKeySessions(): KeySessionStore {
   const live = new Map<string, KeySession>();
   return {
-    get: (room) => live.get(room) ?? null,
-    add(room, session) {
+    get: async (room) => live.get(room) ?? null,
+    async add(room, session) {
       if (live.has(room)) return false;
       live.set(room, session);
       return true;
     },
-    remove(room) {
+    async remove(room) {
       const session = live.get(room);
       live.delete(room);
       return session?.sessionId ?? null;
@@ -74,17 +78,17 @@ export type HostSessions = {
    * room's claimed session. `now` is Unix milliseconds; the grant's `expiresAt`
    * is Unix seconds.
    */
-  start: (room: string, sessionId: string, now?: number) => SessionGrant | null;
+  start: (room: string, sessionId: string, now?: number) => Promise<SessionGrant | null>;
   /** Ends the live session in `room`, revoking its keys; returns its id, or null if none was live. */
-  end: (room: string) => string | null;
+  end: (room: string) => Promise<string | null>;
   /** Whether `room` is in a session. While it is, the machine key cannot register it. */
-  isLive: (room: string) => boolean;
+  isLive: (room: string) => Promise<boolean>;
   /**
    * The key, if it is signed, unexpired and its session is still live under the
    * grant that issued it; otherwise null. `now` is Unix milliseconds; keys are
    * rejected at or after their expiry time.
    */
-  verify: (token: unknown, now?: number) => SessionKey | null;
+  verify: (token: unknown, now?: number) => Promise<SessionKey | null>;
 };
 
 /**
@@ -99,9 +103,9 @@ export function createHostSessions(
   ttlSeconds = SESSION_KEY_TTL_SECONDS,
 ): HostSessions {
   return {
-    start(room, sessionId, now = Date.now()) {
+    async start(room, sessionId, now = Date.now()) {
       const grantId = randomBytes(12).toString("base64url");
-      if (!store.add(room, { sessionId, grantId })) return null;
+      if (!(await store.add(room, { sessionId, grantId }))) return null;
       const sessionKey = mintSessionKey(
         secret,
         { room, session: sessionId, grant: grantId },
@@ -113,12 +117,12 @@ export function createHostSessions(
 
     end: (room) => store.remove(room),
 
-    isLive: (room) => store.get(room) !== null,
+    isLive: async (room) => (await store.get(room)) !== null,
 
-    verify(token, now = Date.now()) {
+    async verify(token, now = Date.now()) {
       const key = verifySessionKey(secret, token, now);
       if (!key) return null;
-      const live = store.get(key.room);
+      const live = await store.get(key.room);
       return live?.sessionId === key.session && live.grantId === key.grant ? key : null;
     },
   };

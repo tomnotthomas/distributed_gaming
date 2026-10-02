@@ -11,11 +11,15 @@
     "seed-requirements": "node --env-file-if-exists=../.env --env-file-if-exists=.env dist/seed-requirements.js"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@swiff/rank": "*",
+    "pg": "^8.23.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.5.13",
     "typescript": "^5.7.2"
   }

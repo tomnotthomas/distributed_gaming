@@ -27,7 +27,7 @@ flowchart LR
   Wiped["Account wiped"]
   subgraph Platform["Swiff platform"]
     API["Host API"]
-    DB[("Database · SQLite for now")]
+    DB[("Database · Postgres (Neon)")]
     S3[("Save storage · S3")]
   end
   subgraph Connect["Connecting host and renter"]

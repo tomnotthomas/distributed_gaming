@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
+import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
@@ -41,8 +42,11 @@ const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessa
   ticket,
 });
 
-/** A socket that records every message it receives, so tests can assert on order. */
-type RecordingSocket = WebSocket & { received: SignalMessage[] };
+/**
+ * A socket that records every message it receives, so tests can assert on
+ * order. `barriers` counts the pings handled() sent whose pongs are not in.
+ */
+type RecordingSocket = WebSocket & { received: SignalMessage[]; barriers: number };
 
 let server: ChildProcess | undefined;
 
@@ -59,7 +63,12 @@ function joinedMessage(ws: RecordingSocket): JoinedMessage {
 async function open(): Promise<RecordingSocket> {
   const ws = new WebSocket(ORIGIN) as RecordingSocket;
   ws.received = [];
-  ws.on("message", (raw) => ws.received.push(JSON.parse(String(raw)) as SignalMessage));
+  ws.barriers = 0;
+  ws.on("message", (raw) => {
+    const msg = JSON.parse(String(raw)) as SignalMessage;
+    if (msg.type === "pong" && ws.barriers > 0) ws.barriers -= 1;
+    else ws.received.push(msg);
+  });
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => resolve());
     ws.once("error", reject);
@@ -67,7 +76,26 @@ async function open(): Promise<RecordingSocket> {
   return ws;
 }
 
+/**
+ * Wait until the server has handled everything `ws` sent: it takes a socket's
+ * frames in order, so its pong to a ping sent now comes after them. Register
+ * and join wait on the database, longer on a loaded machine than a fixed
+ * sleep allows. A moment more lets what they sent other sockets arrive.
+ */
+async function handled(ws: RecordingSocket): Promise<void> {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.barriers += 1;
+    send(ws, { type: "ping" });
+    const end = Date.now() + 10_000;
+    while (ws.barriers > 0 && ws.readyState === WebSocket.OPEN && Date.now() < end) await wait(5);
+  }
+  await wait(30);
+}
+
+let database: ServerDatabase;
+
 before(async () => {
+  database = await serverDatabase();
   server = spawn(process.execPath, [SERVER], {
     env: {
       ...process.env,
@@ -75,11 +103,13 @@ before(async () => {
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+      DATABASE_URL: database.url,
     },
     stdio: "ignore",
   });
   // Poll until it accepts connections rather than sleeping a fixed guess.
-  for (let i = 0; i < 50; i++) {
+  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
+  for (let i = 0; i < 150; i++) {
     try {
       (await open()).close();
       return;
@@ -90,18 +120,25 @@ before(async () => {
   throw new Error("signaling server did not start");
 });
 
-after(() => server?.kill());
+after(async () => {
+  if (server && server.exitCode === null && server.signalCode === null) {
+    const exited = new Promise((resolve) => server!.once("exit", resolve));
+    server.kill();
+    await exited;
+  }
+  await database.close();
+});
 
 describe("signaling", () => {
   it("relays the full offer/answer/ice handshake between two peers", async () => {
     const room = nextRoom();
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
 
     const client = await open();
     send(client, join(room));
-    await wait(100);
+    await handled(client);
 
     assert.ok(types(host).includes("registered"), "host is registered");
     assert.ok(types(host).includes("peer-joined"), "host was told a renter arrived");
@@ -132,7 +169,7 @@ describe("signaling", () => {
   it("tells the client the host is offline when it joins an empty room", async () => {
     const client = await open();
     send(client, join(nextRoom()));
-    await wait(100);
+    await handled(client);
     assert.equal(joinedMessage(client).hostOnline, false);
     client.close();
   });
@@ -141,11 +178,11 @@ describe("signaling", () => {
     const room = nextRoom();
     const client = await open();
     send(client, join(room));
-    await wait(100);
+    await handled(client);
 
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
 
     assert.ok(types(host).includes("peer-joined"));
     host.close();
@@ -160,17 +197,18 @@ describe("signaling", () => {
     const room = nextRoom();
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
 
     // Same ticket both times: it is the same renter, reloading.
     const ticket = mintTicket(SECRET, room, 600);
     const first = await open();
     send(first, join(room, ticket));
-    await wait(100);
+    await handled(first);
 
     const second = await open();
     send(second, join(room, ticket));
-    await wait(250);
+    await handled(second);
+    await wait(150);
 
     assert.equal(first.readyState, WebSocket.CLOSED, "the stale renter socket was closed");
     const inbox = types(host);
@@ -189,15 +227,16 @@ describe("signaling", () => {
     const room = nextRoom();
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     const first = await open();
     send(first, register(room));
-    await wait(100);
+    await handled(first);
 
     const second = await open();
     send(second, register(room));
-    await wait(250);
+    await handled(second);
+    await wait(150);
 
     assert.equal(first.readyState, WebSocket.CLOSED, "the stale host socket was closed");
     assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
@@ -210,11 +249,12 @@ describe("signaling", () => {
     const room = nextRoom();
     const first = await open();
     send(first, register(room));
-    await wait(100);
+    await handled(first);
 
     const second = await open();
     send(second, register(room));
-    await wait(150);
+    await handled(second);
+    await wait(50);
 
     assert.ok(types(second).includes("registered"), "reconnecting host takes the room");
     assert.equal(first.readyState, WebSocket.CLOSED, "stale socket was closed");
@@ -225,15 +265,57 @@ describe("signaling", () => {
     const room = nextRoom();
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
     const client = await open();
     send(client, join(room));
-    await wait(100);
+    await handled(client);
 
     client.close();
     await wait(150);
     assert.ok(types(host).includes("peer-left"));
     host.close();
+  });
+
+  // Register and join wait on the database; a socket's frames, and its close,
+  // are still handled in the order they came.
+  it("relays the frames a peer sends right behind its register or join", async () => {
+    const room = nextRoom();
+    const ticket = mintTicket(SECRET, room, 600);
+    const client = await open();
+    send(client, join(room, ticket));
+    await handled(client);
+
+    const host = await open();
+    send(host, register(room));
+    send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
+    await handled(host);
+    assert.deepEqual(types(host).slice(0, 2), ["registered", "peer-joined"]);
+    assert.ok(types(client).includes("offer"), "the offer behind the register reached the client");
+
+    const late = await open();
+    send(late, join(room, ticket)); // the same ticket: the renter refreshing takes the seat
+    send(late, { type: "ice", candidate: { candidate: "x" } });
+    await handled(late);
+    assert.equal(types(late)[0], "joined");
+    assert.ok(types(host).includes("ice"), "the candidate behind the join reached the host");
+
+    host.close();
+    client.close();
+    late.close();
+  });
+
+  it("gives up the seat of a host that closes before its register is done", async () => {
+    const room = nextRoom();
+    const gone = await open();
+    send(gone, register(room));
+    gone.close();
+    await wait(200);
+
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+    assert.equal(joinedMessage(client).hostOnline, false, "nobody holds the room");
+    client.close();
   });
 
   it("ignores malformed frames without dropping the connection", async () => {
@@ -291,7 +373,7 @@ describe("room access", () => {
     send(host, register(room));
     const first = await open();
     send(first, join(room));
-    await wait(100);
+    await handled(first);
 
     const second = await open();
     const code = closed(second);
@@ -311,13 +393,13 @@ describe("room access", () => {
     const room = nextRoom();
     const first = await open();
     send(first, join(room));
-    await wait(100);
+    await handled(first);
     first.close();
     await wait(150);
 
     const second = await open();
     send(second, join(room));
-    await wait(100);
+    await handled(second);
     assert.ok(types(second).includes("joined"));
     second.close();
   });
@@ -326,7 +408,7 @@ describe("room access", () => {
     const room = nextRoom();
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
 
     const intruder = await open();
     send(intruder, { type: "offer", sdp: { type: "offer", sdp: "x" } });
@@ -427,7 +509,7 @@ describe("host sessions", () => {
   async function streamer(room: string, sessionKey: string): Promise<RecordingSocket> {
     const ws = await open();
     send(ws, { type: "register", hostId: room, sessionKey });
-    await wait(100);
+    await handled(ws);
     return ws;
   }
 
@@ -452,7 +534,7 @@ describe("host sessions", () => {
 
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
     assert.equal(joinedMessage(renter).hostOnline, true);
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
     await wait(100);
@@ -495,7 +577,7 @@ describe("host sessions", () => {
     const host = await streamer(room, grant.sessionKey);
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     // Registering with the machine key is refused.
     const intruder = await open();
@@ -548,7 +630,7 @@ describe("host sessions", () => {
     await api(room, "DELETE");
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
     assert.ok(types(host).includes("registered"), "the phase-1 machine-key register works again");
     host.close();
   });
@@ -557,7 +639,7 @@ describe("host sessions", () => {
     const room = nextRoom();
     const host = await open();
     send(host, register(room));
-    await wait(100);
+    await handled(host);
     const code = closed(host);
     await startSession(room);
     assert.equal(await code, 4003);
@@ -571,7 +653,7 @@ describe("host sessions", () => {
     const host = await streamer(room, grant.sessionKey);
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     const code = closed(host);
     assert.equal((await api(room, "DELETE")).status, 204);
@@ -588,7 +670,7 @@ describe("host sessions", () => {
     const host = await streamer(room, grant.sessionKey);
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     // The old streamer does not answer the close handshake, so the server's
     // close event for it has not fired when the next streamer registers.
@@ -614,7 +696,7 @@ describe("host sessions", () => {
     const host = await streamer(room, grant.sessionKey);
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     // The old streamer ignores the close frame and keeps talking.
     host.pause();
@@ -637,7 +719,7 @@ describe("host sessions", () => {
     send(host, register(room));
     const renter = await open();
     send(renter, join(room));
-    await wait(100);
+    await handled(renter);
 
     host.pause();
     const grant = await startSession(room);
@@ -688,7 +770,7 @@ describe("host sessions", () => {
     send(host, register(room));
     const bystander = await open();
     send(bystander, register(other));
-    await wait(100);
+    await handled(bystander);
 
     const sessionId = await claimRoom(room, 45);
     await wait(100);
@@ -712,7 +794,7 @@ describe("host sessions", () => {
     const machine = async () => {
       const ws = await open();
       send(ws, register(room));
-      await wait(100);
+      await handled(ws);
       ws.close();
       return ws;
     };

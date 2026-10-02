@@ -22,6 +22,10 @@ cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
 npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
 ```
 
+The server keeps its data in Postgres at `DATABASE_URL` (a Neon connection string works as
+given) and makes its tables on start. Without it, the data lives in memory and is gone when
+the server stops, which is fine for local dev.
+
 ## Renter side (web app + server)
 
 ```bash
@@ -33,7 +37,7 @@ A renter signs in with Steam, which sets their session cookie, then books and jo
 the ticket `POST /api/bookings/:id/claim` returns. For testing, `npm run ticket -- gaming-pc-1`
 makes a join link without a booking.
 
-`npm run seed-requirements` fills the server database (`DATABASE_PATH`) with each catalogue
+`npm run seed-requirements` fills the server database (`DATABASE_URL`) with each catalogue
 game's minimum and recommended hardware, read from Steam; `server/src/requirements-overrides.json`
 overrides it per game.
 
@@ -56,6 +60,14 @@ npm run test:e2e
 npm run typecheck
 npm run format    # Prettier; CI runs format:check
 npm run ci        # everything CI runs
+```
+
+The server tests run on PGlite, Postgres in memory, unless `TEST_DATABASE_URL` names a real
+one, as in CI. Each test gets a schema of its own there:
+
+```bash
+docker run --rm -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres:17
+TEST_DATABASE_URL=postgres://postgres@localhost:5432/postgres npm test -w @swiff/server
 ```
 
 Push branches with `git push no-mistakes <branch>` (after `no-mistakes init`): it reviews, tests and lints

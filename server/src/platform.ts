@@ -1,5 +1,5 @@
 // The platform's state: machines, bookings, reservations and sessions, one
-// SQLite table each, and the rules that move a booking through them.
+// Postgres table each, and the rules that move a booking through them.
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
 //                     │  ▲      │
@@ -10,13 +10,14 @@
 //   machine idle ─► available ─► reserved ─► in_session ─► available
 //                 (socket dropped, or silent for LIVENESS_MS: offline; taken back: idle)
 //
-// SQLite through node:sqlite: built into Node 22, so local dev, the tests and
-// CI need no database server, no native build and no new dependency. The file
-// is DATABASE_PATH; unset, it lives in memory and resets with the process.
+// The database is Postgres at DATABASE_URL; unset, one in memory that resets
+// with the process (db.ts). Its tables are made by schema.ts.
 //
-// Everything here is synchronous and runs in one process, so each method is
-// one transaction and nothing else can interleave with it. That, plus the
-// unique indexes below, is what gives a machine to at most one booking.
+// Calls take turns: each runs once every call made before it has finished, as
+// one transaction, so nothing else in this process interleaves with it. A call
+// that may write first locks the machines table, so neither can another server
+// on the same database (a deploy overlapping the instance it replaces). That,
+// plus the unique indexes, is what gives a machine to at most one booking.
 //
 // Matching runs in tick(): every call that can free a machine or add a booking
 // runs it straight away, and one timer is armed for the next deadline (a
@@ -48,7 +49,6 @@
 // owner.
 
 import { randomBytes } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
 import {
   failedGates,
   gpuScore,
@@ -60,8 +60,10 @@ import {
   type RenterPrefs,
   type StabilityStats,
 } from "@swiff/rank";
+import type { Database, Queryable } from "./db.js";
 import type { Display, Hardware, HostReport, Net } from "./profile.js";
 import { RequirementsTable, type Requirements } from "./requirements.js";
+import { migrate } from "./schema.js";
 import type { KeySession, KeySessionStore } from "./sessions.js";
 import {
   addQos,
@@ -212,115 +214,6 @@ type SessionRow = {
   qos: string | null;
 };
 
-// The host's report fills the columns in REPORT_COLUMNS, added below.
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS machines (
-  id              TEXT PRIMARY KEY,
-  owner_id        TEXT,
-  price           INTEGER NOT NULL DEFAULT 0,
-  status          TEXT NOT NULL
-                  CHECK (status IN ('idle', 'available', 'reserved', 'in_session', 'offline')),
-  available_until INTEGER,
-  last_seen_at    INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS bookings (
-  id         TEXT PRIMARY KEY,
-  renter_id  TEXT,
-  game_id    INTEGER NOT NULL,
-  minutes    INTEGER NOT NULL,
-  status     TEXT NOT NULL
-             CHECK (status IN ('queued', 'matched', 'claimed', 'playing', 'ended', 'expired')),
-  created_at INTEGER NOT NULL,
-  -- The renter's last contact (booking or checking on it); a queue timeout.
-  last_seen_at INTEGER NOT NULL
-);
--- A reservation lives only while it is waiting to be claimed, so one per
--- machine and one per booking is the whole rule.
-CREATE TABLE IF NOT EXISTS reservations (
-  id         TEXT PRIMARY KEY,
-  booking_id TEXT NOT NULL UNIQUE REFERENCES bookings (id),
-  machine_id TEXT NOT NULL UNIQUE REFERENCES machines (id),
-  expires_at INTEGER NOT NULL
-);
--- started_at is when the renter arrived (the host says so); expires_at is when
--- the join ticket runs out, the backstop if the host never ends it. ticket_id is
--- the join ticket handed out at claim; it stops opening the room once ended_at
--- is set.
-CREATE TABLE IF NOT EXISTS sessions (
-  id         TEXT PRIMARY KEY,
-  booking_id TEXT NOT NULL UNIQUE REFERENCES bookings (id),
-  machine_id TEXT NOT NULL REFERENCES machines (id),
-  started_at INTEGER,
-  ended_at   INTEGER,
-  expires_at INTEGER NOT NULL,
-  price      INTEGER,
-  ticket_id  TEXT UNIQUE
-);
--- The live host session (sessions.ts) of a machine's open session: which
--- session keys still register its room. grant_id is new with every start, so
--- keys from a host session that was ended stay dead if the same session starts
--- again. The row goes when the host session or the session ends.
-CREATE TABLE IF NOT EXISTS key_sessions (
-  machine_id TEXT PRIMARY KEY REFERENCES machines (id),
-  session_id TEXT NOT NULL UNIQUE REFERENCES sessions (id),
-  grant_id   TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_open_per_machine
-  ON sessions (machine_id) WHERE ended_at IS NULL;
-CREATE INDEX IF NOT EXISTS sessions_by_machine ON sessions (machine_id, ended_at);
-CREATE INDEX IF NOT EXISTS bookings_queue ON bookings (status, created_at);
--- The Steam games installed on each machine, replaced whole when the host reports them.
-CREATE TABLE IF NOT EXISTS machine_games (
-  machine_id TEXT NOT NULL REFERENCES machines (id),
-  appid      INTEGER NOT NULL,
-  PRIMARY KEY (machine_id, appid)
-) WITHOUT ROWID;
--- Per machine and UTC day (YYYY-MM-DD): how long it was offered, how much of
--- that a heartbeat or open socket covered, and how often it was dropped as offline.
-CREATE TABLE IF NOT EXISTS machine_uptime (
-  machine_id TEXT NOT NULL REFERENCES machines (id),
-  day        TEXT NOT NULL,
-  offered_ms INTEGER NOT NULL DEFAULT 0,
-  seen_ms    INTEGER NOT NULL DEFAULT 0,
-  drops      INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (machine_id, day)
-) WITHOUT ROWID;
-`;
-
-/**
- * The machine columns the host's report fills, all null until it sends one.
- * Added when missing, so a database file made before them gains them on open.
- * gpu_score is gpu_model's score in @swiff/rank's GPU table (RTX 3060 = 100);
- * encoders, display and controls hold JSON.
- */
-const REPORT_COLUMNS: [name: string, type: string][] = [
-  ["name", "TEXT"],
-  ["gpu_model", "TEXT"],
-  ["gpu_score", "INTEGER"],
-  ["vram_mb", "INTEGER"],
-  ["ram_mb", "INTEGER"],
-  ["cpu_model", "TEXT"],
-  ["cpu_cores", "INTEGER"],
-  ["encoders", "TEXT"],
-  ["display", "TEXT"],
-  ["controls", "TEXT"],
-  ["rtt_ms", "REAL"],
-  ["jitter_ms", "REAL"],
-  ["up_mbps", "REAL"],
-];
-
-/**
- * Session columns added after the table, the same way. end_reason is set when
- * the session ends; qos holds the renter's QosSummary as JSON.
- */
-const SESSION_COLUMNS: [name: string, type: string][] = [
-  [
-    "end_reason",
-    "TEXT CHECK (end_reason IN ('renter', 'time_up', 'host_offline', 'owner_kill', 'host_end', 'grace_expired'))",
-  ],
-  ["qos", "TEXT"],
-];
-
 /**
  * The gates a match must pass. E4 needs the renter's controls and E6 a probe
  * from the renter; a booking carries neither yet.
@@ -429,11 +322,26 @@ const newId = () => randomBytes(16).toString("base64url");
 
 /** The longest delay setTimeout takes; a later deadline is woken for early and re-armed. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
-/** How soon a wake that failed (a locked database) is tried again. */
-const RETRY_MS = 1_000;
+/** How soon a wake that failed (the database unreachable) is tried again. */
+export const RETRY_MS = 1_000;
+
+/** Opens a call that may write: it takes the machines table first, so one such call runs at a time on the database. */
+const WRITE = "BEGIN; LOCK TABLE machines IN EXCLUSIVE MODE";
+/** Opens a call that only reads: one consistent view, however many statements it takes. */
+const READ = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY";
+
+export type PlatformOptions = {
+  /** Where the state is kept (db.ts). The platform makes its tables there, and closes it when it closes. */
+  database: Database;
+  now?: () => number;
+  owners?: ReadonlyMap<string, string>;
+  onSessionEnded?: (machineId: string, sessionId: string) => void;
+  onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
+  onBookingChanged?: (bookingId: string) => void;
+};
 
 export class Platform {
-  readonly #db: DatabaseSync;
+  readonly #db: Database;
   readonly #now: () => number;
   /** What each game needs, on the same database: gate E3 compares a machine with it. */
   readonly #requirements: RequirementsTable;
@@ -441,6 +349,10 @@ export class Platform {
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #owners: ReadonlyMap<string, string>;
+  /** The transaction of the call running now: every statement goes through it. */
+  #tx: Queryable | null = null;
+  /** The last call queued: the next one runs once it has finished. */
+  #queue: Promise<unknown> = Promise.resolve();
   /** Notices from the open transaction, delivered once it commits. */
   #notices: (() => void)[] = [];
   /** Bookings whose status the open transaction changed, told once it commits. */
@@ -450,10 +362,33 @@ export class Platform {
   /** The one timer, armed for the next deadline. */
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
+  #closing: Promise<void> | undefined;
   /** No machine is dropped for silence before this: after a restart nobody is connected yet. */
-  readonly #graceUntil: number;
+  #graceUntil = 0;
+
+  private constructor({
+    database,
+    now = Date.now,
+    owners = new Map(),
+    onSessionEnded = () => {},
+    onSessionClaimed = () => {},
+    onBookingChanged = () => {},
+  }: PlatformOptions) {
+    this.#db = database;
+    this.#now = now;
+    this.#owners = owners;
+    this.#onSessionEnded = onSessionEnded;
+    this.#onSessionClaimed = onSessionClaimed;
+    this.#onBookingChanged = onBookingChanged;
+    this.#requirements = new RequirementsTable(
+      { query: (sql, params) => this.#active().query(sql, params) },
+      now,
+    );
+  }
 
   /**
+   * The platform on `database`, its tables made or brought up to date first.
+   *
    * `onSessionEnded` hears of every session that ends, however it ends, with its
    * machine and id; `onSessionClaimed` of every claim, with the machine claimed;
    * `onBookingChanged` of every booking whose status moved, once per change.
@@ -469,59 +404,29 @@ export class Platform {
    * `owners` maps a machine id to its owner's Steam id; a machine missing from
    * it has no recorded owner.
    */
-  constructor({
-    path = ":memory:",
-    now = Date.now,
-    owners = new Map(),
-    onSessionEnded = () => {},
-    onSessionClaimed = () => {},
-    onBookingChanged = () => {},
-  }: {
-    path?: string;
-    now?: () => number;
-    owners?: ReadonlyMap<string, string>;
-    onSessionEnded?: (machineId: string, sessionId: string) => void;
-    onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
-    onBookingChanged?: (bookingId: string) => void;
-  } = {}) {
-    this.#db = new DatabaseSync(path);
-    this.#now = now;
-    this.#owners = owners;
-    this.#onSessionEnded = onSessionEnded;
-    this.#onSessionClaimed = onSessionClaimed;
-    this.#onBookingChanged = onBookingChanged;
-    // Another connection may write the file (seed-requirements, a test): wait
-    // out its lock rather than failing the read or write that meets it.
-    this.#db.exec("PRAGMA busy_timeout = 2000");
-    this.#db.exec("PRAGMA foreign_keys = ON");
-    this.#db.exec(SCHEMA);
-    this.#addMissingColumns("machines", [...REPORT_COLUMNS, ["uptime_at", "INTEGER"]]);
-    this.#addMissingColumns("sessions", SESSION_COLUMNS);
-    this.#requirements = new RequirementsTable(this.#db, now);
-    const start = this.#now();
-    this.#graceUntil = start + LIVENESS_MS;
-    this.#transaction(() => {
-      this.#db
-        .prepare("UPDATE bookings SET last_seen_at = max(last_seen_at, ?) WHERE status = 'queued'")
-        .run(start);
-    });
-  }
-
-  /** Stop the deadline timer and close the database. */
-  close(): void {
-    this.#closed = true;
-    clearTimeout(this.#timer);
-    this.#db.close();
-  }
-
-  /** Add each column the table lacks, so a database file made before it gains it on open. */
-  #addMissingColumns(table: string, columns: [name: string, type: string][]): void {
-    const present = new Set(
-      (this.#db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  static async open(options: PlatformOptions): Promise<Platform> {
+    await migrate(options.database);
+    const platform = new Platform(options);
+    const start = platform.#now();
+    platform.#graceUntil = start + LIVENESS_MS;
+    await platform.#transaction(() =>
+      platform.#run(
+        "UPDATE bookings SET last_seen_at = GREATEST(last_seen_at, $1) WHERE status = 'queued'",
+        start,
+      ),
     );
-    for (const [name, type] of columns) {
-      if (!present.has(name)) this.#db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
-    }
+    return platform;
+  }
+
+  /** Stop the deadline timer, let the calls already made finish, and close the database. Once. */
+  close(): Promise<void> {
+    this.#closing ??= (async () => {
+      this.#closed = true;
+      clearTimeout(this.#timer);
+      await this.#queue;
+      await this.#db.close();
+    })();
+    return this.#closing;
   }
 
   // --- host ------------------------------------------------------------------
@@ -530,22 +435,25 @@ export class Platform {
    * Offer the machine (available) or take it back (not), storing whatever the
    * host reported with it. Taking it back ends whatever it was doing.
    */
-  setAvailability(machineId: string, available: boolean, spec: MachineSpec = {}): MachineView {
-    return this.#transaction(() => {
+  setAvailability(machineId: string, available: boolean, spec: MachineSpec = {}): Promise<MachineView> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      const machine = this.#touch(machineId, now);
-      this.#saveReport(machineId, spec);
-      this.#db
-        .prepare("UPDATE machines SET price = coalesce(?, price), available_until = ? WHERE id = ?")
-        .run(spec.price ?? null, spec.availableUntil ?? null, machineId);
+      const machine = await this.#touch(machineId, now);
+      await this.#saveReport(machineId, spec);
+      await this.#run(
+        "UPDATE machines SET price = coalesce($1, price), available_until = $2 WHERE id = $3",
+        spec.price ?? null,
+        spec.availableUntil ?? null,
+        machineId,
+      );
 
       if (!available) {
-        this.#release(machine, now, "owner_kill");
-        this.#setStatus(machineId, "idle");
+        await this.#release(machine, now, "owner_kill");
+        await this.#setStatus(machineId, "idle");
       } else if (machine.status === "idle" || machine.status === "offline") {
-        this.#setStatus(machineId, "available");
+        await this.#setStatus(machineId, "available");
       }
-      this.#tick(now);
+      await this.#tick(now);
       return this.#machineView(machineId);
     });
   }
@@ -554,14 +462,14 @@ export class Platform {
    * The machine is alive, and any part of its report that changed. A machine
    * dropped for silence comes back as it was offered.
    */
-  heartbeat(machineId: string, report: HostReport = {}): MachineView {
-    return this.#transaction(() => {
+  heartbeat(machineId: string, report: HostReport = {}): Promise<MachineView> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      const machine = this.#touch(machineId, now);
-      this.#saveReport(machineId, report);
-      if (machine.status === "offline") this.#setStatus(machineId, "available");
+      const machine = await this.#touch(machineId, now);
+      await this.#saveReport(machineId, report);
+      if (machine.status === "offline") await this.#setStatus(machineId, "available");
       // Back online, or a new game or more hardware, can match a waiting booking.
-      if (machine.status === "offline" || Object.keys(report).length) this.#tick(now);
+      if (machine.status === "offline" || Object.keys(report).length) await this.#tick(now);
       return this.#machineView(machineId);
     });
   }
@@ -573,15 +481,15 @@ export class Platform {
    * The time before the socket opened is counted first, as seen only up to its
    * last contact.
    */
-  hostConnected(machineId: string): void {
-    this.#transaction(() => {
+  hostConnected(machineId: string): Promise<void> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      const machine = this.#machineRow(machineId);
-      if (machine) this.#touch(machineId, now);
+      const machine = await this.#machineRow(machineId);
+      if (machine) await this.#touch(machineId, now);
       this.#present.add(machineId);
       if (!machine) return;
-      if (machine.status === "offline") this.#setStatus(machineId, "available");
-      this.#tick(now);
+      if (machine.status === "offline") await this.#setStatus(machineId, "available");
+      await this.#tick(now);
     });
   }
 
@@ -593,24 +501,24 @@ export class Platform {
    * socket. Neither is one the server handed over (to the streamer, or back
    * from it). Those have LIVENESS_MS from now to reconnect or beat.
    */
-  hostDisconnected(machineId: string, dropped: boolean): void {
-    try {
-      this.#transaction(() => {
+  hostDisconnected(machineId: string, dropped: boolean): Promise<void> {
+    return this.#transaction(async () => {
+      try {
         const now = this.#now();
         // Touched while still present: its offered time up to now counts as seen.
-        const machine = this.#machineRow(machineId) && this.#touch(machineId, now);
+        const machine = (await this.#machineRow(machineId)) && (await this.#touch(machineId, now));
         this.#present.delete(machineId);
         if (!machine) return;
         if (dropped && (machine.status === "available" || machine.status === "reserved")) {
-          this.#goOffline(machine, now);
+          await this.#goOffline(machine, now);
         }
-        this.#tick(now);
-      });
-    } finally {
-      // Gone whatever the database says: a socket that closed is not presence.
-      // If the work above failed, the retried tick finds the machine silent.
-      this.#present.delete(machineId);
-    }
+        await this.#tick(now);
+      } finally {
+        // Gone whatever the database says: a socket that closed is not presence.
+        // If the work above failed, the retried tick finds the machine silent.
+        this.#present.delete(machineId);
+      }
+    });
   }
 
   /**
@@ -620,27 +528,32 @@ export class Platform {
    * machine's last contact at most one round stale. A machine whose socket has
    * since gone, or that was never heard from, is left alone.
    */
-  hostsAlive(machineIds: Iterable<string>): void {
-    this.#transaction(() => {
+  hostsAlive(machineIds: Iterable<string>): Promise<void> {
+    const ids = [...machineIds];
+    return this.#transaction(async () => {
       const now = this.#now();
-      for (const machineId of machineIds) {
-        if (this.#present.has(machineId) && this.#machineRow(machineId)) this.#touch(machineId, now);
+      for (const machineId of ids) {
+        if (this.#present.has(machineId) && (await this.#machineRow(machineId))) {
+          await this.#touch(machineId, now);
+        }
       }
     });
   }
 
   /** The machine's stored report, or null when it has never been heard from. */
-  machineProfile(machineId: string): MachineProfile | null {
-    const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
-      MachineRow | undefined;
-    if (!m) return null;
-    const games = this.#db
-      .prepare("SELECT appid FROM machine_games WHERE machine_id = ? ORDER BY appid")
-      .all(machineId) as { appid: number }[];
-    return profileOf(
-      m,
-      games.map((g) => g.appid),
-    );
+  machineProfile(machineId: string): Promise<MachineProfile | null> {
+    return this.#read(async () => {
+      const m = await this.#machineRow(machineId);
+      if (!m) return null;
+      const games = await this.#all<{ appid: number }>(
+        "SELECT appid FROM machine_games WHERE machine_id = $1 ORDER BY appid",
+        machineId,
+      );
+      return profileOf(
+        m,
+        games.map((g) => g.appid),
+      );
+    });
   }
 
   /**
@@ -652,104 +565,129 @@ export class Platform {
    * nothing is settled or matched. `at` is the time they were read at, for
    * judging them.
    */
-  offeredMachines(): OfferedSnapshot {
-    const now = this.#now();
-    const rows = this.#db
-      .prepare(
+  offeredMachines(): Promise<OfferedSnapshot> {
+    return this.#read(async () => {
+      const now = this.#now();
+      const rows = await this.#all<MachineRow>(
         `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
-           AND (available_until IS NULL OR available_until > ?) ORDER BY id`,
-      )
-      .all(now) as MachineRow[];
-    const installed = new Map<string, number[]>();
-    const games = this.#db
-      .prepare(
+           AND (available_until IS NULL OR available_until > $1) ORDER BY id COLLATE "C"`,
+        now,
+      );
+      const installed = new Map<string, number[]>();
+      const games = await this.#all<{ machine_id: string; appid: number }>(
         `SELECT g.machine_id, g.appid FROM machine_games g JOIN machines m ON m.id = g.machine_id
            WHERE m.status IN ('available', 'reserved', 'in_session') ORDER BY g.appid`,
-      )
-      .all() as { machine_id: string; appid: number }[];
-    for (const { machine_id, appid } of games) {
-      const list = installed.get(machine_id) ?? [];
-      list.push(appid);
-      installed.set(machine_id, list);
-    }
-    const busyUntil = this.#db.prepare(
-      `SELECT expires_at AS at FROM sessions WHERE machine_id = ? AND ended_at IS NULL
-       UNION ALL
-       SELECT r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
-         WHERE r.machine_id = ?`,
-    );
-    const machines = rows.map((m) => {
-      const appids = installed.get(m.id) ?? [];
-      const busy = m.status !== "available";
-      const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
-      // The configured owner counts before the machine next checks in, as in matching.
-      const row = { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id };
-      const back = busy ? (busyUntil.get(m.id, m.id) as { at: number } | undefined) : undefined;
-      return {
-        host: hostProfileOf(row, appids, busy ? "busy" : "available", lastSeenAt),
-        profile: profileOf(m, appids),
-        history: this.stability(m.id).stats,
-        backAt: back?.at ?? null,
-      };
+      );
+      for (const { machine_id, appid } of games) {
+        const list = installed.get(machine_id) ?? [];
+        list.push(appid);
+        installed.set(machine_id, list);
+      }
+      const machines: OfferedMachine[] = [];
+      for (const m of rows) {
+        const appids = installed.get(m.id) ?? [];
+        const busy = m.status !== "available";
+        const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
+        // The configured owner counts before the machine next checks in, as in matching.
+        const row = { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id };
+        const back = busy
+          ? await this.#get<{ at: number }>(
+              `SELECT expires_at AS at FROM sessions WHERE machine_id = $1 AND ended_at IS NULL
+               UNION ALL
+               SELECT r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
+                 WHERE r.machine_id = $1`,
+              m.id,
+            )
+          : undefined;
+        machines.push({
+          host: hostProfileOf(row, appids, busy ? "busy" : "available", lastSeenAt),
+          profile: profileOf(m, appids),
+          history: (await this.#stability(m.id)).stats,
+          backAt: back?.at ?? null,
+        });
+      }
+      return { at: now, machines };
     });
-    return { at: now, machines };
   }
 
-  /** What a game needs, from the requirements table: curated, seeded from Steam, or the labelled default. */
-  requirements(appid: number): Requirements {
-    return this.#requirements.lookup(appid);
+  /**
+   * What each game needs, in the order asked, from the requirements table:
+   * curated, seeded from Steam, or the labelled default.
+   */
+  requirements(appids: number[]): Promise<Requirements[]> {
+    return this.#read(() => this.#requirements.lookupAll(appids));
   }
 
   /** The machine a session runs on, so the caller can check that machine's key. */
-  sessionMachine(sessionId: string): string | null {
-    const row = this.#db.prepare("SELECT machine_id FROM sessions WHERE id = ?").get(sessionId) as
-      { machine_id: string } | undefined;
-    return row?.machine_id ?? null;
+  sessionMachine(sessionId: string): Promise<string | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ machine_id: string }>(
+        "SELECT machine_id FROM sessions WHERE id = $1",
+        sessionId,
+      );
+      return row?.machine_id ?? null;
+    });
   }
 
   /** The session running on the machine, if any: the only one its host session may start for. */
-  claimedSession(machineId: string): ClaimedSession | null {
-    const row = this.#db
-      .prepare(
+  claimedSession(machineId: string): Promise<ClaimedSession | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ id: string; game_id: number; minutes: number }>(
         `SELECT s.id, b.game_id, b.minutes FROM sessions s JOIN bookings b ON b.id = s.booking_id
-         WHERE s.machine_id = ? AND s.ended_at IS NULL`,
-      )
-      .get(machineId) as { id: string; game_id: number; minutes: number } | undefined;
-    return row ? { sessionId: row.id, gameId: row.game_id, minutes: row.minutes } : null;
+         WHERE s.machine_id = $1 AND s.ended_at IS NULL`,
+        machineId,
+      );
+      return row ? { sessionId: row.id, gameId: row.game_id, minutes: row.minutes } : null;
+    });
   }
 
-  /** The host sessions of sessions.ts, kept in key_sessions. */
+  /**
+   * The host sessions of sessions.ts, kept in key_sessions. One is added only
+   * while its session is still open on that machine: the caller checks that
+   * first, and the session may end before the add's turn comes.
+   */
   readonly keySessions: KeySessionStore = {
-    get: (machineId) => {
-      const row = this.#db
-        .prepare("SELECT session_id, grant_id FROM key_sessions WHERE machine_id = ?")
-        .get(machineId) as { session_id: string; grant_id: string } | undefined;
-      return row ? { sessionId: row.session_id, grantId: row.grant_id } : null;
-    },
+    get: (machineId) =>
+      this.#read(async () => {
+        const row = await this.#get<{ session_id: string; grant_id: string }>(
+          "SELECT session_id, grant_id FROM key_sessions WHERE machine_id = $1",
+          machineId,
+        );
+        return row ? { sessionId: row.session_id, grantId: row.grant_id } : null;
+      }),
     add: (machineId, { sessionId, grantId }: KeySession) =>
-      this.#db
-        .prepare(
-          "INSERT INTO key_sessions (machine_id, session_id, grant_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-        )
-        .run(machineId, sessionId, grantId).changes > 0,
-    remove: (machineId) => {
-      const row = this.#db
-        .prepare("DELETE FROM key_sessions WHERE machine_id = ? RETURNING session_id")
-        .get(machineId) as { session_id: string } | undefined;
-      return row?.session_id ?? null;
-    },
+      this.#transaction(
+        async () =>
+          (await this.#run(
+            `INSERT INTO key_sessions (machine_id, session_id, grant_id)
+               SELECT $1, $2, $3 WHERE EXISTS
+                 (SELECT 1 FROM sessions WHERE id = $2 AND machine_id = $1 AND ended_at IS NULL)
+             ON CONFLICT DO NOTHING`,
+            machineId,
+            sessionId,
+            grantId,
+          )) > 0,
+      ),
+    remove: (machineId) =>
+      this.#transaction(async () => {
+        const row = await this.#get<{ session_id: string }>(
+          "DELETE FROM key_sessions WHERE machine_id = $1 RETURNING session_id",
+          machineId,
+        );
+        return row?.session_id ?? null;
+      }),
   };
 
   /** The renter arrived. False when the session is not this machine's or is already over. */
-  startSession(machineId: string, sessionId: string): boolean {
-    return this.#transaction(() => {
+  startSession(machineId: string, sessionId: string): Promise<boolean> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      this.#touch(machineId, now);
-      const session = this.#openSession(machineId, sessionId);
+      await this.#touch(machineId, now);
+      const session = await this.#openSession(machineId, sessionId);
       if (!session) return false;
       if (session.started_at === null) {
-        this.#db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?").run(now, sessionId);
-        this.#setBookingStatus(session.booking_id, "playing");
+        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", now, sessionId);
+        await this.#setBookingStatus(session.booking_id, "playing");
       }
       return true;
     });
@@ -762,17 +700,22 @@ export class Platform {
    * any earlier end is host_end, which neither credits nor blames the machine,
    * since only the renter's own ticket can record that they left.
    */
-  endSession(machineId: string, sessionId: string, endedAt?: number): boolean {
-    return this.#transaction(() => {
+  endSession(machineId: string, sessionId: string, endedAt?: number): Promise<boolean> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      const machine = this.#touch(machineId, now);
-      const session = this.#openSession(machineId, sessionId);
+      const machine = await this.#touch(machineId, now);
+      const session = await this.#openSession(machineId, sessionId);
       if (!session) return false;
       const floor = session.started_at ?? now;
-      const at = Math.min(now, Math.max(floor, endedAt ?? now));
-      this.#endSession(session, at, now >= session.expires_at - TIME_UP_GRACE_MS ? "time_up" : "host_end");
-      if (machine.status === "in_session") this.#setStatus(machineId, "available");
-      this.#tick(now);
+      // Whole ms, as every time is kept: the host's clock may say otherwise.
+      const at = Math.round(Math.min(now, Math.max(floor, endedAt ?? now)));
+      await this.#endSession(
+        session,
+        at,
+        now >= session.expires_at - TIME_UP_GRACE_MS ? "time_up" : "host_end",
+      );
+      if (machine.status === "in_session") await this.#setStatus(machineId, "available");
+      await this.#tick(now);
       return true;
     });
   }
@@ -780,18 +723,21 @@ export class Platform {
   // --- renter ----------------------------------------------------------------
 
   /** Queue a booking for `renterId` (a Steam id; null only in tests) and match at once. */
-  book(gameId: number, minutes: number, renterId: string | null = null): BookingView {
-    return this.#transaction(() => {
+  book(gameId: number, minutes: number, renterId: string | null = null): Promise<BookingView> {
+    return this.#transaction(async () => {
       const now = this.#now();
       const id = newId();
-      this.#db
-        .prepare(
-          `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at)
-             VALUES (?, ?, ?, ?, 'queued', ?, ?)`,
-        )
-        .run(id, renterId, gameId, minutes, now, now);
-      this.#tick(now);
-      return this.#bookingView(id)!;
+      await this.#run(
+        `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at)
+           VALUES ($1, $2, $3, $4, 'queued', $5, $5)`,
+        id,
+        renterId,
+        gameId,
+        minutes,
+        now,
+      );
+      await this.#tick(now);
+      return (await this.#bookingView(id))!;
     });
   }
 
@@ -801,12 +747,12 @@ export class Platform {
    * stream opening on it, or the page's heartbeat. That contact is what keeps
    * a queued booking in the queue.
    */
-  booking(bookingId: string, renterId: string | null = null): BookingView | null {
-    return this.#transaction(() => {
+  booking(bookingId: string, renterId: string | null = null): Promise<BookingView | null> {
+    return this.#transaction(async () => {
       const now = this.#now();
-      this.#tick(now);
-      if (!this.#bookingRow(bookingId, renterId)) return null;
-      this.#db.prepare("UPDATE bookings SET last_seen_at = ? WHERE id = ?").run(now, bookingId);
+      await this.#tick(now);
+      if (!(await this.#bookingRow(bookingId, renterId))) return null;
+      await this.#run("UPDATE bookings SET last_seen_at = $1 WHERE id = $2", now, bookingId);
       return this.#bookingView(bookingId);
     });
   }
@@ -815,44 +761,50 @@ export class Platform {
    * The booking as it stands, without counting as the renter's contact or
    * running the matcher: what an event stream sends after a change.
    */
-  viewBooking(bookingId: string): BookingView | null {
-    return this.#bookingView(bookingId);
+  viewBooking(bookingId: string): Promise<BookingView | null> {
+    return this.#read(() => this.#bookingView(bookingId));
   }
 
   /**
    * Take the matched machine. Only `renterId`'s own matched booking whose
    * reservation is still live can be claimed; anyone else's reads as not found.
    */
-  claim(bookingId: string, renterId: string | null = null): ClaimResult {
-    return this.#transaction(() => {
+  claim(bookingId: string, renterId: string | null = null): Promise<ClaimResult> {
+    return this.#transaction(async (): Promise<ClaimResult> => {
       const now = this.#now();
-      this.#tick(now); // a reservation that lapsed a moment ago is not claimable
-      const booking = this.#bookingRow(bookingId, renterId);
+      await this.#tick(now); // a reservation that lapsed a moment ago is not claimable
+      const booking = await this.#bookingRow(bookingId, renterId);
       if (!booking) return { ok: false, reason: "not-found" };
-      const reservation = this.#db
-        .prepare("SELECT * FROM reservations WHERE booking_id = ?")
-        .get(bookingId) as ReservationRow | undefined;
+      const reservation = await this.#get<ReservationRow>(
+        "SELECT * FROM reservations WHERE booking_id = $1",
+        bookingId,
+      );
       if (booking.status !== "matched" || !reservation) {
         return { ok: false, reason: "not-claimable", status: booking.status };
       }
       // Never the renter's own machine, even when the reservation predates its
       // owner being known (configured since, the machine not yet checked in).
-      const { owner_id } = this.#db
-        .prepare("SELECT owner_id FROM machines WHERE id = ?")
-        .get(reservation.machine_id) as { owner_id: string | null };
+      const { owner_id } = (await this.#get<{ owner_id: string | null }>(
+        "SELECT owner_id FROM machines WHERE id = $1",
+        reservation.machine_id,
+      ))!;
       const owner = this.#owners.get(reservation.machine_id) ?? owner_id;
       if (owner !== null && owner === booking.renter_id) {
-        this.#releaseOwnersReservation(reservation.machine_id, owner);
+        await this.#releaseOwnersReservation(reservation.machine_id, owner);
         return { ok: false, reason: "not-claimable", status: "queued" };
       }
 
       const sessionId = newId();
-      this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-      this.#db
-        .prepare("INSERT INTO sessions (id, booking_id, machine_id, expires_at) VALUES (?, ?, ?, ?)")
-        .run(sessionId, bookingId, reservation.machine_id, now + booking.minutes * 60_000);
-      this.#setBookingStatus(bookingId, "claimed");
-      this.#setStatus(reservation.machine_id, "in_session");
+      await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
+      await this.#run(
+        "INSERT INTO sessions (id, booking_id, machine_id, expires_at) VALUES ($1, $2, $3, $4)",
+        sessionId,
+        bookingId,
+        reservation.machine_id,
+        now + booking.minutes * 60_000,
+      );
+      await this.#setBookingStatus(bookingId, "claimed");
+      await this.#setStatus(reservation.machine_id, "in_session");
       const claimed = { sessionId, gameId: booking.game_id, minutes: booking.minutes };
       this.#notices.push(() => this.#onSessionClaimed(reservation.machine_id, claimed));
       return { ok: true, roomId: reservation.machine_id, ...claimed };
@@ -860,30 +812,30 @@ export class Platform {
   }
 
   /** Tie the join ticket handed out at claim to its session, so ending the session revokes it. */
-  recordTicket(sessionId: string, ticketId: string): void {
-    this.#db.prepare("UPDATE sessions SET ticket_id = ? WHERE id = ?").run(ticketId, sessionId);
+  recordTicket(sessionId: string, ticketId: string): Promise<void> {
+    return this.#transaction(async () => {
+      await this.#run("UPDATE sessions SET ticket_id = $1 WHERE id = $2", ticketId, sessionId);
+    });
   }
 
   /**
    * The renter left, ending the session as renter. Only the join ticket handed
    * out for this session may do it, and only while the session runs.
    */
-  leaveSession(sessionId: string, ticketId: string): QosResult {
-    return this.#transaction(() => {
+  leaveSession(sessionId: string, ticketId: string): Promise<QosResult> {
+    return this.#transaction(async (): Promise<QosResult> => {
       const now = this.#now();
-      const session = this.#db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
-        SessionRow | undefined;
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
-      const machine = this.#db
-        .prepare("SELECT status FROM machines WHERE id = ?")
-        .get(session.machine_id) as {
-        status: MachineStatus;
-      };
-      if (machine.status === "in_session") this.#setStatus(session.machine_id, "available");
-      this.#tick(now);
+      await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+      const machine = (await this.#get<{ status: MachineStatus }>(
+        "SELECT status FROM machines WHERE id = $1",
+        session.machine_id,
+      ))!;
+      if (machine.status === "in_session") await this.#setStatus(session.machine_id, "available");
+      await this.#tick(now);
       return "ok";
     });
   }
@@ -893,31 +845,38 @@ export class Platform {
    * join ticket handed out for this session may report, while it runs and for
    * QOS_GRACE_MS after it ends.
    */
-  recordQos(sessionId: string, ticketId: string, report: QosReport): QosResult {
-    return this.#transaction(() => {
-      const session = this.#db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
-        SessionRow | undefined;
+  recordQos(sessionId: string, ticketId: string, report: QosReport): Promise<QosResult> {
+    return this.#transaction(async (): Promise<QosResult> => {
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null && this.#now() - session.ended_at > QOS_GRACE_MS) return "over";
       const summary = addQos(fromJson<QosSummary | null>(session.qos, null), report);
-      this.#db.prepare("UPDATE sessions SET qos = ? WHERE id = ?").run(JSON.stringify(summary), sessionId);
+      await this.#run("UPDATE sessions SET qos = $1 WHERE id = $2", JSON.stringify(summary), sessionId);
       return "ok";
     });
   }
 
   /** The renter's QoS summary for a session, or null when none has been reported. */
-  sessionQos(sessionId: string): QosSummary | null {
-    const row = this.#db.prepare("SELECT qos FROM sessions WHERE id = ?").get(sessionId) as
-      { qos: string | null } | undefined;
-    return fromJson<QosSummary | null>(row?.qos ?? null, null);
+  sessionQos(sessionId: string): Promise<QosSummary | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ qos: string | null }>(
+        "SELECT qos FROM sessions WHERE id = $1",
+        sessionId,
+      );
+      return fromJson<QosSummary | null>(row?.qos ?? null, null);
+    });
   }
 
-  /** Why a session ended, or null while it runs (or for one ended before reasons were kept). */
-  sessionEndReason(sessionId: string): EndReason | null {
-    const row = this.#db.prepare("SELECT end_reason FROM sessions WHERE id = ?").get(sessionId) as
-      { end_reason: EndReason | null } | undefined;
-    return row?.end_reason ?? null;
+  /** Why a session ended, or null while it runs. */
+  sessionEndReason(sessionId: string): Promise<EndReason | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ end_reason: EndReason | null }>(
+        "SELECT end_reason FROM sessions WHERE id = $1",
+        sessionId,
+      );
+      return row?.end_reason ?? null;
+    });
   }
 
   // --- stability ---------------------------------------------------------------
@@ -929,49 +888,24 @@ export class Platform {
    * Uptime is kept per whole UTC day, so its window can reach up to a day
    * further back than the exact cutoff used for sessions.
    */
-  stability(machineId: string): ReturnType<typeof stabilityFrom> {
-    const now = this.#now();
-    const since = now - STABILITY_WINDOW_MS;
-    const totals = this.#db
-      .prepare(
-        `SELECT coalesce(sum(offered_ms), 0) AS offeredMs, coalesce(sum(seen_ms), 0) AS seenMs,
-                coalesce(sum(drops), 0) AS drops
-           FROM machine_uptime WHERE machine_id = ? AND day >= ?`,
-      )
-      .get(machineId, utcDay(since)) as UptimeTotals;
-    const machine = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
-      MachineRow | undefined;
-    if (machine) {
-      for (const piece of this.#pendingUptime(machine, now, since)) {
-        totals.offeredMs += piece.offeredMs;
-        totals.seenMs += piece.seenMs;
-      }
-    }
-    const rows = this.#db
-      .prepare(
-        `SELECT end_reason, qos FROM sessions
-           WHERE machine_id = ? AND ended_at > ? AND end_reason IS NOT NULL`,
-      )
-      .all(machineId, since) as Pick<SessionRow, "end_reason" | "qos">[];
-    const sessions: EndedSession[] = rows.map((row) => ({
-      endReason: row.end_reason!,
-      packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
-    }));
-    return stabilityFrom(totals, sessions);
+  stability(machineId: string): Promise<ReturnType<typeof stabilityFrom>> {
+    return this.#read(() => this.#stability(machineId));
   }
 
   /** True when the ticket was handed out for a session that has since ended. A ticket minted by hand has none. */
-  ticketRevoked(ticketId: string): boolean {
-    return Boolean(
-      this.#db.prepare("SELECT 1 FROM sessions WHERE ticket_id = ? AND ended_at IS NOT NULL").get(ticketId),
+  ticketRevoked(ticketId: string): Promise<boolean> {
+    return this.#read(async () =>
+      Boolean(
+        await this.#get("SELECT 1 FROM sessions WHERE ticket_id = $1 AND ended_at IS NOT NULL", ticketId),
+      ),
     );
   }
 
   // --- matching and deadlines ------------------------------------------------
 
   /** Settle whatever is due now and match. The deadline timer calls it; so may a test. */
-  tick(): void {
-    this.#transaction(() => this.#tick(this.#now()));
+  tick(): Promise<void> {
+    return this.#transaction(() => this.#tick(this.#now()));
   }
 
   /**
@@ -979,35 +913,33 @@ export class Platform {
    * socket going silent, a reservation lapsing, a session running out, a queued
    * booking nobody checks on timing out. Null when nothing is waiting on time.
    */
-  nextDeadline(): number | null {
-    const row = this.#db
-      .prepare(
-        `SELECT min(at) AS at FROM (
-           SELECT max(last_seen_at + ?, ?) AS at FROM machines
-             WHERE status NOT IN ('idle', 'offline') AND id NOT IN (SELECT value FROM json_each(?))
-           UNION ALL SELECT expires_at FROM reservations
-           UNION ALL SELECT expires_at FROM sessions WHERE ended_at IS NULL
-           UNION ALL SELECT last_seen_at + ? FROM bookings WHERE status = 'queued'
-         )`,
-      )
-      .get(LIVENESS_MS, this.#graceUntil, this.#presentJson(), QUEUE_TIMEOUT_MS) as { at: number | null };
-    return row.at;
+  nextDeadline(): Promise<number | null> {
+    return this.#read(() => this.#nextDeadline());
   }
 
-  /** Arm the one timer for the next deadline, replacing the last. */
-  #arm(): void {
+  async #nextDeadline(): Promise<number | null> {
+    const row = await this.#get<{ at: number | null }>(
+      `SELECT min(at) AS at FROM (
+         SELECT GREATEST(last_seen_at + $1, $2) AS at FROM machines
+           WHERE status NOT IN ('idle', 'offline') AND NOT (id = ANY ($3::text[]))
+         UNION ALL SELECT expires_at FROM reservations
+         UNION ALL SELECT expires_at FROM sessions WHERE ended_at IS NULL
+         UNION ALL SELECT last_seen_at + $4 FROM bookings WHERE status = 'queued'
+       ) AS deadlines`,
+      LIVENESS_MS,
+      this.#graceUntil,
+      this.#presentIds(),
+      QUEUE_TIMEOUT_MS,
+    );
+    return row!.at;
+  }
+
+  /** Arm the one timer for the deadline `at` (null: nothing is waiting on time), replacing the last. */
+  #arm(at: number | null): void {
     clearTimeout(this.#timer);
     this.#timer = undefined;
-    if (this.#closed) return;
-    let delay: number;
-    try {
-      const at = this.nextDeadline();
-      if (at === null) return;
-      delay = Math.min(MAX_TIMER_MS, Math.max(0, at - this.#now()));
-    } catch (error) {
-      console.error("[swiff] platform timer failed:", error instanceof Error ? error.name : typeof error);
-      delay = RETRY_MS;
-    }
+    if (this.#closed || at === null) return;
+    const delay = Math.min(MAX_TIMER_MS, Math.max(0, at - this.#now()));
     this.#timer = setTimeout(() => this.#wake(), delay);
     this.#timer.unref?.();
   }
@@ -1015,13 +947,11 @@ export class Platform {
   /** The timer fired: settle what fell due. A failure is retried rather than left unarmed. */
   #wake(): void {
     this.#timer = undefined;
-    try {
-      this.tick();
-    } catch (error) {
-      // A locked or broken database file must not take the server down with it.
+    this.tick().catch((error: unknown) => {
+      // An unreachable or broken database must not take the server down with it.
       console.error("[swiff] platform tick failed:", error instanceof Error ? error.name : typeof error);
       this.#retrySoon();
-    }
+    });
   }
 
   /**
@@ -1042,61 +972,65 @@ export class Platform {
    * offer ended within LIVENESS_MS of its last check-in: a host that beat until
    * the end of its offer and then went quiet stopped as planned.
    */
-  #tick(now: number): void {
+  async #tick(now: number): Promise<void> {
     // An open socket is contact right now, so the rules below that read
     // last_seen_at treat it as such.
-    this.#db
-      .prepare("UPDATE machines SET last_seen_at = ? WHERE id IN (SELECT value FROM json_each(?))")
-      .run(now, this.#presentJson());
+    if (this.#present.size) {
+      await this.#run(
+        "UPDATE machines SET last_seen_at = $1 WHERE id = ANY ($2::text[])",
+        now,
+        this.#presentIds(),
+      );
+    }
 
     // Silent machines first, so nothing below hands a booking to one.
-    const silent = (
+    const silent =
       now < this.#graceUntil
         ? []
-        : this.#db
-            .prepare("SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= ?")
-            .all(now - LIVENESS_MS)
-    ) as MachineRow[];
-    for (const machine of silent) this.#goOffline(machine, now);
+        : await this.#all<MachineRow>(
+            "SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= $1",
+            now - LIVENESS_MS,
+          );
+    for (const machine of silent) await this.#goOffline(machine, now);
 
     // An unclaimed reservation: a renter who checked in since the match saw it
     // and let it go, so the booking expires. One who has not been heard from
     // since was away; the booking goes back to the queue in its old place, and
     // the queue timeout decides whether they are coming back.
-    const lapsed = this.#db
-      .prepare("SELECT * FROM reservations WHERE expires_at <= ?")
-      .all(now) as ReservationRow[];
+    const lapsed = await this.#all<ReservationRow>("SELECT * FROM reservations WHERE expires_at <= $1", now);
     for (const reservation of lapsed) {
-      const { last_seen_at } = this.#bookingRow(reservation.booking_id)!;
+      const { last_seen_at } = (await this.#bookingRow(reservation.booking_id))!;
       const matchedAt = reservation.expires_at - RESERVATION_MS;
-      this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-      this.#setBookingStatus(reservation.booking_id, last_seen_at >= matchedAt ? "expired" : "queued");
-      this.#setStatus(reservation.machine_id, "available");
+      await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
+      await this.#setBookingStatus(reservation.booking_id, last_seen_at >= matchedAt ? "expired" : "queued");
+      await this.#setStatus(reservation.machine_id, "available");
     }
 
     // The host ends a session when the time runs out; this is the backstop for
     // one that never says so (time_up), and for a renter who claimed and never
     // arrived (grace_expired).
-    const overrun = this.#db
-      .prepare("SELECT * FROM sessions WHERE ended_at IS NULL AND expires_at <= ?")
-      .all(now) as SessionRow[];
+    const overrun = await this.#all<SessionRow>(
+      "SELECT * FROM sessions WHERE ended_at IS NULL AND expires_at <= $1",
+      now,
+    );
     for (const session of overrun) {
-      this.#endSession(
+      await this.#endSession(
         session,
         session.expires_at,
         session.started_at === null ? "grace_expired" : "time_up",
       );
-      this.#setStatus(session.machine_id, "available");
+      await this.#setStatus(session.machine_id, "available");
     }
 
     // A renter who stopped checking on a queued booking has gone; matching it
     // would only hold a machine for nobody.
-    const gone = this.#db
-      .prepare("SELECT id FROM bookings WHERE status = 'queued' AND last_seen_at <= ?")
-      .all(now - QUEUE_TIMEOUT_MS) as { id: string }[];
-    for (const { id } of gone) this.#setBookingStatus(id, "expired");
+    const gone = await this.#all<{ id: string }>(
+      "SELECT id FROM bookings WHERE status = 'queued' AND last_seen_at <= $1",
+      now - QUEUE_TIMEOUT_MS,
+    );
+    for (const { id } of gone) await this.#setBookingStatus(id, "expired");
 
-    this.#match(now);
+    await this.#match(now);
   }
 
   /**
@@ -1105,42 +1039,40 @@ export class Platform {
    * check-in (it stopped as planned), and let go of what it held as of that
    * check-in.
    */
-  #goOffline(machine: MachineRow, now: number): void {
-    this.#accrue(machine, now);
+  async #goOffline(machine: MachineRow, now: number): Promise<void> {
+    await this.#accrue(machine, now);
     if (machine.available_until === null || machine.available_until > machine.last_seen_at + LIVENESS_MS) {
-      this.#db
-        .prepare(
-          `INSERT INTO machine_uptime (machine_id, day, drops) VALUES (?, ?, 1)
-             ON CONFLICT (machine_id, day) DO UPDATE SET drops = drops + 1`,
-        )
-        .run(machine.id, utcDay(now));
+      await this.#run(
+        `INSERT INTO machine_uptime (machine_id, day, drops) VALUES ($1, $2, 1)
+           ON CONFLICT (machine_id, day) DO UPDATE SET drops = machine_uptime.drops + 1`,
+        machine.id,
+        utcDay(now),
+      );
     }
-    this.#release(machine, machine.last_seen_at, "host_offline");
-    this.#setStatus(machine.id, "offline");
+    await this.#release(machine, machine.last_seen_at, "host_offline");
+    await this.#setStatus(machine.id, "offline");
   }
 
   /**
    * Oldest booking first, each to the cheapest live machine free for the whole
    * booking that has the game installed and meets its minimum (MATCH_GATES).
    */
-  #match(now: number): void {
-    const queued = this.#db
-      .prepare("SELECT * FROM bookings WHERE status = 'queued' ORDER BY created_at, rowid")
-      .all() as BookingRow[];
-    const free = this.#db.prepare(
-      `SELECT m.*, EXISTS (SELECT 1 FROM machine_games g WHERE g.machine_id = m.id AND g.appid = ?) AS has_game
-         FROM machines m
-         WHERE status = 'available' AND last_seen_at > ?
-           AND (available_until IS NULL OR available_until >= ?)
-         ORDER BY price, id`,
+  async #match(now: number): Promise<void> {
+    const queued = await this.#all<BookingRow>(
+      "SELECT * FROM bookings WHERE status = 'queued' ORDER BY created_at, seq",
     );
     for (const booking of queued) {
-      const game = this.#requirements.lookup(booking.game_id);
-      const machines = free.all(
+      const game = await this.#requirements.lookup(booking.game_id);
+      const machines = await this.#all<MachineRow & { has_game: boolean }>(
+        `SELECT m.*, EXISTS (SELECT 1 FROM machine_games g WHERE g.machine_id = m.id AND g.appid = $1) AS has_game
+           FROM machines m
+           WHERE status = 'available' AND last_seen_at > $2
+             AND (available_until IS NULL OR available_until >= $3)
+           ORDER BY price, id COLLATE "C"`,
         booking.game_id,
         now - LIVENESS_MS,
         now + booking.minutes * 60_000,
-      ) as (MachineRow & { has_game: number })[];
+      );
       // The configured owner counts at once, before the machine next checks in
       // and #touch records it, so a restart never matches an owner to their PC.
       const machine = machines.find((m) =>
@@ -1153,11 +1085,15 @@ export class Platform {
         ),
       );
       if (!machine) continue; // a booking behind this one may still fit
-      this.#db
-        .prepare("INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES (?, ?, ?, ?)")
-        .run(newId(), booking.id, machine.id, now + RESERVATION_MS);
-      this.#setBookingStatus(booking.id, "matched");
-      this.#setStatus(machine.id, "reserved");
+      await this.#run(
+        "INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES ($1, $2, $3, $4)",
+        newId(),
+        booking.id,
+        machine.id,
+        now + RESERVATION_MS,
+      );
+      await this.#setBookingStatus(booking.id, "matched");
+      await this.#setStatus(machine.id, "reserved");
     }
   }
 
@@ -1166,21 +1102,23 @@ export class Platform {
    * front of the queue for another machine, a running session ends at `at`
    * for `reason`.
    */
-  #release(machine: MachineRow, at: number, reason: EndReason): void {
+  async #release(machine: MachineRow, at: number, reason: EndReason): Promise<void> {
     if (machine.status === "reserved") {
-      const reservation = this.#db
-        .prepare("SELECT * FROM reservations WHERE machine_id = ?")
-        .get(machine.id) as ReservationRow | undefined;
+      const reservation = await this.#get<ReservationRow>(
+        "SELECT * FROM reservations WHERE machine_id = $1",
+        machine.id,
+      );
       if (reservation) {
-        this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-        this.#setBookingStatus(reservation.booking_id, "queued");
+        await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
+        await this.#setBookingStatus(reservation.booking_id, "queued");
       }
     }
     if (machine.status === "in_session") {
-      const session = this.#db
-        .prepare("SELECT * FROM sessions WHERE machine_id = ? AND ended_at IS NULL")
-        .get(machine.id) as SessionRow | undefined;
-      if (session) this.#endSession(session, Math.max(at, session.started_at ?? at), reason);
+      const session = await this.#get<SessionRow>(
+        "SELECT * FROM sessions WHERE machine_id = $1 AND ended_at IS NULL",
+        machine.id,
+      );
+      if (session) await this.#endSession(session, Math.max(at, session.started_at ?? at), reason);
     }
   }
 
@@ -1189,61 +1127,72 @@ export class Platform {
    * played at the machine's hourly rate, and end its host session so its keys
    * die with it.
    */
-  #endSession(session: SessionRow, endedAt: number, reason: EndReason): void {
-    const { price } = this.#db.prepare("SELECT price FROM machines WHERE id = ?").get(session.machine_id) as {
-      price: number;
-    };
+  async #endSession(session: SessionRow, endedAt: number, reason: EndReason): Promise<void> {
+    const { price } = (await this.#get<{ price: number }>(
+      "SELECT price FROM machines WHERE id = $1",
+      session.machine_id,
+    ))!;
     const played = session.started_at === null ? 0 : Math.max(0, endedAt - session.started_at);
-    this.#db
-      .prepare("UPDATE sessions SET ended_at = ?, price = ?, end_reason = ? WHERE id = ?")
-      .run(endedAt, Math.round((price * played) / 3_600_000), reason, session.id);
-    this.#db.prepare("DELETE FROM key_sessions WHERE session_id = ?").run(session.id);
-    this.#setBookingStatus(session.booking_id, "ended");
+    await this.#run(
+      "UPDATE sessions SET ended_at = $1, price = $2, end_reason = $3 WHERE id = $4",
+      endedAt,
+      Math.round((price * played) / 3_600_000),
+      reason,
+      session.id,
+    );
+    await this.#run("DELETE FROM key_sessions WHERE session_id = $1", session.id);
+    await this.#setBookingStatus(session.booking_id, "ended");
     this.#notices.push(() => this.#onSessionEnded(session.machine_id, session.id));
   }
 
   // --- rows ------------------------------------------------------------------
 
   /** Store each section the report carries; a section it leaves out keeps what was stored. */
-  #saveReport(machineId: string, report: HostReport): void {
+  async #saveReport(machineId: string, report: HostReport): Promise<void> {
     if (report.name !== undefined) {
-      this.#db.prepare("UPDATE machines SET name = ? WHERE id = ?").run(report.name, machineId);
+      await this.#run("UPDATE machines SET name = $1 WHERE id = $2", report.name, machineId);
     }
     const hw = report.hardware;
     if (hw) {
-      this.#db
-        .prepare(
-          `UPDATE machines SET gpu_model = ?, gpu_score = ?, vram_mb = ?, ram_mb = ?, cpu_model = ?,
-             cpu_cores = ?, encoders = ?, display = ? WHERE id = ?`,
-        )
-        .run(
-          hw.gpu,
-          gpuScore(hw.gpu),
-          hw.vramMb,
-          hw.ramMb,
-          hw.cpu,
-          hw.cores,
-          JSON.stringify(hw.encoders),
-          JSON.stringify(hw.display),
-          machineId,
-        );
+      await this.#run(
+        `UPDATE machines SET gpu_model = $1, gpu_score = $2, vram_mb = $3, ram_mb = $4, cpu_model = $5,
+           cpu_cores = $6, encoders = $7, display = $8 WHERE id = $9`,
+        hw.gpu,
+        gpuScore(hw.gpu),
+        hw.vramMb,
+        hw.ramMb,
+        hw.cpu,
+        hw.cores,
+        JSON.stringify(hw.encoders),
+        JSON.stringify(hw.display),
+        machineId,
+      );
     }
     if (report.controls) {
-      this.#db
-        .prepare("UPDATE machines SET controls = ? WHERE id = ?")
-        .run(JSON.stringify(report.controls), machineId);
+      await this.#run(
+        "UPDATE machines SET controls = $1 WHERE id = $2",
+        JSON.stringify(report.controls),
+        machineId,
+      );
     }
     if (report.net) {
-      this.#db
-        .prepare("UPDATE machines SET rtt_ms = ?, jitter_ms = ?, up_mbps = ? WHERE id = ?")
-        .run(report.net.rttMs, report.net.jitterMs, report.net.upMbps, machineId);
+      await this.#run(
+        "UPDATE machines SET rtt_ms = $1, jitter_ms = $2, up_mbps = $3 WHERE id = $4",
+        report.net.rttMs,
+        report.net.jitterMs,
+        report.net.upMbps,
+        machineId,
+      );
     }
     if (report.games) {
-      this.#db.prepare("DELETE FROM machine_games WHERE machine_id = ?").run(machineId);
-      const insert = this.#db.prepare(
-        "INSERT OR IGNORE INTO machine_games (machine_id, appid) VALUES (?, ?)",
+      await this.#run("DELETE FROM machine_games WHERE machine_id = $1", machineId);
+      // One statement for the whole list: up to MAX_GAMES rows.
+      await this.#run(
+        `INSERT INTO machine_games (machine_id, appid) SELECT $1, unnest($2::bigint[])
+           ON CONFLICT DO NOTHING`,
+        machineId,
+        report.games,
       );
-      for (const appid of report.games) insert.run(machineId, appid);
     }
   }
 
@@ -1253,20 +1202,27 @@ export class Platform {
    * reservation the new owner already holds on it goes back to the queue.
    * Time offered since the last one is counted first (see #accrue).
    */
-  #touch(machineId: string, now: number): MachineRow {
-    const before = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
-      MachineRow | undefined;
-    if (before) this.#accrue(before, now);
+  async #touch(machineId: string, now: number): Promise<MachineRow> {
+    const before = await this.#machineRow(machineId);
+    if (before) await this.#accrue(before, now);
     const owner = this.#owners.get(machineId) ?? null;
-    this.#db
-      .prepare(
-        `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at) VALUES (?, ?, 'idle', ?, ?)
-           ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
-             uptime_at = excluded.uptime_at`,
-      )
-      .run(machineId, owner, now, now);
-    if (owner !== null && owner !== before?.owner_id) this.#releaseOwnersReservation(machineId, owner);
-    return this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
+    const machine = (await this.#get<MachineRow>(
+      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at) VALUES ($1, $2, 'idle', $3, $3)
+         ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
+           uptime_at = excluded.uptime_at
+         RETURNING *`,
+      machineId,
+      owner,
+      now,
+    ))!;
+    if (
+      owner !== null &&
+      owner !== before?.owner_id &&
+      (await this.#releaseOwnersReservation(machineId, owner))
+    ) {
+      return (await this.#machineRow(machineId))!;
+    }
+    return machine;
   }
 
   /**
@@ -1275,17 +1231,17 @@ export class Platform {
    * matching keeps it off this machine, and the machine is free again.
    * True when there was one.
    */
-  #releaseOwnersReservation(machineId: string, owner: string): boolean {
-    const reservation = this.#db
-      .prepare(
-        `SELECT r.* FROM reservations r JOIN bookings b ON b.id = r.booking_id
-           WHERE r.machine_id = ? AND b.renter_id = ?`,
-      )
-      .get(machineId, owner) as ReservationRow | undefined;
+  async #releaseOwnersReservation(machineId: string, owner: string): Promise<boolean> {
+    const reservation = await this.#get<ReservationRow>(
+      `SELECT r.* FROM reservations r JOIN bookings b ON b.id = r.booking_id
+         WHERE r.machine_id = $1 AND b.renter_id = $2`,
+      machineId,
+      owner,
+    );
     if (!reservation) return false;
-    this.#db.prepare("DELETE FROM reservations WHERE id = ?").run(reservation.id);
-    this.#setBookingStatus(reservation.booking_id, "queued");
-    this.#setStatus(machineId, "available");
+    await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
+    await this.#setBookingStatus(reservation.booking_id, "queued");
+    await this.#setStatus(machineId, "available");
     return true;
   }
 
@@ -1296,19 +1252,25 @@ export class Platform {
    * as seen. Rows for days before the one the stability window starts in are
    * dropped.
    */
-  #accrue(machine: MachineRow, now: number): void {
-    const add = this.#db.prepare(
-      `INSERT INTO machine_uptime (machine_id, day, offered_ms, seen_ms) VALUES (?, ?, ?, ?)
-         ON CONFLICT (machine_id, day) DO UPDATE
-           SET offered_ms = offered_ms + excluded.offered_ms, seen_ms = seen_ms + excluded.seen_ms`,
-    );
+  async #accrue(machine: MachineRow, now: number): Promise<void> {
     for (const piece of this.#pendingUptime(machine, now)) {
-      add.run(machine.id, piece.day, piece.offeredMs, piece.seenMs);
+      await this.#run(
+        `INSERT INTO machine_uptime (machine_id, day, offered_ms, seen_ms) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (machine_id, day) DO UPDATE
+             SET offered_ms = machine_uptime.offered_ms + excluded.offered_ms,
+                 seen_ms = machine_uptime.seen_ms + excluded.seen_ms`,
+        machine.id,
+        piece.day,
+        piece.offeredMs,
+        piece.seenMs,
+      );
     }
-    this.#db.prepare("UPDATE machines SET uptime_at = ? WHERE id = ?").run(now, machine.id);
-    this.#db
-      .prepare("DELETE FROM machine_uptime WHERE machine_id = ? AND day < ?")
-      .run(machine.id, utcDay(now - STABILITY_WINDOW_MS));
+    await this.#run("UPDATE machines SET uptime_at = $1 WHERE id = $2", now, machine.id);
+    await this.#run(
+      "DELETE FROM machine_uptime WHERE machine_id = $1 AND day < $2",
+      machine.id,
+      utcDay(now - STABILITY_WINDOW_MS),
+    );
   }
 
   /**
@@ -1324,64 +1286,96 @@ export class Platform {
     return splitByDay(start, end, lastSeen + LIVENESS_MS);
   }
 
+  /** stability(), within the running call. */
+  async #stability(machineId: string): Promise<ReturnType<typeof stabilityFrom>> {
+    const now = this.#now();
+    const since = now - STABILITY_WINDOW_MS;
+    const totals = (await this.#get<UptimeTotals>(
+      `SELECT coalesce(sum(offered_ms), 0)::bigint AS "offeredMs", coalesce(sum(seen_ms), 0)::bigint AS "seenMs",
+              coalesce(sum(drops), 0)::bigint AS drops
+         FROM machine_uptime WHERE machine_id = $1 AND day >= $2`,
+      machineId,
+      utcDay(since),
+    ))!;
+    const machine = await this.#machineRow(machineId);
+    if (machine) {
+      for (const piece of this.#pendingUptime(machine, now, since)) {
+        totals.offeredMs += piece.offeredMs;
+        totals.seenMs += piece.seenMs;
+      }
+    }
+    const rows = await this.#all<Pick<SessionRow, "end_reason" | "qos">>(
+      `SELECT end_reason, qos FROM sessions
+         WHERE machine_id = $1 AND ended_at > $2 AND end_reason IS NOT NULL`,
+      machineId,
+      since,
+    );
+    const sessions: EndedSession[] = rows.map((row) => ({
+      endReason: row.end_reason!,
+      packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
+    }));
+    return stabilityFrom(totals, sessions);
+  }
+
   /** The session, if it runs on this machine and has not ended. */
-  #openSession(machineId: string, sessionId: string): SessionRow | null {
-    const row = this.#db
-      .prepare("SELECT * FROM sessions WHERE id = ? AND machine_id = ? AND ended_at IS NULL")
-      .get(sessionId, machineId) as SessionRow | undefined;
+  async #openSession(machineId: string, sessionId: string): Promise<SessionRow | null> {
+    const row = await this.#get<SessionRow>(
+      "SELECT * FROM sessions WHERE id = $1 AND machine_id = $2 AND ended_at IS NULL",
+      sessionId,
+      machineId,
+    );
     return row ?? null;
   }
 
   /** The machine row, or null when it has never been heard from. */
-  #machineRow(machineId: string): MachineRow | null {
-    const row = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as
-      MachineRow | undefined;
-    return row ?? null;
+  async #machineRow(machineId: string): Promise<MachineRow | null> {
+    return (await this.#get<MachineRow>("SELECT * FROM machines WHERE id = $1", machineId)) ?? null;
   }
 
-  /** The machines holding a socket open, as a JSON array for json_each(). */
-  #presentJson(): string {
-    return JSON.stringify([...this.#present]);
+  /** The machines holding a socket open. */
+  #presentIds(): string[] {
+    return [...this.#present];
   }
 
   /** The booking row, or null when there is none or, given a renter, it is not theirs. */
-  #bookingRow(bookingId: string, renterId?: string | null): BookingRow | null {
-    const row = this.#db.prepare("SELECT * FROM bookings WHERE id = ?").get(bookingId) as
-      BookingRow | undefined;
+  async #bookingRow(bookingId: string, renterId?: string | null): Promise<BookingRow | null> {
+    const row = await this.#get<BookingRow>("SELECT * FROM bookings WHERE id = $1", bookingId);
     if (!row || (renterId !== undefined && row.renter_id !== renterId)) return null;
     return row;
   }
 
   /** Move a machine to `status`. */
-  #setStatus(machineId: string, status: MachineStatus): void {
-    this.#db.prepare("UPDATE machines SET status = ? WHERE id = ?").run(status, machineId);
+  async #setStatus(machineId: string, status: MachineStatus): Promise<void> {
+    await this.#run("UPDATE machines SET status = $1 WHERE id = $2", status, machineId);
   }
 
   /** Move a booking to `status`; whoever watches it is told once the change commits. */
-  #setBookingStatus(bookingId: string, status: BookingStatus): void {
-    this.#db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, bookingId);
+  async #setBookingStatus(bookingId: string, status: BookingStatus): Promise<void> {
+    await this.#run("UPDATE bookings SET status = $1 WHERE id = $2", status, bookingId);
     this.#changed.add(bookingId);
   }
 
   /** What the host is told about its machine, with the session running on it. */
-  #machineView(machineId: string): MachineView {
-    const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
-    const session = this.#db
-      .prepare("SELECT id FROM sessions WHERE machine_id = ? AND ended_at IS NULL")
-      .get(machineId) as { id: string } | undefined;
+  async #machineView(machineId: string): Promise<MachineView> {
+    const m = (await this.#get<MachineRow & { session_id: string | null }>(
+      `SELECT m.*, s.id AS session_id FROM machines m
+         LEFT JOIN sessions s ON s.machine_id = m.id AND s.ended_at IS NULL
+         WHERE m.id = $1`,
+      machineId,
+    ))!;
     return {
       id: m.id,
       status: m.status,
       gpu: m.gpu_model,
       cpu: m.cpu_model,
       price: m.price,
-      ...(session ? { session: { id: session.id } } : {}),
+      ...(m.session_id ? { session: { id: m.session_id } } : {}),
     };
   }
 
   /** What the renter is told about a booking: its machine, claim deadline, session and price. */
-  #bookingView(bookingId: string): BookingView | null {
-    const booking = this.#bookingRow(bookingId);
+  async #bookingView(bookingId: string): Promise<BookingView | null> {
+    const booking = await this.#bookingRow(bookingId);
     if (!booking) return null;
     const view: BookingView = {
       bookingId: booking.id,
@@ -1389,13 +1383,14 @@ export class Platform {
       gameId: booking.game_id,
       minutes: booking.minutes,
     };
-    const reservation = this.#db.prepare("SELECT * FROM reservations WHERE booking_id = ?").get(bookingId) as
-      ReservationRow | undefined;
-    const session = this.#db.prepare("SELECT * FROM sessions WHERE booking_id = ?").get(bookingId) as
-      SessionRow | undefined;
+    const reservation = await this.#get<ReservationRow>(
+      "SELECT * FROM reservations WHERE booking_id = $1",
+      bookingId,
+    );
+    const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE booking_id = $1", bookingId);
     const machineId = reservation?.machine_id ?? session?.machine_id;
     if (machineId) {
-      const m = this.#db.prepare("SELECT * FROM machines WHERE id = ?").get(machineId) as MachineRow;
+      const m = (await this.#machineRow(machineId))!;
       view.machine = { id: m.id, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
     }
     if (reservation) view.claimBy = reservation.expires_at;
@@ -1404,37 +1399,92 @@ export class Platform {
     return view;
   }
 
+  // --- statements and calls ---------------------------------------------------
+
+  /** The running call's transaction. A statement outside any call is a bug. */
+  #active(): Queryable {
+    if (!this.#tx) throw new Error("no platform call is running");
+    return this.#tx;
+  }
+
+  /** The statement's first row, if any. */
+  async #get<T>(sql: string, ...params: unknown[]): Promise<T | undefined> {
+    return (await this.#active().query<T>(sql, params)).rows[0];
+  }
+
+  /** Every row of the statement. */
+  async #all<T>(sql: string, ...params: unknown[]): Promise<T[]> {
+    return (await this.#active().query<T>(sql, params)).rows;
+  }
+
+  /** Run the statement; how many rows it changed. */
+  async #run(sql: string, ...params: unknown[]): Promise<number> {
+    return (await this.#active().query(sql, params)).rowCount;
+  }
+
+  /** Run `work` once every call made before it has finished, and before any made after it starts. */
+  #inTurn<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#queue.then(work);
+    this.#queue = run.catch(() => {});
+    return run;
+  }
+
+  /** Run `work` in its turn, as one read-only transaction. */
+  #read<T>(work: () => Promise<T>): Promise<T> {
+    return this.#inTurn(() =>
+      this.#db.transaction(async (tx) => {
+        this.#tx = tx;
+        try {
+          return await work();
+        } finally {
+          this.#tx = null;
+        }
+      }, READ),
+    );
+  }
+
   /**
-   * Run `work` as one transaction. Once it commits, re-arm the deadline timer
-   * and deliver the notices it queued; a rollback drops them and arms a retry.
+   * Run `work` in its turn, as one transaction that may write. Once it
+   * commits, re-arm the deadline timer and deliver the notices it queued; a
+   * rollback drops them and arms a retry.
    */
-  #transaction<T>(work: () => T): T {
-    this.#db.exec("BEGIN IMMEDIATE");
-    let result: T;
-    try {
-      result = work();
-      this.#db.exec("COMMIT");
-    } catch (error) {
-      this.#notices = [];
-      this.#changed.clear();
-      this.#retrySoon();
-      this.#db.exec("ROLLBACK");
-      throw error;
-    }
-    this.#arm();
-    const notices = this.#notices;
-    this.#notices = [];
-    for (const bookingId of this.#changed) notices.push(() => this.#onBookingChanged(bookingId));
-    this.#changed.clear();
-    for (const notice of notices) {
+  #transaction<T>(work: () => Promise<T>): Promise<T> {
+    return this.#inTurn(async () => {
+      let done: { result: T; next: number | null };
       try {
-        notice();
+        done = await this.#db.transaction(async (tx) => {
+          this.#tx = tx;
+          try {
+            const result = await work();
+            return { result, next: await this.#nextDeadline() };
+          } finally {
+            this.#tx = null;
+          }
+        }, WRITE);
       } catch (error) {
-        // The change is committed either way; one failed notice must not stop
-        // the rest, or the tick that made it.
-        console.error("[swiff] platform notice failed:", error instanceof Error ? error.name : typeof error);
+        this.#notices = [];
+        this.#changed.clear();
+        this.#retrySoon();
+        throw error;
       }
-    }
-    return result;
+      this.#arm(done.next);
+      const notices = this.#notices;
+      this.#notices = [];
+      for (const bookingId of this.#changed) notices.push(() => this.#onBookingChanged(bookingId));
+      this.#changed.clear();
+      for (const notice of notices) {
+        try {
+          notice();
+        } catch (error) {
+          // The change is committed either way; one failed notice must not stop
+          // the rest, or the tick that made it.
+          console.error(
+            "[swiff] platform notice failed:",
+            error instanceof Error ? error.name : typeof error,
+          );
+        }
+      }
+      return done.result;
+    });
   }
 }

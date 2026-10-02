@@ -85,12 +85,16 @@ minutes. Opening the event stream on the booking (below) and the page's heartbea
 it is open count as checking on it; a stream merely left open does not. A reservation that lapses while the renter has not been heard from since the
 match puts the booking back in the queue in its old place.
 
-Machines, bookings, reservations and sessions are one SQLite table each
-(`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
-need no database server). The file is `DATABASE_PATH`; unset, the data lives in memory
-and resets with the server. Users, games and saves have no table yet: a user is their
-Steam id (a booking's `renter_id`, a machine's `owner_id`), games come from Steam, and
-saves are not built.
+Machines, bookings, reservations and sessions are one Postgres table each
+(`server/src/platform.ts`), in the database at `DATABASE_URL` (Neon in production). The
+server makes the tables on start, through the migrations in `server/src/schema.ts`, and
+keeps nothing in local files, so a host that sleeps and loses its disk loses no data.
+Unset, the data lives in memory (PGlite, Postgres compiled to WebAssembly) and resets
+with the server, so dev and the e2e tests need no database server. Platform calls take
+turns, each one transaction; one that may write first locks the machines table, so a
+second server on the same database cannot interleave with it either. Users, games and
+saves have no table yet: a user is their Steam id (a booking's `renter_id`, a machine's
+`owner_id`), games come from Steam, and saves are not built.
 
 ---
 

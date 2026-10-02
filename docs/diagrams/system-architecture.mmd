@@ -36,7 +36,7 @@ flowchart LR
     API["Booking API"]
     HAPI["Host API"]
     MM["Matching<br/>queued bookings only<br/>on every change + timer for<br/>the next deadline"]
-    DB[("Database · SQLite for now")]
+    DB[("Database · Postgres (Neon)")]
     S3[("Save storage · S3")]
     SIG["Connection setup<br/>swaps public addresses"]
   end

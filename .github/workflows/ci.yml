@@ -57,10 +57,28 @@ jobs:
   # Unit and integration tests for every workspace that has any. The web
   # integration suite starts the real signaling server, so this is not purely
   # unit-level despite being the fast job.
+  #
+  # The server tests run on this Postgres, the version Neon runs in
+  # production, rather than PGlite in memory: each test gets a schema of its
+  # own there. A throwaway container, so no password.
   test:
     name: Unit and integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
