@@ -35,9 +35,6 @@
   --gut: clamp(28px, 4.44vw, 96px);
   /* the band's first row: tabs and one row of tiles */
   --band-h: 352px;
-  /* how much of the band shows under the wall hero on the first screen: its
-     tabs and the top edge of the tiles, enough to say there is more below */
-  --peek: clamp(72px, 10vh, 100px);
 
   position: relative;
   height: 100vh;
@@ -415,8 +412,10 @@
 .hero-3b {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  height: max(560px, calc(100vh - var(--peek)));
-  height: max(560px, calc(100dvh - var(--peek)));
+  /* header, art and strip are the first screen: the strip ends at its bottom
+     edge and the band starts just below the fold */
+  height: max(560px, 100vh);
+  height: max(560px, 100dvh);
 }
 .hero-3b-art {
   position: relative;
@@ -476,6 +475,10 @@
   font: 400 clamp(48px, 7.8vw, 112px) / 1 var(--wide);
   letter-spacing: 0.01em;
   text-transform: uppercase;
+  /* Fitted by measuring (useFitTitle): a size change must land at once. Under
+     reduced motion the library gives every element a short transition, which
+     would make each step read the old size and shrink the title to nothing. */
+  transition-property: none;
 }
 .hero-3b-rule {
   position: absolute;
@@ -2086,14 +2089,14 @@ button.band-tab:hover {
     flex-direction: column;
     height: auto;
   }
-  /* The wall hero still fills the first screen but for the band's peek: the
-     art takes whatever the strip leaves, and the strip stacks. */
+  /* The wall hero still fills the first screen: the art takes whatever the
+     stacked strip leaves, and a screen too short for both lets it grow. */
   .hero-3b {
     display: flex;
     flex-direction: column;
     height: auto;
-    min-height: calc(100vh - var(--peek));
-    min-height: calc(100dvh - var(--peek));
+    min-height: 100vh;
+    min-height: 100dvh;
   }
   .hero-3b-art {
     flex: 1 0 clamp(300px, 46vh, 420px);

@@ -1,7 +1,7 @@
 // The wall is what "/" serves now, so this pins what a first-time visitor must
 // see: hero 3b (the art with its drafted title, the strip under it) filling the
-// first screen with the band peeking below, one Sign in with Steam, and no way
-// to play until they have signed in.
+// first screen with the band just below the fold, one Sign in with Steam, and
+// no way to play until they have signed in.
 
 import { expect, test } from "@playwright/test";
 import { signIn } from "./credentials";
@@ -24,17 +24,17 @@ test.describe("live wall", () => {
   });
 
   for (const viewport of VIEWPORTS) {
-    test(`shows only a peek of the band under the hero at ${viewport.width}x${viewport.height}`, async ({
+    test(`fills the first screen with the hero and its strip at ${viewport.width}x${viewport.height}`, async ({
       page,
     }) => {
       await page.setViewportSize(viewport);
       await page.goto("/");
 
-      const band = await page.locator(".band").boundingBox();
-      // The band starts above the fold, by no more than a peek.
-      const peek = viewport.height - band!.y;
-      expect(peek).toBeGreaterThanOrEqual(40);
-      expect(peek).toBeLessThanOrEqual(120);
+      // The strip ends at the bottom of the viewport; the band starts just below the fold.
+      const strip = (await page.locator(".hero-strip").boundingBox())!;
+      expect(Math.abs(strip.y + strip.height - viewport.height)).toBeLessThanOrEqual(1);
+      const band = (await page.locator(".band").boundingBox())!;
+      expect(band.y).toBeGreaterThanOrEqual(viewport.height - 1);
     });
 
     for (const signedIn of [false, true]) {
@@ -70,6 +70,23 @@ test.describe("live wall", () => {
       });
     }
   }
+
+  test.describe("under reduced motion", () => {
+    test.use({ reducedMotion: "reduce", viewport: { width: 1440, height: 900 } });
+
+    // Reduced motion gives every element a short transition; the title is
+    // fitted by measuring, so it must not read a half-changed size and shrink.
+    test("still sets the drafted title large", async ({ page }) => {
+      await page.goto("/");
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(500);
+
+      const size = await page
+        .locator(".hero-3b-title")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(size).toBeGreaterThanOrEqual(64);
+    });
+  });
 
   test("offers a signed-out visitor exactly one way in: Sign in with Steam", async ({ page }) => {
     await page.goto("/");
