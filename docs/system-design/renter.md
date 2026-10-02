@@ -281,7 +281,8 @@ its owner. Probing the top few machines directly is a later step.
 
 A busy machine (reserved or in session) is free again when its session runs out, or,
 while reserved, when a claim at the last moment would run out; one taken until after its
-owner wants it back is not counted as coming back.
+owner wants it back is not counted as coming back, and the game page lists a busy machine
+only when, once back, its offer still has the `minutes` asked for.
 
 Each read ranks every machine on offer, so one signed-in renter cannot hog the server
 with them: each has a budget of 20 of these reads at once, then one more every 2 s (30

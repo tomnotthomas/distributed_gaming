@@ -119,13 +119,20 @@ function prefs(renter: RenterAsk, minutes: number): RenterPrefs {
 }
 
 /**
- * Busy machines that will be free again while still offered, soonest first:
- * one taken until after its owner wants it back is not coming back tonight.
+ * Busy machines that will be free again while still offered, with `minutes`
+ * left on the offer once they are, soonest first: one taken until after its
+ * owner wants it back is not coming back tonight, and one back too late for
+ * the session asked for would not fit it.
  */
-function comingBack(later: Candidate[], byId: Map<string, OfferedMachine>): OfferedMachine[] {
+function comingBack(
+  later: Candidate[],
+  byId: Map<string, OfferedMachine>,
+  minutes: number,
+): OfferedMachine[] {
+  const fits = (backAt: number, until: number) => backAt < until && backAt + minutes * 60_000 <= until;
   return later
     .map((c) => byId.get(c.host.id)!)
-    .filter((m) => m.backAt === null || m.backAt < m.host.availableUntil)
+    .filter((m) => m.backAt === null || fits(m.backAt, m.host.availableUntil))
     .sort((a, b) => (a.backAt ?? Number.MAX_SAFE_INTEGER) - (b.backAt ?? Number.MAX_SAFE_INTEGER));
 }
 
@@ -173,7 +180,7 @@ export function machinesFor(
       };
     }),
     reason: result.reason,
-    busy: comingBack(result.later, byId).map((m) => ({
+    busy: comingBack(result.later, byId, minutes).map((m) => ({
       id: m.host.id,
       name: m.profile.name,
       backAt: m.backAt,
@@ -194,7 +201,8 @@ export function availabilityFor(
   const renterPrefs = prefs(renter, 0);
   return games.map((game) => {
     const result = rank(game, renterPrefs, candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
-    const back = comingBack(result.later, byId);
+    // The wall asks for no session length: any machine coming back counts.
+    const back = comingBack(result.later, byId, 0);
     return {
       appid: game.appid,
       free: result.hosts.length,

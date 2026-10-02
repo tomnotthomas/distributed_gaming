@@ -557,6 +557,20 @@ describe("booking and host API", () => {
       assert.equal((await renter("GET", path(0))).status, 429);
     });
 
+    it("lists a busy machine only when it is back in time for the minutes asked for", async () => {
+      await offer("pc-1", { available: true, ...REPORT, until: now + 60 * 60_000 });
+      const booked = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const { claimBy } = (await as(signedIn(OTHER))("GET", `/api/bookings/${booked.body.bookingId}`)).body;
+      const backAt = claimBy + 30 * 60_000; // 31 minutes from now, 29 before the offer ends
+
+      const busy = async (minutes: number) =>
+        (await renter("GET", `/api/games/730/machines?minutes=${minutes}&rtt=0`)).body.busy;
+      assert.deepEqual(await busy(29), [{ id: "pc-1", name: "Nova-01", backAt }]);
+      assert.deepEqual(await busy(30), []);
+      const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
+      assert.deepEqual(body, [{ appid: 730, free: 0, busy: 1, backAt }]);
+    });
+
     it("rejects a malformed question with a 400", async () => {
       discovery = new RequestBudget({ burst: 100, now: () => now });
       const bad = [
