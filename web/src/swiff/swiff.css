@@ -57,6 +57,8 @@
 .wall,
 .menu,
 .profile,
+.share,
+.estimate,
 .ignition {
   --color-bg: var(--bg);
   --color-text: var(--ink);
@@ -232,7 +234,7 @@
 }
 .bar-nav {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 0;
 }
 .bar-nav > * {
@@ -266,6 +268,20 @@
 }
 .bar-nav .bar-live {
   color: var(--ink-2);
+}
+/* Four cells stop fitting their labels below 1280px: the live count
+   goes (the wall's own dial still counts free machines) and the type tightens. */
+@media (max-width: 1279px) and (min-width: 861px) {
+  .bar-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .bar-nav > * {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .bar-nav .bar-live {
+    display: none;
+  }
 }
 .bar .bar-acct {
   justify-content: space-between;
@@ -1413,6 +1429,438 @@ button.band-tab:hover {
   accent-color: var(--lime);
 }
 
+/* — Share your PC: the estimate over full-colour art, the tier picker and the
+   download; How we got this number as a paper sheet over the dimmed page — */
+.share {
+  position: relative;
+}
+.cur {
+  margin-right: 0.05em;
+  font-family: var(--f);
+  font-size: 0.8em;
+  font-weight: 200;
+}
+/* The copy sits in the flow here, so the hero grows rather than clipping it on
+   a short window. */
+.share-hero {
+  height: auto;
+  min-height: max(560px, calc(100vh - var(--band-h)));
+  min-height: max(560px, calc(100dvh - var(--band-h)));
+}
+.share-copy {
+  position: relative;
+  z-index: 5;
+  width: min(820px, calc(100% - var(--cr) - var(--gut)));
+  padding: calc(var(--bar) + clamp(28px, 4.8vh, 48px)) 0 40px var(--gut);
+}
+.share-title {
+  margin: 12px 0 0;
+  font: 400 clamp(30px, 3.06vw, 44px) / 1.06 var(--wide);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.share-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 6px 0 0;
+}
+.share-figure b {
+  font: 400 clamp(56px, 5.56vw, 80px) / 1 var(--wide);
+  letter-spacing: -0.01em;
+}
+.share-figure > span {
+  color: var(--ink-2);
+  font: 200 22px/1 var(--f);
+}
+.share-line {
+  max-width: 640px;
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 17px;
+}
+.share-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--lime-edge);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.share-link:hover {
+  text-decoration-color: var(--lime);
+}
+.share-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-top: 20px;
+}
+.share-fine {
+  color: var(--ink-2);
+}
+.share-actions .lpill:disabled {
+  cursor: not-allowed;
+}
+.share-note {
+  max-width: 100%;
+  margin: 12px 0 0;
+  color: var(--ink-2);
+  font: 400 12.5px/1.55 var(--mono);
+}
+.share-count b {
+  font-size: 52px;
+}
+.dial-n {
+  fill: currentColor;
+  opacity: 0.7;
+  font: 400 10.5px var(--mono);
+}
+
+/* the tier picker: four cells on a hairline ruler; the chosen one in ink with a lime tick */
+.tiers {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  max-width: 640px;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.tier {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 14px 18px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: none;
+  color: var(--ink-3);
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.3s var(--ease);
+}
+.tier:first-child {
+  padding-left: 0;
+}
+.tier:last-child {
+  border-right: 0;
+}
+.tier::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 14px;
+  bottom: 0;
+  height: 8px;
+  opacity: 0.5;
+  background:
+    linear-gradient(currentColor, currentColor) left bottom / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 8px) left bottom / 100% 4px no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 40px) left bottom / 100% 8px
+      no-repeat;
+}
+.tier > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 13.5px/1.2 var(--f);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tier small {
+  font: 400 11.5px/1 var(--mono);
+}
+.tier:hover {
+  color: var(--ink-2);
+}
+.tier.on {
+  color: var(--ink);
+}
+.tier.on::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 18px;
+  height: 3px;
+  background: var(--lime);
+}
+
+/* the band: three reasons and the four steps, on the bar's columns */
+.share-band {
+  display: grid;
+  grid-template-columns: var(--cl) minmax(0, 1fr) minmax(0, 1fr) var(--cr);
+  border-top: 1px solid var(--pline);
+}
+.share-cell {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 24px 28px 32px;
+  border-right: 1px solid var(--pline);
+}
+.share-cell h2 {
+  margin: 4px 0 0;
+  font: 600 16px/1.2 var(--f);
+}
+.share-cell p {
+  margin: 0;
+  color: var(--on-paper-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.share-path {
+  border-right: 0;
+  background: rgb(198 199 198 / 0.32);
+}
+.share-path h2.mono {
+  margin: 0 0 4px;
+  color: var(--on-paper-3);
+  font: 400 11.5px/1.55 var(--mono);
+}
+.share-path ol {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.share-path ol::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--pline-2);
+}
+.share-path li {
+  position: relative;
+  display: grid;
+  padding: 5px 0 5px 25px;
+}
+.share-path li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 13px;
+  height: 13px;
+  box-sizing: border-box;
+  border: 1px solid var(--on-paper-3);
+  border-radius: 50%;
+  background: #d6d7d6;
+}
+.share-path li[aria-current]::before {
+  border-color: var(--on-paper);
+  background: radial-gradient(circle, var(--lime) 0 3px, #d6d7d6 3.5px);
+}
+.share-path b {
+  font: 500 13.5px/1.2 var(--f);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.share-path small {
+  color: var(--on-paper-3);
+  font-size: 12.5px;
+}
+
+/* How we got this number */
+.estimate {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+}
+.estimate-dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(18 18 18 / 0.55);
+}
+.estimate-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 100%);
+  overflow-y: auto;
+  padding: calc(var(--bar) + 20px) 34px 32px;
+  background: var(--paper);
+  color: var(--on-paper);
+  animation: swiff-sheet 0.45s var(--ease) both;
+}
+@keyframes swiff-sheet {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.estimate-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+.estimate-head h2 {
+  margin: 0;
+  font: 400 20px/1.1 var(--wide);
+  text-transform: uppercase;
+}
+.estimate-x {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  transition: border-color 0.3s var(--ease);
+}
+.estimate-x:hover {
+  border-color: var(--lime-edge);
+}
+.sum-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--pline);
+  color: var(--on-paper-2);
+  font-size: 14.5px;
+}
+.sum-row .op {
+  color: var(--on-paper-3);
+}
+.sum-row b {
+  margin-left: auto;
+  color: var(--on-paper);
+  font: 400 17px/1 var(--wide);
+}
+.sum-total {
+  border-top-color: var(--on-paper);
+}
+.sum-total b {
+  font-size: 26px;
+}
+.sum-range {
+  margin: 4px 0 14px;
+  color: var(--on-paper-3);
+  font: 400 12.5px/1.55 var(--mono);
+}
+.estimate-sub {
+  margin: 0 0 4px;
+  color: var(--on-paper-3);
+  font-weight: 400;
+}
+.slider {
+  padding: 5px 0;
+}
+.slider-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--on-paper-2);
+  font-size: 13.5px;
+}
+.slider-head b {
+  color: var(--on-paper);
+  font-weight: 500;
+}
+/* a real range input, transparent over the drawn ruler, fill and knob */
+.slider-track {
+  position: relative;
+  height: 16px;
+  margin-top: 4px;
+  background:
+    linear-gradient(rgb(19 19 19 / 0.5), rgb(19 19 19 / 0.5)) left bottom / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, rgb(19 19 19 / 0.5) 0 1px, transparent 1px 8px) left bottom / 100% 4px
+      no-repeat,
+    repeating-linear-gradient(90deg, rgb(19 19 19 / 0.5) 0 1px, transparent 1px 40px) left bottom / 100% 8px
+      no-repeat;
+}
+.slider-fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--v);
+  height: 2px;
+  background: var(--on-paper);
+}
+.slider-knob {
+  position: absolute;
+  left: var(--v);
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border: 1px solid var(--on-paper);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--lime) 0 3.5px, var(--paper) 4px);
+  pointer-events: none;
+}
+.slider-track input {
+  position: absolute;
+  left: -7px;
+  top: -6px;
+  width: calc(100% + 14px);
+  height: 28px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.slider-track:has(input:focus-visible) .slider-knob {
+  outline: 2px solid var(--lime-edge);
+  outline-offset: 2px;
+}
+.estimate-more {
+  margin-top: 14px;
+}
+.estimate-more summary {
+  color: var(--on-paper-2);
+  list-style: none;
+  cursor: pointer;
+}
+.estimate-more summary::-webkit-details-marker {
+  display: none;
+}
+.estimate-more summary::after {
+  content: " +";
+  color: var(--on-paper-3);
+}
+.estimate-more[open] summary::after {
+  content: " −";
+}
+.estimate-part {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 7px 0;
+  border-top: 1px solid var(--pline);
+  font-size: 14px;
+}
+.estimate-part:first-of-type {
+  margin-top: 8px;
+}
+.estimate-part span {
+  color: var(--on-paper-2);
+}
+.estimate-part b {
+  font-weight: 500;
+}
+.estimate-more p {
+  margin: 8px 0 0;
+  color: var(--on-paper-2);
+  font-size: 12.5px;
+}
+
 /* — big displays —
    display.ts puts the tier on <html data-display>. The fluid sizes above reach
    their caps by then; the bar and the band grow a step with the screen. */
@@ -1433,8 +1881,12 @@ button.band-tab:hover {
   .ring-btn:hover {
     transform: none;
   }
-  .profile {
+  .profile,
+  .estimate-sheet {
     animation: none;
+  }
+  .tier {
+    transition: none;
   }
 }
 
@@ -1618,6 +2070,46 @@ button.band-tab:hover {
 
   .profile {
     padding-top: calc(var(--bar) + 28px);
+  }
+
+  .share-hero {
+    min-height: 0;
+  }
+  .share-copy {
+    width: auto;
+    padding: calc(var(--bar) + 28px) var(--gut) 32px;
+  }
+  .share-figure b {
+    font-size: clamp(48px, 15vw, 64px);
+  }
+  .share-line {
+    font-size: 16px;
+  }
+  .tiers {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tier:nth-child(odd) {
+    padding-left: 0;
+  }
+  .tier:nth-child(2) {
+    border-right: 0;
+  }
+  .tier:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+  .share-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .share-cell {
+    padding: 20px var(--gut) 22px;
+    border-right: 0;
+  }
+  .share-cell + .share-cell {
+    border-top: 1px solid var(--pline);
+  }
+  .estimate-sheet {
+    padding: 24px 20px 28px;
   }
 }
 @media (max-width: 520px) {

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
 import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
 import { freeFor, machinesFor } from "./derive";
+import { DEFAULT_WEEK, type Week } from "./estimate";
+import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
 import {
   applySteam,
@@ -17,7 +19,7 @@ import {
   type StoreData,
 } from "./steam";
 
-export type Screen = "home" | "game" | "profile";
+export type Screen = "home" | "game" | "profile" | "share";
 export type Phase = "idle" | "connecting" | "live";
 export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";
@@ -34,7 +36,7 @@ const track = (event: string, props?: Record<string, unknown>) => {
 };
 
 export function useSwiff() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
   const [gameId, setGameId] = useState<string | null>(null);
   const [machineId, setMachineId] = useState<string | null>(null);
@@ -60,6 +62,10 @@ export function useSwiff() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showAll, setShowAll] = useState(false);
   const [ownerDropped, setOwnerDropped] = useState(false);
+
+  // Share your PC: the week the owner describes, and whether How we got this number is open.
+  const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
+  const [estimateOpen, setEstimateOpen] = useState(false);
 
   // Moss is busy in the seed data; freeing it later is the only mutation, so the
   // pool stays derived rather than kept in state.
@@ -214,6 +220,34 @@ export function useSwiff() {
 
   // --- navigation ------------------------------------------------------------
 
+  // Only Share your PC changes the address: /share while it is up, / once it
+  // is left, so Back and Forward move between it and the wall.
+  useEffect(() => {
+    const path = pathOf(screen);
+    if (screenAt(location.pathname) !== screenAt(path)) history.pushState(null, "", path + location.search);
+    if (screen !== "share") setEstimateOpen(false);
+  }, [screen]);
+
+  // While Ignition or a session covers the page, Back and Forward leave the
+  // screen behind it alone and put its address back.
+  const covered = useRef({ screen, phase });
+  covered.current = { screen, phase };
+  useEffect(() => {
+    const onPop = () => {
+      const { screen, phase } = covered.current;
+      if (phase === "idle") setScreen(screenAt(location.pathname));
+      else if (screenAt(location.pathname) !== screenAt(pathOf(screen)))
+        history.pushState(null, "", pathOf(screen) + location.search);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const openShare = useCallback(() => {
+    track("share_opened");
+    setScreen("share");
+  }, []);
+
   const goHome = useCallback(() => {
     setScreen("home");
     setPhase("idle");
@@ -288,7 +322,9 @@ export function useSwiff() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        goHome();
+        // An open sheet closes first; the next Escape goes home.
+        if (estimateOpen) setEstimateOpen(false);
+        else goHome();
         return;
       }
       if (screen !== "game" || phase !== "idle") return;
@@ -297,7 +333,7 @@ export function useSwiff() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [screen, phase, goHome]);
+  }, [screen, phase, goHome, estimateOpen]);
 
   // A gamepad is the point of a couch product, so d-pad left/right selects a
   // machine and B goes back. Edge-triggered: a held stick must not scroll away.
@@ -347,7 +383,12 @@ export function useSwiff() {
     ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
     elapsedMs,
     ownerDropped,
+    week,
+    estimateOpen,
     goHome,
+    openShare,
+    setWeek,
+    setEstimateOpen,
     openGame,
     launch,
     endSession,

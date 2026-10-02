@@ -20,7 +20,7 @@ test.describe("static serving", () => {
     const wall = await request.get("/");
 
     // One bundle, several routes — the page decides which screen to render.
-    for (const route of ["/host", "/rtc"]) {
+    for (const route of ["/host", "/rtc", "/share"]) {
       const res = await request.get(route);
       expect(res.status(), route).toBe(200);
       expect(await res.text(), route).toBe(await wall.text());

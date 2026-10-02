@@ -11,6 +11,7 @@ import {
 } from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
 import { initials } from "./Chrome";
+import { Glyph } from "./Glyph";
 import type { Device, Quality, Swiff } from "./useSwiff";
 
 const QUALITY = [
@@ -118,6 +119,19 @@ export function Profile({ swiff }: { swiff: Swiff }) {
           />
         </div>
         <p className="profile-fine">Changes save instantly. Name, avatar and library come from Steam.</p>
+      </section>
+
+      <section className="profile-section">
+        <Kicker as="h2">Your gaming PC</Kicker>
+        <p className="profile-fine">Away most evenings? Share it while you&rsquo;re out and get paid.</p>
+        <div>
+          <button type="button" className="lpill lpill-sm" onClick={swiff.openShare}>
+            Share your PC
+            <span className="lpill-c">
+              <Glyph name="arrow" size={16} />
+            </span>
+          </button>
+        </div>
       </section>
 
       <div>

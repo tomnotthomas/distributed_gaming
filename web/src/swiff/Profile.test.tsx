@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { Profile } from "./Profile";
 import type { SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -7,7 +7,7 @@ import type { Swiff } from "./useSwiff";
 const noop = () => {};
 
 /** Just the slice of the hook Profile reads. */
-function swiffWith(profile: SteamProfile | null, signOutFailed = false): Swiff {
+function swiffWith(profile: SteamProfile | null, signOutFailed = false, openShare = noop): Swiff {
   return {
     profile,
     signOutFailed,
@@ -22,6 +22,7 @@ function swiffWith(profile: SteamProfile | null, signOutFailed = false): Swiff {
     setMotion: noop,
     setSound: noop,
     goHome: noop,
+    openShare,
   } as unknown as Swiff;
 }
 
@@ -64,5 +65,13 @@ describe("Profile", () => {
     render(<Profile swiff={swiffWith(profile)} />);
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByText("?")).toBeInTheDocument();
+  });
+
+  // The bar's nav cells fold away on a phone; the profile is where Share your PC is found there.
+  it("leads to Share your PC", () => {
+    const openShare = vi.fn();
+    render(<Profile swiff={swiffWith(null, false, openShare)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Share your PC" }));
+    expect(openShare).toHaveBeenCalledOnce();
   });
 });

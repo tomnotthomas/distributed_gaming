@@ -172,6 +172,61 @@ export function CountDial({ count }: { count: number }) {
   );
 }
 
+const CLOCK_LABELS = [
+  { label: "00", hour: 0 },
+  { label: "06", hour: 6 },
+  { label: "12", hour: 12 },
+  { label: "18", hour: 18 },
+];
+
+/**
+ * Share your PC's instrument: a 24-hour clock with midnight at twelve, a tick
+ * every quarter hour, and the evening away drawn as an ink arc ending in lime.
+ */
+export function AwayDial({ from, hours, children }: { from: number; hours: number; children: ReactNode }) {
+  const start = from * 15;
+  const end = (from + hours) * 15;
+  const [x0, y0] = polar(200, 240, 166, start);
+  const [x1, y1] = polar(200, 240, 166, end);
+  return (
+    <div className="dial-box">
+      <svg viewBox="0 0 400 480" aria-hidden="true" fill="none">
+        <Cross cx={200} cy={240} gap={124} w={400} h={440} top={40} />
+        <circle cx={200} cy={240} r={184} stroke="currentColor" opacity={0.2} />
+        <circle cx={200} cy={240} r={150} stroke="currentColor" opacity={0.6} />
+        <Ticks
+          cx={200}
+          cy={240}
+          r={150}
+          minor={5}
+          major={10}
+          step={3.75}
+          every={15}
+          minorOpacity={0.4}
+          majorOpacity={0.7}
+        />
+        <path d={tickPath(200, 240, 150, 18, 90)} stroke="currentColor" opacity={0.9} />
+        {CLOCK_LABELS.map(({ label, hour }) => {
+          const [x, y] = polar(200, 244, 116, hour * 15);
+          return (
+            <text key={label} x={x.toFixed(1)} y={y.toFixed(1)} textAnchor="middle" className="dial-n">
+              {label}
+            </text>
+          );
+        })}
+        <path
+          className="away-arc"
+          d={`M${x0.toFixed(1)} ${y0.toFixed(1)}A166 166 0 ${end - start > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`}
+          stroke="currentColor"
+          strokeWidth={2.4}
+        />
+        <circle cx={x1.toFixed(1)} cy={y1.toFixed(1)} r={5} fill={LIME} stroke="currentColor" />
+      </svg>
+      {children}
+    </div>
+  );
+}
+
 /** The game page's lens: a clear circle of key art inside a 120-tick ring, on a crosshair. */
 export function LensDial() {
   return (
