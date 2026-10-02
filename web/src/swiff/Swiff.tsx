@@ -1,4 +1,6 @@
-import { AppShell, MotionContext } from "@swiff/ui";
+import { useEffect, useRef } from "react";
+import { MotionContext } from "@swiff/ui";
+import { Chrome } from "./Chrome";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { Profile } from "./Profile";
@@ -13,38 +15,51 @@ const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as co
 export function Swiff() {
   const swiff = useSwiff();
   useDisplay();
-  const { screen, phase, profile, libraryConnected, hoverId, games } = swiff;
+  const { screen, phase, profile, libraryConnected, pool, machines } = swiff;
 
-  const hovered = games.find((game) => game.id === hoverId);
-  const initial = libraryConnected ? (profile?.persona || "?")[0]!.toUpperCase() : "?";
+  // The app scrolls as one page; a new screen starts at its top.
+  const page = useRef<HTMLDivElement>(null);
+  // While Ignition or a session covers the page, nothing behind it can be
+  // focused or pressed: a second hold must not start the launch over.
+  const behind = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    behind.current?.toggleAttribute("inert", phase !== "idle");
+  }, [phase]);
+  useEffect(() => {
+    page.current?.scrollTo(0, 0);
+  }, [screen, swiff.game?.id]);
+
+  const live =
+    screen === "game"
+      ? `${machines.filter((m) => !m.busy).length} free for this game`
+      : `${Object.values(pool).filter((m) => !m.busy && !m.self).length} free near you`;
 
   return (
-    <AppShell
-      onHome={swiff.goHome}
-      onProfile={() => swiff.setScreen("profile")}
-      onBack={screen === "game" ? swiff.goHome : undefined}
-      session={
-        libraryConnected ? { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession } : undefined
-      }
-      avatar={{
-        initial,
-        ring: libraryConnected ? "live" : "idle",
-        label: `Profile, ${profile?.persona ?? "not signed in"}`,
-      }}
-      tint={
-        hovered
-          ? `radial-gradient(ellipse at 30% 30%, hsl(${hovered.hue} 60% 60% / .12), transparent 55%)`
-          : undefined
-      }
-      floating={screen === "game"}
-    >
+    <div className="sw" data-screen={screen} ref={page}>
       <MotionContext.Provider value={swiff.motion}>
-        {screen === "home" ? <Wall swiff={swiff} /> : null}
-        {screen === "game" ? <GameMenu swiff={swiff} /> : null}
-        {screen === "profile" ? <Profile swiff={swiff} /> : null}
+        <div className="sw-page" ref={behind}>
+          <Chrome
+            screen={screen}
+            onHome={swiff.goHome}
+            onProfile={() => swiff.setScreen("profile")}
+            onBack={screen === "game" ? swiff.goHome : undefined}
+            live={live}
+            renter={
+              libraryConnected
+                ? {
+                    persona: profile?.persona ?? "",
+                    session: { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession },
+                  }
+                : undefined
+            }
+          />
+          {screen === "home" ? <Wall swiff={swiff} /> : null}
+          {screen === "game" ? <GameMenu swiff={swiff} /> : null}
+          {screen === "profile" ? <Profile swiff={swiff} /> : null}
+        </div>
         {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
         {phase === "live" ? <Session swiff={swiff} /> : null}
       </MotionContext.Provider>
-    </AppShell>
+    </div>
   );
 }
