@@ -257,15 +257,18 @@ describe("game art from Steam's own cache", () => {
   const root = "/home/kai/.local/share/Steam";
   const cache = `${root}/appcache/librarycache`;
 
-  it("answers only swiff-art://<appid>/<hero|header>", () => {
-    expect(artRequest("swiff-art://730/hero")).toEqual({ appid: 730, kind: "hero" });
-    expect(artRequest("swiff-art://1245620/header")).toEqual({ appid: 1245620, kind: "header" });
+  it("answers only swiff-art://steam/<appid>/<hero|header>", () => {
+    expect(artRequest("swiff-art://steam/730/hero")).toEqual({ appid: 730, kind: "hero" });
+    expect(artRequest("swiff-art://steam/1245620/header")).toEqual({ appid: 1245620, kind: "header" });
     for (const url of [
-      "swiff-art://730/../../etc/passwd",
-      "swiff-art://730/hero.jpg",
-      "swiff-art://x/hero",
+      "swiff-art://730/hero",
+      "swiff-art://0.0.2.218/hero",
+      "swiff-art://steam/730/../../etc/passwd",
+      "swiff-art://steam/730/hero.jpg",
+      "swiff-art://steam/x/hero",
+      "swiff-art://other/730/hero",
       "file:///etc/passwd",
-      "swiff-art://730/hero?x=1",
+      "swiff-art://steam/730/hero?x=1",
     ]) {
       expect(artRequest(url)).toBeNull();
     }
@@ -298,8 +301,8 @@ describe("game art from Steam's own cache", () => {
         },
       },
     };
-    expect(await readSteamArt("swiff-art://730/header", root, files)).toBe("jpeg bytes");
-    expect(await readSteamArt("swiff-art://730/hero", root, files)).toBeNull();
-    expect(await readSteamArt("swiff-art://730/header", null, files)).toBeNull();
+    expect(await readSteamArt("swiff-art://steam/730/header", root, files)).toBe("jpeg bytes");
+    expect(await readSteamArt("swiff-art://steam/730/hero", root, files)).toBeNull();
+    expect(await readSteamArt("swiff-art://steam/730/header", null, files)).toBeNull();
   });
 });

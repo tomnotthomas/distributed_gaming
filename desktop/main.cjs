@@ -71,7 +71,8 @@ ipcMain.handle("pc:read", (event) => (fromApp(event) ? readPc({ app, screen }) :
 ipcMain.handle("pc:idle", (event) => (fromApp(event) ? powerMonitor.getSystemIdleTime() : null));
 
 // Game art, from the copy Steam keeps on this PC (pc.cjs): the windows load no
-// remote content. Registered before the app is ready, as Electron requires.
+// remote content, asked for as swiff-art://steam/<appid>/<kind>. Registered
+// before the app is ready, as Electron requires.
 protocol.registerSchemesAsPrivileged([{ scheme: "swiff-art", privileges: { standard: true, secure: true } }]);
 
 // Chrome hides local IPs behind random `<uuid>.local` names, which the renter

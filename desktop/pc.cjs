@@ -203,13 +203,14 @@ function readSteamGames(options = {}) {
 //
 // The app draws a game's art from the copy Steam keeps on this PC, never from
 // the network: the window loads no remote content. The renderer asks for it as
-// swiff-art://<appid>/<kind>, and main answers from Steam's library cache.
+// swiff-art://steam/<appid>/<kind>, and main answers from Steam's library cache.
+// The host is fixed: Chromium reads an all-digit host as an IPv4 address.
 
 const ART_FILES = { hero: "library_hero.jpg", header: "header.jpg" };
 
 /** The game and the picture a swiff-art:// address asks for, or null for anything else. */
 function artRequest(url) {
-  const match = /^swiff-art:\/\/(\d{1,10})\/(hero|header)\/?$/.exec(String(url));
+  const match = /^swiff-art:\/\/steam\/(\d{1,10})\/(hero|header)\/?$/.exec(String(url));
   return match ? { appid: Number(match[1]), kind: match[2] } : null;
 }
 
