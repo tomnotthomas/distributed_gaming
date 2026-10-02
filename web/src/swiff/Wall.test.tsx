@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "./derive";
 import { GAMES, MACHINES, type Game } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
@@ -10,11 +10,12 @@ const noop = () => {};
 const pool = ["glass", "ember", "tide", "moss"];
 
 /** Just the slice of the hook the wall reads. */
-function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = noop): Swiff {
+function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = noop, motion = true): Swiff {
   return {
+    motion,
     games,
     profile,
-    libraryConnected: profile !== null,
+    signedIn: profile !== null,
     libraryRetrying: false,
     retryLibrary,
     pool: MACHINES,
@@ -49,23 +50,38 @@ const cs2: CatalogGame = {
   trailer: null,
 };
 
+/**
+ * jsdom has no media queries: answer every one as not matching, except `reduce`
+ * when asked. The returned function flips `reduce` and tells the listeners.
+ */
+function mediaQueries({ reduce = false } = {}) {
+  const listeners = new Set<() => void>();
+  window.matchMedia = ((query: string) => ({
+    get matches() {
+      return reduce && query.includes("prefers-reduced-motion: reduce");
+    },
+    media: query,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+  })) as unknown as typeof window.matchMedia;
+  return (next: boolean) => {
+    reduce = next;
+    listeners.forEach((fn) => fn());
+  };
+}
+
+/** The hero's game title. */
+const heroTitle = () => screen.getByRole("heading", { level: 1 }).textContent;
+
 describe("Wall", () => {
-  // jsdom has no media queries; every display reads as normal.
-  beforeAll(() => {
-    window.matchMedia = ((query: string) => ({
-      matches: false,
-      media: query,
-      addEventListener: noop,
-      removeEventListener: noop,
-    })) as unknown as typeof window.matchMedia;
-  });
+  beforeAll(() => mediaQueries());
 
   it("tells a renter with a private library why, and still offers the curated free games with no store data", () => {
     render(<Wall swiff={swiffWith(applySteam(privateLibrary, pool), privateLibrary)} />);
     expect(screen.getByTestId("library-state").textContent).toMatch(/Game details to Public/);
     expect(screen.getAllByText("Counter-Strike 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("THE FINALS").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Play free" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Play" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Cyberpunk 2077")).toBeNull();
   });
 
@@ -74,7 +90,7 @@ describe("Wall", () => {
     expect(screen.getByTestId("library-state")).toBeTruthy();
     expect(screen.getAllByText("Counter-Strike 2").length).toBeGreaterThan(0);
     expect(screen.queryByText("Cyberpunk 2077")).toBeNull();
-    expect(screen.getByRole("button", { name: "Play free" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
   });
 
   it("reads the library again when the renter retries", () => {
@@ -105,14 +121,155 @@ describe("Wall", () => {
     expect(screen.getAllByText("Cyberpunk 2077").length).toBeGreaterThan(0);
   });
 
-  it("lets a signed-out visitor play the lead free-to-play game from the hero", () => {
+  it("offers a signed-out visitor one way in, Sign in with Steam, and no way to play from the hero", () => {
+    render(<Wall swiff={swiffWith(GAMES, null)} />);
+    const signIn = screen.getAllByRole("link", { name: /sign in/i });
+    expect(signIn).toHaveLength(1);
+    expect(signIn[0]).toHaveTextContent("Sign in with Steam");
+    expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
+    expect(screen.queryByRole("button", { name: /play free/i })).toBeNull();
+    expect(screen.queryByAltText("Sign in through Steam")).toBeNull();
+  });
+
+  describe("with every shared machine busy", () => {
+    const busy = Object.fromEntries(Object.entries(MACHINES).map(([id, m]) => [id, { ...m, busy: true }]));
+    const emptyWall = (profile: SteamProfile | null, games: Game[]) =>
+      render(<Wall swiff={{ ...swiffWith(games, profile), pool: busy } as Swiff} />);
+
+    it("still offers a signed-out visitor the one Sign in with Steam", () => {
+      emptyWall(null, GAMES);
+      expect(screen.getByText("Nothing is ready right now")).toBeTruthy();
+      const signIn = screen.getAllByRole("link", { name: /sign in/i });
+      expect(signIn).toHaveLength(1);
+      expect(signIn[0]).toHaveTextContent("Sign in with Steam");
+      expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
+      expect(screen.getByText(/Sign in with Steam and we'll tell you when a PC frees up\./)).toBeTruthy();
+      expect(screen.queryByText(/We'll tell you the moment something frees up/)).toBeNull();
+    });
+
+    it("asks a signed-in renter for nothing more", () => {
+      const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+      emptyWall(profile, applySteam(profile, pool));
+      expect(screen.getByText("Nothing is ready right now")).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+      expect(
+        screen.getByText(
+          "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up.",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
+  it("shows still art in the hero, drifting, never a trailer", () => {
+    const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+    expect(container.querySelector('[data-testid="hero"] video')).toBeNull();
+    expect(container.querySelector('[data-testid="hero"] .backdrop-still.backdrop-drift')).not.toBeNull();
+  });
+
+  it("drafts a signed-out visitor's hero as tonight's game, with the pitch and the free count in the strip", () => {
+    render(<Wall swiff={swiffWith(GAMES, null)} />);
+    const hero = within(screen.getByTestId("hero"));
+    expect(hero.getByText("Tonight on Swiff")).toBeInTheDocument();
+    expect(hero.getByText(/We read your Steam library/)).toBeInTheDocument();
+    expect(hero.getByText(/PCs? free near you/)).toBeInTheDocument();
+    expect(hero.queryByRole("button", { name: /resume|play/i })).toBeNull();
+  });
+
+  it("puts a signed-in renter's own game in the hero, with its machine and Resume in the strip", () => {
     const openGame = vi.fn();
-    render(<Wall swiff={{ ...swiffWith(GAMES, null), openGame }} />);
-    const lead = screen.getByRole("heading", { level: 1 }).textContent;
-    fireEvent.click(screen.getByRole("button", { name: "Play free" }));
+    const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+    render(<Wall swiff={{ ...swiffWith(applySteam(profile, pool), profile), openGame }} />);
+    const hero = within(screen.getByTestId("hero"));
+    expect(hero.getByRole("heading", { level: 1 })).toHaveTextContent("Elden Ring");
+    expect(hero.getByText("From your library")).toBeInTheDocument();
+    expect(hero.getByText("Response")).toBeInTheDocument();
+    expect(hero.queryByRole("link", { name: /sign in/i })).toBeNull();
+
+    fireEvent.click(hero.getByRole("button", { name: "Resume" }));
     expect(openGame).toHaveBeenCalledOnce();
-    const game = openGame.mock.calls[0]![0] as Game;
-    expect(game.title).toBe(lead);
-    expect(game.f2p).toBe(true);
+    expect((openGame.mock.calls[0]![0] as Game).title).toBe("Elden Ring");
+  });
+
+  describe("signed out, the hero turns through games", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      mediaQueries();
+    });
+
+    it("moves to the next game every few seconds and keeps the one sign-in", () => {
+      vi.useFakeTimers();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      act(() => vi.advanceTimersByTime(7000));
+      expect(heroTitle()).not.toBe(first);
+      expect(screen.getAllByRole("link", { name: /sign in/i })).toHaveLength(1);
+    });
+
+    it("holds while the pointer is on the hero or focus is in it", () => {
+      vi.useFakeTimers();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      fireEvent.mouseEnter(screen.getByTestId("hero"));
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+
+      fireEvent.mouseLeave(screen.getByTestId("hero"));
+      fireEvent.focus(screen.getByRole("link", { name: "Sign in with Steam" }));
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("stays on one game under reduced motion or with motion off", () => {
+      vi.useFakeTimers();
+      mediaQueries({ reduce: true });
+      const { unmount } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const first = heroTitle();
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+      unmount();
+
+      mediaQueries();
+      render(<Wall swiff={swiffWith(GAMES, null, noop, false)} />);
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("stops turning as soon as the OS asks for reduced motion", () => {
+      vi.useFakeTimers();
+      const setReduce = mediaQueries();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      act(() => setReduce(true));
+      const first = heroTitle();
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("paints every game in the turn so the next image is loaded before it shows", () => {
+      const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      expect(container.querySelectorAll(".hero-slide").length).toBeGreaterThan(1);
+      expect(container.querySelectorAll(".hero-slide.on")).toHaveLength(1);
+    });
+
+    it("drifts only the game on show and the one fading out", () => {
+      vi.useFakeTimers();
+      const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
+      const slides = () => [...container.querySelectorAll(".hero-slide")];
+      const drifting = () => slides().filter((s) => s.querySelector(".backdrop-drift"));
+      expect(slides().length).toBeGreaterThan(2);
+      act(() => vi.advanceTimersByTime(7000));
+      const on = container.querySelector(".hero-slide.on")!;
+      expect(drifting()).toEqual([slides()[0], on]);
+    });
+  });
+
+  it("keeps a signed-in renter's hero on their own lead game", () => {
+    vi.useFakeTimers();
+    const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+    const { container } = render(<Wall swiff={swiffWith(applySteam(profile, pool), profile)} />);
+    const first = heroTitle();
+    act(() => vi.advanceTimersByTime(21_000));
+    expect(heroTitle()).toBe(first);
+    expect(container.querySelectorAll(".hero-slide")).toHaveLength(1);
+    vi.useRealTimers();
   });
 });

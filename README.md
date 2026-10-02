@@ -17,6 +17,8 @@ cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
 # Steam sign-in also needs PUBLIC_ORIGIN (e.g. https://swiff.example) in .env when
 # NODE_ENV=production; without it every sign-in is refused. Elsewhere it defaults to
 # http://localhost:$PORT.
+# Set STEAM_API_KEY (https://steamcommunity.com/dev/apikey) too, or a signed-in renter's
+# Steam name and game library stay empty and the wall offers only free-to-play games.
 npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
 ```
 

@@ -289,7 +289,7 @@ export function gameArt(game: Game, scale: 1 | 2 = 2): string {
 export const gameArtFallbacks = (game: Game): string[] => (game.media ? [] : [headerUrl(game.appid)]);
 
 /**
- * The full trailer, for the hero and the game screen, as encodings in order of
+ * The full trailer, for the session screen's stream stand-in, as encodings in order of
  * preference: HLS where the browser plays it, then the short clip, then the
  * hand-authored nine's own trailer. The <video> picks the first it can play.
  */

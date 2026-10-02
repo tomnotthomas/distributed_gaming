@@ -15,6 +15,7 @@ import {
   refreshRenter,
   withMedia,
   storeGames,
+  type Renter,
   type SteamProfile,
   type StoreData,
 } from "./steam";
@@ -43,6 +44,9 @@ export function useSwiff() {
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   const [games, setGames] = useState<Game[]>(GAMES);
+  // Who the session cookie signs in. The profile can be empty (no Steam Web API
+  // key, or Steam did not answer), so being signed in is read from this alone.
+  const [steamId, setSteamId] = useState<string | null>(null);
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const [steamDenied, setSteamDenied] = useState(false);
   const [signOutFailed, setSignOutFailed] = useState(false);
@@ -91,7 +95,7 @@ export function useSwiff() {
   );
   const picked = useMemo(() => machines.find((m) => m.id === machineId) ?? null, [machines, machineId]);
 
-  const libraryConnected = profile !== null;
+  const signedIn = steamId !== null;
 
   // --- Steam sign-in ---------------------------------------------------------
 
@@ -113,8 +117,9 @@ export function useSwiff() {
    * trailers.
    */
   const showLibrary = useCallback(
-    (next: SteamProfile) => {
+    ({ steamId, profile: next }: Renter) => {
       const load = ++libraryLoad.current;
+      setSteamId(steamId);
       setProfile(next);
       const kept = storeGames(lastCatalog.current);
       const library = applySteam(next, sharedMachineIds, kept);
@@ -138,7 +143,7 @@ export function useSwiff() {
     track("library_retried");
     void refreshRenter().then((renter) => {
       setLibraryRetrying(false);
-      if (renter) showLibrary(renter.profile);
+      if (renter) showLibrary(renter);
     });
   }, [showLibrary]);
 
@@ -164,7 +169,7 @@ export function useSwiff() {
         return;
       }
       const { profile } = renter;
-      showLibrary(profile);
+      showLibrary(renter);
       // Counted once per sign-in, not on every page load of a signed-in renter.
       if (result === "ok") {
         track("library_matched", {
@@ -269,11 +274,12 @@ export function useSwiff() {
   );
 
   const launch = useCallback(() => {
-    if (!picked) return;
+    // Playing needs a signed-in renter: the server books for nobody else.
+    if (!picked || !signedIn) return;
     track("launch_confirmed", { game: gameId, machine: picked.id });
     setPhase("connecting");
     setBeat(0);
-  }, [picked, gameId]);
+  }, [picked, gameId, signedIn]);
 
   const endSession = useCallback(() => {
     track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
@@ -368,7 +374,8 @@ export function useSwiff() {
     session,
     prefs,
     hoverId,
-    libraryConnected,
+    signedIn,
+    steamId,
     steamDenied,
     signOutFailed,
     profile,

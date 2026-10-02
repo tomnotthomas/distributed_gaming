@@ -1,22 +1,27 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Backdrop, Button, EmptyState, SteamButton } from "@swiff/ui";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { Backdrop, Button, EmptyState } from "@swiff/ui";
 import type { Game, Machine } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
-import { CountDial, ResumeDial, TimeMark, useSpin } from "./instruments";
-import {
-  STEAM_LOGIN_URL,
-  gameArt,
-  gameArtFallbacks,
-  gamePreview,
-  gameTrailer,
-  libraryState,
-  type LibraryState,
-} from "./steam";
+import { ResumeFace, TimeMark } from "./instruments";
+import { SignInWithSteam } from "./SignIn";
+import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
 
-/** The hero and one ruled row of four fill the first screen; the rest wait behind "All games". */
+/** The hero and one ruled row of four under it; the rest wait behind "All games". */
 const LIMIT = 5;
+
+/** Signed out, the hero shows this many playable games in turn, each for ROTATE_MS. */
+const ROTATE_COUNT = 4;
+const ROTATE_MS = 7000;
 
 /** How long the pointer has to rest on a tile before its trailer starts. */
 const PREVIEW_DELAY_MS = 380;
@@ -38,6 +43,43 @@ function usePreview(hoverId: string | null): string | null {
   return previewId;
 }
 
+const REDUCE = "(prefers-reduced-motion: reduce)";
+
+function subscribeReduced(onChange: () => void) {
+  const list = window.matchMedia?.(REDUCE);
+  list?.addEventListener("change", onChange);
+  return () => list?.removeEventListener("change", onChange);
+}
+
+const reducedNow = () => window.matchMedia?.(REDUCE).matches ?? false;
+
+/** Whether the OS asks for less motion, kept current as the setting changes. */
+function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribeReduced, reducedNow, () => false);
+}
+
+/**
+ * Which of `count` hero games is up. It moves on every ROTATE_MS while motion
+ * is on, the OS has not asked for less of it, and nothing has paused it: a
+ * pointer over the hero or focus inside it holds the current game. `last` is
+ * the game before it, the one fading out.
+ */
+function useRotation(count: number, motion: boolean) {
+  const [index, setIndex] = useState(0);
+  const [held, setHeld] = useState({ pointer: false, focus: false });
+  const hold = (by: "pointer" | "focus", on: boolean) => setHeld((h) => ({ ...h, [by]: on }));
+  const reduced = useReducedMotion();
+  const turning = count > 1 && motion && !reduced && !held.pointer && !held.focus;
+  useEffect(() => {
+    if (!turning) return;
+    const timer = window.setInterval(() => setIndex((i) => (i + 1) % count), ROTATE_MS);
+    return () => window.clearInterval(timer);
+  }, [turning, count]);
+  // A shorter list (the wall changed under it) must not leave the index past its end.
+  const at = index < count ? index : 0;
+  return { index: at, last: (at + count - 1) % count, hold };
+}
+
 /** "4 h 30" or "All night": the time a machine stays free, as the band prints it. */
 const leftLabel = (machine: Machine) => {
   const left = fmtLeft(minsLeft(machine));
@@ -55,18 +97,18 @@ function waitLabel(game: Game, pool: Record<string, Machine>): string {
 }
 
 export function Wall({ swiff }: { swiff: Swiff }) {
-  const { games, pool, session, prefs, libraryConnected, showAll } = swiff;
+  const { games, pool, session, prefs, signedIn, showAll } = swiff;
 
   const ordered = useMemo(() => wallOrder(games, pool, session, prefs), [games, pool, session, prefs]);
   const anythingFree = ordered.some((g) => freeFor(g, pool, session, prefs).length > 0);
 
-  // Before sign-in the wall leads with something playable right now: a
-  // free-to-play title, because that is the one a stranger can actually start.
+  // Before sign-in the wall leads with a free-to-play title: the one game a
+  // stranger can play the moment they sign in, whatever they own.
   const wall = useMemo(() => {
     const shown = showAll ? ordered : ordered.slice(0, LIMIT);
-    if (libraryConnected) return shown;
+    if (signedIn) return shown;
     return [...shown].sort((a, b) => Number(Boolean(b.f2p)) - Number(Boolean(a.f2p)));
-  }, [ordered, showAll, libraryConnected]);
+  }, [ordered, showAll, signedIn]);
 
   const shared = Object.values(pool).filter((m) => !m.busy && !m.self);
   const previewId = usePreview(swiff.hoverId);
@@ -84,26 +126,31 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         {note}
       </main>
     );
-  if (!anythingFree) return <WallEmpty note={note} />;
+  if (!anythingFree) return <WallEmpty note={note} signedIn={signedIn} />;
 
   const [hero, ...rest] = wall;
+  // Signed out, the hero turns through a few games that are free right now;
+  // signed in it stays on the renter's own lead game.
+  const showcase = signedIn
+    ? []
+    : wall.filter((g) => freeFor(g, pool, session, prefs).length > 0).slice(0, ROTATE_COUNT);
   const busy = ordered.filter((g) => !freeFor(g, pool, session, prefs).length);
   const more = !showAll && ordered.length > LIMIT;
 
   return (
     <main className="wall" data-testid="wall">
-      {hero ? <WallHero game={hero} swiff={swiff} shared={shared} /> : null}
+      {hero ? <WallHero games={showcase.length ? showcase : [hero]} swiff={swiff} shared={shared} /> : null}
 
       <section className="band" aria-label="Games">
         {note}
         <div className="band-tabs">
-          {libraryConnected && library === "ok" ? (
+          {signedIn && library === "ok" ? (
             <>
               <BandTab on label="Your library" n={ordered.length} />
               <BandTab label="Free to play" n={ordered.filter((g) => g.f2p).length} />
               <BandTab label="Ready now" n={ordered.length - busy.length} />
             </>
-          ) : libraryConnected ? (
+          ) : signedIn ? (
             // Nothing of their own to show: the wall is free-to-play only, and says so.
             <>
               <BandTab on label="Free to play" n={ordered.length} />
@@ -114,10 +161,10 @@ export function Wall({ swiff }: { swiff: Swiff }) {
             <>
               <BandTab on label="Free to play" n={ordered.filter((g) => g.f2p).length} />
               <BandTab label="Popular on Steam" n={ordered.length} />
-              <a className="band-tab" href={STEAM_LOGIN_URL} aria-label="Sign in to see your library">
+              <span className="band-tab">
                 <span>Your library</span>
                 <Glyph name="lock" size={16} />
-              </a>
+              </span>
             </>
           )}
           {more ? (
@@ -139,14 +186,14 @@ export function Wall({ swiff }: { swiff: Swiff }) {
               game={game}
               preview={previewId === game.id}
               swiff={swiff}
-              libraryConnected={libraryConnected}
+              signedIn={signedIn}
             />
           ))}
         </div>
 
         <footer className="band-foot mono">
           {swiff.steamDenied ? (
-            <p className="band-denied">Steam sign-in was cancelled. The free-to-play wall still works.</p>
+            <p className="band-denied">Steam sign-in was cancelled. Sign in with Steam to play.</p>
           ) : null}
           <p>Game artwork and trailers are the property of their respective publishers, served from Steam.</p>
         </footer>
@@ -164,128 +211,182 @@ function BandTab({ label, n, on }: { label: string; n: number; on?: boolean }) {
   );
 }
 
-/** The wall's lead game: full-colour key art, its copy, and the instrument column on the right. */
-function WallHero({ game, swiff, shared }: { game: Game; swiff: Swiff; shared: Machine[] }) {
-  const { pool, session, prefs, libraryConnected } = swiff;
+/**
+ * Shrink a title until it fits its box in at most two lines: any game's name,
+ * from "Hades" to "Counter-Strike 2", sets as large as its box allows. The box
+ * comes from CSS (max-width), so this only ever steps the size down from the
+ * CSS size, and measures again when the box or the font changes.
+ */
+function useFitTitle(text: string) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.fontSize = "";
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      const tooBig = () => el.scrollWidth > el.clientWidth + 1 || el.offsetHeight > 2 * size * 1.08;
+      while (size > 20 && tooBig()) {
+        size -= 2;
+        el.style.fontSize = `${size}px`;
+      }
+    };
+    fit();
+    const box = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    box?.observe(el.closest(".hero-3b-art") ?? el);
+    void document.fonts?.ready.then(fit);
+    return () => box?.disconnect();
+  }, [text]);
+  return ref;
+}
+
+/**
+ * The wall's lead game, hero 3b "Drafted title": the art shown whole with the
+ * name drafted bottom left between cap and base lines and a tick ruler along
+ * the art's foot, all tied to the frame, never to anything in the picture.
+ * Everything to read or press sits in the grey strip under the art: the line,
+ * the machine (signed in) or the pitch (signed out), and Resume or the one
+ * Sign in with Steam.
+ */
+function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; shared: Machine[] }) {
+  const { pool, session, prefs, signedIn } = swiff;
+  const at = useRotation(games.length, swiff.motion);
+  const game = games[at.index] ?? games[0]!;
   const best = freeFor(game, pool, session, prefs)[0];
-  const spin = useSpin();
+  const title = useFitTitle(game.title);
+  const leader = !signedIn ? "Tonight on Swiff" : game.owned ? "From your library" : "Free to play";
 
   return (
-    <section className="hero" onMouseEnter={() => swiff.setHoverId(null)}>
-      <Backdrop
-        className="hero-art"
-        image={gameArt(game, 2)}
-        fallback={gameArtFallbacks(game)}
-        video={best ? gameTrailer(game) : null}
-        position={game.focus}
-      />
-      <div className="hero-scrim" />
+    <section
+      className="hero-3b"
+      data-testid="hero"
+      onMouseEnter={() => {
+        swiff.setHoverId(null);
+        at.hold("pointer", true);
+      }}
+      onMouseLeave={() => at.hold("pointer", false)}
+      onFocus={() => at.hold("focus", true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) at.hold("focus", false);
+      }}
+    >
+      <div className="hero-3b-art">
+        {/* Every game in the turn is painted, so the next image is loaded before
+            it fades in; only the current one is opaque, and only it and the one
+            fading out drift. */}
+        {games.map((g, i) => (
+          <Backdrop
+            key={g.id}
+            className={i === at.index ? "hero-slide on" : "hero-slide"}
+            aria-hidden={i === at.index ? undefined : true}
+            image={gameArt(g, 2)}
+            fallback={gameArtFallbacks(g)}
+            position={g.focus}
+            drift={i === at.index || i === at.last}
+          />
+        ))}
+        <div className="hero-3b-scrim" />
+        <div className="hero-3b-ruler" aria-hidden="true" />
+        {/* Keyed by game, so the drafted title fades in with its art. */}
+        <div className="hero-3b-draft hero-turn" key={game.id}>
+          <div className="mono hero-3b-leader">{leader}</div>
+          <div className="hero-3b-dline">
+            <span className="hero-3b-rule hero-3b-cap" aria-hidden="true" />
+            <h1 className="hero-3b-title" ref={title}>
+              {game.title}
+            </h1>
+            <span className="hero-3b-rule hero-3b-base" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
 
-      {libraryConnected ? (
-        <div className="hero-copy">
-          <div className="mono hero-kicker">{game.personal}</div>
-          <h1 className="hero-title">{game.title}</h1>
-          <p className="hero-line">
+      {signedIn ? (
+        <div className="hero-strip">
+          <div className="hero-strip-cell hero-strip-say">
+            <div className="mono hero-strip-kick">{game.personal}</div>
+            <p className="hero-strip-line">
+              {best ? (
+                <>
+                  On <b>{best.name}</b>, {untilLabel(best)}
+                </>
+              ) : (
+                waitLabel(game, pool)
+              )}
+            </p>
+          </div>
+          <div className="hero-strip-cell hero-strip-facts">
             {best ? (
-              <>
-                On <b>{best.name}</b>, {untilLabel(best)}
-              </>
-            ) : (
-              waitLabel(game, pool)
-            )}
-          </p>
-          {best ? (
-            <div className="hero-facts mono">
-              <span>
-                <b>{best.gpu}</b>
-              </span>
-              <span>
-                <b>{best.ping} ms</b>
-              </span>
-              <span>
-                <b>{best.quality}</b>
-              </span>
-              <span>{game.save}</span>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="hero-copy hero-copy-out">
-          <div className="mono hero-kicker">
-            <span className="live-dot" />
-            Tonight, no download
-          </div>
-          <h1 className="hero-title">{game.title}</h1>
-          <p className="hero-line">
-            on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
-            <b>No download.</b>
-          </p>
-          <p className="hero-body">
-            We read your Steam library and stream the games you own from players' idle PCs. Your saves come
-            with you.
-          </p>
-          <div className="hero-actions">
-            {best && game.f2p ? (
-              <button type="button" className="lpill" onClick={() => swiff.openGame(game)}>
-                Play free
-                <span className="lpill-c">
-                  <Glyph name="play" size={16} />
-                </span>
-              </button>
+              <dl className="hero-kv mono">
+                <dt>On</dt>
+                <dd>{best.name}</dd>
+                <dt>GPU</dt>
+                <dd>{best.gpu}</dd>
+                <dt>Response</dt>
+                <dd>{best.ping} ms</dd>
+                <dt>Free until</dt>
+                <dd>{best.until === "late" ? "All night" : best.until}</dd>
+              </dl>
             ) : null}
-            <SteamButton href={STEAM_LOGIN_URL} />
-            <span className="mono hero-fine">Signs in through Steam. We only read your game library.</span>
           </div>
-        </div>
-      )}
-
-      <aside className={libraryConnected ? "inst inst-lift" : "inst"} aria-label="Tonight">
-        {libraryConnected ? (
-          <>
-            <ResumeDial spin={spin}>
-              <button
-                type="button"
-                className="ring-btn"
-                onClick={() => swiff.openGame(game)}
-                aria-describedby={best ? "hero-left" : undefined}
-                {...spin.trigger}
-              >
-                <Glyph name="play" />
-                {game.owned ? "Resume" : "Play free"}
+          <div className="hero-strip-cell hero-strip-act">
+            <button
+              type="button"
+              className="resume"
+              onClick={() => swiff.openGame(game)}
+              aria-describedby={best ? "hero-left" : undefined}
+            >
+              <ResumeFace />
+              <span className="resume-label">
+                <Glyph name="play" size={20} />
+                {game.owned ? "Resume" : "Play"}
                 {best ? (
                   <small id="hero-left" aria-hidden="true">
                     {leftLabel(best)} free
                   </small>
                 ) : null}
-              </button>
-            </ResumeDial>
-            {best ? (
-              <div className="inst-cap mono">
-                <span>{best.name}</span>
-                <span>{best.ping} ms</span>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <CountDial count={shared.length} />
-            <NearestCaption machines={shared} />
-          </>
-        )}
-      </aside>
+              </span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="hero-strip hero-strip-out">
+          <div className="hero-strip-cell hero-strip-say">
+            <div className="mono hero-strip-kick">
+              <span className="live-dot" />
+              Tonight, no download
+            </div>
+            <p className="hero-strip-line hero-turn" key={game.id}>
+              on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
+              <b>No download.</b>
+            </p>
+          </div>
+          <div className="hero-strip-cell hero-strip-facts">
+            <p className="hero-strip-pitch">
+              We read your Steam library and stream the games you own from players&rsquo; idle PCs. Your saves
+              come with you.
+            </p>
+            <NearestLine machines={shared} />
+          </div>
+          <div className="hero-strip-cell hero-strip-act">
+            <SignInWithSteam />
+            <span className="mono hero-strip-fine">We only read your game library.</span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
-/** Under the signed-out count: the nearest free machine, and how long it stays free. */
-function NearestCaption({ machines }: { machines: Machine[] }) {
+/** Under the signed-out pitch: how many PCs are free, and the nearest one's response. */
+function NearestLine({ machines }: { machines: Machine[] }) {
   const nearest = [...machines].sort((a, b) => a.ping - b.ping)[0];
   if (!nearest) return null;
+  const count = `${machines.length} ${machines.length === 1 ? "PC" : "PCs"} free near you`;
   return (
-    <div className="inst-cap mono">
-      <span>Nearest {nearest.ping} ms</span>
-      <span>{nearest.until === "late" ? "All night" : `Until ${nearest.until}`}</span>
-    </div>
+    <p className="mono hero-strip-near">
+      {count}
+      <span>, nearest {nearest.ping} ms</span>
+    </p>
   );
 }
 
@@ -294,14 +395,14 @@ type TileProps = {
   /** The pointer has rested on this tile: play its trailer. */
   preview: boolean;
   swiff: Swiff;
-  libraryConnected: boolean;
+  signedIn: boolean;
 };
 
 /** One game in the ruled band: art flush in its cell, the title, and where it would run. */
-function BandTile({ game, preview, swiff, libraryConnected }: TileProps) {
+function BandTile({ game, preview, swiff, signedIn }: TileProps) {
   const { pool, session, prefs } = swiff;
   const best = freeFor(game, pool, session, prefs)[0];
-  const signInFirst = !libraryConnected && !game.f2p;
+  const signInFirst = !signedIn && !game.f2p;
   const locked = !best || signInFirst;
 
   let meta: ReactNode;
@@ -344,7 +445,7 @@ function BandTile({ game, preview, swiff, libraryConnected }: TileProps) {
       <span className="band-tile-title">
         <span>{game.title}</span>
         {/* Free-to-play is marked wherever it is not one of your own games. */}
-        {game.f2p && (!libraryConnected || !game.owned) ? <span className="free-mark">Free</span> : null}
+        {game.f2p && (!signedIn || !game.owned) ? <span className="free-mark">Free</span> : null}
       </span>
       <span className="band-tile-meta mono">{meta}</span>
     </button>
@@ -391,15 +492,22 @@ function LibraryNote({
   );
 }
 
-/** Every shared machine is busy; a library note, when there is one, still leads. */
-function WallEmpty({ note }: { note?: ReactNode }) {
+/**
+ * Every shared machine is busy; a library note, when there is one, still leads.
+ * Signed out, the way in is still the one Sign in with Steam.
+ */
+function WallEmpty({ note, signedIn }: { note?: ReactNode; signedIn: boolean }) {
   return (
     <main className="wall wall-bare" data-testid="wall">
       {note}
       <EmptyState
         title="Nothing is ready right now"
-        body="Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
-        action={<Button>Notify me</Button>}
+        body={
+          signedIn
+            ? "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
+            : "Every shared machine is in use. Moss is back at 21:30. Sign in with Steam and we'll tell you when a PC frees up."
+        }
+        action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
     </main>
   );

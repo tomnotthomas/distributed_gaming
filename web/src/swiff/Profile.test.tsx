@@ -10,6 +10,8 @@ const noop = () => {};
 function swiffWith(profile: SteamProfile | null, signOutFailed = false, openShare = noop): Swiff {
   return {
     profile,
+    signedIn: profile !== null,
+    steamId: profile ? "76561198000000001" : null,
     signOutFailed,
     games: [],
     devices: [],
@@ -65,6 +67,20 @@ describe("Profile", () => {
     render(<Profile swiff={swiffWith(profile)} />);
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByText("?")).toBeInTheDocument();
+    expect(screen.getByText("Signed in with Steam")).toBeInTheDocument();
+    expect(screen.getByText(/Steam id …0001/)).toBeInTheDocument();
+    expect(screen.queryByText("Not signed in")).toBeNull();
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
+
+  it("offers a signed-out visitor Sign in with Steam", () => {
+    render(<Profile swiff={swiffWith(null)} />);
+    expect(screen.getByText("Not signed in")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in with Steam" })).toHaveAttribute(
+      "href",
+      "/auth/steam/login",
+    );
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
   // The bar's nav cells fold away on a phone; the profile is where Share your PC is found there.

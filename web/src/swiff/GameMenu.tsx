@@ -3,7 +3,8 @@ import type { Machine } from "./data";
 import { feel, fmtLeft, meters, minsLeft, reason } from "./derive";
 import { LensDial } from "./instruments";
 import { Reticle } from "./Reticle";
-import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
+import { SignInWithSteam } from "./SignIn";
+import { gameArt, gameArtFallbacks } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /** "Stunning, instant": the feel of a machine in two words, for the reading strip. */
@@ -39,8 +40,8 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           className="menu-photo"
           image={gameArt(game)}
           fallback={gameArtFallbacks(game)}
-          video={gameTrailer(game)}
           position={game.focus}
+          drift
         />
         <div className="menu-veil" />
         <div className="menu-shade" />
@@ -120,14 +121,23 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           ) : null}
         </div>
 
-        <div className="ledger-launch">
-          <Reticle
-            onFire={swiff.launch}
-            disabled={!picked}
-            launching={swiff.phase !== "idle"}
-            label={picked ? `Hold to launch on ${picked.name}` : "Pick a machine to launch"}
-          />
-        </div>
+        {swiff.signedIn ? (
+          <div className="ledger-launch">
+            <Reticle
+              onFire={swiff.launch}
+              disabled={!picked}
+              launching={swiff.phase !== "idle"}
+              label={picked ? `Hold to launch on ${picked.name}` : "Pick a machine to launch"}
+            />
+          </div>
+        ) : (
+          // Signed out there is nothing to launch: playing books a stranger's
+          // PC, and the server books only for a signed-in renter.
+          <div className="ledger-launch ledger-signin">
+            <p>Sign in to play. We stream the games you own on Steam, and the free ones.</p>
+            <SignInWithSteam />
+          </div>
+        )}
 
         <p className="ledger-foot mono">
           {picked

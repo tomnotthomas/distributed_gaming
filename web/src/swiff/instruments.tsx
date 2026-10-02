@@ -1,5 +1,6 @@
-// The hairline instruments of the Paper Band look: tick rings, the wall's two
-// hero dials, the game page's crosshair dial and Ignition's progress dial. They
+// The hairline instruments of the Paper Band look: tick rings, the wall's
+// Resume face, Share your PC's away dial, the game page's crosshair dial and
+// Ignition's progress dial. They
 // are drawn in SVG from circles and straight lines only, in currentColor, so
 // each screen decides whether they print in ink or in paper.
 
@@ -79,96 +80,23 @@ function Cross({
 }
 
 /**
- * Spin the Resume rings while their button is pointed at or focused. The speed
- * eases up to about 30° a second and coasts back to rest, so nothing jumps.
- * Returns props for the button and refs for the two ring groups.
+ * The wall's Resume button face: a paper disc in a 72-tick ring, one lime mark
+ * at twelve and corner brackets, as on the game page's Reticle. The ring turns
+ * and the brackets draw in while the button is pointed at or focused (CSS).
  */
-export function useSpin() {
-  const host = useRef<HTMLDivElement>(null);
-  const inner = useRef<SVGGElement>(null);
-  const outer = useRef<SVGGElement>(null);
-  const hot = useRef(false);
-  const raf = useRef(0);
-  const speed = useRef(0);
-  const angle = useRef(0);
-
-  useEffect(() => () => cancelAnimationFrame(raf.current), []);
-
-  const set = (on: boolean) => {
-    hot.current = on;
-    if (raf.current || prefersReducedMotion()) return;
-    let last = performance.now();
-    // The angle carries over between hovers: the rings rest where they stopped.
-    const tick = (t: number) => {
-      const dt = Math.min(50, t - last) / 1000;
-      last = t;
-      speed.current += ((hot.current ? 1 : 0) - speed.current) * Math.min(1, dt * 2.6);
-      angle.current += speed.current * dt * 30;
-      inner.current?.setAttribute("transform", `rotate(${angle.current.toFixed(2)} 200 240)`);
-      outer.current?.setAttribute("transform", `rotate(${(-0.6 * angle.current).toFixed(2)} 200 240)`);
-      host.current?.classList.toggle("spinning", speed.current > 0.05);
-      raf.current = hot.current || speed.current > 0.002 ? requestAnimationFrame(tick) : 0;
-    };
-    raf.current = requestAnimationFrame(tick);
-  };
-
-  const trigger = {
-    onPointerEnter: () => set(true),
-    onPointerLeave: () => set(false),
-    onFocus: () => set(true),
-    onBlur: () => set(false),
-  };
-  return { host, inner, outer, trigger };
-}
-
-/** The signed-in instrument: a 60-tick ring around Resume, with an orbit that shows while it spins. */
-export function ResumeDial({ spin, children }: { spin: ReturnType<typeof useSpin>; children: ReactNode }) {
+export function ResumeFace() {
   return (
-    <div className="dial-box" ref={spin.host}>
-      <svg viewBox="0 0 400 480" aria-hidden="true" fill="none">
-        <Cross cx={200} cy={240} gap={96} w={400} h={440} top={40} />
-        <g ref={spin.inner}>
-          <circle cx={200} cy={240} r={140} stroke="currentColor" opacity={0.6} />
-          <Ticks cx={200} cy={240} r={140} minor={8} major={16} step={6} every={45} />
-        </g>
-        <g ref={spin.outer}>
-          <circle cx={200} cy={240} r={184} stroke="currentColor" opacity={0.2} />
-          <circle
-            className="dial-orbit"
-            cx={200}
-            cy={240}
-            r={184}
-            stroke="currentColor"
-            strokeWidth={1.6}
-            strokeDasharray="104 1156.1"
-            transform="rotate(-120 200 240)"
-          />
-        </g>
-      </svg>
-      {children}
-    </div>
-  );
-}
-
-/** The signed-out instrument: how many machines are free, inside the same ring. */
-export function CountDial({ count }: { count: number }) {
-  return (
-    <div className="dial-box">
-      <svg viewBox="0 0 400 480" aria-hidden="true" fill="none">
-        <Cross cx={200} cy={240} gap={108} w={400} h={440} top={40} />
-        <circle cx={200} cy={240} r={108} stroke="currentColor" opacity={0.9} />
-        <Ticks cx={200} cy={240} r={150} minor={8} major={16} step={6} every={45} />
-        <circle cx={200} cy={240} r={184} stroke="currentColor" opacity={0.2} />
-      </svg>
-      <div className="dial-count">
-        <b>{count}</b>
-        <span className="mono">
-          {count === 1 ? "machine" : "machines"} free
-          <br />
-          near you
-        </span>
-      </div>
-    </div>
+    <svg className="resume-face" viewBox="0 0 200 200" aria-hidden="true" fill="none">
+      <g className="resume-ticks">
+        <Ticks cx={100} cy={100} r={92} minor={4.4} major={9} step={5} every={45} />
+      </g>
+      <circle className="resume-disc" cx={100} cy={100} r={66} stroke="currentColor" />
+      <circle cx={100} cy={100} r={58} stroke="currentColor" opacity={0.3} />
+      <circle cx={100} cy={34} r={3.4} fill={LIME} stroke="#9cb52a" strokeWidth={0.8} />
+      <g className="resume-brackets" stroke="currentColor" strokeWidth={1.2}>
+        <path d="M14 36V14H36M164 14H186V36M186 164V186H164M36 186H14V164" />
+      </g>
+    </svg>
   );
 }
 

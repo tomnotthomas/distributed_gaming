@@ -16,6 +16,22 @@
   background-position: center;
   background-repeat: no-repeat;
 }
+/* A slow pan and zoom over the still. It starts scaled up so the edges never
+   show, and alternates so it never jumps back. */
+@media (prefers-reduced-motion: no-preference) {
+  .backdrop-drift {
+    animation: backdrop-drift 40s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+}
+@keyframes backdrop-drift {
+  from {
+    transform: scale(1.06) translate3d(-1.2%, 0.6%, 0);
+  }
+  to {
+    transform: scale(1.12) translate3d(1.2%, -0.6%, 0);
+  }
+}
 .backdrop-scrim {
   position: absolute;
   inset: 0;
