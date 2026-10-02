@@ -137,15 +137,20 @@ const AFTER = { type: "ice", candidate: { candidate: "after" } } as SignalMessag
 const iceFrames = (received: SignalMessage[]) =>
   received.filter((m) => m.type === "ice").map((m) => (m as { candidate: { candidate: string } }).candidate.candidate);
 
+/** Up to 5 s for `check` to hold: registering and joining each wait on the database. */
+const until = async (check: () => boolean) => {
+  for (let i = 0; i < 100 && !check(); i++) await wait(50);
+};
+
 /** A host in `room` and a renter seated on `ticket`, the renter's first frame relayed. */
 async function seat(server: Awaited<ReturnType<typeof startServer>>, room: string, ticket: string) {
   const host = server.peer({ type: "register", hostId: room, key: MACHINE_KEY });
-  await wait(200);
+  await until(() => host.received.some((m) => m.type === "registered"));
   const renter = server.peer({ type: "join", ticket });
-  await wait(200);
+  await until(() => renter.received.length > 0);
   assert.equal(renter.received[0]?.type, "joined");
   renter.ws.send(JSON.stringify(ICE));
-  await wait(100);
+  await until(() => iceFrames(host.received).length > 0);
   assert.deepEqual(iceFrames(host.received), ["before"]);
   return { host, renter };
 }
@@ -212,7 +217,7 @@ describe("revoked ticket without the session-end notice", () => {
 
       await server.revokeBehindTheServersBack();
       renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "unchecked" } }));
-      await wait(200);
+      await until(() => iceFrames(host.received).length > 1);
       assert.deepEqual(iceFrames(host.received), ["before", "unchecked"], "relayed from memory");
 
       const again = server.peer({ type: "join", ticket });
@@ -233,7 +238,7 @@ describe("revoked ticket without the session-end notice", () => {
       const server = await startServer(60_000);
       const { ticket } = await server.claimTicket("pc-1");
       const renter = server.peer({ type: "join", ticket });
-      await wait(200);
+      await until(() => renter.received.length > 0);
       assert.equal(renter.received[0]?.type, "joined");
 
       await server.revokeBehindTheServersBack();
@@ -250,7 +255,7 @@ describe("revoked ticket without the session-end notice", () => {
     const server = await startServer(200);
     const { ticket } = await server.claimTicket("pc-2");
     const renter = server.peer({ type: "join", ticket });
-    await wait(150);
+    await until(() => renter.received.length > 0);
     assert.equal(renter.received[0]?.type, "joined");
 
     await server.revokeBehindTheServersBack();

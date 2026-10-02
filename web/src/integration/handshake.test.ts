@@ -160,7 +160,10 @@ beforeAll(async () => {
   });
 
   // Poll the HTTP side until it answers, rather than sleeping a fixed guess.
-  for (let i = 0; i < 100; i++) {
+  // Without DATABASE_URL the server first boots an in-memory Postgres, which
+  // takes many seconds while the other workspaces' suites load the machine.
+  const deadline = Date.now() + 80_000;
+  while (Date.now() < deadline) {
     if (server.exitCode !== null) {
       throw new Error(`signaling server exited with code ${server.exitCode} before answering`);
     }
@@ -172,7 +175,7 @@ beforeAll(async () => {
     }
   }
   throw new Error("signaling server did not start");
-}, 30_000);
+}, 90_000);
 
 afterEach(() => {
   openPeers.splice(0).forEach((s) => s.close());
