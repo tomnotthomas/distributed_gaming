@@ -50,14 +50,24 @@ const cs2: CatalogGame = {
   trailer: null,
 };
 
-/** jsdom has no media queries: answer every one as not matching, except `reduce` when asked. */
+/**
+ * jsdom has no media queries: answer every one as not matching, except `reduce`
+ * when asked. The returned function flips `reduce` and tells the listeners.
+ */
 function mediaQueries({ reduce = false } = {}) {
+  const listeners = new Set<() => void>();
   window.matchMedia = ((query: string) => ({
-    matches: reduce && query.includes("prefers-reduced-motion: reduce"),
+    get matches() {
+      return reduce && query.includes("prefers-reduced-motion: reduce");
+    },
     media: query,
-    addEventListener: noop,
-    removeEventListener: noop,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
   })) as unknown as typeof window.matchMedia;
+  return (next: boolean) => {
+    reduce = next;
+    listeners.forEach((fn) => fn());
+  };
 }
 
 /** The hero's game title. */
@@ -167,6 +177,16 @@ describe("Wall", () => {
 
       mediaQueries();
       render(<Wall swiff={swiffWith(GAMES, null, noop, false)} />);
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(heroTitle()).toBe(first);
+    });
+
+    it("stops turning as soon as the OS asks for reduced motion", () => {
+      vi.useFakeTimers();
+      const setReduce = mediaQueries();
+      render(<Wall swiff={swiffWith(GAMES, null)} />);
+      act(() => setReduce(true));
+      const first = heroTitle();
       act(() => vi.advanceTimersByTime(21_000));
       expect(heroTitle()).toBe(first);
     });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Backdrop, Button, EmptyState } from "@swiff/ui";
 import type { Game, Machine } from "./data";
 import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
@@ -35,6 +35,21 @@ function usePreview(hoverId: string | null): string | null {
   return previewId;
 }
 
+const REDUCE = "(prefers-reduced-motion: reduce)";
+
+function subscribeReduced(onChange: () => void) {
+  const list = window.matchMedia?.(REDUCE);
+  list?.addEventListener("change", onChange);
+  return () => list?.removeEventListener("change", onChange);
+}
+
+const reducedNow = () => window.matchMedia?.(REDUCE).matches ?? false;
+
+/** Whether the OS asks for less motion, kept current as the setting changes. */
+function useReducedMotion(): boolean {
+  return useSyncExternalStore(subscribeReduced, reducedNow, () => false);
+}
+
 /**
  * Which of `count` hero games is up. It moves on every ROTATE_MS while motion
  * is on, the OS has not asked for less of it, and nothing has paused it: a
@@ -44,7 +59,7 @@ function useRotation(count: number, motion: boolean) {
   const [index, setIndex] = useState(0);
   const [held, setHeld] = useState({ pointer: false, focus: false });
   const hold = (by: "pointer" | "focus", on: boolean) => setHeld((h) => ({ ...h, [by]: on }));
-  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const reduced = useReducedMotion();
   const turning = count > 1 && motion && !reduced && !held.pointer && !held.focus;
   useEffect(() => {
     if (!turning) return;
