@@ -1,0 +1,1632 @@
+/* The host app in the design of prototypes/Swiff Host.dc.html: mid greys, a
+   rail of the four PC steps, a tall top zone with one statement and its
+   instrument plate, and a supporting zone under it. Colour comes in three
+   restrained ways: lime as a mark, an olive family for standing and progress,
+   and full-colour art where a game is the subject. A muted brick is for costs
+   alone. Colours live here rather than in @swiff/ui, as the renter app's do. */
+@import url("https://fonts.googleapis.com/css2?family=Michroma&family=Outfit:wght@200;300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #e8e9e8;
+}
+
+.hx {
+  --wide: "Michroma", system-ui, sans-serif;
+  --f: "Outfit", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --lime: #d4f53c;
+  --lime-d: #9cb52a;
+  --olive: #4d5f12;
+  --brick: #8a3b2b;
+  --g-bg: #c9cac9;
+  --g-panel: #e8e9e8;
+  --face: #e8e9e8;
+  --t1: #242525;
+  --t2: #4a4b4b;
+  --t3: #5e5f5e;
+  --ln: rgb(36 37 37 / 0.14);
+  --ln2: rgb(36 37 37 / 0.3);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--g-panel);
+  color: var(--t1);
+  font: 300 16px/1.5 var(--f);
+  -webkit-font-smoothing: antialiased;
+}
+.hx *,
+.hx *::before,
+.hx *::after {
+  box-sizing: border-box;
+}
+.hx button,
+.hx input,
+.hx select {
+  font: inherit;
+  color: inherit;
+}
+.hx ::selection {
+  background: rgb(212 245 60 / 0.55);
+  color: #131313;
+}
+.hx :focus-visible {
+  outline: 2px solid var(--lime-d);
+  outline-offset: 3px;
+}
+.hx input {
+  caret-color: var(--olive);
+}
+
+/* The window's drag strip, over the top of everything. Nothing interactive
+   sits in the top 38px. */
+.titlebar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 38px;
+  z-index: 10;
+  -webkit-app-region: drag;
+}
+
+/* --- type ------------------------------------------------------------------ */
+
+.hx .mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.hx .cur {
+  font-family: var(--f);
+  font-weight: 200;
+  font-size: 0.8em;
+  margin-right: 0.05em;
+}
+.hx .wm {
+  font: 400 15px/1 var(--wide);
+  letter-spacing: 0.05em;
+}
+.hx .soft {
+  color: var(--t2);
+}
+.hx .fine {
+  font-size: 12.5px;
+  margin-top: 8px;
+}
+.hx .live {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  margin-right: 9px;
+  vertical-align: 1px;
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+.hx .lnk {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: underline;
+  text-decoration-color: var(--lime-d);
+  text-underline-offset: 3px;
+}
+.hx .ptag {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font: 500 11px/1.5 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.hx .ptag.demo {
+  color: #242525;
+  background: var(--lime);
+  border-color: var(--lime-d);
+}
+
+/* --- the rail -------------------------------------------------------------- */
+
+.path {
+  --t2: #3f4040;
+  --t3: #4b4c4b;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 28px;
+  background: linear-gradient(180deg, #cbcccb, #c4c6c3);
+  overflow-y: auto;
+}
+.hx.mac .path {
+  padding-top: 48px;
+}
+.pwm {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 28px 24px;
+}
+.pwm .mono {
+  color: var(--t3);
+}
+.demo-row {
+  padding: 0 28px 16px;
+  margin-top: -10px;
+}
+.path ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.path ol::before {
+  content: "";
+  position: absolute;
+  left: 34px;
+  top: 24px;
+  bottom: 24px;
+  width: 1px;
+  background: var(--ln2);
+}
+.pt button {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  width: 100%;
+  padding: 14px 24px 14px 28px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--t3);
+}
+.pt.done button {
+  color: var(--t2);
+}
+.pt.now button {
+  color: var(--t1);
+  background: var(--g-panel);
+}
+.pt button:hover b {
+  color: var(--t1);
+}
+.ptx b {
+  display: block;
+  font: 500 14.5px/1.2 var(--f);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.ptx span {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+.pd {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: var(--g-bg);
+}
+.pt.done .pd {
+  background: var(--olive);
+  border-color: var(--olive);
+}
+.pt.now .pd {
+  border-color: var(--t1);
+  background: var(--g-panel);
+}
+.pt.now .pd::after,
+.ladder .now .pd::after,
+.st-now .dotst::after,
+.rad.on::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+
+/* standing: reliability and level, at the foot of the rail */
+.stand {
+  --t2: #434444;
+  --t3: #535453;
+  margin: auto 18px 14px;
+  padding: 14px 14px 12px;
+  background: #d8dad3;
+  box-shadow: inset 0 0 0 1px rgb(77 95 18 / 0.14);
+}
+.sth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.relr {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  color: var(--t1);
+}
+.relarc {
+  stroke: var(--lime-d);
+}
+.sth b {
+  display: block;
+  font: 400 24px/1 var(--wide);
+  font-variant-numeric: tabular-nums;
+}
+.sth b em {
+  margin-left: 6px;
+  font: 500 12px/1 var(--mono);
+  font-style: normal;
+  color: var(--brick);
+}
+.sth .mono {
+  color: var(--t2);
+}
+.lvl {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ln);
+}
+.lvh {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.lvh .mono {
+  color: var(--t3);
+}
+.lvh b {
+  font: 400 14px/1 var(--wide);
+  text-transform: uppercase;
+  color: var(--olive);
+}
+.lvb {
+  position: relative;
+  display: block;
+  height: 9px;
+  margin-top: 9px;
+  background:
+    repeating-linear-gradient(90deg, var(--t3) 0 1px, transparent 1px 8px) left bottom / 100% 5px no-repeat,
+    linear-gradient(var(--t3), var(--t3)) left bottom / 100% 1px no-repeat;
+}
+.lvb i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 9px;
+  background: repeating-linear-gradient(90deg, var(--olive) 0 2px, transparent 2px 8px);
+}
+.lvb i::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+.lvl small {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--t2);
+}
+.pfoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding: 16px 28px;
+  border-top: 1px solid var(--ln);
+  color: var(--t3);
+}
+.stand + .pfoot {
+  margin-top: 0;
+}
+.demo-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.demo-pick select {
+  min-width: 0;
+  max-width: 150px;
+  border: 0;
+  border-bottom: 1px solid var(--ln2);
+  background: transparent;
+  font-size: 12.5px;
+  padding: 2px 0;
+}
+
+/* --- the step ---------------------------------------------------------------- */
+
+.step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 44px 52px 0;
+  overflow-y: auto;
+  background: var(--g-panel);
+}
+.step h1 {
+  margin: 0;
+  font: 400 36px/1.08 var(--wide);
+  text-transform: uppercase;
+}
+.hz {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 40px;
+  align-items: stretch;
+  min-height: 440px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--ln);
+}
+.cp {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.ctx {
+  display: block;
+  margin: 0 0 12px;
+  color: var(--t3);
+}
+.ln {
+  max-width: 46ch;
+  margin: 14px 0 0;
+  color: var(--t2);
+  font-size: 17px;
+  line-height: 1.5;
+}
+.fg {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 6px;
+}
+.fg b {
+  font: 400 76px/1 var(--wide);
+  letter-spacing: -0.01em;
+  color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.fg > span {
+  font: 200 22px/1 var(--f);
+  color: var(--t2);
+}
+.fg.sm b {
+  font-size: 44px;
+}
+.fg.sm > span {
+  font-size: 15px;
+}
+.fg.xs,
+.zc .fg {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.fg.xs b,
+.zc .fg b {
+  font-size: 42px;
+}
+.fg.xs > span,
+.zc .fg > span {
+  font-size: 15px;
+}
+.fg.cost b {
+  color: var(--brick);
+}
+.acts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-top: 28px;
+}
+.ctl {
+  margin-top: 24px;
+}
+.ctl .label {
+  margin: 0 0 10px;
+  color: var(--t3);
+}
+.note6 {
+  max-width: 46ch;
+  margin: 12px 0 0;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.hnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 560px;
+  margin-top: 14px;
+  padding: 10px 0 10px 14px;
+  border-left: 2px solid currentColor;
+  font-size: 14.5px;
+}
+.hnote .glyph {
+  flex: none;
+  margin-top: 2px;
+}
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -20px 0 0;
+  padding: 10px 16px;
+  background: #b9bab9;
+  color: #242525;
+  font-size: 13px;
+}
+.hx .banner.mono {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 13px;
+}
+.banner + .hz {
+  min-height: 400px;
+}
+
+/* the supporting zone */
+.sz {
+  display: grid;
+  gap: 36px;
+  padding-top: 22px;
+}
+.sz.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.sz.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sz.two.wide {
+  grid-template-columns: 1.4fr 1fr;
+}
+.sz.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.zc {
+  min-width: 0;
+}
+.zc h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 10px;
+  color: var(--t3);
+  font-weight: 400;
+}
+.zc h2 .lnk {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.zc .soft {
+  margin: 0;
+  font-size: 14.5px;
+}
+.zc .acts {
+  margin-top: 14px;
+}
+.krow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--ln);
+  font-size: 14px;
+}
+.zc .krow {
+  padding: 5px 0;
+  font-size: 13.5px;
+}
+.krow span {
+  color: var(--t2);
+}
+.krow b {
+  font-weight: 500;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ruler {
+  flex: none;
+  display: block;
+  height: 10px;
+  margin: auto -52px 0;
+  opacity: 0.35;
+  pointer-events: none;
+  color: var(--t1);
+  background:
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 10px) left bottom / 100% 3px
+      no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 50px) left bottom / 100% 6px
+      no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 100px) left bottom / 100% 9px
+      no-repeat;
+}
+.sz + .ruler,
+.gfoot + .ruler,
+.below4 + .ruler {
+  margin-top: auto;
+}
+.step > .sz,
+.step > .gfoot,
+.step > .below4,
+.step > .lastline {
+  margin-bottom: 28px;
+}
+
+/* --- the outline pill -------------------------------------------------------- */
+
+.lpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 5px 5px 22px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  font: 500 16px/1 var(--f);
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--t1);
+  transition: border-color 0.3s var(--ease);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.lpill .c {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  transition: border-color 0.3s var(--ease);
+}
+.lpill:hover:not(:disabled),
+.lpill:hover:not(:disabled) .c,
+.lpill:focus-visible,
+.lpill:focus-visible .c {
+  border-color: var(--lime-d);
+}
+.hx .lpill:focus-visible {
+  outline-offset: 4px;
+}
+.lpill:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.lpill.warn,
+.lpill.warn .c {
+  color: var(--brick);
+  border-color: var(--brick);
+}
+.lpill.sm {
+  font-size: 13.5px;
+  padding: 3px 3px 3px 14px;
+  gap: 10px;
+}
+.lpill.sm .c {
+  width: 30px;
+  height: 30px;
+}
+.lpill .holdring {
+  position: absolute;
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  overflow: visible;
+}
+
+/* --- the instrument plate ------------------------------------------------------ */
+
+.plate {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 34px 24px 22px;
+  color: var(--t1);
+  min-width: 0;
+}
+/* Every plate drifts through the same palette gradient over 24 s; the screen's
+   game, where there is one, lies over it as a faint wash. Still under reduced motion. */
+.plate.lp {
+  --t2: #454646;
+  --t3: #545554;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(135deg, #d6dacd 0%, #e2e3df 35%, #d2d4cf 60%, #dde2d2 100%);
+  background-size: 220% 220%;
+  background-position: 0% 40%;
+}
+.plate .tint {
+  position: absolute;
+  inset: -30px;
+  z-index: -1;
+  opacity: 0.08;
+  filter: blur(40px) saturate(0.7);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .plate.lp {
+    animation: plateflow 24s ease-in-out infinite alternate;
+  }
+  .plate .tint {
+    animation: tintflow 32s ease-in-out infinite alternate;
+  }
+}
+@keyframes plateflow {
+  to {
+    background-position: 100% 60%;
+  }
+}
+@keyframes tintflow {
+  from {
+    transform: scale(1.15) translate(-4%, -3%);
+  }
+  to {
+    transform: scale(1.25) translate(4%, 3%);
+  }
+}
+.plate > i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid #7a7b7a;
+}
+.plate .pt-tl {
+  left: 8px;
+  top: 8px;
+  border-left-width: 1px;
+  border-top-width: 1px;
+}
+.plate .pt-tr {
+  right: 8px;
+  top: 8px;
+  border-right-width: 1px;
+  border-top-width: 1px;
+}
+.plate .pt-bl {
+  left: 8px;
+  bottom: 8px;
+  border-left-width: 1px;
+  border-bottom-width: 1px;
+}
+.plate .pt-br {
+  right: 8px;
+  bottom: 8px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+.plate .icap {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--t3);
+}
+.plate.glassp {
+  z-index: 1;
+  padding: 24px;
+  background: rgb(211 212 211 / 0.55);
+  backdrop-filter: blur(8px) brightness(1.7) saturate(0.75);
+  color: #242525;
+  --t1: #242525;
+  --t2: #545555;
+  --t3: #5e5f5e;
+}
+.plate.glassp > i {
+  border-color: #545555;
+}
+
+/* the dial */
+.dial {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  max-width: 100%;
+  color: var(--t1);
+}
+.dsvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dl {
+  font: 400 10.5px var(--mono);
+  fill: currentColor;
+  opacity: 0.7;
+}
+.dsvg .arc {
+  stroke: var(--olive);
+}
+.dc {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+.dc b {
+  font: 400 28px/1 var(--wide);
+  font-variant-numeric: tabular-nums;
+}
+/* "3 h 38 min" has to fit between the clock's 18 and 06. */
+.dc b.long {
+  font-size: 20px;
+}
+.dc > span {
+  display: block;
+  margin-top: 8px;
+  color: var(--t2);
+}
+.dial.off .tring {
+  opacity: 0.5;
+}
+.tring {
+  transform-box: view-box;
+  transform-origin: 150px 150px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tring.live {
+    animation: turn 60s linear infinite;
+  }
+}
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* the reticle: hold to go live */
+.reticle {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  margin: 30px 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  color: var(--t1);
+  font: 500 15px/1.15 var(--f);
+  transform: scale(1.3);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.reticle > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.reticle-face {
+  fill: var(--face);
+  transition: stroke 0.3s var(--ease);
+}
+.reticle:hover:not(:disabled) .reticle-face,
+.reticle:focus-visible .reticle-face {
+  stroke: var(--lime-d);
+}
+.reticle-arc {
+  stroke: var(--olive);
+}
+.reticle-brackets {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  transition: transform 0.5s var(--ease);
+}
+.reticle[data-phase="hold"] .reticle-brackets {
+  transform: scale(0.9);
+}
+.reticle[data-phase="done"] .reticle-brackets {
+  transform: scale(0.8);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .reticle[data-phase="idle"]:not(:disabled) .reticle-brackets {
+    animation: settle 3s ease-in-out infinite;
+  }
+}
+@keyframes settle {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.94);
+  }
+}
+.reticle-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  pointer-events: none;
+}
+.reticle-text .glyph {
+  display: block;
+  margin: 0 auto 3px;
+}
+.reticle:disabled {
+  cursor: default;
+}
+.reticle:disabled:not([data-phase="done"]) {
+  opacity: 0.55;
+}
+
+/* --- share until ---------------------------------------------------------- */
+
+.until {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 560px;
+  margin-top: 4px;
+}
+.ut {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px 11px;
+  border: 1px solid transparent;
+  background: #dedfdc;
+  text-align: left;
+  cursor: pointer;
+  color: var(--t1);
+  transition:
+    border-color 0.2s var(--ease),
+    background 0.2s var(--ease);
+}
+.ut b {
+  font: 400 18px/1 var(--wide);
+  white-space: nowrap;
+}
+.ut span {
+  font-size: 12.5px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.ut:hover {
+  border-color: var(--ln2);
+}
+.ut[aria-checked="true"] {
+  background: #eef0e8;
+  border-color: var(--olive);
+}
+.ut[aria-checked="true"]::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  bottom: -1px;
+  width: 18px;
+  height: 3px;
+  background: var(--lime);
+}
+.ucustom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.ucustom .mono {
+  color: var(--t3);
+}
+.ucustom input {
+  width: 110px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--ln2);
+  background: transparent;
+  font: 500 15px/1 var(--f);
+}
+.ucustom input:focus {
+  outline: none;
+  border-bottom-color: var(--olive);
+}
+
+/* --- games ------------------------------------------------------------------ */
+
+.gmini {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.gmini.c2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.gmini figure {
+  margin: 0;
+  min-width: 0;
+}
+.gthumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #d3d4d3;
+}
+.gmini figcaption {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gmini.c2 figcaption {
+  font-size: 12px;
+}
+.hz.games {
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  padding-bottom: 22px;
+}
+.gcount {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.gcount b {
+  font: 400 64px/1 var(--wide);
+}
+.gcount .mono {
+  color: var(--t3);
+}
+.ggrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 18px;
+  padding-top: 22px;
+}
+.gtile {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+button.gtile {
+  cursor: pointer;
+}
+.hx .gtile:focus-visible {
+  outline: none;
+}
+.hx .gtile:focus-visible .gimg {
+  outline: 2px solid var(--lime-d);
+  outline-offset: 3px;
+}
+.gimg {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 8;
+  overflow: hidden;
+  background: #d3d4d3;
+  box-shadow: 0 0 0 1px var(--ln);
+}
+.gimg .art {
+  transition:
+    filter 0.3s var(--ease),
+    transform 0.5s var(--ease);
+}
+.gtile.installed .gimg .art {
+  filter: grayscale(1) contrast(0.9) brightness(1.08) opacity(0.62);
+}
+.gtile.missing .gimg .art {
+  filter: saturate(0.85);
+}
+button.gtile:hover .gimg {
+  box-shadow: 0 0 0 1px var(--olive);
+}
+@media (prefers-reduced-motion: no-preference) {
+  button.gtile:hover .gimg .art {
+    transform: scale(1.03);
+  }
+}
+.gtop {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 4px;
+  min-width: 0;
+}
+.gtop .rk {
+  font: 400 13px/1 var(--wide);
+  color: var(--t3);
+}
+.gtile.offered .rk,
+.gtile.missing .rk {
+  color: var(--olive);
+}
+.gtop b {
+  font: 600 14.5px/1.2 var(--f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gdem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dt {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 11px;
+}
+.dt i {
+  width: 1px;
+  height: 5px;
+  background: var(--t3);
+  opacity: 0.7;
+}
+.dt i.on {
+  width: 2px;
+  height: 11px;
+  background: var(--olive);
+  opacity: 1;
+}
+.hx .gdem .mono {
+  color: var(--t2);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.gact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
+}
+.gname2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 13px/1.2 var(--f);
+}
+.rad {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+.rad.on::after {
+  width: 8px;
+  height: 8px;
+}
+button.gtile:hover .rad {
+  border-color: var(--lime-d);
+}
+.gst {
+  color: var(--t3);
+}
+.inst {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font: 500 13px/1 var(--f);
+  color: var(--olive);
+  text-decoration: underline;
+  text-decoration-color: var(--lime-d);
+  text-underline-offset: 3px;
+}
+.gfoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ln);
+}
+.gfoot .soft {
+  font-size: 14px;
+}
+.empty {
+  margin: 28px 0 0;
+  font-size: 15px;
+}
+
+/* --- live --------------------------------------------------------------------- */
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lg {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--ln);
+  font: 400 14px/1.35 var(--f);
+}
+.dotst {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--t1);
+}
+.st-next {
+  color: var(--t3);
+}
+.st-next .dotst {
+  border-color: var(--t3);
+}
+
+/* streaming: the game takes the stage, the instrument on glass over it */
+.hstage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  height: 580px;
+  margin: -44px -52px 0;
+  overflow: hidden;
+  flex: none;
+}
+.hstage > .art {
+  position: absolute;
+  inset: 0;
+}
+.sfade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgb(38 39 39 / 0.92) 0,
+    rgb(38 39 39 / 0.7) 36%,
+    rgb(38 39 39 / 0.2) 62%,
+    transparent 72%
+  );
+}
+.sl {
+  --t1: #eeefee;
+  --t2: #cfd0cf;
+  position: relative;
+  z-index: 1;
+  align-self: start;
+  padding: 56px 52px;
+  color: #eeefee;
+}
+.sl .mono {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: #cfd0cf;
+}
+.step h1.gname {
+  display: block;
+  margin: 10px 0 6px;
+  font: 400 40px/1.1 var(--wide);
+  text-transform: uppercase;
+}
+.hstage .fg b {
+  font-size: 72px;
+  color: #eeefee;
+}
+.sline {
+  max-width: 36ch;
+  margin: 16px 0 0;
+  color: #d9dad9;
+  font-size: 16px;
+}
+.below4 {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  padding: 34px 0 30px;
+  border-bottom: 1px solid var(--ln);
+}
+.below4 .acts {
+  margin: 0;
+}
+.facts {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin: 0;
+}
+.facts div {
+  padding-left: 20px;
+  border-left: 1px solid var(--ln);
+}
+.facts dt {
+  color: var(--t3);
+}
+.facts dd {
+  margin: 4px 0 0;
+  font: 500 15px/1.3 var(--f);
+  font-variant-numeric: tabular-nums;
+}
+.lastline {
+  margin: 16px 0 0;
+  color: var(--t3);
+  font-size: 13.5px;
+}
+
+/* --- get paid --------------------------------------------------------------- */
+
+.payform {
+  max-width: 820px;
+}
+.segs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  border-top: 1px solid var(--ln);
+}
+.sg {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  padding: 11px 14px 18px;
+  border: 0;
+  border-right: 1px solid var(--ln);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--t3);
+}
+.sg:first-child {
+  padding-left: 0;
+}
+.sg:last-child {
+  border-right: 0;
+}
+.sg span {
+  font: 500 13.5px/1.2 var(--f);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.sg:hover {
+  color: var(--t2);
+}
+.sg[aria-checked="true"] {
+  color: var(--t1);
+}
+.sg[aria-checked="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 18px;
+  height: 3px;
+  background: var(--lime);
+}
+.sg .rl {
+  position: absolute;
+  left: 0;
+  right: 14px;
+  bottom: 0;
+  height: 8px;
+  opacity: 0.5;
+  background:
+    linear-gradient(currentColor, currentColor) left bottom / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 8px) left bottom / 100% 4px no-repeat,
+    repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 40px) left bottom / 100% 8px
+      no-repeat;
+}
+.fgrid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  gap: 24px;
+  margin-top: 6px;
+}
+.fld {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.fld > .mono {
+  color: var(--t3);
+}
+.fld input {
+  width: 100%;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--ln2);
+  background: transparent;
+  font: 400 15px/1 var(--f);
+  color: var(--t1);
+  outline: none;
+}
+.fld input:focus {
+  border-bottom-color: var(--t1);
+  box-shadow: 0 1px 0 var(--lime-d);
+}
+.fld input::placeholder {
+  color: #636463;
+}
+.fld input:disabled {
+  color: var(--t2);
+}
+.fld small {
+  color: var(--t3);
+  font-size: 12.5px;
+}
+.trustrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--t2);
+  font-size: 14px;
+}
+.trustrow .lpill {
+  margin-left: 8px;
+}
+.hr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--ln);
+}
+.hr b {
+  display: block;
+  font-weight: 600;
+  font-size: 14.5px;
+}
+.hr small {
+  color: var(--t3);
+  font-size: 12.5px;
+}
+.hr .fig {
+  font: 400 17px/1.2 var(--wide);
+}
+.ladder {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ladder::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--ln2);
+}
+.ladder li {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 12px;
+  padding: 4px 0;
+}
+.ladder .pd {
+  grid-row: span 2;
+  border-color: var(--t3);
+  background: var(--g-panel);
+}
+.ladder .done .pd {
+  background: var(--olive);
+  border-color: var(--olive);
+}
+.ladder .now .pd {
+  border-color: var(--olive);
+}
+.ladder b {
+  font: 500 13px/1.2 var(--f);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ladder .now b {
+  color: var(--olive);
+}
+.ladder .next b {
+  color: var(--t2);
+}
+.ladder .mono {
+  color: var(--t3);
+}
+.ladder small {
+  grid-column: 2 / -1;
+  color: var(--t2);
+  font-size: 12px;
+}
+
+/* --- settings ------------------------------------------------------------------ */
+
+.form {
+  display: grid;
+  gap: 4px;
+  max-width: 560px;
+}
+.stagebox {
+  display: grid;
+  place-items: center;
+  width: 300px;
+  height: 190px;
+  max-width: 100%;
+  color: var(--t3);
+  box-shadow: inset 0 0 0 1px var(--ln2);
+  overflow: hidden;
+}
+.stagebox video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #242525;
+}
+
+/* --- the tray glance --------------------------------------------------------- */
+
+.hx.tray {
+  display: block;
+  height: 100vh;
+  overflow: hidden;
+}
+.glance {
+  padding: 22px 24px 20px;
+  color: var(--t1);
+}
+.ph1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.ph1 .mono {
+  color: var(--t2);
+}
+.glance .demo-row {
+  padding: 0;
+  margin: -6px 0 12px;
+}
+.popart {
+  position: relative;
+  margin: 2px 0 14px;
+}
+.popimg {
+  position: relative;
+  display: block;
+  height: 120px;
+  overflow: hidden;
+}
+.popart .mono {
+  display: block;
+  margin-top: 6px;
+  color: var(--t3);
+}
+.glance .fg.sm {
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.glance .fg.sm b {
+  font-size: 40px;
+}
+.glance .fg.sm > span {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.pf {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ln);
+  color: var(--t3);
+}
+.hx .pf.mono {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.hx .pf .lnk {
+  font-size: 13px;
+}
+
+/* the demo's picture of it: the glance under a tray on a grey desktop */
+.hx.deskwrap {
+  display: block;
+}
+.desk {
+  position: absolute;
+  inset: 0;
+  background: #8f908f;
+}
+.menubar {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 18px;
+  height: 30px;
+  padding: 0 18px;
+  background: #bdbebd;
+  color: var(--t2);
+}
+.trayic {
+  color: var(--t1);
+  font-size: 14px;
+}
+.pop {
+  position: absolute;
+  right: 14px;
+  top: 40px;
+  width: 360px;
+  background: var(--g-panel);
+  box-shadow:
+    0 24px 60px -30px rgb(30 31 31 / 0.6),
+    0 0 0 1px var(--ln);
+}
+.desk-pick {
+  position: absolute;
+  left: 24px;
+  bottom: 20px;
+  padding: 10px 14px;
+  background: var(--g-bg);
+}
+
+/* game art fills whatever box holds it */
+.hx .art {
+  position: absolute;
+  inset: 0;
+}

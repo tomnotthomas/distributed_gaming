@@ -7,20 +7,29 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder --win portable --x64"
+    "pack": "npm run build && electron-builder --win portable --x64",
+    "test": "vitest run",
+    "demo": "npm run build && electron . --demo",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
+    "@swiff/rtc": "*",
+    "@swiff/ui": "*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "33.4.11",
     "electron-builder": "^25.1.8",
+    "jsdom": "^25.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
-    "@swiff/rtc": "*",
-    "@swiff/ui": "*",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "vitest": "^5.0.1"
   },
   "build": {
     "appId": "com.swiff.host",
@@ -31,6 +40,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "pc.cjs",
       "dist/**"
     ],
     "win": {
@@ -41,6 +51,6 @@
     "npmRebuild": false,
     "compression": "maximum"
   },
-  "description": "Swiff host \u2014 shares this machine's screen with a renter.",
+  "description": "Swiff host — shares this machine's screen with a renter.",
   "author": "Swiff"
 }

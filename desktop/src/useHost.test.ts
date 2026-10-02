@@ -1,0 +1,265 @@
+// This PC's view-model, over a fake screen share and a fake preload bridge:
+// what the app reads, what the owner chooses, and how the live session reads.
+
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostBridge } from "./bridge";
+import type { ShareEvents } from "./useScreenShare";
+
+type Share = {
+  stream: MediaStream | null;
+  pc: RTCPeerConnection | null;
+  peerHere: boolean;
+  claim: { sessionId: string; appid: number; minutes: number; at: number } | null;
+  connection: "connecting" | "registered" | "offline" | null;
+  lastContact: number | null;
+  offlineSince: number | null;
+  error: string | null;
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  restart: ReturnType<typeof vi.fn>;
+};
+
+const share: Share = {} as Share;
+let events: ShareEvents = {};
+
+vi.mock("./useScreenShare", () => ({
+  useScreenShare: (e: ShareEvents) => {
+    events = e;
+    return share;
+  },
+}));
+
+const { useHost } = await import("./useHost");
+
+const STREAM = {} as MediaStream;
+const NOW = new Date(2026, 8, 24, 21, 0).getTime();
+
+function resetShare() {
+  Object.assign(share, {
+    stream: null,
+    pc: null,
+    peerHere: false,
+    claim: null,
+    connection: null,
+    lastContact: null,
+    offlineSince: null,
+    error: null,
+    start: vi.fn(async () => {
+      share.stream = STREAM;
+      return true;
+    }),
+    stop: vi.fn(() => {
+      share.stream = null;
+    }),
+    restart: vi.fn(async () => true),
+  });
+}
+
+function fakeBridge(idle = 600): HostBridge {
+  return {
+    loadMachineKey: vi.fn(async () => "test-machine-key"),
+    saveMachineKey: vi.fn(async () => true),
+    readPc: vi.fn(async () => ({
+      hardware: { gpu: "NVIDIA GeForce RTX 4080", cpu: "Ryzen 7 7800X3D", ramGb: 32, display: null },
+      games: [
+        { appid: 730, name: "Counter-Strike 2" },
+        { appid: 1245620, name: "ELDEN RING" },
+      ],
+    })),
+    secondsSinceInput: vi.fn(async () => idle),
+    setGlance: vi.fn(),
+    onGlance: vi.fn(() => () => {}),
+    trayAction: vi.fn(),
+    onTrayAction: vi.fn(() => () => {}),
+  };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  vi.setSystemTime(NOW);
+  localStorage.clear();
+  localStorage.setItem("swiff.signalingUrl", "signal.example");
+  resetShare();
+  (window as { swiffHost?: HostBridge }).swiffHost = fakeBridge();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  delete (window as { swiffHost?: HostBridge }).swiffHost;
+});
+
+/** Let the bridge's promises and the state they set land. */
+const settle = () =>
+  act(async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  });
+
+/** Render the hook and let the bridge's reads land. */
+async function host() {
+  const hook = renderHook(() => useHost());
+  await settle();
+  expect(hook.result.current.view.pc.reading).toBe(false);
+  expect(hook.result.current.view.connection.machineKey).toBe("test-machine-key");
+  return hook;
+}
+
+describe("useHost", () => {
+  it("reads this PC, and offers every installed game until the owner chooses", async () => {
+    const { result } = await host();
+    const { view } = result.current;
+    expect(view.demo).toBe(false);
+    expect(view.pc.hardware?.gpu).toBe("NVIDIA GeForce RTX 4080");
+    expect(view.games.offered).toEqual([730, 1245620]);
+    // Nothing the platform does not report.
+    expect([view.rate, view.standing, view.earnings, view.games.demand, view.earlyEnd]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("keeps the owner's choice of games on this PC", async () => {
+    const { result } = await host();
+    act(() => result.current.actions.toggleOffer(730));
+    expect(result.current.view.games.offered).toEqual([1245620]);
+    expect(localStorage.getItem("swiff.offeredGames")).toBe("[1245620]");
+  });
+
+  it("goes live with the saved connection and the planned end time", async () => {
+    const { result, rerender } = await host();
+    const until = NOW + 4 * 3_600_000;
+    act(() => result.current.actions.plan(until));
+    await act(async () => result.current.actions.goLive());
+    expect(share.start).toHaveBeenCalledWith("signal.example", {
+      machineId: "gaming-pc-1",
+      machineKey: "test-machine-key",
+    });
+
+    share.connection = "registered";
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "waiting", until, registered: true });
+  });
+
+  it("stops at the end time when no session is running", async () => {
+    const { result, rerender } = await host();
+    const until = NOW + 2 * 3_600_000;
+    act(() => result.current.actions.plan(until));
+    await act(async () => result.current.actions.goLive());
+    rerender();
+
+    act(() => void vi.advanceTimersByTime(2 * 3_600_000 + 5_000));
+    expect(share.stop).toHaveBeenCalled();
+    rerender();
+    expect(result.current.view.live).toEqual({
+      kind: "off",
+      note: "Sharing stopped at 23:00, as you chose.",
+    });
+  });
+
+  it("lets a session that started before the end time run to its end", async () => {
+    const { result, rerender } = await host();
+    act(() => result.current.actions.plan(NOW + 3_600_000));
+    await act(async () => result.current.actions.goLive());
+    share.claim = { sessionId: "s1", appid: 1245620, minutes: 90, at: NOW + 50 * 60_000 };
+    rerender();
+
+    act(() => void vi.advanceTimersByTime(65 * 60_000));
+    expect(share.stop).not.toHaveBeenCalled();
+    expect(result.current.view.live).toMatchObject({
+      kind: "session",
+      claim: { name: "ELDEN RING", rate: null },
+    });
+
+    share.claim = null;
+    act(() => events.onClaimOver?.());
+    expect(share.stop).toHaveBeenCalledOnce();
+    rerender();
+    expect(result.current.view.live).toMatchObject({
+      kind: "off",
+      note: "Sharing stopped at 22:00, as you chose.",
+    });
+  });
+
+  it("counts a claimed session once for today", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    share.claim = { sessionId: "s1", appid: 730, minutes: 45, at: NOW };
+    rerender();
+    rerender();
+    expect(result.current.view.sessionsToday).toBe(1);
+  });
+
+  it("pauses after the session when new sessions are stopped", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    share.claim = { sessionId: "s1", appid: 730, minutes: 45, at: NOW };
+    rerender();
+    act(() => result.current.actions.setStopNew(true));
+    expect(result.current.view.live).toMatchObject({ kind: "session", stopNew: true });
+
+    share.claim = null;
+    act(() => events.onClaimOver?.());
+    rerender();
+    expect(share.stop).toHaveBeenCalledOnce();
+    expect(result.current.view.live).toEqual({ kind: "paused", at: NOW });
+  });
+
+  it("pauses and resumes", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    act(() => result.current.actions.pause());
+    rerender();
+    expect(result.current.view.live).toEqual({ kind: "paused", at: NOW });
+
+    await act(async () => result.current.actions.resume());
+    expect(share.start).toHaveBeenCalledTimes(2);
+    rerender();
+    expect(result.current.view.live.kind).toBe("waiting");
+  });
+
+  it("reads a dropped connection as offline while waiting, and retries", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    Object.assign(share, { connection: "offline", offlineSince: NOW + 60_000, lastContact: NOW });
+    rerender();
+    expect(result.current.view.live).toEqual({
+      kind: "offline",
+      since: NOW + 60_000,
+      lastContact: NOW,
+      until: expect.any(Number),
+    });
+    act(() => result.current.actions.retry());
+    expect(share.restart).toHaveBeenCalledOnce();
+  });
+
+  it("knows the owner sat down when the keyboard is touched during a session", async () => {
+    (window as { swiffHost?: HostBridge }).swiffHost = fakeBridge(1);
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    share.claim = { sessionId: "s1", appid: 730, minutes: 45, at: NOW };
+    rerender();
+    await settle();
+    expect(result.current.view.live).toMatchObject({ kind: "session", atPc: true });
+  });
+
+  it("saves the connection, and keeps the key only where the OS encrypts it", async () => {
+    const bridge = fakeBridge();
+    bridge.saveMachineKey = vi.fn(async () => false);
+    (window as { swiffHost?: HostBridge }).swiffHost = bridge;
+    const { result } = await host();
+    await act(async () =>
+      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-2", machineKey: "k2" }),
+    );
+    expect(localStorage.getItem("swiff.signalingUrl")).toBe("otter.example");
+    expect(localStorage.getItem("swiff.machineId")).toBe("pc-2");
+    expect(JSON.stringify({ ...localStorage })).not.toContain("k2");
+    expect(bridge.saveMachineKey).toHaveBeenCalledWith("k2");
+    expect(result.current.view.connection.notice).toBe(
+      "This system cannot encrypt the key, so it was not saved.",
+    );
+    expect(share.start).toHaveBeenCalledWith("otter.example", { machineId: "pc-2", machineKey: "k2" });
+  });
+});

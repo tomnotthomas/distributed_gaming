@@ -43,6 +43,7 @@ Code: `web/`, `server/`, `packages/`.
 
 ```bash
 npm run desktop        # run the Electron app locally
+npm run desktop:demo   # the same app on labelled demo data, to walk every screen
 npm run desktop:pack   # build desktop/release/SwiffHost-<version>.exe
 ```
 
