@@ -26,7 +26,8 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
 6. The renter can end the session and is charged for the time played.
 7. The renter keeps their game progress between sessions, on any machine.
 8. The owner can offer a PC for rent, with its hardware, price and how long it is available.
-9. The owner can take the machine back at any moment (kill switch).
+9. A running session is protected: the owner cannot take the machine back mid-session
+   without warning the renter first (see [`host.md`](host.md), requirement 3).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.

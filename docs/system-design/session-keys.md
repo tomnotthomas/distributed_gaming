@@ -144,9 +144,9 @@ key therefore cannot displace the streamer serving a renter, nor slip into the r
 the streamer is still starting. When no session is live, the machine-key `register` works
 exactly as before, so the phase-1 host app keeps working.
 
-The machine key can still **end** a session (that is the owner's kill switch), which hangs
-up on the streamer and tells the renter `peer-left`. It cannot take a live room over
-silently.
+The machine key can still **end** a session (the owner's confirmed end-early action, see
+[`host.md`](host.md) requirement 3), which hangs up on the streamer and tells the renter
+`peer-left`. It cannot take a live room over silently.
 
 Whenever the server puts a host out — a machine-key host when a session starts, the
 streamer when it ends — the host leaves the room at once and the renter gets `peer-left`
