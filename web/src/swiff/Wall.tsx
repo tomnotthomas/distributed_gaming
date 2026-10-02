@@ -126,7 +126,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         {note}
       </main>
     );
-  if (!anythingFree) return <WallEmpty note={note} />;
+  if (!anythingFree) return <WallEmpty note={note} signedIn={signedIn} />;
 
   const [hero, ...rest] = wall;
   // Signed out, the hero turns through a few games that are free right now;
@@ -492,15 +492,18 @@ function LibraryNote({
   );
 }
 
-/** Every shared machine is busy; a library note, when there is one, still leads. */
-function WallEmpty({ note }: { note?: ReactNode }) {
+/**
+ * Every shared machine is busy; a library note, when there is one, still leads.
+ * Signed out, the way in is still the one Sign in with Steam.
+ */
+function WallEmpty({ note, signedIn }: { note?: ReactNode; signedIn: boolean }) {
   return (
     <main className="wall wall-bare" data-testid="wall">
       {note}
       <EmptyState
         title="Nothing is ready right now"
         body="Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
-        action={<Button>Notify me</Button>}
+        action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
     </main>
   );

@@ -131,6 +131,28 @@ describe("Wall", () => {
     expect(screen.queryByAltText("Sign in through Steam")).toBeNull();
   });
 
+  describe("with every shared machine busy", () => {
+    const busy = Object.fromEntries(Object.entries(MACHINES).map(([id, m]) => [id, { ...m, busy: true }]));
+    const emptyWall = (profile: SteamProfile | null, games: Game[]) =>
+      render(<Wall swiff={{ ...swiffWith(games, profile), pool: busy } as Swiff} />);
+
+    it("still offers a signed-out visitor the one Sign in with Steam", () => {
+      emptyWall(null, GAMES);
+      expect(screen.getByText("Nothing is ready right now")).toBeTruthy();
+      const signIn = screen.getAllByRole("link", { name: /sign in/i });
+      expect(signIn).toHaveLength(1);
+      expect(signIn[0]).toHaveTextContent("Sign in with Steam");
+      expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
+    });
+
+    it("asks a signed-in renter for nothing more", () => {
+      const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+      emptyWall(profile, applySteam(profile, pool));
+      expect(screen.getByText("Nothing is ready right now")).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+    });
+  });
+
   it("shows still art in the hero, drifting, never a trailer", () => {
     const { container } = render(<Wall swiff={swiffWith(GAMES, null)} />);
     expect(container.querySelector('[data-testid="hero"] video')).toBeNull();
