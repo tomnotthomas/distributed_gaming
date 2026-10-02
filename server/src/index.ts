@@ -687,8 +687,10 @@ wss.on("connection", (socket) => {
 /**
  * Check every seated renter's ticket with the database in one read: a revoked
  * one is recorded and put out, even one that sends nothing. When the database
- * cannot say, each is hung up on without `denied`, so it may retry. Also
- * forgets revocations no ticket could still be in use for.
+ * cannot say, the round is skipped and every renter keeps its seat: relayed
+ * frames are still checked against the revocations already known, and the
+ * next round tries again. Also forgets revocations no ticket could still be in
+ * use for.
  */
 async function reconcileSeats(): Promise<void> {
   const now = Date.now();
@@ -701,7 +703,6 @@ async function reconcileSeats(): Promise<void> {
     }
   } catch (error) {
     console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
-    for (const client of seated) client.close(1011, "internal error");
     return;
   }
   for (const client of seated) if (seatRevoked(client)) putOut(client);

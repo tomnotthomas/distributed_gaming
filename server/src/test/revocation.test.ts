@@ -130,7 +130,19 @@ async function startServer(reconcileMs?: number) {
     return { ws, received, closed };
   };
 
-  return { call, claimTicket, revokeBehindTheServersBack, runOutBehindTheServersBack, peer };
+  /** Make every read of the sessions table fail, behind the server's back, until `restoreSessions`. */
+  const breakSessions = () => database.exec("ALTER TABLE sessions RENAME TO sessions_away");
+  const restoreSessions = () => database.exec("ALTER TABLE sessions_away RENAME TO sessions");
+
+  return {
+    call,
+    claimTicket,
+    revokeBehindTheServersBack,
+    runOutBehindTheServersBack,
+    breakSessions,
+    restoreSessions,
+    peer,
+  };
 }
 
 const ICE = { type: "ice", candidate: { candidate: "before" } } as SignalMessage;
@@ -304,6 +316,31 @@ describe("revoked ticket without the session-end notice", () => {
     assert.equal(await renter.closed, 4003);
     assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
   });
+
+  it(
+    "keeps every seat while the reconcile cannot read, and puts a revoked renter out once it can",
+    { timeout: 60_000 },
+    async () => {
+      const server = await startServer(200);
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
+
+      await server.breakSessions();
+      await wait(1_000);
+      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
+      await until(() => iceFrames(host.received).length > 1);
+      assert.deepEqual(iceFrames(host.received), ["before", "still"], "still relayed");
+      assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated");
+
+      await server.restoreSessions();
+      await server.revokeBehindTheServersBack();
+      assert.equal(await renter.closed, 4003);
+      assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
+      await wait(200);
+      assert.deepEqual(iceFrames(host.received), ["before", "still"], "nothing once revoked");
+      host.ws.close();
+    },
+  );
 
   it(
     "cuts a seated renter off within a few seconds by default, and relays nothing after",

@@ -368,7 +368,9 @@ configured the server lets nobody in (`server/src/access.ts`).
   that renter. Relayed frames are checked against that in-memory record, never the
   database. A session ended straight in the database, where no notice is sent, is
   caught at the next join or host registration, and within 5 s for every seated
-  renter, all checked in one read.
+  renter, all checked in one read. When that read fails, every seated renter keeps its
+  seat and the read is tried again 5 s later: a renter is never cut off because the
+  database could not answer.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
