@@ -364,8 +364,10 @@ configured the server lets nobody in (`server/src/access.ts`).
   session ends (the host ends it, the owner takes the machine back, the machine goes
   silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
   and a renter still in the room with it is put out at once. That does not rest on the
-  one notice alone: the ticket is checked again on every frame relayed to or from the
-  renter and when the host registers, and every 30 s for every seated renter.
+  one notice alone: the database is asked again when the host registers, and every 30 s
+  for every seated renter. Once a revocation is known, nothing more is relayed to or
+  from that renter; relayed frames are checked against that in-memory record, not the
+  database.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
