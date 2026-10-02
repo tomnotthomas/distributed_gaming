@@ -65,6 +65,13 @@ export function postgres(connectionString: string): Database {
       const client = await pool.connect();
       // A connection that cannot even roll back is broken: it is closed, not reused.
       let broken: Error | undefined;
+      // One lost mid-transaction (the pool stops listening while it is checked
+      // out) fails the statement waiting on it; unheard, it would crash us.
+      const onError = (error: Error) => {
+        console.error("[swiff] database connection lost:", error.name);
+        broken = error;
+      };
+      client.on("error", onError);
       try {
         await client.query(begin);
         const result = await work({
@@ -79,6 +86,7 @@ export function postgres(connectionString: string): Database {
         await client.query("ROLLBACK").catch((rollback: Error) => (broken = rollback));
         throw error;
       } finally {
+        client.off("error", onError);
         client.release(broken);
       }
     },

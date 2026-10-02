@@ -1,7 +1,8 @@
-// A renter whose ticket is revoked is put out even when the session-end notice
-// that normally does it never ran. The ticket is revoked here by ending the
-// session straight in the database, behind the server's back: only the relay
-// check, the host registration check and the slow reconcile can see it.
+// A renter whose ticket is revoked is put out, and nothing more is relayed to or
+// from it. The session-end notice does it at once, however the platform ends
+// the session. A ticket revoked straight in the database, behind the server's
+// back, is caught by the host registration check, a join and the slow
+// reconcile; relayed frames never read the database.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -93,51 +94,134 @@ async function startServer(reconcileMs: number) {
     return { status: res.status, body: (await res.json()) as any };
   };
 
-  /** Offer `room`, book and claim it: the renter's join ticket. */
-  const claimTicket = async (room: string): Promise<string> => {
+  /** Offer `room`, book and claim it: the renter's join ticket and the session it is for. */
+  const claimTicket = async (room: string): Promise<{ ticket: string; sessionId: string }> => {
     await call("PUT", `/api/machines/${room}/availability`, { available: true, ...REPORT }, MACHINE_KEY);
     const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
     assert.equal(claim.status, 200);
-    return claim.body.ticket as string;
+    return { ticket: claim.body.ticket as string, sessionId: claim.body.sessionId as string };
   };
 
   /** End every open session in the database without telling the server: its tickets are revoked. */
   const revokeBehindTheServersBack = () =>
     database.exec(`UPDATE sessions SET ended_at = ${Date.now()} WHERE ended_at IS NULL`);
 
-  /** A socket that sends `first` once open and records what it hears and how it closes. */
+  /** Let every open session run out, without telling the server. */
+  const runOutBehindTheServersBack = () =>
+    database.exec(`UPDATE sessions SET expires_at = ${Date.now()} WHERE ended_at IS NULL`);
+
+  /**
+   * A socket that sends `first` once open and records what it hears and how it
+   * closes. Told it is denied, it sends one more ice frame, "after", before the
+   * server's hang-up reaches it.
+   */
   const peer = (first: SignalMessage) => {
     const ws = new WebSocket(`ws://localhost:${port}`);
     const received: SignalMessage[] = [];
-    ws.on("message", (raw) => received.push(JSON.parse(String(raw)) as SignalMessage));
+    ws.on("message", (raw) => {
+      const message = JSON.parse(String(raw)) as SignalMessage;
+      received.push(message);
+      if (message.type === "denied") ws.send(JSON.stringify(AFTER));
+    });
     ws.once("open", () => ws.send(JSON.stringify(first)));
     const closed = new Promise<number>((resolve) => ws.once("close", resolve));
     return { ws, received, closed };
   };
 
-  return { claimTicket, revokeBehindTheServersBack, peer };
+  return { call, claimTicket, revokeBehindTheServersBack, runOutBehindTheServersBack, peer };
 }
+
+const ICE = { type: "ice", candidate: { candidate: "before" } } as SignalMessage;
+const AFTER = { type: "ice", candidate: { candidate: "after" } } as SignalMessage;
+const iceFrames = (received: SignalMessage[]) =>
+  received.filter((m) => m.type === "ice").map((m) => (m as { candidate: { candidate: string } }).candidate.candidate);
+
+/** A host in `room` and a renter seated on `ticket`, the renter's first frame relayed. */
+async function seat(server: Awaited<ReturnType<typeof startServer>>, room: string, ticket: string) {
+  const host = server.peer({ type: "register", hostId: room, key: MACHINE_KEY });
+  await wait(200);
+  const renter = server.peer({ type: "join", ticket });
+  await wait(200);
+  assert.equal(renter.received[0]?.type, "joined");
+  renter.ws.send(JSON.stringify(ICE));
+  await wait(100);
+  assert.deepEqual(iceFrames(host.received), ["before"]);
+  return { host, renter };
+}
+
+/** The renter was put out with bad-ticket, and nothing it sent once put out reached the host. */
+async function putOut(
+  host: ReturnType<Awaited<ReturnType<typeof startServer>>["peer"]>,
+  renter: ReturnType<Awaited<ReturnType<typeof startServer>>["peer"]>,
+) {
+  assert.equal(await renter.closed, 4003);
+  assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
+  host.ws.send(JSON.stringify(AFTER));
+  await wait(200);
+  assert.deepEqual(iceFrames(host.received), ["before"], "nothing from the renter once put out");
+  assert.deepEqual(iceFrames(renter.received), [], "nothing to the renter");
+}
+
+describe("revoked ticket through the platform", () => {
+  it("puts the renter out at once when the host ends the session", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket, sessionId } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    assert.equal((await server.call("POST", `/api/sessions/${sessionId}/end`, {}, MACHINE_KEY)).status, 200);
+    await putOut(host, renter);
+    host.ws.close();
+  });
+
+  it("puts the renter out at once when the owner takes the machine back", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    const back = await server.call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+    assert.equal(back.status, 200);
+    await putOut(host, renter);
+    host.ws.close();
+  });
+
+  it("puts the renter out at once when the time runs out", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    await server.runOutBehindTheServersBack();
+    // Any call that settles what is due ends it, as the platform's timer would.
+    const offered = await server.call(
+      "PUT",
+      "/api/machines/pc-1/availability",
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(offered.status, 200);
+    await putOut(host, renter);
+    host.ws.close();
+  });
+});
 
 describe("revoked ticket without the session-end notice", () => {
   it(
-    "puts the renter out on its next relayed frame, and relays nothing for it",
+    "relays without reading the database per frame, and nothing for the renter once a join finds it revoked",
     { timeout: 60_000 },
     async () => {
       const server = await startServer(60_000);
-      const ticket = await server.claimTicket("pc-1");
-      const host = server.peer({ type: "register", hostId: "pc-1", key: MACHINE_KEY });
-      await wait(200);
-      const renter = server.peer({ type: "join", ticket });
-      await wait(200);
-      assert.equal(renter.received[0]?.type, "joined");
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
 
       await server.revokeBehindTheServersBack();
-      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "x" } }));
+      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "unchecked" } }));
+      await wait(200);
+      assert.deepEqual(iceFrames(host.received), ["before", "unchecked"], "relayed from memory");
+
+      const again = server.peer({ type: "join", ticket });
+      assert.equal(await again.closed, 4003);
+      assert.deepEqual(again.received[0], { type: "denied", reason: "bad-ticket" });
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
-      await wait(100);
-      assert.ok(!host.received.some((m) => m.type === "ice"), "the frame never reached the host");
+      await wait(200);
+      assert.deepEqual(iceFrames(host.received), ["before", "unchecked"], "nothing once revoked");
       host.ws.close();
     },
   );
@@ -147,7 +231,7 @@ describe("revoked ticket without the session-end notice", () => {
     { timeout: 60_000 },
     async () => {
       const server = await startServer(60_000);
-      const ticket = await server.claimTicket("pc-1");
+      const { ticket } = await server.claimTicket("pc-1");
       const renter = server.peer({ type: "join", ticket });
       await wait(200);
       assert.equal(renter.received[0]?.type, "joined");
@@ -164,7 +248,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it("puts a silent renter out at the next reconcile", { timeout: 60_000 }, async () => {
     const server = await startServer(200);
-    const ticket = await server.claimTicket("pc-2");
+    const { ticket } = await server.claimTicket("pc-2");
     const renter = server.peer({ type: "join", ticket });
     await wait(150);
     assert.equal(renter.received[0]?.type, "joined");

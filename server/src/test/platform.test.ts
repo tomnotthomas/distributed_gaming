@@ -1314,6 +1314,32 @@ describe("a host disconnect the database fails", () => {
       await db.close();
     });
   });
+
+  it("drops the presence even when the transaction never begins", async () => {
+    const database = await testDatabase();
+    let down = false;
+    // Connecting fails (a Neon compute that does not wake in time): nothing runs.
+    const flaky: Database = {
+      query: (sql, params) => database.query(sql, params),
+      transaction: (work, begin) =>
+        down ? Promise.reject(new Error("connection timeout")) : database.transaction(work, begin),
+      close: () => database.close(),
+    };
+    await platform.close();
+    platform = await Platform.open({ database: flaky, now: () => now });
+    await platform.hostConnected("pc-1");
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+
+    down = true;
+    await assert.rejects(platform.hostDisconnected("pc-1", true));
+    down = false;
+
+    // No longer present, so silent: offline, and the booking is handed back.
+    await advance(2 * LIVENESS_MS);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
+  });
 });
 
 describe("renters and owners", () => {

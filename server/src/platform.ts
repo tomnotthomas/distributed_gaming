@@ -335,7 +335,7 @@ export type PlatformOptions = {
   database: Database;
   now?: () => number;
   owners?: ReadonlyMap<string, string>;
-  onSessionEnded?: (machineId: string, sessionId: string) => void;
+  onSessionEnded?: (machineId: string, sessionId: string, ticketId: string | null) => void;
   onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   onBookingChanged?: (bookingId: string) => void;
 };
@@ -345,7 +345,7 @@ export class Platform {
   readonly #now: () => number;
   /** What each game needs, on the same database: gate E3 compares a machine with it. */
   readonly #requirements: RequirementsTable;
-  readonly #onSessionEnded: (machineId: string, sessionId: string) => void;
+  readonly #onSessionEnded: (machineId: string, sessionId: string, ticketId: string | null) => void;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #owners: ReadonlyMap<string, string>;
@@ -390,7 +390,8 @@ export class Platform {
    * The platform on `database`, its tables made or brought up to date first.
    *
    * `onSessionEnded` hears of every session that ends, however it ends, with its
-   * machine and id; `onSessionClaimed` of every claim, with the machine claimed;
+   * machine, id and the ticket it handed out (null before one was);
+   * `onSessionClaimed` of every claim, with the machine claimed;
    * `onBookingChanged` of every booking whose status moved, once per change.
    * All run after the change is committed, so what they do (evicting a
    * streamer, telling the PC or the renter) never outlives a rolled-back
@@ -502,8 +503,8 @@ export class Platform {
    * from it). Those have LIVENESS_MS from now to reconnect or beat.
    */
   hostDisconnected(machineId: string, dropped: boolean): Promise<void> {
-    return this.#transaction(async () => {
-      try {
+    return this.#transaction(
+      async () => {
         const now = this.#now();
         // Touched while still present: its offered time up to now counts as seen.
         const machine = (await this.#machineRow(machineId)) && (await this.#touch(machineId, now));
@@ -513,12 +514,11 @@ export class Platform {
           await this.#goOffline(machine, now);
         }
         await this.#tick(now);
-      } finally {
-        // Gone whatever the database says: a socket that closed is not presence.
-        // If the work above failed, the retried tick finds the machine silent.
-        this.#present.delete(machineId);
-      }
-    });
+      },
+      // Gone whatever the database says, even if the transaction never began: a
+      // socket that closed is not presence. The retried tick finds the machine silent.
+      () => this.#present.delete(machineId),
+    );
   }
 
   /**
@@ -1142,7 +1142,7 @@ export class Platform {
     );
     await this.#run("DELETE FROM key_sessions WHERE session_id = $1", session.id);
     await this.#setBookingStatus(session.booking_id, "ended");
-    this.#notices.push(() => this.#onSessionEnded(session.machine_id, session.id));
+    this.#notices.push(() => this.#onSessionEnded(session.machine_id, session.id, session.ticket_id));
   }
 
   // --- rows ------------------------------------------------------------------
@@ -1446,9 +1446,10 @@ export class Platform {
   /**
    * Run `work` in its turn, as one transaction that may write. Once it
    * commits, re-arm the deadline timer and deliver the notices it queued; a
-   * rollback drops them and arms a retry.
+   * rollback drops them and arms a retry. `settled` runs once the transaction
+   * is over, whether or not it ever began, still in its turn.
    */
-  #transaction<T>(work: () => Promise<T>): Promise<T> {
+  #transaction<T>(work: () => Promise<T>, settled: () => void = () => {}): Promise<T> {
     return this.#inTurn(async () => {
       let done: { result: T; next: number | null };
       try {
@@ -1466,6 +1467,8 @@ export class Platform {
         this.#changed.clear();
         this.#retrySoon();
         throw error;
+      } finally {
+        settled();
       }
       this.#arm(done.next);
       const notices = this.#notices;

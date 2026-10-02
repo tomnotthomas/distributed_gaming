@@ -174,6 +174,14 @@ type Room = { host: PeerSocket | null; client: PeerSocket | null };
 
 const rooms = new Map<string, Room>();
 
+/**
+ * The tickets of seated renters known to be revoked, learned from the
+ * session-end notice and from every database check that finds one. A
+ * revocation never reverses, so an entry stays until its seat is gone. Relayed
+ * frames are checked against this alone, never the database.
+ */
+const revokedTickets = new Set<string>();
+
 function roomFor(hostId: string): Room {
   let room = rooms.get(hostId);
   if (!room) {
@@ -248,25 +256,37 @@ async function endHostSession(hostId: string): Promise<void> {
  * A platform session on `hostId` ended, however it ended. Its streamer is hung
  * up on, and a renter still seated on the session's revoked ticket is put out.
  */
-function sessionEnded(hostId: string, sessionId: string): void {
+function sessionEnded(hostId: string, sessionId: string, ticketId: string | null): void {
   evictStreamer(hostId, sessionId);
   const client = rooms.get(hostId)?.client;
-  if (client) void seatStillValid(client);
+  if (client && ticketId !== null && client.ticketId === ticketId) putOut(client);
+}
+
+/** Put the renter `client` out with `bad-ticket`: its ticket is revoked, and nothing more is relayed for it. */
+function putOut(client: PeerSocket): void {
+  if (client.ticketId && client.hostId && rooms.get(client.hostId)?.client === client) {
+    revokedTickets.add(client.ticketId);
+  }
+  deny(client, "bad-ticket");
+}
+
+/** True when nothing may be relayed to or from `renter`: its ticket is known to be revoked. */
+function seatRevoked(renter: PeerSocket): boolean {
+  return renter.ticketId !== null && revokedTickets.has(renter.ticketId);
 }
 
 /**
  * True when the renter `client` may stay seated: its ticket's session has not
- * ended. A revoked one is put out with `bad-ticket`. When the database cannot
- * say, the renter is hung up on without `denied`, so it may retry, and nothing
- * is relayed for it meanwhile. The session-end notice puts a revoked renter out
- * at once; this is the check that does not depend on that notice arriving.
- * Never rejects.
+ * ended, by the database. A revoked one is put out. When the database cannot
+ * say, the renter is hung up on without `denied`, so it may retry. The
+ * session-end notice puts a revoked renter out at once; this is the check that
+ * does not depend on that notice arriving. Never rejects.
  */
 async function seatStillValid(client: PeerSocket): Promise<boolean> {
   if (!client.ticketId) return true;
   try {
     if (!(await platform.ticketRevoked(client.ticketId))) return true;
-    deny(client, "bad-ticket");
+    putOut(client);
   } catch (error) {
     console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
     client.close(1011, "internal error");
@@ -534,7 +554,13 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
     case "join": {
       if (ws.role) return;
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-      if (!ticket || (await platform.ticketRevoked(ticket.id))) return deny(ws, "bad-ticket");
+      if (!ticket) return deny(ws, "bad-ticket");
+      if (await platform.ticketRevoked(ticket.id)) {
+        // A renter still seated on it is put out too.
+        const seated = rooms.get(ticket.room)?.client;
+        if (seated?.ticketId === ticket.id) putOut(seated);
+        return deny(ws, "bad-ticket");
+      }
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
         // The same ticket again is the same renter refreshing: hand them the
@@ -577,10 +603,10 @@ async function onMessage(ws: PeerSocket, raw: RawData): Promise<void> {
 
   if (isRelayed(msg)) {
     // Forwarded verbatim. The server does not read the payload. Never to or
-    // from a renter whose ticket has been revoked since it joined.
+    // from a renter whose ticket is known to be revoked since it joined.
     const peer = peerOf(ws);
     const renter = ws.role === "client" ? ws : peer;
-    if (renter && !(await seatStillValid(renter))) return;
+    if (renter && seatRevoked(renter)) return;
     send(peer, msg);
     return;
   }
@@ -612,7 +638,10 @@ function onClose(ws: PeerSocket): void {
   const peer = peerOf(ws);
   const wasHost = room.host === ws;
   if (wasHost) room.host = null;
-  if (room.client === ws) room.client = null;
+  if (room.client === ws) {
+    room.client = null;
+    if (ws.ticketId) revokedTickets.delete(ws.ticketId);
+  }
   send(peer, { type: "peer-left" });
   if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
   // The PC service's own socket going is the PC going: offline now while it
@@ -641,9 +670,8 @@ wss.on("connection", (socket) => {
   ws.on("close", () => inTurn(ws, () => onClose(ws)));
 });
 
-// The safety net under the session-end notice and the relay check: every so
-// often, any seated renter whose ticket has been revoked is put out, even one
-// that sends nothing. SWIFF_TICKET_RECONCILE_MS shortens it for tests.
+// The safety net under the session-end notice: every so often, any seated
+// renter whose ticket has been revoked is put out, even one that sends nothing. SWIFF_TICKET_RECONCILE_MS shortens it for tests.
 const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 30_000;
 setInterval(() => {
   for (const room of rooms.values()) if (room.client) void seatStillValid(room.client);
