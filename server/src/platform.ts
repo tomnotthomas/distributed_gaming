@@ -61,7 +61,7 @@ import {
   type StabilityStats,
 } from "@swiff/rank";
 import type { Display, Hardware, HostReport, Net } from "./profile.js";
-import { RequirementsTable } from "./requirements.js";
+import { RequirementsTable, type Requirements } from "./requirements.js";
 import type { KeySession, KeySessionStore } from "./sessions.js";
 import {
   addQos,
@@ -91,7 +91,6 @@ export const MAX_MINUTES = 12 * 60;
 export const QOS_GRACE_MS = 60_000;
 /** A host's end this close to the session's expiry is time_up, to absorb clock skew between host and server. */
 export const TIME_UP_GRACE_MS = 10_000;
-
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
 /** Every status but idle: the owner is offering the machine, whether or not it is answering. */
 const OFFERED: MachineStatus[] = ["available", "reserved", "in_session", "offline"];
@@ -125,6 +124,22 @@ export type MachineProfile = {
   controls: Control[];
   net: Net | null;
 };
+
+/**
+ * A machine on offer and answering, as renters' reads of what they could play
+ * see it: rank()'s view of it, its stored report and seven-day history, and,
+ * when it is busy, when it is free again at the latest.
+ */
+export type OfferedMachine = {
+  host: HostProfile;
+  profile: MachineProfile;
+  history: StabilityStats;
+  /** Unix ms by which a reserved or in-session machine is free again; null when it is free. */
+  backAt: number | null;
+};
+
+/** The machines on offer as one read saw them, and when (Unix ms). */
+export type OfferedSnapshot = { at: number; machines: OfferedMachine[] };
 
 export type BookingView = {
   bookingId: string;
@@ -330,24 +345,23 @@ const NO_HISTORY: StabilityStats = {
 };
 
 /**
- * Whether the machine passes MATCH_GATES for this booking's game. `installed`
- * need only say whether the booking's game is there. A machine with no
- * reported hardware has no GPU score, so it fails E3.
+ * The machine as rank() reads it. `installed` lists the games to judge it on;
+ * `lastSeenAt` is its last contact, now for one whose socket is open. Without
+ * reported hardware it has no GPU score, so it fails E3; with no owner known on
+ * either side it cannot be anybody's own machine.
  */
-function passesMatchGates(
+function hostProfileOf(
   machine: MachineRow,
   installed: number[],
-  booking: BookingRow,
-  game: GameRequirements,
-  now: number,
-): boolean {
+  status: HostProfile["status"],
+  lastSeenAt: number,
+): HostProfile {
   const display = fromJson<Display | null>(machine.display, null);
-  const host: HostProfile = {
+  return {
     id: machine.id,
-    // Unknown on either side, it cannot be the renter's own machine.
     ownerId: machine.owner_id ?? `machine:${machine.id}`,
-    status: "available",
-    lastHeartbeatAt: machine.last_seen_at,
+    status,
+    lastHeartbeatAt: lastSeenAt,
     installed,
     gpu: machine.gpu_model ?? "",
     ramGb: (machine.ram_mb ?? 0) / MB_PER_GB,
@@ -359,6 +373,44 @@ function passesMatchGates(
     priceCentsPerHour: machine.price,
     availableUntil: machine.available_until ?? Number.MAX_SAFE_INTEGER,
   };
+}
+
+/** A machine row and its installed games as the host reported them. */
+function profileOf(m: MachineRow, games: number[]): MachineProfile {
+  return {
+    id: m.id,
+    name: m.name,
+    hardware:
+      m.gpu_model === null
+        ? null
+        : {
+            gpu: m.gpu_model,
+            gpuScore: m.gpu_score ?? 0,
+            vramMb: m.vram_mb ?? 0,
+            ramMb: m.ram_mb ?? 0,
+            cpu: m.cpu_model ?? "",
+            cores: m.cpu_cores ?? 0,
+            encoders: fromJson<Encoder[]>(m.encoders, []),
+            display: fromJson<Display>(m.display, { width: 0, height: 0, refreshHz: 0 }),
+          },
+    games,
+    controls: fromJson<Control[]>(m.controls, []),
+    net: m.rtt_ms === null ? null : { rttMs: m.rtt_ms, jitterMs: m.jitter_ms ?? 0, upMbps: m.up_mbps ?? 0 },
+  };
+}
+
+/**
+ * Whether the machine passes MATCH_GATES for this booking's game. `installed`
+ * need only say whether the booking's game is there.
+ */
+function passesMatchGates(
+  machine: MachineRow,
+  installed: number[],
+  booking: BookingRow,
+  game: GameRequirements,
+  now: number,
+): boolean {
+  const host = hostProfileOf(machine, installed, "available", machine.last_seen_at);
   const renter: RenterPrefs = {
     id: booking.renter_id ?? `booking:${booking.id}`,
     controls: [],
@@ -585,26 +637,67 @@ export class Platform {
     const games = this.#db
       .prepare("SELECT appid FROM machine_games WHERE machine_id = ? ORDER BY appid")
       .all(machineId) as { appid: number }[];
-    return {
-      id: m.id,
-      name: m.name,
-      hardware:
-        m.gpu_model === null
-          ? null
-          : {
-              gpu: m.gpu_model,
-              gpuScore: m.gpu_score ?? 0,
-              vramMb: m.vram_mb ?? 0,
-              ramMb: m.ram_mb ?? 0,
-              cpu: m.cpu_model ?? "",
-              cores: m.cpu_cores ?? 0,
-              encoders: fromJson<Encoder[]>(m.encoders, []),
-              display: fromJson<Display>(m.display, { width: 0, height: 0, refreshHz: 0 }),
-            },
-      games: games.map((g) => g.appid),
-      controls: fromJson<Control[]>(m.controls, []),
-      net: m.rtt_ms === null ? null : { rttMs: m.rtt_ms, jitterMs: m.jitter_ms ?? 0, upMbps: m.up_mbps ?? 0 },
-    };
+    return profileOf(
+      m,
+      games.map((g) => g.appid),
+    );
+  }
+
+  /**
+   * Every machine on offer that is not offline (available, reserved or in
+   * session) and whose offer has not run out, for the renter-facing reads of
+   * what can be played where. A machine whose socket is open counts as seen
+   * now. A busy machine is free again when its session runs out, or, while
+   * reserved, when a claim at the last moment would run out. Read only:
+   * nothing is settled or matched. `at` is the time they were read at, for
+   * judging them.
+   */
+  offeredMachines(): OfferedSnapshot {
+    const now = this.#now();
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
+           AND (available_until IS NULL OR available_until > ?) ORDER BY id`,
+      )
+      .all(now) as MachineRow[];
+    const installed = new Map<string, number[]>();
+    const games = this.#db
+      .prepare(
+        `SELECT g.machine_id, g.appid FROM machine_games g JOIN machines m ON m.id = g.machine_id
+           WHERE m.status IN ('available', 'reserved', 'in_session') ORDER BY g.appid`,
+      )
+      .all() as { machine_id: string; appid: number }[];
+    for (const { machine_id, appid } of games) {
+      const list = installed.get(machine_id) ?? [];
+      list.push(appid);
+      installed.set(machine_id, list);
+    }
+    const busyUntil = this.#db.prepare(
+      `SELECT expires_at AS at FROM sessions WHERE machine_id = ? AND ended_at IS NULL
+       UNION ALL
+       SELECT r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
+         WHERE r.machine_id = ?`,
+    );
+    const machines = rows.map((m) => {
+      const appids = installed.get(m.id) ?? [];
+      const busy = m.status !== "available";
+      const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
+      // The configured owner counts before the machine next checks in, as in matching.
+      const row = { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id };
+      const back = busy ? (busyUntil.get(m.id, m.id) as { at: number } | undefined) : undefined;
+      return {
+        host: hostProfileOf(row, appids, busy ? "busy" : "available", lastSeenAt),
+        profile: profileOf(m, appids),
+        history: this.stability(m.id).stats,
+        backAt: back?.at ?? null,
+      };
+    });
+    return { at: now, machines };
+  }
+
+  /** What a game needs, from the requirements table: curated, seeded from Steam, or the labelled default. */
+  requirements(appid: number): Requirements {
+    return this.#requirements.lookup(appid);
   }
 
   /** The machine a session runs on, so the caller can check that machine's key. */

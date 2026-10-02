@@ -97,8 +97,8 @@ saves are not built.
 ## 5. API
 
 All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
-`/bookings` and `/events` calls carry the renter's sign-in session and answer `401`
-without one;
+`/availability`, `/games/:appid/machines`, `/bookings` and `/events` calls carry the
+renter's sign-in session and answer `401` without one;
 `GET /games` and `POST /signout` work signed out, and the `/sessions` calls carry the
 join ticket instead.
 
@@ -151,6 +151,28 @@ origin, e.g. `https://swiff.example`) in the server's environment.
 GET  /games
   → 200 [{ id, name, image }]
   List the games that can be booked. Works signed out.
+
+GET  /availability?appids=730,570&rtt=&controls=
+  → 200 [{ appid, free, busy, backAt }]
+  For each game asked about (1 to 100 appids, in the order asked, repeats once), how
+  many machines the renter could play it on right now (`free`), how many would fit
+  but are taken (`busy`), and the soonest a taken one is free again (`backAt`, Unix
+  ms, or null). Same rules as the list below, so the wall and the game page agree.
+  → 400 for a missing, malformed or too long `appids`, a missing or bad `rtt`, or a bad
+  `controls`. → 429 past the renter's budget of these reads (below).
+
+GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
+  → 200 { appid, minutes, requirements, machines, reason, busy }
+  The machines the renter could play one game on for `minutes` (1 to 720), best
+  first. Each is `{ id, name, gpu, vramMb, ramMb, cpu, cores, encoders, refreshHz,
+  controls, price, availableUntil, minutesLeft, coversSession, latency, response,
+  picture, stability, headroom }`, where `latency` is `{ rttMs, jitterMs, source:
+  "estimate" }` and the scores are `@swiff/rank`'s. `requirements` is what the game was
+  judged against and its `source` (curated, steam or default); `reason` is the rule
+  that put the first above the second (`{ rule, label }`, null with fewer than two);
+  `busy` lists the taken machines that would fit, `{ id, name, backAt }`, soonest
+  first. → 400 for a bad appid or `minutes`, a missing or bad `rtt`, or a bad
+  `controls` or `picture`. → 429 past the renter's budget of these reads (below).
 
 GET  /me
   → 200 { steamId, profile }
@@ -234,6 +256,42 @@ POST /sessions/:id/leave
   page leaves the host to end the session, which is recorded as `host_end` (or `time_up`
   within 10 s of its expiry) and counts neither for nor against the machine's completion.
 ```
+
+### What can be played where
+
+`/availability` and `/games/:appid/machines` (`server/src/candidates.ts`) run
+`@swiff/rank`'s `rank()` over every machine on offer that is answering, for the
+signed-in renter: gates E1–E6, then the fixed sort, with the game's requirements from
+the requirements table. Both are signed in only: working them out for every visitor
+would cost too much, so signed-out visitors see no availability (requirement 2). The
+renter's own machine is never counted or listed (E5), nor is one whose offer has run
+out (its `available_until` has passed). Query parameters say how the renter plays:
+`rtt`, their round trip to the server in ms as the page measured it (required, 0 to
+10000), and, optionally, `controls`, a comma-separated list of `kb`, `mouse`, `pad`
+the machine must take (E4), and `picture`, `best` (default), `4k` or `120fps` (the
+sort's O3).
+
+Latency is estimated through the server for every machine: the renter's `rtt` plus the
+PC's own round trip to the server from its host report (`net.rttMs`), with the PC's
+jitter. The direct path is usually shorter, so the estimate is an upper bound, and it
+cannot tell a direct path from a relayed one. A machine more than 80 ms away by the
+estimate (E6), or one that has never reported `net`, is not listed. No PC's address is
+stored or sent: a renter sees a machine's id, name, hardware, terms and scores, never
+its owner. Probing the top few machines directly is a later step.
+
+A busy machine (reserved or in session) is free again when its session runs out, or,
+while reserved, when a claim at the last moment would run out; one taken until after its
+owner wants it back is not counted as coming back, and the game page lists a busy machine
+only when, once back, its offer still has the `minutes` asked for.
+
+Each read ranks every machine on offer, so one signed-in renter cannot hog the server
+with them: each has a budget of 20 of these reads at once, then one more every 2 s (30
+a minute), counted across both calls and keyed on their Steam id
+(`server/src/budget.ts`). Past it the answer is `429` with `Retry-After` in seconds.
+At most 100,000 renters are tracked at once; past that, those whose budget is full again
+and then the least recently active are forgotten, and start again from a full budget.
+
+### Matching
 
 Matching runs in the server process on every change, with one timer armed for the next
 deadline (a reservation lapsing, a machine's liveness, a queued booking timing out, a
