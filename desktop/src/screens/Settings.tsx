@@ -30,6 +30,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
   const [machineId, setMachineId] = useState(connection.machineId);
   const [machineKey, setMachineKey] = useState(connection.machineKey);
   const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const locked = LOCKED.has(live.kind);
   const preview = useRef<HTMLVideoElement>(null);
 
@@ -46,9 +47,15 @@ export function Settings({ view, actions, go }: ScreenProps) {
   const form = { url, machineId, machineKey };
   const save = async () => {
     setSaving(true);
-    await actions.saveConnection(form);
-    setSaving(false);
-    go("live");
+    setFailed(null);
+    try {
+      await actions.saveConnection(form);
+      go("live");
+    } catch (cause) {
+      setFailed(cause instanceof Error ? cause.message : "The settings could not be saved.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -95,6 +102,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
               />
             </Field>
             {connection.notice ? <Notice>{connection.notice}</Notice> : null}
+            {failed ? <Notice>{failed}</Notice> : null}
           </form>
         </div>
         <Plate caption={["Preview", connection.preview ? "Capturing" : "Idle"]}>

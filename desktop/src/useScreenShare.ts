@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CAPTURE, startHostSession, type HostConnection, type SessionClaim } from "@swiff/rtc";
-import { toSocketUrl } from "./settings";
+import { refusedAddress, toSocketUrl } from "./settings";
 
 export type Credentials = { machineId: string; machineKey: string };
 
@@ -27,6 +27,9 @@ export function useScreenShare(events: ShareEvents = {}) {
   const credentialsRef = useRef<Credentials>({ machineId: "", machineKey: "" });
   const eventsRef = useRef(events);
   eventsRef.current = events;
+  // Each start, and each stop, begins a new attempt: a capture that resolves
+  // after a later one began is let go instead of shared.
+  const attempt = useRef(0);
 
   /** Resolves true once the screen is being captured. */
   const start = async (rawUrl: string, credentials: Credentials): Promise<boolean> => {
@@ -36,12 +39,19 @@ export function useScreenShare(events: ShareEvents = {}) {
       setError("Paste the signaling server address first.");
       return false;
     }
+    const refused = refusedAddress(url);
+    if (refused) {
+      setError(refused);
+      return false;
+    }
     if (!credentials.machineId || !credentials.machineKey) {
       setError("Fill in this machine's id and key first.");
       return false;
     }
     urlRef.current = url;
     credentialsRef.current = credentials;
+    const mine = ++attempt.current;
+    let captured: MediaStream | null = null;
     try {
       // Electron's main process answers this with the primary screen, so no
       // picker appears. The size hints are ignored, as they are in Chrome.
@@ -49,23 +59,31 @@ export function useScreenShare(events: ShareEvents = {}) {
       // Audio is asked for here and answered as Windows loopback in main.cjs.
       // A machine that cannot produce it still shares its screen: a silent
       // session beats no session.
-      const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       const [track] = captured.getVideoTracks();
       await track.applyConstraints({
         width: DEFAULT_CAPTURE.width,
         frameRate: DEFAULT_CAPTURE.frameRate,
       });
+      if (mine !== attempt.current) {
+        captured.getTracks().forEach((t) => t.stop());
+        return false;
+      }
       track.contentHint = "motion";
       track.addEventListener("ended", () => setStream(null));
       setStream(captured);
       return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "could not capture the screen");
+      // A capture that could not be set up is never left running.
+      captured?.getTracks().forEach((t) => t.stop());
+      if (mine === attempt.current)
+        setError(cause instanceof Error ? cause.message : "could not capture the screen");
       return false;
     }
   };
 
   const stop = () => {
+    attempt.current++;
     stream?.getTracks().forEach((t) => t.stop());
     setStream(null);
   };

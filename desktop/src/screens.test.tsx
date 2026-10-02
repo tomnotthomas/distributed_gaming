@@ -411,6 +411,22 @@ describe("settings", () => {
     });
   });
 
+  it("can be saved again when saving fails, and says so", async () => {
+    const onStep = vi.fn();
+    const host: Host = {
+      view: realView(off),
+      actions: { ...actions(), saveConnection: vi.fn(async () => Promise.reject(new Error("disk full"))) },
+    };
+    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
+    const save = screen.getByRole("button", { name: "Save and start sharing" });
+    await act(async () => {
+      fireEvent.click(save);
+    });
+    expect(screen.getByText("disk full")).toBeInTheDocument();
+    expect(save).toBeEnabled();
+    expect(onStep).not.toHaveBeenCalled();
+  });
+
   it("cannot change under a live session", () => {
     renderReal("settings", session(false));
     expect(screen.getByLabelText("Machine key")).toBeDisabled();

@@ -12,18 +12,23 @@ const {
   Menu,
   nativeImage,
   powerMonitor,
+  protocol,
   safeStorage,
   screen,
   session,
   shell,
   Tray,
+  webContents,
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readPc } = require("./pc.cjs");
+const { readPc, readSteamArt, steamRootOnce } = require("./pc.cjs");
 
 const INDEX = path.join(__dirname, "dist", "index.html");
+// Each window gets only its own calls: the app window its preload, the tray
+// glance one that can show a snapshot and send back a named action, nothing else.
 const PRELOAD = path.join(__dirname, "preload.cjs");
+const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
@@ -35,7 +40,11 @@ const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
 // all, and the owner pastes it again next launch.
 const keyFile = () => path.join(app.getPath("userData"), "machine-key.bin");
 
-ipcMain.handle("machine-key:load", () => {
+/** Whether an IPC call came from the app window: every call but the tray's must. */
+const fromApp = (event) => win !== null && event.sender === win.webContents;
+
+ipcMain.handle("machine-key:load", (event) => {
+  if (!fromApp(event)) return "";
   try {
     if (!safeStorage.isEncryptionAvailable()) return "";
     return safeStorage.decryptString(fs.readFileSync(keyFile()));
@@ -44,8 +53,8 @@ ipcMain.handle("machine-key:load", () => {
   }
 });
 
-ipcMain.handle("machine-key:save", (_event, key) => {
-  if (!safeStorage.isEncryptionAvailable()) return false;
+ipcMain.handle("machine-key:save", (event, key) => {
+  if (!fromApp(event) || !safeStorage.isEncryptionAvailable()) return false;
   if (!key) {
     fs.rmSync(keyFile(), { force: true });
     return true;
@@ -55,11 +64,15 @@ ipcMain.handle("machine-key:save", (_event, key) => {
 });
 
 // What the app can read about this PC: its parts and its installed Steam games.
-ipcMain.handle("pc:read", () => readPc({ app, screen }));
+ipcMain.handle("pc:read", (event) => (fromApp(event) ? readPc({ app, screen }) : null));
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.
-ipcMain.handle("pc:idle", () => powerMonitor.getSystemIdleTime());
+ipcMain.handle("pc:idle", (event) => (fromApp(event) ? powerMonitor.getSystemIdleTime() : null));
+
+// Game art, from the copy Steam keeps on this PC (pc.cjs): the windows load no
+// remote content. Registered before the app is ready, as Electron requires.
+protocol.registerSchemesAsPrivileged([{ scheme: "swiff-art", privileges: { standard: true, secure: true } }]);
 
 // Chrome hides local IPs behind random `<uuid>.local` names, which the renter
 // must resolve over mDNS. Windows-to-macOS that often fails, and most home
@@ -191,7 +204,7 @@ function toggleGlance() {
       skipTaskbar: true,
       alwaysOnTop: true,
       backgroundColor: "#e8e9e8",
-      webPreferences: { preload: PRELOAD },
+      webPreferences: { preload: TRAY_PRELOAD },
     });
     guardNavigation(glance.webContents);
     glance.loadFile(INDEX, { query: query({ view: "tray" }) });
@@ -219,7 +232,7 @@ function createTray() {
 }
 
 ipcMain.on("glance:set", (event, snapshot) => {
-  if (!win || event.sender !== win.webContents) return;
+  if (!fromApp(event)) return;
   try {
     if (!snapshot || typeof snapshot !== "object") return;
     if (JSON.stringify(snapshot).length > MAX_GLANCE_BYTES) return;
@@ -247,8 +260,18 @@ ipcMain.on("tray:action", (event, action) => {
 app.whenReady().then(() => {
   // Hand back the primary screen without showing a picker. `getDisplayMedia`
   // in the renderer resolves straight to it.
+  protocol.handle("swiff-art", async (request) => {
+    const art = await readSteamArt(request.url, await steamRootOnce());
+    return art
+      ? new Response(art, { headers: { "content-type": "image/jpeg", "cache-control": "max-age=3600" } })
+      : new Response(null, { status: 404 });
+  });
+
   session.defaultSession.setDisplayMediaRequestHandler(
     (request, callback) => {
+      // Only the app window shares the screen; the tray glance never can.
+      const from = request.frame ? webContents.fromFrame(request.frame) : undefined;
+      if (!win || from !== win.webContents) return callback({});
       desktopCapturer
         .getSources({ types: ["screen"] })
         .then((sources) => {

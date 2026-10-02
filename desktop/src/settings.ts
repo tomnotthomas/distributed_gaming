@@ -61,6 +61,30 @@ export function toSocketUrl(input: string): string {
   return `wss://${trimmed}`;
 }
 
+/** Hosts an unencrypted address may name: this PC itself, where nothing crosses the network. */
+const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+/**
+ * Why the app will not connect to `url` (a toSocketUrl result), or null when
+ * it may. The machine key travels in the first message, so anything but this
+ * PC itself must be encrypted (wss://, from https:// or a bare address).
+ */
+export function refusedAddress(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "That signaling server address is not valid.";
+  }
+  if (parsed.protocol === "wss:") return null;
+  if (parsed.protocol === "ws:") {
+    return LOOPBACK.test(parsed.hostname)
+      ? null
+      : "Use an https:// or wss:// address. Over http:// or ws:// this PC's key would cross the network unencrypted.";
+  }
+  return "That signaling server address is not valid.";
+}
+
 // What the app keeps on this PC: whether the owner has been through the first
 // run, and today's session count.
 const SETUP_KEY = "swiff.setupDone";

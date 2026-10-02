@@ -132,8 +132,8 @@ test.describe("Swiff Host desktop app", () => {
 
     // The key is a credential for this machine's room: the renderer may ask
     // main to store and return it. Besides that it may read what the PC is
-    // and how long since its keyboard was used, and pass the tray glance its
-    // snapshot and actions. No other door into main.
+    // and how long since its keyboard was used, send the tray glance its
+    // snapshot and hear the glance's actions. No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -145,10 +145,48 @@ test.describe("Swiff Host desktop app", () => {
       readPc: "function",
       secondsSinceInput: "function",
       setGlance: "function",
-      onGlance: "function",
-      trayAction: "function",
       onTrayAction: "function",
     });
+  });
+
+  test("gives the tray glance only its two calls, and no screen", async () => {
+    // A window on the tray glance's preload, as main opens it from the tray
+    // icon (an OS tray cannot be clicked from here).
+    const opened = app.waitForEvent("window");
+    const id = await app.evaluate(
+      ({ BrowserWindow }, files) => {
+        const glance = new BrowserWindow({ show: false, webPreferences: { preload: files.preload } });
+        void glance.loadFile(files.index, { query: { view: "tray" } });
+        return glance.id;
+      },
+      { preload: resolve(DESKTOP_DIR, "tray-preload.cjs"), index: DESKTOP_BUNDLE },
+    );
+    const glance = await opened;
+    await glance.waitForLoadState("domcontentloaded");
+
+    const exposed = await glance.evaluate(() => {
+      const g = globalThis as { swiffTray?: Record<string, unknown>; swiffHost?: unknown };
+      return {
+        tray: Object.fromEntries(Object.entries(g.swiffTray ?? {}).map(([k, v]) => [k, typeof v])),
+        host: typeof g.swiffHost,
+      };
+    });
+    expect(exposed).toEqual({ tray: { onGlance: "function", trayAction: "function" }, host: "undefined" });
+
+    // Only the app window may share the screen.
+    const capture = await glance.evaluate(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        stream.getTracks().forEach((t) => t.stop());
+        return "captured";
+      } catch {
+        return "refused";
+      }
+    });
+    expect(capture).toBe("refused");
+
+    await app.evaluate(({ BrowserWindow }, windowId) => BrowserWindow.fromId(windowId)?.destroy(), id);
+    await expect.poll(() => app.windows().length).toBe(1);
   });
 
   test("reads this PC's parts", async () => {

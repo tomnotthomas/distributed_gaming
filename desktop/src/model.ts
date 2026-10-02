@@ -352,15 +352,7 @@ export function glanceOf(view: HostView): Glance {
   }
 }
 
-// --- game art -------------------------------------------------------------------
-
-const STEAM_ART = "https://cdn.cloudflare.steamstatic.com/steam/apps";
-
-/** A game's key art, and the store header under it where a game has none. */
-export const art = (appid: number) => ({
-  image: `${STEAM_ART}/${appid}/library_hero.jpg`,
-  fallback: `${STEAM_ART}/${appid}/header.jpg`,
-});
+// --- links ----------------------------------------------------------------------
 
 /** Where Steam installs a game the owner does not have. */
 export const installUrl = (appid: number) => `steam://install/${appid}`;

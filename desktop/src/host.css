@@ -3,8 +3,8 @@
    instrument plate, and a supporting zone under it. Colour comes in three
    restrained ways: lime as a mark, an olive family for standing and progress,
    and full-colour art where a game is the subject. A muted brick is for costs
-   alone. Colours live here rather than in @swiff/ui, as the renter app's do. */
-@import url("https://fonts.googleapis.com/css2?family=Michroma&family=Outfit:wght@200;300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+   alone. Its fonts are bundled (main.tsx) and its art is local (ui/art.ts):
+   the window loads no remote content. */
 
 html,
 body {
@@ -1213,6 +1213,8 @@ button.gtile:hover .rad {
 /* streaming: the game takes the stage, the instrument on glass over it */
 .hstage {
   position: relative;
+  /* Dark under the art, so the white type holds where this PC has no picture of the game. */
+  background: #3f4040;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   height: 580px;
@@ -1629,4 +1631,21 @@ button.gtile:hover .rad {
 .hx .art {
   position: absolute;
   inset: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+/* A slow pan and zoom over the still, from scaled up so the edges never show. */
+@media (prefers-reduced-motion: no-preference) {
+  .hx .art.drift {
+    animation: art-drift 40s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+}
+@keyframes art-drift {
+  from {
+    transform: scale(1.06) translate3d(-1.2%, 0.6%, 0);
+  }
+  to {
+    transform: scale(1.12) translate3d(1.2%, -0.6%, 0);
+  }
 }

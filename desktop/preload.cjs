@@ -5,8 +5,10 @@
 //                                     OS (safeStorage: DPAPI on Windows)
 //   readPc                            the PC's parts and installed Steam games
 //   secondsSinceInput                 how long since the keyboard or mouse was used
-//   setGlance / onGlance              the tray glance's snapshot, main window → tray
-//   trayAction / onTrayAction         a named action from the tray glance → main window
+//   setGlance                         the tray glance's snapshot, to the tray
+//   onTrayAction                      a named action the tray glance sends back
+//
+// The tray glance has its own, smaller preload (tray-preload.cjs).
 
 const { contextBridge, ipcRenderer } = require("electron");
 
@@ -23,10 +25,5 @@ contextBridge.exposeInMainWorld("swiffHost", {
   readPc: () => ipcRenderer.invoke("pc:read"),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
-  onGlance: (listener) => {
-    void ipcRenderer.invoke("glance:get").then((glance) => glance && listener(glance));
-    return subscribe("glance", listener);
-  },
-  trayAction: (action) => ipcRenderer.send("tray:action", String(action)),
   onTrayAction: (listener) => subscribe("tray:action", listener),
 });

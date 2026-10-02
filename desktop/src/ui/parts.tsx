@@ -1,10 +1,10 @@
 // The small pieces every screen is built from: the instrument plate, game art,
 // game thumbnails, key-value rows and the euro figure.
 
-import type { ReactNode } from "react";
-import { Backdrop } from "@swiff/ui";
+import { useContext, type CSSProperties, type ReactNode } from "react";
 import { euros } from "../format";
-import { art, type Game } from "../model";
+import type { Game } from "../model";
+import { ArtContext } from "./art";
 
 /** A euro amount with the sign set small: €1,05. */
 export function Eur({ n, decimals = 2 }: { n: number; decimals?: number }) {
@@ -16,7 +16,10 @@ export function Eur({ n, decimals = 2 }: { n: number; decimals?: number }) {
   );
 }
 
-/** A game's art, filling its box: key art, with the store header under it. */
+/**
+ * A game's art, filling its box. `drift` lets it pan slowly, held still under
+ * reduced motion. A missing picture leaves the box's own ground showing.
+ */
 export function Art({
   appid,
   position = "60% 40%",
@@ -26,8 +29,12 @@ export function Art({
   position?: string;
   drift?: boolean;
 }) {
-  const { image, fallback } = art(appid);
-  return <Backdrop className="art" image={image} fallback={fallback} position={position} drift={drift} />;
+  const layers = useContext(ArtContext)(appid);
+  const style: CSSProperties = {
+    backgroundImage: layers.map((src) => `url("${src}")`).join(", "),
+    backgroundPosition: position,
+  };
+  return <div className={drift ? "art drift" : "art"} style={style} aria-hidden="true" />;
 }
 
 /**

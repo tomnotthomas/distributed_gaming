@@ -2,8 +2,10 @@
 // main window sends, and hands its one action back to the main window.
 
 import { useEffect, useState } from "react";
-import { bridge } from "../bridge";
+import { trayBridge } from "../bridge";
+import { demoArt } from "../demo";
 import type { Glance, TrayAction } from "../model";
+import { ArtContext, localArt } from "../ui/art";
 import type { GlyphName } from "../ui/Glyph";
 import { Art, DemoTag, Figure } from "../ui/parts";
 import { Pill } from "../ui/Pill";
@@ -69,11 +71,13 @@ export function TrayGlance({
 /** The tray window: the glance the main window last sent, until it sends the next. */
 export function TrayWindow() {
   const [glance, setGlance] = useState<Glance | null>(null);
-  useEffect(() => bridge()?.onGlance(setGlance), []);
+  useEffect(() => trayBridge()?.onGlance(setGlance), []);
   return (
     <div className="hx tray">
       {glance ? (
-        <TrayGlance glance={glance} onAction={(action) => bridge()?.trayAction(action)} />
+        <ArtContext.Provider value={glance.demo ? demoArt : localArt}>
+          <TrayGlance glance={glance} onAction={(action) => trayBridge()?.trayAction(action)} />
+        </ArtContext.Provider>
       ) : (
         <p className="glance soft">Open Swiff to start sharing.</p>
       )}

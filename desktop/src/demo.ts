@@ -5,6 +5,15 @@
 
 import type { DemandRow, Earnings, Game, Hardware, Live, Standing, Step } from "./model";
 import { MINUTE } from "./format";
+import { localArt, type ArtSource } from "./ui/art";
+import art730 from "./demo-art/730.jpg";
+import art553850 from "./demo-art/553850.jpg";
+import art1086940 from "./demo-art/1086940.jpg";
+import art1091500 from "./demo-art/1091500.jpg";
+import art1245620 from "./demo-art/1245620.jpg";
+import art1551360 from "./demo-art/1551360.jpg";
+import art1716740 from "./demo-art/1716740.jpg";
+import art2073850 from "./demo-art/2073850.jpg";
 
 /** The demo flag: `?demo=1` on the renderer's address, which main sets for --demo. */
 export const isDemo = (search: string): boolean => new URLSearchParams(search).get("demo") === "1";
@@ -42,6 +51,21 @@ export const DEMO_DEMAND: DemandRow[] = [
   { appid: 1551360, name: "Forza Horizon 5", looking: 6 },
   { appid: 1716740, name: "Starfield", looking: 3 },
 ];
+
+/** The demo games' key art, bundled with the app (from prototypes/assets). */
+const DEMO_ART: Record<number, string> = {
+  730: art730,
+  553850: art553850,
+  1086940: art1086940,
+  1091500: art1091500,
+  1245620: art1245620,
+  1551360: art1551360,
+  1716740: art1716740,
+  2073850: art2073850,
+};
+
+/** Bundled art for the demo's games; anything else as this PC's Steam keeps it. */
+export const demoArt: ArtSource = (appid) => (DEMO_ART[appid] ? [DEMO_ART[appid]] : localArt(appid));
 
 /** Players looking for a PC near Nova-01 right now. */
 export const DEMO_NEAR = 14;

@@ -71,8 +71,6 @@ function fakeBridge(idle = 600): HostBridge {
     })),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
-    onGlance: vi.fn(() => () => {}),
-    trayAction: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),
   };
 }
@@ -267,6 +265,21 @@ describe("useHost", () => {
 
     act(() => trayDo(result.current, "stop-new"));
     expect(result.current.view.live).toMatchObject({ kind: "session", stopNew: true });
+  });
+
+  it("stays offline while the client retries, until Swiff confirms the room again", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    Object.assign(share, { connection: "offline", offlineSince: NOW + 60_000, lastContact: NOW });
+    rerender();
+    // Each retry opens a socket: still offline, not "Connecting to Swiff" and back.
+    Object.assign(share, { connection: "connecting" });
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "offline", since: NOW + 60_000 });
+
+    Object.assign(share, { connection: "registered", offlineSince: null, lastContact: NOW + 90_000 });
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "waiting", registered: true });
   });
 
   it("knows the owner sat down when the keyboard is touched during a session", async () => {

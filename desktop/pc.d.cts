@@ -36,4 +36,24 @@ export function readSteamGames(options?: {
   steamPath?: string | null;
   files?: Files;
 }): SteamGame[];
+export type ArtRequest = { appid: number; kind: "hero" | "header" };
+export function findSteamRoot(options?: {
+  platform?: string;
+  env?: Record<string, string | undefined>;
+  home?: string;
+  steamPath?: string | null;
+  files?: Files;
+}): string | null;
+export function artRequest(url: string): ArtRequest | null;
+export function artCandidates(
+  root: string,
+  request: ArtRequest,
+  files?: { readdirSync(dir: string): string[] },
+): string[];
+export function readSteamArt(
+  url: string,
+  root: string | null,
+  files?: { readdirSync(dir: string): string[]; promises: { readFile(file: string): Promise<unknown> } },
+): Promise<unknown>;
+export function steamRootOnce(): Promise<string | null>;
 export function readPc(electron: { app: unknown; screen: unknown }): Promise<PcRead>;

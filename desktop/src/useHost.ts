@@ -174,7 +174,11 @@ export function useHost(): Host {
         atPc,
       };
     }
-    if (share.connection === "offline") {
+    // Offline holds while the client retries: only Swiff confirming the room ends it.
+    if (
+      share.connection === "offline" ||
+      (share.connection === "connecting" && share.offlineSince !== null)
+    ) {
       return { kind: "offline", since: share.offlineSince ?? now, lastContact: share.lastContact, until };
     }
     return { kind: "waiting", since: since ?? now, until, registered: share.connection === "registered" };

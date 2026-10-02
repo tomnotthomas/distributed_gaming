@@ -7,12 +7,11 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@swiff/ui": ["../packages/ui/src/index.ts"],
       "@swiff/rtc": ["../packages/rtc/src/index.ts"]
     },
     "baseUrl": "."
   },
-  "include": ["src", "vite.config.ts", "../packages/*/src"],
+  "include": ["src", "vite.config.ts", "../packages/rtc/src"],
   // The app build typechecks the app; tsconfig.test.json covers the tests.
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test"]
 }

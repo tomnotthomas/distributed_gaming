@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { bridge } from "./bridge";
-import { DEMO_SCREENS, type DemoScreen } from "./demo";
+import { DEMO_SCREENS, demoArt, type DemoScreen } from "./demo";
 import { clock } from "./format";
 import { glanceOf, type Host, type Step, type TrayAction } from "./model";
 import { GetPaid } from "./screens/GetPaid";
@@ -11,6 +11,7 @@ import { Games, ReadPc } from "./screens/Setup";
 import { TrayDesk } from "./screens/Tray";
 import type { ScreenProps } from "./screens/types";
 import { loadSetupDone, saveSetupDone } from "./settings";
+import { ArtContext } from "./ui/art";
 import { Rail } from "./ui/Rail";
 import { useDemoHost } from "./useDemoHost";
 import { useHost } from "./useHost";
@@ -149,26 +150,27 @@ export function DemoApp({ screen: first }: { screen: DemoScreen }) {
     </label>
   );
 
-  if (screen === "tray") {
-    return (
-      <div className="hx deskwrap">
-        <TrayDesk
-          glance={glanceOf(demo.view)}
-          clock={clock(demo.view.now)}
-          onAction={(action) => (action === "open" ? jump("streaming") : trayDo(demo, action))}
-        />
-        <div className="desk-pick">{picker}</div>
-      </div>
-    );
-  }
   return (
-    <Shell
-      host={demo}
-      step={demo.step}
-      onStep={demo.setStep}
-      setupDone={demo.setupDone}
-      finishSetup={() => demo.setStep("live")}
-      foot={picker}
-    />
+    <ArtContext.Provider value={demoArt}>
+      {screen === "tray" ? (
+        <div className="hx deskwrap">
+          <TrayDesk
+            glance={glanceOf(demo.view)}
+            clock={clock(demo.view.now)}
+            onAction={(action) => (action === "open" ? jump("streaming") : trayDo(demo, action))}
+          />
+          <div className="desk-pick">{picker}</div>
+        </div>
+      ) : (
+        <Shell
+          host={demo}
+          step={demo.step}
+          onStep={demo.setStep}
+          setupDone={demo.setupDone}
+          finishSetup={() => demo.setStep("live")}
+          foot={picker}
+        />
+      )}
+    </ArtContext.Provider>
   );
 }

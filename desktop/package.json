@@ -13,8 +13,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/michroma": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
     "@swiff/rtc": "*",
-    "@swiff/ui": "*",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
@@ -41,6 +43,7 @@
       "main.cjs",
       "preload.cjs",
       "pc.cjs",
+      "tray-preload.cjs",
       "dist/**"
     ],
     "win": {

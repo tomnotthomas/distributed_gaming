@@ -147,27 +147,40 @@ function steamRoots(platform, env, home, steamPath = null) {
   return [path.join(home, ".steam", "steam"), path.join(home, ".local", "share", "Steam")];
 }
 
-/** The Steam games installed on this PC, by name. Empty where Steam is not installed. */
-function readSteamGames({
+/** A file's text, or null when it cannot be read. */
+const readText = (files, file) => {
+  try {
+    return files.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+};
+
+/** Steam's own install folder on this PC: the first candidate with a library list, or null. */
+function findSteamRoot({
   platform = process.platform,
   env = process.env,
   home = os.homedir(),
   steamPath = null,
   files = fs,
 } = {}) {
-  const read = (file) => {
-    try {
-      return files.readFileSync(file, "utf8");
-    } catch {
-      return null;
-    }
-  };
-  const root = steamRoots(platform, env, home, steamPath).find((dir) =>
-    read(path.join(dir, "steamapps", "libraryfolders.vdf")),
+  return (
+    steamRoots(platform, env, home, steamPath).find((dir) =>
+      readText(files, path.join(dir, "steamapps", "libraryfolders.vdf")),
+    ) ?? null
   );
+}
+
+/** The Steam games installed on this PC, by name. Empty where Steam is not installed. */
+function readSteamGames(options = {}) {
+  const files = options.files ?? fs;
+  const root = findSteamRoot(options);
   if (!root) return [];
 
-  const libraries = [root, ...libraryPaths(read(path.join(root, "steamapps", "libraryfolders.vdf")))];
+  const libraries = [
+    root,
+    ...libraryPaths(readText(files, path.join(root, "steamapps", "libraryfolders.vdf"))),
+  ];
   const seen = new Map();
   libraries: for (const library of [...new Set(libraries)].slice(0, MAX_LIBRARIES)) {
     const apps = path.join(library, "steamapps");
@@ -179,12 +192,66 @@ function readSteamGames({
     }
     for (const name of names) {
       if (seen.size >= MAX_GAMES) break libraries;
-      const game = manifestGame(read(path.join(apps, name)) ?? "");
+      const game = manifestGame(readText(files, path.join(apps, name)) ?? "");
       if (game && !seen.has(game.appid)) seen.set(game.appid, game);
     }
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// --- game art -----------------------------------------------------------------
+//
+// The app draws a game's art from the copy Steam keeps on this PC, never from
+// the network: the window loads no remote content. The renderer asks for it as
+// swiff-art://<appid>/<kind>, and main answers from Steam's library cache.
+
+const ART_FILES = { hero: "library_hero.jpg", header: "header.jpg" };
+
+/** The game and the picture a swiff-art:// address asks for, or null for anything else. */
+function artRequest(url) {
+  const match = /^swiff-art:\/\/(\d{1,10})\/(hero|header)\/?$/.exec(String(url));
+  return match ? { appid: Number(match[1]), kind: match[2] } : null;
+}
+
+/**
+ * Where Steam may keep one picture of a game in its library cache: the
+ * current layout (<appid>/, or one folder below it) before the older
+ * <appid>_<name> files. Only names built here are ever read.
+ */
+function artCandidates(root, { appid, kind }, files = fs) {
+  const cache = path.join(root, "appcache", "librarycache");
+  const dir = path.join(cache, String(appid));
+  const name = ART_FILES[kind];
+  const found = [path.join(dir, name)];
+  try {
+    for (const sub of files.readdirSync(dir).slice(0, 16)) found.push(path.join(dir, sub, name));
+  } catch {
+    // No folder for this game: only the older layout is left.
+  }
+  found.push(path.join(cache, `${appid}_${name}`));
+  return found;
+}
+
+/** The picture a swiff-art:// address asks for, as JPEG bytes, or null when this PC has none. */
+async function readSteamArt(url, root, files = fs) {
+  const request = artRequest(url);
+  if (!request || !root) return null;
+  for (const file of artCandidates(root, request, files)) {
+    try {
+      return await files.promises.readFile(file);
+    } catch {
+      // Not this one: try the next place Steam may keep it.
+    }
+  }
+  return null;
+}
+
+/** Where Steam says it is installed, asked once per launch. */
+let steamPathAsked = null;
+const steamPathOnce = () => (steamPathAsked ??= registrySteamPath());
+
+/** Steam's install folder on this PC, for game art; null where Steam is not installed. */
+const steamRootOnce = async () => findSteamRoot({ steamPath: await steamPathOnce() });
 
 /** Everything the app reads about this PC, given Electron's `app` and `screen`. */
 async function readPc({ app, screen }) {
@@ -202,7 +269,7 @@ async function readPc({ app, screen }) {
       ramGb: wholeGb(os.totalmem()),
       display: displayOf(screen.getPrimaryDisplay()),
     },
-    games: readSteamGames({ steamPath: await registrySteamPath() }),
+    games: readSteamGames({ steamPath: await steamPathOnce() }),
   };
 }
 
@@ -216,6 +283,11 @@ module.exports = {
   manifestGame,
   steamPathFromReg,
   steamRoots,
+  findSteamRoot,
   readSteamGames,
+  artRequest,
+  artCandidates,
+  readSteamArt,
+  steamRootOnce,
   readPc,
 };
