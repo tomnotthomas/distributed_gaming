@@ -153,10 +153,22 @@ describe("createHostReporter", () => {
     r.update({ name: "Nova-01", games: [730] });
     await beat();
     expect(calls.at(-1)!.body).toEqual({ games: [730] });
-    await beat();
-    expect(calls.at(-1)!.body).toEqual({ net: { rttMs: 20, jitterMs: 0, upMbps: expect.any(Number) } });
+    // The socket's round trips: three are enough for the first figures.
+    [21, 19].forEach((ms) => r.addRtt(ms));
     await beat();
     expect(calls.at(-1)!.body).toEqual({});
+    r.addRtt(26);
+    await beat();
+    expect(calls.at(-1)!.body).toEqual({ net: { rttMs: 21, jitterMs: 4.5, upMbps: expect.any(Number) } });
+    // Noise is not news; a figure that moved is.
+    [22, 20].forEach((ms) => r.addRtt(ms));
+    await beat();
+    expect(calls.at(-1)!.body).toEqual({});
+    [60, 61, 62, 60, 61, 60, 62].forEach((ms) => r.addRtt(ms));
+    await beat();
+    expect(calls.at(-1)!.body).toEqual({
+      net: { rttMs: 60, jitterMs: expect.any(Number), upMbps: expect.any(Number) },
+    });
   });
 
   it("times the upload test for the upload speed, and runs none while a player is on", async () => {
@@ -166,16 +178,35 @@ describe("createHostReporter", () => {
     r.offer(null);
     await vi.advanceTimersByTimeAsync(0);
     expect(uploads).toEqual([33.6]); // 4 MiB in a second
-    for (let i = 0; i < 3; i++) await beat();
+    [20, 20, 20].forEach((ms) => r.addRtt(ms));
+    await beat();
     expect(calls.at(-1)!.body).toEqual({ net: { rttMs: 20, jitterMs: 0, upMbps: 33.6 } });
+
+    // A round trip taken while the test fills the link is left out.
+    let release!: (res: Response) => void;
+    const answering = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url: string, init: RequestInit) => {
+      if (!url.endsWith("/upload-test")) return answering(url, init);
+      calls.push({ method: "POST", action: "upload-test", body: null, keepalive: false });
+      return new Promise<Response>((resolve) => (release = resolve));
+    });
+    now += UPLOAD_TEST_EVERY_MS;
+    await beat();
+    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(2);
+    [500, 500, 500].forEach((ms) => r.addRtt(ms));
+    release(new Response(null, { status: 204 }));
+    fetch.mockImplementation(answering);
+    await vi.advanceTimersByTimeAsync(0);
+    await beat();
+    expect(calls.at(-1)!.body).toEqual({});
 
     r.setBusy(true);
     now += UPLOAD_TEST_EVERY_MS;
     await beat();
-    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(1);
+    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(2);
     r.setBusy(false);
     await beat();
-    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(2);
+    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(3);
   });
 
   it("keeps offering until the platform has the offer, and sends a new time at once", async () => {

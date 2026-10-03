@@ -17,7 +17,9 @@
 // seconds, and a host waiting for its first renter sends nothing at all. Its
 // pong is how this side knows the socket still reaches the server: one that
 // has heard nothing for two rounds is half-open (a sleep, a NAT that forgot
-// it) and is dropped and opened again rather than waited on.
+// it) and is dropped and opened again rather than waited on. With `onRtt`, each
+// ping is also timed to its pong, the round trip to the server, and a few
+// more go out in the first seconds so the first figures come quickly.
 
 // The wire format lives with the server that relays it — one definition, so a
 // protocol change cannot land on one side only. Type-only import: nothing from
@@ -28,6 +30,8 @@ import type { SignalMessage } from "../../../server/src/protocol";
 const PING_MS = 25_000;
 /** Silence past this, with a ping out every round, is a socket that no longer reaches the server. */
 const SILENT_MS = 2 * PING_MS + 5_000;
+/** Pings sent one a second after the socket opens, for the first round trips. */
+const RTT_BURST = 3;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
 
@@ -38,6 +42,8 @@ export type SignalingOptions = {
   onOpen: (send: (msg: SignalMessage) => void) => void;
   onMessage: (msg: SignalMessage, send: (msg: SignalMessage) => void) => void;
   onStatus?: (status: "connecting" | "open" | "closed") => void;
+  /** Each ping's round trip to the server, in ms. */
+  onRtt?: (ms: number) => void;
 };
 
 export type Signaling = {
@@ -45,9 +51,12 @@ export type Signaling = {
   close: () => void;
 };
 
-export function connectSignaling({ url, onOpen, onMessage, onStatus }: SignalingOptions): Signaling {
+export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: SignalingOptions): Signaling {
   let socket: WebSocket | null = null;
   let pingTimer: number | undefined;
+  let burstTimers: number[] = [];
+  /** When the ping awaiting its pong went out. One is timed at a time, so each pong is matched. */
+  let pingAt: number | null = null;
   let retryTimer: number | undefined;
   let backoff = BACKOFF_MIN_MS;
   let closedByUs = false;
@@ -55,6 +64,19 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
 
   const send = (msg: SignalMessage) => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+  };
+
+  const ping = () => {
+    if (onRtt && pingAt === null) pingAt = performance.now();
+    send({ type: "ping" });
+  };
+
+  /** Stop pinging the socket that was open. */
+  const stopPinging = () => {
+    window.clearInterval(pingTimer);
+    burstTimers.forEach((timer) => window.clearTimeout(timer));
+    burstTimers = [];
+    pingAt = null;
   };
 
   const open = () => {
@@ -69,8 +91,11 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
       onOpen(send);
       pingTimer = window.setInterval(() => {
         if (Date.now() - heardAt > SILENT_MS) return drop();
-        send({ type: "ping" });
+        ping();
       }, PING_MS);
+      if (onRtt) {
+        for (let i = 1; i <= RTT_BURST; i++) burstTimers.push(window.setTimeout(ping, i * 1_000));
+      }
     };
 
     socket.onmessage = (event) => {
@@ -81,7 +106,11 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
       } catch {
         return;
       }
-      if (msg.type === "pong") return;
+      if (msg.type === "pong") {
+        if (pingAt !== null) onRtt?.(performance.now() - pingAt);
+        pingAt = null;
+        return;
+      }
       if (msg.type === "denied") denied = true;
       onMessage(msg, send);
     };
@@ -91,7 +120,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
 
   /** The socket is gone: try again after the backoff, unless it was closed or refused for good. */
   const closed = () => {
-    window.clearInterval(pingTimer);
+    stopPinging();
     onStatus?.("closed");
     if (closedByUs || denied) return;
     retryTimer = window.setTimeout(open, backoff);
@@ -113,7 +142,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus }: Signaling
     send,
     close: () => {
       closedByUs = true;
-      window.clearInterval(pingTimer);
+      stopPinging();
       window.clearTimeout(retryTimer);
       socket?.close();
     },

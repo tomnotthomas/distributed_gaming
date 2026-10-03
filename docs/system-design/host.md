@@ -209,7 +209,8 @@ one, `net` once its figures move, and nothing more on a plain heartbeat. A body 
 
 The host app reads the hardware once per launch, in one PowerShell run (`desktop/probe.cjs`);
 the section is sent only once all seven fields are read. `rttMs` is the median round trip
-of the last minute's heartbeats and `jitterMs` their mean change from one to the next;
+of the signaling socket's latest pings (one a second for the first three, then every 25 s;
+the server answers them from memory) and `jitterMs` their mean change from one to the next;
 `upMbps` is timed from an upload test when the PC goes live and every 30 minutes after,
 never while a player is on.
 

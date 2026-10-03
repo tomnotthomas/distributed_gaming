@@ -213,6 +213,12 @@ describe("useHost", () => {
     await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
     expect(reports().at(-1)).toMatchObject({ method: "POST", body: { games: [1245620] } });
 
+    // Round trips on the signaling socket, with the upload test, make the net figures.
+    act(() => [12, 14, 13].forEach((ms) => events.onRtt?.(ms)));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(reports().at(-1)!.body).toMatchObject({ net: { rttMs: 13, jitterMs: 1.5 } });
+    expect(result.current.view.pc.hardware?.upMbps).toBeGreaterThan(0);
+
     // A new share-until time is sent at once.
     act(() => result.current.actions.setUntil(null));
     await settle();
