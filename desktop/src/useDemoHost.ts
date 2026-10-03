@@ -110,6 +110,8 @@ export function useDemoHost(screen: DemoScreen): Host & {
                 until: s.live.until,
                 claim: s.live.claim,
                 playerHere: true,
+                step: null,
+                graceUntil: null,
                 stopNew: false,
                 notify: false,
                 atPc: true,

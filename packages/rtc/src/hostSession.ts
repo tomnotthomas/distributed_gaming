@@ -400,15 +400,15 @@ export function startHostSession(opts: HostSessionOptions): HostSession {
 const FRAME_POLL_MS = 250;
 
 /** A session call the server answered with something other than success. Carries the status alone. */
-class SessionRefused extends Error {
+export class SessionRefused extends Error {
   readonly status: number;
-  constructor(call: "start" | "end", status: number) {
+  constructor(call: "start" | "end" | "arrived", status: number) {
     super(`session ${call} answered ${status}`);
     this.status = status;
   }
 }
 
-type MachineAuth = { url: string; hostId: string; machineKey: string };
+export type MachineAuth = { url: string; hostId: string; machineKey: string };
 
 /** The signaling server's own HTTP origin: `wss://x` → `https://x`. */
 export function httpOrigin(url: string): string {
@@ -445,11 +445,11 @@ async function sessionFetch(url: string, init: RequestInit): Promise<Response> {
  * End claimed platform session `sessionId` on this machine, before it was ever
  * served (POST /api/sessions/:id/end). A session already over (409) is ended.
  */
-async function endClaimed({
+export async function endClaimed({
   url,
   machineKey,
   sessionId,
-}: MachineAuth & { sessionId: string }): Promise<void> {
+}: Omit<MachineAuth, "hostId"> & { sessionId: string }): Promise<void> {
   const res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
     method: "POST",
     headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
@@ -458,8 +458,26 @@ async function endClaimed({
   if (res.status !== 200 && res.status !== 409) throw new SessionRefused("end", res.status);
 }
 
+/**
+ * Mark claimed platform session `sessionId` started: the renter arrived and the
+ * stream is up (POST /api/sessions/:id/start). A session already over (409)
+ * throws, as any other refusal does, with the status alone.
+ */
+export async function startClaimed({
+  url,
+  machineKey,
+  sessionId,
+}: Omit<MachineAuth, "hostId"> & { sessionId: string }): Promise<void> {
+  const res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/start`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
+    body: "{}",
+  });
+  if (res.status !== 200) throw new SessionRefused("arrived", res.status);
+}
+
 /** End this machine's live host session, if any. Throws with the status alone when refused. */
-async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<void> {
+export async function endSession({ url, hostId, machineKey }: MachineAuth): Promise<void> {
   const res = await sessionFetch(sessionRoute(url, hostId), {
     method: "DELETE",
     headers: { authorization: `Bearer ${machineKey}` },

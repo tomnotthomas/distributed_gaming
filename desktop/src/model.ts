@@ -9,7 +9,8 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
-import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
+import { clock, euros, HOUR, inLabel, MINUTE, mmss } from "./format";
+import type { HandoffStep } from "./handoff";
 
 export type Game = SteamGame;
 
@@ -131,13 +132,20 @@ export type Live =
   | { kind: "starting" }
   /** Sharing, no player yet. `registered` once Swiff has confirmed the room. */
   | { kind: "waiting"; since: number; until: number | null; registered: boolean }
-  /** A player's session. `atPc`: someone is using this PC's keyboard or mouse. */
+  /**
+   * A player's session. `atPc`: someone is using this PC's keyboard or mouse.
+   * `step`: how far the handoff to the player has come (handoff.ts), null on
+   * demo data; `graceUntil`: when a player who dropped runs out of time to
+   * come back.
+   */
   | {
       kind: "session";
       since: number;
       until: number | null;
       claim: Claim;
       playerHere: boolean;
+      step: HandoffStep | null;
+      graceUntil: number | null;
       stopNew: boolean;
       notify: boolean;
       atPc: boolean;
@@ -281,6 +289,45 @@ export function liveScreen(live: Live): LiveScreen {
       return "paused";
     case "offline":
       return "offline";
+  }
+}
+
+/**
+ * Where a player's session stands, for the session screen: a line for its
+ * head, and a word or two for its facts. On demo data, which has no step,
+ * only whether the player is here.
+ */
+export function sessionStatus(
+  live: Extract<Live, { kind: "session" }>,
+  machine: string,
+  now: number,
+): { line: string; short: string } {
+  const game = live.claim.name;
+  switch (live.step) {
+    case "starting":
+      return { line: `A player claimed ${machine}`, short: "Claimed" };
+    case "logging-on":
+      return { line: "Signing in the player's Windows account", short: "Signing in" };
+    case "launching":
+      return { line: "Starting the stream", short: "Starting" };
+    case "waiting-player":
+      return { line: "Waiting for the player to join", short: "Joining" };
+    case "connecting":
+      return { line: "The player is connecting", short: "Connecting" };
+    case "launching-game":
+      return { line: `Starting ${game}`, short: "Starting the game" };
+    case "game-started":
+      return { line: `${game} started: a player is streaming`, short: "Game started" };
+    case "grace": {
+      const left = mmss((live.graceUntil ?? now) - now);
+      return { line: `The player dropped and has ${left} to come back`, short: `Away, ${left} left` };
+    }
+    case "ending":
+      return { line: `Giving ${machine} back to you`, short: "Ending" };
+    default:
+      return live.playerHere
+        ? { line: "A player is streaming", short: "Connected" }
+        : { line: `A player claimed ${machine}`, short: "Joining" };
   }
 }
 

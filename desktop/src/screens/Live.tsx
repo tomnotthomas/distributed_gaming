@@ -10,6 +10,7 @@ import {
   GRACE_MS,
   levelProgress,
   sessionEarned,
+  sessionStatus,
   type HostView,
   type Live,
 } from "../model";
@@ -158,6 +159,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
   const played = Math.min(claim.minutes, Math.max(0, Math.floor((now - claim.at) / MINUTE)));
   const earned = sessionEarned(claim, now);
   const toward = standing ? levelProgress(standing.reliableHours) : null;
+  const status = sessionStatus(live, view.machine, now);
 
   return (
     <main className="step streaming">
@@ -167,7 +169,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
         <div className="sl">
           <p className="mono">
             <span className="live" />
-            {live.playerHere ? "A player is streaming" : `A player claimed ${view.machine}`}
+            {status.line}
           </p>
           <h1 className="gname">{claim.name}</h1>
           {earned !== null ? (
@@ -230,7 +232,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
           ) : (
             <div>
               <dt className="mono">Player</dt>
-              <dd>{live.playerHere ? "Connected" : "Joining"}</dd>
+              <dd>{status.short}</dd>
             </div>
           )}
         </dl>

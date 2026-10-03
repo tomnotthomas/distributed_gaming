@@ -10,6 +10,7 @@ import {
   nextAt,
   reliabilityFactor,
   sessionEarned,
+  sessionStatus,
   untilChoices,
   untilSentence,
   type Claim,
@@ -131,6 +132,8 @@ describe("sessions", () => {
       until: null,
       claim: CLAIM,
       playerHere: true,
+      step: null,
+      graceUntil: null,
       stopNew: false,
       notify: false,
       atPc,
@@ -166,6 +169,8 @@ describe("the tray glance", () => {
         until: null,
         claim: { ...CLAIM, rate: null },
         playerHere: true,
+        step: null,
+        graceUntil: null,
         stopNew: true,
         notify: false,
         atPc: false,
@@ -190,5 +195,41 @@ describe("format", () => {
     expect(shortGpu("NVIDIA GeForce RTX 4080")).toBe("RTX 4080");
     expect(shortGpu("AMD Radeon RX 7900 XTX")).toBe("Radeon RX 7900 XTX");
     expect(shortGpu("Apple M2")).toBe("Apple M2");
+  });
+});
+
+describe("a session's status", () => {
+  const live = (step: Extract<Live, { kind: "session" }>["step"], extra = {}) =>
+    ({
+      kind: "session",
+      since: 0,
+      until: null,
+      claim: { appid: 730, name: "Counter-Strike 2", minutes: 45, at: 0, rate: null },
+      playerHere: false,
+      step,
+      graceUntil: null,
+      stopNew: false,
+      notify: false,
+      atPc: false,
+      ...extra,
+    }) as Extract<Live, { kind: "session" }>;
+
+  it("says how far the handoff has come", () => {
+    expect(sessionStatus(live("logging-on"), "Nova", 0).line).toBe("Signing in the player's Windows account");
+    expect(sessionStatus(live("launching-game"), "Nova", 0).line).toBe("Starting Counter-Strike 2");
+    expect(sessionStatus(live("game-started"), "Nova", 0).short).toBe("Game started");
+    expect(sessionStatus(live("ending"), "Nova", 0).line).toBe("Giving Nova back to you");
+  });
+
+  it("counts down the grace of a player who dropped", () => {
+    expect(sessionStatus(live("grace", { graceUntil: 102_000 }), "Nova", 0)).toEqual({
+      line: "The player dropped and has 1:42 to come back",
+      short: "Away, 1:42 left",
+    });
+  });
+
+  it("says only whether the player is here on demo data", () => {
+    expect(sessionStatus(live(null, { playerHere: true }), "Nova", 0).line).toBe("A player is streaming");
+    expect(sessionStatus(live(null), "Nova", 0).line).toBe("A player claimed Nova");
   });
 });

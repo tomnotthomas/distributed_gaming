@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PcRead, SteamGame } from "../pc.cjs";
 import type { HostBridge } from "./bridge";
 import { untilChoices } from "./model";
-import type { ShareEvents } from "./useScreenShare";
+import type { ShareEvents } from "./useSharing";
 
 type Share = {
-  stream: MediaStream | null;
-  pc: RTCPeerConnection | null;
+  live: boolean;
+  run: number;
+  step: string | null;
+  graceUntil: number | null;
   peerHere: boolean;
   claim: { sessionId: string; appid: number; minutes: number; at: number } | null;
   connection: "connecting" | "registered" | "offline" | null;
@@ -29,8 +31,8 @@ let gamesChanged: ((games: SteamGame[]) => void) | null = null;
 /** Every Host API call the app made: method, path and parsed body. */
 let calls: { method: string; path: string; body: Record<string, unknown> | null; keepalive: boolean }[] = [];
 
-vi.mock("./useScreenShare", () => ({
-  useScreenShare: (e: ShareEvents) => {
+vi.mock("./useSharing", () => ({
+  useSharing: (e: ShareEvents) => {
     events = e;
     return share;
   },
@@ -39,13 +41,14 @@ vi.mock("./useScreenShare", () => ({
 const { useHost } = await import("./useHost");
 const { trayDo } = await import("./App");
 
-const STREAM = {} as MediaStream;
 const NOW = new Date(2026, 8, 24, 21, 0).getTime();
 
 function resetShare() {
   Object.assign(share, {
-    stream: null,
-    pc: null,
+    live: false,
+    run: 0,
+    step: null,
+    graceUntil: null,
     peerHere: false,
     claim: null,
     connection: null,
@@ -53,11 +56,13 @@ function resetShare() {
     offlineSince: null,
     error: null,
     start: vi.fn(async () => {
-      share.stream = STREAM;
+      share.live = true;
+      share.run += 1;
       return true;
     }),
     stop: vi.fn(() => {
-      share.stream = null;
+      share.live = false;
+      share.run = 0;
     }),
     restart: vi.fn(async () => true),
   });
@@ -94,6 +99,11 @@ function fakeBridge(idle = 600): HostBridge {
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),
+    sessionLogon: vi.fn(async () => {}),
+    sessionLaunch: vi.fn(async () => {}),
+    sessionSend: vi.fn(async () => {}),
+    sessionEnd: vi.fn(async () => {}),
+    onSessionEvent: vi.fn(() => () => {}),
   };
 }
 

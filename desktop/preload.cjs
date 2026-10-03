@@ -8,6 +8,10 @@
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
+//   sessionLogon / sessionLaunch      a renter's session (session-host.cjs): sign
+//   sessionSend / sessionEnd          the renter in, start this app's streamer with
+//   onSessionEvent                    a session key, tell it what next, give the PC
+//                                     back; and what the streamer reports
 //
 // The tray glance has its own, smaller preload (tray-preload.cjs).
 
@@ -28,4 +32,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
+  sessionLogon: () => ipcRenderer.invoke("session:logon"),
+  sessionLaunch: (init) => ipcRenderer.invoke("session:launch", init),
+  sessionSend: (command) => ipcRenderer.invoke("session:send", command),
+  sessionEnd: () => ipcRenderer.invoke("session:end"),
+  onSessionEvent: (listener) => subscribe("session:event", listener),
 });

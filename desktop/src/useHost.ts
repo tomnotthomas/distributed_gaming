@@ -19,7 +19,7 @@ import {
   saveUrl,
   toSocketUrl,
 } from "./settings";
-import { useScreenShare } from "./useScreenShare";
+import { useSharing } from "./useSharing";
 
 /** How often the clock on the screens moves. Every figure on them is in whole minutes. */
 const TICK_MS = 5_000;
@@ -111,7 +111,7 @@ export function useHost(): Host {
   // A claim for a game not offered is turned down, unless the games are not read yet.
   const offeredNow = useRef(offered);
   offeredNow.current = offered;
-  const share = useScreenShare({
+  const share = useSharing({
     acceptClaim: (claim) => offeredNow.current?.includes(claim.appid) ?? true,
     onRtt: (ms) => reporter.current?.addRtt(ms),
     onClaimRefused: (claim) => {
@@ -137,10 +137,10 @@ export function useHost(): Host {
   });
   after.current = { stopNew, notify, until, machine, stop: share.stop };
 
-  // Sharing started, or stopped on its own (a refused key, a closed capture).
+  // Sharing started, or stopped on its own (a refused key).
   useEffect(() => {
-    setSince(share.stream ? Date.now() : null);
-  }, [share.stream]);
+    setSince(share.live ? Date.now() : null);
+  }, [share.run]);
 
   // Count each claim once, on the day it came.
   const claimId = share.claim?.sessionId;
@@ -152,7 +152,7 @@ export function useHost(): Host {
 
   // The share-until time: no new claims after it. A running session is left to end.
   useEffect(() => {
-    if (!share.stream || until === null || now < until || share.claim) return;
+    if (!share.live || until === null || now < until || share.claim) return;
     share.stop();
     setNote(`Sharing stopped at ${clock(until)}, as you chose.`);
   }, [now, until, share]);
@@ -169,7 +169,7 @@ export function useHost(): Host {
   // Sharing is the offer: from the capture starting to it stopping, for
   // whatever reason (paused, past the share-until time, refused, ended).
   useEffect(() => {
-    if (!share.stream || !sharedWith.current) return;
+    if (!share.live || !sharedWith.current) return;
     const mine = createHostReporter(sharedWith.current, {
       report: latest.current.report,
       onUpload: setUpMbps,
@@ -181,7 +181,7 @@ export function useHost(): Host {
       reporter.current = null;
       withdrawn.current = mine.withdraw();
     };
-  }, [share.stream]);
+  }, [share.run]);
   useEffect(() => reporter.current?.update(report), [report]);
   useEffect(() => reporter.current?.setUntil(until), [until]);
   useEffect(() => reporter.current?.setBusy(Boolean(claimId)), [claimId]);
@@ -214,8 +214,8 @@ export function useHost(): Host {
       setNote(`${clock(end)} has passed. Choose a later time.`);
       return;
     }
-    // Starting again (new settings while offline) replaces the capture rather than adding one.
-    if (share.stream) share.stop();
+    // Starting again (new settings while offline) replaces the room's holder rather than adding one.
+    if (share.live) share.stop();
     setStarting(true);
     setNote(null);
     setStopNew(false);
@@ -235,7 +235,7 @@ export function useHost(): Host {
 
   const live = ((): Live => {
     if (pausedAt !== null) return { kind: "paused", at: pausedAt };
-    if (!share.stream) return starting ? { kind: "starting" } : { kind: "off", note };
+    if (!share.live) return starting ? { kind: "starting" } : { kind: "off", note };
     if (share.claim) {
       const { appid, minutes, at } = share.claim;
       const name = installed.find((g) => g.appid === appid)?.name ?? `Steam app ${appid}`;
@@ -245,6 +245,8 @@ export function useHost(): Host {
         until,
         claim: { appid, name, minutes, at, rate: null },
         playerHere: share.peerHere,
+        step: share.step,
+        graceUntil: share.graceUntil,
         stopNew,
         notify,
         atPc,
@@ -273,7 +275,7 @@ export function useHost(): Host {
     live,
     plan,
     sessionsToday,
-    connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
+    connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: null },
     payoutSaved: false,
   };
 

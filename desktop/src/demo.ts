@@ -150,6 +150,8 @@ export function demoState(screen: DemoScreen): DemoState {
       until: LIVE_UNTIL,
       claim: CLAIM,
       playerHere: true,
+      step: null,
+      graceUntil: null,
       stopNew: false,
       notify: false,
       atPc,

@@ -46,6 +46,9 @@
       "probe.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
+      "session-host.cjs",
+      "streamer.cjs",
+      "streamer-preload.cjs",
       "dist/**"
     ],
     "win": {

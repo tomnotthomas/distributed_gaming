@@ -6,6 +6,13 @@
     "types": ["node", "@testing-library/jest-dom"],
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "vitest.config.ts", "pc.d.cts", "tray-icon.d.cts"],
+  "include": [
+    "src",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "pc.d.cts",
+    "tray-icon.d.cts",
+    "session-host.d.cts"
+  ],
   "exclude": []
 }

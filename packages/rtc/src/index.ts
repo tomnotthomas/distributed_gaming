@@ -5,13 +5,23 @@ export type { IceInbox } from "./iceInbox";
 export { preferStereoOpus, withStereoOpus, DEFAULT_AUDIO_BITRATE } from "./opus";
 export { connectSignaling } from "./signaling";
 export type { SignalMessage, Signaling, SignalingOptions } from "./signaling";
-export { startHostSession, requestSessionKey, httpOrigin, DEFAULT_CAPTURE } from "./hostSession";
+export {
+  startHostSession,
+  requestSessionKey,
+  startClaimed,
+  endClaimed,
+  endSession,
+  httpOrigin,
+  SessionRefused,
+  DEFAULT_CAPTURE,
+} from "./hostSession";
 export type {
   CaptureSettings,
   DeniedReason,
   HostConnection,
   HostSession,
   HostSessionOptions,
+  MachineAuth,
   SessionClaim,
 } from "./hostSession";
 export { createProbeResponder, MAX_OPEN_PROBES, MAX_PROBE_MESSAGES, PROBE_MAX_MS } from "./probe";

@@ -105,6 +105,8 @@ const session = (atPc: boolean): Live => ({
   until: evening(1),
   claim: CLAIM,
   playerHere: true,
+  step: null,
+  graceUntil: null,
   stopNew: false,
   notify: false,
   atPc,

@@ -3,6 +3,14 @@
 // The single reason this app exists instead of a browser tab: Chrome makes a
 // human click "Share this screen" on the gaming PC. setDisplayMediaRequestHandler
 // answers that request in code, so a rental machine needs nobody sitting at it.
+//
+// Started with --streamer, this copy is a renter session's streamer instead
+// (streamer.cjs), and none of what follows runs.
+
+if (process.argv.includes("--streamer")) {
+  require("./streamer.cjs");
+  return;
+}
 
 const {
   app,
@@ -24,6 +32,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
+const { localHost, serviceHost, serviceInstalled } = require("./session-host.cjs");
 
 const INDEX = path.join(__dirname, "dist", "index.html");
 // Each window gets only its own calls: the app window its preload, the tray
@@ -79,6 +88,39 @@ async function watchGames() {
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.
 ipcMain.handle("pc:idle", (event) => (fromApp(event) ? powerMonitor.getSystemIdleTime() : null));
+
+// --- a renter's session ------------------------------------------------------
+//
+// The app window runs the handoff (src/handoff.ts) and holds the machine key;
+// main only starts, talks to and stops the streamer (session-host.cjs): in the
+// renter's Windows account through the session service when it is installed,
+// else as a second copy of this app here.
+
+/** How this app starts its own streamer: the executable, and the app's folder when it runs unpackaged. */
+const streamerCommandLine = () => ({
+  file: process.execPath,
+  args: app.isPackaged ? [] : [app.getAppPath()],
+});
+
+let sessionHostAsked = null;
+const sessionHostOnce = () =>
+  (sessionHostAsked ??= serviceInstalled().then((service) => {
+    const host = service ? serviceHost() : localHost({ command: streamerCommandLine() });
+    host.onEvent((event) => win?.webContents.send("session:event", event));
+    return host;
+  }));
+
+/** Handle `channel` for the app window only, with the session host. */
+function sessionCall(channel, call) {
+  ipcMain.handle(channel, async (event, arg) => {
+    if (!fromApp(event)) throw new Error("not the app window");
+    await call(await sessionHostOnce(), arg);
+  });
+}
+sessionCall("session:logon", (host) => host.logon());
+sessionCall("session:launch", (host, init) => host.launch(init));
+sessionCall("session:send", (host, command) => host.send(command));
+sessionCall("session:end", (host) => host.end());
 
 // Game art, from the copy Steam keeps on this PC (pc.cjs): the windows load no
 // remote content, asked for as swiff-art://steam/<appid>/<kind>. Registered
@@ -305,6 +347,7 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   quitting = true;
   stopWatchingGames?.();
+  // A streamer started here goes with the app: its stdin closes and it quits.
 });
 
 process.on("unhandledRejection", (cause) => {

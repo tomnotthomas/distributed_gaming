@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { StreamerCommand, StreamerEvent, StreamerInit } from "./handoff";
 import type { Glance, TrayAction } from "./model";
 
 /** The app window's calls (preload.cjs). */
@@ -14,6 +15,11 @@ export type HostBridge = {
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;
+  sessionLogon(): Promise<void>;
+  sessionLaunch(init: StreamerInit): Promise<void>;
+  sessionSend(command: StreamerCommand): Promise<void>;
+  sessionEnd(): Promise<void>;
+  onSessionEvent(listener: (event: StreamerEvent) => void): () => void;
 };
 
 /** The tray glance's calls (tray-preload.cjs): its snapshot, and one named action back. */
