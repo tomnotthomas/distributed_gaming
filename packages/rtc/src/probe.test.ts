@@ -81,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("createProbeResponder", () => {
@@ -99,6 +100,22 @@ describe("createProbeResponder", () => {
     expect(sent).toEqual([
       { type: "probe-answer", probeId: "p1", sdp: { type: "answer", sdp: "v=0 answer" } },
     ]);
+  });
+
+  it("drops an offer it cannot apply without logging any of its SDP", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bad = "a=candidate:1 1 udp 2122260223 192.0.2.7 50000 typ host";
+    vi.spyOn(FakePeer.prototype, "setRemoteDescription").mockRejectedValue(
+      new Error(`Failed to parse SessionDescription. ${bad} Invalid value.`),
+    );
+    const { probes, sent, send } = responder();
+    probes.answer(OFFER, send);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sent).toEqual([]);
+    expect(FakePeer.made[0]!.closed).toBe(true);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls.flat().map(String).join(" ")).not.toContain("192.0.2.7");
   });
 
   it("answers with the candidates it has when gathering is slow", async () => {
