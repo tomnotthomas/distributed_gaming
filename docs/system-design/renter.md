@@ -365,14 +365,23 @@ configured the server lets nobody in (`server/src/access.ts`).
   the machine goes silent or the booked time runs out), the server records the ticket
   as revoked as the end commits: a join with it is refused (`bad-ticket`), a renter
   still in the room with it is put out at once, and nothing more is relayed to or from
-  that renter. Relayed frames are checked against that in-memory record, never the
-  database. A session ended straight in the database, where no notice is sent, is
-  caught at the next join or host registration, and within 5 s for every seated
-  renter, all checked in one read. When that read fails, every seated renter keeps its
-  seat through the blip and the read is tried again 5 s later, but no seat is trusted
-  for more than 5 minutes since its ticket was last confirmed: past that, it is closed
-  without `denied`, and the renter can come back once the database answers. Any
-  successful read confirms every seat again.
+  that renter. A session ended straight in the database, where no notice is sent, is
+  caught by the next relayed frame: offers, answers and ICE candidates carry
+  addresses, so each one is forwarded only once a database read begun after it
+  arrived has found the ticket not revoked (one read answers for every frame that
+  arrived before it began, from either side of the room). While the database cannot
+  answer, those frames are held, in order, and the read is retried every second; a
+  socket with 64 frames waiting has whatever more it sends dropped, never relayed
+  unchecked, and keeps its seat. The next join or host registration catches it too,
+  and within 5 s every seated renter, all checked in one read. When that read fails,
+  every seated renter keeps its seat through the blip and the read is tried again 5 s
+  later, but no seat is trusted for more than 5 minutes since its ticket was last
+  confirmed: past that, it is closed without `denied`, and the renter can come back
+  once the database answers. Any successful read confirms every seat again.
+- **A ticket that runs out while its join waits on the database joins nothing.** The
+  expiry is checked again once the revocation read answers: an expired ticket is
+  refused (`bad-ticket`) before the room changes, so a renter already seated on it
+  keeps the seat.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.

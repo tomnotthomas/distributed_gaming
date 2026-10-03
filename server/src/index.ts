@@ -173,6 +173,10 @@ type PeerSocket = WebSocket & {
   missedBeats: number;
   /** This socket's frames and its close, handled one at a time in the order they came. */
   turn: Promise<void>;
+  /** This socket's frames received and not yet handled, the one being handled included. */
+  queued: number;
+  /** Whether a frame from this socket has been dropped for MAX_QUEUED_FRAMES, so it is logged once. */
+  dropped: boolean;
 };
 
 type Room = { host: PeerSocket | null; client: PeerSocket | null };
@@ -616,6 +620,12 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
   }
 }
 
+/**
+ * The most frames one socket may have waiting to be handled. A handshake sends
+ * a few dozen at most; only frames held for the database pile up past that.
+ */
+const MAX_QUEUED_FRAMES = 64;
+
 const server = createServer(serveStatic);
 const wss = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES });
 
@@ -629,14 +639,46 @@ function inTurn(ws: PeerSocket, work: () => Promise<void> | void): void {
 /** How long a relayed frame waits before its ticket is read again, when the database could not say. */
 const RELAY_RETRY_MS = 1_000;
 
+/** A read of whether one ticket is revoked: when it began (performance.now() ms; Infinity until it has), and its answer. */
+type TicketRead = { began: number; revoked: Promise<boolean> };
+
+const noop = () => {};
+
+/** Per ticket, the latest read asked for by a relayed frame, until it settles. */
+const ticketReads = new Map<string, TicketRead>();
+
+/**
+ * A read of whether `ticketId` is revoked that began after `arrived`
+ * (performance.now() ms). Shared: a read already begun after `arrived`, or
+ * queued and not yet begun, answers for it; otherwise a new one is queued
+ * behind the one in flight. So a burst of frames costs at most one read in
+ * flight and one queued per ticket, from either side of the room.
+ */
+function ticketReadAfter(ticketId: string, arrived: number): TicketRead {
+  const latest = ticketReads.get(ticketId);
+  if (latest && latest.began > arrived) return latest;
+  const read: TicketRead = { began: Infinity, revoked: Promise.resolve(false) };
+  const before = latest ? latest.revoked.then(noop, noop) : Promise.resolve();
+  read.revoked = before.then(() => {
+    read.began = performance.now();
+    return platform.ticketRevoked(ticketId);
+  });
+  const forget = () => {
+    if (ticketReads.get(ticketId) === read) ticketReads.delete(ticketId);
+  };
+  read.revoked.then(forget, forget);
+  ticketReads.set(ticketId, read);
+  return read;
+}
+
 /**
  * Forward `msg`, which arrived from `ws` at `arrived` (performance.now() ms),
  * verbatim to its peer. The server does not read the payload, but offers,
  * answers and ICE candidates carry addresses, so none goes to or from a renter
  * until a database read begun after the frame arrived has found the renter's
  * ticket not revoked: a ticket revoked behind the server's back is caught by
- * the next frame. One read covers every frame that arrived before it began.
- * A revoked renter is put out and the frame dropped. While the database cannot
+ * the next frame. One read covers every frame that arrived before it began,
+ * from either socket (ticketReadAfter). A revoked renter is put out and the frame dropped. While the database cannot
  * say, the frame is held, with the frames behind it, and the read retried,
  * until it can, or either side leaves the room. Never rejects.
  */
@@ -648,10 +690,10 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
   if (!ticketId) return;
   while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
     if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
-    const began = performance.now();
+    const read = ticketReadAfter(ticketId, arrived);
     try {
-      if (await platform.ticketRevoked(ticketId)) putOut(renter);
-      else confirm(renter, began);
+      if (await read.revoked) putOut(renter);
+      else confirm(renter, read.began);
     } catch (error) {
       console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
       await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
@@ -717,6 +759,8 @@ wss.on("connection", (socket) => {
   ws.sessionId = null;
   ws.missedBeats = 0;
   ws.turn = Promise.resolve();
+  ws.queued = 0;
+  ws.dropped = false;
 
   // An oversized or malformed frame surfaces here, and ws closes the socket
   // itself. Unhandled, the same error would take the whole process down.
@@ -727,10 +771,26 @@ wss.on("connection", (socket) => {
   // socket that closes mid-register is seated before it gives the seat up. A
   // socket that speaks is there the moment its frame arrives, so one held for
   // the database never costs it its heartbeat.
+  // A socket that keeps sending while its frames are held is not buffered
+  // without end: past MAX_QUEUED_FRAMES, what it sends is dropped, never
+  // relayed unchecked, and the seat is kept.
   ws.on("message", (raw) => {
     const arrived = performance.now();
     ws.missedBeats = 0;
-    inTurn(ws, () => onMessage(ws, raw, arrived));
+    if (ws.queued >= MAX_QUEUED_FRAMES) {
+      if (!ws.dropped)
+        console.error(`[swiff] ${MAX_QUEUED_FRAMES} frames waiting: dropping what a socket sends`);
+      ws.dropped = true;
+      return;
+    }
+    ws.queued += 1;
+    inTurn(ws, async () => {
+      try {
+        await onMessage(ws, raw, arrived);
+      } finally {
+        ws.queued -= 1;
+      }
+    });
   });
   ws.on("close", () => inTurn(ws, () => onClose(ws)));
 });

@@ -356,6 +356,32 @@ describe("revoked ticket without the session-end notice", () => {
   );
 
   it(
+    "holds what a socket sends while the database cannot read, in order, up to a cap, and drops the rest but not the seat",
+    { timeout: 60_000 },
+    async () => {
+      const server = await startServer(60_000);
+      const { ticket } = await server.claimTicket("pc-1");
+      const { host, renter } = await seat(server, "pc-1", ticket);
+
+      await server.breakSessions();
+      const sent = Array.from({ length: 70 }, (_, i) => `f${i}`);
+      for (const candidate of sent) renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate } }));
+      await wait(1_500);
+      assert.deepEqual(iceFrames(host.received), ["before"], "held while unconfirmed");
+
+      await server.restoreSessions();
+      await until(() => iceFrames(host.received).length > 64);
+      await wait(300);
+      assert.deepEqual(iceFrames(host.received), ["before", ...sent.slice(0, 64)], "the first 64, in order");
+      assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated");
+      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "caught-up" } }));
+      await until(() => iceFrames(host.received).length > 65);
+      assert.equal(iceFrames(host.received).at(-1), "caught-up");
+      host.ws.close();
+    },
+  );
+
+  it(
     "keeps seats through blips with a success between them, past the bound in all",
     { timeout: 60_000 },
     async () => {
