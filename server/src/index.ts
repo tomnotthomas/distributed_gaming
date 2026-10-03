@@ -98,6 +98,7 @@ const platform = new Platform({
   onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => renterEvents.bookingChanged(bookingId),
+  onAvailabilityChanged: () => renterEvents.availabilityChanged(),
 });
 // Open renter streams are capped server-wide and per signed-in renter (events.ts).
 const renterEvents = createRenterEvents(platform, {

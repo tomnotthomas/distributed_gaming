@@ -1,6 +1,7 @@
 // Every "how will this actually feel" calculation, kept pure so it can be
 // tested without a DOM. Nothing here reads state or the clock except through
-// its arguments.
+// its arguments. The demo machines are ranked here, by the same @swiff/rank the
+// server ranks real hosts with.
 
 import {
   gpuScore,
@@ -13,25 +14,53 @@ import {
   type PicturePref,
   type RankResult,
 } from "@swiff/rank";
-import type { Game, Machine, Requirements, SessionLength } from "./data";
+import type { Game, Machine, Requirements, SeedMachine, SessionLength, Spot } from "./data";
 import type { Device, Quality } from "./useSwiff";
 
 /**
- * The wall tells one evening's story, so "now" is pinned to 20:00 rather than
- * read off the clock: at 03:00 every machine would otherwise read as free all
- * night and the free-until times would stop meaning anything.
+ * The demo tells one evening's story, so its "now" is pinned to 20:00 rather
+ * than read off the clock: at 03:00 every demo machine would otherwise read as
+ * free all night and its free-until times would stop meaning anything. Real
+ * hosts are told by the real clock (clockMinutes).
  */
 export const NOW_MINUTES = 20 * 60;
+
+/** Minutes since local midnight: the real clock, as minsLeft() reads it. */
+export const clockMinutes = (at: Date = new Date()): number => at.getHours() * 60 + at.getMinutes();
+
+/** "21:30": a Unix ms time as the local clock shows it. */
+export function clockTime(ms: number): string {
+  const at = new Date(ms);
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}
 
 // "All night" has no end time to compare against, so it asks for six hours.
 const SESSION_MINUTES: Record<SessionLength, number> = { quick: 60, evening: 180, night: 6 * 60 };
 
+/** The demo's evening, 20:00 today, as Unix ms: the clock the demo pages read. */
+export const demoNow = (day: Date = new Date()): number => new Date(day).setHours(20, 0, 0, 0);
+
+/** Minutes from `now` (clock minutes) to a clock time, rolling past midnight. */
+function minsUntil(clock: string, now: number): number {
+  const [hh = 0, mm = 0] = clock.split(":").map(Number);
+  const at = hh * 60 + mm;
+  return (at < now ? at + 24 * 60 : at) - now;
+}
+
 /** Minutes until the owner wants their machine back, rolling past midnight. */
 export function minsLeft(machine: Machine, now = NOW_MINUTES): number {
   if (machine.until === "late") return 12 * 60;
-  const [hh = 0, mm = 0] = machine.until.split(":").map(Number);
-  const at = hh * 60 + mm;
-  return (at < now ? at + 24 * 60 : at) - now;
+  return minsUntil(machine.until, now);
+}
+
+/**
+ * Minutes a machine stays free from `now` (Unix ms), as the pages print it. A
+ * real host is told by its absolute free-until, so one whose offer has passed
+ * since it was read has none left rather than rolling round to tomorrow.
+ */
+export function leftAt(machine: Machine, now: number): number {
+  if (machine.untilAt !== undefined) return Math.max(0, Math.floor((machine.untilAt - now) / 60_000));
+  return minsLeft(machine, clockMinutes(new Date(now)));
 }
 
 /** "all night", "3 h 20", "45 min" — never a bare number of minutes. */
@@ -86,15 +115,15 @@ export function requirementsOf(game: Game): GameRequirements {
 /** Clock minutes as rank()'s epoch milliseconds; only differences matter. */
 const toMs = (minutes: number) => minutes * 60_000;
 
-/** Seed machines are reached directly with a steady link; only the ping differs. */
+/** Demo machines are reached directly with a steady link; only the ping differs. */
 const linkOf = (machine: Machine) => ({ rttMs: machine.ping, jitterP95Ms: 2, relayed: false });
 
 /**
- * A seed machine as a ranking candidate for one game. Every seed machine is
+ * A demo machine as a ranking candidate for one game. Every demo machine is
  * heartbeating right now, reached directly, and has the game installed if the
  * game lists it.
  */
-function candidateOf(machine: Machine, game: Game, now: number): Candidate {
+function candidateOf(machine: SeedMachine, game: Game, now: number): Candidate {
   return {
     host: {
       id: machine.id,
@@ -120,12 +149,12 @@ function candidateOf(machine: Machine, game: Game, now: number): Candidate {
 /** The machines a game lists, ranked for you by @swiff/rank. */
 export function rankFor(
   game: Game,
-  pool: Record<string, Machine>,
+  pool: Record<string, SeedMachine>,
   session: SessionLength,
   prefs: Prefs = DEFAULT_PREFS,
   now = NOW_MINUTES,
 ): RankResult {
-  const machines = game.machines.map((id) => pool[id]).filter((m): m is Machine => Boolean(m));
+  const machines = game.machines.map((id) => pool[id]).filter((m): m is SeedMachine => Boolean(m));
   const renter = {
     id: RENTER_ID,
     controls: prefs.devices,
@@ -140,15 +169,21 @@ export function rankFor(
   );
 }
 
+const isSeed = (machine: Machine): machine is SeedMachine => "encoders" in machine;
+
 /**
  * Picture and Response as 1-4, the same buckets rank() sorts on: the machine's
  * GPU against the game, its encoder and upload, and your ping. A 4090 on a 40 ms link cannot deliver a 4090
- * experience, so latency caps picture too.
+ * experience, so latency caps picture too. A real host comes scored by the
+ * server; only a demo machine is scored here.
  */
 export function meters(machine: Machine, game: Game): { picture: number; response: number } {
+  if (machine.scores) return machine.scores;
+  const response = responseScore(linkOf(machine));
+  if (!isSeed(machine)) return { picture: 2, response };
   return {
     picture: pictureScore(headroomOf(machine.gpu, requirementsOf(game)), machine, machine.ping),
-    response: responseScore(linkOf(machine)),
+    response,
   };
 }
 
@@ -169,7 +204,7 @@ export function feel(machine: Machine, game: Game): { text: string; tech: string
 /** Why the first machine is the one to pick: the sort rule that put it above the second. */
 export function reason(
   game: Game,
-  pool: Record<string, Machine>,
+  pool: Record<string, SeedMachine>,
   session: SessionLength,
   prefs: Prefs = DEFAULT_PREFS,
 ): string | undefined {
@@ -183,10 +218,10 @@ export function reason(
  */
 export function machinesFor(
   game: Game,
-  pool: Record<string, Machine>,
+  pool: Record<string, SeedMachine>,
   session: SessionLength,
   prefs: Prefs = DEFAULT_PREFS,
-): Machine[] {
+): SeedMachine[] {
   const { hosts, later } = rankFor(game, pool, session, prefs);
   return [...hosts, ...later].map((c) => pool[c.host.id]!);
 }
@@ -194,26 +229,62 @@ export function machinesFor(
 /** Free now and free for as long as you asked for. */
 export function freeFor(
   game: Game,
-  pool: Record<string, Machine>,
+  pool: Record<string, SeedMachine>,
   session: SessionLength,
   prefs: Prefs = DEFAULT_PREFS,
-): Machine[] {
+): SeedMachine[] {
   return rankFor(game, pool, session, prefs)
     .hosts.filter((h) => h.coversSession)
     .map((h) => pool[h.host.id]!);
 }
 
 /**
- * Wall order: playable first, then the ones you have played, then the rest.
- * A game with nothing free sinks but never disappears — it is still yours.
+ * One game on the demo machines, as the wall reads it: how many are ready for
+ * the session, the best of them, and, when none is, the busy one that is back
+ * soonest.
  */
-export function wallOrder(
-  games: Game[],
-  pool: Record<string, Machine>,
+export function seedSpot(
+  game: Game,
+  pool: Record<string, SeedMachine>,
   session: SessionLength,
   prefs: Prefs = DEFAULT_PREFS,
-): Game[] {
-  const free = new Map(games.map((game) => [game.id, freeFor(game, pool, session, prefs).length]));
-  const place = (game: Game) => (free.get(game.id)! > 0 ? 0 : 3) + (game.last ? 0 : game.owned ? 1 : 2);
-  return [...games].sort((a, b) => place(a) - place(b) || free.get(b.id)! - free.get(a.id)!);
+): Spot {
+  const ready = freeFor(game, pool, session, prefs);
+  const listed = machinesFor(game, pool, session, prefs);
+  const back = game.machines
+    .map((id) => pool[id])
+    .filter((m): m is SeedMachine => Boolean(m?.back))
+    .map((m) => ({ name: m.name, at: m.back!, backAt: toMs(NOW_MINUTES + minsUntil(m.back!, NOW_MINUTES)) }))
+    .sort((a, b) => a.backAt - b.backAt)[0];
+  return {
+    free: listed.filter((m) => !m.busy).length,
+    ready: ready.length,
+    busy: listed.filter((m) => m.busy).length,
+    best: ready[0] ?? null,
+    back: back ?? null,
+  };
+}
+
+/** Every game on the demo machines, by game id. */
+export function seedSpots(
+  games: Game[],
+  pool: Record<string, SeedMachine>,
+  session: SessionLength,
+  prefs: Prefs = DEFAULT_PREFS,
+): Map<string, Spot> {
+  return new Map(games.map((game) => [game.id, seedSpot(game, pool, session, prefs)]));
+}
+
+/** How many machines are ready for a game; a game nothing is known about has none. */
+export const readyFor = (spots: ReadonlyMap<string, Spot>, game: Game): number =>
+  spots.get(game.id)?.ready ?? 0;
+
+/**
+ * Wall order: playable first, then the ones you have played, then the rest.
+ * A game with nothing free sinks but never disappears — it is still yours.
+ * With nothing known about availability (signed out), only the second part counts.
+ */
+export function wallOrder(games: Game[], spots: ReadonlyMap<string, Spot>): Game[] {
+  const place = (game: Game) => (readyFor(spots, game) > 0 ? 0 : 3) + (game.last ? 0 : game.owned ? 1 : 2);
+  return [...games].sort((a, b) => place(a) - place(b) || readyFor(spots, b) - readyFor(spots, a));
 }

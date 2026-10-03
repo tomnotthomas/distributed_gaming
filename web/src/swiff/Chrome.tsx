@@ -8,8 +8,10 @@ type Props = {
   onShare: () => void;
   /** The back chevron, which only the game screen needs. */
   onBack?: () => void;
-  /** The live count in the fourth nav cell: "4 free near you". */
-  live: string;
+  /** The live count in the fourth nav cell: "4 free near you". Absent signed out, where none is shown. */
+  live?: string | undefined;
+  /** A machine just freed up: the live dot rings. */
+  freed?: boolean;
   /** Signed in: who, and how long they have tonight. Absent signed out. */
   renter?: { persona: string; session: { label: string; onCycle: () => void } };
 };
@@ -24,7 +26,7 @@ export function initials(persona: string): string {
  * The cell strip every renter screen shares: wordmark, four nav cells and the
  * paper account cell, on the same 300 / 1fr / 400 columns as the band below.
  */
-export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, renter }: Props) {
+export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed, renter }: Props) {
   return (
     <header className="bar">
       <div className="bar-brand">
@@ -55,9 +57,14 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, rente
         <button type="button" aria-current={screen === "share" ? "page" : undefined} onClick={onShare}>
           Share your PC
         </button>
-        <span className="bar-live">
-          <span className="live-dot" />
-          {live}
+        {/* The cell stays when there is no count, so the nav keeps its four columns. */}
+        <span className={freed ? "bar-live freed" : "bar-live"}>
+          {live ? (
+            <>
+              <span className="live-dot" />
+              {live}
+            </>
+          ) : null}
         </span>
       </nav>
       <div className="bar-acct">

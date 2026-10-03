@@ -1,4 +1,6 @@
-// The wall's nine hand-authored titles and the five machines behind them.
+// The wall's nine hand-authored titles, and the five invented machines the
+// demo (/?demo=1, and the tests) runs them on. Everywhere else the machines
+// are the real hosts on offer, as the server ranks them (live.ts).
 //
 // Art and trailers come straight from Steam's CDN, keyed by appid: publisher-
 // owned promotional media, which is what a real client would be showing. A
@@ -21,6 +23,7 @@ export type Game = {
   hours: number;
   owned: boolean;
   save: string;
+  /** The demo machines that have it installed. Real hosts say for themselves. */
   machines: string[];
   f2p?: boolean;
   last?: string;
@@ -49,23 +52,36 @@ export type GameMedia = {
   trailer: string | null;
 };
 
+/** A machine as the wall and the game page show it: a demo machine, or a real host. */
 export type Machine = {
   id: string;
   name: string;
-  owner: string;
+  /** Who shares it. Only the demo says; the server never tells a renter who owns a machine. */
+  owner?: string;
   gpu: string;
-  cpu: string;
+  cpu?: string;
   ping: number;
+  /** "1440p 120" — the ceiling this machine can actually deliver. */
   quality: string;
-  /** "Ultra · 1440p 120" — the ceiling this machine can actually deliver. */
-  tier: string;
   /** Clock time the owner has promised it until, or "late". */
   until: string;
+  /** A real host's free-until as Unix ms, when it is not "late"; demo machines go by `until` alone. */
+  untilAt?: number;
   busy: boolean;
+  /** Clock time a busy machine is free again. */
   back?: string;
   /** Your own PC. Never listed, recommended or matched (gate E5). */
   self?: boolean;
-  // What the host app reports, for ranking (@swiff/rank).
+  /** Picture and Response 1-4 as the server's rank() scored them for this game; demo machines are scored here. */
+  scores?: { picture: number; response: number };
+};
+
+/** A demo machine: everything the host app would report, so rank() can run on it in the page. */
+export type SeedMachine = Machine & {
+  owner: string;
+  cpu: string;
+  /** "Ultra · 1440p 120". */
+  tier: string;
   ramGb: number;
   vramGb: number;
   controls: Control[];
@@ -74,6 +90,20 @@ export type Machine = {
   priceCentsPerHour: number;
   /** The last seven days, as the server observes them. */
   history: StabilityStats;
+};
+
+/** What the wall knows about one game's machines right now. */
+export type Spot = {
+  /** Machines free right now, for however long. */
+  free: number;
+  /** Of those, the ones free for the whole session you asked for: "Ready". */
+  ready: number;
+  /** Machines that would fit but are taken. */
+  busy: number;
+  /** The best of those, the one the wall offers; null when none is. */
+  best: Machine | null;
+  /** When none is: a busy machine that comes back, the clock time it does, and that time as ms to compare by. */
+  back: { name: string; at: string; backAt: number } | null;
 };
 
 export type SessionLength = "quick" | "evening" | "night";
@@ -247,7 +277,7 @@ const STEADY: StabilityStats = {
 const OK: StabilityStats = { ...STEADY, heartbeatCoverage: 0.985, dropsPerHour: 0.2 };
 const NEW: StabilityStats = { ...STEADY, sessions: 2, offeredHours: 6 };
 
-export const MACHINES: Record<string, Machine> = {
+export const MACHINES: Record<string, SeedMachine> = {
   nova: {
     id: "nova",
     name: "Nova-01",
