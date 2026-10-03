@@ -67,6 +67,11 @@ export type Ask = { rttMs: number; controls: Control[]; picture: PicturePref };
 /** A read's answer, or why there is none: `retryAfterMs` when over budget, else a failure to try later. */
 export type Answer<T> = { ok: true; value: T } | { ok: false; retryAfterMs: number | null };
 
+/** A wall read's answer; when it fails, with the games it did read. */
+export type WallAnswer =
+  | { ok: true; value: GameAvailability[] }
+  | { ok: false; retryAfterMs: number | null; read: GameAvailability[] };
+
 /** The most appids one availability read may ask about (MAX_AVAILABILITY_APPIDS on the server). */
 export const MAX_APPIDS = 100;
 
@@ -136,7 +141,7 @@ export async function measureRtt(
 }
 
 /** Read one JSON answer, or say why there is none. */
-async function read<T>(get: typeof fetch, path: string): Promise<Answer<T>> {
+async function readJson<T>(get: typeof fetch, path: string): Promise<Answer<T>> {
   let response: Response;
   try {
     response = await get(path, { cache: "no-store" });
@@ -157,24 +162,28 @@ async function read<T>(get: typeof fetch, path: string): Promise<Answer<T>> {
 
 /**
  * Each game's availability for the renter, `MAX_APPIDS` at a time, for a
- * session of `minutes`. One part failing fails the whole read, so the wall
- * never shows half of it as fresh.
+ * session of `minutes`, skipping the games already `read` for the same
+ * question. One part failing fails the whole read, so the wall never shows
+ * half of it as fresh, but hands back the parts read so far, so a retry asks
+ * only for the rest.
  */
 export async function fetchAvailability(
   appids: number[],
   minutes: number,
   ask: Ask,
   get: typeof fetch = fetch,
-): Promise<Answer<GameAvailability[]>> {
-  const unique = [...new Set(appids)];
-  const games: GameAvailability[] = [];
+  read: GameAvailability[] = [],
+): Promise<WallAnswer> {
+  const done = new Set(read.map((g) => g.appid));
+  const unique = [...new Set(appids)].filter((appid) => !done.has(appid));
+  const games = [...read];
   for (let i = 0; i < unique.length; i += MAX_APPIDS) {
     const part = unique.slice(i, i + MAX_APPIDS);
-    const answer = await read<GameAvailability[]>(
+    const answer = await readJson<GameAvailability[]>(
       get,
       `/api/availability?appids=${part.join(",")}&minutes=${minutes}&${queryOf(ask)}`,
     );
-    if (!answer.ok) return answer;
+    if (!answer.ok) return { ...answer, read: games };
     games.push(...answer.value);
   }
   return { ok: true, value: games };
@@ -187,7 +196,7 @@ export const fetchMachines = (
   ask: Ask,
   get: typeof fetch = fetch,
 ): Promise<Answer<GameMachines>> =>
-  read<GameMachines>(get, `/api/games/${appid}/machines?minutes=${minutes}&${queryOf(ask)}`);
+  readJson<GameMachines>(get, `/api/games/${appid}/machines?minutes=${minutes}&${queryOf(ask)}`);
 
 /**
  * "late" when the owner has not said or it is twelve hours or more away, else

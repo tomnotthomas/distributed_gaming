@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "./derive";
+import { MAX_APPIDS } from "./live";
 import {
   BACKSTOP_MS,
   MIN_GAP_MS,
@@ -154,6 +155,33 @@ describe("useLive", () => {
     await flush();
     expect(api.reads()).toBe(3);
     expect(result.current.wall?.question).toBe("180|auto|kb,mouse,pad");
+  });
+
+  it("keeps the parts of a large wall already read over budget, and asks again only for the rest", async () => {
+    // Room for one part now, then one part per Retry-After.
+    let tokens = 1;
+    const asked: number[][] = [];
+    const get = vi.fn(async (path: string) => {
+      if (path.startsWith("/api/ping")) return new Response(null, { status: 204 });
+      if (!tokens) return json({}, { status: 429, headers: { "retry-after": "2" } });
+      tokens--;
+      const appids = new URL(path, "http://x").searchParams.get("appids")!.split(",").map(Number);
+      asked.push(appids);
+      return json(appids.map((appid) => ({ appid, ...NOTHING, free: 1, ready: 1 })));
+    });
+    const appids = Array.from({ length: MAX_APPIDS * 2 + 5 }, (_, i) => i + 1);
+    const { result } = renderHook(() => useLive(options({ appids, fetch: get as unknown as typeof fetch })));
+    await started();
+    expect(asked).toHaveLength(1);
+    expect(result.current.wall).toBeNull();
+
+    for (let i = 0; i < 2; i++) {
+      tokens = 1;
+      await act(async () => vi.advanceTimersByTime(2_000));
+      await flush();
+    }
+    expect(result.current.wall?.games.size).toBe(appids.length);
+    expect(asked.flat()).toEqual(appids);
   });
 
   it("closes the stream and forgets what it read once signed out", async () => {

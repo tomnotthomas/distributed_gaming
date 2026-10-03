@@ -89,7 +89,32 @@ describe("fetchAvailability", () => {
     expect(await fetchAvailability([730], 60, ask, get as unknown as typeof fetch)).toEqual({
       ok: false,
       retryAfterMs: 4000,
+      read: [],
     });
+  });
+
+  it("hands back the parts read before going over budget, and asks a retry only for the rest", async () => {
+    let budget = 1;
+    const get = vi.fn(async (path: string) => {
+      if (!budget--) return json({}, { status: 429, headers: { "retry-after": "2" } });
+      const appids = new URL(path, "http://x").searchParams.get("appids")!.split(",").map(Number);
+      return json(appids.map((appid) => ({ appid, ...NOTHING })));
+    });
+    const appids = Array.from({ length: MAX_APPIDS * 2 + 5 }, (_, i) => i + 1);
+    const first = await fetchAvailability(appids, 60, ask, get as unknown as typeof fetch);
+    expect(first.ok).toBe(false);
+    if (first.ok) return;
+    expect(first.retryAfterMs).toBe(2000);
+    expect(first.read.map((g) => g.appid)).toEqual(appids.slice(0, MAX_APPIDS));
+
+    budget = 2;
+    get.mockClear();
+    const again = await fetchAvailability(appids, 60, ask, get as unknown as typeof fetch, first.read);
+    expect(again.ok && again.value.map((g) => g.appid)).toEqual(appids);
+    const asked = get.mock.calls.flatMap(([p]) =>
+      new URL(p, "http://x").searchParams.get("appids")!.split(",").map(Number),
+    );
+    expect(asked).toEqual(appids.slice(MAX_APPIDS));
   });
 
   it("fails without a wait when signed out or the server is down", async () => {
@@ -97,6 +122,7 @@ describe("fetchAvailability", () => {
     expect(await fetchAvailability([730], 60, ask, signedOut as unknown as typeof fetch)).toEqual({
       ok: false,
       retryAfterMs: null,
+      read: [],
     });
     const down = vi.fn(async () => {
       throw new Error("offline");
@@ -104,6 +130,7 @@ describe("fetchAvailability", () => {
     expect(await fetchAvailability([730], 60, ask, down as unknown as typeof fetch)).toEqual({
       ok: false,
       retryAfterMs: null,
+      read: [],
     });
   });
 });

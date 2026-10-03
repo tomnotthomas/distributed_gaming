@@ -8,7 +8,8 @@
 // SLOW_POLL_MS instead; EventSource reconnects by itself. Every BACKSTOP_MS it
 // asks regardless, since an offer that simply runs out sends no event. A read
 // the server refuses as over budget (429) is tried again once Retry-After has
-// passed, and until then the last answer stays up.
+// passed, and until then the last answer stays up; a wall read in parts keeps
+// the parts already answered and asks again only for the rest.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Prefs } from "./derive";
@@ -100,18 +101,21 @@ export function useLive({
     timer.current = setTimeout(again, answer.retryAfterMs);
   };
 
-  const readWall = useCallback(() => {
+  /** Read the wall; a retry over budget passes on the parts it already has, for the same question only. */
+  const readWall = useCallback((have?: { key: string; games: GameAvailability[] }) => {
     const { wallIds, minutes, prefs, rtt, get } = latest.current;
     if (rtt === null || !wallIds.length) return;
     const read = ++wallRead.current;
     const question = questionOf(minutes, prefs);
+    const key = `${rtt}|${question}|${wallIds.join(",")}`;
     clearTimeout(wallRetry.current);
     lastRead.current = Date.now();
-    void fetchAvailability(wallIds, minutes, askOf(rtt, prefs), get).then((answer) => {
+    const kept = have?.key === key ? have.games : [];
+    void fetchAvailability(wallIds, minutes, askOf(rtt, prefs), get, kept).then((answer) => {
       if (read !== wallRead.current) return;
       if (answer.ok)
         setWall({ at: Date.now(), question, games: new Map(answer.value.map((g) => [g.appid, g])) });
-      else retryLater(wallRetry, answer, readWall);
+      else retryLater(wallRetry, answer, () => readWall({ key, games: answer.read }));
     });
   }, []);
 
