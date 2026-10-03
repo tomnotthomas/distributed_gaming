@@ -228,7 +228,7 @@ POST /bookings/:id/seen
 GET  /events
   → 200 text/event-stream
   The wall's stream (`server/src/events.ts`), for the signed-in renter: `event:
-  availability` with an empty body each time a machine is offered, taken back, taken by
+  availability` with `{}` as its data each time a machine is offered, taken back, taken by
   a booking, freed or goes offline. What changed differs per renter (their own PC, how
   far away each machine is), so the event carries nothing and the page reads
   `/availability` (and the open game's `/games/:appid/machines`) again, within its
