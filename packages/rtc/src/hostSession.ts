@@ -14,6 +14,13 @@
 // A claim `acceptClaim` turns down (a game the owner no longer offers) is ended
 // at once instead of served.
 //
+// With `sessionKey` instead of a machine key it is the streamer in the
+// renter's Windows account: it registers with that key alone, never sees a
+// claim, and hands every refusal to onDenied for the PC service to decide on.
+// It reports the stream's first frame once (onFirstFrame), a renter who
+// dropped with the server's reconnect grace (onPeerLeft), and says
+// `game-started` to the renter when told to (gameStarted).
+//
 // It also answers renters' latency probes (probe.ts), whichever key holds the room.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
@@ -41,6 +48,18 @@ export const DEFAULT_CAPTURE: CaptureSettings = {
 /** What `session-claimed` says: the platform session to start, the Steam appid and the minutes booked. */
 export type SessionClaim = Omit<Extract<SignalMessage, { type: "session-claimed" }>, "type">;
 
+/** Why the server refused a register, or hung up on a registered host. */
+export type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
+
+/** What startHostSession hands back. */
+export type HostSession = {
+  stop: () => void;
+  /** Tell the renter the booked game has been launched. */
+  gameStarted: (appid: number) => void;
+  /** Register again with a fresh session key, after the last one was refused. Session-key mode only. */
+  rekey: (sessionKey: string) => void;
+};
+
 /**
  * Whether the room is held: `connecting` while a socket opens, `registered`
  * once the server confirms the register, `offline` when a socket drops and the
@@ -52,13 +71,31 @@ export type HostSessionOptions = IceConfig & {
   url: string;
   hostId: string;
   /** This machine's key, from `npm run machine-key`. Without the right one the server refuses the room. */
-  machineKey: string;
-  stream: MediaStream;
+  machineKey?: string;
+  /**
+   * A session key for the room's live session, in place of the machine key:
+   * the streamer in the renter's account. Claims are never served with it.
+   */
+  sessionKey?: string;
+  /** What a renter who joins is sent. Without one the host takes no renter: it only holds the room. */
+  stream?: MediaStream;
   capture?: CaptureSettings;
   onPeerHere: (here: boolean) => void;
   onPeerConnection: (pc: RTCPeerConnection | null) => void;
-  /** The server refused the machine key. Final: the session does not retry. */
-  onDenied?: () => void;
+  /**
+   * The server refused the credential, with the reason it gave when it gave
+   * one. Final: the session does not retry (a session key can be replaced
+   * with rekey).
+   */
+  onDenied?: (reason?: DeniedReason) => void;
+  /**
+   * The renter left. `grace` is the seconds the server gives a renter who
+   * dropped mid-session to come back (peer-left `grace`), null when they are
+   * not coming back. onPeerHere(false) is called as well.
+   */
+  onPeerLeft?: (grace: number | null) => void;
+  /** The stream's first video frame went out to a renter. Once per session. */
+  onFirstFrame?: () => void;
   /**
    * A renter has claimed this machine. The PC's service starts the host session
    * for exactly `sessionId` (POST /api/machines/:id/session); see
@@ -104,23 +141,50 @@ export type HostSessionOptions = IceConfig & {
  * Reports peer and channel changes through callbacks; stop closes signaling and
  * tears down the current peer connection.
  */
-export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
+export function startHostSession(opts: HostSessionOptions): HostSession {
   let stopped = false;
   const capture = opts.capture ?? DEFAULT_CAPTURE;
+  const machineKey = opts.machineKey ?? "";
   let pc: RTCPeerConnection | null = null;
   // Holds the renter's candidates until the answer has been applied.
   let inbox: IceInbox | null = null;
   // TURN from the server's `registered`, which always precedes `peer-joined`.
   let serverIce: RTCIceServer[] = [];
+  // The first frame is reported once, whichever peer connection carried it.
+  let framed = false;
+  let frameTimer: ReturnType<typeof setInterval> | undefined;
 
   const teardown = () => {
+    clearInterval(frameTimer);
     pc?.close();
     pc = null;
     inbox = null;
     opts.onPeerConnection(null);
   };
 
-  const offerTo = async (send: (m: SignalMessage) => void) => {
+  /** Watch `conn` until its first video frame has gone out, then say so once. */
+  const watchFirstFrame = (conn: RTCPeerConnection) => {
+    if (framed || !opts.onFirstFrame) return;
+    frameTimer = setInterval(() => {
+      void conn
+        .getStats()
+        .then((stats) => {
+          if (framed || pc !== conn) return;
+          let sent = false;
+          stats.forEach((report: { type?: string; kind?: string; framesSent?: number }) => {
+            if (report.type === "outbound-rtp" && report.kind === "video" && (report.framesSent ?? 0) > 0)
+              sent = true;
+          });
+          if (!sent) return;
+          framed = true;
+          clearInterval(frameTimer);
+          opts.onFirstFrame?.();
+        })
+        .catch(() => {});
+    }, FRAME_POLL_MS);
+  };
+
+  const offerTo = async (send: (m: SignalMessage) => void, stream: MediaStream) => {
     teardown();
     pc = createPeerConnection({
       ...opts,
@@ -133,8 +197,8 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
     };
 
-    const [track] = opts.stream.getVideoTracks();
-    const sender = pc.addTrack(track, opts.stream);
+    const [track] = stream.getVideoTracks();
+    const sender = pc.addTrack(track, stream);
 
     // Each of these fails silently if omitted, and each costs real quality.
     const params = sender.getParameters();
@@ -146,8 +210,8 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     // Audio is its own sender. The tuning above is video-only: applying a
     // resolution preference or a 10 Mbit ceiling to an audio track quietly
     // does nothing, and reading it back later suggests it did something.
-    const [audio] = opts.stream.getAudioTracks();
-    if (audio) pc.addTrack(audio, opts.stream);
+    const [audio] = stream.getAudioTracks();
+    if (audio) pc.addTrack(audio, stream);
 
     // Created here, by the side that makes the offer, so they are part of the
     // first negotiation rather than a second one the renter would have to start.
@@ -158,6 +222,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     const offer = await pc.createOffer();
     await setLocalWithStereoOpus(pc, offer, Boolean(audio), capture.audioBitrate);
     send({ type: "offer", sdp: pc.localDescription ?? offer });
+    watchFirstFrame(pc);
   };
 
   /**
@@ -174,7 +239,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     signaling = connect(credential, claim);
   };
 
-  const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
+  const machine = { url: opts.url, hostId: opts.hostId, machineKey };
 
   const probes = createProbeResponder({
     iceServers: () => opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
@@ -191,7 +256,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   /** Leave the claim behind and wait for the next one with the machine key. */
   const backToMachineKey = () => {
     opts.onClaimOver?.();
-    reconnect({ key: opts.machineKey });
+    reconnect({ key: machineKey });
   };
 
   /**
@@ -216,11 +281,11 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   const reclaim = () => {
     leave();
     endSession(machine)
-      .then(() => !stopped && reconnect({ key: opts.machineKey }))
+      .then(() => !stopped && reconnect({ key: machineKey }))
       .catch((cause: unknown) => {
         if (stopped) return;
-        if (cause instanceof SessionRefused && cause.status < 500) opts.onDenied?.();
-        else reconnect({ key: opts.machineKey });
+        if (cause instanceof SessionRefused && cause.status < 500) opts.onDenied?.("session-active");
+        else reconnect({ key: machineKey });
       });
   };
 
@@ -269,14 +334,15 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         if (claim) {
           if (msg.reason === "bad-session-key") serve(claim, true);
           else backToMachineKey();
-        } else if (opts.serveClaims && msg.reason === "session-active") reclaim();
-        else opts.onDenied?.();
+        } else if (opts.serveClaims && !opts.sessionKey && msg.reason === "session-active") reclaim();
+        else opts.onDenied?.(msg.reason);
         break;
       case "registered":
         serverIce = msg.iceServers ?? [];
         break;
       case "session-claimed": {
         const next = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
+        if (opts.sessionKey) break; // never sent to a streamer; never served by one
         if (!claim && opts.acceptClaim && !opts.acceptClaim(next)) {
           refuse(next);
           break;
@@ -287,7 +353,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       }
       case "peer-joined":
         opts.onPeerHere(true);
-        void offerTo(send);
+        if (opts.stream) void offerTo(send, opts.stream);
         break;
       case "answer":
         if (msg.sdp) {
@@ -301,6 +367,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         break;
       case "peer-left":
         opts.onPeerHere(false);
+        opts.onPeerLeft?.(typeof msg.grace === "number" ? msg.grace : null);
         teardown();
         break;
       case "probe-offer":
@@ -309,7 +376,10 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     }
   };
 
-  let signaling: Signaling | null = connect({ key: opts.machineKey }, null);
+  let signaling: Signaling | null = connect(
+    opts.sessionKey ? { sessionKey: opts.sessionKey } : { key: machineKey },
+    null,
+  );
 
   return {
     stop: () => {
@@ -318,8 +388,16 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       teardown();
       probes.closeAll();
     },
+    gameStarted: (appid) => signaling?.send({ type: "game-started", appid }),
+    rekey: (sessionKey) => {
+      if (stopped || !opts.sessionKey) return;
+      reconnect({ sessionKey });
+    },
   };
 }
+
+/** How often a new peer connection's stats are read until its first frame has gone out. */
+const FRAME_POLL_MS = 250;
 
 /** A session call the server answered with something other than success. Carries the status alone. */
 class SessionRefused extends Error {

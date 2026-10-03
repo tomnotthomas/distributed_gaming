@@ -6,7 +6,14 @@ export { preferStereoOpus, withStereoOpus, DEFAULT_AUDIO_BITRATE } from "./opus"
 export { connectSignaling } from "./signaling";
 export type { SignalMessage, Signaling, SignalingOptions } from "./signaling";
 export { startHostSession, requestSessionKey, httpOrigin, DEFAULT_CAPTURE } from "./hostSession";
-export type { CaptureSettings, HostConnection, HostSessionOptions, SessionClaim } from "./hostSession";
+export type {
+  CaptureSettings,
+  DeniedReason,
+  HostConnection,
+  HostSession,
+  HostSessionOptions,
+  SessionClaim,
+} from "./hostSession";
 export { createProbeResponder, MAX_OPEN_PROBES, MAX_PROBE_MESSAGES, PROBE_MAX_MS } from "./probe";
 export type { ProbeResponder, ProbeResponderOptions } from "./probe";
 export { startRenterSession, DEFAULT_STATS_INTERVAL_MS } from "./renterSession";

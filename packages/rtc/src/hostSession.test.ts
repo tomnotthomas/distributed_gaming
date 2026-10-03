@@ -472,3 +472,166 @@ describe("requestSessionKey", () => {
     ).rejects.toThrow("session start answered 401");
   });
 });
+
+/** A peer connection that does just enough to make an offer, and reports `framesSent` in its stats. */
+class FakePeerConnection {
+  static instances: FakePeerConnection[] = [];
+  framesSent = 0;
+  closed = false;
+  localDescription: RTCSessionDescriptionInit | null = null;
+  onicecandidate: unknown = null;
+  constructor() {
+    FakePeerConnection.instances.push(this);
+  }
+  addEventListener() {}
+  addTrack() {
+    return { getParameters: () => ({ encodings: [{}] }), setParameters: async () => {} };
+  }
+  createDataChannel(label: string) {
+    return { label };
+  }
+  async createOffer() {
+    return { type: "offer", sdp: "v=0\r\n" };
+  }
+  async setLocalDescription(description: RTCSessionDescriptionInit) {
+    this.localDescription = description;
+  }
+  async getStats() {
+    return new Map([["v", { type: "outbound-rtp", kind: "video", framesSent: this.framesSent }]]);
+  }
+  close() {
+    this.closed = true;
+  }
+}
+
+/** A capture with one video track and no sound. */
+const fakeStream = () =>
+  ({ getVideoTracks: () => [{ kind: "video" }], getAudioTracks: () => [] }) as unknown as MediaStream;
+
+describe("startHostSession as the streamer", () => {
+  beforeEach(() => {
+    FakePeerConnection.instances = [];
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+  });
+
+  /** A streamer on a fresh fake socket, registered with session key `k1`. */
+  function streamer(extra: Partial<HostSessionOptions> = {}) {
+    const denied = vi.fn();
+    const left: (number | null)[] = [];
+    const firstFrame = vi.fn();
+    const claims: SessionClaim[] = [];
+    const session = startHostSession({
+      url: "wss://signal.test",
+      hostId: "pc-1",
+      sessionKey: "k1",
+      stream: fakeStream(),
+      onPeerHere: () => {},
+      onPeerConnection: () => {},
+      onDenied: denied,
+      onPeerLeft: (grace) => left.push(grace),
+      onFirstFrame: firstFrame,
+      onSessionClaimed: (claim) => claims.push(claim),
+      ...extra,
+    });
+    const socket = FakeSocket.instances[0]!;
+    socket.accept();
+    return { session, socket, denied, left, firstFrame, claims };
+  }
+
+  it("registers with the session key alone", () => {
+    const { session, socket } = streamer();
+    expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", sessionKey: "k1" }]);
+    session.stop();
+  });
+
+  it("hands every refusal to onDenied with its reason, and never ends the session itself", async () => {
+    const fetch = fakeFetch(204);
+    const { session, socket, denied } = streamer({ serveClaims: true });
+    socket.deliver({ type: "denied", reason: "bad-session-key" });
+    await settle();
+    expect(denied).toHaveBeenCalledWith("bad-session-key");
+    expect(fetch).not.toHaveBeenCalled();
+    session.stop();
+  });
+
+  it("never takes a claim", () => {
+    const { session, socket, claims } = streamer({ serveClaims: true });
+    socket.deliver(CLAIM);
+    expect(claims).toEqual([]);
+    expect(socket.messages).toHaveLength(1);
+    session.stop();
+  });
+
+  it("registers again with a fresh key on rekey", () => {
+    const { session, socket } = streamer();
+    socket.deliver({ type: "denied", reason: "bad-session-key" });
+    session.rekey("k2");
+    const next = FakeSocket.instances[1]!;
+    next.accept();
+    expect(socket.closeCalls).toBeGreaterThan(0);
+    expect(next.messages).toEqual([{ type: "register", hostId: "pc-1", sessionKey: "k2" }]);
+    session.stop();
+  });
+
+  it("reports a renter who dropped with the grace, and one who left without it", () => {
+    const { session, socket, left } = streamer();
+    socket.deliver({ type: "peer-left", grace: 120 });
+    socket.deliver({ type: "peer-left" });
+    expect(left).toEqual([120, null]);
+    session.stop();
+  });
+
+  it("offers to a renter and reports the first frame once, across reconnects", async () => {
+    const { session, socket, firstFrame } = streamer();
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(socket.messages.map((m) => m.type)).toEqual(["register", "offer"]);
+    const [first] = FakePeerConnection.instances;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(firstFrame).not.toHaveBeenCalled();
+
+    first!.framesSent = 3;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(firstFrame).toHaveBeenCalledTimes(1);
+
+    // The renter drops and comes back: a new connection, and no second first frame.
+    socket.deliver({ type: "peer-left", grace: 120 });
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    FakePeerConnection.instances[1]!.framesSent = 5;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(firstFrame).toHaveBeenCalledTimes(1);
+    expect(first!.closed).toBe(true);
+    session.stop();
+  });
+
+  it("tells the renter the game has started", () => {
+    const { session, socket } = streamer();
+    session.gameStarted(730);
+    expect(socket.messages.at(-1)).toEqual({ type: "game-started", appid: 730 });
+    session.stop();
+  });
+});
+
+describe("startHostSession with no stream", () => {
+  it("holds the room and takes no renter", async () => {
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    FakePeerConnection.instances = [];
+    const here: boolean[] = [];
+    const session = startHostSession({
+      url: "wss://signal.test",
+      hostId: "pc-1",
+      machineKey: "test-machine-key",
+      onPeerHere: (h) => here.push(h),
+      onPeerConnection: () => {},
+    });
+    const socket = FakeSocket.instances[0]!;
+    socket.accept();
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(FakePeerConnection.instances).toHaveLength(0);
+    expect(socket.messages.map((m) => m.type)).toEqual(["register"]);
+    session.stop();
+  });
+});
