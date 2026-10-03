@@ -1232,8 +1232,8 @@ export class Platform {
   /**
    * The machine rank() puts first for the booking among `free`, or null when
    * none passes its gates: the game installed (E2), the hardware the game asks
-   * for (E3), not the renter's own (E5) and close enough by the renter's round
-   * trips (E6). Only a machine free for all of the booking's minutes is
+   * for (E3), every control the booking asked for (E4), not the renter's own
+   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes is
    * considered. The order is the renter's own list's: free all session, most
    * reliable, best response, then picture, lowest latency, lowest price.
    */
