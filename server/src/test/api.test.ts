@@ -309,7 +309,7 @@ describe("booking and host API", () => {
     const test = await call("POST", "/api/machines/pc-1/upload-test", body, MACHINE_KEY);
     assert.equal(test.status, 204);
     assert.equal(test.headers.get("cache-control"), "no-store");
-    assert.equal(platform.machineProfile("pc-1"), null);
+    assert.equal(await platform.machineProfile("pc-1"), null);
   });
 
   it("refuses a bad host report with a 400 naming the field, and stores none of it", async () => {
