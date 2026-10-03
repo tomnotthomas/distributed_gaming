@@ -46,9 +46,10 @@ const hosts: Machine[] = machinesOf(
         availableUntil: null,
         minutesLeft: null,
         coversSession: true,
-        latency: { rttMs: 22.6, jitterMs: 2, source: "estimate" },
+        latency: { rttMs: 22.6, jitterMs: 2, relayed: false, source: "estimate" },
         response: 3,
         picture: 3,
+        probe: "token-h1",
       },
       {
         id: "h2",
@@ -59,13 +60,15 @@ const hosts: Machine[] = machinesOf(
         availableUntil: now + 90 * 60_000,
         minutesLeft: 90,
         coversSession: false,
-        latency: { rttMs: 40, jitterMs: 4, source: "estimate" },
+        latency: { rttMs: 40, jitterMs: 4, relayed: true, source: "probe" },
         response: 2,
         picture: 2,
+        probe: null,
       },
     ],
     reason: { rule: "O1", label: "Free all session" },
     busy: [{ id: "h3", name: "Loft", backAt: new Date(2026, 9, 3, 23, 10).getTime() }],
+    iceServers: [],
   },
   now,
 );
@@ -144,6 +147,25 @@ describe("GameMenu", () => {
       );
       expect(screen.getByText("Finding machines…")).toBeInTheDocument();
       expect(screen.queryByText(/No machine can play it/)).toBeNull();
+    });
+
+    it("shows the estimate measuring while the best are probed, and how each figure was arrived at", () => {
+      const swiff = swiffWith("idle", true, {
+        machines: hosts,
+        picked: hosts[0]!,
+        clock: now,
+        measuring: true,
+      });
+      const { container } = render(<GameMenu swiff={swiff} />);
+      expect(screen.getByText("Measuring latency…")).toBeInTheDocument();
+      expect(container.querySelector(".ledger")).toHaveAttribute("aria-busy", "true");
+      const ms = [...container.querySelectorAll(".ledger-ms")];
+      expect(ms.map((m) => m.classList.contains("measuring"))).toEqual([true, false]);
+      expect(ms.map((m) => m.getAttribute("title"))).toEqual([
+        "Estimated through Swiff",
+        "Measured straight to this PC, through a relay",
+      ]);
+      expect(container.querySelector(".menu-reads")).toHaveTextContent("Measuring…");
     });
 
     it("says so when no host can play it", () => {

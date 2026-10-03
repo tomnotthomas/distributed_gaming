@@ -51,7 +51,7 @@ function serve(renter: Renter | null, hosts: Hosts = {}) {
 }
 
 const NOTHING = { free: 0, ready: 0, best: null, busy: 0, backAt: null, backName: null };
-const NO_MACHINES = { minutes: 180, machines: [], reason: null, busy: [] };
+const NO_MACHINES = { minutes: 180, machines: [], reason: null, busy: [], iceServers: [] };
 
 /** The paths fetched so far. */
 const fetched = () => vi.mocked(fetch).mock.calls.map(([path]) => String(path));
@@ -134,7 +134,7 @@ describe("useSwiff", () => {
                   id: "h1",
                   name: "Basement rig",
                   gpu: "RTX 4070",
-                  latency: { rttMs: 23, jitterMs: 2, source: "estimate" },
+                  latency: { rttMs: 23, jitterMs: 2, relayed: false, source: "estimate" as const },
                   availableUntil: null,
                 },
               }
@@ -166,12 +166,14 @@ describe("useSwiff", () => {
               availableUntil: null,
               minutesLeft: null,
               coversSession: true,
-              latency: { rttMs: 23, jitterMs: 2, source: "estimate" },
+              latency: { rttMs: 23, jitterMs: 2, relayed: false, source: "estimate" as const },
               response: 3,
               picture: 3,
+              probe: null,
             },
           ],
           reason: null,
+          iceServers: [],
         }),
       });
       const { result } = renderHook(() => useSwiff({ demo: false }));
@@ -199,9 +201,10 @@ describe("useSwiff", () => {
         availableUntil: null,
         minutesLeft: null,
         coversSession: true,
-        latency: { rttMs: 23, jitterMs: 2, source: "estimate" as const },
+        latency: { rttMs: 23, jitterMs: 2, relayed: false, source: "estimate" as const },
         response: 3,
         picture: 3,
+        probe: null,
       };
       let taken = false;
       serve(unnamed, {

@@ -154,7 +154,7 @@ describe("spotOf", () => {
     id: "h1",
     name: "Basement rig",
     gpu: "RTX 4070",
-    latency: { rttMs: 22.6, jitterMs: 2, source: "estimate" as const },
+    latency: { rttMs: 22.6, jitterMs: 2, relayed: false, source: "estimate" as const },
     availableUntil: new Date(2026, 9, 3, 23, 30).getTime(),
   };
   const game = (over: Partial<GameAvailability>): GameAvailability => ({ appid: 730, ...NOTHING, ...over });

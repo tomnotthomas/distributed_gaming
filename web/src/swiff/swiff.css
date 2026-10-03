@@ -1206,6 +1206,20 @@ button.band-tab:hover {
   font: 400 13px/1 var(--mono);
   opacity: 0.6;
 }
+/* An estimate while the real path is measured: a second or two. */
+.ledger-ms.measuring {
+  opacity: 0.45;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ledger-ms.measuring {
+    animation: measuring 0.7s var(--ease) infinite alternate;
+  }
+}
+@keyframes measuring {
+  to {
+    opacity: 0.9;
+  }
+}
 .ledger-body {
   min-width: 0;
 }

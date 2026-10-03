@@ -23,6 +23,17 @@ const settle = () => new Promise((r) => setTimeout(r, 30));
 describe("booking across a closed tab", () => {
   beforeEach(() => localStorage.clear());
 
+  it("sends the round trips the page measured with the booking", async () => {
+    const server = fakeServer(["queued"]);
+    await book(730, 30, { fetch: server.fetch, rtts: { server: 12, machines: { "pc-1": 9 } } });
+    await book(730, 30, { fetch: server.fetch });
+    const bodies = vi.mocked(server.fetch).mock.calls.map(([, init]) => JSON.parse(String(init!.body)));
+    expect(bodies).toEqual([
+      { gameId: 730, minutes: 30, rtts: { server: 12, machines: { "pc-1": 9 } } },
+      { gameId: 730, minutes: 30 },
+    ]);
+  });
+
   it("remembers a new booking and resumes watching it on the next page load", async () => {
     const server = fakeServer(["queued", "matched"]);
     await book(730, 30, { fetch: server.fetch });

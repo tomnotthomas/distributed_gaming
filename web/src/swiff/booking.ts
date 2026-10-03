@@ -50,13 +50,24 @@ export type BookingOptions = {
 const browserEventSource =
   typeof EventSource === "undefined" ? null : (url: string): EventStream => new EventSource(url);
 
+/**
+ * The renter's round trips in ms: to the server, and straight to each machine
+ * their probes reached, by id (useLive's `rtts`). The server matches the
+ * booking by them.
+ */
+export type Rtts = { server?: number; machines?: Record<string, number> };
+
 /** Book a game and remember the booking, so a reload can resume it. */
-export async function book(gameId: number, minutes: number, options: BookingOptions = {}): Promise<Booking> {
-  const { storage = localStorage, fetch: get = fetch } = options;
+export async function book(
+  gameId: number,
+  minutes: number,
+  options: BookingOptions & { rtts?: Rtts } = {},
+): Promise<Booking> {
+  const { storage = localStorage, fetch: get = fetch, rtts } = options;
   const response = await get("/api/bookings", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ gameId, minutes }),
+    body: JSON.stringify({ gameId, minutes, ...(rtts ? { rtts } : {}) }),
   });
   if (!response.ok) throw new Error(`booking failed: ${response.status}`);
   const booking = (await response.json()) as Booking;
