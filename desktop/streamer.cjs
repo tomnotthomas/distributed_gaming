@@ -34,9 +34,12 @@ let init = null;
 /** Commands that arrived before the window could take them. */
 const pending = [];
 
+// stdin and stdout by their descriptors: on Windows, Electron is a GUI
+// program and its process.stdin ends at once, though the pipe it was handed
+// reads and writes fine.
 const report = (event) => {
   try {
-    process.stdout.write(`${JSON.stringify(event)}\n`);
+    fs.writeSync(1, `${JSON.stringify(event)}\n`);
   } catch {
     // Nobody is reading any more: stdin closing quits us.
   }
@@ -68,7 +71,8 @@ function toWindow(message) {
   else pending.push(message);
 }
 
-process.stdin.on(
+const input = fs.createReadStream(null, { fd: 0, autoClose: false });
+input.on(
   "data",
   lineReader((value) => {
     if (init) return command(value);
@@ -82,7 +86,8 @@ process.stdin.on(
     if (app.isReady()) open();
   }),
 );
-process.stdin.on("end", () => app.quit());
+input.on("end", () => app.quit());
+input.on("error", () => app.quit());
 
 const fromStreamer = (event) => win !== null && event.sender === win.webContents;
 

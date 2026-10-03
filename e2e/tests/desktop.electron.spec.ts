@@ -417,7 +417,7 @@ test.describe("Swiff Host desktop app, a player's session", () => {
 
     // A renter books Counter-Strike 2 and claims this PC.
     const booking = await api("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    expect(booking.status).toBe(200);
+    expect(booking.status).toBe(202);
     await expect
       .poll(async () => (await api("GET", `/api/bookings/${booking.body.bookingId}`)).body.status)
       .toBe("matched");
