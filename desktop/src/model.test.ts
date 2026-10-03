@@ -37,7 +37,7 @@ function realView(live: Live): HostView {
     live,
     plan: null,
     sessionsToday: 0,
-    connection: { url: "", machineId: "gaming-pc-1", machineKey: "", notice: null, preview: null },
+    connection: { url: "", machineId: "gaming-pc-1", machineKey: "", name: "", notice: null, preview: null },
     payoutSaved: false,
   };
 }

@@ -21,7 +21,7 @@ import { listedGames, type ScreenProps } from "./types";
 /** A1: what the app read about this PC, part by part. */
 export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boolean }) {
   const { reading, hardware: hw, hardwareRate } = view.pc;
-  const parts = [hw?.gpu, hw?.cpu, hw?.ramGb, hw?.upMbps ?? hw?.display];
+  const parts = [hw?.gpu, hw?.cpu, hw?.ramMb, hw?.upMbps ?? hw?.display];
   const read = parts.filter((part) => part != null).length;
   const games = view.games.installed.length;
   const display = hw?.display;
@@ -58,9 +58,15 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
           <Kv label="CPU">{hw?.cpu ?? (reading ? "…" : "Not found")}</Kv>
         </Zone>
         <Zone title={hw?.upMbps ? "Memory and network" : "Memory and display"}>
-          <Kv label="Memory">{hw?.ramGb ? `${hw.ramGb} GB` : reading ? "…" : "Not found"}</Kv>
+          <Kv label="Memory">
+            {hw?.ramMb ? `${Math.round(hw.ramMb / 1024)} GB` : reading ? "…" : "Not found"}
+          </Kv>
           {hw?.upMbps ? (
-            <Kv label="Connection">{hw.upMbps >= 1000 ? `${hw.upMbps / 1000} Gbit` : `${hw.upMbps} Mbit`}</Kv>
+            <Kv label="Connection">
+              {hw.upMbps >= 1000
+                ? `${Math.round(hw.upMbps / 100) / 10} Gbit`
+                : `${Math.round(hw.upMbps)} Mbit`}
+            </Kv>
           ) : (
             <Kv label="Display">
               {display
@@ -239,7 +245,7 @@ function InstallAny({ view, actions }: ScreenProps) {
 
 /**
  * A2: which installed games players can stream here, with demand where Swiff
- * reports it. Read-only where the choice has no effect yet.
+ * reports it. Read-only until the games are read.
  */
 export function Games({ view, actions, go, finishSetup }: ScreenProps & { finishSetup: () => void }) {
   const { installed, offered, demand } = view.games;
@@ -258,7 +264,6 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
             Players can stream a game only if they own it too: they play with their own Steam copy, and
             installing it here only puts its files on this PC.
             {demand ? " Offer the games you have; install the popular ones you don't." : ""}
-            {toggle ? "" : " Choosing which ones to offer comes with a later update."}
           </p>
         </div>
         <div className="gcount">

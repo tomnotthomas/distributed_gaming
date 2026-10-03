@@ -35,8 +35,11 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       reading: false,
       hardware: {
         gpu: "NVIDIA GeForce RTX 4080",
+        vramMb: 16_384,
+        ramMb: 32_768,
         cpu: "Ryzen 7 7800X3D",
-        ramGb: 32,
+        cores: 8,
+        encoders: ["h264", "hevc", "av1"],
         display: { width: 2560, height: 1440, refreshHz: 144 },
       },
       hardwareRate: null,
@@ -67,6 +70,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       url: "signal.example",
       machineId: "gaming-pc-1",
       machineKey: "test-machine-key",
+      name: "",
       notice: null,
       preview: null,
     },
@@ -87,7 +91,7 @@ function actions(): HostActions {
     endEarly: null,
     cancelEnd: null,
     retry: vi.fn(),
-    toggleOffer: null,
+    toggleOffer: vi.fn(),
     saveConnection: vi.fn(async () => {}),
     savePayout: vi.fn(),
     installSteam: vi.fn(),
@@ -264,7 +268,14 @@ describe("hold to go live", () => {
 
   it("waits for the connection details before it can be held", () => {
     renderReal("live", off, {
-      connection: { url: "", machineId: "gaming-pc-1", machineKey: "", notice: null, preview: null },
+      connection: {
+        url: "",
+        machineId: "gaming-pc-1",
+        machineKey: "",
+        name: "",
+        notice: null,
+        preview: null,
+      },
     });
     expect(screen.getByRole("button", { name: "Hold to go live" })).toBeDisabled();
     expect(screen.getByText(/connection details in/)).toHaveTextContent("Settings");
@@ -282,10 +293,30 @@ describe("this PC's screens", () => {
     expectNoDemoData();
   });
 
-  it("lists the installed games read-only, with no offer choice that has no effect yet", () => {
+  it("lets the owner choose which installed games players can stream", () => {
+    const acts = renderReal("games", off, {
+      games: {
+        installed: [
+          { appid: 730, name: "Counter-Strike 2" },
+          { appid: 1245620, name: "ELDEN RING" },
+        ],
+        offered: [730],
+        demand: null,
+        near: null,
+      },
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose the games you offer");
+    expect(screen.getByRole("button", { name: /Counter-Strike 2/ })).toHaveAttribute("aria-pressed", "true");
+    const elden = screen.getByRole("button", { name: /ELDEN RING/ });
+    expect(elden).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(elden);
+    expect(acts.toggleOffer).toHaveBeenCalledWith(1245620);
+    expectNoDemoData();
+  });
+
+  it("lists the installed games read-only until they are read", () => {
     renderReal("games", off);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your installed games");
-    expect(screen.getByText(/Choosing which ones to offer comes with a later update\./)).toBeInTheDocument();
     expect(screen.getByText("Counter-Strike 2")).toBeInTheDocument();
     expect(screen.getByText("ELDEN RING")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ELDEN RING/ })).not.toBeInTheDocument();
@@ -566,6 +597,8 @@ describe("settings", () => {
   it("saves the connection and starts sharing", async () => {
     const acts = renderReal("settings", off);
     fireEvent.change(screen.getByLabelText("Signaling server"), { target: { value: "otter.example" } });
+    expect(screen.getByLabelText("Name")).toHaveAttribute("placeholder", "gaming-pc-1");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Nova-01" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save and start sharing" }));
     });
@@ -573,6 +606,7 @@ describe("settings", () => {
       url: "otter.example",
       machineId: "gaming-pc-1",
       machineKey: "test-machine-key",
+      name: "Nova-01",
     });
   });
 

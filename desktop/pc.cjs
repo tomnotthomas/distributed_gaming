@@ -1,14 +1,16 @@
 // What the host app can read about this PC, in the main process: the parts
-// that decide what it can run, and the Steam games installed on it. The
-// renderer gets the result through one preload call and never the means to
-// read anything itself. Every read is best effort: a part that cannot be read
-// comes back null, a library that cannot be read is skipped.
+// that decide what it can run, the controls it can take, and the Steam games
+// installed on it, watched for changes. The renderer gets the result through
+// preload calls and never the means to read anything itself. Every read is
+// best effort: a part that cannot be read comes back null, a library that
+// cannot be read is skipped. On Windows the parts come from probe.cjs.
 
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { readWindowsProbe } = require("./probe.cjs");
 
 /** At most this many games are listed, as the platform's host report allows (docs/system-design/host.md). */
 const MAX_GAMES = 2000;
@@ -75,8 +77,8 @@ function gpuName(info) {
   return typeof renderer === "string" ? cardName(renderer) : null;
 }
 
-/** Whole gigabytes, the way the box was sold: 34,213,502,976 bytes → 32. */
-const wholeGb = (bytes) => (bytes > 0 ? Math.round(bytes / 1024 ** 3) : null);
+/** Whole megabytes: 34,213,502,976 bytes → 32628. */
+const wholeMb = (bytes) => (bytes > 0 ? Math.round(bytes / 1024 ** 2) : null);
 
 /** The primary display in real pixels, and its refresh rate where the OS reports one. */
 function displayOf(display) {
@@ -171,19 +173,23 @@ function findSteamRoot({
   );
 }
 
-/** The Steam games installed on this PC, by name. Empty where Steam is not installed. */
-function readSteamGames(options = {}) {
+/** Every Steam library's `steamapps` folder on this PC, Steam's own first. Empty where Steam is not installed. */
+function steamLibraries(options = {}) {
   const files = options.files ?? fs;
   const root = findSteamRoot(options);
   if (!root) return [];
-
   const libraries = [
     root,
     ...libraryPaths(readText(files, path.join(root, "steamapps", "libraryfolders.vdf"))),
   ];
+  return [...new Set(libraries)].slice(0, MAX_LIBRARIES).map((library) => path.join(library, "steamapps"));
+}
+
+/** The Steam games installed on this PC, by name. Empty where Steam is not installed. */
+function readSteamGames(options = {}) {
+  const files = options.files ?? fs;
   const seen = new Map();
-  libraries: for (const library of [...new Set(libraries)].slice(0, MAX_LIBRARIES)) {
-    const apps = path.join(library, "steamapps");
+  libraries: for (const apps of steamLibraries(options)) {
     let names = [];
     try {
       names = files.readdirSync(apps).filter((name) => /^appmanifest_\d+\.acf$/.test(name));
@@ -258,22 +264,100 @@ const steamPathOnce = () =>
 /** Steam's install folder on this PC, for game art; null where Steam is not installed. */
 const steamRootOnce = async () => findSteamRoot({ steamPath: await steamPathOnce() });
 
-/** Everything the app reads about this PC, given Electron's `app` and `screen`. */
-async function readPc({ app, screen }) {
-  let gpu = null;
-  try {
-    gpu = gpuName(await app.getGPUInfo("complete"));
-  } catch {
-    // No GPU process, or a headless runner: the card stays unread.
+/** Same appids, in any order. */
+const sameGames = (a, b) => a.length === b.length && a.every((g, i) => g.appid === b[i].appid);
+
+/** How long Steam's writes settle before the library is read again: a download rewrites its manifest often. */
+const SETTLE_MS = 2_000;
+
+/**
+ * Watch every Steam library for games installed, updated or removed, and call
+ * `onChange` with the whole list when it changes. Returns the stop call.
+ * Libraries added or removed in Steam are picked up on the next change.
+ */
+function watchSteamGames(onChange, options = {}) {
+  const watch = options.watch ?? fs.watch;
+  const read = () => readSteamGames(options);
+  let last = read();
+  let timer = null;
+  let watchers = new Map();
+  let stopped = false;
+
+  const rewatch = () => {
+    const dirs = new Set(steamLibraries(options));
+    for (const [dir, watcher] of watchers) {
+      if (dirs.has(dir)) continue;
+      watcher.close();
+      watchers.delete(dir);
+    }
+    for (const dir of dirs) {
+      if (watchers.has(dir)) continue;
+      try {
+        const watcher = watch(dir, settle);
+        watcher.on?.("error", () => {
+          watcher.close();
+          watchers.delete(dir);
+        });
+        watchers.set(dir, watcher);
+      } catch {
+        // A library on a drive that is gone, or cannot be watched: read on the next change.
+      }
+    }
+  };
+  function settle() {
+    if (stopped) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      rewatch();
+      const games = read();
+      if (sameGames(games, last)) return;
+      last = games;
+      onChange(games);
+    }, SETTLE_MS);
   }
-  const cpus = os.cpus();
+
+  rewatch();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    for (const watcher of watchers.values()) watcher.close();
+    watchers = new Map();
+  };
+}
+
+/** The Windows probe, run once per launch: none of what it reads changes while the app runs. */
+let probeAsked = null;
+const probeOnce = () => (probeAsked ??= readWindowsProbe());
+
+/**
+ * Everything the app reads about this PC, given Electron's `app` and `screen`:
+ * the host report's hardware (docs/system-design/host.md), each field null
+ * where it cannot be read, the controls it can take, and its Steam games.
+ * Off Windows, or where the probe fails, the card comes from Chromium and the
+ * memory and processor from the OS; the card's memory, the cores and the
+ * encoders stay unread.
+ */
+async function readPc({ app, screen, probe = probeOnce }) {
+  const [probed, chromium] = await Promise.all([
+    probe(),
+    Promise.resolve()
+      .then(() => app.getGPUInfo("complete"))
+      .then(gpuName)
+      // No GPU process, or a headless runner: the card stays unread.
+      .catch(() => null),
+  ]);
   return {
     hardware: {
-      gpu,
-      cpu: cpuName(cpus[0]?.model),
-      ramGb: wholeGb(os.totalmem()),
+      gpu: probed?.gpu ?? chromium,
+      vramMb: probed?.vramMb ?? null,
+      ramMb: probed?.ramMb ?? wholeMb(os.totalmem()),
+      cpu: cpuName(probed?.cpu ?? os.cpus()[0]?.model),
+      cores: probed?.cores ?? null,
+      encoders: probed?.encoders ?? null,
       display: displayOf(screen.getPrimaryDisplay()),
     },
+    // Every PC takes a keyboard and mouse; a renter's gamepad needs the ViGEmBus driver to appear as one.
+    controls: ["kb", "mouse", ...(probed?.pad ? ["pad"] : [])],
     games: readSteamGames({ steamPath: await steamPathOnce() }),
   };
 }
@@ -282,14 +366,17 @@ module.exports = {
   MAX_GAMES,
   cpuName,
   gpuName,
-  wholeGb,
+  wholeMb,
   displayOf,
   libraryPaths,
   manifestGame,
   steamPathFromReg,
   steamRoots,
   findSteamRoot,
+  steamLibraries,
   readSteamGames,
+  watchSteamGames,
+  steamPathOnce,
   artRequest,
   artCandidates,
   readSteamArt,

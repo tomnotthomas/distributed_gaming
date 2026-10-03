@@ -86,9 +86,34 @@ describe("connectSignaling", () => {
     connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn() });
     latest().accept();
 
-    vi.advanceTimersByTime(PING_MS * 3);
+    for (let round = 0; round < 3; round++) {
+      vi.advanceTimersByTime(PING_MS);
+      latest().deliver({ type: "pong" });
+    }
 
+    expect(FakeSocket.instances).toHaveLength(1);
     expect(latest().messages.filter((m) => m.type === "ping")).toHaveLength(3);
+  });
+
+  it("drops a socket that has heard nothing for two rounds, and opens a new one", () => {
+    const onStatus = vi.fn();
+    connectSignaling({ url: TEST_URL, onOpen: vi.fn(), onMessage: vi.fn(), onStatus });
+    const quiet = latest();
+    quiet.accept();
+
+    // Pings go out, nothing comes back: a half-open socket never reports its close.
+    vi.advanceTimersByTime(PING_MS * 2);
+    expect(quiet.closeCalls).toBe(0);
+    vi.advanceTimersByTime(PING_MS);
+
+    expect(quiet.closeCalls).toBe(1);
+    expect(onStatus).toHaveBeenLastCalledWith("closed");
+    vi.advanceTimersByTime(500);
+    expect(FakeSocket.instances).toHaveLength(2);
+    // The old socket's late close is not a second drop.
+    quiet.drop();
+    vi.advanceTimersByTime(10_000);
+    expect(FakeSocket.instances).toHaveLength(2);
   });
 
   it("stops pinging once the socket is gone", () => {

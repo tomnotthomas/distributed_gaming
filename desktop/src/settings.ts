@@ -86,9 +86,29 @@ export function refusedAddress(url: string): string | null {
 }
 
 // What the app keeps on this PC: whether the owner has been through the first
-// run, and today's session count.
+// run, today's session count, the name players see and the games not offered.
 const SETUP_KEY = "swiff.setupDone";
 const SESSIONS_KEY = "swiff.sessions";
+const NAME_KEY = "swiff.name";
+const NOT_OFFERED_KEY = "swiff.notOffered";
+
+/** The name players see; empty means the machine id. */
+export const loadName = () => load(NAME_KEY);
+export const saveName = (name: string) => save(NAME_KEY, name);
+
+/**
+ * The installed games the owner chose not to offer. Kept this way round so a
+ * game installed later is offered until the owner turns it off.
+ */
+export function loadNotOffered(): Set<number> {
+  return new Set(
+    load(NOT_OFFERED_KEY)
+      .split(",")
+      .map(Number)
+      .filter((appid) => Number.isSafeInteger(appid) && appid > 0),
+  );
+}
+export const saveNotOffered = (appids: ReadonlySet<number>) => save(NOT_OFFERED_KEY, [...appids].join(","));
 
 export const loadSetupDone = () => load(SETUP_KEY) === "1";
 export const saveSetupDone = () => save(SETUP_KEY, "1");

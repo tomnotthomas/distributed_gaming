@@ -3,7 +3,13 @@
 // handover are covered here: no renter arrives, so no peer connection is made.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { requestSessionKey, startHostSession, type HostConnection, type SessionClaim } from "./hostSession";
+import {
+  requestSessionKey,
+  startHostSession,
+  type HostConnection,
+  type HostSessionOptions,
+  type SessionClaim,
+} from "./hostSession";
 import { FakeSocket } from "./test/fakes";
 
 beforeEach(() => {
@@ -54,7 +60,7 @@ const callsOf = (fetch: ReturnType<typeof fakeFetches>) =>
   fetch.mock.calls.map(([, init]) => [init.method, init.body ?? null]);
 
 /** Start a host session on a fresh fake socket, recording what it reports. */
-function start(serveClaims = false) {
+function start(serveClaims = false, extra: Partial<HostSessionOptions> = {}) {
   const claims: SessionClaim[] = [];
   const connection: HostConnection[] = [];
   const denied = vi.fn();
@@ -71,6 +77,7 @@ function start(serveClaims = false) {
     onPeerHere: () => {},
     onPeerConnection: () => {},
     onSessionClaimed: (claim) => claims.push(claim),
+    ...extra,
   });
   const socket = FakeSocket.instances[0]!;
   socket.accept();
@@ -91,6 +98,71 @@ describe("startHostSession", () => {
     expect(claims).toEqual([{ sessionId: "s1", appid: 730, minutes: 45 }]);
     expect(socket.messages).toHaveLength(1); // still only the register
     session.stop();
+  });
+
+  it("ends a claim it does not accept, instead of serving it", async () => {
+    const fetch = fakeFetch(200, { sessionId: "s1", roomId: "pc-1" });
+    const refused: SessionClaim[] = [];
+    const acceptClaim = vi.fn((claim: SessionClaim) => claim.appid !== 730);
+    const { session, socket, claims } = start(true, { acceptClaim, onClaimRefused: (c) => refused.push(c) });
+    socket.deliver(CLAIM);
+    await settle();
+
+    expect(acceptClaim).toHaveBeenCalledWith({ sessionId: "s1", appid: 730, minutes: 45 });
+    expect(claims).toEqual([]);
+    expect(refused).toEqual([{ sessionId: "s1", appid: 730, minutes: 45 }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://signal.test/api/sessions/s1/end");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer test-machine-key");
+    // Still in the room with the machine key, waiting for the next claim.
+    expect(socket.closeCalls).toBe(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    socket.deliver({ ...CLAIM, sessionId: "s2", appid: 570 });
+    expect(claims).toEqual([{ sessionId: "s2", appid: 570, minutes: 45 }]);
+    session.stop();
+  });
+
+  it("answers a latency probe without touching the seat", async () => {
+    const made: { closed: boolean }[] = [];
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      class extends EventTarget {
+        iceGatheringState = "complete";
+        localDescription: { toJSON(): RTCSessionDescriptionInit } | null = null;
+        closed = false;
+        constructor() {
+          super();
+          made.push(this);
+        }
+        async setRemoteDescription() {}
+        async createAnswer() {
+          return { type: "answer", sdp: "v=0 answer" };
+        }
+        async setLocalDescription(sdp: RTCSessionDescriptionInit) {
+          this.localDescription = { toJSON: () => sdp };
+        }
+        close() {
+          this.closed = true;
+        }
+      },
+    );
+    const peerHere = vi.fn();
+    const { session, socket } = start(true, { onPeerHere: peerHere });
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    socket.deliver({ type: "probe-offer", probeId: "p1", sdp: { type: "offer", sdp: "v=0 offer" } });
+    await settle();
+
+    expect(socket.messages.at(-1)).toEqual({
+      type: "probe-answer",
+      probeId: "p1",
+      sdp: { type: "answer", sdp: "v=0 answer" },
+    });
+    expect(peerHere).not.toHaveBeenCalled();
+    session.stop();
+    expect(made.map((p) => p.closed)).toEqual([true]);
   });
 
   it("only reports a claim unless asked to serve it", async () => {

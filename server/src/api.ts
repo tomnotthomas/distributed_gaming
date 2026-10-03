@@ -8,7 +8,7 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest  (attestation)
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start        hosting
 //   POST /api/bookings                     POST /api/sessions/:id/end          either
-//   GET  /api/bookings/:id
+//   GET  /api/bookings/:id                 POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
@@ -53,7 +53,7 @@ import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
-import { bearer, HttpError, readJson } from "./http.js";
+import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
 
@@ -61,6 +61,8 @@ import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader 
 const MAX_HOST_BODY_BYTES = 32 * 1024;
 /** A TPM quote, its event log and the EK certificate chain: tens of KB. */
 const MAX_ATTEST_BODY_BYTES = 256 * 1024;
+/** The most an upload test may send: the host app sends 4 MB (desktop/src/report.ts). */
+const MAX_UPLOAD_TEST_BYTES = 8 * 1024 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
 /** Demand counts the bookings made in this window, and the queue now. */
@@ -588,6 +590,15 @@ export function createApi({
       requireMachineOrHost(req, attestation, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       reply(res, 200, await platform.heartbeat(id, hostReport(body)));
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "upload-test" && method === "POST") {
+      // The PC times this to report its upload speed (net.upMbps). Nothing is kept.
+      requireMachine(req, access, id);
+      await discardBody(req, MAX_UPLOAD_TEST_BYTES);
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
       return true;
     }
 

@@ -11,17 +11,22 @@
 // the same session again; when the session ends it goes back to the machine key
 // to wait for the next claim. A machine key kept out by a session this app lost
 // (reloaded mid-session) ends that session, and the server pushes its claim again.
+// A claim `acceptClaim` turns down (a game the owner no longer offers) is ended
+// at once instead of served.
 //
 // With `hostCert`, the PC service's own socket and each session start use a
 // host certificate from attestation instead of the machine key: the hosting
 // credential of docs/system-design/session-keys.md. Ending a session stays with
 // the machine key, which keeps that right. This client never attests; whoever
 // passes `hostCert` does.
+//
+// It also answers renters' latency probes (probe.ts), whichever key holds the room.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
 import { DEFAULT_AUDIO_BITRATE, setLocalWithStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
+import { createProbeResponder } from "./probe";
 import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
 
 export type CaptureSettings = {
@@ -87,6 +92,13 @@ export type HostSessionOptions = IceConfig & {
    * PC service will. Off, a claim is only reported.
    */
   serveClaims?: boolean;
+  /**
+   * Whether to take a claim: false ends the claimed session at once
+   * (POST /api/sessions/:id/end) and reports it to onClaimRefused instead of
+   * onSessionClaimed. Without it every claim is taken.
+   */
+  acceptClaim?: (claim: SessionClaim) => boolean;
+  onClaimRefused?: (claim: SessionClaim) => void;
   /**
    * The room's connection, as it changes. A socket this session closes itself
    * (a handover between the machine key and a session key, or stop) reports
@@ -176,6 +188,18 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   };
 
   const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
+
+  const probes = createProbeResponder({
+    iceServers: () => opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
+  });
+
+  /** End a claimed session this machine will not serve. A failed call is left: the claim is pushed again on the next register. */
+  const refuse = (claim: SessionClaim) => {
+    opts.onClaimRefused?.(claim);
+    endClaimed({ ...machine, sessionId: claim.sessionId }).catch((cause: unknown) => {
+      console.warn("[swiff] could not turn the claim down:", cause instanceof Error ? cause.message : cause);
+    });
+  };
 
   /** The PC service's own credential: a host certificate when there is one, else the machine key. */
   const service = (): Credential => {
@@ -271,6 +295,10 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         break;
       case "session-claimed": {
         const next = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
+        if (!claim && opts.acceptClaim && !opts.acceptClaim(next)) {
+          refuse(next);
+          break;
+        }
         opts.onSessionClaimed?.(next);
         if (opts.serveClaims && !claim) serve(next);
         break;
@@ -293,6 +321,9 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         opts.onPeerHere(false);
         teardown();
         break;
+      case "probe-offer":
+        probes.answer(msg, send);
+        break;
     }
   };
 
@@ -303,6 +334,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       stopped = true;
       leave();
       teardown();
+      probes.closeAll();
     },
   };
 }
@@ -331,12 +363,16 @@ class SessionRefused extends Error {
 
 type MachineAuth = { url: string; hostId: string; machineKey: string };
 
-/** The session route for `hostId` on the signaling server's own HTTP origin. */
-function sessionRoute(url: string, hostId: string): string {
+/** The signaling server's own HTTP origin: `wss://x` → `https://x`. */
+export function httpOrigin(url: string): string {
   const origin = new URL(url);
   origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
-  return `${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`;
+  return origin.origin;
 }
+
+/** The session route for `hostId` on the signaling server's own HTTP origin. */
+const sessionRoute = (url: string, hostId: string): string =>
+  `${httpOrigin(url)}/api/machines/${encodeURIComponent(hostId)}/session`;
 
 /** Waits between tries of a session call that failed on the network or the server. */
 const RETRY_DELAYS_MS = [500, 1_000];
@@ -356,6 +392,23 @@ async function sessionFetch(url: string, init: RequestInit): Promise<Response> {
     }
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
   }
+}
+
+/**
+ * End claimed platform session `sessionId` on this machine, before it was ever
+ * served (POST /api/sessions/:id/end). A session already over (409) is ended.
+ */
+async function endClaimed({
+  url,
+  machineKey,
+  sessionId,
+}: MachineAuth & { sessionId: string }): Promise<void> {
+  const res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
+    body: "{}",
+  });
+  if (res.status !== 200 && res.status !== 409) throw new SessionRefused("end", res.status);
 }
 
 /** End this machine's live host session, if any. Throws with the status alone when refused. */

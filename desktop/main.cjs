@@ -22,7 +22,7 @@ const {
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readPc, readSteamArt, steamRootOnce } = require("./pc.cjs");
+const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
@@ -85,6 +85,15 @@ ipcMain.handle("steam:install", (event) => {
   });
   return installingSteam;
 });
+
+// Games installed or removed while the app runs go to the app window as the
+// whole list, so the platform hears of them without a restart.
+let stopWatchingGames = null;
+async function watchGames() {
+  const steamPath = await steamPathOnce();
+  if (stopWatchingGames) return;
+  stopWatchingGames = watchSteamGames((games) => win?.webContents.send("pc:games", games), { steamPath });
+}
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.
@@ -306,6 +315,7 @@ app.whenReady().then(() => {
   );
 
   createWindow();
+  void watchGames();
   try {
     createTray();
   } catch (cause) {
@@ -317,6 +327,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   quitting = true;
+  stopWatchingGames?.();
 });
 
 process.on("unhandledRejection", (cause) => {
