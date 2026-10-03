@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
-import { GAMES, IGNITION_STEPS, MACHINES, type Game, type Machine, type SessionLength } from "./data";
-import { freeFor, machinesFor } from "./derive";
+import { chime } from "./chime";
+import {
+  GAMES,
+  IGNITION_STEPS,
+  MACHINES,
+  type Game,
+  type Machine,
+  type SeedMachine,
+  type SessionLength,
+  type Spot,
+} from "./data";
+import { demoNow, machinesFor, readyFor, reason, seedSpots, sessionMinutes } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
+import { machinesOf, spotOf } from "./live";
+import { questionOf, useLive } from "./useLive";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
 import {
@@ -29,14 +41,40 @@ export type Device = "kb" | "mouse" | "pad";
 const IGNITION_MS = 340;
 const IGNITION_BEATS = 12;
 
-/** Moss comes back mid-session, so the wall can show a machine freeing up. */
+/** Moss comes back mid-session, so the demo wall can show a machine freeing up. */
 const MOSS_FREES_AFTER_MS = 12_000;
+
+/** How long a game that just became playable pulses on the wall. */
+const FREED_MS = 2_400;
+
+/** The real clock is read this often; its minutes are all the page shows. */
+const CLOCK_MS = 15_000;
+
+/**
+ * The demo: the five invented machines and the evening pinned to 20:00, at
+ * /?demo=1. Everywhere else the wall runs on the real hosts and the real clock.
+ */
+export const isDemo = (search: string = location.search) => new URLSearchParams(search).get("demo") === "1";
+
+/** Unix ms: pinned to 20:00 today in the demo, else the real clock, kept current. */
+function useClock(demo: boolean): number {
+  const [now, setNow] = useState(() => (demo ? demoNow() : Date.now()));
+  useEffect(() => {
+    if (demo) return;
+    const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
+    return () => window.clearInterval(timer);
+  }, [demo]);
+  return now;
+}
 
 const track = (event: string, props?: Record<string, unknown>) => {
   if (isPostHogEnabled) posthog.capture(event, props);
 };
 
-export function useSwiff() {
+/** No machines at all: what the wall is outside the demo before any host is read. */
+const NO_MACHINES: Record<string, SeedMachine> = {};
+
+export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
   const [gameId, setGameId] = useState<string | null>(null);
@@ -71,13 +109,19 @@ export function useSwiff() {
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [estimateOpen, setEstimateOpen] = useState(false);
 
-  // Moss is busy in the seed data; freeing it later is the only mutation, so the
-  // pool stays derived rather than kept in state.
-  const pool = useMemo<Record<string, Machine>>(
-    () => (mossFree ? { ...MACHINES, moss: { ...MACHINES.moss!, busy: false } } : MACHINES),
-    [mossFree],
+  const clock = useClock(demo);
+
+  // The demo's machines. Moss is busy in them; freeing it later is the only
+  // mutation, so the pool stays derived rather than kept in state. Outside the
+  // demo there are none: the real hosts come from the server.
+  const pool = useMemo<Record<string, SeedMachine>>(
+    () =>
+      !demo ? NO_MACHINES : mossFree ? { ...MACHINES, moss: { ...MACHINES.moss!, busy: false } } : MACHINES,
+    [demo, mossFree],
   );
 
+  // Library and chart games are spread across the demo machines; outside the
+  // demo there are none, and the real hosts say what they have installed.
   const sharedMachineIds = useMemo(
     () =>
       Object.values(pool)
@@ -89,13 +133,51 @@ export function useSwiff() {
   const prefs = useMemo(() => ({ quality, devices }), [quality, devices]);
 
   const game = useMemo(() => games.find((g) => g.id === gameId) ?? null, [games, gameId]);
-  const machines = useMemo(
-    () => (game ? machinesFor(game, pool, session, prefs) : []),
-    [game, pool, session, prefs],
-  );
-  const picked = useMemo(() => machines.find((m) => m.id === machineId) ?? null, [machines, machineId]);
-
   const signedIn = steamId !== null;
+  // Signed out there is no availability anywhere: working it out for every
+  // visitor would cost too much. The demo shows its invented machines to anyone.
+  const seesAvailability = demo || signedIn;
+
+  const live = useLive({
+    enabled: signedIn && !demo,
+    appids: useMemo(() => games.map((g) => g.appid), [games]),
+    appid: screen === "game" ? (game?.appid ?? null) : null,
+    minutes: sessionMinutes(session),
+    prefs,
+  });
+
+  /** What the wall knows about each game, by game id; empty while nothing is known. */
+  const spots = useMemo<Map<string, Spot>>(() => {
+    if (demo) return seedSpots(games, pool, session, prefs);
+    const wall = live.wall;
+    if (!signedIn || !wall) return new Map();
+    return new Map(
+      games.flatMap((g) => {
+        const known = wall.games.get(g.appid);
+        return known ? [[g.id, spotOf(known, wall.at)] as const] : [];
+      }),
+    );
+  }, [demo, games, pool, session, prefs, signedIn, live.wall]);
+
+  /** The open game's machines as the server ranked them, once read; null until then. */
+  const liveGame = !demo && signedIn && game && live.game?.machines.appid === game.appid ? live.game : null;
+  const machines = useMemo<Machine[]>(() => {
+    if (!game) return [];
+    if (demo) return machinesFor(game, pool, session, prefs);
+    return liveGame ? machinesOf(liveGame.machines, liveGame.at) : [];
+  }, [demo, game, pool, session, prefs, liveGame]);
+  /** Why the first machine is ranked first, in rank()'s words. */
+  const why = useMemo(() => {
+    if (!game) return undefined;
+    if (demo) return reason(game, pool, session, prefs);
+    return liveGame?.machines.reason?.label;
+  }, [demo, game, pool, session, prefs, liveGame]);
+  /** Signed in, the open game's machines have not been read yet. */
+  const machinesLoading = !demo && signedIn && game !== null && liveGame === null;
+  const picked = useMemo(
+    () => machines.find((m) => m.id === machineId && (phase !== "idle" || !m.busy)) ?? null,
+    [machines, machineId, phase],
+  );
 
   // --- Steam sign-in ---------------------------------------------------------
 
@@ -199,9 +281,40 @@ export function useSwiff() {
   // --- timers ----------------------------------------------------------------
 
   useEffect(() => {
+    if (!demo) return;
     const timer = window.setTimeout(() => setMossFree(true), MOSS_FREES_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [demo]);
+
+  // --- a machine frees up ----------------------------------------------------
+
+  // Games that just became playable: they pulse on the wall, and with sounds
+  // on, the chime plays. Only a game that was known to have nothing ready and
+  // now has something counts; the first answer is not news.
+  // A different session length or setting changes what is ready without any
+  // machine freeing, so counts are only compared with counts for the same question.
+  const [freed, setFreed] = useState<ReadonlySet<string>>(() => new Set());
+  const question = demo ? questionOf(sessionMinutes(session), prefs) : (live.wall?.question ?? "");
+  const readyBefore = useRef({ question, ready: new Map<string, number>() });
+  const soundOn = useRef(sound);
+  soundOn.current = sound;
+  useEffect(() => {
+    const before = readyBefore.current;
+    const now = new Map([...spots].map(([id, spot]) => [id, spot.ready]));
+    readyBefore.current = { question, ready: now };
+    if (before.question !== question) return;
+    const ids = [...now].filter(([id, ready]) => ready > 0 && before.ready.get(id) === 0).map(([id]) => id);
+    if (!ids.length) return;
+    setFreed(new Set(ids));
+    if (soundOn.current) chime();
+    track("machine_freed", { games: ids.length });
+  }, [spots, question]);
+
+  useEffect(() => {
+    if (!freed.size) return;
+    const timer = window.setTimeout(() => setFreed(new Set()), FREED_MS);
+    return () => window.clearTimeout(timer);
+  }, [freed]);
 
   useEffect(() => {
     if (phase !== "connecting") return;
@@ -262,16 +375,24 @@ export function useSwiff() {
   const openGame = useCallback(
     (next: Game) => {
       track("game_opened", { game: next.id });
-      const free = freeFor(next, pool, session, prefs);
-      const best = free[0] ?? machinesFor(next, pool, session, prefs).find((m) => !m.busy);
       setGameId(next.id);
-      setMachineId(best?.id ?? null);
+      // rank() puts machines free all session first, so the first free one is
+      // the best. Real hosts are not read yet; the effect below picks once they are.
+      setMachineId(demo ? (machinesFor(next, pool, session, prefs).find((m) => !m.busy)?.id ?? null) : null);
       setScreen("game");
       setPhase("idle");
       setBeat(0);
     },
-    [pool, session, prefs],
+    [demo, pool, session, prefs],
   );
+
+  // The chosen machine was taken, or none is chosen yet: choose the best free
+  // one, as opening the game does. A launch under way keeps its machine.
+  useEffect(() => {
+    if (screen !== "game" || phase !== "idle") return;
+    if (machines.some((m) => m.id === machineId && !m.busy)) return;
+    setMachineId(machines.find((m) => !m.busy)?.id ?? null);
+  }, [screen, phase, machines, machineId]);
 
   const launch = useCallback(() => {
     // Playing needs a signed-in renter: the server books for nobody else.
@@ -363,14 +484,35 @@ export function useSwiff() {
     return () => window.clearInterval(timer);
   }, [goHome]);
 
+  // The live count in the top bar; signed out there is none.
+  let liveLine: string | undefined;
+  if (seesAvailability) {
+    if (screen === "game") {
+      if (!machinesLoading) liveLine = `${machines.filter((m) => !m.busy).length} free for this game`;
+    } else if (demo) {
+      liveLine = `${Object.values(pool).filter((m) => !m.busy && !m.self).length} free near you`;
+    } else if (spots.size) {
+      const ready = games.filter((g) => readyFor(spots, g) > 0).length;
+      liveLine = `${ready} ${ready === 1 ? "game" : "games"} ready now`;
+    }
+  }
+
   return {
+    demo,
     screen,
     phase,
     games,
     game,
     machines,
+    machinesLoading,
+    reason: why,
     picked,
     pool,
+    spots,
+    freed,
+    clock,
+    seesAvailability,
+    liveLine,
     session,
     prefs,
     hoverId,

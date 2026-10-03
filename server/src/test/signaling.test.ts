@@ -795,7 +795,10 @@ describe("host sessions", () => {
       const ws = await open();
       send(ws, register(room));
       await handled(ws);
+      // Gone before the test goes on: a close the server hears late takes the next offer offline.
+      const gone = closed(ws);
       ws.close();
+      await gone;
       return ws;
     };
 

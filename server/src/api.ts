@@ -14,6 +14,8 @@
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
+//   GET  /api/events              (availability events, events.ts)
+//   GET  /api/ping           (signed out)
 //
 // The two reads of what can be played where (candidates.ts) are signed in
 // only: working them out for every visitor would cost too much. For the same
@@ -241,6 +243,14 @@ export function createApi({
 
     // --- Booking API ---------------------------------------------------------
 
+    // The page times this to measure its round trip to the server, which the
+    // reads below take as `rtt`; it answers before anything else is done.
+    if (resource === "ping" && !id && method === "GET") {
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
+      return true;
+    }
+
     if (resource === "games" && !id && method === "GET") {
       reply(res, 200, await games().catch(() => []));
       return true;
@@ -258,8 +268,10 @@ export function createApi({
       const parsed = new Set(appids.map((a) => wholeParam(a, "appids[]", MAX_APPID)));
       const games = await platform.requirements([...parsed]);
       const ask = renterAsk(steamId, query);
+      // Optional: how long the renter means to play, for `ready` and `best`. It never changes `free`.
+      const minutes = query.has("minutes") ? wholeParam(query.get("minutes"), "minutes", MAX_MINUTES) : 0;
       const { at, machines } = await platform.offeredMachines();
-      reply(res, 200, availabilityFor(games, ask, machines, at));
+      reply(res, 200, availabilityFor(games, ask, machines, at, minutes));
       return true;
     }
 
@@ -279,10 +291,18 @@ export function createApi({
     if (resource === "events" && !id && method === "GET" && events) {
       const session = requireRenterSession(req, sessionSecret);
       const bookingId = queryOf(req).get("booking");
+      // The stream ends when the session does, as any other call would be refused then.
+      const until = session.exp * 1000;
+      if (bookingId === null) {
+        // No booking: the wall's stream, which only says that availability changed.
+        if (events.openAvailability(res, session.steamId, until) === "too-many") {
+          throw new HttpError(429, "too many open event streams");
+        }
+        return true;
+      }
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
-      // The stream ends when the session does, as any other call would be refused then.
-      const opened = await events.open(res, bookingId, session.steamId, session.exp * 1000);
+      const opened = await events.open(res, bookingId, session.steamId, until);
       if (opened === "not-found") throw new HttpError(404, "no such booking");
       if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true; // opened, or nobody left to answer

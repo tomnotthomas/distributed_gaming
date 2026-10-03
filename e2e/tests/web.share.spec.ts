@@ -65,9 +65,9 @@ test.describe("share your PC", () => {
   });
 
   test("keeps a running launch in place on Back", async ({ page, context, baseURL }) => {
-    // Only a signed-in renter can launch.
+    // Only a signed-in renter can launch, and only on a machine: the demo's.
     await signIn(context, baseURL!);
-    await page.goto("/share");
+    await page.goto("/share?demo=1");
     await page.getByRole("navigation").getByRole("button", { name: "Home" }).click();
     await page.locator("button.band-tile").first().click();
 
@@ -78,7 +78,7 @@ test.describe("share your PC", () => {
     await page.keyboard.up(" ");
 
     await page.goBack();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/\?demo=1$/);
     await expect(page.locator(".sw")).toHaveAttribute("data-screen", "game");
 
     await page.getByRole("button", { name: "End session" }).click({ timeout: 15_000 });

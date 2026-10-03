@@ -1,4 +1,7 @@
-// The renter's event stream: GET /api/events?booking=<id>, Server-Sent Events.
+// The renter's event stream, Server-Sent Events. Two kinds, one endpoint:
+// GET /api/events?booking=<id> follows one booking, and GET /api/events with
+// no booking tells the signed-in renter's wall that what can be played where
+// has changed.
 //
 //   renter page                         this server
 //   -----------                         -----------
@@ -13,22 +16,35 @@
 //       |  event: booking  {status: matched, claimBy, machine}
 //       |<----------------------------------|  pushed the moment it matches
 //
+//       |  GET /api/events                  |
+//       |---------------------------------->|
+//       |  event: availability  {}          |
+//       |<----------------------------------|  a machine was offered, taken back,
+//       |  GET /api/availability?appids=…   |  went busy, came free or went offline
+//       |---------------------------------->|
+//
 // An open stream is not presence by itself: a sleeping laptop's stream can
 // stay open, through Cloudflare, long after its page stopped running. The
 // renter is there only while the page speaks: the open, then its heartbeat.
 //
 // One-way plain HTTP, so it passes Cloudflare as it is, and the browser's
-// EventSource reconnects by itself. Each event carries the whole booking as
-// GET /api/bookings/:id answers it; `claimBy` is the claim countdown.
+// EventSource reconnects by itself. Each booking event carries the whole
+// booking as GET /api/bookings/:id answers it; `claimBy` is the claim
+// countdown. An availability event carries nothing: what changed differs per
+// renter (their own PC, how far away each machine is), so working it out for
+// every open stream on every change would cost what the signed-in-only reads
+// were made to avoid. The page asks again, within its own budget of those reads.
 //
 // Only the signed-in renter who made the booking can open a stream on it, as
-// with the rest of the Booking API. So that streams cannot hold the server's
-// resources open, a booking takes at most MAX_STREAMS_PER_BOOKING streams, one
-// signed-in renter at most `maxStreamsPerRenter` and the server at most
-// `maxStreams` in all; a stream ends once the booking needs no more watching,
-// and a stream whose renter does not read what it is sent is dropped. The
-// per-renter cap is keyed on the signed-in renter, not on an address a request
-// can claim in a header, so no renter can hold more than their share.
+// with the rest of the Booking API, and only a signed-in renter can hear about
+// availability. So that streams cannot hold the server's resources open, a
+// booking takes at most MAX_STREAMS_PER_BOOKING streams, one signed-in renter
+// at most `maxStreamsPerRenter` of either kind and the server at most
+// `maxStreams` in all; a booking stream ends once the booking needs no more
+// watching, and a stream whose renter does not read what it is sent is
+// dropped. The per-renter cap is keyed on the signed-in renter, not on an
+// address a request can claim in a header, so no renter can hold more than
+// their share.
 
 import type { ServerResponse } from "node:http";
 import type { BookingStatus, BookingView, Platform } from "./platform.js";
@@ -60,15 +76,30 @@ export type RenterEvents = {
    */
   open(res: ServerResponse, bookingId: string, renterId: string, signedInUntil: number): Promise<OpenResult>;
   /**
+   * Answer GET /api/events with no booking: a stream of availability events
+   * for the signed-in `renterId`, unless a stream cap is reached. It ends at
+   * `signedInUntil` (Unix ms), as a booking stream does.
+   */
+  openAvailability(
+    res: ServerResponse,
+    renterId: string,
+    signedInUntil: number,
+  ): Extract<OpenResult, "opened" | "too-many">;
+  /**
    * Send the booking as it now stands to every stream open on it. The platform
    * calls this on each change; it resolves once the booking has been read and
    * sent, and never rejects: a failed read is logged.
    */
   bookingChanged(bookingId: string): Promise<void>;
+  /** Tell every availability stream that what is on offer changed. The platform calls this on each change. */
+  availabilityChanged(): void;
 };
 
 /** One booking event, in the event-stream format. */
 const bookingEvent = (booking: BookingView) => `event: booking\ndata: ${JSON.stringify(booking)}\n\n`;
+
+/** One availability event: nothing but that something changed. */
+const AVAILABILITY_EVENT = "event: availability\ndata: {}\n\n";
 
 /**
  * Write to the stream, or drop it when its buffer is full: a renter that does
@@ -126,6 +157,52 @@ export function createRenterEvents(
   const perRenter = new Map<string, number>();
   let total = 0;
 
+  /** Streams open for availability, with no booking. */
+  const watching = new Set<ServerResponse>();
+
+  /** Whether `renterId` or the server has its fill of streams. */
+  const full = (renterId: string) =>
+    (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter || total >= maxStreams;
+
+  /**
+   * Answer with an event stream, counted against `renterId` and the server
+   * until it closes, and ended once the session is over. `set` holds it while
+   * it is open; `forget` runs once it closes, after it has left `set`.
+   */
+  function hold(
+    res: ServerResponse,
+    renterId: string,
+    until: number,
+    set: Set<ServerResponse>,
+    forget = () => {},
+  ) {
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store, no-transform",
+      connection: "keep-alive",
+      // Tells nginx-style proxies not to hold events back in a buffer.
+      "x-accel-buffering": "no",
+    });
+
+    set.add(res);
+    signedInUntil.set(res, until);
+    perRenter.set(renterId, (perRenter.get(renterId) ?? 0) + 1);
+    total += 1;
+    // Each keep-alive also checks the session: one that has run out ends the stream.
+    const keepAlive = setInterval(() => signedOut(res) || write(res, ": keep-alive\n\n"), keepAliveMs);
+    keepAlive.unref();
+
+    res.once("close", () => {
+      clearInterval(keepAlive);
+      set.delete(res);
+      total -= 1;
+      const left = (perRenter.get(renterId) ?? 1) - 1;
+      if (left > 0) perRenter.set(renterId, left);
+      else perRenter.delete(renterId);
+      forget();
+    });
+  }
+
   return {
     async open(res, bookingId, renterId, until) {
       // An unknown booking, or somebody else's, reads as not found before any
@@ -134,42 +211,21 @@ export function createRenterEvents(
       if (!booking) return "not-found";
       // Its close has been and gone: a stream held for it would never be let go.
       if (res.destroyed) return "gone";
-      if (
-        (streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING ||
-        (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter ||
-        total >= maxStreams
-      ) {
-        return "too-many";
-      }
-
-      res.writeHead(200, {
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-store, no-transform",
-        connection: "keep-alive",
-        // Tells nginx-style proxies not to hold events back in a buffer.
-        "x-accel-buffering": "no",
-      });
+      if ((streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING || full(renterId)) return "too-many";
 
       let open = streams.get(bookingId);
       if (!open) streams.set(bookingId, (open = new Set()));
-      open.add(res);
-      signedInUntil.set(res, until);
-      perRenter.set(renterId, (perRenter.get(renterId) ?? 0) + 1);
-      total += 1;
-      // Each keep-alive also checks the session: one that has run out ends the stream.
-      const keepAlive = setInterval(() => signedOut(res) || write(res, ": keep-alive\n\n"), keepAliveMs);
-      keepAlive.unref();
-
-      res.once("close", () => {
-        clearInterval(keepAlive);
-        open.delete(res);
-        total -= 1;
-        const left = (perRenter.get(renterId) ?? 1) - 1;
-        if (left > 0) perRenter.set(renterId, left);
-        else perRenter.delete(renterId);
-        if (!open.size && streams.get(bookingId) === open) streams.delete(bookingId);
+      const mine = open;
+      hold(res, renterId, until, mine, () => {
+        if (!mine.size && streams.get(bookingId) === mine) streams.delete(bookingId);
       });
       sendBooking(res, booking);
+      return "opened";
+    },
+
+    openAvailability(res, renterId, until) {
+      if (full(renterId)) return "too-many";
+      hold(res, renterId, until, watching);
       return "opened";
     },
 
@@ -187,6 +243,10 @@ export function createRenterEvents(
       const open = streams.get(bookingId);
       if (!booking || !open) return;
       for (const res of [...open]) if (!signedOut(res)) sendBooking(res, booking);
+    },
+
+    availabilityChanged() {
+      for (const res of [...watching]) if (!signedOut(res)) write(res, AVAILABILITY_EVENT);
     },
   };
 }

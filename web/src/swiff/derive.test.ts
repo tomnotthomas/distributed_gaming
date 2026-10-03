@@ -1,21 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { GAMES, MACHINES, type Machine } from "./data";
 import {
+  clockMinutes,
+  clockTime,
   feel,
   fmtLeft,
   freeFor,
   lasts,
+  leftAt,
   machinesFor,
   meters,
   minsLeft,
   reason,
   requirementsOf,
+  seedSpot,
+  seedSpots,
   wallOrder,
 } from "./derive";
 
 const elden = GAMES.find((g) => g.id === "er")!; // nova, glass, tide, ember
 
-const at = (until: string, over: Partial<Machine> = {}): Machine => ({
+const at = (until: string, over: Partial<Machine> = {}) => ({
   ...MACHINES.glass!,
   until,
   ...over,
@@ -161,10 +166,84 @@ describe("freeFor with a picture preference", () => {
 
 describe("wallOrder", () => {
   it("ranks playable first and never drops a game you own", () => {
-    const order = wallOrder(GAMES, MACHINES, "evening");
+    const order = wallOrder(GAMES, seedSpots(GAMES, MACHINES, "evening"));
     expect(order).toHaveLength(GAMES.length);
     const silksong = order.findIndex((g) => g.id === "hk"); // moss only, busy
     const elden = order.findIndex((g) => g.id === "er");
     expect(elden).toBeLessThan(silksong);
+  });
+
+  it("orders by what you have played alone when nothing is known about machines", () => {
+    const order = wallOrder(GAMES, new Map());
+    expect(order).toHaveLength(GAMES.length);
+    expect(order.slice(0, 5).every((g) => g.last)).toBe(true);
+  });
+});
+
+describe("seedSpot", () => {
+  const silksong = GAMES.find((g) => g.id === "hk")!; // moss only, busy until 21:30
+
+  it("offers the best demo machine free for the session", () => {
+    const spot = seedSpot(elden, MACHINES, "evening");
+    expect(spot.ready).toBe(freeFor(elden, MACHINES, "evening").length);
+    expect(spot.best?.id).toBe("glass");
+    expect(spot.best?.self).toBeFalsy();
+  });
+
+  it("says who is back and when for a game with nothing free", () => {
+    expect(seedSpot(silksong, MACHINES, "evening")).toEqual({
+      free: 0,
+      ready: 0,
+      busy: 1,
+      best: null,
+      back: { name: "Moss", at: "21:30", backAt: 21.5 * 3_600_000 },
+    });
+  });
+});
+
+describe("the real clock", () => {
+  it("reads minutes since local midnight", () => {
+    expect(clockMinutes(new Date(2026, 9, 3, 21, 45))).toBe(21 * 60 + 45);
+  });
+
+  it("tells a Unix ms time as the local clock shows it", () => {
+    expect(clockTime(new Date(2026, 9, 3, 7, 5).getTime())).toBe("07:05");
+  });
+
+  it("counts a real host's time left from the real clock, not the demo's 20:00", () => {
+    expect(minsLeft(at("23:00"), 22 * 60)).toBe(60);
+    expect(minsLeft(at("01:00"), 23 * 60 + 30)).toBe(90);
+  });
+
+  it("counts a real host down to its absolute free-until, and to nothing once it has passed", () => {
+    const until = new Date(2026, 9, 3, 21, 30, 40).getTime();
+    const host = at("21:30", { untilAt: until });
+    expect(leftAt(host, new Date(2026, 9, 3, 21, 0).getTime())).toBe(30);
+    // Read at 21:29, still shown at 21:31: passed, not free all night.
+    expect(leftAt(host, new Date(2026, 9, 3, 21, 31).getTime())).toBe(0);
+    expect(fmtLeft(leftAt(host, new Date(2026, 9, 3, 21, 31).getTime()))).toBe("0 min");
+  });
+
+  it("counts a demo machine by its clock time from the clock's minutes", () => {
+    expect(leftAt(at("00:30"), new Date(2026, 9, 3, 20, 0).getTime())).toBe(270);
+    expect(leftAt(at("late"), new Date(2026, 9, 3, 20, 0).getTime())).toBe(12 * 60);
+  });
+});
+
+describe("meters for a real host", () => {
+  it("takes the server's scores as they are", () => {
+    const host: Machine = {
+      id: "h",
+      name: "Host",
+      gpu: "RTX 4090",
+      ping: 30,
+      quality: "",
+      until: "late",
+      busy: false,
+    };
+    expect(meters({ ...host, scores: { picture: 4, response: 3 } }, elden)).toEqual({
+      picture: 4,
+      response: 3,
+    });
   });
 });

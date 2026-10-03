@@ -8,8 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { Backdrop, Button, EmptyState } from "@swiff/ui";
-import type { Game, Machine } from "./data";
-import { fmtLeft, freeFor, minsLeft, wallOrder } from "./derive";
+import type { Game, Machine, Spot } from "./data";
+import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
 import { SignInWithSteam } from "./SignIn";
@@ -80,9 +80,9 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
-/** "4 h 30" or "All night": the time a machine stays free, as the band prints it. */
-const leftLabel = (machine: Machine) => {
-  const left = fmtLeft(minsLeft(machine));
+/** "4 h 30" or "All night": the time a machine stays free from `now` (Unix ms), as the band prints it. */
+const leftLabel = (machine: Machine, now: number) => {
+  const left = fmtLeft(leftAt(machine, now));
   return left === "all night" ? "All night" : left;
 };
 
@@ -90,17 +90,47 @@ const leftLabel = (machine: Machine) => {
 const untilLabel = (machine: Machine) =>
   machine.until === "late" ? "free all night" : `free until ${machine.until}`;
 
-/** Why a game cannot start now: who comes back, and when. */
-function waitLabel(game: Game, pool: Record<string, Machine>): string {
-  const backSoon = game.machines.map((id) => pool[id]).find((m) => m?.back);
-  return backSoon ? `Back at ${backSoon.back}` : "In use";
+/** Why a game cannot start now: who comes back and when, or why nothing will. */
+function waitLabel(spot: Spot | undefined): string {
+  if (spot?.back) return `Back at ${spot.back.at}`;
+  if (spot?.free) return "Free, not all session";
+  if (spot?.busy) return "In use";
+  return "On no machine yet";
 }
 
-export function Wall({ swiff }: { swiff: Swiff }) {
-  const { games, pool, session, prefs, signedIn, showAll } = swiff;
+/** Of these games' spots, the one whose busy machine is back soonest; none when no machine says. */
+function soonestBack(spots: (Spot | undefined)[]): Spot | undefined {
+  return spots
+    .filter((s): s is Spot & { back: NonNullable<Spot["back"]> } => Boolean(s?.back))
+    .sort((a, b) => a.back.backAt - b.back.backAt)[0];
+}
 
-  const ordered = useMemo(() => wallOrder(games, pool, session, prefs), [games, pool, session, prefs]);
-  const anythingFree = ordered.some((g) => freeFor(g, pool, session, prefs).length > 0);
+/**
+ * Why nothing on the wall is ready, from the host schedule: who comes back
+ * first and when, or that what is free does not last the session, or that
+ * nothing is on offer at all.
+ */
+function emptyLine(games: Game[], spots: ReadonlyMap<string, Spot>): string {
+  const known = games.flatMap((g) => spots.get(g.id) ?? []);
+  const back = soonestBack(known)?.back;
+  if (back) return `Every shared machine is in use. ${back.name} is back at ${back.at}. `;
+  if (known.some((s) => s.free))
+    return "No free machine lasts all of tonight. Try a shorter Tonight, up top. ";
+  if (known.some((s) => s.busy)) return "Every shared machine is in use. ";
+  return "No shared machine is free right now. ";
+}
+
+/** A game that just became playable pulses, unless motion is off. */
+const freedClass = (swiff: Swiff, game: Game) => (swiff.motion && swiff.freed.has(game.id) ? " freed" : "");
+
+export function Wall({ swiff }: { swiff: Swiff }) {
+  const { games, spots, signedIn, showAll } = swiff;
+
+  const ordered = useMemo(() => wallOrder(games, spots), [games, spots]);
+  // Nothing is ready only once something is known: signed out, nothing ever is,
+  // and signed in, nothing is until the server has answered.
+  const known = ordered.some((g) => spots.has(g.id));
+  const anythingFree = !known || ordered.some((g) => readyFor(spots, g) > 0);
 
   // Before sign-in the wall leads with a free-to-play title: the one game a
   // stranger can play the moment they sign in, whatever they own.
@@ -110,7 +140,6 @@ export function Wall({ swiff }: { swiff: Swiff }) {
     return [...shown].sort((a, b) => Number(Boolean(b.f2p)) - Number(Boolean(a.f2p)));
   }, [ordered, showAll, signedIn]);
 
-  const shared = Object.values(pool).filter((m) => !m.busy && !m.self);
   const previewId = usePreview(swiff.hoverId);
 
   const library = swiff.profile ? libraryState(swiff.profile) : "ok";
@@ -126,20 +155,21 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         {note}
       </main>
     );
-  if (!anythingFree) return <WallEmpty note={note} signedIn={signedIn} />;
+  if (!anythingFree) return <WallEmpty note={note} signedIn={signedIn} state={emptyLine(ordered, spots)} />;
 
   const [hero, ...rest] = wall;
-  // Signed out, the hero turns through a few games that are free right now;
-  // signed in it stays on the renter's own lead game.
+  // Signed out, the hero turns through a few games: ones free right now in the
+  // demo, else the free-to-play ones, since signed out nothing says what is
+  // free. Signed in it stays on the renter's own lead game.
   const showcase = signedIn
     ? []
-    : wall.filter((g) => freeFor(g, pool, session, prefs).length > 0).slice(0, ROTATE_COUNT);
-  const busy = ordered.filter((g) => !freeFor(g, pool, session, prefs).length);
+    : wall.filter((g) => (spots.has(g.id) ? readyFor(spots, g) > 0 : Boolean(g.f2p))).slice(0, ROTATE_COUNT);
+  const busy = ordered.filter((g) => spots.has(g.id) && !readyFor(spots, g));
   const more = !showAll && ordered.length > LIMIT;
 
   return (
     <main className="wall" data-testid="wall">
-      {hero ? <WallHero games={showcase.length ? showcase : [hero]} swiff={swiff} shared={shared} /> : null}
+      {hero ? <WallHero games={showcase.length ? showcase : [hero]} swiff={swiff} /> : null}
 
       <section className="band" aria-label="Games">
         {note}
@@ -173,7 +203,10 @@ export function Wall({ swiff }: { swiff: Swiff }) {
               <Glyph name="arrow" size={16} />
             </button>
           ) : busy.length ? (
-            <BandTab label={waitLabel(busy[0]!, pool)} n={busy.length} />
+            <BandTab
+              label={waitLabel(soonestBack(busy.map((g) => spots.get(g.id))) ?? spots.get(busy[0]!.id))}
+              n={busy.length}
+            />
           ) : (
             <span className="band-tab" />
           )}
@@ -248,17 +281,18 @@ function useFitTitle(text: string) {
  * the machine (signed in) or the pitch (signed out), and Resume or the one
  * Sign in with Steam.
  */
-function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; shared: Machine[] }) {
-  const { pool, session, prefs, signedIn } = swiff;
+function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
+  const { signedIn, clock } = swiff;
   const at = useRotation(games.length, swiff.motion);
   const game = games[at.index] ?? games[0]!;
-  const best = freeFor(game, pool, session, prefs)[0];
+  const spot = swiff.spots.get(game.id);
+  const best = spot?.best ?? null;
   const title = useFitTitle(game.title);
   const leader = !signedIn ? "Tonight on Swiff" : game.owned ? "From your library" : "Free to play";
 
   return (
     <section
-      className="hero-3b"
+      className={`hero-3b${freedClass(swiff, game)}`}
       data-testid="hero"
       onMouseEnter={() => {
         swiff.setHoverId(null);
@@ -309,8 +343,10 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
                 <>
                   On <b>{best.name}</b>, {untilLabel(best)}
                 </>
+              ) : spot ? (
+                waitLabel(spot)
               ) : (
-                waitLabel(game, pool)
+                "Finding you a machine…"
               )}
             </p>
           </div>
@@ -341,7 +377,7 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
                 {game.owned ? "Resume" : "Play"}
                 {best ? (
                   <small id="hero-left" aria-hidden="true">
-                    {leftLabel(best)} free
+                    {leftLabel(best, clock)} free
                   </small>
                 ) : null}
               </span>
@@ -365,7 +401,6 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
               We read your Steam library and stream the games you own from players&rsquo; idle PCs. Your saves
               come with you.
             </p>
-            <NearestLine machines={shared} />
           </div>
           <div className="hero-strip-cell hero-strip-act">
             <SignInWithSteam />
@@ -374,19 +409,6 @@ function WallHero({ games, swiff, shared }: { games: Game[]; swiff: Swiff; share
         </div>
       )}
     </section>
-  );
-}
-
-/** Under the signed-out pitch: how many PCs are free, and the nearest one's response. */
-function NearestLine({ machines }: { machines: Machine[] }) {
-  const nearest = [...machines].sort((a, b) => a.ping - b.ping)[0];
-  if (!nearest) return null;
-  const count = `${machines.length} ${machines.length === 1 ? "PC" : "PCs"} free near you`;
-  return (
-    <p className="mono hero-strip-near">
-      {count}
-      <span>, nearest {nearest.ping} ms</span>
-    </p>
   );
 }
 
@@ -400,29 +422,34 @@ type TileProps = {
 
 /** One game in the ruled band: art flush in its cell, the title, and where it would run. */
 function BandTile({ game, preview, swiff, signedIn }: TileProps) {
-  const { pool, session, prefs } = swiff;
-  const best = freeFor(game, pool, session, prefs)[0];
+  const spot = swiff.spots.get(game.id);
+  const best = spot?.best ?? null;
   const signInFirst = !signedIn && !game.f2p;
-  const locked = !best || signInFirst;
+  // Locked when it cannot start: sign-in stands in the way, or the machines
+  // are known and none is ready. Nothing known yet locks nothing.
+  const waiting = spot !== undefined && !best;
+  const locked = signInFirst || waiting;
 
   let meta: ReactNode;
   if (signInFirst) meta = <span>Sign in to play if you own it</span>;
-  else if (!best) meta = <span>{waitLabel(game, pool)}</span>;
-  else
+  else if (waiting) meta = <span>{waitLabel(spot)}</span>;
+  else if (best)
     meta = (
       <>
         <span>{best.name}</span>
         <span className="band-tile-left">
-          <TimeMark minutes={minsLeft(best)} />
-          {leftLabel(best)}
+          <TimeMark minutes={leftAt(best, swiff.clock)} />
+          {leftLabel(best, swiff.clock)}
         </span>
       </>
     );
+  // Signed out nothing is shown about machines; signed in they are on their way.
+  else meta = <span>{signedIn ? "Finding a machine…" : "Sign in to play"}</span>;
 
   return (
     <button
       type="button"
-      className={locked ? "band-tile band-tile-locked" : "band-tile"}
+      className={`${locked ? "band-tile band-tile-locked" : "band-tile"}${freedClass(swiff, game)}`}
       onClick={() => swiff.openGame(game)}
       onMouseEnter={() => swiff.setHoverId(game.id)}
       onMouseLeave={() => swiff.setHoverId(null)}
@@ -493,10 +520,11 @@ function LibraryNote({
 }
 
 /**
- * Every shared machine is busy; a library note, when there is one, still leads.
- * Signed out, the way in is still the one Sign in with Steam.
+ * No shared machine is ready; a library note, when there is one, still leads.
+ * `state` says why (emptyLine). Signed out (the demo), the way in is still the
+ * one Sign in with Steam.
  */
-function WallEmpty({ note, signedIn }: { note?: ReactNode; signedIn: boolean }) {
+function WallEmpty({ note, signedIn, state }: { note?: ReactNode; signedIn: boolean; state: string }) {
   return (
     <main className="wall wall-bare" data-testid="wall">
       {note}
@@ -504,8 +532,8 @@ function WallEmpty({ note, signedIn }: { note?: ReactNode; signedIn: boolean }) 
         title="Nothing is ready right now"
         body={
           signedIn
-            ? "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up."
-            : "Every shared machine is in use. Moss is back at 21:30. Sign in with Steam and we'll tell you when a PC frees up."
+            ? `${state}We'll tell you the moment something frees up.`
+            : `${state}Sign in with Steam and we'll tell you when a PC frees up.`
         }
         action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
