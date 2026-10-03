@@ -254,7 +254,7 @@ describe("booking and host API", () => {
     const own = await owner("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal(own.body.status, "queued");
 
-    // Anybody else gets it, cheapest first, while the owner keeps waiting.
+    // Anybody else gets it, while the owner keeps waiting.
     const theirs = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal(theirs.body.status, "matched");
     assert.equal(theirs.body.machine.id, "pc-3");
@@ -263,6 +263,87 @@ describe("booking and host API", () => {
     const matched = await owner("GET", `/api/bookings/${own.body.bookingId}`);
     assert.equal(matched.body.status, "matched");
     assert.equal(matched.body.machine.id, "pc-1");
+  });
+
+  it("books a machine picked from the list at once, for the renter to claim", async () => {
+    await offer("pc-1", { available: true, ...REPORT, price: 50 });
+    await offer("pc-2", { available: true, ...REPORT, price: 300 });
+    const booked = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-2" });
+    assert.equal(booked.status, 202);
+    assert.equal(booked.body.status, "matched");
+    assert.equal(booked.body.machine.id, "pc-2");
+    assert.equal(booked.body.claimBy, now + 60_000);
+    const claim = await renter("POST", `/api/bookings/${booked.body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+    assert.equal(claim.body.roomId, "pc-2");
+  });
+
+  it("answers 409 with the next best when the picked machine was taken", async () => {
+    await offer("pc-1", { available: true, ...REPORT, price: 50 });
+    await offer("pc-2", { available: true, ...REPORT, price: 300 });
+    const other = as(signedIn(OTHER));
+    assert.equal(
+      (await other("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" })).status,
+      202,
+    );
+
+    const taken = await renter("POST", "/api/bookings", {
+      gameId: 730,
+      minutes: 30,
+      machineId: "pc-1",
+      rtts: { server: 8 },
+    });
+    assert.equal(taken.status, 409);
+    assert.equal(taken.body.error, "the machine is taken");
+    assert.equal(taken.body.nextBest.id, "pc-2");
+    assert.deepEqual(taken.body.nextBest.latency, { rttMs: 20, jitterMs: 2.5, source: "estimate" });
+
+    // An unknown machine reads the same as a taken one.
+    const unknown = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-9" });
+    assert.equal(unknown.status, 409);
+    assert.equal(unknown.body.nextBest.id, "pc-2");
+
+    // The next best comes out of the renter's budget of discovery reads.
+    for (let i = 0; i < DISCOVERY_BURST; i++) discovery.take(RENTER);
+    const spent = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" });
+    assert.equal(spent.status, 409);
+    assert.equal(spent.body.nextBest, null);
+  });
+
+  it("matches a queued booking by the renter's round trips", async () => {
+    await offer("pc-1", { available: true, ...REPORT, net: { ...REPORT.net, rttMs: 40 } });
+    const far = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, rtts: { server: 60 } });
+    assert.equal(far.body.status, "queued");
+    const near = await renter("POST", "/api/bookings", {
+      gameId: 730,
+      minutes: 30,
+      rtts: { server: 60, machines: { "pc-1": 30 } },
+    });
+    assert.equal(near.body.status, "matched");
+  });
+
+  it("lets the renter end their own booking, and nobody else", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const end = `/api/bookings/${body.bookingId}/end`;
+    assert.equal((await call("POST", end)).status, 401);
+    assert.equal((await as(signedIn(OTHER))("POST", end)).status, 404);
+    assert.equal((await renter("POST", "/api/bookings/nope/end")).status, 404);
+
+    const ended = await renter("POST", end);
+    assert.equal(ended.status, 200);
+    assert.equal(ended.body.status, "ended");
+    assert.equal(ended.body.sessionId, claim.body.sessionId);
+    assert.equal(await platform.sessionEndReason(claim.body.sessionId), "renter");
+    assert.equal(
+      (await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY)).body.status,
+      "available",
+    );
+
+    const again = await renter("POST", end);
+    assert.equal(again.status, 409);
+    assert.equal(again.body.status, "ended");
   });
 
   it("tells the page who is signed in, and signs them out", async () => {
@@ -289,7 +370,18 @@ describe("booking and host API", () => {
   });
 
   it("rejects malformed requests without falling over", async () => {
-    for (const body of [{}, { gameId: 730 }, { gameId: -1, minutes: 30 }, { gameId: 730, minutes: 1.5 }]) {
+    for (const body of [
+      {},
+      { gameId: 730 },
+      { gameId: -1, minutes: 30 },
+      { gameId: 730, minutes: 1.5 },
+      { gameId: 730, minutes: 30, machineId: 5 },
+      { gameId: 730, minutes: 30, machineId: "" },
+      { gameId: 730, minutes: 30, rtts: 8 },
+      { gameId: 730, minutes: 30, rtts: { server: -1 } },
+      { gameId: 730, minutes: 30, rtts: { machines: [8] } },
+      { gameId: 730, minutes: 30, rtts: { machines: { "pc-1": "fast" } } },
+    ]) {
       assert.equal((await renter("POST", "/api/bookings", body)).status, 400, JSON.stringify(body));
     }
     assert.equal((await renter("POST", "/api/bookings", "{not json")).status, 400);

@@ -126,6 +126,12 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       updated_at    BIGINT NOT NULL
     )`,
   ],
+  [
+    // The renter's round trips the booking was made with, as JSON (platform.ts
+    // Rtts): matching judges each machine's latency by them. Null for a booking
+    // made before they were kept, which counts the renter's leg as nothing.
+    `ALTER TABLE bookings ADD COLUMN rtts TEXT`,
+  ],
 ];
 
 /**

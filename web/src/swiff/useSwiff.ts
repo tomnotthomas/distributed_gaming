@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import posthog, { isPostHogEnabled } from "../posthog";
+import {
+  bookMachine,
+  book,
+  endBooking,
+  followBooking,
+  storedBookingId,
+  type Booking,
+  type Claim,
+  type NextBest,
+} from "./booking";
 import { chime } from "./chime";
 import {
   GAMES,
@@ -36,6 +46,8 @@ export type Screen = "home" | "game" | "profile" | "share";
 export type Phase = "idle" | "connecting" | "live";
 export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";
+/** A machine picked to launch on that was taken first, and the server's next best instead. */
+export type Taken = { nextBest: NextBest | null };
 
 /** One 340 ms beat of the ignition sequence; twelve of them reach a frame. */
 const IGNITION_MS = 340;
@@ -104,6 +116,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showAll, setShowAll] = useState(false);
   const [ownerDropped, setOwnerDropped] = useState(false);
+
+  // The renter's booking on the server, the room and ticket its claim handed
+  // out, a picked machine that was taken first, and a booking call that failed.
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [claim, setClaim] = useState<Claim | null>(null);
+  const [taken, setTaken] = useState<Taken | null>(null);
+  const [bookingFailed, setBookingFailed] = useState(false);
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -278,6 +297,139 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     );
   }, []);
 
+  // --- booking ---------------------------------------------------------------
+
+  // The games as they stand, for a claim that comes in on a resumed booking.
+  const gamesNow = useRef(games);
+  gamesNow.current = games;
+  // The booking being followed to its claim (booking.ts), and stopping that.
+  const following = useRef<(() => void) | null>(null);
+  const bookingNow = useRef(booking);
+  bookingNow.current = booking;
+  // Which launch is current, so one cancelled while its booking call was in
+  // flight hands its machine back rather than claiming it.
+  const launchRun = useRef(0);
+  // The renter's measured round trip to the server, which bookings carry so
+  // the server judges each machine's latency from where they are.
+  const rttNow = useRef(live.rttMs);
+  rttNow.current = live.rttMs;
+  const rtts = () => (rttNow.current === null ? {} : { rtts: { server: rttNow.current } });
+
+  const stopFollowing = useCallback(() => {
+    following.current?.();
+    following.current = null;
+  }, []);
+
+  /**
+   * Follow the booking until the page claims its machine (booking.ts): at once
+   * for a picked machine, on the stream's match for a queued one. A claim puts
+   * the launch up for the booking's game.
+   */
+  const follow = useCallback(
+    (first: Booking | string) => {
+      stopFollowing();
+      following.current = followBooking(first, {
+        onUpdate: (next) => setBooking(next),
+        onClaimed: (claimed, next) => {
+          following.current = null;
+          track("booking_claimed", { game: next.gameId, machine: claimed.roomId });
+          setBooking(next);
+          setClaim(claimed);
+          const claimedGame = gamesNow.current.find((g) => g.appid === next.gameId);
+          if (claimedGame) setGameId(claimedGame.id);
+          setScreen("game");
+          setPhase((current) => (current === "idle" ? "connecting" : current));
+        },
+        onClaimFailed: () => setBookingFailed(true),
+      });
+    },
+    [stopFollowing],
+  );
+
+  /** End the renter's booking, whatever it has come to, and stop following it. */
+  const endCurrentBooking = useCallback(() => {
+    launchRun.current += 1;
+    stopFollowing();
+    const current = bookingNow.current;
+    if (current && current.status !== "ended" && current.status !== "expired") {
+      void endBooking(current.bookingId).catch(() => {});
+    }
+    setBooking(null);
+    setClaim(null);
+  }, [stopFollowing]);
+
+  /** Book `machineId` for the open game and launch on it; the claim follows by itself. */
+  const launchOn = useCallback(
+    (machineId: string) => {
+      if (!game) return;
+      // A booking already waiting (in the queue) gives way to this one.
+      endCurrentBooking();
+      const run = ++launchRun.current;
+      setTaken(null);
+      setBookingFailed(false);
+      setPhase("connecting");
+      setBeat(0);
+      bookMachine(machineId, game.appid, sessionMinutes(session), rtts()).then(
+        (result) => {
+          if (run !== launchRun.current) {
+            // Cancelled meanwhile: the machine goes back rather than to a renter who left.
+            if (result.kind === "booked") void endBooking(result.booking.bookingId).catch(() => {});
+            return;
+          }
+          if (result.kind === "taken") {
+            track("machine_taken", { game: game.id, machine: machineId });
+            setTaken({ nextBest: result.nextBest });
+            setPhase("idle");
+            setBeat(0);
+            return;
+          }
+          setBooking(result.booking);
+          follow(result.booking);
+        },
+        () => {
+          if (run !== launchRun.current) return;
+          setBookingFailed(true);
+          setPhase("idle");
+          setBeat(0);
+        },
+      );
+    },
+    [game, session, follow, endCurrentBooking],
+  );
+
+  /** Queue for the open game: the server matches it, and the page claims the match by itself. */
+  const joinQueue = useCallback(() => {
+    // The demo's machines are invented: there is no queue to join for them.
+    if (demo || !game || !signedIn || following.current) return;
+    track("queue_joined", { game: game.id });
+    setTaken(null);
+    setBookingFailed(false);
+    book(game.appid, sessionMinutes(session), rtts()).then(
+      (queued) => {
+        setBooking(queued);
+        follow(queued);
+      },
+      () => setBookingFailed(true),
+    );
+  }, [demo, game, signedIn, session, follow]);
+
+  /** Leave the queue, or hand back a machine matched and not yet claimed. */
+  const leaveQueue = useCallback(() => {
+    track("queue_left");
+    endCurrentBooking();
+  }, [endCurrentBooking]);
+
+  // A renter who comes back within the server's two minutes picks up their
+  // booking where it was, and a match waiting for them is claimed the moment
+  // the stream opens again.
+  useEffect(() => {
+    if (!steamId || demo) return;
+    const stored = storedBookingId();
+    if (stored && !following.current) follow(stored);
+  }, [steamId, demo, follow]);
+
+  useEffect(() => stopFollowing, [stopFollowing]);
+
   // --- timers ----------------------------------------------------------------
 
   useEffect(() => {
@@ -367,10 +519,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, []);
 
   const goHome = useCallback(() => {
+    // Leaving a launch or a session ends its booking; a queued one waits on.
+    if (covered.current.phase !== "idle") endCurrentBooking();
     setScreen("home");
     setPhase("idle");
     setBeat(0);
-  }, []);
+  }, [endCurrentBooking]);
 
   const openGame = useCallback(
     (next: Game) => {
@@ -379,6 +533,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       // rank() puts machines free all session first, so the first free one is
       // the best. Real hosts are not read yet; the effect below picks once they are.
       setMachineId(demo ? (machinesFor(next, pool, session, prefs).find((m) => !m.busy)?.id ?? null) : null);
+      setTaken(null);
+      setBookingFailed(false);
       setScreen("game");
       setPhase("idle");
       setBeat(0);
@@ -398,16 +554,32 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     // Playing needs a signed-in renter: the server books for nobody else.
     if (!picked || !signedIn) return;
     track("launch_confirmed", { game: gameId, machine: picked.id });
-    setPhase("connecting");
-    setBeat(0);
-  }, [picked, gameId, signedIn]);
+    if (demo) {
+      // The demo's machines are invented: the launch plays out on the page alone.
+      setPhase("connecting");
+      setBeat(0);
+      return;
+    }
+    launchOn(picked.id);
+  }, [demo, picked, gameId, signedIn, launchOn]);
+
+  /** Launch on the machine the server offered in place of one that was taken. */
+  const launchNextBest = useCallback(() => {
+    const next = taken?.nextBest;
+    if (!next || !signedIn) return;
+    track("launch_confirmed", { game: gameId, machine: next.id, nextBest: true });
+    setMachineId(next.id);
+    launchOn(next.id);
+  }, [taken, gameId, signedIn, launchOn]);
 
   const endSession = useCallback(() => {
     track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
+    // The server hears it: the session ends as the renter's, and the PC is told.
+    endCurrentBooking();
     setPhase("idle");
     setBeat(0);
     setOwnerDropped(false);
-  }, [elapsedMs]);
+  }, [elapsedMs, endCurrentBooking]);
 
   /**
    * The owner took their machine back mid-session. Nothing drives this yet: the
@@ -501,6 +673,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     demo,
     screen,
     phase,
+    booking,
+    claim,
+    taken,
+    bookingFailed,
     games,
     game,
     machines,
@@ -540,6 +716,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setEstimateOpen,
     openGame,
     launch,
+    launchNextBest,
+    joinQueue,
+    leaveQueue,
     endSession,
     reportOwnerDropped,
     switchMachine,

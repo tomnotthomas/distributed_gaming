@@ -59,6 +59,8 @@ export type Live = {
   /** `question` says which session length and settings the counts were for (questionOf). */
   wall: { at: number; question: string; games: Map<number, GameAvailability> } | null;
   game: { at: number; machines: GameMachines } | null;
+  /** The renter's round trip to the server in ms, as timed against GET /api/ping; null until measured. */
+  rttMs: number | null;
 };
 
 /** The session length and settings a read asks about, as one comparable string. */
@@ -230,5 +232,5 @@ export function useLive({
     };
   }, [enabled, rtt, readWall, readGame]);
 
-  return { wall, game };
+  return { wall, game, rttMs: rtt };
 }

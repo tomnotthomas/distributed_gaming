@@ -1,7 +1,7 @@
 # @swiff/rank
 
 Which shared PCs a renter can play a game on, and in what order. One pure
-function, `rank()`, used by the web page and later by the server matchmaker.
+function, `rank()`, used by the web page and by the server matchmaker.
 No AI and no weights: six gates, four bucketed scores, one fixed sort, and a
 reason that names the rule that decided. The rules are in `src/rank.ts`.
 

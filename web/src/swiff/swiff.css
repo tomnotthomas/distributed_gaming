@@ -1289,6 +1289,20 @@ button.band-tab:hover {
   color: var(--on-paper-2);
   font-size: 15px;
 }
+/* the booking under the Reticle: queued, taken with the next best, or failed */
+.ledger-note {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 32ch;
+  margin-top: 14px;
+  text-align: center;
+}
+.ledger-note p {
+  margin: 0;
+  color: var(--on-paper-2);
+  font-size: 14px;
+}
 .ledger-foot {
   margin: 0;
   color: var(--on-paper-3);

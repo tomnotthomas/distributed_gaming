@@ -21,12 +21,21 @@ import { REPORT } from "./report.js";
 
 let now: number;
 let platform: Platform;
+/** The database the platform is on. */
+let database: Database;
 
 /** A platform on a fresh database and the test clock, in place of the last one. */
 async function openPlatform(options: Omit<PlatformOptions, "database" | "now"> = {}): Promise<Platform> {
   await platform?.close();
-  platform = await Platform.open({ database: await testDatabase(), now: () => now, ...options });
+  database = await testDatabase();
+  platform = await Platform.open({ database, now: () => now, ...options });
   return platform;
+}
+
+/** How many bookings have been made. */
+async function bookingCount(): Promise<number> {
+  const { rows } = await database.query<{ n: number }>("SELECT count(*)::int AS n FROM bookings");
+  return rows[0]!.n;
 }
 
 beforeEach(async () => {
@@ -647,7 +656,7 @@ describe("matching on the game and the hardware", () => {
     assert.equal((await platform.book(730, 30)).status, "queued");
   });
 
-  it("still picks the cheapest of the machines that qualify", async () => {
+  it("picks the cheapest of the machines that qualify and are otherwise alike", async () => {
     await offer("pc-1", { price: 300 });
     await offer("pc-2", { price: 100 });
     await offer("pc-3", { price: 50, games: [570] });
@@ -675,6 +684,186 @@ describe("matching on the game and the hardware", () => {
       assert.equal((await reopened.book(730, 30, "steam:1")).status, "queued");
       assert.equal((await reopened.book(730, 30, "steam:2")).machine?.id, "pc-1");
       await reopened.close();
+    });
+  });
+});
+
+describe("matching by rank()", () => {
+  /** A machine `rttMs` from the server, otherwise the test PC. */
+  const at = (rttMs: number, spec: MachineSpec = {}) => ({ ...spec, net: { ...REPORT.net, rttMs } });
+
+  it("picks the machine the renter's list puts first, not merely the cheapest", async () => {
+    await offer("far", at(50, { price: 50 }));
+    await offer("near", at(5, { price: 300 }));
+    const booking = await platform.book(730, 30, "steam:1", { server: 10 });
+    assert.equal(booking.machine?.id, "near");
+  });
+
+  it("prefers a machine that is not shaky to a cheaper one that is", async () => {
+    // Five two-hour sessions whose renters lose 5% of packets make it Shaky.
+    await offer("shaky", { price: 50 });
+    await platform.hostConnected("shaky");
+    for (let i = 0; i < 5; i++) {
+      const claim = await platform.claim((await platform.bookMachine("shaky", 730, 180))!.bookingId);
+      assert.ok(claim.ok);
+      await platform.recordTicket(claim.sessionId, `ticket-${i}`);
+      await platform.startSession("shaky", claim.sessionId);
+      await advance(2 * 3_600_000);
+      const qos = { fps: 60, bitrate: 20e6, rttMs: 12, packetLoss: 0.05 };
+      await platform.recordQos(claim.sessionId, `ticket-${i}`, qos);
+      assert.equal(await platform.leaveSession(claim.sessionId, `ticket-${i}`), "ok");
+    }
+    assert.equal((await platform.stability("shaky")).stability, "shaky");
+
+    await offer("steady", { price: 300 });
+    assert.equal((await platform.book(730, 30)).machine?.id, "steady");
+  });
+
+  it("leaves a machine too far from the renter unmatched, and matches one close enough", async () => {
+    await offer("pc-1", at(40));
+    const { bookingId, status } = await platform.book(730, 30, "steam:1", { server: 60 });
+    assert.equal(status, "queued");
+
+    await offer("pc-2", at(10));
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.machine?.id, "pc-2");
+  });
+
+  it("judges a machine by the round trip the renter measured to it, when they did", async () => {
+    await offer("pc-1", at(5, { price: 50 }));
+    await offer("pc-2", at(5, { price: 300 }));
+    const rtts = { server: 10, machines: { "pc-1": 120 } };
+    assert.equal((await platform.book(730, 30, "steam:1", rtts)).machine?.id, "pc-2");
+  });
+
+  it("keeps judging by the renter's round trips across a restart", async () => {
+    await withDatabase(async (open) => {
+      const first = await Platform.open({ database: open(), now: () => now });
+      const { bookingId } = await first.book(730, 30, "steam:1", { server: 70 });
+      await first.close();
+
+      const reopened = await Platform.open({ database: open(), now: () => now });
+      await reopened.setAvailability("pc-1", true, { ...REPORT, net: { ...REPORT.net, rttMs: 20 } });
+      assert.equal((await reopened.booking(bookingId, "steam:1"))!.status, "queued");
+      await reopened.setAvailability("pc-2", true, { ...REPORT, net: { ...REPORT.net, rttMs: 5 } });
+      assert.equal((await reopened.booking(bookingId, "steam:1"))!.machine?.id, "pc-2");
+      await reopened.close();
+    });
+  });
+});
+
+describe("booking a picked machine", () => {
+  it("reserves the machine picked even when another ranks first", async () => {
+    await offer("pc-1", { price: 50 });
+    await offer("pc-2", { price: 300 });
+    const booking = (await platform.bookMachine("pc-2", 730, 30, "steam:1"))!;
+    assert.equal(booking.status, "matched");
+    assert.equal(booking.machine?.id, "pc-2");
+    assert.equal(booking.claimBy, now + RESERVATION_MS);
+    assert.equal((await platform.heartbeat("pc-2")).status, "reserved");
+    assert.ok((await platform.claim(booking.bookingId, "steam:1")).ok);
+  });
+
+  it("books nothing when the machine was taken a moment ago", async () => {
+    await offer("pc-1");
+    assert.equal((await platform.book(730, 30, "steam:1")).machine?.id, "pc-1");
+    assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:2"), null);
+    assert.equal(await bookingCount(), 1);
+  });
+
+  it("serves the queue first: a booking back in the queue gets the machine before a renter picking it", async () => {
+    const waiting = await platform.book(730, 30, "steam:1");
+    now += 1_000;
+    await offer("pc-1");
+    await platform.hostConnected("pc-1");
+    assert.equal((await platform.viewBooking(waiting.bookingId))!.machine?.id, "pc-1");
+    // Its renter was away while the reservation lapsed: back in the queue, and matched again first.
+    now += RESERVATION_MS;
+    assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:2"), null);
+    const back = (await platform.viewBooking(waiting.bookingId))!;
+    assert.equal(back.status, "matched");
+    assert.equal(back.machine?.id, "pc-1");
+  });
+
+  it("books nothing on a machine that is gone, not free all session, without the game, or the renter's own", async () => {
+    await openPlatform({ owners: new Map([["own", "steam:1"]]) });
+    await offer("own");
+    await offer("short", { availableUntil: now + 20 * 60_000 });
+    await offer("other-game", { games: [570] });
+    await offer("silent");
+    now += LIVENESS_MS;
+    for (const id of ["own", "short", "other-game"]) await platform.heartbeat(id);
+    for (const id of ["own", "short", "other-game", "silent", "unknown"]) {
+      assert.equal(await platform.bookMachine(id, 730, 30, "steam:1"), null, id);
+    }
+    assert.equal(await bookingCount(), 0);
+  });
+
+  it("books nothing on a machine too far from the renter", async () => {
+    await offer("pc-1", { net: { ...REPORT.net, rttMs: 60 } });
+    assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:1", { server: 30 }), null);
+    assert.ok(await platform.bookMachine("pc-1", 730, 30, "steam:1", { server: 10 }));
+  });
+});
+
+describe("the renter ending a booking", () => {
+  it("takes a queued booking out of the queue for good", async () => {
+    const { bookingId } = await platform.book(730, 30, "steam:1");
+    const ended = await platform.endBooking(bookingId, "steam:1");
+    assert.ok(ended.ok);
+    assert.equal(ended.booking.status, "ended");
+
+    await offer("pc-1");
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.status, "ended");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+  });
+
+  it("hands a matched booking's machine to whoever waits next", async () => {
+    await offer("pc-1");
+    const first = await platform.book(730, 30, "steam:1");
+    const next = await platform.book(730, 30, "steam:2");
+    assert.ok((await platform.endBooking(first.bookingId, "steam:1")).ok);
+    assert.equal((await platform.booking(next.bookingId, "steam:2"))!.machine?.id, "pc-1");
+    assert.deepEqual(await platform.claim(first.bookingId, "steam:1"), {
+      ok: false,
+      reason: "not-claimable",
+      status: "ended",
+    });
+  });
+
+  it("ends a claimed or playing session as renter, revoking its ticket and freeing the machine", async () => {
+    const ended: string[] = [];
+    await openPlatform({ onSessionEnded: (machineId, sessionId) => ended.push(`${machineId}:${sessionId}`) });
+    for (const playing of [false, true]) {
+      await offer("pc-1", { price: 120 });
+      const { bookingId } = await platform.book(730, 30, "steam:1");
+      const claim = await platform.claim(bookingId, "steam:1");
+      assert.ok(claim.ok);
+      await platform.recordTicket(claim.sessionId, `ticket-${playing}`);
+      if (playing) {
+        await platform.startSession("pc-1", claim.sessionId);
+        await beatFor("pc-1", 10 * 60_000);
+      }
+
+      const result = await platform.endBooking(bookingId, "steam:1");
+      assert.ok(result.ok);
+      assert.equal(result.booking.status, "ended");
+      assert.equal(result.booking.price, playing ? 20 : 0);
+      assert.equal(await platform.sessionEndReason(claim.sessionId), "renter");
+      assert.ok(await platform.ticketRevoked(`ticket-${playing}`));
+      assert.equal((await platform.heartbeat("pc-1")).status, "available");
+      assert.equal(ended.at(-1), `pc-1:${claim.sessionId}`);
+    }
+  });
+
+  it("refuses a booking already over, and anybody else's", async () => {
+    const { bookingId } = await platform.book(730, 30, "steam:1");
+    assert.deepEqual(await platform.endBooking(bookingId, "steam:2"), { ok: false, reason: "not-found" });
+    assert.deepEqual(await platform.endBooking("nope", "steam:1"), { ok: false, reason: "not-found" });
+    assert.ok((await platform.endBooking(bookingId, "steam:1")).ok);
+    assert.deepEqual(await platform.endBooking(bookingId, "steam:1"), {
+      ok: false,
+      reason: "over",
+      status: "ended",
     });
   });
 });

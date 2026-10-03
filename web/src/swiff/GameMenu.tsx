@@ -1,4 +1,4 @@
-import { Backdrop } from "@swiff/ui";
+import { Backdrop, Button } from "@swiff/ui";
 import type { Machine } from "./data";
 import { feel, fmtLeft, leftAt, meters } from "./derive";
 import { LensDial } from "./instruments";
@@ -23,6 +23,67 @@ function ledgerCount(live: Machine[]): string {
   // The server never says who owns a real host, so it counts machines alone.
   const owners = new Set(live.map((m) => m.owner).filter(Boolean)).size;
   return owners ? `${machines} from ${owners} ${owners === 1 ? "player" : "players"}` : machines;
+}
+
+/**
+ * What became of the renter's booking, under the Reticle: waiting in the
+ * queue, a picked machine taken first with the next best to launch on instead,
+ * or a call that failed. With no machine free on the server's list and no
+ * booking, the way into the queue.
+ */
+function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
+  const { booking, taken, bookingFailed, phase } = swiff;
+  const waiting =
+    booking && (booking.status === "queued" || booking.status === "matched") && phase === "idle";
+  if (waiting) {
+    return (
+      <div className="ledger-note" role="status">
+        <p>
+          {booking.status === "matched"
+            ? "A machine is free for you. Starting…"
+            : "You're in the queue. Keep this page open: we start the moment a machine is free."}
+        </p>
+        <Button variant="secondary" onClick={swiff.leaveQueue}>
+          Leave the queue
+        </Button>
+      </div>
+    );
+  }
+  if (taken) {
+    const next = taken.nextBest;
+    return (
+      <div className="ledger-note" role="status">
+        <p>
+          {next
+            ? `That machine was just taken. Next best: ${next.name ?? next.gpu}, ${Math.round(next.latency.rttMs)} ms away.`
+            : "That machine was just taken, and no other is free. Queue, and we start the moment one is."}
+        </p>
+        {next ? (
+          <Button onClick={swiff.launchNextBest}>Play on {next.name ?? next.gpu}</Button>
+        ) : (
+          <Button onClick={swiff.joinQueue}>Join the queue</Button>
+        )}
+      </div>
+    );
+  }
+  if (bookingFailed) {
+    return (
+      <p className="ledger-note" role="alert">
+        That didn't go through. Try again.
+      </p>
+    );
+  }
+  const over = !booking || booking.status === "ended" || booking.status === "expired";
+  // Only once the server's list is in: the demo's invented machines have no queue.
+  if (!free && over && phase === "idle" && !swiff.machinesLoading && !swiff.demo) {
+    return (
+      <div className="ledger-note">
+        <p>Nothing free right now. Queue, and we start the moment a machine is.</p>
+        <Button onClick={swiff.joinQueue}>Join the queue</Button>
+      </div>
+    );
+  }
+  return null;
 }
 
 /**
@@ -146,6 +207,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
               launching={swiff.phase !== "idle"}
               label={picked ? `Hold to launch on ${picked.name}` : "Pick a machine to launch"}
             />
+            <BookingNote swiff={swiff} free={live.length} />
           </div>
         ) : (
           // Signed out there is nothing to launch: playing books a stranger's

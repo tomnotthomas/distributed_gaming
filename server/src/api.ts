@@ -11,6 +11,7 @@
 //   GET  /api/bookings/:id
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
+//   POST /api/bookings/:id/end
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
@@ -20,6 +21,9 @@
 // The two reads of what can be played where (candidates.ts) are signed in
 // only: working them out for every visitor would cost too much. For the same
 // reason each renter has a budget of them (budget.ts), past which they get 429.
+// Booking a machine the renter picked from that list that has been taken since
+// answers 409 with the next best from the same ranking, which spends from the
+// same budget: past it, the 409 names none.
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
@@ -33,10 +37,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
 import { RequestBudget } from "./budget.js";
-import { availabilityFor, machinesFor, type RenterAsk } from "./candidates.js";
+import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
-import { MAX_MINUTES, type Platform } from "./platform.js";
+import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
@@ -51,6 +55,10 @@ const MAX_QOS_BODY_BYTES = 1024;
 const MAX_AVAILABILITY_APPIDS = 100;
 /** The slowest round trip to the server a renter may report, in ms. */
 const MAX_RENTER_RTT_MS = 10_000;
+/** The most machines a booking may carry a measured round trip for: a list's worth. */
+const MAX_PROBED_MACHINES = 50;
+/** Machine ids are MACHINE_KEYS entries: short. */
+const MAX_MACHINE_ID_LENGTH = 200;
 const CONTROLS: readonly Control[] = ["kb", "mouse", "pad"];
 const PICTURES: readonly PicturePref[] = ["best", "4k", "120fps"];
 
@@ -159,6 +167,41 @@ function renterRefusal(result: "not-found" | "wrong-ticket" | "over"): HttpError
   if (result === "not-found") return new HttpError(404, "no such session");
   if (result === "wrong-ticket") return new HttpError(403, "the ticket is not for this session");
   return new HttpError(409, "the session is over");
+}
+
+/** An optional machine id from a body, or a 400. */
+function optionalMachineId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value || value.length > MAX_MACHINE_ID_LENGTH) {
+    throw new HttpError(400, "machineId must be a machine id");
+  }
+  return value;
+}
+
+/**
+ * The renter's round trips in a booking body, each from 0 to MAX_RENTER_RTT_MS
+ * ms: `server`, to this server, and `machines`, straight to each machine
+ * probed, by id. Either may be left out, as may the whole.
+ */
+function bookingRtts(value: unknown): Rtts {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "rtts must be an object");
+  const { server, machines } = value as Json;
+  const rtts: Rtts = {};
+  if (server !== undefined) rtts.server = boundedNumber(server, "rtts.server", MAX_RENTER_RTT_MS);
+  if (machines !== undefined) {
+    if (typeof machines !== "object" || machines === null || Array.isArray(machines)) {
+      throw new HttpError(400, "rtts.machines must be an object");
+    }
+    const entries = Object.entries(machines as Json);
+    if (entries.length > MAX_PROBED_MACHINES) {
+      throw new HttpError(400, `rtts.machines must list at most ${MAX_PROBED_MACHINES} machines`);
+    }
+    rtts.machines = Object.fromEntries(
+      entries.map(([id, rtt]) => [id, boundedNumber(rtt, `rtts.machines[${id}]`, MAX_RENTER_RTT_MS)]),
+    );
+  }
+  return rtts;
 }
 
 /** A whole number from 1 to `max` in a path or query, or a 400 naming the field. */
@@ -337,12 +380,32 @@ export function createApi({
     if (resource === "bookings" && !id && method === "POST") {
       const renter = requireRenter(req, sessionSecret);
       const body = await readJson(req);
-      const booking = await platform.book(
-        positiveInt(body.gameId, "gameId"),
-        positiveInt(body.minutes, "minutes", MAX_MINUTES),
-        renter,
-      );
-      reply(res, 202, booking);
+      const gameId = positiveInt(body.gameId, "gameId", MAX_APPID);
+      const minutes = positiveInt(body.minutes, "minutes", MAX_MINUTES);
+      const machineId = optionalMachineId(body.machineId);
+      const rtts = bookingRtts(body.rtts);
+      if (machineId === undefined) {
+        reply(res, 202, await platform.book(gameId, minutes, renter, rtts));
+        return true;
+      }
+      const booking = await platform.bookMachine(machineId, gameId, minutes, renter, rtts);
+      if (booking) {
+        reply(res, 202, booking);
+        return true;
+      }
+      // Taken since the renter's list was read: the next best from the list as
+      // it stands now, free for the whole booking, so the page can offer it.
+      let nextBest: MachineCandidate | null = null;
+      if (discovery.take(renter) === 0) {
+        const ask: RenterAsk = { steamId: renter, rttMs: rtts.server ?? 0, controls: [], picture: "best" };
+        const [game] = await platform.requirements([gameId]);
+        const { at, machines } = await platform.offeredMachines();
+        nextBest =
+          machinesFor(game!, minutes, ask, machines, at).machines.find(
+            (m) => m.id !== machineId && m.coversSession,
+          ) ?? null;
+      }
+      reply(res, 409, { error: "the machine is taken", nextBest });
       return true;
     }
 
@@ -383,6 +446,19 @@ export function createApi({
         signalingUrl: origin.replace(/^http/, "ws"),
         ticket,
       });
+      return true;
+    }
+
+    if (resource === "bookings" && id && action === "end" && method === "POST") {
+      // The renter ends it, whatever it has come to: out of the queue, the
+      // machine handed back, or the session over (as renter).
+      const ended = await platform.endBooking(id, requireRenter(req, sessionSecret));
+      if (!ended.ok) {
+        if (ended.reason === "not-found") throw new HttpError(404, "no such booking");
+        reply(res, 409, { error: "the booking is already over", status: ended.status });
+        return true;
+      }
+      reply(res, 200, ended.booking);
       return true;
     }
 
