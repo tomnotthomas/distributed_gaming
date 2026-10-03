@@ -105,6 +105,8 @@ export type HostSessionOptions = IceConfig & {
    * nothing, and neither does a refused credential: onDenied says that.
    */
   onConnection?: (state: HostConnection) => void;
+  /** Each round trip to the server, in ms, timed on the signaling socket's pings. */
+  onRtt?: (ms: number) => void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -264,6 +266,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     return connectSignaling({
       url: opts.url,
       onOpen: (send) => send({ type: "register", hostId: opts.hostId, ...credential }),
+      onRtt: opts.onRtt,
       onMessage: (msg, send) => {
         if (msg.type === "registered") report("registered");
         // The server hangs up after a refusal; that close is not a drop.

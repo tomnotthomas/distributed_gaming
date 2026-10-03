@@ -111,11 +111,18 @@ export function useHost(): Host {
   // What the end of a session needs to know, read when it ends rather than when it began.
   const after = useRef({ stopNew, notify, until, machine, stop: () => {} });
 
+  // What reports this PC to the platform while it shares (report.ts), the connection
+  // sharing started with, and the call that took the last offer back.
+  const sharedWith = useRef<Settings | null>(null);
+  const reporter = useRef<HostReporter | null>(null);
+  const withdrawn = useRef<Promise<unknown>>(Promise.resolve());
+
   // A claim for a game not offered is turned down, unless the games are not read yet.
   const offeredNow = useRef(offered);
   offeredNow.current = offered;
   const share = useScreenShare({
     acceptClaim: (claim) => offeredNow.current?.includes(claim.appid) ?? true,
+    onRtt: (ms) => reporter.current?.addRtt(ms),
     onClaimRefused: (claim) => {
       console.warn(`[swiff] turned down a claim for Steam app ${claim.appid}, which is not offered`);
     },
@@ -165,10 +172,6 @@ export function useHost(): Host {
     [name, machineId, pc, offered],
   );
   const [upMbps, setUpMbps] = useState<number | null>(null);
-  // The connection sharing started with, and the call that took the last offer back.
-  const sharedWith = useRef<Settings | null>(null);
-  const reporter = useRef<HostReporter | null>(null);
-  const withdrawn = useRef<Promise<unknown>>(Promise.resolve());
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
 
