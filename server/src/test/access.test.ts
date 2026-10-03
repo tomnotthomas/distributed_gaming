@@ -5,10 +5,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   accessFromEnv,
+  mintProbeToken,
+  mintRenterSession,
   mintTicket,
   newMachineKey,
   parseMachineKeys,
   verifyMachineKey,
+  verifyProbeToken,
+  verifyRenterSession,
   verifyTicket,
 } from "../access.js";
 
@@ -52,6 +56,27 @@ describe("join tickets", () => {
     for (const token of [undefined, null, 42, "", "a", "a.b", "a.b.c", "..."]) {
       assert.equal(verifyTicket(SECRET, token), null, `accepted ${String(token)}`);
     }
+  });
+});
+
+describe("probe tokens", () => {
+  const PROBE = { renter: "76561198000000001", host: "pc-1" };
+
+  it("round-trips renter, machine and expiry, each with its own id", () => {
+    const now = Date.UTC(2026, 9, 3, 12);
+    const token = verifyProbeToken(SECRET, mintProbeToken(SECRET, PROBE, 60, now), now);
+    assert.deepEqual({ ...token, id: undefined }, { ...PROBE, id: undefined, exp: now / 1000 + 60 });
+    assert.notEqual(token!.id, verifyProbeToken(SECRET, mintProbeToken(SECRET, PROBE, 60, now), now)!.id);
+    assert.equal(verifyProbeToken(SECRET, mintProbeToken(SECRET, PROBE, 60, now), now + 60_000), null);
+  });
+
+  it("is never taken for another kind of token, nor another for it", () => {
+    const probe = mintProbeToken(SECRET, PROBE, 60);
+    assert.equal(verifyTicket(SECRET, probe), null);
+    assert.equal(verifyRenterSession(SECRET, probe), null);
+    assert.equal(verifyProbeToken(SECRET, mintTicket(SECRET, "pc-1", 60)), null);
+    assert.equal(verifyProbeToken(SECRET, mintRenterSession(SECRET, PROBE.renter, 60)), null);
+    assert.equal(verifyProbeToken(`${SECRET}-other`, probe), null);
   });
 });
 
