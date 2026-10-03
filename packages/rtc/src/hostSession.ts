@@ -292,7 +292,10 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       case "answer":
         if (msg.sdp) {
           void inbox?.setRemote(msg.sdp).catch((cause) => {
-            console.warn("[swiff] could not apply the renter's answer", cause);
+            console.warn(
+              "[swiff] could not apply the renter's answer:",
+              cause instanceof Error ? cause.name : "error",
+            );
           });
         }
         break;

@@ -124,7 +124,7 @@ export function createProbeResponder({
     })().catch((cause: unknown) => {
       console.warn(
         "[swiff] could not answer a latency probe:",
-        cause instanceof Error ? cause.message : cause,
+        cause instanceof Error ? cause.name : "error",
       );
       close();
     });
