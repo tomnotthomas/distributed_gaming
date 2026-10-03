@@ -163,7 +163,10 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
-  /** When the database last said a renter's ticket was not revoked (Unix ms): at join, then each reconcile. */
+  /**
+   * When the last database read that found a renter's ticket not revoked began
+   * (performance.now() ms): at join, before a relayed frame, and each reconcile.
+   */
   confirmedAt: number;
   /** The session a host registered under with a session key; null for a machine key. */
   sessionId: string | null;
@@ -181,9 +184,8 @@ const rooms = new Map<string, Room>();
  * ms). Every way this server ends a session reaches the session-end notice,
  * which records the session's ticket as the change commits, before any other
  * frame is handled; a database check that finds a ticket revoked behind the
- * server's back (a join, a host registering, the reconcile) records it too. A
- * revocation never reverses. Relayed frames are checked against this alone,
- * never the database.
+ * server's back (a join, a host registering, a relayed frame, the reconcile)
+ * records it too. A revocation never reverses.
  */
 const revokedTickets = new Map<string, number>();
 
@@ -301,8 +303,9 @@ async function seatStillValid(client: PeerSocket): Promise<boolean> {
     return false;
   }
   try {
+    const began = performance.now();
     if (!(await platform.ticketRevoked(client.ticketId))) {
-      client.confirmedAt = Date.now();
+      confirm(client, began);
       return true;
     }
     putOut(client);
@@ -311,6 +314,11 @@ async function seatStillValid(client: PeerSocket): Promise<boolean> {
     client.close(1011, "internal error");
   }
   return false;
+}
+
+/** Record that a database read begun at `began` (performance.now() ms) found the renter `client`'s ticket not revoked. */
+function confirm(client: PeerSocket, began: number): void {
+  client.confirmedAt = Math.max(client.confirmedAt, began);
 }
 
 /**
@@ -574,6 +582,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       if (ws.role) return;
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
       if (!ticket || revokedTickets.has(ticket.id)) return deny(ws, "bad-ticket");
+      const began = performance.now();
       const revoked = await platform.ticketRevoked(ticket.id);
       if (revoked) revoke(ticket.id);
       // Revoked in the database, or by a notice while the database was asked.
@@ -583,6 +592,8 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         if (seated && seatRevoked(seated)) putOut(seated);
         return deny(ws, "bad-ticket");
       }
+      // Run out while the database was asked: nothing changes for it.
+      if (ticket.exp * 1000 <= Date.now()) return deny(ws, "bad-ticket");
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
         // The same ticket again is the same renter refreshing: hand them the
@@ -593,7 +604,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.hostId = ticket.room;
       ws.role = "client";
       ws.ticketId = ticket.id;
-      ws.confirmedAt = Date.now();
+      confirm(ws, began);
       room.client = ws;
       send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
       send(room.host, { type: "peer-joined" });
@@ -615,8 +626,43 @@ function inTurn(ws: PeerSocket, work: () => Promise<void> | void): void {
   });
 }
 
-/** One frame from `ws`: relayed to its peer, or answered. */
-async function onMessage(ws: PeerSocket, raw: RawData): Promise<void> {
+/** How long a relayed frame waits before its ticket is read again, when the database could not say. */
+const RELAY_RETRY_MS = 1_000;
+
+/**
+ * Forward `msg`, which arrived from `ws` at `arrived` (performance.now() ms),
+ * verbatim to its peer. The server does not read the payload, but offers,
+ * answers and ICE candidates carry addresses, so none goes to or from a renter
+ * until a database read begun after the frame arrived has found the renter's
+ * ticket not revoked: a ticket revoked behind the server's back is caught by
+ * the next frame. One read covers every frame that arrived before it began.
+ * A revoked renter is put out and the frame dropped. While the database cannot
+ * say, the frame is held, with the frames behind it, and the read retried,
+ * until it can, or either side leaves the room. Never rejects.
+ */
+async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
+  const peer = peerOf(ws);
+  if (!peer) return;
+  const renter = ws.role === "client" ? ws : peer;
+  const ticketId = renter.ticketId;
+  if (!ticketId) return;
+  while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
+    if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
+    const began = performance.now();
+    try {
+      if (await platform.ticketRevoked(ticketId)) putOut(renter);
+      else confirm(renter, began);
+    } catch (error) {
+      console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
+    }
+  }
+  if (seatRevoked(renter) || peerOf(ws) !== peer) return;
+  send(peer, msg);
+}
+
+/** One frame from `ws`, which arrived at `arrived` (performance.now() ms): relayed to its peer, or answered. */
+async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise<void> {
   let msg: SignalMessage;
   try {
     msg = JSON.parse(String(raw)) as SignalMessage;
@@ -624,15 +670,7 @@ async function onMessage(ws: PeerSocket, raw: RawData): Promise<void> {
     return; // garbage in, ignored — never crash the room over one bad frame
   }
 
-  if (isRelayed(msg)) {
-    // Forwarded verbatim. The server does not read the payload. Never to or
-    // from a renter whose ticket is known to be revoked since it joined.
-    const peer = peerOf(ws);
-    const renter = ws.role === "client" ? ws : peer;
-    if (renter && seatRevoked(renter)) return;
-    send(peer, msg);
-    return;
-  }
+  if (isRelayed(msg)) return relay(ws, msg, arrived);
 
   try {
     await answer(ws, msg);
@@ -686,8 +724,14 @@ wss.on("connection", (socket) => {
 
   // A frame that waits on the database holds back the ones after it, and the
   // close: a register is done before the offer behind it is relayed, and a
-  // socket that closes mid-register is seated before it gives the seat up.
-  ws.on("message", (raw) => inTurn(ws, () => onMessage(ws, raw)));
+  // socket that closes mid-register is seated before it gives the seat up. A
+  // socket that speaks is there the moment its frame arrives, so one held for
+  // the database never costs it its heartbeat.
+  ws.on("message", (raw) => {
+    const arrived = performance.now();
+    ws.missedBeats = 0;
+    inTurn(ws, () => onMessage(ws, raw, arrived));
+  });
   ws.on("close", () => inTurn(ws, () => onClose(ws)));
 });
 
@@ -695,16 +739,16 @@ wss.on("connection", (socket) => {
  * Check every seated renter's ticket with the database in one read: a revoked
  * one is recorded and put out, even one that sends nothing, and every other
  * seat counts as confirmed now. When the database cannot say, every renter
- * keeps its seat through the blip (relayed frames are still checked against
- * the revocations already known, and the next round tries again) but for no
- * longer than MAX_UNCONFIRMED_MS since its ticket was last confirmed: past
- * that, the seat is closed without `denied`, so the renter may come back once
- * the database answers. Also forgets revocations no ticket could still be in
- * use for.
+ * keeps its seat through the blip (its relayed frames wait for the database,
+ * and the next round tries again) but for no longer than MAX_UNCONFIRMED_MS
+ * since its ticket was last confirmed: past that, the seat is closed without
+ * `denied`, so the renter may come back once the database answers. Also
+ * forgets revocations no ticket could still be in use for.
  */
 async function reconcileSeats(): Promise<void> {
-  const now = Date.now();
-  for (const [ticketId, until] of revokedTickets) if (until <= now) revokedTickets.delete(ticketId);
+  const time = Date.now();
+  for (const [ticketId, until] of revokedTickets) if (until <= time) revokedTickets.delete(ticketId);
+  const now = performance.now();
   const seated = [...rooms.values()].flatMap((room) => (room.client?.ticketId ? [room.client] : []));
   if (!seated.length) return;
   try {
@@ -724,7 +768,7 @@ async function reconcileSeats(): Promise<void> {
   }
   for (const client of seated) {
     if (seatRevoked(client)) putOut(client);
-    else client.confirmedAt = now;
+    else confirm(client, now);
   }
 }
 

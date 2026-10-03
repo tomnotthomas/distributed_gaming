@@ -2,16 +2,18 @@
 // from it. The session-end notice does it as the end commits, however the
 // platform ends the session, so the very next frame is refused. A ticket
 // revoked straight in the database, behind the server's back, is caught by the
-// host registration check, a join and the reconcile within a few seconds;
-// relayed frames never read the database.
+// next relayed frame, which waits for the database to say, and by the host
+// registration check, a join and the reconcile within a few seconds. A ticket
+// that runs out while its join waits on the database joins nothing.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import pg from "pg";
 import { WebSocket } from "ws";
-import { mintRenterSession } from "../access.js";
+import { mintRenterSession, mintTicket } from "../access.js";
 import type { SignalMessage } from "../protocol.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
@@ -139,6 +141,18 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
   const breakSessions = () => database.exec("ALTER TABLE sessions RENAME TO sessions_away");
   const restoreSessions = () => database.exec("ALTER TABLE sessions_away RENAME TO sessions");
 
+  /** Hold every read of the sessions table, behind the server's back, until the returned release. */
+  const holdSessions = async () => {
+    const client = new pg.Client({ connectionString: database.url });
+    await client.connect();
+    await client.query("BEGIN");
+    await client.query("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE");
+    return async () => {
+      await client.query("COMMIT");
+      await client.end();
+    };
+  };
+
   return {
     call,
     claimTicket,
@@ -146,6 +160,7 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
     runOutBehindTheServersBack,
     breakSessions,
     restoreSessions,
+    holdSessions,
     peer,
   };
 }
@@ -266,29 +281,19 @@ describe("revoked ticket through the platform", () => {
 });
 
 describe("revoked ticket without the session-end notice", () => {
-  it(
-    "relays without reading the database per frame, and nothing for the renter once a join finds it revoked",
-    { timeout: 60_000 },
-    async () => {
-      const server = await startServer(60_000);
-      const { ticket } = await server.claimTicket("pc-1");
-      const { host, renter } = await seat(server, "pc-1", ticket);
+  it("relays nothing from the very next frame, and puts the renter out", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
 
-      await server.revokeBehindTheServersBack();
-      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "unchecked" } }));
-      await until(() => iceFrames(host.received).length > 1);
-      assert.deepEqual(iceFrames(host.received), ["before", "unchecked"], "relayed from memory");
-
-      const again = server.peer({ type: "join", ticket });
-      assert.equal(await again.closed, 4003);
-      assert.deepEqual(again.received[0], { type: "denied", reason: "bad-ticket" });
-      assert.equal(await renter.closed, 4003);
-      assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
-      await wait(200);
-      assert.deepEqual(iceFrames(host.received), ["before", "unchecked"], "nothing once revoked");
-      host.ws.close();
-    },
-  );
+    await server.revokeBehindTheServersBack();
+    sendNext(host, renter);
+    await putOut(host, renter);
+    const again = server.peer({ type: "join", ticket });
+    assert.equal(await again.closed, 4003);
+    assert.deepEqual(again.received[0], { type: "denied", reason: "bad-ticket" });
+    host.ws.close();
+  });
 
   it(
     "puts a waiting renter out when the host registers, without telling the host it is there",
@@ -323,7 +328,7 @@ describe("revoked ticket without the session-end notice", () => {
   });
 
   it(
-    "keeps every seat while the reconcile cannot read, and puts a revoked renter out once it can",
+    "keeps every seat while the database cannot read, holds relayed frames until it can, and puts a revoked renter out then",
     { timeout: 60_000 },
     async () => {
       const server = await startServer(200);
@@ -333,11 +338,14 @@ describe("revoked ticket without the session-end notice", () => {
       await server.breakSessions();
       await wait(1_000);
       renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
-      await until(() => iceFrames(host.received).length > 1);
-      assert.deepEqual(iceFrames(host.received), ["before", "still"], "still relayed");
+      await wait(1_500);
+      assert.deepEqual(iceFrames(host.received), ["before"], "held while unconfirmed");
       assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated");
 
       await server.restoreSessions();
+      await until(() => iceFrames(host.received).length > 1);
+      assert.deepEqual(iceFrames(host.received), ["before", "still"], "relayed once confirmed");
+
       await server.revokeBehindTheServersBack();
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
@@ -363,10 +371,10 @@ describe("revoked ticket without the session-end notice", () => {
       await server.breakSessions();
       await wait(2_000);
       assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated: the good read confirmed it");
+      await server.restoreSessions();
       renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
       await until(() => iceFrames(host.received).length > 1);
       assert.deepEqual(iceFrames(host.received), ["before", "still"]);
-      await server.restoreSessions();
       host.ws.close();
     },
   );
@@ -408,4 +416,37 @@ describe("revoked ticket without the session-end notice", () => {
       host.ws.close();
     },
   );
+});
+
+describe("ticket that runs out while its join waits on the database", () => {
+  it("is refused, and the renter already seated on it keeps the seat", { timeout: 60_000 }, async () => {
+    const server = await startServer(60_000);
+    // Expires 2 to 3 s from now: whole seconds.
+    const mintedAt = Date.now();
+    const ticket = mintTicket(SECRET, "pc-1", 3, mintedAt);
+    const expiresAt = (Math.floor(mintedAt / 1000) + 3) * 1000;
+    const { host, renter } = await seat(server, "pc-1", ticket);
+    const joinsHeard = () => host.received.filter((m) => m.type === "peer-joined").length;
+    const joinsBefore = joinsHeard();
+
+    const release = await server.holdSessions();
+    assert.ok(Date.now() < expiresAt - 500, "the ticket must still be valid when the late join arrives");
+    const late = server.peer({ type: "join", ticket });
+    // Valid when it arrives; the read it waits on comes back after it expired.
+    await wait(Math.max(0, expiresAt + 300 - Date.now()));
+    await release();
+
+    await until(() => late.received.length > 0);
+    assert.deepEqual(late.received, [{ type: "denied", reason: "bad-ticket" }]);
+    assert.equal(await late.closed, 4003);
+    await wait(200);
+    assert.equal(renter.ws.readyState, WebSocket.OPEN, "the seated renter is not replaced");
+    assert.ok(!renter.received.some((m) => m.type === "denied"));
+    assert.equal(joinsHeard(), joinsBefore, "the host hears no new renter");
+    renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
+    await until(() => iceFrames(host.received).length > 1);
+    assert.deepEqual(iceFrames(host.received), ["before", "still"], "still relayed");
+    renter.ws.close();
+    host.ws.close();
+  });
 });
