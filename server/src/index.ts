@@ -175,8 +175,8 @@ type PeerSocket = WebSocket & {
   turn: Promise<void>;
   /** This socket's frames received and not yet handled, the one being handled included. */
   queued: number;
-  /** Whether a frame from this socket has been dropped for MAX_QUEUED_FRAMES, so it is logged once. */
-  dropped: boolean;
+  /** Frames from this socket dropped for MAX_QUEUED_FRAMES since its queue last drained, logged when it does. */
+  dropped: number;
 };
 
 type Room = { host: PeerSocket | null; client: PeerSocket | null };
@@ -760,7 +760,7 @@ wss.on("connection", (socket) => {
   ws.missedBeats = 0;
   ws.turn = Promise.resolve();
   ws.queued = 0;
-  ws.dropped = false;
+  ws.dropped = 0;
 
   // An oversized or malformed frame surfaces here, and ws closes the socket
   // itself. Unhandled, the same error would take the whole process down.
@@ -778,9 +778,7 @@ wss.on("connection", (socket) => {
     const arrived = performance.now();
     ws.missedBeats = 0;
     if (ws.queued >= MAX_QUEUED_FRAMES) {
-      if (!ws.dropped)
-        console.error(`[swiff] ${MAX_QUEUED_FRAMES} frames waiting: dropping what a socket sends`);
-      ws.dropped = true;
+      ws.dropped += 1;
       return;
     }
     ws.queued += 1;
@@ -789,6 +787,12 @@ wss.on("connection", (socket) => {
         await onMessage(ws, raw, arrived);
       } finally {
         ws.queued -= 1;
+        if (!ws.queued && ws.dropped) {
+          console.error(
+            `[swiff] dropped ${ws.dropped} frames a socket sent while ${MAX_QUEUED_FRAMES} waited`,
+          );
+          ws.dropped = 0;
+        }
       }
     });
   });
