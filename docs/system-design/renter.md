@@ -99,8 +99,8 @@ saves are not built.
 All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
 `/availability`, `/games/:appid/machines`, `/bookings` and `/events` calls carry the
 renter's sign-in session and answer `401` without one;
-`GET /games` and `POST /signout` work signed out, and the `/sessions` calls carry the
-join ticket instead.
+`GET /games`, `GET /ping` and `POST /signout` work signed out, and the `/sessions` calls
+carry the join ticket instead.
 
 ### Sign-in session
 
@@ -152,14 +152,24 @@ GET  /games
   → 200 [{ id, name, image }]
   List the games that can be booked. Works signed out.
 
-GET  /availability?appids=730,570&rtt=&controls=
-  → 200 [{ appid, free, busy, backAt }]
+GET  /ping
+  → 204
+  Answers at once. The page times it to measure its round trip to the server, which the
+  two reads below take as `rtt`. Works signed out.
+
+GET  /availability?appids=730,570&rtt=&controls=&picture=&minutes=
+  → 200 [{ appid, free, ready, best, busy, backAt, backName }]
   For each game asked about (1 to 100 appids, in the order asked, repeats once), how
-  many machines the renter could play it on right now (`free`), how many would fit
-  but are taken (`busy`), and the soonest a taken one is free again (`backAt`, Unix
-  ms, or null). Same rules as the list below, so the wall and the game page agree.
-  → 400 for a missing, malformed or too long `appids`, a missing or bad `rtt`, or a bad
-  `controls`. → 429 past the renter's budget of these reads (below).
+  many machines the renter could play it on right now (`free`), how many of those are
+  free for all of the optional `minutes` (1 to 720; `ready`, which is `free` without
+  `minutes`), the best of those as the game page would rank it first (`best`, `{ id,
+  name, gpu, latency, availableUntil }`, or null), how many would fit but are taken
+  (`busy`), and the soonest a taken one is free again (`backAt`, Unix ms, or null) and
+  its name (`backName`). `minutes` never changes `free` or `busy`. Same rules as the
+  list below, so the wall and the game page agree.
+  → 400 for a missing, malformed or too long `appids`, a missing or bad `rtt`, a bad
+  `controls`, `picture` or `minutes`. → 429 past the renter's budget of these reads
+  (below).
 
 GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   → 200 { appid, minutes, requirements, machines, reason, busy }
@@ -214,6 +224,17 @@ POST /bookings/:id/seen
   The page's heartbeat while its event stream is open (every 15 s): counts as checking
   on the booking, the same as GET /bookings/:id, without the body. → 404 for an
   unknown booking or another renter's.
+
+GET  /events
+  → 200 text/event-stream
+  The wall's stream (`server/src/events.ts`), for the signed-in renter: `event:
+  availability` with an empty body each time a machine is offered, taken back, taken by
+  a booking, freed or goes offline. What changed differs per renter (their own PC, how
+  far away each machine is), so the event carries nothing and the page reads
+  `/availability` (and the open game's `/games/:appid/machines`) again, within its
+  budget. Keep-alives, the session's end and the stream caps are as below; this stream
+  counts against the renter's and the server's caps like a booking stream.
+  → 401 signed out. → 429 past a stream cap.
 
 GET  /events?booking=:id
   → 200 text/event-stream
@@ -283,6 +304,14 @@ A busy machine (reserved or in session) is free again when its session runs out,
 while reserved, when a claim at the last moment would run out; one taken until after its
 owner wants it back is not counted as coming back, and the game page lists a busy machine
 only when, once back, its offer still has the `minutes` asked for.
+
+The wall (`web/src/swiff/useLive.ts`) reads `/availability` for its games once the page
+has timed `/ping`, and the open game's `/games/:appid/machines`, then reads both again on
+each `availability` event, at most once every 3 s. While the stream is down it reads every
+30 s instead, and every 2 min regardless, since an offer that simply runs out sends no
+event. A game that goes from nothing ready to something ready pulses on the wall, with a
+chime for a renter who turned interface sounds on. The five invented machines and the
+evening pinned to 20:00 the wall was designed on are only at `/?demo=1` and in the tests.
 
 Each read ranks every machine on offer, so one signed-in renter cannot hog the server
 with them: each has a budget of 20 of these reads at once, then one more every 2 s (30

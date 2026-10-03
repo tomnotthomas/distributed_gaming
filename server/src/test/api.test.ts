@@ -120,6 +120,13 @@ describe("booking and host API", () => {
   const offer = (id = "pc-1", body: object = { available: true, ...REPORT }) =>
     call("PUT", `/api/machines/${id}/availability`, body, MACHINE_KEY);
 
+  it("answers a ping at once, signed out, for the page to time its round trip", async () => {
+    const { status, body, headers } = await call("GET", "/api/ping");
+    assert.equal(status, 204);
+    assert.equal(body, null);
+    assert.equal(headers.get("cache-control"), "no-store");
+  });
+
   it("lists the games that can be booked", async () => {
     const { status, body } = await call("GET", "/api/games");
     assert.equal(status, 200);
@@ -509,21 +516,61 @@ describe("booking and host API", () => {
       assert.equal(status, 200);
       // Each game once, however it is spelled. The booking took pc-1, the cheapest by id;
       // pc-2 is free for Dota 2 only.
+      const back = { busy: 1, backAt: claimBy + 30 * 60_000, backName: "Nova-01" };
+      const pc2 = {
+        id: "pc-2",
+        name: "Nova-01",
+        gpu: REPORT.hardware.gpu,
+        latency: { rttMs: 12, jitterMs: 2.5, source: "estimate" },
+        availableUntil: null,
+      };
       assert.deepEqual(body, [
-        { appid: 570, free: 1, busy: 1, backAt: claimBy + 30 * 60_000 },
-        { appid: 730, free: 0, busy: 1, backAt: claimBy + 30 * 60_000 },
-        { appid: 440, free: 0, busy: 0, backAt: null },
+        { appid: 570, free: 1, ready: 1, best: pc2, ...back },
+        { appid: 730, free: 0, ready: 0, best: null, ...back },
+        { appid: 440, free: 0, ready: 0, best: null, busy: 0, backAt: null, backName: null },
       ]);
       const machines = (await renter("GET", "/api/games/730/machines?minutes=60&rtt=0")).body;
       assert.deepEqual(machines.machines, []);
       assert.deepEqual(machines.busy, [{ id: "pc-1", name: "Nova-01", backAt: claimBy + 30 * 60_000 }]);
     });
 
+    it("says which machines are ready for the minutes asked for, and offers the best of those", async () => {
+      await offer("pc-1", { available: true, ...REPORT, price: 300 });
+      await offer("pc-2", {
+        available: true,
+        ...REPORT,
+        name: "Ember",
+        net: { rttMs: 2, jitterMs: 1, upMbps: 48 },
+        until: now + 30 * 60_000,
+      });
+      const ask = async (query: string) =>
+        (await renter("GET", `/api/availability?appids=730&rtt=0${query}`)).body[0];
+
+      // Asked for no length, both are ready and the nearer one leads.
+      const any = await ask("");
+      assert.deepEqual([any.free, any.ready, any.best.id], [2, 2, "pc-2"]);
+      assert.equal(any.best.availableUntil, now + 30 * 60_000);
+      assert.equal(any.best.name, "Ember");
+      // An hour: only pc-1 lasts it, so only pc-1 is ready, and it is the one offered.
+      const hour = await ask("&minutes=60");
+      assert.deepEqual([hour.free, hour.ready, hour.best.id], [2, 1, "pc-1"]);
+      assert.equal(hour.best.availableUntil, null);
+      assert.equal(hour.best.latency.rttMs, 12);
+      // Nothing lasts the whole night.
+      const pc1Until = await offer("pc-1", { available: true, ...REPORT, until: now + 60 * 60_000 });
+      assert.equal(pc1Until.status, 200);
+      const night = await ask("&minutes=600");
+      assert.deepEqual([night.free, night.ready, night.best], [2, 0, null]);
+      assert.doesNotMatch(JSON.stringify(night), /owner|address|"ip"/i);
+    });
+
     it("does not count a busy machine that is taken until its owner wants it back", async () => {
       await offer("pc-1", { available: true, ...REPORT, until: now + 31 * 60_000 });
       await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 30 });
       const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
-      assert.deepEqual(body, [{ appid: 730, free: 0, busy: 0, backAt: null }]);
+      assert.deepEqual(body, [
+        { appid: 730, free: 0, ready: 0, best: null, busy: 0, backAt: null, backName: null },
+      ]);
       const machines = await renter("GET", "/api/games/730/machines?minutes=30&rtt=0");
       assert.deepEqual(machines.body.busy, []);
     });
@@ -533,7 +580,9 @@ describe("booking and host API", () => {
       now += 15 * 60_000;
       await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
       const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
-      assert.deepEqual(body, [{ appid: 730, free: 0, busy: 0, backAt: null }]);
+      assert.deepEqual(body, [
+        { appid: 730, free: 0, ready: 0, best: null, busy: 0, backAt: null, backName: null },
+      ]);
       const machines = await renter("GET", "/api/games/730/machines?minutes=1&rtt=0");
       assert.deepEqual(machines.body.machines, []);
     });
@@ -568,7 +617,9 @@ describe("booking and host API", () => {
       assert.deepEqual(await busy(29), [{ id: "pc-1", name: "Nova-01", backAt }]);
       assert.deepEqual(await busy(30), []);
       const { body } = await renter("GET", "/api/availability?appids=730&rtt=0");
-      assert.deepEqual(body, [{ appid: 730, free: 0, busy: 1, backAt }]);
+      assert.deepEqual(body, [
+        { appid: 730, free: 0, ready: 0, best: null, busy: 1, backAt, backName: "Nova-01" },
+      ]);
     });
 
     it("rejects a malformed question with a 400", async () => {
@@ -586,6 +637,9 @@ describe("booking and host API", () => {
         "/api/availability?appids=730&rtt=Infinity",
         "/api/availability?appids=730&rtt=10001",
         "/api/availability?appids=730&rtt=0&controls=joystick",
+        "/api/availability?appids=730&rtt=0&minutes=0",
+        "/api/availability?appids=730&rtt=0&minutes=721",
+        "/api/availability?appids=730&rtt=0&minutes=",
         "/api/games/730/machines?rtt=0",
         "/api/games/730/machines?minutes=0&rtt=0",
         "/api/games/730/machines?minutes=721&rtt=0",

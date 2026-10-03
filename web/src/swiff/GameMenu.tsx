@@ -1,6 +1,6 @@
 import { Backdrop } from "@swiff/ui";
 import type { Machine } from "./data";
-import { feel, fmtLeft, meters, minsLeft, reason } from "./derive";
+import { feel, fmtLeft, meters, minsLeft } from "./derive";
 import { LensDial } from "./instruments";
 import { Reticle } from "./Reticle";
 import { SignInWithSteam } from "./SignIn";
@@ -16,20 +16,27 @@ function feelShort(machine: Machine, picture: number): string {
 
 const untilShort = (machine: Machine) => (machine.until === "late" ? "All night" : machine.until);
 
+/** "1 machine from 1 player": who is behind the machines listed, where that is known (the demo). */
+function ledgerCount(live: Machine[]): string {
+  const machines = `${live.length} ${live.length === 1 ? "machine" : "machines"}`;
+  // Players behind the machines listed below, not the busy ones left out of it.
+  // The server never says who owns a real host, so it counts machines alone.
+  const owners = new Set(live.map((m) => m.owner).filter(Boolean)).size;
+  return owners ? `${machines} from ${owners} ${owners === 1 ? "player" : "players"}` : machines;
+}
+
 /**
  * One game: its key art under a grey veil with the lens left clear, what the
  * chosen machine will feel like, and the ranked machines ("the Ledger") with
- * the Reticle that launches on the chosen one.
+ * the Reticle that launches on the chosen one. Signed out there are no
+ * machines to list: which can play it is shown only once you sign in.
  */
 export function GameMenu({ swiff }: { swiff: Swiff }) {
-  const { game, machines, picked, pool, session, quality, devices } = swiff;
+  const { game, machines, picked, clock, reason: why } = swiff;
   if (!game) return null;
 
   const live = machines.filter((m) => !m.busy);
   const busy = machines.filter((m) => m.busy);
-  // Players behind the machines listed below, not the busy ones left out of it.
-  const owners = new Set(live.map((m) => m.owner)).size;
-  const why = reason(game, pool, session, { quality, devices });
   const pickedMeters = picked ? meters(picked, game) : null;
 
   return (
@@ -79,13 +86,21 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
       <aside className="ledger-panel" aria-label="Machines">
         <div className="ledger-head mono">
           <span>
-            {live.length} {live.length === 1 ? "machine" : "machines"} from {owners}{" "}
-            {owners === 1 ? "player" : "players"}
+            {!swiff.seesAvailability
+              ? "Machines"
+              : swiff.machinesLoading
+                ? "Finding machines…"
+                : ledgerCount(live)}
           </span>
           <span>Ranked</span>
         </div>
 
         <div className="ledger">
+          {!swiff.seesAvailability ? (
+            <p className="ledger-busy mono">Sign in to see which machines can play it, and how well.</p>
+          ) : !swiff.machinesLoading && !machines.length ? (
+            <p className="ledger-busy mono">No machine can play it right now.</p>
+          ) : null}
           {live.map((machine, index) => {
             const chosen = picked?.id === machine.id;
             const tag = index === 0 && why ? why : machine.quality;
@@ -104,11 +119,13 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                 <span className="ledger-body">
                   <b>{machine.name}</b>
                   <span className="ledger-who">
-                    {machine.self ? "your machine" : machine.owner}, {machine.gpu}
+                    {[machine.self ? "your machine" : (machine.owner ?? machine.cpu), machine.gpu]
+                      .filter(Boolean)
+                      .join(", ")}
                   </span>
                   <span className="ledger-meta">
                     <span className={index === 0 && why ? "ledger-tag best" : "ledger-tag"}>{tag}</span>
-                    <span>{fmtLeft(minsLeft(machine))} left</span>
+                    <span>{fmtLeft(minsLeft(machine, clock))} left</span>
                   </span>
                 </span>
               </button>
@@ -139,7 +156,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           </div>
         )}
 
-        <p className="ledger-foot mono">
+        <p className="ledger-foot mono" hidden={!live.length}>
           {picked
             ? `${picked.name}, ${picked.until === "late" ? "free all night" : `free until ${picked.until}`}`
             : "Pick a machine above"}

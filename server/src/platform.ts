@@ -440,11 +440,14 @@ export class Platform {
   readonly #onSessionEnded: (machineId: string, sessionId: string) => void;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
+  readonly #onAvailabilityChanged: () => void;
   readonly #owners: ReadonlyMap<string, string>;
   /** Notices from the open transaction, delivered once it commits. */
   #notices: (() => void)[] = [];
   /** Bookings whose status the open transaction changed, told once it commits. */
   #changed = new Set<string>();
+  /** Whether the open transaction changed what is on offer, told once it commits. */
+  #offerChanged = false;
   /** Machines whose PC holds a socket open to the server. */
   readonly #present = new Set<string>();
   /** The one timer, armed for the next deadline. */
@@ -456,7 +459,9 @@ export class Platform {
   /**
    * `onSessionEnded` hears of every session that ends, however it ends, with its
    * machine and id; `onSessionClaimed` of every claim, with the machine claimed;
-   * `onBookingChanged` of every booking whose status moved, once per change.
+   * `onBookingChanged` of every booking whose status moved, once per change;
+   * `onAvailabilityChanged` once per change that offered a machine, took it
+   * back, or moved it between free, busy and offline.
    * All run after the change is committed, so what they do (evicting a
    * streamer, telling the PC or the renter) never outlives a rolled-back
    * change, and their failure undoes nothing.
@@ -476,6 +481,7 @@ export class Platform {
     onSessionEnded = () => {},
     onSessionClaimed = () => {},
     onBookingChanged = () => {},
+    onAvailabilityChanged = () => {},
   }: {
     path?: string;
     now?: () => number;
@@ -483,6 +489,7 @@ export class Platform {
     onSessionEnded?: (machineId: string, sessionId: string) => void;
     onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
     onBookingChanged?: (bookingId: string) => void;
+    onAvailabilityChanged?: () => void;
   } = {}) {
     this.#db = new DatabaseSync(path);
     this.#now = now;
@@ -490,6 +497,7 @@ export class Platform {
     this.#onSessionEnded = onSessionEnded;
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
+    this.#onAvailabilityChanged = onAvailabilityChanged;
     // Another connection may write the file (seed-requirements, a test): wait
     // out its lock rather than failing the read or write that meets it.
     this.#db.exec("PRAGMA busy_timeout = 2000");
@@ -538,6 +546,8 @@ export class Platform {
       this.#db
         .prepare("UPDATE machines SET price = coalesce(?, price), available_until = ? WHERE id = ?")
         .run(spec.price ?? null, spec.availableUntil ?? null, machineId);
+      // Its terms (price, until when) are what renters see, whether or not its status moves.
+      this.#offerChanged = true;
 
       if (!available) {
         this.#release(machine, now, "owner_kill");
@@ -1352,9 +1362,12 @@ export class Platform {
     return row;
   }
 
-  /** Move a machine to `status`. */
+  /** Move a machine to `status`; renters' walls are told once the change commits. */
   #setStatus(machineId: string, status: MachineStatus): void {
-    this.#db.prepare("UPDATE machines SET status = ? WHERE id = ?").run(status, machineId);
+    const { changes } = this.#db
+      .prepare("UPDATE machines SET status = ? WHERE id = ? AND status != ?")
+      .run(status, machineId, status);
+    if (changes) this.#offerChanged = true;
   }
 
   /** Move a booking to `status`; whoever watches it is told once the change commits. */
@@ -1417,6 +1430,7 @@ export class Platform {
     } catch (error) {
       this.#notices = [];
       this.#changed.clear();
+      this.#offerChanged = false;
       this.#retrySoon();
       this.#db.exec("ROLLBACK");
       throw error;
@@ -1426,6 +1440,8 @@ export class Platform {
     this.#notices = [];
     for (const bookingId of this.#changed) notices.push(() => this.#onBookingChanged(bookingId));
     this.#changed.clear();
+    if (this.#offerChanged) notices.push(() => this.#onAvailabilityChanged());
+    this.#offerChanged = false;
     for (const notice of notices) {
       try {
         notice();

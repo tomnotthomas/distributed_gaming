@@ -355,6 +355,43 @@ describe("session end notice", () => {
   });
 });
 
+describe("availability notice", () => {
+  let told: number;
+
+  beforeEach(() => {
+    told = 0;
+    platform = new Platform({ now: () => now, onAvailabilityChanged: () => (told += 1) });
+  });
+
+  it("tells once per change that offers, takes, frees or takes back a machine", () => {
+    offer("pc-1");
+    assert.equal(told, 1, "offered");
+    platform.heartbeat("pc-1");
+    advance(1_000);
+    assert.equal(told, 1, "a beat and a tick that change nothing on offer are not news");
+
+    const { bookingId } = platform.book(730, 30);
+    assert.equal(told, 2, "matched: busy");
+    const claim = platform.claim(bookingId);
+    assert.ok(claim.ok);
+    assert.equal(told, 3, "claimed: busy until the session runs out rather than the claim lapses");
+    platform.endSession("pc-1", claim.sessionId);
+    assert.equal(told, 4, "free again");
+
+    offer("pc-1", { price: 50 });
+    assert.equal(told, 5, "new terms, though its status stayed");
+    platform.setAvailability("pc-1", false);
+    assert.equal(told, 6, "taken back");
+  });
+
+  it("tells when a silent machine drops offline", () => {
+    offer("pc-1");
+    told = 0;
+    advance(LIVENESS_MS);
+    assert.equal(told, 1);
+  });
+});
+
 describe("machine liveness", () => {
   it("stops offering a machine within seconds of its heartbeats stopping", () => {
     offer("pc-1");
