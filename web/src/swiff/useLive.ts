@@ -9,7 +9,8 @@
 // asks regardless, since an offer that simply runs out sends no event. A read
 // the server refuses as over budget (429) is tried again once Retry-After has
 // passed, and until then the last answer stays up; a wall read in parts keeps
-// the parts already answered and asks again only for the rest.
+// the parts already answered, and the next read of the same question, a retry
+// or a refresh, asks only for the rest.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Prefs } from "./derive";
@@ -101,8 +102,11 @@ export function useLive({
     timer.current = setTimeout(again, answer.retryAfterMs);
   };
 
-  /** Read the wall; a retry over budget passes on the parts it already has, for the same question only. */
-  const readWall = useCallback((have?: { key: string; games: GameAvailability[] }) => {
+  /** The parts of a wall read the server stopped short of, for the question they answer. */
+  const partial = useRef<{ key: string; games: GameAvailability[] } | null>(null);
+
+  /** Read the wall, going on from the parts already read for the same question rather than from the first. */
+  const readWall = useCallback(() => {
     const { wallIds, minutes, prefs, rtt, get } = latest.current;
     if (rtt === null || !wallIds.length) return;
     const read = ++wallRead.current;
@@ -110,12 +114,16 @@ export function useLive({
     const key = `${rtt}|${question}|${wallIds.join(",")}`;
     clearTimeout(wallRetry.current);
     lastRead.current = Date.now();
-    const kept = have?.key === key ? have.games : [];
+    const kept = partial.current?.key === key ? partial.current.games : [];
     void fetchAvailability(wallIds, minutes, askOf(rtt, prefs), get, kept).then((answer) => {
       if (read !== wallRead.current) return;
-      if (answer.ok)
+      if (answer.ok) {
+        partial.current = null;
         setWall({ at: Date.now(), question, games: new Map(answer.value.map((g) => [g.appid, g])) });
-      else retryLater(wallRetry, answer, () => readWall({ key, games: answer.read }));
+      } else {
+        partial.current = { key, games: answer.read };
+        retryLater(wallRetry, answer, readWall);
+      }
     });
   }, []);
 
@@ -148,6 +156,7 @@ export function useLive({
       current = false;
       wallRead.current += 1;
       gameRead.current += 1;
+      partial.current = null;
       clearTimeout(wallRetry.current);
       clearTimeout(gameRetry.current);
     };

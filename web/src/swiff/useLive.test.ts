@@ -184,6 +184,32 @@ describe("useLive", () => {
     expect(asked.flat()).toEqual(appids);
   });
 
+  it("finishes a large wall with the budget spent while availability events keep coming", async () => {
+    // One read now, then one more every two seconds, as the server's budget refills.
+    const start = Date.now();
+    let spent = 0;
+    const get = vi.fn(async (path: string) => {
+      if (path.startsWith("/api/ping")) return new Response(null, { status: 204 });
+      if (spent >= 1 + Math.floor((Date.now() - start) / 2_000))
+        return json({}, { status: 429, headers: { "retry-after": "2" } });
+      spent++;
+      const appids = new URL(path, "http://x").searchParams.get("appids")!.split(",").map(Number);
+      return json(appids.map((appid) => ({ appid, ...NOTHING })));
+    });
+    const appids = Array.from({ length: MAX_APPIDS * 3 + 5 }, (_, i) => i + 1);
+    const { stream, fire } = fakeStream();
+    const { result } = renderHook(() =>
+      useLive(options({ appids, fetch: get as unknown as typeof fetch, eventSource: () => stream })),
+    );
+    await started();
+
+    for (let i = 0; i < 10 && !result.current.wall; i++) {
+      fire("availability");
+      await act(async () => void (await vi.advanceTimersByTimeAsync(MIN_GAP_MS)));
+    }
+    expect(result.current.wall?.games.size).toBe(appids.length);
+  });
+
   it("closes the stream and forgets what it read once signed out", async () => {
     const api = server();
     const { stream } = fakeStream();
