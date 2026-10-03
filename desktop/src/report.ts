@@ -8,11 +8,12 @@
 //
 // The open signaling socket is the PC's presence. The beat keeps it fresh for
 // the platform's liveness gate (E1, 15 s) all the same, also while the room is
-// handed to a session key, and its round trips are the network figures:
-// `rttMs` the median of the last minute's, `jitterMs` how much they vary.
-// `upMbps` is timed from an upload test, at going live and every 30 minutes
-// after, never while a player is on. `net` is sent once all three are known,
-// then whenever one has moved.
+// handed to a session key. The network figures come from that socket's pings,
+// which the server answers without touching its database: `rttMs` the median
+// of the latest round trips, `jitterMs` how much they vary from one to the
+// next. `upMbps` is timed from an upload test, at going live and every 30
+// minutes after, never while a player is on. `net` is sent once all three are
+// known, then whenever one has moved.
 
 import { httpOrigin } from "@swiff/rtc";
 import type { Control, Encoder, PcRead } from "../pc.cjs";
@@ -24,10 +25,13 @@ export const UPLOAD_TEST_BYTES = 4 * 1024 * 1024;
 export const UPLOAD_TEST_EVERY_MS = 30 * 60_000;
 /** An upload test that failed is tried again this much later. */
 const UPLOAD_RETRY_MS = 60_000;
-/** Round trips kept: a minute of beats. */
+/** Round trips kept: the burst at connect, then about five minutes of pings. */
 const RTT_SAMPLES = 12;
 /** Round trips needed before they are reported. */
 const MIN_RTT_SAMPLES = 3;
+/** The largest figures the platform takes (server/src/profile.ts). */
+const MAX_MS = 60_000;
+const MAX_UP_MBPS = 100_000;
 
 export type ReportHardware = {
   gpu: string;
@@ -103,7 +107,11 @@ export function netOf(rtts: readonly number[], upMbps: number | null): Net | nul
   // Jitter as RTP measures it: the mean change from one round trip to the next.
   let change = 0;
   for (let i = 1; i < rtts.length; i++) change += Math.abs(rtts[i]! - rtts[i - 1]!);
-  return { rttMs: tenth(median), jitterMs: tenth(change / (rtts.length - 1)), upMbps: tenth(upMbps) };
+  return {
+    rttMs: tenth(Math.min(median, MAX_MS)),
+    jitterMs: tenth(Math.min(change / (rtts.length - 1), MAX_MS)),
+    upMbps: tenth(Math.min(upMbps, MAX_UP_MBPS)),
+  };
 }
 
 /** Whether `next` is worth sending over `sent`: the first figures, or one that has moved by more than noise. */
@@ -146,6 +154,8 @@ export type HostReporter = {
   setUntil(until: number | null): void;
   /** A player is on: no upload test runs meanwhile. */
   setBusy(busy: boolean): void;
+  /** A round trip to the server, in ms; one taken during an upload test is left out. */
+  addRtt(ms: number): void;
   /** Take this PC back and stop beating. `keepalive` lets the call outlive a closing window. */
   withdraw(options?: { keepalive?: boolean }): Promise<void>;
 };
@@ -157,7 +167,7 @@ export type ReporterOptions = {
   /** Wait for this before the first call: the previous reporter's withdraw, so it cannot land after the offer. */
   after?: Promise<unknown>;
   fetch?: typeof globalThis.fetch;
-  /** Milliseconds, for timing round trips. */
+  /** Milliseconds, for timing the upload test. */
   clock?: () => number;
 };
 
@@ -223,8 +233,6 @@ export function createHostReporter(
       const asked = untilAsked;
       // Until the platform has the offer and its time, every beat is the offer.
       const offering = untilSent !== asked;
-      const timed = !uploading;
-      const start = clock();
       const res = offering
         ? await fetch(route("availability"), {
             method: "PUT",
@@ -236,7 +244,6 @@ export function createHostReporter(
             }),
           })
         : await fetch(route("heartbeat"), { method: "POST", headers, body: JSON.stringify(body) });
-      const rtt = clock() - start;
       if (stopped) return;
       // A refused section would be refused again: it waits for its next change instead.
       if (res.ok || res.status === 400) {
@@ -248,7 +255,6 @@ export function createHostReporter(
         const why = await res.json().catch(() => null);
         console.warn("[swiff] the platform refused part of this PC's report:", why?.error ?? res.status);
       }
-      if (res.ok && timed && !uploading) rtts = [...rtts, rtt].slice(-RTT_SAMPLES);
     } catch {
       // Unreachable: the next beat tries again.
     } finally {
@@ -279,6 +285,10 @@ export function createHostReporter(
     },
     setBusy: (on) => {
       busy = on;
+    },
+    addRtt: (ms) => {
+      // An upload under way fills the link: its round trips say nothing about play.
+      if (!uploading && Number.isFinite(ms) && ms >= 0) rtts = [...rtts, ms].slice(-RTT_SAMPLES);
     },
     withdraw: async ({ keepalive = false } = {}) => {
       stopped = true;
