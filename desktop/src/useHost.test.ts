@@ -464,7 +464,12 @@ describe("useHost", () => {
     expect(result.current.view.live).toMatchObject({ kind: "offline", until });
 
     await act(async () =>
-      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-2", machineKey: "k2" }),
+      result.current.actions.saveConnection({
+        url: "otter.example",
+        machineId: "pc-2",
+        machineKey: "k2",
+        name: "",
+      }),
     );
     Object.assign(share, { connection: "registered", offlineSince: null });
     rerender();
@@ -474,7 +479,12 @@ describe("useHost", () => {
     act(() => void vi.advanceTimersByTime(3_600_000));
     rerender();
     await act(async () =>
-      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-3", machineKey: "k3" }),
+      result.current.actions.saveConnection({
+        url: "otter.example",
+        machineId: "pc-3",
+        machineKey: "k3",
+        name: "",
+      }),
     );
     rerender();
     expect(result.current.view.live).toMatchObject({ kind: "waiting", until });
