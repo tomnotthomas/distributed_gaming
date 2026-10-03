@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PREFS, machinesFor, NOW_MINUTES, reason } from "./derive";
+import { DEFAULT_PREFS, demoNow, machinesFor, reason } from "./derive";
 import { GAMES, MACHINES, type Machine } from "./data";
 import { GameMenu } from "./GameMenu";
 import { machinesOf } from "./live";
@@ -22,7 +22,7 @@ const swiffWith = (phase: Swiff["phase"], signedIn = true, over: Partial<Swiff> 
     machines,
     reason: reason(bg3, MACHINES, "evening"),
     picked: MACHINES.tide,
-    clock: NOW_MINUTES,
+    clock: demoNow(),
     phase,
     ...DEFAULT_PREFS,
     launch: noop,
@@ -115,7 +115,7 @@ describe("GameMenu", () => {
         machines: hosts,
         picked: hosts[0]!,
         reason: "Free all session",
-        clock: 21 * 60,
+        clock: now,
       });
       const { container } = render(<GameMenu swiff={swiff} />);
       expect(screen.getByText("2 machines")).toBeInTheDocument();
@@ -128,6 +128,14 @@ describe("GameMenu", () => {
       expect(rows[1]).toHaveTextContent("1 h 30 left");
       expect(screen.getByText("+1 back at 23:10")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Hold to launch on Basement rig" })).toBeEnabled();
+    });
+
+    it("leaves a host whose offer has passed since it was read no time, not all night", () => {
+      const swiff = swiffWith("idle", true, { machines: hosts, picked: hosts[0]!, clock: now + 95 * 60_000 });
+      const { container } = render(<GameMenu swiff={swiff} />);
+      const rows = [...container.querySelectorAll(".ledger-row")];
+      expect(rows[1]).toHaveTextContent("0 min left");
+      expect(rows[1]).not.toHaveTextContent("all night");
     });
 
     it("says machines are being found until the server answers", () => {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
+import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
 // Analytics are off in tests; the real module refuses to load without a key in dev.
@@ -185,6 +186,47 @@ describe("useSwiff", () => {
         true,
       );
       expect(result.current.liveLine).toBe("1 free for this game");
+    });
+
+    it("keeps the machine a session is on when a re-read says it is now taken", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const host = {
+        id: "h1",
+        name: "Basement rig",
+        gpu: "RTX 4070",
+        cpu: "Ryzen 7 7700",
+        refreshHz: 144,
+        availableUntil: null,
+        minutesLeft: null,
+        coversSession: true,
+        latency: { rttMs: 23, jitterMs: 2, source: "estimate" as const },
+        response: 3,
+        picture: 3,
+      };
+      let taken = false;
+      serve(unnamed, {
+        machines: () =>
+          taken
+            ? { ...NO_MACHINES, busy: [{ id: "h1", name: "Basement rig", backAt: null }] }
+            : { ...NO_MACHINES, machines: [host] },
+      });
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.signedIn).toBe(true));
+        const game = result.current.games.find((g) => g.appid === cs2.appid)!;
+        act(() => result.current.openGame(game));
+        await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
+        act(() => result.current.launch());
+        expect(result.current.phase).not.toBe("idle");
+
+        taken = true;
+        await act(() => vi.advanceTimersByTimeAsync(SLOW_POLL_MS * 2));
+        await waitFor(() => expect(result.current.machines[0]?.busy).toBe(true));
+        expect(result.current.phase).not.toBe("idle");
+        expect(result.current.picked?.name).toBe("Basement rig");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

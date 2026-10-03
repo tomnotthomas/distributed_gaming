@@ -7,6 +7,7 @@ import {
   fmtLeft,
   freeFor,
   lasts,
+  leftAt,
   machinesFor,
   meters,
   minsLeft,
@@ -195,7 +196,7 @@ describe("seedSpot", () => {
       ready: 0,
       busy: 1,
       best: null,
-      back: { name: "Moss", at: "21:30" },
+      back: { name: "Moss", at: "21:30", backAt: 21.5 * 3_600_000 },
     });
   });
 });
@@ -212,6 +213,20 @@ describe("the real clock", () => {
   it("counts a real host's time left from the real clock, not the demo's 20:00", () => {
     expect(minsLeft(at("23:00"), 22 * 60)).toBe(60);
     expect(minsLeft(at("01:00"), 23 * 60 + 30)).toBe(90);
+  });
+
+  it("counts a real host down to its absolute free-until, and to nothing once it has passed", () => {
+    const until = new Date(2026, 9, 3, 21, 30, 40).getTime();
+    const host = at("21:30", { untilAt: until });
+    expect(leftAt(host, new Date(2026, 9, 3, 21, 0).getTime())).toBe(30);
+    // Read at 21:29, still shown at 21:31: passed, not free all night.
+    expect(leftAt(host, new Date(2026, 9, 3, 21, 31).getTime())).toBe(0);
+    expect(fmtLeft(leftAt(host, new Date(2026, 9, 3, 21, 31).getTime()))).toBe("0 min");
+  });
+
+  it("counts a demo machine by its clock time from the clock's minutes", () => {
+    expect(leftAt(at("00:30"), new Date(2026, 9, 3, 20, 0).getTime())).toBe(270);
+    expect(leftAt(at("late"), new Date(2026, 9, 3, 20, 0).getTime())).toBe(12 * 60);
   });
 });
 

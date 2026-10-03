@@ -1,6 +1,6 @@
 import { Backdrop } from "@swiff/ui";
 import type { Machine } from "./data";
-import { feel, fmtLeft, meters, minsLeft } from "./derive";
+import { feel, fmtLeft, leftAt, meters } from "./derive";
 import { LensDial } from "./instruments";
 import { Reticle } from "./Reticle";
 import { SignInWithSteam } from "./SignIn";
@@ -125,7 +125,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                   </span>
                   <span className="ledger-meta">
                     <span className={index === 0 && why ? "ledger-tag best" : "ledger-tag"}>{tag}</span>
-                    <span>{fmtLeft(minsLeft(machine, clock))} left</span>
+                    <span>{fmtLeft(leftAt(machine, clock))} left</span>
                   </span>
                 </span>
               </button>

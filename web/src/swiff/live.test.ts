@@ -144,6 +144,7 @@ describe("spotOf", () => {
         ping: 23,
         quality: "",
         until: "23:30",
+        untilAt: best.availableUntil,
         busy: false,
       },
       back: null,
@@ -163,10 +164,12 @@ describe("spotOf", () => {
     expect(spotOf(game({ busy: 1, backAt, backName: "Loft" }), now).back).toEqual({
       name: "Loft",
       at: "22:15",
+      backAt,
     });
     expect(spotOf(game({ busy: 1, backAt, backName: null }), now).back).toEqual({
       name: "A shared PC",
       at: "22:15",
+      backAt,
     });
   });
 });

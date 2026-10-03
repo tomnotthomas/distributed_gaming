@@ -189,10 +189,13 @@ export const fetchMachines = (
 ): Promise<Answer<GameMachines>> =>
   read<GameMachines>(get, `/api/games/${appid}/machines?minutes=${minutes}&${queryOf(ask)}`);
 
-/** "late" when the owner has not said or it is twelve hours or more away, else the clock time. */
-function untilOf(availableUntil: number | null, now: number): string {
-  if (availableUntil === null || availableUntil - now >= ALL_NIGHT_MINUTES * 60_000) return "late";
-  return clockTime(availableUntil);
+/**
+ * "late" when the owner has not said or it is twelve hours or more away, else
+ * the clock time, with the absolute time kept to count down from.
+ */
+function untilOf(availableUntil: number | null, now: number): Pick<Machine, "until" | "untilAt"> {
+  if (availableUntil === null || availableUntil - now >= ALL_NIGHT_MINUTES * 60_000) return { until: "late" };
+  return { until: clockTime(availableUntil), untilAt: availableUntil };
 }
 
 /** "1440p 120": what a machine delivers for this game, from the server's Picture score and the display. */
@@ -215,11 +218,14 @@ export function spotOf(game: GameAvailability, now: number): Spot {
           gpu: best.gpu,
           ping: Math.round(best.latency.rttMs),
           quality: "",
-          until: untilOf(best.availableUntil, now),
+          ...untilOf(best.availableUntil, now),
           busy: false,
         }
       : null,
-    back: game.backAt === null ? null : { name: game.backName ?? UNNAMED, at: clockTime(game.backAt) },
+    back:
+      game.backAt === null
+        ? null
+        : { name: game.backName ?? UNNAMED, at: clockTime(game.backAt), backAt: game.backAt },
   };
 }
 
@@ -235,7 +241,7 @@ export function machinesOf(game: GameMachines, now: number): Machine[] {
     cpu: m.cpu,
     ping: Math.round(m.latency.rttMs),
     quality: qualityOf(m.picture, m.refreshHz),
-    until: untilOf(m.availableUntil, now),
+    ...untilOf(m.availableUntil, now),
     busy: false,
     scores: { picture: m.picture, response: m.response },
   }));
