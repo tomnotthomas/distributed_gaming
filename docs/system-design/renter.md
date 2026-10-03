@@ -85,12 +85,16 @@ minutes. Opening the event stream on the booking (below) and the page's heartbea
 it is open count as checking on it; a stream merely left open does not. A reservation that lapses while the renter has not been heard from since the
 match puts the booking back in the queue in its old place.
 
-Machines, bookings, reservations and sessions are one SQLite table each
-(`server/src/platform.ts`, through Node's built-in `node:sqlite`, so dev, tests and CI
-need no database server). The file is `DATABASE_PATH`; unset, the data lives in memory
-and resets with the server. Users, games and saves have no table yet: a user is their
-Steam id (a booking's `renter_id`, a machine's `owner_id`), games come from Steam, and
-saves are not built.
+Machines, bookings, reservations and sessions are one Postgres table each
+(`server/src/platform.ts`), in the database at `DATABASE_URL` (Neon in production). The
+server makes the tables on start, through the migrations in `server/src/schema.ts`, and
+keeps nothing in local files, so a host that sleeps and loses its disk loses no data.
+Unset, the data lives in memory (PGlite, Postgres compiled to WebAssembly) and resets
+with the server, so dev and the e2e tests need no database server. Platform calls take
+turns, each one transaction; one that may write first locks the machines table, so a
+second server on the same database cannot interleave with it either. Users, games and
+saves have no table yet: a user is their Steam id (a booking's `renter_id`, a machine's
+`owner_id`), games come from Steam, and saves are not built.
 
 ---
 
@@ -357,11 +361,27 @@ configured the server lets nobody in (`server/src/access.ts`).
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
 - **A ticket dies with its session.** `claim` records the ticket on the session. Once the
-  session ends (the host ends it, the owner takes the machine back, the machine goes
-  silent or the booked time runs out), a join with that ticket is refused (`bad-ticket`)
-  and a renter still in the room with it is put out at once. That does not rest on the
-  one notice alone: the ticket is checked again on every frame relayed to or from the
-  renter and when the host registers, and every 30 s for every seated renter.
+  session ends (the host ends it, the renter leaves, the owner takes the machine back,
+  the machine goes silent or the booked time runs out), the server records the ticket
+  as revoked as the end commits: a join with it is refused (`bad-ticket`), a renter
+  still in the room with it is put out at once, and nothing more is relayed to or from
+  that renter. A session ended straight in the database, where no notice is sent, is
+  caught by the next relayed frame: offers, answers and ICE candidates carry
+  addresses, so each one is forwarded only once a database read begun after it
+  arrived has found the ticket not revoked (one read answers for every frame that
+  arrived before it began, from either side of the room). While the database cannot
+  answer, those frames are held, in order, and the read is retried every second; a
+  socket with 64 frames waiting has whatever more it sends dropped, never relayed
+  unchecked, and keeps its seat. The next join or host registration catches it too,
+  and within 5 s every seated renter, all checked in one read. When that read fails,
+  every seated renter keeps its seat through the blip and the read is tried again 5 s
+  later, but no seat is trusted for more than 5 minutes since its ticket was last
+  confirmed: past that, it is closed without `denied`, and the renter can come back
+  once the database answers. Any successful read confirms every seat again.
+- **A ticket that runs out while its join waits on the database joins nothing.** The
+  expiry is checked again once the revocation read answers: an expired ticket is
+  refused (`bad-ticket`) before the room changes, so a renter already seated on it
+  keeps the seat.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.

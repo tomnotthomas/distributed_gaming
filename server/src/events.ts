@@ -46,9 +46,10 @@ const DONE: readonly BookingStatus[] = ["claimed", "playing", "ended", "expired"
 
 /**
  * What open() did: answered with a stream, or answered nothing because the
- * booking is unknown, or it, the renter or the server has its fill of streams.
+ * booking is unknown, or it, the renter or the server has its fill of streams,
+ * or the renter hung up while the booking was being read.
  */
-export type OpenResult = "opened" | "not-found" | "too-many";
+export type OpenResult = "opened" | "not-found" | "too-many" | "gone";
 
 export type RenterEvents = {
   /**
@@ -57,9 +58,13 @@ export type RenterEvents = {
    * is reached. The stream ends at `signedInUntil` (Unix ms), when the
    * renter's session does.
    */
-  open(res: ServerResponse, bookingId: string, renterId: string, signedInUntil: number): OpenResult;
-  /** Send the booking as it now stands to every stream open on it. The platform calls this on each change. */
-  bookingChanged(bookingId: string): void;
+  open(res: ServerResponse, bookingId: string, renterId: string, signedInUntil: number): Promise<OpenResult>;
+  /**
+   * Send the booking as it now stands to every stream open on it. The platform
+   * calls this on each change; it resolves once the booking has been read and
+   * sent, and never rejects: a failed read is logged.
+   */
+  bookingChanged(bookingId: string): Promise<void>;
 };
 
 /** One booking event, in the event-stream format. */
@@ -76,9 +81,19 @@ function write(res: ServerResponse, chunk: string): void {
   if (!res.write(chunk)) res.destroy();
 }
 
-/** Send the booking, and end the stream once the booking needs no more watching. */
+/** The last event each stream was sent. */
+const lastSent = new WeakMap<ServerResponse, string>();
+
+/**
+ * Send the booking, and end the stream once the booking needs no more watching.
+ * A booking as it was last sent is not sent again: a change read after the
+ * stream opened can be the state it opened with.
+ */
 function sendBooking(res: ServerResponse, booking: BookingView): void {
-  write(res, bookingEvent(booking));
+  const event = bookingEvent(booking);
+  if (lastSent.get(res) === event) return;
+  lastSent.set(res, event);
+  write(res, event);
   if (DONE.includes(booking.status) && !res.destroyed) res.end();
 }
 
@@ -112,11 +127,13 @@ export function createRenterEvents(
   let total = 0;
 
   return {
-    open(res, bookingId, renterId, until) {
+    async open(res, bookingId, renterId, until) {
       // An unknown booking, or somebody else's, reads as not found before any
       // stream count is checked: a 429 would tell that it exists and is watched.
-      const booking = platform.booking(bookingId, renterId);
+      const booking = await platform.booking(bookingId, renterId);
       if (!booking) return "not-found";
+      // Its close has been and gone: a stream held for it would never be let go.
+      if (res.destroyed) return "gone";
       if (
         (streams.get(bookingId)?.size ?? 0) >= MAX_STREAMS_PER_BOOKING ||
         (perRenter.get(renterId) ?? 0) >= maxStreamsPerRenter ||
@@ -156,11 +173,19 @@ export function createRenterEvents(
       return "opened";
     },
 
-    bookingChanged(bookingId) {
+    async bookingChanged(bookingId) {
+      if (!streams.get(bookingId)?.size) return;
+      let booking: BookingView | null;
+      try {
+        booking = await platform.viewBooking(bookingId);
+      } catch (error) {
+        // The change is committed; its streams hear of the next one.
+        console.error("[swiff] booking event failed:", error instanceof Error ? error.name : typeof error);
+        return;
+      }
+      // Read now, the streams open now: one may have opened while it was read.
       const open = streams.get(bookingId);
-      if (!open?.size) return;
-      const booking = platform.viewBooking(bookingId);
-      if (!booking) return;
+      if (!booking || !open) return;
       for (const res of [...open]) if (!signedOut(res)) sendBooking(res, booking);
     },
   };

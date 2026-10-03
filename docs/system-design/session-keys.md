@@ -159,7 +159,7 @@ more while it closes.
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session key | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
 | Session     | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
-| Everything  | Kept in the platform database (`key_sessions`, file at `DATABASE_PATH`). A restart keeps every live session, and its unexpired keys still register.    |
+| Everything  | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
 
 ## Failure behaviour
 

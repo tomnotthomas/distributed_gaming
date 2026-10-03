@@ -42,7 +42,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
 import { accessFromEnv, verifyMachineKey, verifyTicket } from "./access.js";
 import {
@@ -57,9 +57,10 @@ import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
-import { Platform, type ClaimedSession } from "./platform.js";
+import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
+import { openDatabase } from "./db.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -84,20 +85,29 @@ const sessionSecret = sessionSecretFromEnv(process.env);
 const publicOrigin = publicOriginFromEnv(process.env, PORT);
 const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 
-// Machines, bookings, reservations and sessions (platform.ts). In memory unless
-// DATABASE_PATH names a file. A claim is pushed to the claimed PC, and every
-// booking change to the renter's event stream. Whenever a renter's session ends
-// there, however it ends, the PC's host session ends with it and the renter is
-// put out: the next renter never meets a streamer launched for the last one.
-// Each machine's owner comes from MACHINE_KEYS, so no renter is ever matched
-// to their own PC. The platform arms its own timer for whatever changes only
-// with time.
-const platform = new Platform({
-  path: process.env.DATABASE_PATH || ":memory:",
+// Machines, bookings, reservations and sessions (platform.ts), in the Postgres
+// database at DATABASE_URL, or in memory without one. Opened, its tables made
+// or brought up to date, before the server listens; a database it cannot reach
+// stops the process, for the host to start again. A claim is pushed to the
+// claimed PC, and every booking change to the renter's event stream. Whenever a
+// renter's session ends there, however it ends, the PC's host session ends with
+// it and the renter is put out: the next renter never meets a streamer launched
+// for the last one. Each machine's owner comes from MACHINE_KEYS, so no renter
+// is ever matched to their own PC. The platform arms its own timer for whatever
+// changes only with time.
+const platform = await Platform.open({
+  database: openDatabase(process.env.DATABASE_URL),
   owners: access.owners,
   onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
-  onBookingChanged: (bookingId) => renterEvents.bookingChanged(bookingId),
+  onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
+}).catch((error: unknown) => {
+  // The message names what failed (the host, the user, a missing table), never the password.
+  console.error(
+    "[swiff] the database could not be opened:",
+    error instanceof Error ? error.message : typeof error,
+  );
+  process.exit(1);
 });
 // Open renter streams are capped server-wide and per signed-in renter (events.ts).
 const renterEvents = createRenterEvents(platform, {
@@ -153,14 +163,43 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
+  /**
+   * When the last database read that found a renter's ticket not revoked began
+   * (performance.now() ms): at join, before a relayed frame, and each reconcile.
+   */
+  confirmedAt: number;
   /** The session a host registered under with a session key; null for a machine key. */
   sessionId: string | null;
   missedBeats: number;
+  /** This socket's frames and its close, handled one at a time in the order they came. */
+  turn: Promise<void>;
+  /** This socket's frames received and not yet handled, the one being handled included. */
+  queued: number;
+  /** Frames from this socket dropped for MAX_QUEUED_FRAMES since its queue last drained, logged when it does. */
+  dropped: number;
 };
 
 type Room = { host: PeerSocket | null; client: PeerSocket | null };
 
 const rooms = new Map<string, Room>();
+
+/**
+ * Tickets known to be revoked, each until when it could still be in use (Unix
+ * ms). Every way this server ends a session reaches the session-end notice,
+ * which records the session's ticket as the change commits, before any other
+ * frame is handled; a database check that finds a ticket revoked behind the
+ * server's back (a join, a host registering, a relayed frame, the reconcile)
+ * records it too. A revocation never reverses.
+ */
+const revokedTickets = new Map<string, number>();
+
+/** A booking's ticket runs for its minutes from the claim, so none outlives its revocation by more. */
+const REVOCATION_KEPT_MS = MAX_MINUTES * 60_000;
+
+/** Record that `ticketId` is revoked. */
+function revoke(ticketId: string): void {
+  revokedTickets.set(ticketId, Date.now() + REVOCATION_KEPT_MS);
+}
 
 function roomFor(hostId: string): Room {
   let room = rooms.get(hostId);
@@ -216,11 +255,9 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
  * server handed the room over. A database failure is logged, never thrown.
  */
 function hostGone(hostId: string, dropped: boolean): void {
-  try {
-    platform.hostDisconnected(hostId, dropped);
-  } catch (error) {
+  platform.hostDisconnected(hostId, dropped).catch((error: unknown) => {
     console.error("[swiff] host presence failed:", error instanceof Error ? error.name : typeof error);
-  }
+  });
 }
 
 // --- host sessions ----------------------------------------------------------
@@ -229,8 +266,8 @@ function hostGone(hostId: string, dropped: boolean): void {
  * End the live host session in `hostId`, if any: every key of it dies, and the
  * streamer registered with one is hung up on, so the room really is handed back.
  */
-function endHostSession(hostId: string): void {
-  const ended = sessions?.end(hostId);
+async function endHostSession(hostId: string): Promise<void> {
+  const ended = await sessions?.end(hostId);
   if (ended) evictStreamer(hostId, ended);
 }
 
@@ -238,29 +275,54 @@ function endHostSession(hostId: string): void {
  * A platform session on `hostId` ended, however it ended. Its streamer is hung
  * up on, and a renter still seated on the session's revoked ticket is put out.
  */
-function sessionEnded(hostId: string, sessionId: string): void {
+function sessionEnded(hostId: string, sessionId: string, ticketId: string | null): void {
+  if (ticketId !== null) revoke(ticketId);
   evictStreamer(hostId, sessionId);
   const client = rooms.get(hostId)?.client;
-  if (client) seatStillValid(client);
+  if (client && seatRevoked(client)) putOut(client);
+}
+
+/** Put the renter `client` out with `bad-ticket`: its ticket is revoked, and nothing more is relayed for it. */
+function putOut(client: PeerSocket): void {
+  if (client.ticketId) revoke(client.ticketId);
+  deny(client, "bad-ticket");
+}
+
+/** True when nothing may be relayed to or from `renter`: its ticket is known to be revoked. */
+function seatRevoked(renter: PeerSocket): boolean {
+  return renter.ticketId !== null && revokedTickets.has(renter.ticketId);
 }
 
 /**
  * True when the renter `client` may stay seated: its ticket's session has not
- * ended. A revoked one is put out with `bad-ticket`. When the database cannot
- * say, the renter is hung up on without `denied`, so it may retry, and nothing
- * is relayed for it meanwhile. The session-end notice puts a revoked renter out
- * at once; this is the check that does not depend on that notice arriving.
+ * ended, by the database. A revoked one is put out. When the database cannot
+ * say, the renter is hung up on without `denied`, so it may retry. The
+ * session-end notice puts a revoked renter out at once; this is the check that
+ * does not depend on that notice arriving. Never rejects.
  */
-function seatStillValid(client: PeerSocket): boolean {
+async function seatStillValid(client: PeerSocket): Promise<boolean> {
   if (!client.ticketId) return true;
+  if (seatRevoked(client)) {
+    putOut(client);
+    return false;
+  }
   try {
-    if (!platform.ticketRevoked(client.ticketId)) return true;
-    deny(client, "bad-ticket");
+    const began = performance.now();
+    if (!(await platform.ticketRevoked(client.ticketId))) {
+      confirm(client, began);
+      return true;
+    }
+    putOut(client);
   } catch (error) {
     console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
     client.close(1011, "internal error");
   }
   return false;
+}
+
+/** Record that a database read begun at `began` (performance.now() ms) found the renter `client`'s ticket not revoked. */
+function confirm(client: PeerSocket, began: number): void {
+  client.confirmedAt = Math.max(client.confirmedAt, began);
 }
 
 /**
@@ -345,7 +407,7 @@ async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath:
   try {
     await answerSession(req, res, hostId, sessions);
   } catch (error) {
-    // A locked or broken database file must not take signaling down with it.
+    // An unreachable or broken database must not take signaling down with it.
     // Only the kind of failure is logged: the request carries the machine key.
     console.error("[swiff] session request failed:", error instanceof Error ? error.name : typeof error);
     if (!res.headersSent) json(res, 500, { error: "internal-error" });
@@ -366,7 +428,7 @@ async function answerSession(
   }
 
   if (req.method === "DELETE") {
-    endHostSession(hostId);
+    await endHostSession(hostId);
     json(res, 204);
     return;
   }
@@ -385,11 +447,12 @@ async function answerSession(
   }
   // Only the session a renter has claimed on this machine, and only while it
   // runs: a host session can never outlive or stand in for its platform session.
-  if (platform.claimedSession(hostId)?.sessionId !== sessionId) {
+  // The platform's store refuses it too should the session end before it is added.
+  if ((await platform.claimedSession(hostId))?.sessionId !== sessionId) {
     json(res, 409, { error: "not-claimed" });
     return;
   }
-  const grant = sessions.start(hostId, sessionId);
+  const grant = await sessions.start(hostId, sessionId);
   if (!grant) {
     json(res, 409, { error: "session-active" });
     return;
@@ -464,8 +527,12 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 
 // --- signaling --------------------------------------------------------------
 
-/** Answer a message from `ws` that is not relayed. Throws when the database does. */
-function answer(ws: PeerSocket, msg: SignalMessage): void {
+/**
+ * Answer a message from `ws` that is not relayed. Rejects when the database
+ * fails. Room state is read again after every wait for the database: other
+ * sockets may have moved meanwhile.
+ */
+async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
   switch (msg.type) {
     case "ping":
       ws.missedBeats = 0;
@@ -478,14 +545,14 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       let sessionId: string | null = null;
       if ("sessionKey" in msg) {
         // The streamer: the key must name this room and its session be live.
-        const key = sessions?.verify(msg.sessionKey);
+        const key = sessions ? await sessions.verify(msg.sessionKey) : null;
         if (!key || key.room !== msg.hostId) return deny(ws, "bad-session-key");
         sessionId = key.session;
       } else {
         if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
         // The machine key never displaces a renter's session, live streamer
         // or not: the room is the session's until the service ends it.
-        if (sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
+        if (await sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
       }
       const room = roomFor(msg.hostId);
       // A reconnecting host replaces the stale socket rather than being
@@ -496,16 +563,21 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       ws.sessionId = sessionId;
       room.host = ws;
       // The PC is there for as long as this socket stays open.
-      platform.hostConnected(msg.hostId);
+      await platform.hostConnected(msg.hostId);
+      // A newer host took the seat meanwhile: this one is being hung up on.
+      if (room.host !== ws) return;
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
       // A client that arrived first is still waiting; tell the host now,
-      // unless its ticket died meanwhile.
-      if (room.client && seatStillValid(room.client)) send(ws, { type: "peer-joined" });
+      // unless its ticket died meanwhile, or it left while that was checked.
+      const client = room.client;
+      if (client && (await seatStillValid(client)) && room.client === client) {
+        send(ws, { type: "peer-joined" });
+      }
       // A PC that missed its claim, or lost it before starting the session,
       // hears it again: the machine key only registers with no session live.
       if (sessionId === null) {
-        const claimed = platform.claimedSession(msg.hostId);
-        if (claimed) pushClaim(msg.hostId, claimed);
+        const claimed = await platform.claimedSession(msg.hostId);
+        if (claimed && room.host === ws) pushClaim(msg.hostId, claimed);
       }
       return;
     }
@@ -513,7 +585,19 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
     case "join": {
       if (ws.role) return;
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
-      if (!ticket || platform.ticketRevoked(ticket.id)) return deny(ws, "bad-ticket");
+      if (!ticket || revokedTickets.has(ticket.id)) return deny(ws, "bad-ticket");
+      const began = performance.now();
+      const revoked = await platform.ticketRevoked(ticket.id);
+      if (revoked) revoke(ticket.id);
+      // Revoked in the database, or by a notice while the database was asked.
+      if (revokedTickets.has(ticket.id)) {
+        // A renter still seated on it is put out too.
+        const seated = rooms.get(ticket.room)?.client;
+        if (seated && seatRevoked(seated)) putOut(seated);
+        return deny(ws, "bad-ticket");
+      }
+      // Run out while the database was asked: nothing changes for it.
+      if (ticket.exp * 1000 <= Date.now()) return deny(ws, "bad-ticket");
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
         // The same ticket again is the same renter refreshing: hand them the
@@ -524,6 +608,7 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       ws.hostId = ticket.room;
       ws.role = "client";
       ws.ticketId = ticket.id;
+      confirm(ws, began);
       room.client = ws;
       send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
       send(room.host, { type: "peer-joined" });
@@ -535,81 +620,238 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
   }
 }
 
+/**
+ * The most frames one socket may have waiting to be handled. A handshake sends
+ * a few dozen at most; only frames held for the database pile up past that.
+ */
+const MAX_QUEUED_FRAMES = 64;
+
 const server = createServer(serveStatic);
 const wss = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES });
+
+/** Handle `work` for `ws` once everything it sent before has been: frames and close, in order. */
+function inTurn(ws: PeerSocket, work: () => Promise<void> | void): void {
+  ws.turn = ws.turn.then(work).catch((error: unknown) => {
+    console.error("[swiff] signaling failed:", error instanceof Error ? error.name : typeof error);
+  });
+}
+
+/** How long a relayed frame waits before its ticket is read again, when the database could not say. */
+const RELAY_RETRY_MS = 1_000;
+
+/** A read of whether one ticket is revoked: when it began (performance.now() ms; Infinity until it has), and its answer. */
+type TicketRead = { began: number; revoked: Promise<boolean> };
+
+const noop = () => {};
+
+/** Per ticket, the latest read asked for by a relayed frame, until it settles. */
+const ticketReads = new Map<string, TicketRead>();
+
+/**
+ * A read of whether `ticketId` is revoked that began after `arrived`
+ * (performance.now() ms). Shared: a read already begun after `arrived`, or
+ * queued and not yet begun, answers for it; otherwise a new one is queued
+ * behind the one in flight. So a burst of frames costs at most one read in
+ * flight and one queued per ticket, from either side of the room.
+ */
+function ticketReadAfter(ticketId: string, arrived: number): TicketRead {
+  const latest = ticketReads.get(ticketId);
+  if (latest && latest.began > arrived) return latest;
+  const read: TicketRead = { began: Infinity, revoked: Promise.resolve(false) };
+  const before = latest ? latest.revoked.then(noop, noop) : Promise.resolve();
+  read.revoked = before.then(() => {
+    read.began = performance.now();
+    return platform.ticketRevoked(ticketId);
+  });
+  const forget = () => {
+    if (ticketReads.get(ticketId) === read) ticketReads.delete(ticketId);
+  };
+  read.revoked.then(forget, forget);
+  ticketReads.set(ticketId, read);
+  return read;
+}
+
+/**
+ * Forward `msg`, which arrived from `ws` at `arrived` (performance.now() ms),
+ * verbatim to its peer. The server does not read the payload, but offers,
+ * answers and ICE candidates carry addresses, so none goes to or from a renter
+ * until a database read begun after the frame arrived has found the renter's
+ * ticket not revoked: a ticket revoked behind the server's back is caught by
+ * the next frame. One read covers every frame that arrived before it began,
+ * from either socket (ticketReadAfter). A revoked renter is put out and the frame dropped. While the database cannot
+ * say, the frame is held, with the frames behind it, and the read retried,
+ * until it can, or either side leaves the room. Never rejects.
+ */
+async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
+  const peer = peerOf(ws);
+  if (!peer) return;
+  const renter = ws.role === "client" ? ws : peer;
+  const ticketId = renter.ticketId;
+  if (!ticketId) return;
+  while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
+    if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
+    const read = ticketReadAfter(ticketId, arrived);
+    try {
+      if (await read.revoked) putOut(renter);
+      else confirm(renter, read.began);
+    } catch (error) {
+      console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
+    }
+  }
+  if (seatRevoked(renter) || peerOf(ws) !== peer) return;
+  send(peer, msg);
+}
+
+/** One frame from `ws`, which arrived at `arrived` (performance.now() ms): relayed to its peer, or answered. */
+async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise<void> {
+  let msg: SignalMessage;
+  try {
+    msg = JSON.parse(String(raw)) as SignalMessage;
+  } catch {
+    return; // garbage in, ignored — never crash the room over one bad frame
+  }
+
+  if (isRelayed(msg)) return relay(ws, msg, arrived);
+
+  try {
+    await answer(ws, msg);
+  } catch (error) {
+    // Register and join read the database. Failing, it must not take the
+    // process down; hanging up without `denied` lets the peer retry.
+    console.error("[swiff] signaling message failed:", error instanceof Error ? error.name : typeof error);
+    ws.close(1011, "internal error");
+  }
+}
+
+/** `ws` closed: give up its seat, and tell its peer and the platform. */
+function onClose(ws: PeerSocket): void {
+  const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
+  if (!room) return;
+
+  // A socket that was already replaced is not in this room any more: a newer
+  // host or renter took its seat, and the close arriving now is the tail end
+  // of that handover. It must change nothing — above all it must not report
+  // "peer-left", because the peer it would reach is the surviving one, which
+  // is at that moment negotiating with the replacement. Telling it somebody
+  // left makes it tear down the connection it just built, and a renter who
+  // simply refreshed the page never gets a picture again.
+  if (room.host !== ws && room.client !== ws) return;
+
+  const peer = peerOf(ws);
+  const wasHost = room.host === ws;
+  if (wasHost) room.host = null;
+  if (room.client === ws) room.client = null;
+  send(peer, { type: "peer-left" });
+  if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
+  // The PC service's own socket going is the PC going: offline now while it
+  // is on offer. A streamer's going, or any socket once a renter has claimed
+  // the PC, leaves the liveness window: a session does not die with one socket.
+  if (wasHost && ws.hostId) hostGone(ws.hostId, ws.sessionId === null);
+}
 
 wss.on("connection", (socket) => {
   const ws = socket as PeerSocket;
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;
+  ws.confirmedAt = 0;
   ws.sessionId = null;
   ws.missedBeats = 0;
+  ws.turn = Promise.resolve();
+  ws.queued = 0;
+  ws.dropped = 0;
 
   // An oversized or malformed frame surfaces here, and ws closes the socket
   // itself. Unhandled, the same error would take the whole process down.
   ws.on("error", () => {});
 
+  // A frame that waits on the database holds back the ones after it, and the
+  // close: a register is done before the offer behind it is relayed, and a
+  // socket that closes mid-register is seated before it gives the seat up. A
+  // socket that speaks is there the moment its frame arrives, so one held for
+  // the database never costs it its heartbeat.
+  // A socket that keeps sending while its frames are held is not buffered
+  // without end: past MAX_QUEUED_FRAMES, what it sends is dropped, never
+  // relayed unchecked, and the seat is kept.
   ws.on("message", (raw) => {
-    let msg: SignalMessage;
-    try {
-      msg = JSON.parse(String(raw)) as SignalMessage;
-    } catch {
-      return; // garbage in, ignored — never crash the room over one bad frame
-    }
-
-    if (isRelayed(msg)) {
-      // Forwarded verbatim. The server does not read the payload. Never to or
-      // from a renter whose ticket has been revoked since it joined.
-      const peer = peerOf(ws);
-      const renter = ws.role === "client" ? ws : peer;
-      if (renter && !seatStillValid(renter)) return;
-      send(peer, msg);
+    const arrived = performance.now();
+    ws.missedBeats = 0;
+    if (ws.queued >= MAX_QUEUED_FRAMES) {
+      ws.dropped += 1;
       return;
     }
-
-    try {
-      answer(ws, msg);
-    } catch (error) {
-      // Register and join read the database. Failing, it must not take the
-      // process down; hanging up without `denied` lets the peer retry.
-      console.error("[swiff] signaling message failed:", error instanceof Error ? error.name : typeof error);
-      ws.close(1011, "internal error");
-    }
+    ws.queued += 1;
+    inTurn(ws, async () => {
+      try {
+        await onMessage(ws, raw, arrived);
+      } finally {
+        ws.queued -= 1;
+        if (!ws.queued && ws.dropped) {
+          console.error(
+            `[swiff] dropped ${ws.dropped} frames a socket sent while ${MAX_QUEUED_FRAMES} waited`,
+          );
+          ws.dropped = 0;
+        }
+      }
+    });
   });
-
-  ws.on("close", () => {
-    const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
-    if (!room) return;
-
-    // A socket that was already replaced is not in this room any more: a newer
-    // host or renter took its seat, and the close arriving now is the tail end
-    // of that handover. It must change nothing — above all it must not report
-    // "peer-left", because the peer it would reach is the surviving one, which
-    // is at that moment negotiating with the replacement. Telling it somebody
-    // left makes it tear down the connection it just built, and a renter who
-    // simply refreshed the page never gets a picture again.
-    if (room.host !== ws && room.client !== ws) return;
-
-    const peer = peerOf(ws);
-    const wasHost = room.host === ws;
-    if (wasHost) room.host = null;
-    if (room.client === ws) room.client = null;
-    send(peer, { type: "peer-left" });
-    if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
-    // The PC service's own socket going is the PC going: offline now while it
-    // is on offer. A streamer's going, or any socket once a renter has claimed
-    // the PC, leaves the liveness window: a session does not die with one socket.
-    if (wasHost && ws.hostId) hostGone(ws.hostId, ws.sessionId === null);
-  });
+  ws.on("close", () => inTurn(ws, () => onClose(ws)));
 });
 
-// The safety net under the session-end notice and the relay check: every so
-// often, any seated renter whose ticket has been revoked is put out, even one
-// that sends nothing. SWIFF_TICKET_RECONCILE_MS shortens it for tests.
-const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 30_000;
+/**
+ * Check every seated renter's ticket with the database in one read: a revoked
+ * one is recorded and put out, even one that sends nothing, and every other
+ * seat counts as confirmed now. When the database cannot say, every renter
+ * keeps its seat through the blip (its relayed frames wait for the database,
+ * and the next round tries again) but for no longer than MAX_UNCONFIRMED_MS
+ * since its ticket was last confirmed: past that, the seat is closed without
+ * `denied`, so the renter may come back once the database answers. Also
+ * forgets revocations no ticket could still be in use for.
+ */
+async function reconcileSeats(): Promise<void> {
+  const time = Date.now();
+  for (const [ticketId, until] of revokedTickets) if (until <= time) revokedTickets.delete(ticketId);
+  const now = performance.now();
+  const seated = [...rooms.values()].flatMap((room) => (room.client?.ticketId ? [room.client] : []));
+  if (!seated.length) return;
+  try {
+    for (const ticketId of await platform.ticketsRevoked(seated.map((client) => client.ticketId!))) {
+      revoke(ticketId);
+    }
+  } catch (error) {
+    console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+    const stale = seated.filter((client) => now - client.confirmedAt >= MAX_UNCONFIRMED_MS);
+    if (stale.length) {
+      console.error(
+        `[swiff] tickets unconfirmed for ${MAX_UNCONFIRMED_MS / 1000} s: closing ${stale.length} seat(s)`,
+      );
+      for (const client of stale) client.close(1011, "ticket unconfirmed");
+    }
+    return;
+  }
+  for (const client of seated) {
+    if (seatRevoked(client)) putOut(client);
+    else confirm(client, now);
+  }
+}
+
+// The safety net under the session-end notice, for a ticket revoked where no
+// notice is sent (straight in the database): every few seconds, so a revoked
+// renter keeps its seat for that long at most while the database answers. One
+// check at a time.
+// SWIFF_TICKET_RECONCILE_MS shortens it for tests.
+const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 5_000;
+/**
+ * The longest a seated renter's ticket goes unconfirmed while the reconcile
+ * cannot read the database, before the seat is closed: a blip keeps every
+ * seat, an outage does not keep a revoked one open for good.
+ * SWIFF_TICKET_UNCONFIRMED_MS shortens it for tests.
+ */
+const MAX_UNCONFIRMED_MS = Number(process.env.SWIFF_TICKET_UNCONFIRMED_MS) || 5 * 60_000;
+let reconciling: Promise<void> | null = null;
 setInterval(() => {
-  for (const room of rooms.values()) if (room.client) seatStillValid(room.client);
+  reconciling ??= reconcileSeats().finally(() => (reconciling = null));
 }, TICKET_RECONCILE_MS).unref();
 
 // Server-side liveness sweep. Without it a host whose machine slept keeps its
@@ -630,11 +872,9 @@ const sweep = setInterval(() => {
   }
   const alive = [...pinged];
   pinged.clear();
-  try {
-    platform.hostsAlive(alive);
-  } catch (error) {
+  platform.hostsAlive(alive).catch((error: unknown) => {
     console.error("[swiff] host presence failed:", error instanceof Error ? error.name : typeof error);
-  }
+  });
 }, HEARTBEAT_MS);
 sweep.unref?.();
 
@@ -642,6 +882,8 @@ server.listen(PORT, () => {
   console.log(`[swiff] http://localhost:${PORT}       (the wall)`);
   console.log(`[swiff] http://localhost:${PORT}/host  (gaming PC)`);
   console.log(`[swiff] http://localhost:${PORT}/rtc   (handshake demo)`);
+  if (!process.env.DATABASE_URL)
+    console.warn("[swiff] DATABASE_URL not set — the platform's data is kept in memory and lost on restart");
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
   if (!sessionSecret)

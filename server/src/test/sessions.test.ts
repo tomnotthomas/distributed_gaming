@@ -42,46 +42,49 @@ describe("session keys", () => {
 });
 
 describe("host sessions", () => {
-  it("accepts a key only while its session is live", () => {
+  it("accepts a key only while its session is live", async () => {
     const sessions = createHostSessions(SECRET);
-    const grant = sessions.start("pc-1", "s1");
+    const grant = await sessions.start("pc-1", "s1");
     assert.ok(grant);
-    assert.equal(sessions.verify(grant.sessionKey)?.room, "pc-1");
-    assert.equal(sessions.end("pc-1"), grant.sessionId);
-    assert.equal(sessions.verify(grant.sessionKey), null, "revoked key still accepted");
+    assert.equal((await sessions.verify(grant.sessionKey))?.room, "pc-1");
+    assert.equal(await sessions.end("pc-1"), grant.sessionId);
+    assert.equal(await sessions.verify(grant.sessionKey), null, "revoked key still accepted");
   });
 
-  it("refuses a second start while a session is live", () => {
+  it("refuses a second start while a session is live", async () => {
     const sessions = createHostSessions(SECRET);
-    assert.ok(sessions.start("pc-1", "s1"));
-    assert.equal(sessions.start("pc-1", "s1"), null);
-    assert.ok(sessions.start("pc-2", "s2"), "other rooms are unaffected");
+    assert.ok(await sessions.start("pc-1", "s1"));
+    assert.equal(await sessions.start("pc-1", "s1"), null);
+    assert.ok(await sessions.start("pc-2", "s2"), "other rooms are unaffected");
   });
 
-  it("does not revive a key from an earlier session of the same room", () => {
+  it("does not revive a key from an earlier session of the same room", async () => {
     const sessions = createHostSessions(SECRET);
-    const first = sessions.start("pc-1", "s1")!;
-    sessions.end("pc-1");
-    const second = sessions.start("pc-1", "s2")!;
-    assert.equal(sessions.verify(first.sessionKey), null);
-    assert.ok(sessions.verify(second.sessionKey));
+    const first = (await sessions.start("pc-1", "s1"))!;
+    await sessions.end("pc-1");
+    const second = (await sessions.start("pc-1", "s2"))!;
+    assert.equal(await sessions.verify(first.sessionKey), null);
+    assert.ok(await sessions.verify(second.sessionKey));
   });
 
-  it("does not revive an ended key when the same session starts again", () => {
+  it("does not revive an ended key when the same session starts again", async () => {
     const sessions = createHostSessions(SECRET);
-    const first = sessions.start("pc-1", "s1")!;
-    sessions.end("pc-1");
-    const again = sessions.start("pc-1", "s1")!;
+    const first = (await sessions.start("pc-1", "s1"))!;
+    await sessions.end("pc-1");
+    const again = (await sessions.start("pc-1", "s1"))!;
     assert.equal(again.sessionId, "s1", "the session keeps its id");
-    assert.equal(sessions.verify(first.sessionKey), null, "a key from before the end still accepted");
-    assert.ok(sessions.verify(again.sessionKey));
+    assert.equal(await sessions.verify(first.sessionKey), null, "a key from before the end still accepted");
+    assert.ok(await sessions.verify(again.sessionKey));
   });
 
-  it("grants the session id it was asked for", () => {
-    assert.equal(createHostSessions(SECRET).start("pc-1", "platform-session")?.sessionId, "platform-session");
+  it("grants the session id it was asked for", async () => {
+    assert.equal(
+      (await createHostSessions(SECRET).start("pc-1", "platform-session"))?.sessionId,
+      "platform-session",
+    );
   });
 
-  it("treats ending a room with no session as done", () => {
-    assert.equal(createHostSessions(SECRET).end("pc-1"), null);
+  it("treats ending a room with no session as done", async () => {
+    assert.equal(await createHostSessions(SECRET).end("pc-1"), null);
   });
 });

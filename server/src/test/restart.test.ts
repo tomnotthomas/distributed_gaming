@@ -1,20 +1,17 @@
-// A server restart keeps live host sessions: the database file holds them, so
-// a streamer whose key was granted before the restart still gets in after it,
+// A server restart keeps live host sessions: the database holds them, so a
+// streamer whose key was granted before the restart still gets in after it,
 // the machine key is still kept out, and ending the session still kills the key.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { after, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { mintRenterSession } from "../access.js";
 import { sessionPath, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { SESSION_COOKIE } from "../signin.js";
+import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
@@ -25,14 +22,12 @@ const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
-const DIR = mkdtempSync(join(tmpdir(), "swiff-restart-"));
-const DATABASE_PATH = join(DIR, "swiff.db");
-
+let database: ServerDatabase;
 let server: ChildProcess | undefined;
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Start the server on the shared database file and wait until it answers. */
+/** Start the server on the shared database and wait until it answers. */
 async function startServer(): Promise<void> {
   server = spawn(process.execPath, [SERVER], {
     env: {
@@ -41,11 +36,12 @@ async function startServer(): Promise<void> {
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
       MACHINE_KEYS: `pc-1:${HASH}`,
-      DATABASE_PATH,
+      DATABASE_URL: database.url,
     },
     stdio: "ignore",
   });
-  for (let i = 0; i < 50; i++) {
+  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
+  for (let i = 0; i < 150; i++) {
     try {
       await fetch(`http://localhost:${PORT}/api/bookings/none`);
       return;
@@ -105,9 +101,13 @@ function registerUntilClosed(sessionKey: string): Promise<{ code: number; messag
   });
 }
 
+before(async () => {
+  database = await serverDatabase();
+});
+
 after(async () => {
   await stopServer();
-  rmSync(DIR, { recursive: true, force: true });
+  await database.close();
 });
 
 describe("server restart", () => {
@@ -150,9 +150,7 @@ describe("server restart", () => {
     const grant = started.body as SessionGrant;
 
     // Every host-session statement fails from here on.
-    const db = new DatabaseSync(DATABASE_PATH);
-    db.exec("DROP TABLE key_sessions");
-    db.close();
+    await database.exec("DROP TABLE key_sessions");
 
     // No `denied`: that would be final, and the failure may pass.
     assert.deepEqual(await registerUntilClosed(grant.sessionKey), { code: 1011, messages: [] });
