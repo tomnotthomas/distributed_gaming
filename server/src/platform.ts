@@ -61,6 +61,7 @@ import {
   type Encoder,
   type HostProfile,
   type LinkStats,
+  type PicturePref,
   type RenterPrefs,
   type StabilityStats,
 } from "@swiff/rank";
@@ -175,6 +176,9 @@ export type ClaimResult =
  */
 export type Rtts = { server?: number; machines?: Record<string, number> };
 
+/** How the renter plays: the controls they turned on and their Picture setting. None and best when left out. */
+export type PlayPrefs = { controls?: Control[]; picture?: PicturePref };
+
 /** What became of the renter ending their booking: its view once ended, or why not. */
 export type EndResult =
   | { ok: true; booking: BookingView }
@@ -217,6 +221,9 @@ type BookingRow = {
   last_seen_at: number;
   /** JSON Rtts, null when the renter sent none. */
   rtts: string | null;
+  /** JSON Control[], null when the renter sent none. */
+  controls: string | null;
+  picture: PicturePref | null;
 };
 /** A machine free to be matched now: its row, the games installed on it and its seven days. */
 type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
@@ -321,12 +328,14 @@ function bookingLink(rtts: Rtts, machine: MachineRow): LinkStats | null {
   return estimateLink(rtts.server ?? 0, net);
 }
 
-/** The renter who made the booking, as rank() reads them: no controls asked for, the best picture. */
-function bookingRenter(booking: Pick<BookingRow, "id" | "renter_id" | "minutes">): RenterPrefs {
+/** The renter who made the booking, as rank() reads them: by default no controls asked for, the best picture. */
+function bookingRenter(
+  booking: Pick<BookingRow, "id" | "renter_id" | "minutes" | "controls" | "picture">,
+): RenterPrefs {
   return {
     id: booking.renter_id ?? `booking:${booking.id}`,
-    controls: [],
-    picture: "best",
+    controls: fromJson<Control[]>(booking.controls, []),
+    picture: booking.picture ?? "best",
     sessionMinutes: booking.minutes,
   };
 }
@@ -756,17 +765,19 @@ export class Platform {
   /**
    * Queue a booking for `renterId` (a Steam id; null only in tests) and match
    * at once. `rtts` are the renter's round trips, which matching judges each
-   * machine's latency by, for as long as the booking waits.
+   * machine's latency by, and `prefs` how they play, which it ranks by, for as
+   * long as the booking waits.
    */
   book(
     gameId: number,
     minutes: number,
     renterId: string | null = null,
     rtts: Rtts = {},
+    prefs: PlayPrefs = {},
   ): Promise<BookingView> {
     return this.#transaction(async () => {
       const now = this.#now();
-      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, now);
+      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
       await this.#tick(now);
       return (await this.#bookingView(id))!;
     });
@@ -785,15 +796,24 @@ export class Platform {
     minutes: number,
     renterId: string | null = null,
     rtts: Rtts = {},
+    prefs: PlayPrefs = {},
   ): Promise<BookingView | null> {
     return this.#transaction(async () => {
       const now = this.#now();
       // The queue goes first: a machine a waiting booking fits is matched to it here.
       await this.#tick(now);
       const free = await this.#freeMachines(now, [machineId]);
-      const ask = { id: "", renter_id: renterId, game_id: gameId, minutes, rtts: JSON.stringify(rtts) };
+      const ask = {
+        id: "",
+        renter_id: renterId,
+        game_id: gameId,
+        minutes,
+        rtts: JSON.stringify(rtts),
+        controls: JSON.stringify(prefs.controls ?? []),
+        picture: prefs.picture ?? null,
+      };
       if (!(await this.#best(ask, free, now))) return null;
-      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, now);
+      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
       await this.#reserve(id, machineId, now);
       return (await this.#bookingView(id))!;
     });
@@ -1218,7 +1238,7 @@ export class Platform {
    * reliable, best response, then picture, lowest latency, lowest price.
    */
   async #best(
-    booking: Pick<BookingRow, "id" | "renter_id" | "game_id" | "minutes" | "rtts">,
+    booking: Pick<BookingRow, "id" | "renter_id" | "game_id" | "minutes" | "rtts" | "controls" | "picture">,
     free: FreeMachine[],
     now: number,
   ): Promise<string | null> {
@@ -1260,18 +1280,21 @@ export class Platform {
     minutes: number,
     renterId: string | null,
     rtts: Rtts,
+    prefs: PlayPrefs,
     now: number,
   ): Promise<string> {
     const id = newId();
     await this.#run(
-      `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at, rtts)
-         VALUES ($1, $2, $3, $4, 'queued', $5, $5, $6)`,
+      `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at, rtts, controls, picture)
+         VALUES ($1, $2, $3, $4, 'queued', $5, $5, $6, $7, $8)`,
       id,
       renterId,
       gameId,
       minutes,
       now,
       JSON.stringify(rtts),
+      JSON.stringify(prefs.controls ?? []),
+      prefs.picture ?? null,
     );
     return id;
   }

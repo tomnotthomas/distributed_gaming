@@ -401,10 +401,10 @@ export function createApi({
       const rtts = bookingRtts(body.rtts);
       const prefs = bookingPrefs(body);
       if (machineId === undefined) {
-        reply(res, 202, await platform.book(gameId, minutes, renter, rtts));
+        reply(res, 202, await platform.book(gameId, minutes, renter, rtts, prefs));
         return true;
       }
-      const booking = await platform.bookMachine(machineId, gameId, minutes, renter, rtts);
+      const booking = await platform.bookMachine(machineId, gameId, minutes, renter, rtts, prefs);
       if (booking) {
         reply(res, 202, booking);
         return true;

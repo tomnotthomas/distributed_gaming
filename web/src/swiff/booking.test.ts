@@ -304,16 +304,14 @@ describe("booking a picked machine", () => {
     expect(localStorage.getItem("swiff.booking")).toBe("b-1");
   });
 
-  it("carries how the renter plays, for the next best should it be taken", async () => {
+  it("carries how the renter plays, picked or queued, for the server to rank by", async () => {
     const server = routes({ "POST /api/bookings": json(202, booking("matched", 1_000)) });
     await bookMachine("pc-1", 730, 30, { fetch: server.fetch, controls: ["kb", "pad"], picture: "4k" });
-    expect(server.calls[0]!.body).toEqual({
-      gameId: 730,
-      minutes: 30,
-      machineId: "pc-1",
-      controls: ["kb", "pad"],
-      picture: "4k",
-    });
+    await book(730, 30, { fetch: server.fetch, controls: ["kb", "pad"], picture: "4k" });
+    expect(server.calls.map((c) => c.body)).toEqual([
+      { gameId: 730, minutes: 30, machineId: "pc-1", controls: ["kb", "pad"], picture: "4k" },
+      { gameId: 730, minutes: 30, controls: ["kb", "pad"], picture: "4k" },
+    ]);
   });
 
   it("says it was taken, with the next best, and remembers nothing", async () => {

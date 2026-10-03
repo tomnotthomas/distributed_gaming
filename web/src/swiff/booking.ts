@@ -96,18 +96,28 @@ const post = (get: typeof fetch, path: string, body?: unknown) =>
       : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   });
 
+/** How the renter asks: their round trips, the controls they turned on and their Picture setting. */
+export type BookingAsk = { rtts?: Rtts; controls?: Control[]; picture?: PicturePref };
+
+/** The parts of `ask` the renter gave, for a booking body. */
+const askBody = ({ rtts, controls, picture }: BookingAsk) => ({
+  ...(rtts ? { rtts } : {}),
+  ...(controls ? { controls } : {}),
+  ...(picture ? { picture } : {}),
+});
+
 /**
  * Queue for a game: the server matches the booking to the best machine free
- * for it, judged by the renter's round trips. Remembers the booking, so a
- * reload can resume it.
+ * for it, judged by the renter's round trips and ranked by how they play.
+ * Remembers the booking, so a reload can resume it.
  */
 export async function book(
   gameId: number,
   minutes: number,
-  options: BookingOptions & { rtts?: Rtts } = {},
+  options: BookingOptions & BookingAsk = {},
 ): Promise<Booking> {
-  const { storage = localStorage, fetch: get = fetch, rtts } = options;
-  const response = await post(get, "/api/bookings", { gameId, minutes, ...(rtts ? { rtts } : {}) });
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, "/api/bookings", { gameId, minutes, ...askBody(options) });
   if (!response.ok) throw new Error(`booking failed: ${response.status}`);
   const booking = (await response.json()) as Booking;
   storage.setItem(KEY, booking.bookingId);
@@ -124,17 +134,10 @@ export async function bookMachine(
   machineId: string,
   gameId: number,
   minutes: number,
-  options: BookingOptions & { rtts?: Rtts; controls?: Control[]; picture?: PicturePref } = {},
+  options: BookingOptions & BookingAsk = {},
 ): Promise<BookMachineResult> {
-  const { storage = localStorage, fetch: get = fetch, rtts, controls, picture } = options;
-  const response = await post(get, "/api/bookings", {
-    gameId,
-    minutes,
-    machineId,
-    ...(rtts ? { rtts } : {}),
-    ...(controls ? { controls } : {}),
-    ...(picture ? { picture } : {}),
-  });
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, "/api/bookings", { gameId, minutes, machineId, ...askBody(options) });
   if (response.status === 409) {
     const { nextBest = null } = (await response.json()) as { nextBest?: NextBest | null };
     return { kind: "taken", nextBest };

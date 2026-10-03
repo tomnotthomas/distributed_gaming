@@ -330,6 +330,17 @@ describe("booking and host API", () => {
     assert.equal(without.body.nextBest.id, "pc-2");
   });
 
+  it("never matches a queued renter asking for a pad to a machine without one", async () => {
+    await offer("pc-1", { available: true, ...REPORT, controls: ["kb", "mouse"] });
+    const queued = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, controls: ["pad"] });
+    assert.equal(queued.body.status, "queued");
+
+    await offer("pc-2");
+    const matched = await renter("GET", `/api/bookings/${queued.body.bookingId}`);
+    assert.equal(matched.body.status, "matched");
+    assert.equal(matched.body.machine.id, "pc-2");
+  });
+
   it("matches a queued booking by the renter's round trips", async () => {
     await offer("pc-1", { available: true, ...REPORT, net: { ...REPORT.net, rttMs: 40 } });
     const far = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, rtts: { server: 60 } });

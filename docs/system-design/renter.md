@@ -220,7 +220,8 @@ POST /bookings
   `machines`, straight to each machine it probed (at most 50), by id; matching judges each
   machine's latency by them (see "Matching"). Each may be left out. `controls` and
   `picture` are how the renter plays, as `/games/:appid/machines` takes them (a list of
-  kb, mouse, pad; best, 4k or 120fps; none and best when left out), → 400 otherwise.
+  kb, mouse, pad; best, 4k or 120fps; none and best when left out), → 400 otherwise;
+  matching, the picked machine's gates and `nextBest` all rank by them.
   Without `machineId` the booking joins the queue: matching happens in the background,
   and `status` is "matched" already when a machine was free.
   With `machineId`, the machine the renter picked from their list, it is reserved for
@@ -361,10 +362,12 @@ session running out) instead of a sweep: the oldest queued booking gets the mach
 `@swiff/rank`'s `rank()` puts first for it, among the live machines free for all of its
 minutes, and the machine is reserved for it. That is the order of the renter's own list
 (see "What can be played where"), not merely the cheapest: a machine must have the game
-installed and meet the game's minimum hardware (gates E2 and E3), not be the renter's own
-(E5) and be within 80 ms of the renter (E6), and the best of those is the one free all
-session, then not Shaky, then with the best response, then picture, then the lowest
-latency, then the lowest price. A booking asks for no controls and the best picture.
+installed and meet the game's minimum hardware (gates E2 and E3), take every control the
+renter turned on (E4), not be the renter's own (E5) and be within 80 ms of the renter
+(E6), and the best of those is the one free all session, then not Shaky, then with the
+best response, then picture, then the lowest latency, then the lowest price. The controls
+and Picture setting are the ones the booking was made with; a booking made without them
+asks for no controls and the best picture.
 Latency is judged by the round trips the booking was made with: one the renter measured
 straight to a machine, else the estimate through the server (their `rtts.server` plus
 the PC's own round trip); a booking with no round trips counts the renter's leg as
@@ -400,8 +403,8 @@ pushes it or the slow poll that stands in while the stream is down finds it. Whi
 page is closed they are away, and nothing is claimed until they come back, within those 2
 minutes. The page books the server's
 own machines, from the ranked list it reads, and sends its round trip to the server (as
-timed against GET /ping) as `rtts.server`, with the renter's controls and Picture setting
-when it books a picked machine. A picked machine taken first is answered with
+timed against GET /ping) as `rtts.server`, with the renter's controls and Picture setting,
+whether it books a picked machine or queues. A picked machine taken first is answered with
 the next best from that list, which the page offers to launch on instead; with nothing
 free on the list the page offers the queue. The demo (`/?demo=1`) books nothing: its
 machines are invented. Leaving the queue, cancelling a launch and ending

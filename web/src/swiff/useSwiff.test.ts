@@ -1,6 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
+import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
@@ -358,11 +360,12 @@ describe("useSwiff", () => {
       ],
     ] as const) {
       it(`stops the launch, and says so, when the picked host's claim is ${why}`, async () => {
-        serve(unnamed, LIVE, {
+        const calls = serve(unnamed, LIVE, {
           "POST /api/bookings": json(202, booked("matched", 1_000)),
           "POST /api/bookings/b-1/claim": answer,
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
         });
-        streams();
+        const opened = streams();
         const result = await openLive();
         act(() => result.current.launch());
         expect(result.current.phase).toBe("connecting");
@@ -370,6 +373,17 @@ describe("useSwiff", () => {
         await waitFor(() => expect(result.current.bookingFailed).toBe(true));
         expect(result.current.phase).toBe("idle");
         expect(result.current.claim).toBeNull();
+        expect(result.current.booking).toBeNull();
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+        render(createElement(GameMenu, { swiff: result.current }));
+        expect(screen.getByRole("alert").textContent).toBe("That didn't go through. Try again.");
+        expect(screen.queryByText(/A machine is free for you/)).toBeNull();
+
+        // Nothing launches by itself afterwards.
+        const claims = calls.filter((c) => c.call === "POST /api/bookings/b-1/claim").length;
+        act(() => opened.find((o) => o.url === "/api/events?booking=b-1")?.push(booked("matched", 2_000)));
+        expect(calls.filter((c) => c.call === "POST /api/bookings/b-1/claim")).toHaveLength(claims);
+        expect(result.current.phase).toBe("idle");
       });
     }
 
@@ -413,7 +427,13 @@ describe("useSwiff", () => {
       await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
       const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
       const body = calls.find((c) => c.call === "POST /api/bookings")!.body as Record<string, unknown>;
-      expect(body).toEqual({ gameId: cs2.appid, minutes: 180, rtts: { server: expect.any(Number) } });
+      expect(body).toEqual({
+        gameId: cs2.appid,
+        minutes: 180,
+        rtts: { server: expect.any(Number) },
+        controls: ["kb", "mouse", "pad"],
+        picture: "best",
+      });
       act(() => stream.push(booked("queued")));
       expect(result.current.booking?.status).toBe("queued");
       expect(result.current.phase).toBe("idle");
@@ -422,6 +442,28 @@ describe("useSwiff", () => {
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       expect(result.current.phase).toBe("connecting");
       expect(result.current.screen).toBe("game");
+    });
+
+    it("clears a refused claim's note once the next match is claimed", async () => {
+      let answers = 0;
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("queued")),
+        "POST /api/bookings/b-1/claim": () =>
+          ++answers === 1
+            ? new Response(JSON.stringify({ status: "queued" }), { status: 409 })
+            : new Response(JSON.stringify(TICKET), { status: 200 }),
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("matched", 1_000)));
+      await waitFor(() => expect(result.current.bookingFailed).toBe(true));
+      act(() => stream.push(booked("matched", 2_000)));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      expect(result.current.bookingFailed).toBe(false);
     });
 
     it("tells the server when the renter leaves the queue", async () => {

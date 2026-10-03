@@ -314,7 +314,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const rttNow = useRef(live.rttMs);
   rttNow.current = live.rttMs;
   const rtts = () => (rttNow.current === null ? {} : { rtts: { server: rttNow.current } });
-  // How the renter plays, so a taken machine's next best is ranked as their list was.
+  // How the renter plays, which bookings carry so the server ranks machines as their list was.
   const prefsNow = useRef(prefs);
   prefsNow.current = prefs;
 
@@ -326,12 +326,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /**
    * Follow the booking until the page claims its machine (booking.ts): at once
    * for a picked machine, on its match for a queued one. A claim puts the
-   * launch up for the booking's game; a claim that fails or is refused stops a
-   * launch under way.
+   * launch up for the booking's game. A claim that fails or is refused says so;
+   * for a `launched` booking (a picked machine) it also stops the launch and
+   * hands the machine back.
    */
   const follow = useCallback(
-    (first: Booking | string) => {
+    (first: Booking | string, launched = false) => {
       stopFollowing();
+      const bookingId = typeof first === "string" ? first : first.bookingId;
       following.current = followBooking(first, {
         onUpdate: (next) => setBooking(next),
         onClaimed: (claimed, next) => {
@@ -339,6 +341,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           track("booking_claimed", { game: next.gameId, machine: claimed.roomId });
           setBooking(next);
           setClaim(claimed);
+          setBookingFailed(false);
           const claimedGame = gamesNow.current.find((g) => g.appid === next.gameId);
           if (claimedGame) setGameId(claimedGame.id);
           setScreen("game");
@@ -346,6 +349,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         },
         onClaimFailed: () => {
           setBookingFailed(true);
+          if (!launched) return;
+          stopFollowing();
+          void endBooking(bookingId).catch(() => {});
+          setBooking(null);
+          setClaim(null);
           setPhase("idle");
           setBeat(0);
         },
@@ -393,7 +401,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
             return;
           }
           setBooking(result.booking);
-          follow(result.booking);
+          follow(result.booking, true);
         },
         () => {
           if (run !== launchRun.current) return;
@@ -413,7 +421,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     track("queue_joined", { game: game.id });
     setTaken(null);
     setBookingFailed(false);
-    book(game.appid, sessionMinutes(session), rtts()).then(
+    const { controls, picture } = askOf(0, prefsNow.current);
+    book(game.appid, sessionMinutes(session), { ...rtts(), controls, picture }).then(
       (queued) => {
         setBooking(queued);
         follow(queued);
