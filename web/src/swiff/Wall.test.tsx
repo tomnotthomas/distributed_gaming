@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_PREFS } from "./derive";
-import { GAMES, MACHINES, type Game } from "./data";
+import { DEFAULT_PREFS, NOW_MINUTES, seedSpots } from "./derive";
+import { GAMES, MACHINES, type Game, type SeedMachine, type Spot } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
 import { Wall } from "./Wall";
@@ -9,8 +9,22 @@ import { Wall } from "./Wall";
 const noop = () => {};
 const pool = ["glass", "ember", "tide", "moss"];
 
-/** Just the slice of the hook the wall reads. */
-function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = noop, motion = true): Swiff {
+/**
+ * Just the slice of the hook the wall reads, on the demo machines (`pool`) at
+ * the demo's 20:00, or with `spots` given, on whatever those say.
+ */
+function swiffWith(
+  games: Game[],
+  profile: SteamProfile | null,
+  retryLibrary = noop,
+  motion = true,
+  {
+    pool = MACHINES,
+    spots,
+    clock = NOW_MINUTES,
+    freed = [],
+  }: { pool?: Record<string, SeedMachine>; spots?: Map<string, Spot>; clock?: number; freed?: string[] } = {},
+): Swiff {
   return {
     motion,
     games,
@@ -18,9 +32,9 @@ function swiffWith(games: Game[], profile: SteamProfile | null, retryLibrary = n
     signedIn: profile !== null,
     libraryRetrying: false,
     retryLibrary,
-    pool: MACHINES,
-    session: "evening",
-    prefs: DEFAULT_PREFS,
+    spots: spots ?? seedSpots(games, pool, "evening", DEFAULT_PREFS),
+    freed: new Set(freed),
+    clock,
     showAll: true,
     hoverId: null,
     steamDenied: false,
@@ -134,7 +148,7 @@ describe("Wall", () => {
   describe("with every shared machine busy", () => {
     const busy = Object.fromEntries(Object.entries(MACHINES).map(([id, m]) => [id, { ...m, busy: true }]));
     const emptyWall = (profile: SteamProfile | null, games: Game[]) =>
-      render(<Wall swiff={{ ...swiffWith(games, profile), pool: busy } as Swiff} />);
+      render(<Wall swiff={swiffWith(games, profile, noop, true, { pool: busy })} />);
 
     it("still offers a signed-out visitor the one Sign in with Steam", () => {
       emptyWall(null, GAMES);
@@ -166,12 +180,12 @@ describe("Wall", () => {
     expect(container.querySelector('[data-testid="hero"] .backdrop-still.backdrop-drift')).not.toBeNull();
   });
 
-  it("drafts a signed-out visitor's hero as tonight's game, with the pitch and the free count in the strip", () => {
+  it("drafts a signed-out visitor's hero as tonight's game, with the pitch and no live machine count", () => {
     render(<Wall swiff={swiffWith(GAMES, null)} />);
     const hero = within(screen.getByTestId("hero"));
     expect(hero.getByText("Tonight on Swiff")).toBeInTheDocument();
     expect(hero.getByText(/We read your Steam library/)).toBeInTheDocument();
-    expect(hero.getByText(/PCs? free near you/)).toBeInTheDocument();
+    expect(hero.queryByText(/free near you/)).toBeNull();
     expect(hero.queryByRole("button", { name: /resume|play/i })).toBeNull();
   });
 
@@ -271,5 +285,109 @@ describe("Wall", () => {
     expect(heroTitle()).toBe(first);
     expect(container.querySelectorAll(".hero-slide")).toHaveLength(1);
     vi.useRealTimers();
+  });
+
+  describe("on the real hosts", () => {
+    const owner = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+    const rig = { id: "h1", name: "Basement rig", gpu: "RTX 4070", ping: 23, quality: "", busy: false };
+    /** Every game known, with nothing ready and `back` (or nobody) coming back. */
+    const nothingReady = (games: Game[], back: Spot["back"], { free = 0, busy = back ? 1 : 0 } = {}) =>
+      new Map(games.map((g) => [g.id, { free, ready: 0, busy, best: null, back }]));
+    const ready = (best: Spot["best"]): Spot => ({ free: 1, ready: 1, busy: 0, best, back: null });
+
+    it("shows a signed-out visitor no availability anywhere", () => {
+      render(<Wall swiff={swiffWith(GAMES, null, noop, true, { spots: new Map() })} />);
+      expect(screen.queryByText("Nothing is ready right now")).toBeNull();
+      expect(screen.queryAllByText(/free near you|Back at|In use|free until|All night|Finding/)).toHaveLength(
+        0,
+      );
+      // A free game can be started once signed in; a paid one if you own it.
+      expect(screen.getAllByText("Sign in to play").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Sign in to play if you own it").length).toBeGreaterThan(0);
+      expect(within(screen.getByTestId("hero")).getByText(/shared PC/)).toBeInTheDocument();
+    });
+
+    it("tells a signed-in renter machines are being found until the server answers", () => {
+      render(<Wall swiff={swiffWith(applySteam(owner, []), owner, noop, true, { spots: new Map() })} />);
+      expect(screen.queryByText("Nothing is ready right now")).toBeNull();
+      expect(within(screen.getByTestId("hero")).getByText("Finding you a machine…")).toBeInTheDocument();
+      expect(screen.getAllByText("Finding a machine…").length).toBeGreaterThan(0);
+    });
+
+    it("offers the host the server ranked first, with its time left by the real clock", () => {
+      const games = applySteam(owner, []);
+      const spots = new Map([[games[0]!.id, ready({ ...rig, until: "23:30" })]]);
+      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots, clock: 22 * 60 })} />);
+      const hero = within(screen.getByTestId("hero"));
+      expect(hero.getByRole("heading", { level: 1 })).toHaveTextContent("Elden Ring");
+      expect(hero.getByText(/free until 23:30/)).toBeInTheDocument();
+      expect(hero.getByText("1 h 30 free")).toBeInTheDocument();
+      expect(hero.getByText("23 ms")).toBeInTheDocument();
+    });
+
+    it("says which host is back, and when, when nothing is ready", () => {
+      const games = applySteam(owner, []);
+      const back = { name: "Basement rig", at: "23:10" };
+      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, back) })} />);
+      expect(
+        screen.getByText(
+          "Every shared machine is in use. Basement rig is back at 23:10. We'll tell you the moment something frees up.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("says what is free does not last the session, rather than that nothing is free", () => {
+      const games = applySteam(owner, []);
+      render(
+        <Wall
+          swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, null, { free: 1 }) })}
+        />,
+      );
+      expect(
+        screen.getByText(/No free machine lasts all of tonight\. Try a shorter Tonight/),
+      ).toBeInTheDocument();
+    });
+
+    it("tells apart a game a host is busy with, one only free for less, and one no host has", () => {
+      const games = GAMES;
+      const [lead, busy, short, none] = games;
+      const spots = new Map<string, Spot>([
+        [lead!.id, ready({ ...rig, until: "late" })],
+        [busy!.id, { free: 0, ready: 0, busy: 1, best: null, back: null }],
+        [short!.id, { free: 1, ready: 0, busy: 0, best: null, back: null }],
+        [none!.id, { free: 0, ready: 0, busy: 0, best: null, back: null }],
+      ]);
+      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots })} />);
+      const meta = (game: Game) =>
+        screen
+          .getAllByText(game.title)
+          .find((el) => el.closest(".band-tile"))!
+          .closest(".band-tile")!;
+      expect(meta(busy!)).toHaveTextContent("In use");
+      expect(meta(short!)).toHaveTextContent("Free, not all session");
+      expect(meta(none!)).toHaveTextContent("On no machine yet");
+    });
+
+    it("invents no machine coming back when none is on offer", () => {
+      const games = applySteam(owner, []);
+      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, null) })} />);
+      expect(
+        screen.getByText(
+          "No shared machine is free right now. We'll tell you the moment something frees up.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryAllByText(/Moss/)).toHaveLength(0);
+    });
+
+    it("pulses a game that just became playable, and only with motion on", () => {
+      const games = applySteam(owner, []);
+      const spots = new Map([[games[0]!.id, ready({ ...rig, until: "late" })]]);
+      const freed = [games[0]!.id];
+      const { unmount } = render(<Wall swiff={swiffWith(games, owner, noop, true, { spots, freed })} />);
+      expect(screen.getByTestId("hero")).toHaveClass("freed");
+      unmount();
+      render(<Wall swiff={swiffWith(games, owner, noop, false, { spots, freed })} />);
+      expect(screen.getByTestId("hero")).not.toHaveClass("freed");
+    });
   });
 });

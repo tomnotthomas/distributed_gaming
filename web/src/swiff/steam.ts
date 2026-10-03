@@ -102,10 +102,13 @@ function hashOf(value: number | string): number {
 }
 
 /**
- * Spread a library title across the shared machine pool. A card with no machine
- * would render as permanently unavailable, which reads as broken rather than busy.
+ * Spread a library title across the demo machines. A card with no machine
+ * would render as permanently unavailable, which reads as broken rather than
+ * busy. Outside the demo there are none to spread across: real hosts say what
+ * they have installed.
  */
 function machinesForLibraryGame(appid: number, pool: string[]): string[] {
+  if (!pool.length) return [];
   const h = hashOf(appid);
   const count = 2 + (h % 2);
   const picked = Array.from({ length: count }, (_, i) => pool[(h + i * 3) % pool.length]!);

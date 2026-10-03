@@ -83,15 +83,31 @@ export type GameMachines = {
   busy: BusyMachine[];
 };
 
+/** The machine a wall tile offers: enough to say where the game would run, and until when. */
+export type WallMachine = {
+  id: string;
+  name: string | null;
+  gpu: string;
+  latency: Latency;
+  /** Unix ms the owner wants it back; null when they have not said. */
+  availableUntil: number | null;
+};
+
 /** One game's count on the wall. */
 export type GameAvailability = {
   appid: number;
   /** Machines the renter could play it on right now. */
   free: number;
+  /** Of those, the ones free for all of the minutes asked for; `free` when none were asked. */
+  ready: number;
+  /** The best of the `ready` ones, as the game page would rank it first; null when none is. */
+  best: WallMachine | null;
   /** Machines that would fit but are taken. */
   busy: number;
   /** The soonest a busy one is free again (Unix ms); null when none is busy or none says. */
   backAt: number | null;
+  /** That machine's name; null when there is none or it has no name. */
+  backName: string | null;
 };
 
 /**
@@ -136,6 +152,10 @@ function comingBack(
     .sort((a, b) => (a.backAt ?? Number.MAX_SAFE_INTEGER) - (b.backAt ?? Number.MAX_SAFE_INTEGER));
 }
 
+/** The time a ranked host is offered until, null for "until taken back". */
+const untilOf = (host: { availableUntil: number }) =>
+  host.availableUntil === Number.MAX_SAFE_INTEGER ? null : host.availableUntil;
+
 /** The machines one renter could play `game` on for `minutes`, ranked, and the busy ones that would fit. */
 export function machinesFor(
   game: Requirements,
@@ -156,7 +176,7 @@ export function machinesFor(
     machines: result.hosts.map((h) => {
       const { profile } = byId.get(h.host.id)!;
       const hw = profile.hardware!; // E3 lists no machine without reported hardware
-      const until = h.host.availableUntil === Number.MAX_SAFE_INTEGER ? null : h.host.availableUntil;
+      const until = untilOf(h.host);
       return {
         id: h.host.id,
         name: profile.name,
@@ -188,26 +208,44 @@ export function machinesFor(
   };
 }
 
-/** Each game's count of free and busy machines for one renter, in the order asked. */
+/**
+ * Each game's count of free and busy machines for one renter, in the order
+ * asked, with the best machine free for `minutes` (0: any free one) and the
+ * one back soonest.
+ */
 export function availabilityFor(
   games: Requirements[],
   renter: RenterAsk,
   machines: OfferedMachine[],
   now: number,
+  minutes = 0,
 ): GameAvailability[] {
   const byId = new Map(machines.map((m) => [m.host.id, m]));
   const candidates = candidatesFor(machines, renter);
-  // How long the renter plays only orders the list; it never decides who is on it.
-  const renterPrefs = prefs(renter, 0);
+  // How long the renter plays orders the list and says which are ready; it never decides who is on it.
+  const renterPrefs = prefs(renter, minutes);
   return games.map((game) => {
     const result = rank(game, renterPrefs, candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
-    // The wall asks for no session length: any machine coming back counts.
+    const ready = result.hosts.filter((h) => h.coversSession);
+    const first = ready[0];
+    // Any machine coming back counts, whatever the session: the wall says when, not whether it fits.
     const back = comingBack(result.later, byId, 0);
     return {
       appid: game.appid,
       free: result.hosts.length,
+      ready: ready.length,
+      best: first
+        ? {
+            id: first.host.id,
+            name: byId.get(first.host.id)!.profile.name,
+            gpu: first.host.gpu,
+            latency: { rttMs: first.link.rttMs, jitterMs: first.link.jitterP95Ms, source: "estimate" },
+            availableUntil: untilOf(first.host),
+          }
+        : null,
       busy: back.length,
       backAt: back[0]?.backAt ?? null,
+      backName: back[0]?.profile.name ?? null,
     };
   });
 }

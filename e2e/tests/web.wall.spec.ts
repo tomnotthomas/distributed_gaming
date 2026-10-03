@@ -2,9 +2,64 @@
 // see: hero 3b (the art with its drafted title, the strip under it) filling the
 // first screen with the band just below the fold, one Sign in with Steam, and
 // no way to play until they have signed in.
+//
+// "/" runs on the real hosts: signed out it shows no availability at all, and
+// signed in it shows the machines the server offers. What needs machines to
+// look at runs on the demo's five invented ones, at /?demo=1.
 
-import { expect, test } from "@playwright/test";
-import { signIn } from "./credentials";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import { E2E_MACHINE_KEY, E2E_ROOM, signIn } from "./credentials";
+
+/** The demo: five invented machines at a pinned 20:00. */
+const DEMO = "/?demo=1";
+
+/** The heartbeat that keeps the offered machine on offer, while one runs. */
+let beating: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Offer the e2e machine through the Host API as its PC would, beating every
+ * 5 s as the host app does, or take it back. It has every game a signed-in
+ * renter's wall could lead with installed: the curated free-to-play two, and
+ * Steam's most played, whose free ones fill the wall once the server has read
+ * them.
+ */
+async function offerHost(request: APIRequestContext, available: boolean) {
+  clearInterval(beating);
+  beating = undefined;
+  const popular = available ? await request.get("/api/games/popular") : null;
+  const chart = popular?.ok() ? ((await popular.json()).games as { appid: number }[]) : [];
+  const res = await request.put(`/api/machines/${E2E_ROOM}/availability`, {
+    headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
+    data: {
+      available,
+      name: "E2E rig",
+      hardware: {
+        gpu: "NVIDIA GeForce RTX 4070",
+        vramMb: 12_288,
+        ramMb: 32_768,
+        cpu: "AMD Ryzen 7 7800X3D",
+        cores: 8,
+        encoders: ["h264", "hevc", "av1"],
+        display: { width: 2560, height: 1440, refreshHz: 144 },
+      },
+      games: [...new Set([730, 2073850, ...chart.map((g) => g.appid)])],
+      controls: ["kb", "mouse", "pad"],
+      // Next to the server: the renter's own round trip, which a busy runner
+      // inflates, is then all that counts against the 80 ms limit (gate E6).
+      net: { rttMs: 1, jitterMs: 1, upMbps: 100 },
+    },
+  });
+  expect(res.status()).toBe(200);
+  if (!available) return;
+  // Silent for 15 s, a machine is no longer offered.
+  beating = setInterval(() => {
+    void request
+      .post(`/api/machines/${E2E_ROOM}/heartbeat`, {
+        headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
+      })
+      .catch(() => {});
+  }, 5_000);
+}
 
 /** Common screens, desktop and phone. */
 const VIEWPORTS = [
@@ -43,7 +98,8 @@ test.describe("live wall", () => {
       }`, async ({ page, context, baseURL }) => {
         if (signedIn) await signIn(context, baseURL!);
         await page.setViewportSize(viewport);
-        await page.goto("/");
+        // Signed in, the hero needs a machine to offer.
+        await page.goto(signedIn ? DEMO : "/");
         await page.evaluate(() => document.fonts.ready);
 
         const art = (await page.locator(".hero-3b-art").boundingBox())!;
@@ -118,7 +174,7 @@ test.describe("live wall", () => {
   });
 
   test("asks a signed-out visitor to sign in where they would launch", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(DEMO);
     await page.locator("button.band-tile").first().click();
 
     // The machines can still be compared; launching cannot start.
@@ -136,7 +192,7 @@ test.describe("live wall", () => {
     baseURL,
   }) => {
     await signIn(context, baseURL!);
-    await page.goto("/");
+    await page.goto(DEMO);
     await page.locator("button.band-tile").first().click();
 
     // A machine is picked for you, so the hold-to-launch reticle is live on arrival.
@@ -161,10 +217,89 @@ test.describe("live wall", () => {
   });
 
   test("lists the ranked machines beside the game", async ({ page }) => {
-    await page.goto("/");
+    await page.goto(DEMO);
     await page.locator("button.band-tile").first().click();
 
     await expect(page.locator(".ledger-row").first()).toBeVisible();
     await expect(page.locator(".ledger-row").first()).toContainText("ms");
+  });
+
+  test("keeps the demo on its own address as the renter moves around", async ({ page }) => {
+    await page.goto(DEMO);
+    await page.getByRole("navigation").getByRole("button", { name: "Share your PC" }).click();
+    await expect(page).toHaveURL(/\/share\?demo=1$/);
+    await page.getByRole("navigation").getByRole("button", { name: "Home" }).click();
+    await expect(page).toHaveURL(/\/\?demo=1$/);
+    await expect(page.locator(".bar-live")).toContainText("free near you");
+  });
+});
+
+test.describe("live wall on the real hosts", () => {
+  test.afterEach(async ({ request }) => offerHost(request, false));
+
+  test("shows a signed-out visitor no availability, even with a host on offer", async ({ page, request }) => {
+    await offerHost(request, true);
+    await page.goto("/");
+
+    await expect(page.locator(".band-tile").first()).toBeVisible();
+    await expect(page.getByText(/free near you|free for this game|E2E rig|Back at/)).toHaveCount(0);
+    await expect(page.locator(".bar-live")).toHaveText("");
+
+    await page.locator("button.band-tile").first().click();
+    await expect(page.locator(".ledger-row")).toHaveCount(0);
+    await expect(page.getByText(/Sign in to see which machines can play it/)).toBeVisible();
+  });
+
+  test("tells a signed-in renter nothing is ready when no host is on offer", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signIn(context, baseURL!);
+    await page.goto("/");
+
+    await expect(page.getByText("Nothing is ready right now")).toBeVisible();
+    await expect(page.getByText(/No shared machine is free right now/)).toBeVisible();
+    await expect(page.getByText(/Moss|Glasshouse|Tide|Ember/)).toHaveCount(0);
+  });
+
+  test("offers a signed-in renter the real host, and launches on it", async ({
+    page,
+    context,
+    baseURL,
+    request,
+  }) => {
+    await offerHost(request, true);
+    await signIn(context, baseURL!);
+    await page.goto("/");
+
+    // The game the host can run leads the wall, on that host, free all night.
+    const hero = page.getByTestId("hero");
+    await expect(hero.locator(".hero-strip-line")).toContainText("E2E rig");
+    await expect(hero.locator(".hero-strip-line")).toContainText("free all night");
+    await expect(page.locator(".bar-live")).toContainText(/ready now/);
+
+    await hero.locator("button.resume").click();
+    const row = page.locator(".ledger-row").first();
+    await expect(row).toContainText("E2E rig");
+    await expect(row).toContainText("NVIDIA GeForce RTX 4070");
+    await expect(page.getByRole("button", { name: "Hold to launch on E2E rig" })).toBeEnabled();
+    await expect(page.locator(".bar-live")).toHaveText("1 free for this game");
+  });
+
+  test("puts a signed-in renter's wall right when the host is taken back", async ({
+    page,
+    context,
+    baseURL,
+    request,
+  }) => {
+    await offerHost(request, true);
+    await signIn(context, baseURL!);
+    await page.goto("/");
+    await expect(page.getByTestId("hero").locator(".hero-strip-line")).toContainText("E2E rig");
+
+    // The availability event arrives on the stream, and the wall reads again.
+    await offerHost(request, false);
+    await expect(page.getByText("Nothing is ready right now")).toBeVisible();
   });
 });

@@ -1,7 +1,9 @@
-// The renter's event stream over HTTP: GET /api/events pushes each booking
-// change as it happens. Opening it counts as the renter's contact; after that
-// only the page's heartbeat, POST /api/bookings/:id/seen, does. Both need the
-// signed-in renter, and only for their own bookings.
+// The renter's event stream over HTTP: GET /api/events?booking= pushes each
+// booking change as it happens. Opening it counts as the renter's contact;
+// after that only the page's heartbeat, POST /api/bookings/:id/seen, does. Both
+// need the signed-in renter, and only for their own bookings. GET /api/events
+// with no booking tells the signed-in renter's wall each time what is on offer
+// changes.
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -68,11 +70,12 @@ describe("renter event stream", () => {
   let api: ReturnType<typeof createApi>;
   beforeEach(async () => {
     now = Date.UTC(2026, 8, 30, 12);
-    // Wired as index.ts wires it: every booking change goes to the streams.
+    // Wired as index.ts wires it: every booking and availability change goes to the streams.
     platform = await Platform.open({
       database: await testDatabase(),
       now: () => now,
       onBookingChanged: (id) => void events.bookingChanged(id),
+      onAvailabilityChanged: () => events.availabilityChanged(),
     });
     const events = createRenterEvents(platform, { keepAliveMs: 20, maxStreams: 8, maxStreamsPerRenter: 5 });
     api = createApi({
@@ -236,9 +239,78 @@ describe("renter event stream", () => {
     assert.equal(await seen(bookingId, signedIn(OTHER)), 404);
   });
 
-  it("answers 404 for an unknown booking and 400 without one", async () => {
+  it("answers 404 for an unknown booking and 400 for an empty one", async () => {
     assert.equal((await stream("?booking=nope")).status, 404);
-    assert.equal((await stream("")).status, 400);
+    assert.equal((await stream("?booking=")).status, 400);
+  });
+
+  /** The availability events the stream has sent so far. */
+  const availability = (s: Stream) => s.events.filter((e) => e.event === "availability");
+
+  it("tells the wall each time a machine is offered, taken, freed or taken back, and nothing else", async () => {
+    const s = await stream("");
+    assert.equal(s.status, 200);
+    assert.equal(s.events.length, 0, "nothing until something changes");
+
+    await platform.setAvailability("pc-1", true, REPORT);
+    await settle();
+    assert.deepEqual(availability(s), [{ event: "availability", data: {} }]);
+
+    // A heartbeat that changes nothing on offer is not news.
+    await platform.heartbeat("pc-1");
+    await settle();
+    assert.equal(availability(s).length, 1);
+
+    // Matched to someone's booking: busy. Their booking is not this stream's to tell.
+    const { bookingId } = await platform.book(730, 30, OTHER);
+    await settle();
+    assert.equal(availability(s).length, 2);
+    assert.ok(
+      s.events.every((e) => e.event === "availability"),
+      "no booking on the wall's stream",
+    );
+
+    await platform.setAvailability("pc-1", false);
+    await settle();
+    assert.equal(availability(s).length, 3, "taken back");
+    assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
+    s.close();
+  });
+
+  it("sends keep-alives on the wall's stream too, and refuses it signed out", async () => {
+    const s = await stream("");
+    await settle(60);
+    assert.ok(s.comments.includes("keep-alive"));
+    s.close();
+    assert.equal((await stream("", {}, null)).status, 401);
+  });
+
+  it("counts the wall's streams against the renter's cap with their booking streams", async () => {
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    const open = [await stream(`?booking=${bookingId}`)];
+    for (let i = 0; i < 4; i++) open.push(await stream(""));
+    assert.deepEqual(
+      open.map((s) => s.status),
+      [200, 200, 200, 200, 200],
+    );
+    assert.equal((await stream("")).status, 429, "their sixth");
+    const other = await stream("", {}, signedIn(OTHER));
+    assert.equal(other.status, 200, "another renter has their own");
+    for (const s of [...open, other]) s.close();
+  });
+
+  it("ends the wall's stream when the renter's session runs out", () => {
+    let clock = 1_000;
+    const events = createRenterEvents(platform, { keepAliveMs: 60_000, now: () => clock });
+    const res = fakeResponse();
+    assert.equal(events.openAvailability(res as unknown as ServerResponse, RENTER, 2_000), "opened");
+    events.availabilityChanged();
+    assert.equal(res.writableEnded, false);
+    clock = 2_000;
+    events.availabilityChanged();
+    assert.equal(res.writableEnded, true);
+    assert.equal(res.writesAfterEnd, 0);
+    res.destroy();
   });
 
   it("refuses more than MAX_STREAMS_PER_BOOKING streams on one booking with 429", async () => {

@@ -101,6 +101,7 @@ const platform = await Platform.open({
   onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
+  onAvailabilityChanged: () => renterEvents.availabilityChanged(),
 }).catch((error: unknown) => {
   // The message names what failed (the host, the user, a missing table), never the password.
   console.error(

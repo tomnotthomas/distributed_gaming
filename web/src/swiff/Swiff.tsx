@@ -16,7 +16,7 @@ const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as co
 export function Swiff() {
   const swiff = useSwiff();
   useDisplay();
-  const { screen, phase, profile, signedIn, pool, machines } = swiff;
+  const { screen, phase, profile, signedIn } = swiff;
 
   // The app scrolls as one page; a new screen starts at its top.
   const page = useRef<HTMLDivElement>(null);
@@ -32,11 +32,6 @@ export function Swiff() {
     page.current?.scrollTo(0, 0);
   }, [screen, swiff.game?.id]);
 
-  const live =
-    screen === "game"
-      ? `${machines.filter((m) => !m.busy).length} free for this game`
-      : `${Object.values(pool).filter((m) => !m.busy && !m.self).length} free near you`;
-
   return (
     <div className="sw" data-screen={screen} ref={page}>
       <MotionContext.Provider value={swiff.motion}>
@@ -47,7 +42,8 @@ export function Swiff() {
             onProfile={() => swiff.setScreen("profile")}
             onShare={swiff.openShare}
             onBack={screen === "game" ? swiff.goHome : undefined}
-            live={live}
+            live={swiff.liveLine}
+            freed={swiff.motion && swiff.freed.size > 0}
             renter={
               signedIn
                 ? {

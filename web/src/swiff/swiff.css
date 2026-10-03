@@ -556,10 +556,6 @@
   color: var(--on-paper-2);
   font-size: 15px;
 }
-.hero-strip-near {
-  margin: 14px 0 0;
-  color: var(--on-paper-2);
-}
 .hero-strip-act {
   align-items: flex-start;
   gap: 12px;
@@ -871,6 +867,40 @@ button.band-tab:hover {
 }
 .band-tile:focus-visible .band-tile-frame::after {
   box-shadow: inset 0 0 0 2px var(--lime-edge);
+}
+/* a machine frees up: the game that just became playable rings once in lime,
+   and so does the live dot in the bar. The class is only set with motion on. */
+@media (prefers-reduced-motion: no-preference) {
+  .band-tile.freed .band-tile-frame::after,
+  .hero-3b.freed .hero-3b-art::after {
+    animation: freed 2.4s var(--ease) both;
+  }
+  .bar-live.freed .live-dot {
+    animation: freed-dot 1.2s var(--ease) 2;
+  }
+}
+.hero-3b.freed .hero-3b-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+@keyframes freed {
+  0% {
+    box-shadow: inset 0 0 0 0 rgb(212 245 60 / 0);
+  }
+  18% {
+    box-shadow: inset 0 0 0 4px var(--lime);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgb(212 245 60 / 0);
+  }
+}
+@keyframes freed-dot {
+  50% {
+    box-shadow: 0 0 0 6px rgb(212 245 60 / 0.35);
+  }
 }
 .band-tile-art {
   transition:
