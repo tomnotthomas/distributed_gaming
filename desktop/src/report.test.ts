@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PcRead } from "../pc.cjs";
 import {
   BEAT_MS,
+  BEAT_TIMEOUT_MS,
   changedSections,
   createHostReporter,
   hostReport,
@@ -13,6 +14,7 @@ import {
   reportHardware,
   UPLOAD_TEST_BYTES,
   UPLOAD_TEST_EVERY_MS,
+  UPLOAD_TIMEOUT_MS,
   type HostReport,
 } from "./report";
 
@@ -207,6 +209,46 @@ describe("createHostReporter", () => {
     r.setBusy(false);
     await beat();
     expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(3);
+  });
+
+  it("gives up a hung beat before the next is due, and a hung upload test later", async () => {
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    const answering = fetch.getMockImplementation()!;
+    const hung = new Set(["heartbeat"]);
+    fetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const action = url.split("/").at(-1)!;
+      if (!hung.has(action)) return answering(url, init);
+      calls.push({ method: init.method!, action, body: null, keepalive: false });
+      return new Promise<Response>((_, reject) =>
+        init.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+      );
+    });
+    const r = reporter();
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Each hung heartbeat is dropped in time for the next.
+    expect(BEAT_TIMEOUT_MS).toBeLessThan(BEAT_MS);
+    await beat();
+    await beat();
+    await beat();
+    expect(calls.filter((c) => c.action === "heartbeat")).toHaveLength(3);
+
+    // Round trips are left out while the upload test hangs, and kept once it is given up.
+    hung.clear();
+    hung.add("upload-test");
+    now += UPLOAD_TEST_EVERY_MS;
+    await beat();
+    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(2);
+    [500, 500, 500].forEach((ms) => r.addRtt(ms));
+    await vi.advanceTimersByTimeAsync(UPLOAD_TIMEOUT_MS);
+    [20, 20, 20].forEach((ms) => r.addRtt(ms));
+    await beat();
+    expect(calls.at(-1)).toMatchObject({ action: "heartbeat", body: { net: { rttMs: 20, jitterMs: 0 } } });
   });
 
   it("keeps offering until the platform has the offer, and sends a new time at once", async () => {
