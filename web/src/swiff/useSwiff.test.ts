@@ -332,6 +332,47 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
+    it("books with how the renter plays, as their list was read", async () => {
+      const calls = serve(unnamed, LIVE, { "POST /api/bookings": json(202, booked("matched", 1_000)) });
+      streams();
+      const result = await openLive();
+      act(() => result.current.toggleDevice("mouse"));
+      act(() => result.current.setQuality("fps"));
+      await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
+      act(() => result.current.launch());
+
+      await waitFor(() => expect(calls.some((c) => c.call === "POST /api/bookings")).toBe(true));
+      expect(calls.find((c) => c.call === "POST /api/bookings")!.body).toMatchObject({
+        controls: ["kb", "pad"],
+        picture: "120fps",
+      });
+    });
+
+    for (const [why, answer] of [
+      ["refused", () => new Response(JSON.stringify({ status: "expired" }), { status: 409 })],
+      [
+        "unanswered",
+        () => {
+          throw new TypeError("network down");
+        },
+      ],
+    ] as const) {
+      it(`stops the launch, and says so, when the picked host's claim is ${why}`, async () => {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", 1_000)),
+          "POST /api/bookings/b-1/claim": answer,
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        expect(result.current.phase).toBe("connecting");
+
+        await waitFor(() => expect(result.current.bookingFailed).toBe(true));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.claim).toBeNull();
+      });
+    }
+
     it("offers the next best from the list when the picked host was taken, and launches on it", async () => {
       const nextBest = { id: "h2", name: "Attic box", gpu: "RTX 3080", price: 300, latency: { rttMs: 20 } };
       let taken = true;

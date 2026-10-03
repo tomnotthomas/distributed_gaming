@@ -23,7 +23,7 @@ import {
 } from "./data";
 import { demoNow, machinesFor, readyFor, reason, seedSpots, sessionMinutes } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
-import { machinesOf, spotOf } from "./live";
+import { askOf, machinesOf, spotOf } from "./live";
 import { questionOf, useLive } from "./useLive";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
@@ -314,6 +314,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const rttNow = useRef(live.rttMs);
   rttNow.current = live.rttMs;
   const rtts = () => (rttNow.current === null ? {} : { rtts: { server: rttNow.current } });
+  // How the renter plays, so a taken machine's next best is ranked as their list was.
+  const prefsNow = useRef(prefs);
+  prefsNow.current = prefs;
 
   const stopFollowing = useCallback(() => {
     following.current?.();
@@ -322,8 +325,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   /**
    * Follow the booking until the page claims its machine (booking.ts): at once
-   * for a picked machine, on the stream's match for a queued one. A claim puts
-   * the launch up for the booking's game.
+   * for a picked machine, on its match for a queued one. A claim puts the
+   * launch up for the booking's game; a claim that fails or is refused stops a
+   * launch under way.
    */
   const follow = useCallback(
     (first: Booking | string) => {
@@ -340,7 +344,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setScreen("game");
           setPhase((current) => (current === "idle" ? "connecting" : current));
         },
-        onClaimFailed: () => setBookingFailed(true),
+        onClaimFailed: () => {
+          setBookingFailed(true);
+          setPhase("idle");
+          setBeat(0);
+        },
       });
     },
     [stopFollowing],
@@ -369,7 +377,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setBookingFailed(false);
       setPhase("connecting");
       setBeat(0);
-      bookMachine(machineId, game.appid, sessionMinutes(session), rtts()).then(
+      const { controls, picture } = askOf(0, prefsNow.current);
+      bookMachine(machineId, game.appid, sessionMinutes(session), { ...rtts(), controls, picture }).then(
         (result) => {
           if (run !== launchRun.current) {
             // Cancelled meanwhile: the machine goes back rather than to a renter who left.
@@ -421,7 +430,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // A renter who comes back within the server's two minutes picks up their
   // booking where it was, and a match waiting for them is claimed the moment
-  // the stream opens again.
+  // the page hears of it again.
   useEffect(() => {
     if (!steamId || demo) return;
     const stored = storedBookingId();

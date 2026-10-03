@@ -64,7 +64,7 @@ one session per machine.
 6. The renter plays.
 
 Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
-booking the moment its event stream pushes the match.
+booking the moment it hears of the match, over its event stream or its fallback poll.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
@@ -213,12 +213,14 @@ POST /signout
   Clear the sign-in cookie. Works signed out.
 
 POST /bookings
-  { gameId, minutes, machineId?, rtts? }
+  { gameId, minutes, machineId?, rtts?, controls?, picture? }
   → 202 { bookingId, status, machine?, claimBy? }
   Request a game for N minutes (at most 720), as the signed-in renter. `rtts` are the
   renter's round trips in ms as the page measured them: `server`, to this server, and
   `machines`, straight to each machine it probed (at most 50), by id; matching judges each
-  machine's latency by them (see "Matching"). Each may be left out.
+  machine's latency by them (see "Matching"). Each may be left out. `controls` and
+  `picture` are how the renter plays, as `/games/:appid/machines` takes them (a list of
+  kb, mouse, pad; best, 4k or 120fps; none and best when left out), → 400 otherwise.
   Without `machineId` the booking joins the queue: matching happens in the background,
   and `status` is "matched" already when a machine was free.
   With `machineId`, the machine the renter picked from their list, it is reserved for
@@ -226,7 +228,8 @@ POST /bookings
   matching does: `status` is "matched", to be claimed within `claimBy` (60 s).
   → 409 { error, nextBest } when the picked machine was taken since the list was read (or
   is gone, or is not one they could have), and no booking is made. `nextBest` is the
-  machine their list would now put first, free for the whole booking, in the same shape
+  machine their list would now put first, ranked by their `rtts.server`, `controls` and
+  `picture`, free for the whole booking, in the same shape
   as `/games/:appid/machines` lists it, or null when there is none. Working it out spends
   one of the renter's discovery reads (below); past their budget it is null.
 
@@ -391,12 +394,14 @@ until it does, the helper checks on the booking with a slow poll (every 5 s) ins
 
 The page claims by itself (`followBooking` in the same helper, wired into the game page
 by `web/src/swiff/useSwiff.ts`): a picked machine right after its 202, with no click, and
-a queued booking the moment the open event stream pushes the match, with a chime when the
-tab is out of sight. An open stream is the renter being there; while it is closed they are
-away, and nothing is claimed until they come back and it opens again, within those 2
-minutes. The slow poll keeps the booking but never claims it. The page books the server's
+a queued booking the moment the match arrives, with a chime when the tab is out of sight.
+An open page is the renter being there, so the match is claimed whether the event stream
+pushes it or the slow poll that stands in while the stream is down finds it. While the
+page is closed they are away, and nothing is claimed until they come back, within those 2
+minutes. The page books the server's
 own machines, from the ranked list it reads, and sends its round trip to the server (as
-timed against GET /ping) as `rtts.server`. A picked machine taken first is answered with
+timed against GET /ping) as `rtts.server`, with the renter's controls and Picture setting
+when it books a picked machine. A picked machine taken first is answered with
 the next best from that list, which the page offers to launch on instead; with nothing
 free on the list the page offers the queue. The demo (`/?demo=1`) books nothing: its
 machines are invented. Leaving the queue, cancelling a launch and ending
@@ -405,7 +410,7 @@ a session all end the booking (POST /bookings/:id/end).
 **Known gap:** keeping their place does not give a returning renter a fresh claim window.
 If a machine is reserved for them when they come back, their first check counts as having
 seen the match, so they get only what is left of that 60 s reservation, which may be a few
-seconds. The page claims it the moment the stream opens again, so they lose it only when
+seconds. The page claims it the moment it hears of it again, so they lose it only when
 less than that is left; tracked in
 [#35](https://github.com/tomnotthomas/distributed_gaming/issues/35).
 

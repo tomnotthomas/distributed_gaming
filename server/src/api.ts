@@ -204,6 +204,28 @@ function bookingRtts(value: unknown): Rtts {
   return rtts;
 }
 
+/**
+ * How the renter plays, as rank() takes it: the controls they turned on, each
+ * one of CONTROLS, and their Picture setting, one of PICTURES (default best).
+ * A 400 for anything else.
+ */
+function renterPrefs(controls: unknown[], picture: unknown): Pick<RenterAsk, "controls" | "picture"> {
+  if (!controls.every((c) => CONTROLS.includes(c as Control))) {
+    throw new HttpError(400, `controls must be a list of ${CONTROLS.join(", ")}`);
+  }
+  if (!PICTURES.includes(picture as PicturePref)) {
+    throw new HttpError(400, `picture must be one of ${PICTURES.join(", ")}`);
+  }
+  return { controls: [...new Set(controls as Control[])], picture: picture as PicturePref };
+}
+
+/** The controls and Picture setting in a booking body, as the machines read takes them; either may be left out. */
+function bookingPrefs(body: Json): Pick<RenterAsk, "controls" | "picture"> {
+  const controls = body.controls ?? [];
+  if (!Array.isArray(controls)) throw new HttpError(400, `controls must be a list of ${CONTROLS.join(", ")}`);
+  return renterPrefs(controls, body.picture ?? "best");
+}
+
 /** A whole number from 1 to `max` in a path or query, or a 400 naming the field. */
 const wholeParam = (value: string | null, field: string, max: number) =>
   positiveInt(value !== null && /^\d+$/.test(value) ? Number(value) : NaN, field, max);
@@ -227,14 +249,7 @@ function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
     throw new HttpError(400, `rtt must be a number from 0 to ${MAX_RENTER_RTT_MS}`);
   }
   const controls = (query.get("controls") ?? "").split(",").filter(Boolean);
-  if (!controls.every((c) => CONTROLS.includes(c as Control))) {
-    throw new HttpError(400, `controls must be a list of ${CONTROLS.join(", ")}`);
-  }
-  const picture = query.get("picture") ?? "best";
-  if (!PICTURES.includes(picture as PicturePref)) {
-    throw new HttpError(400, `picture must be one of ${PICTURES.join(", ")}`);
-  }
-  return { steamId, rttMs, controls: [...new Set(controls as Control[])], picture: picture as PicturePref };
+  return { steamId, rttMs, ...renterPrefs(controls, query.get("picture") ?? "best") };
 }
 
 const defaultGames = async () =>
@@ -384,6 +399,7 @@ export function createApi({
       const minutes = positiveInt(body.minutes, "minutes", MAX_MINUTES);
       const machineId = optionalMachineId(body.machineId);
       const rtts = bookingRtts(body.rtts);
+      const prefs = bookingPrefs(body);
       if (machineId === undefined) {
         reply(res, 202, await platform.book(gameId, minutes, renter, rtts));
         return true;
@@ -397,7 +413,7 @@ export function createApi({
       // it stands now, free for the whole booking, so the page can offer it.
       let nextBest: MachineCandidate | null = null;
       if (discovery.take(renter) === 0) {
-        const ask: RenterAsk = { steamId: renter, rttMs: rtts.server ?? 0, controls: [], picture: "best" };
+        const ask: RenterAsk = { steamId: renter, rttMs: rtts.server ?? 0, ...prefs };
         const [game] = await platform.requirements([gameId]);
         const { at, machines } = await platform.offeredMachines();
         nextBest =

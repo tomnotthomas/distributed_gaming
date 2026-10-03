@@ -15,12 +15,13 @@
 //
 // The page claims by itself (followBooking): a machine the renter picked is
 // claimed the moment it is booked (202, matched), with no click; a queued
-// booking is claimed the moment the stream pushes its match, with a chime when
-// the tab is out of sight. Only the open stream claims: a renter whose stream
-// is closed is away, and nothing is claimed until they come back and it opens
-// again, within the server's two minutes. The slow poll that stands in while
-// the stream is down keeps the booking, but never claims it.
+// booking is claimed the moment its match arrives, with a chime when the tab is
+// out of sight. An open page is the renter being there, so a match is claimed
+// whether the stream pushes it or the slow poll that stands in while the stream
+// is down finds it. A renter whose page is closed is away, and nothing is
+// claimed until they come back, within the server's two minutes.
 
+import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
@@ -59,9 +60,6 @@ export type BookMachineResult =
 
 /** What a claim hands back: the room to join, where, and the ticket that opens it. */
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
-
-/** Where a booking update came from: the open stream, or the poll while it is down. */
-export type UpdateSource = "stream" | "poll";
 
 const KEY = "swiff.booking";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
@@ -119,20 +117,23 @@ export async function book(
 /**
  * Book the machine the renter picked: reserved for them at once (202,
  * matched), and remembered as book() does, or taken since their list was read
- * (409), with the next best to offer instead.
+ * (409), with the next best to offer instead, ranked by the renter's controls
+ * and Picture setting as their list was.
  */
 export async function bookMachine(
   machineId: string,
   gameId: number,
   minutes: number,
-  options: BookingOptions & { rtts?: Rtts } = {},
+  options: BookingOptions & { rtts?: Rtts; controls?: Control[]; picture?: PicturePref } = {},
 ): Promise<BookMachineResult> {
-  const { storage = localStorage, fetch: get = fetch, rtts } = options;
+  const { storage = localStorage, fetch: get = fetch, rtts, controls, picture } = options;
   const response = await post(get, "/api/bookings", {
     gameId,
     minutes,
     machineId,
     ...(rtts ? { rtts } : {}),
+    ...(controls ? { controls } : {}),
+    ...(picture ? { picture } : {}),
   });
   if (response.status === 409) {
     const { nextBest = null } = (await response.json()) as { nextBest?: NextBest | null };
@@ -179,7 +180,7 @@ export async function endBooking(bookingId: string, options: BookingOptions = {}
  */
 export function watchBooking(
   bookingId: string,
-  onUpdate: (booking: Booking | null, source: UpdateSource) => void,
+  onUpdate: (booking: Booking | null) => void,
   options: BookingOptions = {},
 ): () => void {
   const {
@@ -210,7 +211,7 @@ export function watchBooking(
       // A blip on the network: the next beat tries again.
       return;
     }
-    if (response.status === 404 || response.status === 401) settle(null, "stream");
+    if (response.status === 404 || response.status === 401) settle(null);
   };
 
   const stopHeartbeat = () => {
@@ -227,11 +228,11 @@ export function watchBooking(
   };
 
   /** Report one answer; the last one forgets the booking and stops. */
-  const settle = (booking: Booking | null, source: UpdateSource) => {
+  const settle = (booking: Booking | null) => {
     if (stopped) return;
     const done = !booking || DONE.includes(booking.status);
     if (done && storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
-    onUpdate(booking, source);
+    onUpdate(booking);
     if (done) stop();
   };
 
@@ -249,7 +250,7 @@ export function watchBooking(
       return;
     }
     if (stopped || current !== run) return;
-    settle(booking, "poll");
+    settle(booking);
     if (!stopped) timer = setTimeout(poll, intervalMs, current);
   };
 
@@ -277,7 +278,7 @@ export function watchBooking(
   stream = eventSource(`/api/events?booking=${encodeURIComponent(bookingId)}`);
   stream.addEventListener("booking", (event) => {
     stopPolling();
-    settle(JSON.parse((event as MessageEvent<string>).data) as Booking, "stream");
+    settle(JSON.parse((event as MessageEvent<string>).data) as Booking);
   });
   // Reconnected: the stream sends the booking again and carries on.
   stream.addEventListener("open", stopPolling);
@@ -294,7 +295,7 @@ export function storedBookingId(storage: Storage = localStorage): string | null 
 
 /** On page load: resume watching the booking this browser made, if it kept one. Null when there is none. */
 export function resumeBooking(
-  onUpdate: (booking: Booking | null, source: UpdateSource) => void,
+  onUpdate: (booking: Booking | null) => void,
   options: BookingOptions = {},
 ): (() => void) | null {
   const bookingId = storedBookingId(options.storage);
@@ -307,7 +308,7 @@ export type FollowHandlers = {
   onUpdate: (booking: Booking | null) => void;
   /** The machine was claimed: the room to join and its ticket. */
   onClaimed: (claim: Claim, booking: Booking) => void;
-  /** A claim the server failed to answer; the booking is still followed. */
+  /** A claim the server failed to answer, or refused (409); the booking is still followed. */
   onClaimFailed?: () => void;
 };
 
@@ -323,11 +324,10 @@ const tabHidden = () => typeof document !== "undefined" && document.visibilitySt
 /**
  * Follow the booking and claim its machine by itself: at once when `first` is
  * a booking already matched (a picked machine, just booked), and otherwise the
- * moment the open stream pushes the match, chiming first when the tab is out
- * of sight. Each reservation is claimed once; one that cannot be claimed any
- * more (409) is left, and following goes on. Nothing is claimed off the slow
- * poll: with the stream closed the renter counts as away. Once claimed, the
- * booking is forgotten and following stops. Returns stop().
+ * moment the match arrives, pushed down the stream or found by the slow poll,
+ * chiming first when the tab is out of sight. Each reservation is claimed once;
+ * one that cannot be claimed any more (409) is left, and following goes on.
+ * Once claimed, the booking is forgotten and following stops. Returns stop().
  */
 export function followBooking(
   first: Booking | string,
@@ -351,7 +351,11 @@ export function followBooking(
       if (!stopped) handlers.onClaimFailed?.();
       return;
     }
-    if (stopped || !claimed) return;
+    if (stopped) return;
+    if (!claimed) {
+      handlers.onClaimFailed?.();
+      return;
+    }
     stop();
     if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
     handlers.onClaimed(claimed, { ...booking, status: "claimed", sessionId: claimed.sessionId });
@@ -359,10 +363,10 @@ export function followBooking(
 
   const unwatch = watchBooking(
     bookingId,
-    (booking, source) => {
+    (booking) => {
       if (stopped) return;
       handlers.onUpdate(booking);
-      if (booking?.status !== "matched" || source !== "stream" || claiming === booking.claimBy) return;
+      if (booking?.status !== "matched" || claiming === booking.claimBy) return;
       if (hidden()) chime();
       void tryClaim(booking);
     },

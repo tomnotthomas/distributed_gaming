@@ -310,6 +310,26 @@ describe("booking and host API", () => {
     assert.equal(spent.body.nextBest, null);
   });
 
+  it("offers as next best only a machine with every control the renter plays with", async () => {
+    await offer("pc-1", { available: true, ...REPORT, price: 50 });
+    await offer("pc-2", { available: true, ...REPORT, controls: ["kb", "mouse"], price: 60 });
+    await offer("pc-3", { available: true, ...REPORT, price: 300 });
+    const other = as(signedIn(OTHER));
+    await other("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" });
+
+    const ask = { gameId: 730, minutes: 30, machineId: "pc-1" };
+    const withPad = await renter("POST", "/api/bookings", {
+      ...ask,
+      controls: ["kb", "pad"],
+      picture: "best",
+    });
+    assert.equal(withPad.status, 409);
+    assert.equal(withPad.body.nextBest.id, "pc-3");
+    // Without controls the cheaper machine without a pad comes first, as before.
+    const without = await renter("POST", "/api/bookings", ask);
+    assert.equal(without.body.nextBest.id, "pc-2");
+  });
+
   it("matches a queued booking by the renter's round trips", async () => {
     await offer("pc-1", { available: true, ...REPORT, net: { ...REPORT.net, rttMs: 40 } });
     const far = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, rtts: { server: 60 } });
@@ -381,6 +401,9 @@ describe("booking and host API", () => {
       { gameId: 730, minutes: 30, rtts: { server: -1 } },
       { gameId: 730, minutes: 30, rtts: { machines: [8] } },
       { gameId: 730, minutes: 30, rtts: { machines: { "pc-1": "fast" } } },
+      { gameId: 730, minutes: 30, controls: "pad" },
+      { gameId: 730, minutes: 30, controls: ["joystick"] },
+      { gameId: 730, minutes: 30, picture: "8k" },
     ]) {
       assert.equal((await renter("POST", "/api/bookings", body)).status, 400, JSON.stringify(body));
     }

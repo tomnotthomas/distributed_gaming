@@ -304,6 +304,18 @@ describe("booking a picked machine", () => {
     expect(localStorage.getItem("swiff.booking")).toBe("b-1");
   });
 
+  it("carries how the renter plays, for the next best should it be taken", async () => {
+    const server = routes({ "POST /api/bookings": json(202, booking("matched", 1_000)) });
+    await bookMachine("pc-1", 730, 30, { fetch: server.fetch, controls: ["kb", "pad"], picture: "4k" });
+    expect(server.calls[0]!.body).toEqual({
+      gameId: 730,
+      minutes: 30,
+      machineId: "pc-1",
+      controls: ["kb", "pad"],
+      picture: "4k",
+    });
+  });
+
   it("says it was taken, with the next best, and remembers nothing", async () => {
     const nextBest = { id: "pc-2", name: "Nova", gpu: "RTX 4070", price: 300, latency: { rttMs: 20 } };
     const server = routes({ "POST /api/bookings": json(409, { error: "the machine is taken", nextBest }) });
@@ -399,22 +411,42 @@ describe("following a booking to its claim", () => {
     expect(claimed).toEqual([TICKET]);
   });
 
-  it("claims nothing while the stream is down, only once it is open again", async () => {
+  it("claims a match the poll finds while the stream is down, once, chiming out of sight", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
     const server = routes({
       "GET /api/bookings/b-1": json(200, booking("matched", 1_000)),
       "POST /api/bookings/b-1/claim": json(200, TICKET),
     });
-    const { stream, claimed, updates } = follow("b-1", server);
+    const { stream, claimed, updates, chime } = follow("b-1", server, true);
     stream.emit("error");
     await settle();
     expect(updates).toContain("matched");
-    expect(claimed).toEqual([]);
-    expect(server.made()).not.toContain("POST /api/bookings/b-1/claim");
+    expect(claimed).toEqual([TICKET]);
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
+    expect(chime).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
 
-    stream.emit("open");
+  it("says so when a claim is refused or fails, and follows on", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("network down");
+        return new Response(JSON.stringify({ status: "expired" }), { status: 409 });
+      },
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      booking("matched", 1_000),
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000 },
+    );
+    await settle();
+    expect(failed).toHaveBeenCalledTimes(1);
     stream.push("matched", 1_000);
     await settle();
-    expect(claimed).toEqual([TICKET]);
+    expect(failed).toHaveBeenCalledTimes(2);
   });
 
   it("leaves a reservation it could not claim, and claims the next match", async () => {
