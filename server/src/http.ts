@@ -1,5 +1,5 @@
 // Request helpers shared by every HTTP handler on this server: the bearer
-// credential and a size-capped JSON body.
+// credential, a size-capped JSON body, and a size-capped body read and dropped.
 
 import type { IncomingMessage } from "node:http";
 
@@ -44,4 +44,14 @@ export async function readJson(
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new HttpError(400, "body is not an object");
   return body as Record<string, unknown>;
+}
+
+/** Read the body and keep none of it: its size in bytes. 413 when over `limit` bytes. */
+export async function discardBody(req: IncomingMessage, limit: number): Promise<number> {
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > limit) throw new HttpError(413, "body too large");
+  }
+  return size;
 }

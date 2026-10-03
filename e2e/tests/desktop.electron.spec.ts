@@ -131,9 +131,10 @@ test.describe("Swiff Host desktop app", () => {
     const window = await app.firstWindow();
 
     // The key is a credential for this machine's room: the renderer may ask
-    // main to store and return it. Besides that it may read what the PC is
-    // and how long since its keyboard was used, send the tray glance its
-    // snapshot and hear the glance's actions. No other door into main.
+    // main to store and return it. Besides that it may read what the PC is,
+    // hear its installed games change, and how long since its keyboard was
+    // used, send the tray glance its snapshot and hear the glance's actions.
+    // No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -143,6 +144,7 @@ test.describe("Swiff Host desktop app", () => {
       loadMachineKey: "function",
       saveMachineKey: "function",
       readPc: "function",
+      onGamesChanged: "function",
       secondsSinceInput: "function",
       setGlance: "function",
       onTrayAction: "function",

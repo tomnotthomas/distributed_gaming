@@ -300,6 +300,15 @@ describe("booking and host API", () => {
     assert.deepEqual(platform.machineProfile("pc-1")!.games, [440]);
   });
 
+  it("takes an upload test from the machine's own key, and keeps nothing of it", async () => {
+    const body = "x".repeat(4 * 1024 * 1024);
+    assert.equal((await call("POST", "/api/machines/pc-1/upload-test", body, "wrong")).status, 401);
+    const test = await call("POST", "/api/machines/pc-1/upload-test", body, MACHINE_KEY);
+    assert.equal(test.status, 204);
+    assert.equal(test.headers.get("cache-control"), "no-store");
+    assert.equal(platform.machineProfile("pc-1"), null);
+  });
+
   it("refuses a bad host report with a 400 naming the field, and stores none of it", async () => {
     const bad = await offer("pc-1", { available: true, ...REPORT, net: { rttMs: "fast" } });
     assert.equal(bad.status, 400);

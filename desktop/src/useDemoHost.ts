@@ -65,6 +65,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
       url: "hushed-otter-42.trycloudflare.com",
       machineId: "gaming-pc-1",
       machineKey: "demo-machine-key",
+      name: DEMO_MACHINE,
       notice: null,
       preview: null,
     },
