@@ -21,7 +21,7 @@ import {
   watchSteamGames,
   wholeMb,
 } from "../pc.cjs";
-import { parseProbe, readWindowsProbe } from "../probe.cjs";
+import { PROBE_SCRIPT, parseProbe, readWindowsProbe } from "../probe.cjs";
 
 describe("cpuName", () => {
   it("drops the vendor, trademarks and core counts", () => {
@@ -375,7 +375,7 @@ describe("the Windows probe", () => {
     const [file, args, options] = run.mock.calls[0]!;
     expect(file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
     expect(args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
-    expect(Buffer.from(args[3]!, "base64").toString("utf16le")).toContain("MFTEnumEx");
+    expect(Buffer.from(args[3]!, "base64").toString("utf16le")).toBe(PROBE_SCRIPT);
     expect(options).toMatchObject({ windowsHide: true });
 
     const failing = vi.fn(

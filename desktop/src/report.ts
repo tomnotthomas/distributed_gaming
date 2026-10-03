@@ -20,11 +20,15 @@ import type { Control, Encoder, PcRead } from "../pc.cjs";
 
 /** How often the PC beats while it is offered: three missed beats is the platform's 15 s. */
 export const BEAT_MS = 5_000;
+/** A beat still unanswered this late is given up, so the next one goes out on time. */
+export const BEAT_TIMEOUT_MS = 4_000;
 /** What one upload test sends. The server takes up to 8 MB (server/src/api.ts). */
 export const UPLOAD_TEST_BYTES = 4 * 1024 * 1024;
 export const UPLOAD_TEST_EVERY_MS = 30 * 60_000;
 /** An upload test that failed is tried again this much later. */
 const UPLOAD_RETRY_MS = 60_000;
+/** An upload test still running this late is given up and tried again later. */
+export const UPLOAD_TIMEOUT_MS = 30_000;
 /** Round trips kept: the burst at connect, then about five minutes of pings. */
 const RTT_SAMPLES = 12;
 /** Round trips needed before they are reported. */
@@ -209,7 +213,12 @@ export function createHostReporter(
     try {
       const body = noise(UPLOAD_TEST_BYTES);
       const start = clock();
-      const res = await fetch(route("upload-test"), { method: "POST", headers, body });
+      const res = await fetch(route("upload-test"), {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
       const seconds = (clock() - start) / 1000;
       if (res.status !== 204 || seconds <= 0) throw new Error(`upload test answered ${res.status}`);
       upMbps = (UPLOAD_TEST_BYTES * 8) / 1e6 / seconds;
@@ -242,8 +251,14 @@ export function createHostReporter(
               until: until === null ? undefined : new Date(until).toISOString(),
               ...body,
             }),
+            signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
           })
-        : await fetch(route("heartbeat"), { method: "POST", headers, body: JSON.stringify(body) });
+        : await fetch(route("heartbeat"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
+          });
       if (stopped) return;
       // A refused section would be refused again: it waits for its next change instead.
       if (res.ok || res.status === 400) {
