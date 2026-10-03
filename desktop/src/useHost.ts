@@ -243,7 +243,7 @@ export function useHost(): Host {
         saveMachineId(next.machineId.trim());
         const kept = key ? await saveMachineKey(key) : true;
         setKeyNote(kept ? null : "This system cannot encrypt the key, so it was not saved.");
-        if (connectionReady(next)) await begin(next, plan);
+        if (connectionReady(next)) await begin(next, live.kind === "off" ? plan : until);
       },
       // Payouts are not open: details typed into the form are never sent or kept.
       savePayout: () => {},

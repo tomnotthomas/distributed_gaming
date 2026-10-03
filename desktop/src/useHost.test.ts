@@ -309,4 +309,30 @@ describe("useHost", () => {
     );
     expect(share.start).toHaveBeenCalledWith("otter.example", { machineId: "pc-2", machineKey: "k2" });
   });
+
+  it("keeps the end time in effect when the connection is saved while offline or paused", async () => {
+    const { result, rerender } = await host();
+    const until = untilChoices(NOW)[1]!.at;
+    await act(async () => result.current.actions.goLive());
+    act(() => void vi.advanceTimersByTime(3_600_000));
+    Object.assign(share, { connection: "offline", offlineSince: Date.now(), lastContact: NOW });
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "offline", until });
+
+    await act(async () =>
+      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-2", machineKey: "k2" }),
+    );
+    Object.assign(share, { connection: "registered", offlineSince: null });
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "waiting", until });
+
+    act(() => result.current.actions.pause());
+    act(() => void vi.advanceTimersByTime(3_600_000));
+    rerender();
+    await act(async () =>
+      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-3", machineKey: "k3" }),
+    );
+    rerender();
+    expect(result.current.view.live).toMatchObject({ kind: "waiting", until });
+  });
 });
