@@ -4,7 +4,7 @@
 //
 //   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left,
 //                        probe-offer (answered with probe-answer)
-//   client  join     ──► joined, offer, ice, peer-left
+//   client  join     ──► joined, offer, ice, peer-left, game-started
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -88,7 +88,20 @@ export type ProbeOfferMessage = { type: "probe-offer"; probeId: string; sdp: RTC
 export type ProbeAnswerMessage = { type: "probe-answer"; probeId: string; sdp: RTCSessionDescriptionInit };
 
 export type PeerJoinedMessage = { type: "peer-joined" };
-export type PeerLeftMessage = { type: "peer-left" };
+/**
+ * The other side left the room. To the host, `grace` (seconds) says the renter
+ * dropped mid-session and has that long to come back with the same ticket
+ * before the session ends as grace_expired (grace.ts): keep the game running,
+ * let go of anything held. Without it the renter is not coming back.
+ */
+export type PeerLeftMessage = { type: "peer-left"; grace?: number };
+
+/**
+ * Sent by the host once it has launched the booked game (steam://rungameid),
+ * after the stream's first frame and POST /api/sessions/:id/start. Relayed to
+ * the renter like offer/answer/ice.
+ */
+export type GameStartedMessage = { type: "game-started"; appid: number };
 
 /** Liveness. Required: Cloudflare closes an idle WebSocket after 100 seconds. */
 export type PingMessage = { type: "ping" };
@@ -108,13 +121,14 @@ export type SignalMessage =
   | ProbeAnswerMessage
   | PeerJoinedMessage
   | PeerLeftMessage
+  | GameStartedMessage
   | PingMessage
   | PongMessage;
 
 /** Messages the server forwards to the other peer without inspecting them. */
-export const RELAYED_TYPES = ["offer", "answer", "ice"] as const;
+export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started"] as const;
 
-export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
+export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | GameStartedMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

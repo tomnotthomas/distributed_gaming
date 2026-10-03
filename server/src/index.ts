@@ -49,11 +49,13 @@ import {
   DENIED_CODE,
   isRelayed,
   type DeniedMessage,
+  type PeerLeftMessage,
   type SessionError,
   type SessionGrant,
   type SignalMessage,
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
+import { createRenterGrace, RECONNECT_GRACE_S } from "./grace.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
@@ -83,6 +85,22 @@ const sessionSecret = sessionSecretFromEnv(process.env);
 // the cookie's Secure flag. Without it in production nobody can sign in.
 const publicOrigin = publicOriginFromEnv(process.env, PORT);
 const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
+
+// A renter who drops mid-session has the grace to come back (grace.ts),
+// declared before the platform, whose first settling may already end a session.
+// SWIFF_RECONNECT_GRACE_MS shortens it for tests.
+const GRACE_MS = Number(process.env.SWIFF_RECONNECT_GRACE_MS) || RECONNECT_GRACE_S * 1000;
+const grace = createRenterGrace({
+  graceMs: GRACE_MS,
+  onExpire: (_hostId, ticketId) => {
+    try {
+      const sessionId = platform.ticketSession(ticketId);
+      if (sessionId) platform.leaveSession(sessionId, ticketId, "grace_expired");
+    } catch (error) {
+      console.error("[swiff] grace expiry failed:", error instanceof Error ? error.name : typeof error);
+    }
+  },
+});
 
 // Machines, bookings, reservations and sessions (platform.ts). In memory unless
 // DATABASE_PATH names a file. A claim is pushed to the claimed PC, and every
@@ -223,6 +241,25 @@ function hostGone(hostId: string, dropped: boolean): void {
   }
 }
 
+// --- reconnect grace ----------------------------------------------------------
+
+/**
+ * What the host hears when renter `ws` leaves: with the grace when it holds a
+ * running session's ticket, whose clock starts now. A database failure leaves
+ * it a plain peer-left.
+ */
+function renterLeft(ws: PeerSocket): PeerLeftMessage {
+  try {
+    if (ws.hostId && ws.ticketId && platform.ticketSession(ws.ticketId)) {
+      grace.start(ws.hostId, ws.ticketId);
+      return { type: "peer-left", grace: GRACE_MS / 1000 };
+    }
+  } catch (error) {
+    console.error("[swiff] grace start failed:", error instanceof Error ? error.name : typeof error);
+  }
+  return { type: "peer-left" };
+}
+
 // --- host sessions ----------------------------------------------------------
 
 /**
@@ -239,6 +276,8 @@ function endHostSession(hostId: string): void {
  * up on, and a renter still seated on the session's revoked ticket is put out.
  */
 function sessionEnded(hostId: string, sessionId: string): void {
+  // However it ended, a renter who dropped has nothing left to come back to.
+  grace.cancel(hostId);
   evictStreamer(hostId, sessionId);
   const client = rooms.get(hostId)?.client;
   if (client) seatStillValid(client);
@@ -525,6 +564,8 @@ function answer(ws: PeerSocket, msg: SignalMessage): void {
       ws.role = "client";
       ws.ticketId = ticket.id;
       room.client = ws;
+      // A renter back within the reconnect grace keeps their session.
+      grace.cancel(ticket.room, ticket.id);
       send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
       send(room.host, { type: "peer-joined" });
       return;
@@ -558,6 +599,8 @@ wss.on("connection", (socket) => {
       return; // garbage in, ignored — never crash the room over one bad frame
     }
 
+    // Only the host says the game has started.
+    if (msg.type === "game-started" && ws.role !== "host") return;
     if (isRelayed(msg)) {
       // Forwarded verbatim. The server does not read the payload. Never to or
       // from a renter whose ticket has been revoked since it joined.
@@ -595,7 +638,7 @@ wss.on("connection", (socket) => {
     const wasHost = room.host === ws;
     if (wasHost) room.host = null;
     if (room.client === ws) room.client = null;
-    send(peer, { type: "peer-left" });
+    send(peer, wasHost ? { type: "peer-left" } : renterLeft(ws));
     if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
     // The PC service's own socket going is the PC going: offline now while it
     // is on offer. A streamer's going, or any socket once a renter has claimed

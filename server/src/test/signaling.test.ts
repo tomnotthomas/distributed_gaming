@@ -46,6 +46,9 @@ type RecordingSocket = WebSocket & { received: SignalMessage[] };
 
 let server: ChildProcess | undefined;
 
+/** The reconnect grace the server runs with here, short enough to wait out. */
+const GRACE_MS = 1_000;
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const send = (ws: WebSocket, msg: SignalMessage) => ws.send(JSON.stringify(msg));
 const types = (ws: RecordingSocket) => ws.received.map((m) => m.type);
@@ -75,6 +78,7 @@ before(async () => {
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+      SWIFF_RECONNECT_GRACE_MS: String(GRACE_MS),
     },
     stdio: "ignore",
   });
@@ -353,6 +357,148 @@ describe("room access", () => {
   });
 });
 
+describe("reconnect grace", () => {
+  const HTTP = `http://localhost:${PORT}`;
+
+  async function call(method: string, path: string, body?: unknown, key?: string) {
+    const res = await fetch(`${HTTP}${path}`, {
+      method,
+      headers: {
+        cookie: RENTER_COOKIE,
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    return { status: res.status, body: text ? (JSON.parse(text) as any) : null };
+  }
+
+  /**
+   * `room` claimed by a renter, its host session started and its streamer
+   * registered with the session key, and the renter seated with their ticket.
+   */
+  async function playing(room: string) {
+    const offered = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(offered.status, 200);
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+    assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+    const { sessionId, ticket } = claim.body as { sessionId: string; ticket: string };
+    const start = await call("POST", sessionPath(room), { sessionId }, MACHINE_KEY);
+    assert.equal(start.status, 201);
+    const host = await open();
+    send(host, { type: "register", hostId: room, sessionKey: start.body.sessionKey });
+    const renter = await open();
+    send(renter, { type: "join", ticket });
+    await wait(150);
+    assert.ok(types(host).includes("peer-joined"));
+    return { sessionId, ticket, host, renter };
+  }
+
+  const peerLefts = (ws: RecordingSocket) => ws.received.filter((m) => m.type === "peer-left");
+  const ended = (ws: RecordingSocket) =>
+    ws.received.some((m) => m.type === "denied" && m.reason === "session-ended");
+  /** Take the machine back, so the next test's booking is matched to its own room. */
+  const takeBack = (room: string) =>
+    call("PUT", `/api/machines/${room}/availability`, { available: false }, MACHINE_KEY);
+
+  it("gives a renter who drops the grace, and keeps the session when they come back", async () => {
+    const room = nextRoom();
+    const { ticket, host, renter } = await playing(room);
+
+    renter.close();
+    await wait(150);
+    assert.deepEqual(peerLefts(host), [{ type: "peer-left", grace: GRACE_MS / 1000 }]);
+
+    const back = await open();
+    send(back, { type: "join", ticket });
+    await wait(150);
+    assert.equal(types(host).filter((t) => t === "peer-joined").length, 2);
+    await wait(GRACE_MS + 300);
+    assert.ok(!ended(host), "the session outlived the grace");
+    assert.ok(types(back).includes("joined"));
+
+    back.close();
+    host.close();
+    await takeBack(room);
+  });
+
+  it("ends the session as grace_expired when the renter does not come back", async () => {
+    const room = nextRoom();
+    const { ticket, host, renter } = await playing(room);
+    renter.close();
+    await wait(GRACE_MS + 400);
+    assert.ok(ended(host), "the streamer was put out");
+
+    // The renter's ticket died with the session.
+    const late = await open();
+    send(late, { type: "join", ticket });
+    await wait(150);
+    assert.deepEqual(late.received.at(-1), { type: "denied", reason: "bad-ticket" });
+    await takeBack(room);
+  });
+
+  it("skips the grace when the renter ends the session themselves", async () => {
+    const room = nextRoom();
+    const { sessionId, ticket, host, renter } = await playing(room);
+    renter.close();
+    await wait(100);
+    const left = await fetch(`${HTTP}/api/sessions/${sessionId}/leave`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${ticket}` },
+    });
+    assert.ok(left.ok, `leave answered ${left.status}`);
+    await wait(150);
+    assert.ok(ended(host), "ended at once, not after the grace");
+    await takeBack(room);
+  });
+
+  it("skips the grace when the owner takes the machine back", async () => {
+    const room = nextRoom();
+    const { host, renter } = await playing(room);
+    renter.close();
+    await wait(100);
+    await takeBack(room);
+    await wait(150);
+    assert.ok(ended(host));
+  });
+
+  it("gives no grace to a renter on a ticket made by hand, with no session behind it", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    const renter = await open();
+    send(renter, join(room));
+    await wait(150);
+    renter.close();
+    await wait(150);
+    assert.deepEqual(peerLefts(host), [{ type: "peer-left" }]);
+    host.close();
+  });
+
+  it("relays game-started from the host to the renter, and never the other way", async () => {
+    const room = nextRoom();
+    const { host, renter } = await playing(room);
+    send(host, { type: "game-started", appid: 730 });
+    send(renter, { type: "game-started", appid: 570 });
+    await wait(150);
+    assert.deepEqual(
+      renter.received.filter((m) => m.type === "game-started"),
+      [{ type: "game-started", appid: 730 }],
+    );
+    assert.ok(!types(host).includes("game-started"));
+    await takeBack(room);
+    host.close();
+    renter.close();
+  });
+});
+
 describe("host sessions", () => {
   const HTTP = `http://localhost:${PORT}`;
   const denial = (ws: RecordingSocket) => ws.received.find((m) => m.type === "denied");
@@ -391,6 +537,11 @@ describe("host sessions", () => {
    * platform's booking flow does. Returns the claimed platform session's id.
    */
   async function claimRoom(room: string, minutes = 30): Promise<string> {
+    return (await claimWithTicket(room, minutes)).sessionId;
+  }
+
+  /** As claimRoom, with the renter's join ticket the claim hands out. */
+  async function claimWithTicket(room: string, minutes = 30): Promise<{ sessionId: string; ticket: string }> {
     const offered = await call(
       "PUT",
       `/api/machines/${room}/availability`,
@@ -403,7 +554,7 @@ describe("host sessions", () => {
     // The status and room only: the body carries the renter's ticket.
     assert.equal(claim.status, 200, `claim answered ${claim.status}`);
     assert.equal(claim.body.roomId, room);
-    return claim.body.sessionId as string;
+    return { sessionId: claim.body.sessionId as string, ticket: claim.body.ticket as string };
   }
 
   /**

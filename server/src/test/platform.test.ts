@@ -745,6 +745,25 @@ describe("session end reasons", () => {
   it("is null while the session runs", () => {
     assert.equal(platform.sessionEndReason(session()), null);
   });
+
+  it("is grace_expired when a renter who dropped does not come back in time", () => {
+    const id = session();
+    beatFor("pc-1", 60_000);
+    assert.equal(platform.ticketSession("ticket-1"), id);
+    assert.equal(platform.leaveSession(id, "ticket-1", "grace_expired"), "ok");
+    assert.equal(platform.sessionEndReason(id), "grace_expired");
+    assert.equal(platform.heartbeat("pc-1").status, "available");
+    assert.equal(platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("names a ticket's session only while that session runs", () => {
+    assert.equal(platform.ticketSession("ticket-1"), null);
+    const id = session();
+    assert.equal(platform.ticketSession("ticket-1"), id);
+    assert.equal(platform.ticketSession("ticket-2"), null);
+    platform.setAvailability("pc-1", false);
+    assert.equal(platform.ticketSession("ticket-1"), null);
+  });
 });
 
 describe("machine uptime", () => {

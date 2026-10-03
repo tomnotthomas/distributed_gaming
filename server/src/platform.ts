@@ -866,9 +866,15 @@ export class Platform {
 
   /**
    * The renter left, ending the session as renter. Only the join ticket handed
-   * out for this session may do it, and only while the session runs.
+   * out for this session may do it, and only while the session runs. A renter
+   * who dropped and did not come back within the reconnect grace (grace.ts)
+   * leaves the same way, as grace_expired.
    */
-  leaveSession(sessionId: string, ticketId: string): QosResult {
+  leaveSession(
+    sessionId: string,
+    ticketId: string,
+    reason: "renter" | "grace_expired" = "renter",
+  ): QosResult {
     return this.#transaction(() => {
       const now = this.#now();
       const session = this.#db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
@@ -876,7 +882,7 @@ export class Platform {
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+      this.#endSession(session, Math.max(now, session.started_at ?? now), reason);
       const machine = this.#db
         .prepare("SELECT status FROM machines WHERE id = ?")
         .get(session.machine_id) as {
@@ -958,6 +964,14 @@ export class Platform {
       packetLoss: fromJson<QosSummary | null>(row.qos, null)?.packetLoss ?? null,
     }));
     return stabilityFrom(totals, sessions);
+  }
+
+  /** The running session the ticket was handed out for, or null. A ticket minted by hand has none. */
+  ticketSession(ticketId: string): string | null {
+    const row = this.#db
+      .prepare("SELECT id FROM sessions WHERE ticket_id = ? AND ended_at IS NULL")
+      .get(ticketId) as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
   /** True when the ticket was handed out for a session that has since ended. A ticket minted by hand has none. */
