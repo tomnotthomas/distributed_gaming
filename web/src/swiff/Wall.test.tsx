@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_PREFS, NOW_MINUTES, seedSpots } from "./derive";
+import { DEFAULT_PREFS, demoNow, seedSpots, wallOrder } from "./derive";
 import { GAMES, MACHINES, type Game, type SeedMachine, type Spot } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -21,7 +21,7 @@ function swiffWith(
   {
     pool = MACHINES,
     spots,
-    clock = NOW_MINUTES,
+    clock = demoNow(),
     freed = [],
   }: { pool?: Record<string, SeedMachine>; spots?: Map<string, Spot>; clock?: number; freed?: string[] } = {},
 ): Swiff {
@@ -317,7 +317,11 @@ describe("Wall", () => {
     it("offers the host the server ranked first, with its time left by the real clock", () => {
       const games = applySteam(owner, []);
       const spots = new Map([[games[0]!.id, ready({ ...rig, until: "23:30" })]]);
-      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots, clock: 22 * 60 })} />);
+      render(
+        <Wall
+          swiff={swiffWith(games, owner, noop, true, { spots, clock: new Date(2026, 9, 3, 22, 0).getTime() })}
+        />,
+      );
       const hero = within(screen.getByTestId("hero"));
       expect(hero.getByRole("heading", { level: 1 })).toHaveTextContent("Elden Ring");
       expect(hero.getByText(/free until 23:30/)).toBeInTheDocument();
@@ -327,13 +331,61 @@ describe("Wall", () => {
 
     it("says which host is back, and when, when nothing is ready", () => {
       const games = applySteam(owner, []);
-      const back = { name: "Basement rig", at: "23:10" };
+      const back = { name: "Basement rig", at: "23:10", backAt: new Date(2026, 9, 3, 23, 10).getTime() };
       render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, back) })} />);
       expect(
         screen.getByText(
           "Every shared machine is in use. Basement rig is back at 23:10. We'll tell you the moment something frees up.",
         ),
       ).toBeInTheDocument();
+    });
+
+    it("says which host is back soonest across games, not the first in wall order", () => {
+      const games = applySteam(owner, []);
+      const late = { name: "Loft", at: "23:00", backAt: new Date(2026, 9, 3, 23, 0).getTime() };
+      const soon = { name: "Basement rig", at: "21:15", backAt: new Date(2026, 9, 3, 21, 15).getTime() };
+      const spots = new Map(
+        games.map((g, i) => [g.id, { free: 0, ready: 0, busy: 1, best: null, back: i === 0 ? late : soon }]),
+      );
+      render(<Wall swiff={swiffWith(games, owner, noop, true, { spots })} />);
+      expect(
+        screen.getByText(/Every shared machine is in use\. Basement rig is back at 21:15\./),
+      ).toBeInTheDocument();
+    });
+
+    it("labels the busy tab with the soonest back, not the first busy game's", () => {
+      const games = GAMES;
+      const late = { name: "Loft", at: "23:00", backAt: new Date(2026, 9, 3, 23, 0).getTime() };
+      const soon = { name: "Basement rig", at: "21:15", backAt: new Date(2026, 9, 3, 21, 15).getTime() };
+      const taken = (back: Spot["back"]): Spot => ({ free: 0, ready: 0, busy: 1, best: null, back });
+      const [lead, ...others] = wallOrder(games, new Map(games.map((g) => [g.id, taken(null)])));
+      // The first busy game in wall order is back last.
+      const spots = new Map<string, Spot>([
+        [lead!.id, ready({ ...rig, until: "late" })],
+        [others[0]!.id, taken(late)],
+        [others[1]!.id, taken(soon)],
+      ]);
+      const { container } = render(<Wall swiff={swiffWith(games, owner, noop, true, { spots })} />);
+      const tabs = [...container.querySelectorAll(".band-tab")].map((t) => t.textContent ?? "");
+      expect(tabs.some((t) => t.startsWith("Back at 21:15"))).toBe(true);
+      expect(tabs.some((t) => t.startsWith("Back at 23:00"))).toBe(false);
+    });
+
+    it("leaves a host whose offer has passed since it was read no time, not all night", () => {
+      const games = applySteam(owner, []);
+      const until = new Date(2026, 9, 3, 21, 30, 40).getTime();
+      const spots = new Map([[games[0]!.id, ready({ ...rig, until: "21:30", untilAt: until })]]);
+      render(
+        <Wall
+          swiff={swiffWith(games, owner, noop, true, {
+            spots,
+            clock: new Date(2026, 9, 3, 21, 31).getTime(),
+          })}
+        />,
+      );
+      const hero = within(screen.getByTestId("hero"));
+      expect(hero.getByText("0 min free")).toBeInTheDocument();
+      expect(hero.queryByText(/All night/)).toBeNull();
     });
 
     it("says what is free does not last the session, rather than that nothing is free", () => {

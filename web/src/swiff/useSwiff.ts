@@ -11,15 +11,7 @@ import {
   type SessionLength,
   type Spot,
 } from "./data";
-import {
-  clockMinutes,
-  machinesFor,
-  NOW_MINUTES,
-  readyFor,
-  reason,
-  seedSpots,
-  sessionMinutes,
-} from "./derive";
+import { demoNow, machinesFor, readyFor, reason, seedSpots, sessionMinutes } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
 import { machinesOf, spotOf } from "./live";
 import { questionOf, useLive } from "./useLive";
@@ -64,15 +56,15 @@ const CLOCK_MS = 15_000;
  */
 export const isDemo = (search: string = location.search) => new URLSearchParams(search).get("demo") === "1";
 
-/** Minutes since midnight: pinned to 20:00 in the demo, else the real clock, kept current. */
+/** Unix ms: pinned to 20:00 today in the demo, else the real clock, kept current. */
 function useClock(demo: boolean): number {
-  const [now, setNow] = useState(() => (demo ? NOW_MINUTES : clockMinutes()));
+  const [now, setNow] = useState(() => (demo ? demoNow() : Date.now()));
   useEffect(() => {
     if (demo) return;
-    const timer = window.setInterval(() => setNow(clockMinutes()), CLOCK_MS);
+    const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
     return () => window.clearInterval(timer);
   }, [demo]);
-  return demo ? NOW_MINUTES : now;
+  return now;
 }
 
 const track = (event: string, props?: Record<string, unknown>) => {
@@ -183,8 +175,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /** Signed in, the open game's machines have not been read yet. */
   const machinesLoading = !demo && signedIn && game !== null && liveGame === null;
   const picked = useMemo(
-    () => machines.find((m) => m.id === machineId && !m.busy) ?? null,
-    [machines, machineId],
+    () => machines.find((m) => m.id === machineId && (phase !== "idle" || !m.busy)) ?? null,
+    [machines, machineId, phase],
   );
 
   // --- Steam sign-in ---------------------------------------------------------

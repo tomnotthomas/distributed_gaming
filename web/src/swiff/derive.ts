@@ -37,12 +37,30 @@ export function clockTime(ms: number): string {
 // "All night" has no end time to compare against, so it asks for six hours.
 const SESSION_MINUTES: Record<SessionLength, number> = { quick: 60, evening: 180, night: 6 * 60 };
 
+/** The demo's evening, 20:00 today, as Unix ms: the clock the demo pages read. */
+export const demoNow = (day: Date = new Date()): number => new Date(day).setHours(20, 0, 0, 0);
+
+/** Minutes from `now` (clock minutes) to a clock time, rolling past midnight. */
+function minsUntil(clock: string, now: number): number {
+  const [hh = 0, mm = 0] = clock.split(":").map(Number);
+  const at = hh * 60 + mm;
+  return (at < now ? at + 24 * 60 : at) - now;
+}
+
 /** Minutes until the owner wants their machine back, rolling past midnight. */
 export function minsLeft(machine: Machine, now = NOW_MINUTES): number {
   if (machine.until === "late") return 12 * 60;
-  const [hh = 0, mm = 0] = machine.until.split(":").map(Number);
-  const at = hh * 60 + mm;
-  return (at < now ? at + 24 * 60 : at) - now;
+  return minsUntil(machine.until, now);
+}
+
+/**
+ * Minutes a machine stays free from `now` (Unix ms), as the pages print it. A
+ * real host is told by its absolute free-until, so one whose offer has passed
+ * since it was read has none left rather than rolling round to tomorrow.
+ */
+export function leftAt(machine: Machine, now: number): number {
+  if (machine.untilAt !== undefined) return Math.max(0, Math.floor((machine.untilAt - now) / 60_000));
+  return minsLeft(machine, clockMinutes(new Date(now)));
 }
 
 /** "all night", "3 h 20", "45 min" — never a bare number of minutes. */
@@ -222,8 +240,8 @@ export function freeFor(
 
 /**
  * One game on the demo machines, as the wall reads it: how many are ready for
- * the session, the best of them, and, when none is, the first that is busy and
- * says when it is back.
+ * the session, the best of them, and, when none is, the busy one that is back
+ * soonest.
  */
 export function seedSpot(
   game: Game,
@@ -233,13 +251,17 @@ export function seedSpot(
 ): Spot {
   const ready = freeFor(game, pool, session, prefs);
   const listed = machinesFor(game, pool, session, prefs);
-  const back = game.machines.map((id) => pool[id]).find((m) => m?.back);
+  const back = game.machines
+    .map((id) => pool[id])
+    .filter((m): m is SeedMachine => Boolean(m?.back))
+    .map((m) => ({ name: m.name, at: m.back!, backAt: toMs(NOW_MINUTES + minsUntil(m.back!, NOW_MINUTES)) }))
+    .sort((a, b) => a.backAt - b.backAt)[0];
   return {
     free: listed.filter((m) => !m.busy).length,
     ready: ready.length,
     busy: listed.filter((m) => m.busy).length,
     best: ready[0] ?? null,
-    back: back ? { name: back.name, at: back.back! } : null,
+    back: back ?? null,
   };
 }
 

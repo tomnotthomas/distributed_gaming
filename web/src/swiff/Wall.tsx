@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Backdrop, Button, EmptyState } from "@swiff/ui";
 import type { Game, Machine, Spot } from "./data";
-import { fmtLeft, minsLeft, readyFor, wallOrder } from "./derive";
+import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
 import { SignInWithSteam } from "./SignIn";
@@ -80,9 +80,9 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
-/** "4 h 30" or "All night": the time a machine stays free from `now` (clock minutes), as the band prints it. */
+/** "4 h 30" or "All night": the time a machine stays free from `now` (Unix ms), as the band prints it. */
 const leftLabel = (machine: Machine, now: number) => {
-  const left = fmtLeft(minsLeft(machine, now));
+  const left = fmtLeft(leftAt(machine, now));
   return left === "all night" ? "All night" : left;
 };
 
@@ -98,6 +98,13 @@ function waitLabel(spot: Spot | undefined): string {
   return "On no machine yet";
 }
 
+/** Of these games' spots, the one whose busy machine is back soonest; none when no machine says. */
+function soonestBack(spots: (Spot | undefined)[]): Spot | undefined {
+  return spots
+    .filter((s): s is Spot & { back: NonNullable<Spot["back"]> } => Boolean(s?.back))
+    .sort((a, b) => a.back.backAt - b.back.backAt)[0];
+}
+
 /**
  * Why nothing on the wall is ready, from the host schedule: who comes back
  * first and when, or that what is free does not last the session, or that
@@ -105,7 +112,7 @@ function waitLabel(spot: Spot | undefined): string {
  */
 function emptyLine(games: Game[], spots: ReadonlyMap<string, Spot>): string {
   const known = games.flatMap((g) => spots.get(g.id) ?? []);
-  const back = known.map((s) => s.back).find(Boolean);
+  const back = soonestBack(known)?.back;
   if (back) return `Every shared machine is in use. ${back.name} is back at ${back.at}. `;
   if (known.some((s) => s.free))
     return "No free machine lasts all of tonight. Try a shorter Tonight, up top. ";
@@ -196,7 +203,10 @@ export function Wall({ swiff }: { swiff: Swiff }) {
               <Glyph name="arrow" size={16} />
             </button>
           ) : busy.length ? (
-            <BandTab label={waitLabel(spots.get(busy[0]!.id))} n={busy.length} />
+            <BandTab
+              label={waitLabel(soonestBack(busy.map((g) => spots.get(g.id))) ?? spots.get(busy[0]!.id))}
+              n={busy.length}
+            />
           ) : (
             <span className="band-tab" />
           )}
@@ -428,7 +438,7 @@ function BandTile({ game, preview, swiff, signedIn }: TileProps) {
       <>
         <span>{best.name}</span>
         <span className="band-tile-left">
-          <TimeMark minutes={minsLeft(best, swiff.clock)} />
+          <TimeMark minutes={leftAt(best, swiff.clock)} />
           {leftLabel(best, swiff.clock)}
         </span>
       </>

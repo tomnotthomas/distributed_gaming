@@ -65,6 +65,8 @@ export type Machine = {
   quality: string;
   /** Clock time the owner has promised it until, or "late". */
   until: string;
+  /** A real host's free-until as Unix ms, when it is not "late"; demo machines go by `until` alone. */
+  untilAt?: number;
   busy: boolean;
   /** Clock time a busy machine is free again. */
   back?: string;
@@ -100,8 +102,8 @@ export type Spot = {
   busy: number;
   /** The best of those, the one the wall offers; null when none is. */
   best: Machine | null;
-  /** When none is: a busy machine that comes back, and the clock time it does. */
-  back: { name: string; at: string } | null;
+  /** When none is: a busy machine that comes back, the clock time it does, and that time as ms to compare by. */
+  back: { name: string; at: string; backAt: number } | null;
 };
 
 export type SessionLength = "quick" | "evening" | "night";
