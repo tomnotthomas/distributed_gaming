@@ -1,14 +1,17 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PREFS } from "./derive";
+import type { ProbeResult } from "@swiff/rtc";
 import { MAX_APPIDS } from "./live";
 import {
   BACKSTOP_MS,
+  MEASURED_FOR_MS,
   MIN_GAP_MS,
   SLOW_POLL_MS,
   useLive,
   type EventStream,
   type LiveOptions,
+  type Prober,
 } from "./useLive";
 
 const json = (body: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(body), init);
@@ -223,5 +226,137 @@ describe("useLive", () => {
     await flush();
     expect(stream.close).toHaveBeenCalled();
     expect(result.current.wall).toBeNull();
+  });
+
+  describe("latency probes", () => {
+    /** A machine as the list sends it; `probe` is its token when it is one of the top three not yet measured. */
+    const machine = (id: string, probe: string | null) => ({
+      id,
+      name: id,
+      gpu: "RTX 4070",
+      cpu: "Ryzen 7",
+      refreshHz: 144,
+      availableUntil: null,
+      minutesLeft: null,
+      coversSession: true,
+      latency: { rttMs: 20, jitterMs: 1, relayed: false, source: "estimate" },
+      response: 2,
+      picture: 3,
+      probe,
+    });
+
+    /**
+     * The server: lists `ids` but those the read's `links` say are unreachable,
+     * hands out a token for each of the top three not in `links`, and keeps
+     * every `links` read.
+     */
+    function listing(ids: string[]) {
+      const links: (Record<string, unknown> | null)[] = [];
+      const get = vi.fn(async (path: string) => {
+        if (path.startsWith("/api/ping")) return new Response(null, { status: 204 });
+        const query = new URL(path, "http://x").searchParams;
+        const sent = query.get("links") ? (JSON.parse(query.get("links")!) as Record<string, unknown>) : null;
+        if (path.startsWith("/api/availability")) return json([]);
+        links.push(sent);
+        return json({
+          appid: 730,
+          minutes: 60,
+          machines: ids
+            .filter((id) => sent?.[id] !== null) // unreachable: not listed (E6)
+            .map((id, i) => machine(id, i < 3 && !(sent && id in sent) ? `token-${id}` : null)),
+          reason: null,
+          busy: [],
+          iceServers: [{ urls: "turn:turn.test" }],
+        });
+      });
+      return { get: get as unknown as typeof fetch, links };
+    }
+
+    /** A prober that answers each round with `answer`, resolving when the test says. */
+    function prober(answer: (hostId: string) => ProbeResult) {
+      const rounds: { targets: string[]; iceServers: RTCIceServer[] }[] = [];
+      let release: () => void = () => {};
+      const probe = vi.fn<Prober>((targets, iceServers) => {
+        rounds.push({ targets: targets.map((t) => t.hostId), iceServers });
+        return new Promise<ProbeResult[]>((resolve) => {
+          release = () => resolve(targets.map((t) => answer(t.hostId)));
+        });
+      });
+      return { probe, rounds, finish: () => act(async () => release()) };
+    }
+
+    it("measures the top three on the game page, then ranks the list again by what it found", async () => {
+      const api = listing(["pc-1", "pc-2", "pc-3", "pc-4"]);
+      const probes = prober((hostId) =>
+        hostId === "pc-2"
+          ? { hostId, status: "unreachable" }
+          : { hostId, status: "measured", link: { rttMs: 9, jitterMs: 1, relayed: hostId === "pc-3" } },
+      );
+      const { result } = renderHook(() =>
+        useLive(options({ appid: 730, fetch: api.get, probe: probes.probe })),
+      );
+      await started();
+      expect(probes.rounds).toEqual([
+        { targets: ["pc-1", "pc-2", "pc-3"], iceServers: [{ urls: "turn:turn.test" }] },
+      ]);
+      expect(result.current.measuring).toBe(730);
+
+      await probes.finish();
+      await flush();
+      expect(api.links).toEqual([
+        null,
+        {
+          "pc-1": { rttMs: 9, jitterMs: 1, relayed: false },
+          "pc-2": null,
+          "pc-3": { rttMs: 9, jitterMs: 1, relayed: true },
+        },
+      ]);
+      // pc-4 is in the top three now that pc-2 is not listed: it is probed in a round of its own.
+      expect(probes.rounds.map((r) => r.targets)).toEqual([["pc-1", "pc-2", "pc-3"], ["pc-4"]]);
+      expect(result.current.measuring).toBe(730);
+      await probes.finish();
+      await flush();
+      expect(result.current.measuring).toBeNull();
+      // A booking goes by the server and every machine reached.
+      expect(result.current.rtts.machines).toEqual({ "pc-1": 9, "pc-3": 9, "pc-4": 9 });
+      expect(result.current.rtts.server).toEqual(expect.any(Number));
+    });
+
+    it("leaves the estimate standing when a probe learns nothing, and does not ask again at once", async () => {
+      const api = listing(["pc-1"]);
+      const probes = prober((hostId) => ({ hostId, status: "unanswered", reason: "too-many" }));
+      const { stream, fire } = fakeStream();
+      const { result } = renderHook(() =>
+        useLive(options({ appid: 730, fetch: api.get, probe: probes.probe, eventSource: () => stream })),
+      );
+      await started();
+      await probes.finish();
+      await flush();
+      expect(api.links).toEqual([null]);
+      expect(result.current.measuring).toBeNull();
+
+      fire("availability");
+      await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
+      await flush();
+      expect(api.links).toEqual([null, null]);
+      expect(probes.rounds).toHaveLength(1);
+
+      // Past MEASURED_FOR_MS it is worth a try again.
+      await act(async () => vi.advanceTimersByTime(MEASURED_FOR_MS));
+      fire("availability");
+      await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
+      await flush();
+      expect(probes.rounds).toHaveLength(2);
+    });
+
+    it("never probes from the wall", async () => {
+      const api = listing(["pc-1"]);
+      const probes = prober((hostId) => ({ hostId, status: "unreachable" }));
+      renderHook(() => useLive(options({ appid: null, fetch: api.get, probe: probes.probe })));
+      await started();
+      await act(async () => vi.advanceTimersByTime(BACKSTOP_MS + MIN_GAP_MS));
+      await flush();
+      expect(probes.probe).not.toHaveBeenCalled();
+    });
   });
 });
