@@ -10,10 +10,11 @@
 // The desktop app lands on a separate branch. Until it does, this file skips
 // rather than failing, so CI on main stays honest instead of permanently red.
 
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
-import { E2E_MACHINE_KEY, E2E_ROOM } from "./credentials";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { E2E_GRACE_MS, E2E_MACHINE_KEY, E2E_ROOM, renterCookie } from "./credentials";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 // SWIFF_DESKTOP_DIR lets this run against a desktop app built somewhere else —
@@ -133,8 +134,9 @@ test.describe("Swiff Host desktop app", () => {
     // The key is a credential for this machine's room: the renderer may ask
     // main to store and return it. Besides that it may read what the PC is,
     // hear its installed games change, and how long since its keyboard was
-    // used, send the tray glance its snapshot and hear the glance's actions.
-    // No other door into main.
+    // used, send the tray glance its snapshot and hear the glance's actions,
+    // and run a renter's session: start this app's own streamer with a
+    // session key, tell it what next, and stop it. No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -148,6 +150,11 @@ test.describe("Swiff Host desktop app", () => {
       secondsSinceInput: "function",
       setGlance: "function",
       onTrayAction: "function",
+      sessionLogon: "function",
+      sessionLaunch: "function",
+      sessionSend: "function",
+      sessionEnd: "function",
+      onSessionEvent: "function",
     });
   });
 
@@ -211,16 +218,8 @@ test.describe("Swiff Host desktop app", () => {
 
   test("goes live from the connection settings, then pauses and resumes", async ({ baseURL }, testInfo) => {
     const window = await app.firstWindow();
-    // The screen itself is the test above's to capture. Here a canvas stands in
-    // for it, so the flow from settings to a room the server holds runs on any
-    // machine, including one that has not granted screen recording.
-    await window.evaluate(() => {
-      navigator.mediaDevices.getDisplayMedia = async () => {
-        const canvas = Object.assign(document.createElement("canvas"), { width: 640, height: 360 });
-        canvas.getContext("2d")!.fillRect(0, 0, 640, 360);
-        return canvas.captureStream(10);
-      };
-    });
+    // Going live holds the room with the machine key; nothing is captured until
+    // a player's session starts its streamer (the next describe).
     await window.getByRole("button", { name: "Settings" }).click();
     await expect(window.getByRole("heading", { name: "Connection" })).toBeVisible();
 
@@ -319,5 +318,154 @@ test.describe("Swiff Host desktop app, demo data", () => {
       await window.waitForTimeout(700);
       await testInfo.attach(name, { body: await window.screenshot(), contentType: "image/png" });
     }
+  });
+});
+
+/** A PC that can play Counter-Strike 2: the host report of docs/system-design/host.md. */
+const REPORT = {
+  hardware: {
+    gpu: "NVIDIA GeForce RTX 4070",
+    vramMb: 12_288,
+    ramMb: 32_768,
+    cpu: "AMD Ryzen 7 7800X3D",
+    cores: 8,
+    encoders: ["h264"],
+    display: { width: 1920, height: 1080, refreshHz: 60 },
+  },
+  games: [730],
+};
+
+// A player's whole session, with the streamer started here rather than in a
+// renter's Windows account (no session service is installed): the same
+// handoff the service runs, minus the logon. The streamer streams a test
+// pattern, and the game "launch" is written to a file instead of Steam.
+test.describe("Swiff Host desktop app, a player's session", () => {
+  test.skip(!existsSync(DESKTOP_MAIN), "desktop/ is not on this branch");
+  test.describe.configure({ mode: "serial", timeout: 180_000 });
+
+  let app: ElectronApplication;
+  let launches: string;
+
+  test.beforeAll(async () => {
+    // A Steam library with Counter-Strike 2 installed, where the app looks for
+    // one: under HOME off Windows, under Program Files (x86) on it.
+    const root = mkdtempSync(join(tmpdir(), "swiff-e2e-"));
+    const steam = process.platform === "win32" ? join(root, "Steam") : join(root, ".steam", "steam");
+    mkdirSync(join(steam, "steamapps"), { recursive: true });
+    writeFileSync(join(steam, "steamapps", "libraryfolders.vdf"), '"libraryfolders"\n{\n}\n');
+    writeFileSync(
+      join(steam, "steamapps", "appmanifest_730.acf"),
+      '"AppState"\n{\n\t"appid"\t\t"730"\n\t"name"\t\t"Counter-Strike 2"\n\t"StateFlags"\t\t"4"\n}\n',
+    );
+    launches = join(root, "launches.txt");
+    app = await electron.launch({
+      args: [DESKTOP_DIR],
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        HOME: root,
+        "ProgramFiles(x86)": root,
+        SWIFF_STREAMER_TEST_PATTERN: "1",
+        SWIFF_GAME_LAUNCH_LOG: launches,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  test("serves a claim: key, streamer, first frame, game, grace, and the PC back", async ({ baseURL }) => {
+    const window = await app.firstWindow();
+    const api = async (method: string, path: string, body?: unknown, auth?: string) => {
+      const res = await fetch(`${baseURL}${path}`, {
+        method,
+        headers: {
+          cookie: renterCookie(),
+          ...(auth ? { authorization: `Bearer ${auth}` } : {}),
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null };
+    };
+
+    await window.getByRole("button", { name: "Settings" }).click();
+    await window.getByLabel("Signaling server").fill(baseURL!);
+    await window.getByLabel("Machine id").fill(E2E_ROOM);
+    await window.getByLabel("Machine key").fill(E2E_MACHINE_KEY);
+    await window.getByRole("button", { name: "Save and start sharing" }).click();
+    await expect(window.getByRole("heading", { name: "Waiting for a player" })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(window.getByText(`${E2E_ROOM} is connected to Swiff.`, { exact: false })).toBeVisible();
+
+    // The app offered the PC as it reads it; a runner's hardware cannot all be
+    // read, so the full report goes in as well, for the matcher to pick it.
+    expect(
+      (
+        await api(
+          "PUT",
+          `/api/machines/${E2E_ROOM}/availability`,
+          { available: true, ...REPORT },
+          E2E_MACHINE_KEY,
+        )
+      ).status,
+    ).toBe(200);
+
+    // A renter books Counter-Strike 2 and claims this PC.
+    const booking = await api("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    expect(booking.status).toBe(200);
+    await expect
+      .poll(async () => (await api("GET", `/api/bookings/${booking.body.bookingId}`)).body.status)
+      .toBe("matched");
+    const claim = await api("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+    expect(claim.status).toBe(200);
+    const { sessionId, ticket } = claim.body as { sessionId: string; ticket: string };
+
+    // Pushed to the app, which starts the host session and the streamer with its key.
+    await expect(window.getByText("Waiting for the player to join")).toBeVisible({ timeout: 30_000 });
+
+    // The renter joins with their ticket.
+    const opened = app.waitForEvent("window");
+    await app.evaluate(({ BrowserWindow }, url) => {
+      void new BrowserWindow({ show: false }).loadURL(url);
+    }, `${baseURL}/rtc#ticket=${ticket}`);
+    const renter: Page = await opened;
+    await renter.getByRole("button", { name: "Connect" }).click();
+    await expect(renter.locator(".status")).toContainText("connected", { timeout: 30_000 });
+
+    // The first frame starts the session and launches the game.
+    await expect(window.getByText("Counter-Strike 2 started: a player is streaming")).toBeVisible({
+      timeout: 30_000,
+    });
+    expect(readFileSync(launches, "utf8")).toBe("steam://rungameid/730\n");
+    expect((await api("GET", `/api/bookings/${booking.body.bookingId}`)).body.status).toBe("playing");
+
+    // The renter drops: the player has the grace to come back, and does not.
+    await app.evaluate(
+      ({ BrowserWindow }, id) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL().includes(id))
+          ?.destroy(),
+      "/rtc",
+    );
+    await expect(window.getByText(/The player dropped and has \d:\d\d to come back/)).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The server ends the session when the grace runs out; the PC is the owner's again.
+    await expect(window.getByRole("heading", { name: "Waiting for a player" })).toBeVisible({
+      timeout: E2E_GRACE_MS + 30_000,
+    });
+    expect((await api("GET", `/api/bookings/${booking.body.bookingId}`)).body.status).toBe("ended");
+    // Its keys are dead: the session cannot be started again.
+    expect(
+      (await api("POST", `/api/machines/${E2E_ROOM}/session`, { sessionId }, E2E_MACHINE_KEY)).status,
+    ).toBe(409);
+
+    await window.getByRole("button", { name: "Pause sharing" }).click();
   });
 });

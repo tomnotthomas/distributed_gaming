@@ -11,8 +11,12 @@ export const E2E_MACHINE_KEY = "e2e-machine-key";
 const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 const E2E_SESSION_SECRET = "e2e-session-secret-that-is-long-enough-to-pass";
 
+/** How long a renter who drops has to come back, on the e2e server: short enough to wait out. */
+export const E2E_GRACE_MS = 8_000;
+
 export const E2E_ENV = {
   ROOM_SECRET: E2E_SECRET,
+  SWIFF_RECONNECT_GRACE_MS: String(E2E_GRACE_MS),
   // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
   SESSION_SECRET: E2E_SESSION_SECRET,
   MACHINE_KEYS: `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
@@ -30,3 +34,7 @@ export async function signIn(context: BrowserContext, baseURL: string, steamId =
   const value = mintRenterSession(E2E_SESSION_SECRET, steamId, 600);
   await context.addCookies([{ name: "swiff_session", value, url: baseURL }]);
 }
+
+/** The cookie header of a signed-in renter, for calling the Booking API straight from a test. */
+export const renterCookie = (steamId = "76561198000000002") =>
+  `swiff_session=${mintRenterSession(E2E_SESSION_SECRET, steamId, 600)}`;

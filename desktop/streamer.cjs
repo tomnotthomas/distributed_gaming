@@ -86,7 +86,11 @@ process.stdin.on("end", () => app.quit());
 
 const fromStreamer = (event) => win !== null && event.sender === win.webContents;
 
-ipcMain.handle("streamer:init", (event) => (fromStreamer(event) ? init : null));
+// SWIFF_STREAMER_TEST_PATTERN=1 streams a moving test pattern instead of the
+// screen: the end-to-end tests run where no display can be captured.
+const testPattern = process.env.SWIFF_STREAMER_TEST_PATTERN === "1";
+
+ipcMain.handle("streamer:init", (event) => (fromStreamer(event) ? { ...init, testPattern } : null));
 ipcMain.on("streamer:report", (event, raw) => {
   if (!fromStreamer(event)) return;
   const valid = streamerEvent(raw);

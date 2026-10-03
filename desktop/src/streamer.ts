@@ -13,7 +13,8 @@ export type StreamerWindowCommand =
 
 /** The streamer window's calls (streamer-preload.cjs). */
 export type StreamerBridge = {
-  init(): Promise<StreamerInit | null>;
+  /** What the streamer was started with; `testPattern` streams a test pattern instead of the screen. */
+  init(): Promise<(StreamerInit & { testPattern?: boolean }) | null>;
   report(event: StreamerEvent): void;
   onCommand(listener: (command: StreamerWindowCommand) => void): () => void;
 };
@@ -36,6 +37,19 @@ async function captureScreen(): Promise<MediaStream> {
   return stream;
 }
 
+/** A moving test pattern in place of the screen, for the end-to-end tests. */
+function capturePattern(): MediaStream {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 640, height: 360 });
+  const ctx = canvas.getContext("2d")!;
+  let frame = 0;
+  setInterval(() => {
+    frame += 1;
+    ctx.fillStyle = `hsl(${(frame * 9) % 360} 70% 45%)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }, 50);
+  return canvas.captureStream(20);
+}
+
 /** Run the streamer until the window closes. Resolves once it holds the room, or null when it cannot. */
 export async function runStreamer({
   bridge,
@@ -44,7 +58,7 @@ export async function runStreamer({
 }: Partial<Deps> & { bridge: StreamerBridge }): Promise<HostSession | null> {
   const init = await bridge.init();
   if (!init) return null;
-  const stream = await capture();
+  const stream = init.testPattern ? capturePattern() : await capture();
   const session = start({
     url: init.url,
     hostId: init.hostId,
