@@ -18,7 +18,14 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 1. The owner can install the host app on a Windows gaming PC from a single file.
 2. The owner can offer the PC for rent, with a price and how long it is available.
-3. The owner can take the PC back at any moment (kill switch).
+3. A running session is protected until its claimed end. The owner's share-until time is
+   when new claims stop: a session that started before it runs to its claimed end. Once the
+   platform receives the share-until time (the app does not send it yet), players can only
+   book time that ends by it. The owner can always stop new sessions. Ending early is a
+   deliberate, confirmed action: it warns the player and gives them 5 minutes to save, and
+   it costs the owner reliability. The app does not offer it yet; it shows this flow only on
+   its labelled demo data.
+   Powering off or disconnecting the PC is still possible and counts as a drop.
 4. The owner can see whether the PC is idle, available or in a session.
 5. The renter can play on the PC without anyone sitting at it: Steam and the game start on
    their own.
@@ -31,16 +38,16 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ## 2. Non-functional requirements
 
-|                          | Requirement                                                                                                           | Why                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **Unattended**           | The system starts capture, Steam and the game with no one clicking anything on the PC.                                | A rental machine has nobody sitting at it.                                           |
-| **Isolation**            | The system runs the session in a separate Windows account and wipes it afterwards.                                    | The renter must never reach the owner's files, passwords or signed-in accounts.      |
-| **Latency**              | The system injects input as OS-level input the moment it arrives.                                                     | Input delay is felt far more than video delay.                                       |
-| **Correctness of input** | The system never leaves a key held down.                                                                              | A dropped key-up walks the character into a wall until the session ends.             |
-| **Liveness**             | The system holds a socket open to the platform, and the platform stops offering the PC the moment it closes.          | Matching a renter to a dead machine wastes their time.                               |
-| **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds. | The wipe would otherwise delete the renter's progress.                               |
-| **Control**              | The system hands the PC back to the owner instantly on the kill switch, and stops input at the same moment.           | The owner has to trust they can always take their machine back.                      |
-| **Trust**                | The system ships as a signed installer.                                                                               | Screen capture plus input injection looks like malware to antivirus and SmartScreen. |
+|                          | Requirement                                                                                                                                                                                                           | Why                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Unattended**           | The system starts capture, Steam and the game with no one clicking anything on the PC.                                                                                                                                | A rental machine has nobody sitting at it.                                                      |
+| **Isolation**            | The system runs the session in a separate Windows account and wipes it afterwards.                                                                                                                                    | The renter must never reach the owner's files, passwords or signed-in accounts.                 |
+| **Latency**              | The system injects input as OS-level input the moment it arrives.                                                                                                                                                     | Input delay is felt far more than video delay.                                                  |
+| **Correctness of input** | The system never leaves a key held down.                                                                                                                                                                              | A dropped key-up walks the character into a wall until the session ends.                        |
+| **Liveness**             | The system holds a socket open to the platform, and the platform stops offering the PC the moment it closes.                                                                                                          | Matching a renter to a dead machine wastes their time.                                          |
+| **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds.                                                                                                 | The wipe would otherwise delete the renter's progress.                                          |
+| **Control**              | The system keeps a running session going to its claimed end, stops new claims at the owner's share-until time, and ends a session early only on the owner's confirmed action, after a 5-minute warning to the player. | A player who pays must not lose their game mid-session; the owner can always stop new sessions. |
+| **Trust**                | The system ships as a signed installer.                                                                                                                                                                               | Screen capture plus input injection looks like malware to antivirus and SmartScreen.            |
 
 ---
 

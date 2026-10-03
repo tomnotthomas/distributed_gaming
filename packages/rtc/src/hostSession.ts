@@ -36,6 +36,13 @@ export const DEFAULT_CAPTURE: CaptureSettings = {
 /** What `session-claimed` says: the platform session to start, the Steam appid and the minutes booked. */
 export type SessionClaim = Omit<Extract<SignalMessage, { type: "session-claimed" }>, "type">;
 
+/**
+ * Whether the room is held: `connecting` while a socket opens, `registered`
+ * once the server confirms the register, `offline` when a socket drops and the
+ * client is retrying.
+ */
+export type HostConnection = "connecting" | "registered" | "offline";
+
 export type HostSessionOptions = IceConfig & {
   url: string;
   hostId: string;
@@ -63,6 +70,12 @@ export type HostSessionOptions = IceConfig & {
    * PC service will. Off, a claim is only reported.
    */
   serveClaims?: boolean;
+  /**
+   * The room's connection, as it changes. A socket this session closes itself
+   * (a handover between the machine key and a session key, or stop) reports
+   * nothing, and neither does a refused credential: onDenied says that.
+   */
+  onConnection?: (state: HostConnection) => void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -141,7 +154,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     credential: { key: string } | { sessionKey: string },
     claim: SessionClaim | null = null,
   ) => {
-    signaling?.close();
+    leave();
     teardown();
     opts.onPeerHere(false);
     signaling = connect(credential, claim);
@@ -160,8 +173,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
    * the live one first for a fresh key. On failure, wait for the next claim.
    */
   const serve = (claim: SessionClaim, restart = false) => {
-    signaling?.close();
-    signaling = null;
+    leave();
     (restart ? endSession(machine) : Promise.resolve())
       .then(() => requestSessionKey({ ...machine, sessionId: claim.sessionId }))
       .then((sessionKey) => !stopped && reconnect({ sessionKey }, claim))
@@ -176,8 +188,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   /** End the session holding the room, then register with the machine key; the claim is pushed again. */
   const reclaim = () => {
-    signaling?.close();
-    signaling = null;
+    leave();
     endSession(machine)
       .then(() => !stopped && reconnect({ key: opts.machineKey }))
       .catch((cause: unknown) => {
@@ -187,13 +198,39 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       });
   };
 
+  // Each socket reports under the generation it was opened in. Leaving one
+  // starts a new generation, so a socket closed on purpose, or refused, cannot
+  // report itself offline after the fact.
+  let generation = 0;
+
+  /** Close the socket holding the room now, on purpose. */
+  const leave = () => {
+    generation++;
+    signaling?.close();
+    signaling = null;
+  };
+
   /** Register with `credential`; `claim` is the session served with it, null for the machine key. */
-  const connect = (credential: { key: string } | { sessionKey: string }, claim: SessionClaim | null) =>
-    connectSignaling({
+  const connect = (credential: { key: string } | { sessionKey: string }, claim: SessionClaim | null) => {
+    const mine = ++generation;
+    const report = (state: HostConnection) => {
+      if (mine === generation && !stopped) opts.onConnection?.(state);
+    };
+    return connectSignaling({
       url: opts.url,
       onOpen: (send) => send({ type: "register", hostId: opts.hostId, ...credential }),
-      onMessage: (msg, send) => onMessage(msg, send, claim),
+      onMessage: (msg, send) => {
+        if (msg.type === "registered") report("registered");
+        // The server hangs up after a refusal; that close is not a drop.
+        if (msg.type === "denied") generation++;
+        onMessage(msg, send, claim);
+      },
+      onStatus: (status) => {
+        if (status === "connecting") report("connecting");
+        else if (status === "closed") report("offline");
+      },
     });
+  };
 
   const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void, claim: SessionClaim | null) => {
     switch (msg.type) {
@@ -243,7 +280,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   return {
     stop: () => {
       stopped = true;
-      signaling?.close();
+      leave();
       teardown();
     },
   };

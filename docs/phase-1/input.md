@@ -34,7 +34,7 @@ work that is wasted if the answer is no.
 | Input capture   | Pointer lock, key up/down, Gamepad API           | Renter page            |
 | Input channels  | Two `RTCDataChannel`s with different reliability | `packages/rtc`         |
 | Input injection | Win32 `SendInput` through an FFI binding         | Host app, main process |
-| Kill switch     | Host takes the machine back, instantly           | Host app               |
+| Early end       | Owner's confirmed early end, input stops at once | Host app               |
 
 ---
 
@@ -83,8 +83,9 @@ library.
    breaks every game that captures the cursor. Scancodes over virtual key codes for the
    same layout reason.
 
-5. **Kill switch.** Stop sharing already ends the session; input must stop at the same
-   instant, and a held key must be released rather than left down.
+5. **Early end.** When the owner ends a session early ([`host.md`](../system-design/host.md)
+   requirement 3), input must stop the instant it ends, and a held key must be released
+   rather than left down.
 
 ### Fails silently if omitted
 
@@ -146,8 +147,8 @@ and implement the sink: `moveBy` → relative `MOUSEEVENTF_MOVE`, `move` → abs
 (0..1 of the streamed screen), `button`, `wheel` (1/120 notch, DOM direction — negate `dy`
 for `MOUSEEVENTF_WHEEL`), `key` (map `event.code` to a scancode), `gamepad` (full
 standard-layout state, for a virtual controller). Close the receiver when the session ends
-or the kill switch fires; that releases whatever is still down. Still to do on that side:
-the spike, injection, the kill switch, and the latency echo under Verification.
+or the owner ends it early; that releases whatever is still down. Still to do on that side:
+the spike, injection, the early end, and the latency echo under Verification.
 
 ---
 
@@ -195,7 +196,7 @@ it. Measure it in step 5's verification rather than discovering it in a demo.
 ## Open questions
 
 - Does input stay on while the host is watching, or does the host's presence pause the
-  session? Related to the kill switch, and it decides whether hosting is passive income or a
+  session? Related to ending sessions early, and it decides whether hosting is passive income or a
   thing you supervise.
 - Gamepad passthrough is a real device emulation problem (ViGEm) rather than synthetic
   input. The renter already sends the full controller state; what the PC does with it —

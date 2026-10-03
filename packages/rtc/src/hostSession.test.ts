@@ -3,7 +3,7 @@
 // handover are covered here: no renter arrives, so no peer connection is made.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { requestSessionKey, startHostSession, type SessionClaim } from "./hostSession";
+import { requestSessionKey, startHostSession, type HostConnection, type SessionClaim } from "./hostSession";
 import { FakeSocket } from "./test/fakes";
 
 beforeEach(() => {
@@ -56,12 +56,14 @@ const callsOf = (fetch: ReturnType<typeof fakeFetches>) =>
 /** Start a host session on a fresh fake socket, recording what it reports. */
 function start(serveClaims = false) {
   const claims: SessionClaim[] = [];
+  const connection: HostConnection[] = [];
   const denied = vi.fn();
   const claimOver = vi.fn();
   const session = startHostSession({
     serveClaims,
     onDenied: denied,
     onClaimOver: claimOver,
+    onConnection: (state) => connection.push(state),
     url: "wss://signal.test",
     hostId: "pc-1",
     machineKey: "test-machine-key",
@@ -72,7 +74,7 @@ function start(serveClaims = false) {
   });
   const socket = FakeSocket.instances[0]!;
   socket.accept();
-  return { session, socket, claims, denied, claimOver };
+  return { session, socket, claims, connection, denied, claimOver };
 }
 
 describe("startHostSession", () => {
@@ -323,6 +325,58 @@ describe("startHostSession", () => {
     session.stop();
     await settle();
     expect(FakeSocket.instances).toHaveLength(1);
+  });
+});
+
+describe("startHostSession connection reports", () => {
+  it("reports connecting, then registered once the server confirms the room", () => {
+    const { session, socket, connection } = start();
+    expect(connection).toEqual(["connecting"]);
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    expect(connection).toEqual(["connecting", "registered"]);
+    session.stop();
+  });
+
+  it("reports offline when the socket drops, and registered again after the retry", () => {
+    const { session, socket, connection } = start();
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    socket.drop();
+    expect(connection.at(-1)).toBe("offline");
+
+    vi.advanceTimersByTime(500);
+    const retry = FakeSocket.instances[1]!;
+    retry.accept();
+    retry.deliver({ type: "registered", hostId: "pc-1" });
+    expect(connection).toEqual(["connecting", "registered", "offline", "connecting", "registered"]);
+    session.stop();
+  });
+
+  it("reports no drop for a socket it handed over to a session key", async () => {
+    fakeFetch(201, { sessionKey: "test-session-key" });
+    const { session, socket, connection } = start(true);
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    socket.deliver(CLAIM);
+    socket.drop(); // the machine-key socket's close lands after the handover began
+    await settle();
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+    streamer.deliver({ type: "registered", hostId: "pc-1" });
+    expect(connection).toEqual(["connecting", "registered", "connecting", "registered"]);
+    session.stop();
+  });
+
+  it("reports no drop after a refusal or after stop", () => {
+    const refused = start();
+    refused.socket.deliver({ type: "denied", reason: "bad-machine-key" });
+    refused.socket.drop();
+    expect(refused.connection).toEqual(["connecting"]);
+    refused.session.stop();
+
+    FakeSocket.instances = [];
+    const stopped = start();
+    stopped.session.stop();
+    stopped.socket.drop();
+    expect(stopped.connection).toEqual(["connecting"]);
   });
 });
 

@@ -6,7 +6,7 @@ export { preferStereoOpus, withStereoOpus, DEFAULT_AUDIO_BITRATE } from "./opus"
 export { connectSignaling } from "./signaling";
 export type { SignalMessage, Signaling, SignalingOptions } from "./signaling";
 export { startHostSession, requestSessionKey, DEFAULT_CAPTURE } from "./hostSession";
-export type { CaptureSettings, HostSessionOptions, SessionClaim } from "./hostSession";
+export type { CaptureSettings, HostConnection, HostSessionOptions, SessionClaim } from "./hostSession";
 export { startRenterSession, DEFAULT_STATS_INTERVAL_MS } from "./renterSession";
 export type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "./renterSession";
 export {

@@ -6,6 +6,8 @@
 // The machine id is not a secret and lives beside it. The machine key is, so it
 // goes through preload.cjs to main, which stores it encrypted by the OS.
 
+import { bridge } from "./bridge";
+
 const URL_KEY = "swiff.signalingUrl";
 const ID_KEY = "swiff.machineId";
 
@@ -31,14 +33,6 @@ export const loadUrl = () => load(URL_KEY);
 export const saveUrl = (url: string) => save(URL_KEY, url);
 export const loadMachineId = () => load(ID_KEY) || DEFAULT_HOST_ID;
 export const saveMachineId = (id: string) => save(ID_KEY, id);
-
-type HostBridge = {
-  loadMachineKey(): Promise<string>;
-  saveMachineKey(key: string): Promise<boolean>;
-};
-
-/** Absent when the renderer runs outside Electron, e.g. under vite in a browser. */
-const bridge = (): HostBridge | undefined => (window as { swiffHost?: HostBridge }).swiffHost;
 
 export async function loadMachineKey(): Promise<string> {
   return (
@@ -66,3 +60,49 @@ export function toSocketUrl(input: string): string {
   if (/^http:\/\//.test(trimmed)) return trimmed.replace(/^http:/, "ws:");
   return `wss://${trimmed}`;
 }
+
+/** Hosts an unencrypted address may name: this PC itself, where nothing crosses the network. */
+const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+
+/**
+ * Why the app will not connect to `url` (a toSocketUrl result), or null when
+ * it may. The machine key travels in the first message, so anything but this
+ * PC itself must be encrypted (wss://, from https:// or a bare address).
+ */
+export function refusedAddress(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "That signaling server address is not valid.";
+  }
+  if (parsed.protocol === "wss:") return null;
+  if (parsed.protocol === "ws:") {
+    return LOOPBACK.test(parsed.hostname)
+      ? null
+      : "Use an https:// or wss:// address. Over http:// or ws:// this PC's key would cross the network unencrypted.";
+  }
+  return "That signaling server address is not valid.";
+}
+
+// What the app keeps on this PC: whether the owner has been through the first
+// run, and today's session count.
+const SETUP_KEY = "swiff.setupDone";
+const SESSIONS_KEY = "swiff.sessions";
+
+export const loadSetupDone = () => load(SETUP_KEY) === "1";
+export const saveSetupDone = () => save(SETUP_KEY, "1");
+
+/** The day a session count belongs to, on this PC's calendar: "2026-09-24". */
+const dayOf = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** Sessions players have claimed on this PC today. */
+export function loadSessionsToday(now: number): number {
+  const [day, n] = load(SESSIONS_KEY).split(" ");
+  return day === dayOf(now) && Number.isInteger(Number(n)) ? Number(n) : 0;
+}
+export const countSession = (now: number) =>
+  save(SESSIONS_KEY, `${dayOf(now)} ${loadSessionsToday(now) + 1}`);
