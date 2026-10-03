@@ -66,10 +66,14 @@ soon as it registers with the machine key while that session runs with no host s
 live; the heartbeat (`POST /api/machines/:id/heartbeat`) also carries the same id as
 `session.id`. Start with that.
 
-Until the Windows service exists, the host app (the desktop app and the web host page)
-stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
-starting that session, registers again with the session key, and goes back to the machine
-key once the session is over. A session key refused with `bad-session-key` is replaced as
+Until the Windows service exists, the host app stands in for it. The desktop app runs the
+session handoff ([`host.md`](host.md), "The session handoff"): it starts the host session
+and launches a separate streamer process with the session key on its stdin, which
+registers with that key alone; the app holds the machine key and goes back to it once the
+session is over. Without the service, that streamer runs in the owner's own Windows
+session. The web host page uses `startHostSession` with `serveClaims`, which answers
+`session-claimed` by starting that session, registers again with the session key itself,
+and goes back to the machine key once the session is over. A session key refused with `bad-session-key` is replaced as
 the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
 A start or end that fails on the network or with a `5xx` is tried up to three times; a
 `4xx` refusal goes back to the machine key at once. A machine key refused with

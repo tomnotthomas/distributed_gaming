@@ -130,8 +130,9 @@ POST /sessions/:id/end
   neither for nor against completion), `owner_kill` when the owner takes the machine
   back mid-session, `renter` only when the renter leaves with their own ticket
   (renter.md), and from its own deadlines `time_up` or `grace_expired` (the renter never
-  arrived) when the join ticket runs out and `host_offline` when the machine goes
-  silent or its socket drops. The reason feeds the machine's stability (below).
+  arrived) when the join ticket runs out, `grace_expired` too when a renter who dropped
+  mid-session does not come back within the reconnect grace (below), and `host_offline`
+  when the machine goes silent or its socket drops. The reason feeds the machine's stability (below).
 
 POST /machines/:id/upload-test
   <up to 8 MB, any bytes>
@@ -233,9 +234,39 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 | `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
 | `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
+| `peer-left`                | server → PC | The renter left. `{ grace: 120 }` when they dropped mid-session: the session waits that many seconds for them to come back (below).       |
+| `game-started`             | PC → server | `{ appid }`: the PC launched the booked game. Relayed to the renter only.                                                                 |
 | `probe-offer`              | server → PC | A renter's latency probe: `{ probeId, sdp }`, an offer for one data channel with all its candidates.                                      |
 | `probe-answer`             | PC → server | The PC's answer, `{ probeId, sdp }`, with all its candidates. The PC echoes what comes on the channel, and never gives up the seat.       |
 | `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
+
+### The session handoff
+
+What the host app does with a claim (`desktop/src/handoff.ts`):
+
+1. `session-claimed` on the machine-key socket. The app leaves that socket and starts the
+   host session (`POST /machines/:id/session`) for the session key.
+2. It signs the renter's Windows account in, then launches the streamer with the session
+   key on its stdin (`desktop/streamer.cjs`, the app started with `--streamer`). The
+   streamer captures the screen and registers with the session key alone.
+3. The renter joins with their ticket: `peer-joined`, then offer (video, audio and the two
+   input channels), answer and ICE.
+4. The stream's first frame marks the session started (`POST /sessions/:id/start`), and
+   the streamer launches `steam://rungameid/<appid>` and sends `game-started`.
+5. **Reconnect grace.** A renter whose socket drops mid-session leaves the PC
+   `peer-left { grace: 120 }`: the game keeps running and the streamer lets go of held
+   input. A `join` with the same ticket within 120 s carries on. Otherwise the server ends
+   the session as `grace_expired` (`server/src/grace.ts`). The renter's own End
+   (`/sessions/:id/leave`) and the owner taking the PC back end it at once, with no grace.
+   Should the server not end it, the app ends it itself 15 s after the grace.
+6. However the session ends (`denied session-ended` to the streamer), the app stops the
+   streamer, signs the renter's account out and wipes it, revokes the session's keys
+   (`DELETE /machines/:id/session`) and registers with the machine key again.
+
+Signing in, wiping and launching into the renter's account need a privileged Windows
+session service, which is not built yet: it is a separate step. Until it exists the app
+runs the streamer as a second copy of itself in the owner's own Windows session
+(`desktop/session-host.cjs`), with nothing to sign in or wipe.
 
 A latency probe (`probe` from the renter, then `probe-offer` and `probe-answer`) is a
 separate peer connection with one data channel and no media: the PC answers up to 4 at

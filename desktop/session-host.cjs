@@ -2,8 +2,8 @@
 // (src/handoff.ts). The app holds the machine key and the platform calls; this
 // only starts, talks to and stops the streamer, and nothing else:
 //
-//   renter   The Windows session service (service/SwiffSession.cs) is
-//            installed: it signs the swiff-renter account in at the console
+//   renter   A Windows session service answers on its pipe. It is not part
+//            of this app yet (a separate step): once installed, it signs the swiff-renter account in at the console
 //            through the credential provider, launches the streamer in that
 //            account with the session key on its stdin, and on end signs it
 //            out, wipes the profile and hands the console back to the owner.
