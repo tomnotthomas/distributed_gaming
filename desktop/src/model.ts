@@ -13,7 +13,7 @@ import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 
 export type Game = SteamGame;
 
-/** What the app read about the PC. The demo also knows a connection speed, which the app cannot measure. */
+/** What the app read about the PC, and its upload speed once the app has measured it. */
 export type Hardware = PcHardware & { upMbps?: number | null };
 
 /** Players looking for a PC with a game in the last hour, across Swiff. */
@@ -158,6 +158,8 @@ export type Connection = {
   url: string;
   machineId: string;
   machineKey: string;
+  /** The name players see; empty for the machine id. */
+  name: string;
   /** Something to tell the owner about the key or the last attempt. */
   notice: string | null;
   /** The screen being captured, for the settings preview. */
@@ -170,7 +172,7 @@ export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machi
 export type HostView = {
   demo: boolean;
   now: number;
-  /** The name players see: the machine id until the app can set a name. */
+  /** The name players see: the owner's, else the machine id. */
   machine: string;
   pc: { reading: boolean; hardware: Hardware | null; hardwareRate: number | null };
   /**
@@ -207,9 +209,9 @@ export type HostActions = {
   endEarly: (() => void) | null;
   cancelEnd: (() => void) | null;
   retry(): void;
-  /** Choosing the games offered needs the platform to match on them: demo only until it can. */
+  /** Offer an installed game, or stop offering it; null until the games are read. */
   toggleOffer: ((appid: number) => void) | null;
-  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey">): Promise<void>;
+  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey" | "name">): Promise<void>;
   savePayout(): void;
 };
 

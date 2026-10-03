@@ -43,6 +43,7 @@
       "main.cjs",
       "preload.cjs",
       "pc.cjs",
+      "probe.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
       "dist/**"

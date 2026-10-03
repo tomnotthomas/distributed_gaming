@@ -3,7 +3,7 @@
 //   Booking API (renter, signed in)        Host API (gaming PC, machine key)
 //   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
 //   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat
-//   GET  /api/games/:appid/machines?minutes=
+//   GET  /api/games/:appid/machines?minutes=  POST /api/machines/:id/upload-test
 //   GET  /api/me
 //   POST /api/me/refresh
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start
@@ -37,12 +37,14 @@ import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
-import { bearer, HttpError, readJson } from "./http.js";
+import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
+/** The most an upload test may send: the host app sends 4 MB (desktop/src/report.ts). */
+const MAX_UPLOAD_TEST_BYTES = 8 * 1024 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
 /** The most games one availability call may ask about: a wall's worth. */
@@ -386,6 +388,15 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       reply(res, 200, await platform.heartbeat(id, hostReport(body)));
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "upload-test" && method === "POST") {
+      // The PC times this to report its upload speed (net.upMbps). Nothing is kept.
+      requireMachine(req, access, id);
+      await discardBody(req, MAX_UPLOAD_TEST_BYTES);
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
       return true;
     }
 

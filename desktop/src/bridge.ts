@@ -2,7 +2,7 @@
 // Electron (under vite in a browser, or in a test), so every caller has a
 // fallback for "no bridge".
 
-import type { PcRead } from "../pc.cjs";
+import type { PcRead, SteamGame } from "../pc.cjs";
 import type { Glance, TrayAction } from "./model";
 
 /** The app window's calls (preload.cjs). */
@@ -10,6 +10,7 @@ export type HostBridge = {
   loadMachineKey(): Promise<string>;
   saveMachineKey(key: string): Promise<boolean>;
   readPc(): Promise<PcRead>;
+  onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;

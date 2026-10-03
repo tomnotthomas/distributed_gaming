@@ -2,7 +2,7 @@
 // The main process's reading of this PC: names cleaned for people, and the
 // installed Steam games found the way the platform's host report describes.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   artCandidates,
   artRequest,
@@ -12,12 +12,16 @@ import {
   libraryPaths,
   manifestGame,
   MAX_GAMES,
+  readPc,
   readSteamArt,
   readSteamGames,
+  steamLibraries,
   steamPathFromReg,
   steamRoots,
-  wholeGb,
+  watchSteamGames,
+  wholeMb,
 } from "../pc.cjs";
+import { parseProbe, readWindowsProbe } from "../probe.cjs";
 
 describe("cpuName", () => {
   it("drops the vendor, trademarks and core counts", () => {
@@ -74,10 +78,10 @@ describe("gpuName", () => {
 });
 
 describe("sizes", () => {
-  it("rounds memory to the whole gigabytes it was sold as", () => {
-    expect(wholeGb(34_213_502_976)).toBe(32);
-    expect(wholeGb(17_112_760_320)).toBe(16);
-    expect(wholeGb(0)).toBeNull();
+  it("measures memory in whole megabytes", () => {
+    expect(wholeMb(34_213_502_976)).toBe(32_629);
+    expect(wholeMb(17_179_869_184)).toBe(16_384);
+    expect(wholeMb(0)).toBeNull();
   });
 
   it("measures the primary display in real pixels", () => {
@@ -250,6 +254,170 @@ describe("Steam library", () => {
       },
     };
     expect(readSteamGames({ platform: "darwin", env: {}, home: "/Users/kai", files })).toEqual([]);
+  });
+});
+
+describe("watching the Steam library", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("calls back with the whole list once Steam's writes settle, only when the games changed", () => {
+    vi.useFakeTimers();
+    const root = "/home/kai/.local/share/Steam";
+    const tree: Record<string, string> = {
+      [`${root}/steamapps/libraryfolders.vdf`]: `"libraryfolders" { "0" { "path" "${root}" } "1" { "path" "/mnt/games" } }`,
+      [`${root}/steamapps/appmanifest_730.acf`]: manifest(730, "Counter-Strike 2"),
+    };
+    const listeners = new Map<string, () => void>();
+    const closed: string[] = [];
+    const watch = (dir: string, listener: () => void) => {
+      listeners.set(dir, listener);
+      return { close: () => closed.push(dir) };
+    };
+    const changes = vi.fn();
+    // Read live: the test installs games as it goes.
+    const files = {
+      readFileSync: (file: string) => fakeFiles(tree).readFileSync(file),
+      readdirSync: (dir: string) => fakeFiles(tree).readdirSync(dir),
+    };
+    const options = { platform: "linux", env: {}, home: "/home/kai", files, watch };
+    expect(steamLibraries(options)).toEqual([`${root}/steamapps`, "/mnt/games/steamapps"]);
+    const stop = watchSteamGames(changes, options);
+    expect([...listeners.keys()]).toEqual([`${root}/steamapps`, "/mnt/games/steamapps"]);
+
+    // A download in progress rewrites its manifest: nothing installed yet, nothing to say.
+    tree["/mnt/games/steamapps/appmanifest_1091500.acf"] = manifest(1091500, "Cyberpunk 2077", 1026);
+    listeners.get("/mnt/games/steamapps")!();
+    vi.advanceTimersByTime(2_000);
+    expect(changes).not.toHaveBeenCalled();
+
+    tree["/mnt/games/steamapps/appmanifest_1091500.acf"] = manifest(1091500, "Cyberpunk 2077");
+    listeners.get("/mnt/games/steamapps")!();
+    vi.advanceTimersByTime(1_000);
+    listeners.get("/mnt/games/steamapps")!();
+    vi.advanceTimersByTime(1_999);
+    expect(changes).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(changes).toHaveBeenCalledExactlyOnceWith([
+      { appid: 730, name: "Counter-Strike 2" },
+      { appid: 1091500, name: "Cyberpunk 2077" },
+    ]);
+
+    stop();
+    expect(closed.sort()).toEqual([`${root}/steamapps`, "/mnt/games/steamapps"]);
+  });
+});
+
+describe("the Windows probe", () => {
+  const PRINTED = [
+    "#< CLIXML",
+    JSON.stringify({
+      adapters: [
+        { name: "AMD Radeon(TM) Graphics", vram: 536_870_912 },
+        { name: "NVIDIA GeForce RTX 4070 Laptop GPU", vram: 8_403_288_064 },
+      ],
+      encoders: { h264: 2, hevc: 1, av1: 0 },
+      ram: [17_179_869_184, 17_179_869_184],
+      cpus: [{ name: "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics      ", cores: 8 }],
+      vigem: true,
+    }),
+    '<Objs Version="1.1.0.1"></Objs>',
+  ].join("\r\n");
+
+  it("takes the card with the most memory of its own, and sums memory and cores", () => {
+    expect(parseProbe(PRINTED)).toEqual({
+      gpu: "NVIDIA GeForce RTX 4070 Laptop GPU",
+      vramMb: 8014,
+      ramMb: 32_768,
+      cpu: "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics",
+      cores: 8,
+      encoders: ["h264", "hevc"],
+      pad: true,
+    });
+  });
+
+  it("leaves unread what the probe could not read", () => {
+    expect(parseProbe('{"ram":[8589934592],"vigem":false}')).toEqual({
+      gpu: null,
+      vramMb: null,
+      ramMb: 8192,
+      cpu: null,
+      cores: null,
+      encoders: null,
+      pad: false,
+    });
+    // PowerShell prints a list of one as the item itself.
+    expect(
+      parseProbe(
+        '{"adapters":{"name":"Intel(R) UHD Graphics","vram":134217728},"encoders":{"h264":1,"hevc":0,"av1":0}}',
+      ),
+    ).toMatchObject({
+      gpu: "Intel(R) UHD Graphics",
+      vramMb: 128,
+      encoders: ["h264"],
+    });
+    expect(parseProbe("")).toBeNull();
+    expect(parseProbe("Add-Type : compiler error")).toBeNull();
+  });
+
+  it("runs Windows PowerShell hidden, with the script encoded, and only on Windows", async () => {
+    const run = vi.fn(
+      (_file: string, _args: string[], _options: unknown, done: (e: Error | null, out: string) => void) =>
+        done(null, '{"vigem":true}'),
+    );
+    expect(await readWindowsProbe({ platform: "linux", run })).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+
+    expect(
+      await readWindowsProbe({ platform: "win32", env: { SystemRoot: "C:\\Windows" }, run }),
+    ).toMatchObject({ pad: true });
+    const [file, args, options] = run.mock.calls[0]!;
+    expect(file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    expect(Buffer.from(args[3]!, "base64").toString("utf16le")).toContain("MFTEnumEx");
+    expect(options).toMatchObject({ windowsHide: true });
+
+    const failing = vi.fn(
+      (_f: string, _a: string[], _o: unknown, done: (e: Error | null, out: string) => void) =>
+        done(new Error("spawn powershell.exe ENOENT"), ""),
+    );
+    expect(await readWindowsProbe({ platform: "win32", env: {}, run: failing })).toBeNull();
+  });
+
+  it("reads this PC from the probe, the OS where it cannot, and lists a gamepad only with ViGEmBus", async () => {
+    const screen = {
+      getPrimaryDisplay: () => ({
+        size: { width: 1920, height: 1080 },
+        scaleFactor: 1,
+        displayFrequency: 60,
+      }),
+    };
+    const app = {
+      getGPUInfo: async () => ({ gpuDevice: [{ active: true, deviceString: "Chromium's card" }] }),
+    };
+    const probed = parseProbe(PRINTED);
+    const full = await readPc({ app, screen, probe: async () => probed });
+    expect(full.hardware).toEqual({
+      gpu: "NVIDIA GeForce RTX 4070 Laptop GPU",
+      vramMb: 8014,
+      ramMb: 32_768,
+      cpu: "Ryzen 9 7940HS w/ Radeon 780M Graphics",
+      cores: 8,
+      encoders: ["h264", "hevc"],
+      display: { width: 1920, height: 1080, refreshHz: 60 },
+    });
+    expect(full.controls).toEqual(["kb", "mouse", "pad"]);
+
+    const bare = await readPc({ app, screen, probe: async () => null });
+    expect(bare.hardware).toMatchObject({
+      gpu: "Chromium's card",
+      vramMb: null,
+      cores: null,
+      encoders: null,
+    });
+    expect(bare.hardware.ramMb).toBeGreaterThan(0);
+    expect(bare.controls).toEqual(["kb", "mouse"]);
   });
 });
 

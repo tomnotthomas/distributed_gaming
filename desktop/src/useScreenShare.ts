@@ -10,6 +10,9 @@ export type HeldClaim = SessionClaim & { at: number };
 export type ShareEvents = {
   /** A claimed session is over, or could not be started. */
   onClaimOver?: () => void;
+  /** Whether to take a claim. One turned down is ended at once and never served. */
+  acceptClaim?: (claim: SessionClaim) => boolean;
+  onClaimRefused?: (claim: SessionClaim) => void;
 };
 
 /** Capture the screen, then hold the signaling session open while it runs. */
@@ -115,6 +118,8 @@ export function useScreenShare(events: ShareEvents = {}) {
       // Stands in for the PC service: a claimed session is started here and
       // served with its session key, then the app waits for the next claim.
       serveClaims: true,
+      acceptClaim: (next) => eventsRef.current.acceptClaim?.(next) ?? true,
+      onClaimRefused: (next) => eventsRef.current.onClaimRefused?.(next),
       onSessionClaimed: (next) => setClaim({ ...next, at: Date.now() }),
       onClaimOver: () => {
         setClaim(null);
