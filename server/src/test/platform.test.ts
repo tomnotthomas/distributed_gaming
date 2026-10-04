@@ -1010,6 +1010,58 @@ describe("claim notice and host sessions", () => {
   });
 });
 
+describe("a renter's running session", () => {
+  /** A booking claimed on pc-1 by `renter` with join ticket "ticket-1". */
+  const claimed = async (renter = "renter-1") => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 30, renter);
+    const claim = await platform.claim(bookingId, renter);
+    assert.ok(claim.ok);
+    await platform.recordTicket(claim.sessionId, "ticket-1");
+    return { bookingId, sessionId: claim.sessionId };
+  };
+
+  it("hands the renter their session's room and seat, claimed or playing, until its deadline", async () => {
+    const { bookingId, sessionId } = await claimed();
+    const expected = { ok: true, sessionId, roomId: "pc-1", ticketId: "ticket-1", remainingMs: 30 * 60_000 };
+    assert.deepEqual(await platform.runningSession(bookingId, "renter-1"), expected);
+    assert.ok(await platform.startSession("pc-1", sessionId));
+    now += 60_000;
+    assert.deepEqual(await platform.runningSession(bookingId, "renter-1"), {
+      ...expected,
+      remainingMs: 29 * 60_000,
+    });
+  });
+
+  it("reads anyone else's booking as not found", async () => {
+    const { bookingId } = await claimed();
+    assert.deepEqual(await platform.runningSession(bookingId, "renter-2"), {
+      ok: false,
+      reason: "not-found",
+    });
+    assert.deepEqual(await platform.runningSession("no-such-booking", "renter-1"), {
+      ok: false,
+      reason: "not-found",
+    });
+  });
+
+  it("has none once the session is over, or before there is one", async () => {
+    const { bookingId } = await claimed();
+    assert.ok((await platform.endBooking(bookingId, "renter-1")).ok);
+    assert.deepEqual(await platform.runningSession(bookingId, "renter-1"), {
+      ok: false,
+      reason: "not-running",
+      status: "ended",
+    });
+    const matched = await platform.book(730, 30, "renter-1");
+    assert.deepEqual(await platform.runningSession(matched.bookingId, "renter-1"), {
+      ok: false,
+      reason: "not-running",
+      status: "matched",
+    });
+  });
+});
+
 describe("session end reasons", () => {
   /** A claimed 30-minute session on pc-1 with join ticket "ticket-1", started unless told otherwise. */
   const session = async (start = true) => {
@@ -1028,6 +1080,25 @@ describe("session end reasons", () => {
     assert.equal(await platform.sessionEndReason(id), "renter");
     assert.equal((await platform.heartbeat("pc-1")).status, "available");
     assert.equal(await platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("is grace_expired when a renter who dropped does not come back in time", async () => {
+    const id = await session();
+    await beatFor("pc-1", 60_000);
+    assert.equal(await platform.ticketSession("ticket-1"), id);
+    assert.equal(await platform.leaveSession(id, "ticket-1", "grace_expired"), "ok");
+    assert.equal(await platform.sessionEndReason(id), "grace_expired");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
+  });
+
+  it("names a ticket's session only while that session runs", async () => {
+    assert.equal(await platform.ticketSession("ticket-1"), null);
+    const id = await session();
+    assert.equal(await platform.ticketSession("ticket-1"), id);
+    assert.equal(await platform.ticketSession("ticket-2"), null);
+    await platform.setAvailability("pc-1", false);
+    assert.equal(await platform.ticketSession("ticket-1"), null);
   });
 
   it("lets only the session's own ticket leave it, and only while it runs", async () => {

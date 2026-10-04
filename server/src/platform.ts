@@ -202,8 +202,8 @@ export type BookingView = {
   status: BookingStatus;
   gameId: number;
   minutes: number;
-  /** The machine it was matched to, once there is one. */
-  machine?: { id: string; gpu: string | null; cpu: string | null; price: number };
+  /** The machine it was matched to, once there is one, by the name its owner gave it. */
+  machine?: { id: string; name: string | null; gpu: string | null; cpu: string | null; price: number };
   /**
    * Unix ms by which a matched booking must be claimed: RESERVATION_MS from the
    * renter's first contact since the match, or, until they are back, the end
@@ -1161,16 +1161,22 @@ export class Platform {
 
   /**
    * The renter left, ending the session as renter. Only the join ticket handed
-   * out for this session may do it, and only while the session runs.
+   * out for this session may do it, and only while the session runs. A renter
+   * who dropped and did not come back within the reconnect grace (grace.ts)
+   * leaves the same way, as grace_expired.
    */
-  leaveSession(sessionId: string, ticketId: string): Promise<QosResult> {
+  leaveSession(
+    sessionId: string,
+    ticketId: string,
+    reason: "renter" | "grace_expired" = "renter",
+  ): Promise<QosResult> {
     return this.#transaction(async (): Promise<QosResult> => {
       const now = this.#now();
       const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      await this.#renterEnds(session, now);
+      await this.#renterEnds(session, now, reason);
       await this.#tick(now);
       return "ok";
     });
@@ -1229,6 +1235,17 @@ export class Platform {
       const machine = await this.#machineRow(machineId);
       const histories = await this.#stabilities(machine ? [machine] : [], this.#now(), [machineId]);
       return histories.get(machineId)!;
+    });
+  }
+
+  /** The running session the ticket was handed out for, or null. A ticket minted by hand has none. */
+  ticketSession(ticketId: string): Promise<string | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ id: string }>(
+        "SELECT id FROM sessions WHERE ticket_id = $1 AND ended_at IS NULL",
+        ticketId,
+      );
+      return row?.id ?? null;
     });
   }
 
@@ -1556,9 +1573,13 @@ export class Platform {
     await this.#setStatus(machineId, held ? "idle" : "available");
   }
 
-  /** The renter ended the session: closed as `renter`, its machine free again. */
-  async #renterEnds(session: SessionRow, now: number): Promise<void> {
-    await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+  /** The renter ended the session, or never came back to it: closed for `reason`, its machine free again. */
+  async #renterEnds(
+    session: SessionRow,
+    now: number,
+    reason: "renter" | "grace_expired" = "renter",
+  ): Promise<void> {
+    await this.#endSession(session, Math.max(now, session.started_at ?? now), reason);
     const machine = (await this.#get<{ status: MachineStatus }>(
       "SELECT status FROM machines WHERE id = $1",
       session.machine_id,
@@ -1897,7 +1918,7 @@ export class Platform {
     const machineId = reservation?.machine_id ?? session?.machine_id;
     if (machineId) {
       const m = (await this.#machineRow(machineId))!;
-      view.machine = { id: m.id, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
+      view.machine = { id: m.id, name: m.name, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
     }
     if (reservation) view.claimBy = reservation.expires_at;
     if (session) view.sessionId = session.id;

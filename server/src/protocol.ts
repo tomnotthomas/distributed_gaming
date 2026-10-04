@@ -109,7 +109,13 @@ export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid:
  */
 export type GameStartedMessage = { type: "game-started"; sessionId: string };
 export type PeerJoinedMessage = { type: "peer-joined" };
-export type PeerLeftMessage = { type: "peer-left" };
+/**
+ * The other side left the room. To the host, `grace` (seconds) says the renter
+ * dropped mid-session and has that long to come back with the same seat before
+ * the session ends as grace_expired (grace.ts): keep the game running, let go
+ * of anything held. Without it the renter is not coming back.
+ */
+export type PeerLeftMessage = { type: "peer-left"; grace?: number };
 
 /** Liveness. Required: Cloudflare closes an idle WebSocket after 100 seconds. */
 export type PingMessage = { type: "ping" };
