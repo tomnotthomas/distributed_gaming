@@ -72,7 +72,9 @@ stands in for it: `startHostSession` with `serveClaims` answers `session-claimed
 starting that session, registers again with the session key, and goes back to the machine
 key once the session is over. Given `hostCert`, a getter for host certificates from
 attestation, it registers and starts each session with a fresh certificate instead of the
-machine key, and still ends sessions with the machine key; it never attests itself. A
+machine key, and still ends sessions with the machine key; it never attests itself. It
+sends a certificate only over `wss:`/`https:` or to this machine, and refuses to start
+otherwise. A
 session key refused with `bad-session-key` is replaced as the table under Failure behaviour
 says: `DELETE`, then start the same `sessionId` again. A start or end that fails on the
 network or with a `5xx` is tried up to three times; a `4xx` refusal goes back to waiting
