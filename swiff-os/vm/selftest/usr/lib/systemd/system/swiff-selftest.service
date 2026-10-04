@@ -14,4 +14,6 @@ StandardOutput=journal+console
 StandardError=journal+console
 
 [Install]
-WantedBy=multi-user.target
+# Not multi-user.target: a target is ordered after the units it wants, which
+# with After=multi-user.target above would be an ordering cycle.
+WantedBy=graphical.target
