@@ -484,6 +484,33 @@ describe("booking and host API", () => {
       assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
     });
 
+    it("answers a retryable 503 to a claim while Steam cannot be read, keeping the reservation", async () => {
+      libraries.set(RENTER, [PAID]);
+      await offerPaid();
+      const { body } = await renter("POST", "/api/bookings", {
+        gameId: PAID,
+        minutes: 30,
+        machineId: "pc-1",
+      });
+
+      unreachable.add(RENTER);
+      const down = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+      assert.equal(down.status, 503);
+      assert.equal(down.body.code, undefined);
+      assert.equal(down.body.ticket, undefined);
+      assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
+
+      unreachable.delete(RENTER);
+      assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
+    });
+
+    it("lets a claim of a free-to-play game through while Steam cannot be read", async () => {
+      await offer();
+      const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" });
+      unreachable.add(RENTER);
+      assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
+    });
+
     it("answers 404, not a refusal, to a claim of somebody else's booking", async () => {
       libraries.set(OTHER, [PAID]);
       await offerPaid();

@@ -287,12 +287,24 @@ export function createApi({
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
    * library and not free to play. A profile Steam fails to give reads as a
-   * library that cannot be read.
+   * library that cannot be read, except at `claim`: there a renter who may own
+   * the game holds a matched machine, so a 503 asks the page to try again
+   * rather than have it hand the machine back over a Steam outage.
    */
-  async function refuseUnlicensed(res: ServerResponse, steamId: string, gameId: number): Promise<boolean> {
-    const read = await profile(steamId).catch(() => emptyProfile(steamId));
+  async function refuseUnlicensed(
+    res: ServerResponse,
+    steamId: string,
+    gameId: number,
+    { claim = false } = {},
+  ): Promise<boolean> {
+    let unread = false;
+    const read = await profile(steamId).catch(() => {
+      unread = true;
+      return emptyProfile(steamId);
+    });
     const code = await unlicensed(read, gameId, isFree);
     if (!code) return false;
+    if (unread && claim) throw new HttpError(503, "Steam is not answering; try again");
     reply(res, 403, { error: UNLICENSED_MESSAGE[code], code });
     return true;
   }
@@ -478,7 +490,7 @@ export function createApi({
       // booking; a refusal leaves the reservation unspent, as above.
       const booked = await platform.booking(id, renter);
       if (!booked) throw new HttpError(404, "no such booking");
-      if (await refuseUnlicensed(res, renter, booked.gameId)) return true;
+      if (await refuseUnlicensed(res, renter, booked.gameId, { claim: true })) return true;
       const claim = await platform.claim(id, renter);
       if (!claim.ok) {
         if (claim.reason === "not-found") throw new HttpError(404, "no such booking");

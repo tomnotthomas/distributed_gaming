@@ -295,6 +295,8 @@ POST /bookings/:id/claim
   is matched to the renter's own machine (the booking goes back to the queue).
   → 403 { error, code } as `POST /bookings`, checked again since the library may have
   changed; the reservation is left unspent.
+  → 503 when Steam does not give the renter's library and the game is not free to play:
+  the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
 
 POST /bookings/:id/end
