@@ -3,7 +3,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RentalPlan } from "../rental.cjs";
+import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
 
@@ -39,6 +39,7 @@ describe("useRental", () => {
 
   it("drops a plan that comes back after the owner chose another place for Swiff OS", async () => {
     const { result } = renderHook(() => useRental());
+    await act(async () => {});
     act(() => result.current.plan("install"));
     act(() => result.current.choose("disk:1"));
     await answer(0, plan("install", "Shrink C:"));
@@ -56,6 +57,20 @@ describe("useRental", () => {
     act(() => result.current.check());
     await answer(1, plan("install", "checked"));
     expect(result.current.preview).toBeNull();
+  });
+
+  it("forgets a chosen place for Swiff OS that a new read no longer offers", async () => {
+    const offers = (...ids: string[]) => ({ targets: ids.map((id) => ({ id })) }) as unknown as RentalRead;
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.readRental = vi.fn(async () => offers("shrink:C", "shrink:D"));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.choose("shrink:D"));
+    await act(async () => result.current.check());
+    expect(result.current.target).toBe("shrink:D");
+    host.readRental = vi.fn(async () => offers("shrink:C"));
+    await act(async () => result.current.check());
+    expect(result.current.target).toBeNull();
   });
 
   it("shows only the latest plan when an earlier one answers last", async () => {

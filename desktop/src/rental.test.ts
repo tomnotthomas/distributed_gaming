@@ -157,6 +157,12 @@ describe("where Swiff OS goes", () => {
     expect(targets.some((t) => t.kind === "free")).toBe(false);
   });
 
+  it("offers no free space on any disk when no partitions could be read at all", () => {
+    const games = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
+    const { targets } = pc((raw) => ({ ...raw, disks: [...raw.disks, games], partitions: [] }));
+    expect(targets.some((t) => t.kind === "free")).toBe(false);
+  });
+
   it("finds the gaps between partitions, MiB-aligned, leaving the end for the backup table", () => {
     const disk = { number: 0, gpt: true, size: 100 * GiB, sector: 512, usb: false, system: true };
     const parts = [
@@ -408,6 +414,19 @@ describe("what the screen says", () => {
     ]);
     expect(keys.some((c) => isReady(c.state))).toBe(false);
     expect(status(pc())).toMatchObject({ ready: 8, of: 10, canInstall: true });
+  });
+
+  it("never swaps in another drive when the chosen one is gone: the owner chooses again", () => {
+    const read = pc();
+    expect(pcChecks(read, "shrink:D").find((c) => c.id === "space")).toMatchObject({
+      value: "The drive you chose is no longer available: choose again",
+      state: "blocked",
+    });
+    expect(status(read, "shrink:D")).toMatchObject({
+      fixes: ["The drive you chose for Swiff OS is no longer available: choose again where it goes."],
+      canInstall: false,
+    });
+    expect(status(read, "shrink:C").canInstall).toBe(true);
   });
 
   it("says BitLocker was not read when it was not, rather than off", () => {

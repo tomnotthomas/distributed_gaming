@@ -36,6 +36,7 @@ export function useRental(): RentalSetup & {
       .then((next) => {
         if (n !== reads.current) return;
         setRead(next);
+        setTarget((id) => (next?.targets.some((t) => t.id === id) ? id : null));
         setReading(false);
       });
   }, []);
