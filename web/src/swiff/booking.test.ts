@@ -511,6 +511,82 @@ describe("following a booking to its claim", () => {
     expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
   });
 
+  it("hands the machine back when a lost claim went through and the retry is refused as claimed", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("response lost");
+        return new Response(JSON.stringify({ status: "claimed" }), { status: 409 });
+      },
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const updates: (BookingStatus | null)[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: (b) => updates.push(b?.status ?? null), onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    expect(server.made()).toEqual([
+      "POST /api/bookings/b-1/claim",
+      "POST /api/bookings/b-1/claim",
+      "POST /api/bookings/b-1/end",
+    ]);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual(["matched", "ended"]);
+    expect(stream.closed).toBe(true);
+  });
+
+  it("hands the machine back when the stream reports claimed a claim whose answer was lost", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        answers += 1;
+        throw new TypeError("response lost");
+      },
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const updates: (BookingStatus | null)[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: (b) => updates.push(b?.status ?? null), onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 1_000 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    stream.push("claimed");
+    await settle();
+    expect(answers).toBe(1);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/claim", "POST /api/bookings/b-1/end"]);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual(["matched", "claimed", "ended"]);
+  });
+
+  it("ends nothing when a claim is refused as claimed with no answer lost", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": json(409, { status: "claimed" }),
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000 },
+    );
+    stream.push("matched", 1_000);
+    await settle();
+    stream.push("claimed");
+    await settle();
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/claim"]);
+  });
+
   it("leaves a reservation it could not claim, and claims the next match", async () => {
     let answers = 0;
     const server = routes({

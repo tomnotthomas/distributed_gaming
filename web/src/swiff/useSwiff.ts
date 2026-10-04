@@ -337,7 +337,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       stopFollowing();
       const bookingId = typeof first === "string" ? first : first.bookingId;
       following.current = followBooking(first, {
-        onUpdate: (next) => setBooking(next),
+        onUpdate: (next) => {
+          setBooking(next);
+          // Over or gone from view, the booking is no longer followed: the queue can be joined again.
+          if (!next || next.status === "ended" || next.status === "expired") following.current = null;
+        },
         onClaimed: (claimed, next) => {
           following.current = null;
           track("booking_claimed", { game: next.gameId, machine: claimed.roomId });

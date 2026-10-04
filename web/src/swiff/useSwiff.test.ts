@@ -499,6 +499,20 @@ describe("useSwiff", () => {
       expect(calls.filter((c) => c.call === "POST /api/bookings")).toHaveLength(1);
     });
 
+    it("joins the queue again once the followed booking has expired", async () => {
+      const calls = serve(unnamed, LIVE, { "POST /api/bookings": json(202, booked("queued")) });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("expired")));
+      expect(result.current.booking?.status).toBe("expired");
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(calls.filter((c) => c.call === "POST /api/bookings")).toHaveLength(2));
+    });
+
     it("tells the server when the renter leaves the queue", async () => {
       const calls = serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("queued")),

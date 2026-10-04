@@ -154,11 +154,22 @@ export async function bookMachine(
  * renter's).
  */
 export async function claim(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
+  const answer = await askToClaim(bookingId, options);
+  return "claim" in answer ? answer.claim : null;
+}
+
+/** A claim's answer: the room and ticket, or the status the server gave when it refused (4xx). */
+type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined };
+
+async function askToClaim(bookingId: string, options: BookingOptions): Promise<ClaimAnswer> {
   const { fetch: get = fetch } = options;
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
-  if (response.status >= 400 && response.status < 500) return null;
+  if (response.status >= 400 && response.status < 500) {
+    const { status } = (await response.json().catch(() => ({}))) as { status?: BookingStatus };
+    return { refused: status };
+  }
   if (!response.ok) throw new Error(`claim failed: ${response.status}`);
-  return (await response.json()) as Claim;
+  return { claim: (await response.json()) as Claim };
 }
 
 /**
@@ -312,7 +323,10 @@ export type FollowHandlers = {
   onUpdate: (booking: Booking | null) => void;
   /** The machine was claimed: the room to join and its ticket. */
   onClaimed: (claim: Claim, booking: Booking) => void;
-  /** A claim the server failed to answer by its deadline, or refused (4xx); the booking is still followed. */
+  /**
+   * A claim the server failed to answer by its deadline, or refused (4xx); the
+   * booking is still followed, unless a lost claim went through after all.
+   */
   onClaimFailed?: () => void;
 };
 
@@ -339,7 +353,10 @@ const tabHidden = () => typeof document !== "undefined" && document.visibilitySt
  * a match heard of while following whose claim the network loses is tried
  * again, waiting longer each time, until its reservation lapses (claimBy) or
  * the booking moves on. One the server refuses (4xx) is left, and following
- * goes on.
+ * goes on. A lost claim that went through after all (a later try refused as
+ * `claimed`, or the stream reporting it claimed) holds the machine with no
+ * ticket to join it: that booking is ended, handing the machine back, and
+ * following stops.
  * Once claimed, the booking is forgotten and following stops. Returns stop().
  */
 export function followBooking(
@@ -360,15 +377,36 @@ export function followBooking(
   /** The reservation the booking stands matched to now, if it does. */
   let matchedTo: number | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
+  /** The reservation a claim's answer was lost for: that claim may have gone through. */
+  let lostFor: number | undefined;
+  /** A claim waiting on its answer. */
+  let asking = false;
+  /** The booking was seen claimed while a claim of it waited on its answer. */
+  let seenClaimed = false;
+
+  /** A lost claim went through with no ticket to show for it: end the booking, handing the machine back. */
+  const release = () => {
+    stop();
+    handlers.onClaimFailed?.();
+    void endBooking(bookingId, options).then(
+      (ended) => handlers.onUpdate(ended),
+      () => handlers.onUpdate(null),
+    );
+  };
 
   /** Claim `booking`'s reservation; a lost claim is tried again after `waitMs`, while there is time. */
   const tryClaim = async (booking: Booking, waitMs: number | null) => {
     claiming = booking.claimBy;
-    let claimed: Claim | null;
+    asking = true;
+    let answer: ClaimAnswer;
     try {
-      claimed = await claim(bookingId, options);
+      answer = await askToClaim(bookingId, options);
     } catch {
-      if (stopped || claiming !== booking.claimBy) return;
+      asking = false;
+      if (stopped) return;
+      lostFor = booking.claimBy;
+      if (seenClaimed) return release();
+      if (claiming !== booking.claimBy) return;
       if (waitMs !== null && matchedTo === booking.claimBy && Date.now() + waitMs < (matchedTo ?? 0)) {
         retry = setTimeout(() => void tryClaim(booking, Math.min(waitMs * 2, CLAIM_RETRY_MAX_MS)), waitMs);
         return;
@@ -377,11 +415,14 @@ export function followBooking(
       handlers.onClaimFailed?.();
       return;
     }
+    asking = false;
     if (stopped) return;
-    if (!claimed) {
-      handlers.onClaimFailed?.();
+    if (!("claim" in answer)) {
+      if (answer.refused === "claimed" && lostFor === booking.claimBy) release();
+      else handlers.onClaimFailed?.();
       return;
     }
+    const claimed = answer.claim;
     stop();
     if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
     handlers.onClaimed(claimed, { ...booking, status: "claimed", sessionId: claimed.sessionId });
@@ -392,6 +433,12 @@ export function followBooking(
     (booking) => {
       if (stopped) return;
       handlers.onUpdate(booking);
+      // Claimed with no ticket here: a claim whose answer was lost went through.
+      // One still waiting on its answer decides once it has it.
+      if (booking?.status === "claimed") {
+        if (asking) seenClaimed = true;
+        else if (lostFor !== undefined) return release();
+      }
       if (booking?.status !== "matched") {
         matchedTo = undefined;
         clearTimeout(retry);

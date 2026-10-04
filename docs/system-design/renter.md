@@ -401,7 +401,10 @@ a queued booking the moment the match arrives, with a chime when the tab is out 
 An open page is the renter being there, so the match is claimed whether the event stream
 pushes it or the slow poll that stands in while the stream is down finds it. A claim of
 that match lost to the network is tried again, waiting longer each time, until the
-reservation lapses (`claimBy`); one the server refuses is left. While the
+reservation lapses (`claimBy`); one the server refuses is left. A lost claim that went
+through after all (a later try refused as `claimed`, or the stream reporting it claimed)
+holds the machine with no ticket to join it, so the page ends that booking and the machine
+goes back. While the
 page is closed they are away, and nothing is claimed until they come back, within those 2
 minutes. The page books the server's
 own machines, from the ranked list it reads, and sends its round trip to the server (as
