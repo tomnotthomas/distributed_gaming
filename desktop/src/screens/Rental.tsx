@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RentalPlan, RentalRead } from "../../rental.cjs";
 import {
   BIOS_STEPS,
+  choiceGone,
   chosenTarget,
   firmwareChecks,
   gb,
@@ -219,7 +220,7 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
             </>
           ) : (
             <>
-              {read.targets.length > 1 ? (
+              {read.targets.length > 1 || choiceGone(read, target) ? (
                 <TargetPicker read={read} value={target} onChange={actions.chooseRentalTarget} />
               ) : null}
               <p className="soft">

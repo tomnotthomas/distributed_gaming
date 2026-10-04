@@ -4,6 +4,8 @@ import { DemoApp, Shell } from "./App";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
 import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
 import { HOLD_MS } from "./ui/hold";
+import type { HostBridge } from "./bridge";
+import { useRental } from "./useRental";
 import { installPlan, rentalOf, TYPE } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 
@@ -672,6 +674,49 @@ describe("rental mode", () => {
     expect(screen.getByRole("radio", { name: /Disk 1/ })).toHaveAttribute("aria-checked", "true");
     fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
     expect(acts.chooseRentalTarget).toHaveBeenCalledWith("shrink:C");
+  });
+
+  it("never swaps in another drive when the chosen one is gone after checking again", async () => {
+    const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
+    let next = read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] }));
+    (window as { swiffHost?: Partial<HostBridge> }).swiffHost = {
+      readRental: vi.fn(async () => next),
+      planRental: vi.fn(async () => null),
+      setGlance: vi.fn(),
+      onTrayAction: vi.fn(() => () => {}),
+    };
+    function Live() {
+      const { check, choose, plan, close, ...state } = useRental();
+      const host: Host = {
+        view: realView(off, { rental: state }),
+        actions: {
+          ...actions(),
+          checkRental: check,
+          chooseRentalTarget: choose,
+          previewRental: plan,
+          closeRentalPreview: close,
+        },
+      };
+      return <Shell host={host} step="rental" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />;
+    }
+    try {
+      render(<Live />);
+      fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
+      next = read();
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
+      const gone = "The drive you chose is no longer available: choose again";
+      expect(screen.getByText(gone).closest(".krow")).toBeInTheDocument();
+      expect(screen.queryByText("24 GB from C:")).not.toBeInTheDocument();
+      expect(screen.queryByText(/takes 24 GB from C:/)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+      expect(screen.getByRole("radio", { name: /C:/ })).toHaveAttribute("aria-checked", "false");
+      fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
+      expect(screen.queryByText(gone)).not.toBeInTheDocument();
+      expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Review the install/ })).toBeEnabled();
+    } finally {
+      delete (window as { swiffHost?: unknown }).swiffHost;
+    }
   });
 
   it("switches, once installed: going live and back to Windows, as previews", () => {
