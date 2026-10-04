@@ -59,6 +59,39 @@ const settleRetries = () => vi.advanceTimersByTimeAsync(5_000);
 const callsOf = (fetch: ReturnType<typeof fakeFetches>) =>
   fetch.mock.calls.map(([, init]) => [init.method, init.body ?? null]);
 
+/**
+ * A peer connection just able to make an offer, and a stream with one video
+ * track: `offered` counts the peer connections made.
+ */
+function fakePeer() {
+  const offered = vi.fn();
+  vi.stubGlobal(
+    "RTCPeerConnection",
+    class extends EventTarget {
+      localDescription: RTCSessionDescriptionInit | null = null;
+      constructor() {
+        super();
+        offered();
+      }
+      addTrack() {
+        return { getParameters: () => ({}), setParameters: async () => {} };
+      }
+      createDataChannel() {
+        return {};
+      }
+      async createOffer() {
+        return { type: "offer", sdp: "v=0" };
+      }
+      async setLocalDescription(sdp: RTCSessionDescriptionInit) {
+        this.localDescription = sdp;
+      }
+      close() {}
+    },
+  );
+  const stream = { getVideoTracks: () => [{}], getAudioTracks: () => [] } as unknown as MediaStream;
+  return { offered, stream };
+}
+
 /** Start a host session on a fresh fake socket, recording what it reports. */
 function start(serveClaims = false, extra: Partial<HostSessionOptions> = {}) {
   const claims: SessionClaim[] = [];
@@ -127,31 +160,7 @@ describe("startHostSession", () => {
 
   it("offers no renter the screen while a refused claim is not yet ended, nor after its end fails", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const offered = vi.fn();
-    vi.stubGlobal(
-      "RTCPeerConnection",
-      class extends EventTarget {
-        localDescription: RTCSessionDescriptionInit | null = null;
-        constructor() {
-          super();
-          offered();
-        }
-        addTrack() {
-          return { getParameters: () => ({}), setParameters: async () => {} };
-        }
-        createDataChannel() {
-          return {};
-        }
-        async createOffer() {
-          return { type: "offer", sdp: "v=0" };
-        }
-        async setLocalDescription(sdp: RTCSessionDescriptionInit) {
-          this.localDescription = sdp;
-        }
-        close() {}
-      },
-    );
-    const stream = { getVideoTracks: () => [{}], getAudioTracks: () => [] } as unknown as MediaStream;
+    const { offered, stream } = fakePeer();
     let end!: (res: Response) => void;
     vi.stubGlobal(
       "fetch",
@@ -187,6 +196,57 @@ describe("startHostSession", () => {
     await settle();
     expect(offered).toHaveBeenCalledTimes(1);
     session.stop();
+  });
+
+  it("keeps trying to end a refused claim while the platform fails, and opens the screen once it has", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const peerHere = vi.fn();
+    const { offered, stream } = fakePeer();
+    // Every try of the first end, and of its first retry, fails on the server.
+    const fetch = fakeFetches([500], [500], [500], [500], [500], [500], [200, {}]);
+    const acceptClaim = (claim: SessionClaim) => claim.appid !== 730;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    // Pushed again meanwhile: the end under way goes on, no second one starts.
+    socket.deliver(CLAIM);
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(6);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(fetch.mock.calls.every(([url]) => url === "https://signal.test/api/sessions/s1/end")).toBe(true);
+    expect(offered).not.toHaveBeenCalled();
+
+    // Ended: a renter who joins now is offered the screen.
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("stops trying to end a refused claim on stop", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = fakeFetch(500);
+    const acceptClaim = () => false;
+    const { session, socket } = start(true, { acceptClaim });
+    socket.deliver(CLAIM);
+    await settleRetries();
+    const tries = fetch.mock.calls.length;
+    session.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetch).toHaveBeenCalledTimes(tries);
   });
 
   it("only reports a claim unless asked to serve it", async () => {

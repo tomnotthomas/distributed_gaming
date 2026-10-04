@@ -253,7 +253,8 @@ never while a player is on.
 A claim for a game the owner does not offer (the owner stopped offering it as the claim
 came in) is turned down: the app ends that session at once (`POST /sessions/:id/end`)
 instead of serving it, and until the platform confirms that end it offers the screen to no
-renter who joins.
+renter who joins. An end that fails on the network or the server is tried again, from 5 s
+apart up to a minute, for as long as the app runs.
 
 A bad field is a `400` naming it; nothing in that body is stored. The matcher gives a
 booking only to a machine that lists the game in `games` and meets the game's minimum

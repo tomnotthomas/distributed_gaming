@@ -197,18 +197,53 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
    */
   const refusing = new Set<string>();
 
-  /** End a claimed session this machine will not serve. A failed call is left: the claim is pushed again on the next register. */
-  const refuse = (claim: SessionClaim) => {
-    opts.onClaimRefused?.(claim);
-    refusing.add(claim.sessionId);
-    endClaimed({ ...machine, sessionId: claim.sessionId })
-      .then(() => refusing.delete(claim.sessionId))
+  /** Retries of refused-claim ends still to run, cleared on stop. */
+  const endRetries = new Set<ReturnType<typeof setTimeout>>();
+  /** Refused sessions with an end call or a retry of it under way. */
+  const ending = new Set<string>();
+
+  /**
+   * End refused session `sessionId`, trying again with backoff while the
+   * platform is unreachable or failing: the screen stays closed until it
+   * confirms. A session the platform does not know (404) cannot be served and
+   * is let go; any other refusal keeps the screen closed, and the claim is
+   * pushed again on the next register.
+   */
+  const endRefused = (sessionId: string, attempt = 0) => {
+    ending.add(sessionId);
+    endClaimed({ ...machine, sessionId })
+      .then(() => {
+        refusing.delete(sessionId);
+        ending.delete(sessionId);
+      })
       .catch((cause: unknown) => {
+        ending.delete(sessionId);
         console.warn(
           "[swiff] could not turn the claim down:",
           cause instanceof Error ? cause.message : cause,
         );
+        if (stopped || !refusing.has(sessionId)) return;
+        if (cause instanceof SessionRefused && cause.status === 404) refusing.delete(sessionId);
+        if (cause instanceof SessionRefused && cause.status < 500) return;
+        const retry = setTimeout(
+          () => {
+            endRetries.delete(retry);
+            if (!stopped && refusing.has(sessionId)) endRefused(sessionId, attempt + 1);
+            else ending.delete(sessionId);
+          },
+          Math.min(REFUSE_RETRY_MAX_MS, REFUSE_RETRY_MS * 2 ** attempt),
+        );
+        endRetries.add(retry);
+        ending.add(sessionId);
       });
+  };
+
+  /** Turn down a claimed session this machine will not serve, and end it on the platform. */
+  const refuse = (claim: SessionClaim) => {
+    opts.onClaimRefused?.(claim);
+    refusing.add(claim.sessionId);
+    // Pushed again while its end is under way: that end goes on.
+    if (!ending.has(claim.sessionId)) endRefused(claim.sessionId);
   };
 
   /** The PC service's own credential: a host certificate when there is one, else the machine key. */
@@ -349,6 +384,8 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   return {
     stop: () => {
       stopped = true;
+      endRetries.forEach((retry) => clearTimeout(retry));
+      endRetries.clear();
       leave();
       teardown();
     },
@@ -392,6 +429,9 @@ const sessionRoute = (url: string, hostId: string): string =>
 
 /** Waits between tries of a session call that failed on the network or the server. */
 const RETRY_DELAYS_MS = [500, 1_000];
+/** The first wait before ending a refused claim again, doubling up to the second. */
+const REFUSE_RETRY_MS = 5_000;
+const REFUSE_RETRY_MAX_MS = 60_000;
 
 /**
  * `fetch`, tried again after a network error or a 5xx answer, up to three tries
