@@ -1048,6 +1048,19 @@ describe("the TPM attestation routes", () => {
     });
   });
 
+  it("answers the host app's origin on EK registration, preflight and refusals included", async () => {
+    const preflight = await fetch(`${origin}/api/machines/pc-rsa/ek`, {
+      method: "OPTIONS",
+      headers: { origin: "null", "access-control-request-method": "PUT" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+    assert.match(preflight.headers.get("access-control-allow-methods") ?? "", /\bPUT\b/);
+    const refused = await fetch(`${origin}/api/machines/pc-rsa/ek`, { method: "PUT", body: "{}" });
+    assert.equal(refused.status, 401);
+    assert.equal(refused.headers.get("access-control-allow-origin"), "*");
+  });
+
   it("activates the AK for a live challenge, and refuses a recorded quote over it", async () => {
     const challenge = await call("POST", "/api/machines/pc-rsa/attest-challenge");
     assert.equal(challenge.status, 200);

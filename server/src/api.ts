@@ -130,7 +130,7 @@ function reply(
  */
 const HOST_CORS = { "access-control-allow-origin": "*" };
 /** The Host API's machine routes: /api/machines/:id/<action>. */
-const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand"]);
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand", "ek"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
   "access-control-allow-methods": "GET, PUT, POST",
