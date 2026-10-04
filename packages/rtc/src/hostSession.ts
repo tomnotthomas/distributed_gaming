@@ -11,6 +11,9 @@
 // the same session again; when the session ends it goes back to the machine key
 // to wait for the next claim. A machine key kept out by a session this app lost
 // (reloaded mid-session) ends that session, and the server pushes its claim again.
+// A claim `acceptClaim` turns down (a game the owner no longer offers) is ended
+// at once instead of served, and until the platform confirms that end, no renter
+// who joins is offered the screen.
 //
 // With `hostCert`, the PC service's own socket and each session start use a
 // host certificate from attestation instead of the machine key: the hosting
@@ -88,11 +91,20 @@ export type HostSessionOptions = IceConfig & {
    */
   serveClaims?: boolean;
   /**
+   * Whether to take a claim: false ends the claimed session at once
+   * (POST /api/sessions/:id/end) and reports it to onClaimRefused instead of
+   * onSessionClaimed. Without it every claim is taken.
+   */
+  acceptClaim?: (claim: SessionClaim) => boolean;
+  onClaimRefused?: (claim: SessionClaim) => void;
+  /**
    * The room's connection, as it changes. A socket this session closes itself
    * (a handover between the machine key and a session key, or stop) reports
    * nothing, and neither does a refused credential: onDenied says that.
    */
   onConnection?: (state: HostConnection) => void;
+  /** Each round trip to the server, in ms, timed on the signaling socket's pings. */
+  onRtt?: (ms: number) => void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -117,6 +129,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   // TURN from the server's `registered`, which always precedes `peer-joined`.
   let serverIce: RTCIceServer[] = [];
 
+  /** Close the renter's peer connection, if any. */
   const teardown = () => {
     pc?.close();
     pc = null;
@@ -124,6 +137,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     opts.onPeerConnection(null);
   };
 
+  /** A fresh peer connection with the screen's tracks, offered to the renter through `send`. */
   const offerTo = async (send: (m: SignalMessage) => void) => {
     teardown();
     pc = createPeerConnection({
@@ -176,6 +190,61 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   };
 
   const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
+
+  /**
+   * Refused sessions the platform has not yet confirmed ended. While any is,
+   * a renter who joins is not offered the screen: their ticket may be for it.
+   */
+  const refusing = new Set<string>();
+
+  /** Retries of refused-claim ends still to run, cleared on stop. */
+  const endRetries = new Set<ReturnType<typeof setTimeout>>();
+  /** Refused sessions with an end call or a retry of it under way. */
+  const ending = new Set<string>();
+
+  /**
+   * End refused session `sessionId`, trying again with backoff while the
+   * platform is unreachable or failing: the screen stays closed until it
+   * confirms. A session the platform does not know (404) cannot be served and
+   * is let go; any other refusal keeps the screen closed, and the claim is
+   * pushed again on the next register.
+   */
+  const endRefused = (sessionId: string, attempt = 0) => {
+    ending.add(sessionId);
+    endClaimed({ ...machine, sessionId })
+      .then(() => {
+        refusing.delete(sessionId);
+        ending.delete(sessionId);
+      })
+      .catch((cause: unknown) => {
+        ending.delete(sessionId);
+        console.warn(
+          "[swiff] could not turn the claim down:",
+          cause instanceof Error ? cause.message : cause,
+        );
+        if (stopped || !refusing.has(sessionId)) return;
+        if (cause instanceof SessionRefused && cause.status === 404) refusing.delete(sessionId);
+        if (cause instanceof SessionRefused && cause.status < 500) return;
+        const retry = setTimeout(
+          () => {
+            endRetries.delete(retry);
+            if (!stopped && refusing.has(sessionId)) endRefused(sessionId, attempt + 1);
+            else ending.delete(sessionId);
+          },
+          Math.min(REFUSE_RETRY_MAX_MS, REFUSE_RETRY_MS * 2 ** attempt),
+        );
+        endRetries.add(retry);
+        ending.add(sessionId);
+      });
+  };
+
+  /** Turn down a claimed session this machine will not serve, and end it on the platform. */
+  const refuse = (claim: SessionClaim) => {
+    opts.onClaimRefused?.(claim);
+    refusing.add(claim.sessionId);
+    // Pushed again while its end is under way: that end goes on.
+    if (!ending.has(claim.sessionId)) endRefused(claim.sessionId);
+  };
 
   /** The PC service's own credential: a host certificate when there is one, else the machine key. */
   const service = (): Credential => {
@@ -240,6 +309,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     return connectSignaling({
       url: opts.url,
       onOpen: (send) => send({ type: "register", hostId: opts.hostId, ...credential }),
+      onRtt: opts.onRtt,
       onMessage: (msg, send) => {
         if (msg.type === "registered") report("registered");
         // The server hangs up after a refusal; that close is not a drop.
@@ -271,18 +341,31 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         break;
       case "session-claimed": {
         const next = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
+        if (!claim && opts.acceptClaim && !opts.acceptClaim(next)) {
+          refuse(next);
+          break;
+        }
         opts.onSessionClaimed?.(next);
         if (opts.serveClaims && !claim) serve(next);
         break;
       }
       case "peer-joined":
+        // With the machine key, a renter may hold a ticket for a session this
+        // machine refused: nothing is offered until the platform has ended it.
+        if (!claim && refusing.size) {
+          console.warn("[swiff] a renter joined while a refused claim is still being ended; not offered");
+          break;
+        }
         opts.onPeerHere(true);
         void offerTo(send);
         break;
       case "answer":
         if (msg.sdp) {
           void inbox?.setRemote(msg.sdp).catch((cause) => {
-            console.warn("[swiff] could not apply the renter's answer", cause);
+            console.warn(
+              "[swiff] could not apply the renter's answer:",
+              cause instanceof Error ? cause.name : "error",
+            );
           });
         }
         break;
@@ -301,6 +384,8 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   return {
     stop: () => {
       stopped = true;
+      endRetries.forEach((retry) => clearTimeout(retry));
+      endRetries.clear();
       leave();
       teardown();
     },
@@ -331,15 +416,24 @@ class SessionRefused extends Error {
 
 type MachineAuth = { url: string; hostId: string; machineKey: string };
 
-/** The session route for `hostId` on the signaling server's own HTTP origin. */
-function sessionRoute(url: string, hostId: string): string {
+/** The signaling server's own HTTP origin: `wss://x` → `https://x`. */
+export function httpOrigin(url: string): string {
   const origin = new URL(url);
   origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
-  return `${origin.origin}/api/machines/${encodeURIComponent(hostId)}/session`;
+  return origin.origin;
 }
+
+/** The session route for `hostId` on the signaling server's own HTTP origin. */
+const sessionRoute = (url: string, hostId: string): string =>
+  `${httpOrigin(url)}/api/machines/${encodeURIComponent(hostId)}/session`;
 
 /** Waits between tries of a session call that failed on the network or the server. */
 const RETRY_DELAYS_MS = [500, 1_000];
+/** The first wait before ending a refused claim again, doubling up to the second. */
+const REFUSE_RETRY_MS = 5_000;
+const REFUSE_RETRY_MAX_MS = 60_000;
+/** How long ending a refused claim may take, tries included, before it counts as failed. */
+const REFUSE_END_DEADLINE_MS = 15_000;
 
 /**
  * `fetch`, tried again after a network error or a 5xx answer, up to three tries
@@ -356,6 +450,34 @@ async function sessionFetch(url: string, init: RequestInit): Promise<Response> {
     }
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
   }
+}
+
+/**
+ * End claimed platform session `sessionId` on this machine, before it was ever
+ * served (POST /api/sessions/:id/end). A session already over (409) is ended.
+ * Throws when it takes longer than REFUSE_END_DEADLINE_MS.
+ */
+async function endClaimed({
+  url,
+  machineKey,
+  sessionId,
+}: MachineAuth & { sessionId: string }): Promise<void> {
+  // A request that hangs would hold the screen closed for good: past the
+  // deadline it fails, and the refused claim's end is tried again.
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(new Error("timed out")), REFUSE_END_DEADLINE_MS);
+  let res: Response;
+  try {
+    res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
+      body: "{}",
+      signal: deadline.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status !== 200 && res.status !== 409) throw new SessionRefused("end", res.status);
 }
 
 /** End this machine's live host session, if any. Throws with the status alone when refused. */

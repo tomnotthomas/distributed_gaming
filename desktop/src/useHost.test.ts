@@ -3,6 +3,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PcRead, SteamGame } from "../pc.cjs";
 import type { SteamRead } from "../steam.cjs";
 import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
@@ -26,6 +27,10 @@ type Share = {
 
 const share: Share = {} as Share;
 let events: ShareEvents = {};
+/** The bridge's listener for installed games changing. */
+let gamesChanged: ((games: SteamGame[]) => void) | null = null;
+/** Every Host API call the app made: method, path and parsed body. */
+let calls: { method: string; path: string; body: Record<string, unknown> | null; keepalive: boolean }[] = [];
 
 vi.mock("./useScreenShare", () => ({
   useScreenShare: (e: ShareEvents) => {
@@ -69,17 +74,34 @@ function resetShare() {
   });
 }
 
+const PC: PcRead = {
+  hardware: {
+    gpu: "NVIDIA GeForce RTX 4080",
+    vramMb: 16_384,
+    ramMb: 32_768,
+    cpu: "Ryzen 7 7800X3D",
+    cores: 8,
+    encoders: ["h264", "hevc", "av1"],
+    display: { width: 2560, height: 1440, refreshHz: 144 },
+  },
+  controls: ["kb", "mouse"],
+  games: [
+    { appid: 730, name: "Counter-Strike 2" },
+    { appid: 1245620, name: "ELDEN RING" },
+  ],
+};
+
 function fakeBridge(idle = 600): HostBridge {
   return {
     loadMachineKey: vi.fn(async () => "test-machine-key"),
     saveMachineKey: vi.fn(async () => true),
-    readPc: vi.fn(async () => ({
-      hardware: { gpu: "NVIDIA GeForce RTX 4080", cpu: "Ryzen 7 7800X3D", ramGb: 32, display: null },
-      games: [
-        { appid: 730, name: "Counter-Strike 2" },
-        { appid: 1245620, name: "ELDEN RING" },
-      ],
-    })),
+    readPc: vi.fn(async () => PC),
+    onGamesChanged: vi.fn((listener) => {
+      gamesChanged = listener;
+      return () => {
+        gamesChanged = null;
+      };
+    }),
     readSteam: vi.fn(async (): Promise<SteamRead> => STEAM_READY),
     installSteam: vi.fn(async () => null),
     secondsSinceInput: vi.fn(async () => idle),
@@ -95,18 +117,31 @@ beforeEach(() => {
   localStorage.setItem("swiff.signalingUrl", "signal.example");
   resetShare();
   (window as { swiffHost?: HostBridge }).swiffHost = fakeBridge();
-  // No platform to ask in a test: each test that wants demand answers for it.
+  calls = [];
+  // The Host API's report routes answer; demand has no platform to ask, so
+  // each test that wants it answers for it.
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Promise.reject(new TypeError("no network in tests"))),
+    vi.fn(async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+      calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
+      return new Response(path.endsWith("/upload-test") ? null : "{}", {
+        status: path.endsWith("/upload-test") ? 204 : 200,
+      });
+    }),
   );
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   delete (window as { swiffHost?: HostBridge }).swiffHost;
 });
+
+/** The Host API calls made, upload tests left out. */
+const reports = () => calls.filter((c) => !c.path.endsWith("/upload-test"));
 
 /** Let the bridge's promises and the state they set land. */
 const settle = () =>
@@ -124,14 +159,19 @@ async function host() {
 }
 
 describe("useHost", () => {
-  it("reads this PC, and lists its games with no offer choice that has no effect yet", async () => {
+  it("reads this PC, and offers every installed game until the owner turns one off", async () => {
     const { result } = await host();
     const { view } = result.current;
     expect(view.demo).toBe(false);
     expect(view.pc.hardware?.gpu).toBe("NVIDIA GeForce RTX 4080");
     expect(view.games.installed.map((g) => g.appid)).toEqual([730, 1245620]);
-    expect(view.games.offered).toBeNull();
-    expect(result.current.actions.toggleOffer).toBeNull();
+    expect(view.games.offered).toEqual([730, 1245620]);
+
+    act(() => result.current.actions.toggleOffer!(730));
+    expect(result.current.view.games.offered).toEqual([1245620]);
+    expect(localStorage.getItem("swiff.notOffered")).toBe("730");
+    act(() => result.current.actions.toggleOffer!(730));
+    expect(result.current.view.games.offered).toEqual([730, 1245620]);
     // Nothing the platform does not report.
     expect([view.rate, view.standing, view.earnings, view.earlyEnd]).toEqual([null, null, null, null]);
   });
@@ -210,6 +250,100 @@ describe("useHost", () => {
     await settle();
     expect(result.current.view.steam.installer).toEqual({ kind: "opened" });
     expect(bridge.installSteam).toHaveBeenCalledTimes(2);
+  });
+
+  it("picks up games installed while it runs, offered until turned off", async () => {
+    localStorage.setItem("swiff.notOffered", "1245620");
+    const { result } = await host();
+    expect(result.current.view.games.offered).toEqual([730]);
+
+    act(() => gamesChanged!([...PC.games, { appid: 1091500, name: "Cyberpunk 2077" }]));
+    expect(result.current.view.games.installed.map((g) => g.appid)).toEqual([730, 1245620, 1091500]);
+    expect(result.current.view.games.offered).toEqual([730, 1091500]);
+  });
+
+  it("offers this PC to the platform while it shares, beats every 5 s, and takes it back on pause", async () => {
+    localStorage.setItem("swiff.name", "Nova-01");
+    const { result, rerender } = await host();
+    const until = NOW + 4 * 3_600_000;
+    act(() => result.current.actions.plan(until));
+    await act(async () => result.current.actions.goLive());
+    rerender();
+    await settle();
+
+    expect(reports()).toEqual([
+      {
+        method: "PUT",
+        path: "/api/machines/gaming-pc-1/availability",
+        keepalive: false,
+        body: {
+          available: true,
+          until: new Date(until).toISOString(),
+          name: "Nova-01",
+          hardware: { ...PC.hardware },
+          controls: ["kb", "mouse"],
+          games: [730, 1245620],
+        },
+      },
+    ]);
+    expect(calls.some((c) => c.path === "/api/machines/gaming-pc-1/upload-test")).toBe(true);
+
+    // A plain beat says nothing new; a game turned off goes with the next one.
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(reports().at(-1)).toMatchObject({
+      method: "POST",
+      path: "/api/machines/gaming-pc-1/heartbeat",
+      body: {},
+    });
+    act(() => result.current.actions.toggleOffer!(730));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(reports().at(-1)).toMatchObject({ method: "POST", body: { games: [1245620] } });
+
+    // Round trips on the signaling socket, with the upload test, make the net figures.
+    act(() => [12, 14, 13].forEach((ms) => events.onRtt?.(ms)));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(reports().at(-1)!.body).toMatchObject({ net: { rttMs: 13, jitterMs: 1.5 } });
+    expect(result.current.view.pc.hardware?.upMbps).toBeGreaterThan(0);
+
+    // A new share-until time is sent at once.
+    act(() => result.current.actions.setUntil(null));
+    await settle();
+    expect(reports().at(-1)).toMatchObject({ method: "PUT", body: { available: true } });
+    expect(reports().at(-1)!.body).not.toHaveProperty("until");
+
+    act(() => result.current.actions.pause());
+    rerender();
+    await settle();
+    expect(reports().at(-1)).toMatchObject({ method: "PUT", body: { available: false } });
+    const sent = calls.length;
+    await act(async () => void (await vi.advanceTimersByTimeAsync(30_000)));
+    expect(calls).toHaveLength(sent);
+  });
+
+  it("turns down a claim for a game the owner does not offer", async () => {
+    const { result } = await host();
+    const claim = { sessionId: "s1", appid: 730, minutes: 45 };
+    expect(events.acceptClaim?.(claim)).toBe(true);
+    act(() => result.current.actions.toggleOffer!(730));
+    expect(events.acceptClaim?.(claim)).toBe(false);
+    expect(events.acceptClaim?.({ ...claim, appid: 1245620 })).toBe(true);
+  });
+
+  it("takes this PC back when the app quits, unless a player is on", async () => {
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    rerender();
+    await settle();
+    share.claim = { sessionId: "s1", appid: 730, minutes: 45, at: NOW };
+    rerender();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(reports().filter((c) => c.body?.available === false)).toEqual([]);
+
+    share.claim = null;
+    rerender();
+    window.dispatchEvent(new Event("pagehide"));
+    await settle();
+    expect(reports().at(-1)).toMatchObject({ method: "PUT", keepalive: true, body: { available: false } });
   });
 
   it("keeps the default end time the ~4 hours choice from now until the owner picks one", async () => {
@@ -387,10 +521,17 @@ describe("useHost", () => {
     (window as { swiffHost?: HostBridge }).swiffHost = bridge;
     const { result } = await host();
     await act(async () =>
-      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-2", machineKey: "k2" }),
+      result.current.actions.saveConnection({
+        url: "otter.example",
+        machineId: "pc-2",
+        machineKey: "k2",
+        name: " Nova-01 ",
+      }),
     );
     expect(localStorage.getItem("swiff.signalingUrl")).toBe("otter.example");
     expect(localStorage.getItem("swiff.machineId")).toBe("pc-2");
+    expect(localStorage.getItem("swiff.name")).toBe("Nova-01");
+    expect(result.current.view.machine).toBe(" Nova-01 ".trim());
     expect(JSON.stringify({ ...localStorage })).not.toContain("k2");
     expect(bridge.saveMachineKey).toHaveBeenCalledWith("k2");
     expect(result.current.view.connection.notice).toBe(
@@ -409,7 +550,12 @@ describe("useHost", () => {
     expect(result.current.view.live).toMatchObject({ kind: "offline", until });
 
     await act(async () =>
-      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-2", machineKey: "k2" }),
+      result.current.actions.saveConnection({
+        url: "otter.example",
+        machineId: "pc-2",
+        machineKey: "k2",
+        name: "",
+      }),
     );
     Object.assign(share, { connection: "registered", offlineSince: null });
     rerender();
@@ -419,7 +565,12 @@ describe("useHost", () => {
     act(() => void vi.advanceTimersByTime(3_600_000));
     rerender();
     await act(async () =>
-      result.current.actions.saveConnection({ url: "otter.example", machineId: "pc-3", machineKey: "k3" }),
+      result.current.actions.saveConnection({
+        url: "otter.example",
+        machineId: "pc-3",
+        machineKey: "k3",
+        name: "",
+      }),
     );
     rerender();
     expect(result.current.view.live).toMatchObject({ kind: "waiting", until });

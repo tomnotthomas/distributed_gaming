@@ -8,7 +8,7 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest  (attestation)
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start        hosting
 //   POST /api/bookings                     POST /api/sessions/:id/end          either
-//   GET  /api/bookings/:id
+//   GET  /api/bookings/:id                 POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
@@ -53,7 +53,7 @@ import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
-import { bearer, HttpError, readJson } from "./http.js";
+import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
 
@@ -61,6 +61,8 @@ import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader 
 const MAX_HOST_BODY_BYTES = 32 * 1024;
 /** A TPM quote, its event log and the EK certificate chain: tens of KB. */
 const MAX_ATTEST_BODY_BYTES = 256 * 1024;
+/** The most an upload test may send: the host app sends 4 MB (desktop/src/report.ts). */
+const MAX_UPLOAD_TEST_BYTES = 8 * 1024 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
 /** Demand counts the bookings made in this window, and the queue now. */
@@ -120,12 +122,17 @@ function reply(
   res.end(JSON.stringify(body));
 }
 
-/** The host app calls the demand route from its own origin; the machine key is its only credential. */
+/**
+ * The host app calls the Host API from its own origin (a file:// page, or the
+ * dev server's); the machine key is its only credential, so any origin may ask.
+ */
 const HOST_CORS = { "access-control-allow-origin": "*" };
+/** The Host API's machine routes: /api/machines/:id/<action>. */
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
-  "access-control-allow-methods": "GET",
-  "access-control-allow-headers": "authorization",
+  "access-control-allow-methods": "GET, PUT, POST",
+  "access-control-allow-headers": "authorization, content-type",
   "access-control-max-age": "600",
 };
 
@@ -188,6 +195,7 @@ function positiveInt(value: unknown, field: string, max = Number.MAX_SAFE_INTEGE
   return value as number;
 }
 
+/** 0, or a positive whole number, or a 400 naming the field. */
 const positiveIntOrZero = (value: unknown, field: string) => (value === 0 ? 0 : positiveInt(value, field));
 
 /** A finite number from 0 to `max`, or a 400 naming the field. */
@@ -381,6 +389,20 @@ export function createApi({
     }
     const [, resource, id, action, extra] = parts;
     if (extra !== undefined) throw new HttpError(404, "no such route");
+
+    // The Host API answers the host app's origin, errors included, so the app
+    // can read why a call was refused.
+    const hostRoute =
+      (resource === "machines" && id && HOST_ACTIONS.has(action ?? "")) ||
+      (resource === "sessions" && id && (action === "start" || action === "end"));
+    if (hostRoute) {
+      for (const [name, value] of Object.entries(HOST_CORS)) res.setHeader(name, value);
+      if (method === "OPTIONS") {
+        res.writeHead(204, HOST_PREFLIGHT);
+        res.end();
+        return true;
+      }
+    }
 
     // --- Booking API ---------------------------------------------------------
 
@@ -591,8 +613,11 @@ export function createApi({
       return true;
     }
 
-    if (resource === "machines" && id && action === "demand" && method === "OPTIONS") {
-      res.writeHead(204, HOST_PREFLIGHT);
+    if (resource === "machines" && id && action === "upload-test" && method === "POST") {
+      // The PC times this to report its upload speed (net.upMbps). Nothing is kept.
+      requireMachine(req, access, id);
+      await discardBody(req, MAX_UPLOAD_TEST_BYTES);
+      res.writeHead(204, { "cache-control": "no-store" });
       res.end();
       return true;
     }
@@ -606,15 +631,10 @@ export function createApi({
         games().catch(() => []),
       ]);
       const names = new Map(catalogue.map((g) => [g.id, g.name]));
-      reply(
-        res,
-        200,
-        {
-          windowMinutes: DEMAND_WINDOW_MS / 60_000,
-          games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
-        },
-        HOST_CORS,
-      );
+      reply(res, 200, {
+        windowMinutes: DEMAND_WINDOW_MS / 60_000,
+        games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
+      });
       return true;
     }
 

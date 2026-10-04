@@ -14,7 +14,7 @@ import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 
 export type Game = SteamGame;
 
-/** What the app read about the PC. The demo also knows a connection speed, which the app cannot measure. */
+/** What the app read about the PC, and its upload speed once the app has measured it. */
 export type Hardware = PcHardware & { upMbps?: number | null };
 
 /**
@@ -80,9 +80,11 @@ export const LEVELS: readonly Level[] = [
   },
 ];
 
+/** The level reached after `hours` of reliable sharing. */
 export const levelAt = (hours: number): Level =>
   [...LEVELS].reverse().find((l) => hours >= l.hours) ?? LEVELS[0]!;
 
+/** The level after `level`; null at the top. */
 export const nextLevel = (level: Level): Level | null => LEVELS[LEVELS.indexOf(level) + 1] ?? null;
 
 /** How much of the hardware rate a seven-day reliability score keeps. */
@@ -106,6 +108,7 @@ export type Standing = {
 /** The rate, built in the open: hardware, times reliability, plus the level's bonus. */
 export type Rate = { hardware: number; reliability: number; factor: number; level: Level; total: number };
 
+/** The rate for `hardware`'s hourly base at `standing`. */
 export function buildRate(hardware: number, standing: Standing): Rate {
   const level = levelAt(standing.reliableHours);
   const factor = reliabilityFactor(standing.reliability);
@@ -193,6 +196,7 @@ export type Live =
 /** How long a warned player has to save. */
 export const GRACE_MS = 5 * MINUTE;
 
+/** When `claim`'s booked minutes run out, in ms. */
 export const claimEnd = (claim: Claim): number => claim.at + claim.minutes * MINUTE;
 
 /** The connection the app signs in with. */
@@ -200,19 +204,22 @@ export type Connection = {
   url: string;
   machineId: string;
   machineKey: string;
+  /** The name players see; empty for the machine id. */
+  name: string;
   /** Something to tell the owner about the key or the last attempt. */
   notice: string | null;
   /** The screen being captured, for the settings preview. */
   preview: MediaStream | null;
 };
 
+/** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>
   Boolean(c.url.trim() && c.machineId.trim() && c.machineKey.trim());
 
 export type HostView = {
   demo: boolean;
   now: number;
-  /** The name players see: the machine id until the app can set a name. */
+  /** The name players see: the owner's, else the machine id. */
   machine: string;
   pc: { reading: boolean; hardware: Hardware | null; hardwareRate: number | null };
   /**
@@ -250,9 +257,9 @@ export type HostActions = {
   endEarly: (() => void) | null;
   cancelEnd: (() => void) | null;
   retry(): void;
-  /** Choosing the games offered needs the platform to match on them: demo only until it can. */
+  /** Offer an installed game, or stop offering it; null until the games are read. */
   toggleOffer: ((appid: number) => void) | null;
-  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey">): Promise<void>;
+  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey" | "name">): Promise<void>;
   savePayout(): void;
   /** Download Valve's installer and open it for the owner. */
   installSteam(): void;
@@ -311,6 +318,7 @@ export type Step = "pc" | "steam" | "games" | "live" | "paid" | "settings";
 /** Which of the Go live step's screens a live state shows. */
 export type LiveScreen = "golive" | "waiting" | "streaming" | "inuse" | "ending" | "paused" | "offline";
 
+/** The screen `live` shows. */
 export function liveScreen(live: Live): LiveScreen {
   switch (live.kind) {
     case "off":
@@ -347,6 +355,7 @@ export type Glance = {
   foot: string;
 };
 
+/** The tray glance's snapshot of `view`. */
 export function glanceOf(view: HostView): Glance {
   const { live, now } = view;
   const foot =

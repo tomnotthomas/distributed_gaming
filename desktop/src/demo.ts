@@ -22,8 +22,11 @@ export const DEMO_MACHINE = "Nova-01";
 
 export const DEMO_HARDWARE: Hardware = {
   gpu: "NVIDIA GeForce RTX 4080",
+  vramMb: 16_384,
+  ramMb: 32_768,
   cpu: "Ryzen 7 7800X3D",
-  ramGb: 32,
+  cores: 8,
+  encoders: ["h264", "hevc", "av1"],
   display: null,
   upMbps: 500,
 };

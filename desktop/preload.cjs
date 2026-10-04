@@ -6,6 +6,7 @@
 //   readPc                            the PC's parts and installed Steam games
 //   readSteam                         Steam on this PC: installed, signed in, installing
 //   installSteam                      download Valve's installer and open it for the owner
+//   onGamesChanged                    the installed games, again, whenever they change
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
@@ -27,6 +28,7 @@ contextBridge.exposeInMainWorld("swiffHost", {
   readPc: () => ipcRenderer.invoke("pc:read"),
   readSteam: () => ipcRenderer.invoke("steam:read"),
   installSteam: () => ipcRenderer.invoke("steam:install"),
+  onGamesChanged: (listener) => subscribe("pc:games", listener),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),

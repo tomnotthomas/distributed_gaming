@@ -13,6 +13,7 @@ const ID_KEY = "swiff.machineId";
 
 export const DEFAULT_HOST_ID = "gaming-pc-1";
 
+/** The stored value at `key`, or "" when there is none or storage is blocked. */
 function load(key: string): string {
   try {
     return localStorage.getItem(key) ?? "";
@@ -21,6 +22,7 @@ function load(key: string): string {
   }
 }
 
+/** Store `value` at `key`; blocked storage drops it. */
 function save(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
@@ -29,11 +31,14 @@ function save(key: string, value: string) {
   }
 }
 
+/** The signaling server the owner pasted, as typed. */
 export const loadUrl = () => load(URL_KEY);
 export const saveUrl = (url: string) => save(URL_KEY, url);
+/** This PC's machine id; the default room until the owner sets one. */
 export const loadMachineId = () => load(ID_KEY) || DEFAULT_HOST_ID;
 export const saveMachineId = (id: string) => save(ID_KEY, id);
 
+/** The machine key, from the OS-encrypted store when the bridge has it. */
 export async function loadMachineKey(): Promise<string> {
   return (
     (await bridge()
@@ -86,10 +91,32 @@ export function refusedAddress(url: string): string | null {
 }
 
 // What the app keeps on this PC: whether the owner has been through the first
-// run, and today's session count.
+// run, today's session count, the name players see and the games not offered.
 const SETUP_KEY = "swiff.setupDone";
 const SESSIONS_KEY = "swiff.sessions";
+const NAME_KEY = "swiff.name";
+const NOT_OFFERED_KEY = "swiff.notOffered";
 
+/** The name players see; empty means the machine id. */
+export const loadName = () => load(NAME_KEY);
+export const saveName = (name: string) => save(NAME_KEY, name);
+
+/**
+ * The installed games the owner chose not to offer. Kept this way round so a
+ * game installed later is offered until the owner turns it off.
+ */
+export function loadNotOffered(): Set<number> {
+  return new Set(
+    load(NOT_OFFERED_KEY)
+      .split(",")
+      .map(Number)
+      .filter((appid) => Number.isSafeInteger(appid) && appid > 0),
+  );
+}
+/** Keep the games the owner turned off. */
+export const saveNotOffered = (appids: ReadonlySet<number>) => save(NOT_OFFERED_KEY, [...appids].join(","));
+
+/** Whether the owner has finished the first-run setup. */
 export const loadSetupDone = () => load(SETUP_KEY) === "1";
 export const saveSetupDone = () => save(SETUP_KEY, "1");
 
@@ -104,5 +131,6 @@ export function loadSessionsToday(now: number): number {
   const [day, n] = load(SESSIONS_KEY).split(" ");
   return day === dayOf(now) && Number.isInteger(Number(n)) ? Number(n) : 0;
 }
+/** Count one more session claimed today. */
 export const countSession = (now: number) =>
   save(SESSIONS_KEY, `${dayOf(now)} ${loadSessionsToday(now) + 1}`);
