@@ -570,6 +570,31 @@ describe("useSwiff", () => {
       }
     });
 
+    it("tries a failed Steam sign-in again on the machine the queue matched, not the one picked", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("queued")),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      act(() => opened.find((o) => o.url === "/api/events?booking=b-1")!.push(booked("matched", 1_000)));
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      act(() => signaling[0]!.open());
+      act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
+      expect(result.current.steamSignInFailed).toBe(true);
+
+      act(() => result.current.retrySignIn());
+
+      const booking = calls.filter((c) => c.call === "POST /api/bookings")[1]?.body;
+      expect(booking).toMatchObject({ gameId: cs2.appid, machineId: RENTAL_TICKET.roomId });
+      expect(result.current.phase).toBe("connecting");
+      expect(result.current.steamSignInFailed).toBe(false);
+      expect(signaling[0]!.closed).toBe(true);
+    });
+
     it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),

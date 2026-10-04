@@ -666,6 +666,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     launchOn(next.id);
   }, [taken, gameId, signedIn, launchOn]);
 
+  /** Try a failed Steam sign-in again: launch afresh on the machine that was claimed for it. */
+  const retrySignIn = useCallback(() => {
+    const machine = claim?.roomId ?? picked?.id;
+    if (!machine || !signedIn) return;
+    track("launch_confirmed", { game: gameId, machine, retry: true });
+    launchOn(machine);
+  }, [claim, picked, gameId, signedIn, launchOn]);
+
   const endSession = useCallback(() => {
     track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
     // The server hears it: the session ends as the renter's, and the PC is told.
@@ -816,6 +824,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     openGame,
     launch,
     launchNextBest,
+    retrySignIn,
     joinQueue,
     leaveQueue,
     endSession,

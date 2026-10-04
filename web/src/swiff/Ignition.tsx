@@ -96,7 +96,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         </p>
 
         {signInFailed ? (
-          <SteamSignInFailed onRetry={swiff.launch} onEnd={swiff.goHome} />
+          <SteamSignInFailed onRetry={swiff.retrySignIn} onEnd={swiff.goHome} />
         ) : signIn ? (
           <SteamSignIn url={signIn} />
         ) : (
