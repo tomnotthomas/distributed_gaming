@@ -594,7 +594,7 @@ describe("rental mode", () => {
   it("shows a ready PC's checks, and previews the install from one button", () => {
     const acts = renderReal("rental", off, rental());
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
-    expect(screen.getByText("10 of 10")).toBeInTheDocument();
+    expect(screen.getByText("9 of 9")).toBeInTheDocument();
     expect(screen.getByText("2.0, in the processor (AMD fTPM)")).toBeInTheDocument();
     expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
     expect(screen.getByText("On: Swiff turns it off")).toBeInTheDocument();
@@ -623,6 +623,14 @@ describe("rental mode", () => {
     expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
     expect(acts.checkRental).toHaveBeenCalledOnce();
+  });
+
+  it("counts only BIOS changes in the headline, and says what else blocks rental mode beside them", () => {
+    const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
+    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0, gpus: [nvidia] })) }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
+    expect(screen.getByText("Turn on Secure Boot.").closest("li")).toBeInTheDocument();
+    expect(screen.getByText("NVIDIA graphics cards come in a later Swiff OS update.").closest(".hnote")).toBeInTheDocument();
   });
 
   it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {

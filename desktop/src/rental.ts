@@ -11,9 +11,6 @@
 import type { RentalRead, RentalTarget } from "../rental.cjs";
 import { shortGpu } from "./format";
 
-/** The name Swiff OS finds the games drive by, as rental.cjs gives it. */
-export const GAMES_LABEL = "SWIFFGAMES";
-
 /**
  *   ok       ready
  *   swiff    not ready, and the install changes it
@@ -99,8 +96,8 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
               bios: "Turn on the IOMMU (AMD-Vi or Intel VT-d) and Kernel DMA Protection.",
             }),
     },
-    { id: "keys", label: "Secure Boot keys", value: "Checked when you install", state: "install" },
-    { id: "tpm-cert", label: "TPM certificate", value: "Checked when you install", state: "install" },
+    // The Secure Boot db and the TPM's endorsement certificate need administrator rights to read.
+    { id: "keys", label: "Keys and certificate", value: "Checked at install", state: "install" },
   ] as RentalCheck[];
 }
 
@@ -185,7 +182,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
   if (read.installed)
     return {
       title: "Rental mode is installed",
-      line: "Go live restarts this PC into Swiff OS. It stays there while you share, and comes back to Windows when you stop.",
+      line: "Going live restarts this PC into Swiff OS. Stop sharing and it comes back to Windows.",
       ready,
       of: checks.length,
       bios,
@@ -195,7 +192,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
   if (bios.length)
     return {
       title: many(bios.length, "One change in the BIOS", "# changes in the BIOS"),
-      line: "Swiff cannot change these for you. Restart into the BIOS setup (often F2 or Del while the PC starts), make them, and check again.",
+      line: "Swiff cannot change these. Restart into the BIOS setup (F2 or Del at start), make them, then check again.",
       ready,
       of: checks.length,
       bios,
@@ -214,7 +211,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
     };
   return {
     title: "Ready for rental mode",
-    line: `Swiff OS takes a fixed ${gb(read.need)} next to Windows. Installing it also turns off Fast Startup and names your games drive ${GAMES_LABEL}.`,
+    line: `Swiff OS takes a fixed ${gb(read.need)} next to Windows. Installing it turns off Fast Startup.`,
     ready,
     of: checks.length,
     bios,

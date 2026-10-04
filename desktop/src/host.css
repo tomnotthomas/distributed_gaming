@@ -1544,14 +1544,12 @@ button.inst {
 
 /* --- rental mode -------------------------------------------------------------- */
 
-/* A check's value, with a hairline warning where the owner has something to change. */
+/* A check's value, with a hairline warning where the owner has something to change.
+   Brick stays for costs: the glyph carries the warning. */
 .rck {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.rck.warn {
-  color: var(--brick);
 }
 /* The changes to make first, under the statement. */
 .legend.rfix {
