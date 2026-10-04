@@ -163,8 +163,8 @@ test.describe("real Play", () => {
     // The page goes away mid-session: the PC holds the session for the renter.
     await renter.reload();
     const away = renter.getByTestId("away");
-    await expect(away).toContainText("is still yours", { timeout: 15_000 });
-    await expect(away).toContainText(/held \d:\d\d/);
+    await expect(away).toContainText("Still yours", { timeout: 15_000 });
+    await expect(renter.getByTestId("away-held")).toHaveText(/^\d:\d\d$/);
 
     // Reconnect goes straight back to the game on the same PC.
     const renterErrors = failOnPageError(renter, "renter");

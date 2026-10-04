@@ -79,11 +79,14 @@ describe("A: a session the page left", () => {
     const swiff = swiffWith({ away: { booking: booking(), heldUntil: NOW + 102_000 } });
     render(<AwayDialog swiff={swiff} />);
 
-    expect(screen.getByText("Counter-Strike 2 is still yours")).toBeInTheDocument();
-    expect(screen.getByTestId("away-held")).toHaveTextContent("held 1:42");
+    const dialog = screen.getByRole("dialog", { name: "Counter-Strike 2 is still yours" });
+    expect(dialog).toHaveTextContent("Still yours");
+    expect(dialog).toHaveTextContent("on Glasshouse");
+    expect(dialog).toHaveTextContent("Held for you");
+    expect(screen.getByTestId("away-held")).toHaveTextContent("1:42");
     act(() => vi.advanceTimersByTime(2_000));
-    expect(screen.getByTestId("away-held")).toHaveTextContent("held 1:40");
-    expect(screen.getByRole("dialog")).toHaveTextContent("Glasshouse is holding it for you");
+    expect(screen.getByTestId("away-held")).toHaveTextContent("1:40");
+    expect(screen.getByRole("button", { name: "Reconnect" })).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
     expect(swiff.reconnect).toHaveBeenCalledTimes(1);
@@ -95,8 +98,8 @@ describe("A: a session the page left", () => {
     render(
       <AwayDialog swiff={swiffWith({ away: { booking: booking(), heldUntil: null }, rejoining: true })} />,
     );
-    expect(screen.getByRole("dialog")).toHaveTextContent("It is still running on Glasshouse");
-    expect(screen.queryByTestId("away-held")).toBeNull();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Still running");
+    expect(screen.getByTestId("away-held")).toHaveTextContent("Live");
     expect(screen.getByRole("button", { name: "Reconnecting…" })).toBeDisabled();
   });
 
@@ -111,12 +114,14 @@ describe("B: the connection dropped mid-session", () => {
     const swiff = swiffWith({ play: playing({ lostAt: NOW - 12_000 }) });
     render(<Session swiff={swiff} />);
 
-    const shown = screen.getByTestId("reconnecting");
-    expect(shown).toHaveTextContent("Reconnecting to Glasshouse…");
+    expect(screen.getByRole("dialog", { name: "Reconnecting to Glasshouse" })).toHaveTextContent(
+      "on Glasshouse",
+    );
     expect(screen.getByTestId("reconnecting-time")).toHaveTextContent("0:12");
     act(() => vi.advanceTimersByTime(1_000));
     expect(screen.getByTestId("reconnecting-time")).toHaveTextContent("0:13");
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Reconnecting to Glasshouse" })).toHaveFocus();
     expect(screen.getAllByRole("button", { name: "End session" }).length).toBeGreaterThan(0);
   });
 
@@ -124,10 +129,11 @@ describe("B: the connection dropped mid-session", () => {
     const swiff = swiffWith({ play: playing({ lostAt: NOW - 15_000, gaveUp: true }) });
     render(<Reconnecting swiff={swiff} host="Glasshouse" />);
 
-    expect(screen.getByTestId("reconnecting")).toHaveTextContent("Can't reach Glasshouse");
-    expect(screen.getByTestId("reconnecting-time")).toHaveTextContent(
-      "Counter-Strike 2 keeps running for 1:45",
+    expect(screen.getByRole("dialog", { name: "Can't reach Glasshouse" })).toHaveTextContent(
+      "Your game is still running on Glasshouse",
     );
+    expect(screen.getByTestId("reconnecting-time")).toHaveTextContent("1:45");
+    expect(screen.getByRole("button", { name: "Reconnect" })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
     expect(swiff.retryConnection).toHaveBeenCalledTimes(1);
   });
@@ -141,7 +147,7 @@ describe("B: the connection dropped mid-session", () => {
     render(
       <Session swiff={swiffWith({ picked: null, booking: booking(), play: playing({ lostAt: NOW }) })} />,
     );
-    expect(screen.getByTestId("reconnecting")).toHaveTextContent("Reconnecting to Glasshouse…");
+    expect(screen.getByRole("dialog", { name: "Reconnecting to Glasshouse" })).toBeInTheDocument();
   });
 });
 
@@ -150,8 +156,10 @@ describe("C: a place in the queue kept", () => {
     const swiff = swiffWith({ booking: booking({ status: "queued" }), queueBack: { leftMs: 72_000 } });
     render(<QueueBackDialog swiff={swiff} />);
 
-    expect(screen.getByText("Still finding a machine")).toBeInTheDocument();
-    expect(screen.getByTestId("queue-back-left")).toHaveTextContent("1:12 left in the queue");
+    expect(screen.getByRole("dialog", { name: "Still finding a machine" })).toHaveTextContent(
+      "Left in the queue",
+    );
+    expect(screen.getByTestId("queue-back-left")).toHaveTextContent("1:12");
     fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
     expect(swiff.keepQueue).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Leave the queue" }));
