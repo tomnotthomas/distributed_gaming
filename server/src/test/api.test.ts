@@ -197,6 +197,43 @@ describe("booking and host API", () => {
     assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
   });
 
+  it("lets the host app report from its own origin, and read why a report was refused", async () => {
+    const origin = `http://localhost:${(server.address() as AddressInfo).port}`;
+    for (const [method, path] of [
+      ["PUT", "/api/machines/pc-1/availability"],
+      ["POST", "/api/machines/pc-1/heartbeat"],
+      ["POST", "/api/machines/pc-1/upload-test"],
+      ["POST", "/api/sessions/s1/end"],
+    ] as const) {
+      const preflight = await fetch(`${origin}${path}`, {
+        method: "OPTIONS",
+        headers: {
+          origin: "null",
+          "access-control-request-method": method,
+          "access-control-request-headers": "authorization, content-type",
+        },
+      });
+      assert.equal(preflight.status, 204, path);
+      assert.equal(preflight.headers.get("access-control-allow-origin"), "*", path);
+      assert.match(preflight.headers.get("access-control-allow-methods") ?? "", new RegExp(method), path);
+      assert.match(
+        preflight.headers.get("access-control-allow-headers") ?? "",
+        /authorization, content-type/,
+      );
+      assert.equal(preflight.headers.get("access-control-allow-credentials"), null, path);
+    }
+
+    const offered = await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    assert.equal(offered.status, 200);
+    assert.equal(offered.headers.get("access-control-allow-origin"), "*");
+    const refused = await call("POST", "/api/machines/pc-1/heartbeat", { games: "730" }, MACHINE_KEY);
+    assert.equal(refused.status, 400);
+    assert.equal(refused.headers.get("access-control-allow-origin"), "*");
+    // The renter's own calls are not opened up to other origins.
+    const renterCall = await renter("GET", "/api/me");
+    assert.equal(renterCall.headers.get("access-control-allow-origin"), null);
+  });
+
   it("books, matches and claims, handing out a ticket for the matched room", async () => {
     const booked = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal(booked.status, 202);

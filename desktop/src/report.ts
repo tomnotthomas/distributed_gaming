@@ -212,6 +212,8 @@ export function createHostReporter(
 
   let started = false;
   let beating = false;
+  /** The beat's call still under way, settled either way: the withdraw goes after it. */
+  let pending: Promise<unknown> = Promise.resolve();
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -251,8 +253,8 @@ export function createHostReporter(
       const asked = untilAsked;
       // Until the platform has the offer and its time, every beat is the offer.
       const offering = untilSent !== asked;
-      const res = offering
-        ? await fetch(route("availability"), {
+      const call = offering
+        ? fetch(route("availability"), {
             method: "PUT",
             headers,
             body: JSON.stringify({
@@ -262,12 +264,14 @@ export function createHostReporter(
             }),
             signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
           })
-        : await fetch(route("heartbeat"), {
+        : fetch(route("heartbeat"), {
             method: "POST",
             headers,
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
           });
+      pending = call.catch(() => {});
+      const res = await call;
       if (stopped) return;
       // A refused section would be refused again: it waits for its next change instead.
       // A refused offer stored nothing, so the next beat offers again.
@@ -318,6 +322,9 @@ export function createHostReporter(
     withdraw: async ({ keepalive = false } = {}) => {
       stopped = true;
       clearInterval(timer);
+      // Separate requests can land in any order: an offer still under way must
+      // not reach the platform after the withdraw. Its timeout bounds the wait.
+      await pending;
       await fetch(route("availability"), {
         method: "PUT",
         headers,

@@ -122,12 +122,17 @@ function reply(
   res.end(JSON.stringify(body));
 }
 
-/** The host app calls the demand route from its own origin; the machine key is its only credential. */
+/**
+ * The host app calls the Host API from its own origin (a file:// page, or the
+ * dev server's); the machine key is its only credential, so any origin may ask.
+ */
 const HOST_CORS = { "access-control-allow-origin": "*" };
+/** The Host API's machine routes: /api/machines/:id/<action>. */
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
-  "access-control-allow-methods": "GET",
-  "access-control-allow-headers": "authorization",
+  "access-control-allow-methods": "GET, PUT, POST",
+  "access-control-allow-headers": "authorization, content-type",
   "access-control-max-age": "600",
 };
 
@@ -385,6 +390,20 @@ export function createApi({
     const [, resource, id, action, extra] = parts;
     if (extra !== undefined) throw new HttpError(404, "no such route");
 
+    // The Host API answers the host app's origin, errors included, so the app
+    // can read why a call was refused.
+    const hostRoute =
+      (resource === "machines" && id && HOST_ACTIONS.has(action ?? "")) ||
+      (resource === "sessions" && id && (action === "start" || action === "end"));
+    if (hostRoute) {
+      for (const [name, value] of Object.entries(HOST_CORS)) res.setHeader(name, value);
+      if (method === "OPTIONS") {
+        res.writeHead(204, HOST_PREFLIGHT);
+        res.end();
+        return true;
+      }
+    }
+
     // --- Booking API ---------------------------------------------------------
 
     // The page times this to measure its round trip to the server, which the
@@ -603,12 +622,6 @@ export function createApi({
       return true;
     }
 
-    if (resource === "machines" && id && action === "demand" && method === "OPTIONS") {
-      res.writeHead(204, HOST_PREFLIGHT);
-      res.end();
-      return true;
-    }
-
     if (resource === "machines" && id && action === "demand" && method === "GET") {
       // What renters ask for, for the owner deciding what to install: counts
       // per game, never who asked. A game the catalogue cannot name has a null name.
@@ -618,15 +631,10 @@ export function createApi({
         games().catch(() => []),
       ]);
       const names = new Map(catalogue.map((g) => [g.id, g.name]));
-      reply(
-        res,
-        200,
-        {
-          windowMinutes: DEMAND_WINDOW_MS / 60_000,
-          games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
-        },
-        HOST_CORS,
-      );
+      reply(res, 200, {
+        windowMinutes: DEMAND_WINDOW_MS / 60_000,
+        games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
+      });
       return true;
     }
 

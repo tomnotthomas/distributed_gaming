@@ -12,7 +12,8 @@
 // to wait for the next claim. A machine key kept out by a session this app lost
 // (reloaded mid-session) ends that session, and the server pushes its claim again.
 // A claim `acceptClaim` turns down (a game the owner no longer offers) is ended
-// at once instead of served.
+// at once instead of served, and until the platform confirms that end, no renter
+// who joins is offered the screen.
 //
 // With `hostCert`, the PC service's own socket and each session start use a
 // host certificate from attestation instead of the machine key: the hosting
@@ -190,12 +191,24 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
 
+  /**
+   * Refused sessions the platform has not yet confirmed ended. While any is,
+   * a renter who joins is not offered the screen: their ticket may be for it.
+   */
+  const refusing = new Set<string>();
+
   /** End a claimed session this machine will not serve. A failed call is left: the claim is pushed again on the next register. */
   const refuse = (claim: SessionClaim) => {
     opts.onClaimRefused?.(claim);
-    endClaimed({ ...machine, sessionId: claim.sessionId }).catch((cause: unknown) => {
-      console.warn("[swiff] could not turn the claim down:", cause instanceof Error ? cause.message : cause);
-    });
+    refusing.add(claim.sessionId);
+    endClaimed({ ...machine, sessionId: claim.sessionId })
+      .then(() => refusing.delete(claim.sessionId))
+      .catch((cause: unknown) => {
+        console.warn(
+          "[swiff] could not turn the claim down:",
+          cause instanceof Error ? cause.message : cause,
+        );
+      });
   };
 
   /** The PC service's own credential: a host certificate when there is one, else the machine key. */
@@ -302,6 +315,12 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         break;
       }
       case "peer-joined":
+        // With the machine key, a renter may hold a ticket for a session this
+        // machine refused: nothing is offered until the platform has ended it.
+        if (!claim && refusing.size) {
+          console.warn("[swiff] a renter joined while a refused claim is still being ended; not offered");
+          break;
+        }
         opts.onPeerHere(true);
         void offerTo(send);
         break;

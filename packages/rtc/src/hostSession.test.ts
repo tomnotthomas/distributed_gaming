@@ -125,6 +125,70 @@ describe("startHostSession", () => {
     session.stop();
   });
 
+  it("offers no renter the screen while a refused claim is not yet ended, nor after its end fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const offered = vi.fn();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      class extends EventTarget {
+        localDescription: RTCSessionDescriptionInit | null = null;
+        constructor() {
+          super();
+          offered();
+        }
+        addTrack() {
+          return { getParameters: () => ({}), setParameters: async () => {} };
+        }
+        createDataChannel() {
+          return {};
+        }
+        async createOffer() {
+          return { type: "offer", sdp: "v=0" };
+        }
+        async setLocalDescription(sdp: RTCSessionDescriptionInit) {
+          this.localDescription = sdp;
+        }
+        close() {}
+      },
+    );
+    const stream = { getVideoTracks: () => [{}], getAudioTracks: () => [] } as unknown as MediaStream;
+    let end!: (res: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (end = resolve))),
+    );
+    const peerHere = vi.fn();
+    const acceptClaim = (claim: SessionClaim) => claim.appid !== 730;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await settle();
+
+    // The end is still under way: a renter joining now may hold the refused session's ticket.
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).not.toHaveBeenCalled();
+    expect(offered).not.toHaveBeenCalled();
+
+    // Once the platform has ended it, a renter who joins is offered the screen again.
+    end(new Response("{}", { status: 200 }));
+    await settle();
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    expect(socket.messages.at(-1)).toMatchObject({ type: "offer" });
+
+    // An end the platform refuses keeps the screen closed.
+    socket.deliver({ type: "peer-left" });
+    vi.mocked(fetch).mockImplementation(async () => new Response("{}", { status: 403 }));
+    socket.deliver({ ...CLAIM, sessionId: "s3" });
+    await settleRetries();
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
   it("only reports a claim unless asked to serve it", async () => {
     const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
     const { session, socket } = start();
