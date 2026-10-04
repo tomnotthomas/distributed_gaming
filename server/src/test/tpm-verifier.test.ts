@@ -38,7 +38,10 @@ const ACTIVATION_KEY = createHash("sha256").update(fixture.activationKeyLabel).d
 const RELEASE = {
   name: "swiff-os test",
   pcr11: [fixture.release.pcr11],
+  pcr12: [fixture.release.pcr12],
+  pcr13: [fixture.release.pcr13],
   bootApplications: fixture.release.bootApplications,
+  uki: fixture.release.uki,
   iommu: true,
 };
 const POLICY: BootPolicy = { releases: [RELEASE] };
@@ -99,20 +102,12 @@ const GOOD_FACTS = { uefi: true, secureBoot: true, tpm: "firmware", ekCertificat
 describe("the TPM verifier accepts", () => {
   it("an untouched Swiff OS boot quoted by a firmware TPM with an RSA EK", async () => {
     const verifier = await verifierFor("pc-rsa");
-    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), {
-      ok: true,
-      facts: GOOD_FACTS,
-      continuity: "first",
-    });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: true, facts: GOOD_FACTS });
   });
 
   it("the same with an ECC P-256 EK and AK", async () => {
     const verifier = await verifierFor("pc-ecc");
-    assert.deepEqual(await judge(verifier, "pc-ecc", "first"), {
-      ok: true,
-      facts: GOOD_FACTS,
-      continuity: "first",
-    });
+    assert.deepEqual(await judge(verifier, "pc-ecc", "first"), { ok: true, facts: GOOD_FACTS });
   });
 
   it("a TPM whose vendor is a discrete-chip vendor as a discrete TPM", async () => {
@@ -122,20 +117,12 @@ describe("the TPM verifier accepts", () => {
     assert.equal(verdict.facts.tpm, "discrete");
   });
 
-  it("follows the TPM's counters: the same boot, the next boot, and a gap that needs re-verifying", async () => {
+  it("quotes whose TPM counters go forward: the same boot, the next boot, and after a gap", async () => {
     const verifier = await verifierFor("pc-rsa");
-    const continuity = async (label: string) => {
+    for (const label of ["first", "same-boot", "replay-later", "next-boot", "gap"]) {
       const verdict = await judge(verifier, "pc-rsa", label);
       assert.ok(verdict.ok, `${label}: ${JSON.stringify(verdict)}`);
-      return verdict.continuity;
-    };
-    assert.equal(await continuity("first"), "first");
-    assert.equal(await continuity("same-boot"), "same-boot");
-    // Recorded on the next power-on, which attested nothing: it is a reboot all the same.
-    assert.equal(await continuity("replay-later"), "next-boot");
-    assert.equal(await continuity("next-boot"), "next-boot");
-    // A power-on in between that never attested: something else booted.
-    assert.equal(await continuity("gap"), "gap");
+    }
   });
 
   it("states what the event log says: Secure Boot off, pre-boot DMA protection off", async () => {
@@ -213,6 +200,20 @@ describe("the TPM verifier refuses", () => {
     });
   });
 
+  it("an AK that is not a key at all, when activated or judged", async () => {
+    const verifier = await verifierFor("pc-ecc");
+    // TPM2B_PUBLIC of an ECC P-256 AK ends with the point's x and y, 32 bytes each with its size.
+    const akPublic = flip(recorded("pc-ecc", "first").evidence.akPublic, -40);
+    assert.deepEqual(await verifier.activate({ room: "pc-ecc", nonce: "n", akPublic, now: NOW }), {
+      ok: false,
+      reason: "ak-unsuitable",
+    });
+    assert.deepEqual(await judge(verifier, "pc-ecc", "first", { evidence: { akPublic } }), {
+      ok: false,
+      reason: "ak-unsuitable",
+    });
+  });
+
   it("an AK that is not a restricted signing key, and an AK made outside the EK", async () => {
     const verifier = await verifierFor("pc-rsa");
     // TPM2B_PUBLIC: size (2), type (2), nameAlg (2), then objectAttributes; restricted is bit 16.
@@ -271,12 +272,15 @@ describe("the TPM verifier refuses", () => {
     }
   });
 
-  it("a quote that leaves out PCR 11", async () => {
+  it("a quote that leaves out PCR 11, or PCRs 12 and 13", async () => {
     const verifier = await verifierFor("pc-rsa");
-    assert.deepEqual(await judge(verifier, "pc-rsa", "without-pcr11"), {
-      ok: false,
-      reason: "pcrs-not-quoted",
-    });
+    for (const label of ["without-pcr11", "without-pcr12-13"]) {
+      assert.deepEqual(
+        await judge(verifier, "pc-rsa", label),
+        { ok: false, reason: "pcrs-not-quoted" },
+        label,
+      );
+    }
   });
 
   it("an event log that does not replay to the quoted PCRs", async () => {
@@ -312,6 +316,37 @@ describe("the TPM verifier refuses", () => {
     });
     const none = await verifierFor("pc-rsa", { policy: { releases: [] } });
     assert.deepEqual(await judge(none, "pc-rsa", "first"), { ok: false, reason: "unknown-boot-image" });
+  });
+
+  it("a boot that measured no boot application, or did not end in the release's UKI", async () => {
+    // The golden PCR 11 with nothing in PCR 4: whatever ran extended PCR 11 itself.
+    assert.deepEqual(await judge(await verifierFor("pc-rsa"), "pc-rsa", "no-boot-apps"), {
+      ok: false,
+      reason: "unknown-boot-application",
+    });
+    const shim = fixture.release.bootApplications[0]!;
+    const shimLast = await verifierFor("pc-rsa", { policy: { releases: [{ ...RELEASE, uki: [shim] }] } });
+    assert.deepEqual(await judge(shimLast, "pc-rsa", "first"), {
+      ok: false,
+      reason: "unknown-boot-application",
+    });
+  });
+
+  it("a signed release booted with a credential or an extension from the ESP", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    for (const label of ["esp-credential", "esp-sysext"]) {
+      assert.deepEqual(
+        await judge(verifier, "pc-rsa", label),
+        { ok: false, reason: "unknown-boot-extras" },
+        label,
+      );
+    }
+    // A release that declares the values takes them.
+    const { pcrs } = recorded("pc-rsa", "esp-credential").evidence;
+    const declared = await verifierFor("pc-rsa", {
+      policy: { releases: [{ ...RELEASE, pcr12: [...RELEASE.pcr12, pcrs["12"]!] }] },
+    });
+    assert.ok((await judge(declared, "pc-rsa", "esp-credential")).ok);
   });
 
   it("a replayed quote: the same one again, or an older one over the same nonce", async () => {
@@ -376,7 +411,6 @@ describe("firmware trust on first use", () => {
     );
     const cooled = await judge(verifier, "pc-rsa", "firmware-v2-again", later(FIRMWARE_COOLDOWN_SECONDS));
     assert.ok(cooled.ok);
-    assert.equal(cooled.continuity, "gap");
   });
 
   it("starts the cool-down again when the firmware changes once more", async () => {
@@ -394,24 +428,61 @@ describe("firmware trust on first use", () => {
     assert.equal((await store.get("pc-rsa"))?.pendingFirmware, null);
   });
 
-  it("forgets what a machine earned when it registers another TPM", async () => {
+  const enroll = (verifier: Awaited<ReturnType<typeof verifierFor>>, room: Room, now = NOW) =>
+    verifier.enroll({ room: "pc-rsa", certificate: fixture.machines[room].ekCertificate, now });
+
+  it("lets a cleared TPM attest again once the EK is registered again, after the cooldown", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    assert.ok((await judge(verifier, "pc-rsa", "next-boot")).ok);
+    // A cleared TPM's counters are back below the last accepted quote's.
+    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: false, reason: "counter-rollback" });
+    assert.deepEqual(await enroll(verifier, "pc-rsa"), { ok: true });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: false, reason: "firmware-changed" });
+    const later = { now: NOW + FIRMWARE_COOLDOWN_SECONDS * 1000 };
+    assert.ok((await judge(verifier, "pc-rsa", "same-boot", later)).ok);
+    assert.deepEqual(await judge(verifier, "pc-rsa", "first", later), {
+      ok: false,
+      reason: "replayed-quote",
+    });
+  });
+
+  it("keeps the machine's firmware across another EK, and holds it for the cooldown", async () => {
     const store = memoryStore();
     const verifier = await verifierFor("pc-rsa", { store });
     assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
-    await verifier.enroll({
-      room: "pc-rsa",
-      certificate: fixture.machines["pc-rsa"].ekCertificate,
-      now: NOW,
-    });
-    assert.ok((await store.get("pc-rsa"))?.counters, "the same EK keeps them");
-    await verifier.enroll({
-      room: "pc-rsa",
-      certificate: fixture.machines["pc-ecc"].ekCertificate,
-      now: NOW,
-    });
-    const record = await store.get("pc-rsa");
+    const baseline = (await store.get("pc-rsa"))?.firmware;
+    assert.ok(baseline);
+    // Another EK certificate, and then the first one back: never a first use again.
+    assert.deepEqual(await enroll(verifier, "pc-ecc"), { ok: true });
+    let record = await store.get("pc-rsa");
+    assert.deepEqual(record?.firmware, baseline);
     assert.equal(record?.counters, null);
-    assert.equal(record?.firmware, null);
+    assert.equal(record?.reenrolledAt, NOW);
+    assert.deepEqual(await enroll(verifier, "pc-rsa"), { ok: true });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "firmware-v2"), {
+      ok: false,
+      reason: "firmware-changed",
+    });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "next-boot"), { ok: false, reason: "firmware-changed" });
+    record = await store.get("pc-rsa");
+    assert.deepEqual(record?.firmware, baseline);
+    // A change already cooling down still waits out the cooldown from the registration.
+    const later = (seconds: number) => ({ now: NOW + seconds * 1000 });
+    assert.deepEqual(await enroll(verifier, "pc-rsa", NOW + 1000), { ok: true });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "next-boot", later(FIRMWARE_COOLDOWN_SECONDS)), {
+      ok: false,
+      reason: "firmware-changed",
+    });
+    assert.ok((await judge(verifier, "pc-rsa", "gap", later(FIRMWARE_COOLDOWN_SECONDS + 1))).ok);
+    assert.equal((await store.get("pc-rsa"))?.reenrolledAt, null);
+  });
+
+  it("starts a machine that never attested from first use, whatever EK it registers", async () => {
+    const store = memoryStore();
+    const verifier = await verifierFor("pc-rsa", { store });
+    assert.deepEqual(await enroll(verifier, "pc-rsa"), { ok: true });
+    assert.equal((await store.get("pc-rsa"))?.reenrolledAt, null);
+    assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
   });
 });
 
@@ -438,6 +509,16 @@ describe("the machine attestation table", () => {
       assert.equal(record?.pendingFirmware?.since, NOW);
       assert.equal(record?.ek?.certificate.toString("base64"), fixture.machines["pc-rsa"].ekCertificate);
       assert.equal(typeof record?.counters?.clock, "string");
+      assert.equal(record?.reenrolledAt, null);
+      await restarted.enroll({
+        room: "pc-rsa",
+        certificate: fixture.machines["pc-rsa"].ekCertificate,
+        now: NOW,
+      });
+      const reenrolled = await databaseStore(db).get("pc-rsa");
+      assert.equal(reenrolled?.reenrolledAt, NOW);
+      assert.equal(reenrolled?.counters, null);
+      assert.deepEqual(reenrolled?.firmware, record?.firmware);
       assert.equal(await databaseStore(db).get("pc-unknown"), null);
     } finally {
       await db.close();
@@ -453,12 +534,11 @@ describe("attestation with the TPM verifier", () => {
   const attestation = async (kind: TpmKind = "firmware") =>
     createAttestation({ access, verifier: await verifierFor("pc-rsa", { kind }), attestedOnly: true });
 
-  it("mints a host certificate at the TPM's tier, saying how the boot follows the last", async () => {
+  it("mints a host certificate at the TPM's tier", async () => {
     const quote = recorded("pc-rsa", "first");
     const firmware = await (await attestation()).attest("pc-rsa", quote.nonce, quote.evidence, NOW);
     assert.ok(firmware.ok);
     assert.equal(firmware.grant.tier, "attested");
-    assert.equal(firmware.grant.continuity, "first");
     const discrete = await (await attestation("discrete")).attest("pc-rsa", quote.nonce, quote.evidence, NOW);
     assert.ok(discrete.ok);
     assert.equal(discrete.grant.tier, "attested-discrete-tpm");
@@ -653,6 +733,9 @@ describe("the boot policy", () => {
       { version: 1, releases: [{ ...RELEASE, pcr11: ["abc"] }] },
       { version: 1, releases: [{ ...RELEASE, iommu: "yes" }] },
       { version: 1, releases: [{ ...RELEASE, name: "" }] },
+      { version: 1, releases: [{ ...RELEASE, pcr12: undefined }] },
+      { version: 1, releases: [{ ...RELEASE, pcr13: [] }] },
+      { version: 1, releases: [{ ...RELEASE, uki: ["0".repeat(64)] }] },
     ]) {
       assert.throws(() => signBootPolicy(bad, privateKey), BootPolicyError, JSON.stringify(bad));
     }

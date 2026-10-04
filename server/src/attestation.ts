@@ -34,8 +34,8 @@
 //   tpm           the production verifier (tpm-verifier.ts): the EK certificate
 //                 the owner registered chains to a TPM vendor, the AK is
 //                 activated against it, the quote is over this nonce, the event
-//                 log replays to the quoted PCRs, PCR 11 is a signed Swiff OS
-//                 release's, the firmware is the machine's own and its TPM
+//                 log replays to the quoted PCRs, PCRs 11-13 are a signed Swiff
+//                 OS release's, the firmware is the machine's own and its TPM
 //                 counters only go forward. It adds two calls of its own:
 //                   PUT  /api/machines/:id/ek  (machine key) registers the EK
 //                   POST /api/machines/:id/attest-activation  between challenge
@@ -61,7 +61,6 @@ import type {
   AttestChallengeGrant,
   AttestRefusal,
   AttestRefusalDetail,
-  BootContinuity,
   HostCertGrant,
 } from "./protocol.js";
 import type { Queryable } from "./db.js";
@@ -137,13 +136,10 @@ export function tierFor(
 }
 
 /**
- * A verifier's judgement: what it verified about the machine and, when it
- * tracks the TPM's counters, how this boot follows the last one it accepted;
- * or that it could not, and why when it can say.
+ * A verifier's judgement: what it verified about the machine, or that it
+ * could not, and why when it can say.
  */
-export type Verdict =
-  | { ok: true; facts: PlatformFacts; continuity?: BootContinuity }
-  | { ok: false; reason?: AttestRefusalDetail };
+export type Verdict = { ok: true; facts: PlatformFacts } | { ok: false; reason?: AttestRefusalDetail };
 
 /** Judges a machine's attestation evidence. Keylime, Swiff's own, or the insecure dev stub. */
 export type AttestationVerifier = {
@@ -499,7 +495,6 @@ export function createAttestation({
           hostCert: mintHostCert(access.secret, room, tier, ttlSeconds, now),
           tier,
           expiresAt: Math.floor(now / 1000) + ttlSeconds,
-          ...(verdict.continuity ? { continuity: verdict.continuity } : {}),
         },
       };
     },

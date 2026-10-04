@@ -153,7 +153,9 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // firmware_pcrs holds PCRs 0-3 as JSON (pcr -> hex), the baseline from its
     // first attestation, and pending_firmware_pcrs a change seen since
     // pending_since and still cooling down; reset_count, restart_count and
-    // tpm_clock (a decimal: it is 64 bits) are from its last accepted quote.
+    // tpm_clock (a decimal: it is 64 bits) are from its last accepted quote;
+    // reenrolled_at is when the EK was registered again over a firmware
+    // baseline, until the firmware has cooled down again.
     `CREATE TABLE machine_attestation (
       machine_id            TEXT PRIMARY KEY,
       ek_certificate        TEXT,
@@ -164,6 +166,7 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       reset_count           BIGINT,
       restart_count         BIGINT,
       tpm_clock             TEXT,
+      reenrolled_at         BIGINT,
       updated_at            BIGINT NOT NULL
     )`,
   ],

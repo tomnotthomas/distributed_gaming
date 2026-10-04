@@ -12,7 +12,10 @@
 //     "releases": [{
 //       "name": "swiff-os 2026.11.0",
 //       "pcr11": ["<hex SHA-256 PCR 11 once booted>"],
+//       "pcr12": ["<hex SHA-256 PCR 12>"],
+//       "pcr13": ["<hex SHA-256 PCR 13>"],
 //       "bootApplications": ["<hex Authenticode SHA-256>", ...],
+//       "uki": ["<hex Authenticode SHA-256>"],
 //       "iommu": true
 //     }]
 //   }
@@ -23,11 +26,21 @@
 //                     hash, os-release) and every boot phase, as
 //                     `systemd-measure calculate --phase=enter-initrd:leave-initrd:sysinit:ready`
 //                     precomputes it for the release's UKI.
+//   pcr12, pcr13      What PCRs 12 and 13 hold once booted. systemd-stub
+//                     measures there what it takes from outside the signed
+//                     UKI: a command line it was passed, add-on command lines
+//                     and credentials from the ESP (12), system and
+//                     configuration extensions from the ESP (13). A release
+//                     that takes none of them lists the all-zero value, so a
+//                     boot that took any is refused.
 //   bootApplications  Every EFI application the release boots through and
 //                     that the firmware measures into PCR 4: shim, the boot
 //                     loader if any, the UKI. A boot that ran anything else
 //                     before or between them is refused, so no other signed
 //                     kernel can extend the golden values into PCR 11 itself.
+//   uki               The release's UKIs, each also in bootApplications. The
+//                     last application measured into PCR 4 must be one of
+//                     them: the boot ended in the release's own UKI.
 //   iommu             The release refuses to finish booting (reach `ready`)
 //                     without DMA remapping on, so a machine that reached its
 //                     PCR 11 has an IOMMU.
@@ -39,7 +52,10 @@ export type Release = {
   name: string;
   /** Lowercase hex SHA-256 values. */
   pcr11: string[];
+  pcr12: string[];
+  pcr13: string[];
   bootApplications: string[];
+  uki: string[];
   iommu: boolean;
 };
 
@@ -69,10 +85,18 @@ function readPayload(payload: unknown): BootPolicy {
       const r = (release ?? {}) as Record<string, unknown>;
       if (typeof r.name !== "string" || !r.name) throw new BootPolicyError(`release ${i} has no name`);
       if (typeof r.iommu !== "boolean") throw new BootPolicyError(`${r.name}: iommu must be true or false`);
+      const bootApplications = digests(r.bootApplications, `${r.name}: bootApplications`);
+      const uki = digests(r.uki, `${r.name}: uki`);
+      if (!uki.every((digest) => bootApplications.includes(digest))) {
+        throw new BootPolicyError(`${r.name}: every uki must be one of its bootApplications`);
+      }
       return {
         name: r.name,
         pcr11: digests(r.pcr11, `${r.name}: pcr11`),
-        bootApplications: digests(r.bootApplications, `${r.name}: bootApplications`),
+        pcr12: digests(r.pcr12, `${r.name}: pcr12`),
+        pcr13: digests(r.pcr13, `${r.name}: pcr13`),
+        bootApplications,
+        uki,
         iommu: r.iommu,
       };
     }),

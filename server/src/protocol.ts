@@ -225,11 +225,11 @@ export type TpmEvidence = {
   akPublic: string;
   /** The credential TPM2_ActivateCredential recovered (TPM2B_DIGEST's buffer, without its size). */
   activation: string;
-  /** TPMS_ATTEST from TPM2_Quote by the AK, qualifying data SHA-256(nonce), SHA-256 PCRs 0-7 and 11. */
+  /** TPMS_ATTEST from TPM2_Quote by the AK, qualifying data SHA-256(nonce), SHA-256 PCRs 0-7 and 11-13. */
   quote: string;
   /** TPMT_SIGNATURE over `quote`. */
   signature: string;
-  /** Every quoted SHA-256 PCR's value, hex, by PCR number ("0" ... "11"). */
+  /** Every quoted SHA-256 PCR's value, hex, by PCR number ("0" ... "13"). */
   pcrs: Record<string, string>;
   /** The firmware's TCG event log: /sys/kernel/security/tpm0/binary_bios_measurements. */
   eventLog: string;
@@ -243,18 +243,6 @@ export type EkRegistration = {
   intermediates?: string[];
 };
 
-/**
- * How this boot follows the last attestation the server accepted from the
- * machine, by the TPM's resetCount and restartCount:
- *   first      no earlier one
- *   same-boot  the same boot, later
- *   next-boot  one reset since, and no restart: the machine rebooted once,
- *              into this system
- *   gap        more than one reset, or a restart: something else may have run
- *              in between, so the games drive must be verified again
- */
-export type BootContinuity = "first" | "same-boot" | "next-boot" | "gap";
-
 /** What attest returns: the hosting credential. */
 export type HostCertGrant = {
   /** Bearer for the hosting calls, and `hostCert` in `register`. Starts one host session at most. */
@@ -263,8 +251,6 @@ export type HostCertGrant = {
   tier: "attested" | "attested-discrete-tpm";
   /** Unix seconds. A socket registered with it is put out then; attest again for a fresh one. */
   expiresAt: number;
-  /** From a verifier that tracks the TPM's counters (the TPM verifier). */
-  continuity?: BootContinuity;
 };
 
 /**
@@ -278,12 +264,16 @@ export type HostCertGrant = {
  *   wrong-nonce               the quote is not over this challenge
  *   ak-not-activated          the AK was not activated by the registered EK's TPM
  *   ak-not-under-ek           the AK is not a child of the EK
- *   pcrs-not-quoted           the quote does not cover SHA-256 PCRs 0-7 and 11
+ *   pcrs-not-quoted           the quote does not cover SHA-256 PCRs 0-7 and 11-13
  *   pcr-digest-mismatch       the PCR values sent are not the ones quoted
  *   event-log-mismatch        the event log does not replay to PCRs 0-7
  *   unknown-boot-image        PCR 11 is no signed Swiff OS release's
- *   unknown-boot-application  something but the release's own boot chain ran (PCR 4)
- *   firmware-changed          firmware PCRs 0-3 changed, and the change has not cooled down
+ *   unknown-boot-extras       PCR 12 or 13 is not the release's: systemd-stub took a command line,
+ *                             credential or extension from outside the UKI
+ *   unknown-boot-application  something but the release's own boot chain ran, or it did not end
+ *                             in the release's UKI (PCR 4)
+ *   firmware-changed          firmware PCRs 0-3 changed, or the EK was registered again, and the
+ *                             cooldown has not passed
  *   counter-rollback          the TPM's reset or restart count went back
  *   replayed-quote            the TPM's clock did not move on since the last accepted quote
  */
@@ -301,6 +291,7 @@ export type AttestRefusalDetail =
   | "pcr-digest-mismatch"
   | "event-log-mismatch"
   | "unknown-boot-image"
+  | "unknown-boot-extras"
   | "unknown-boot-application"
   | "firmware-changed"
   | "counter-rollback"

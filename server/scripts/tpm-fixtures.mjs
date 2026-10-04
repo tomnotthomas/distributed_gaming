@@ -17,9 +17,10 @@
 // log into PCRs 0-7 and a synthetic Swiff OS boot into PCR 11 (UKI sections
 // logged as systemd-stub does, then the boot phases, which are not), makes an
 // AK under the EK, and quotes as swiff-hostd would: challenge, activation,
-// TPM2_ActivateCredential, TPM2_Quote over SHA-256(nonce) of PCRs 0-7 and 11.
+// TPM2_ActivateCredential, TPM2_Quote over SHA-256(nonce) of PCRs 0-7 and 11-13.
 // Variant boots change one thing each: firmware, Secure Boot, the UKI, an extra
-// boot application, DMA protection.
+// boot application, no boot application at all, DMA protection, a credential
+// (PCR 12) or a system extension (PCR 13) systemd-stub took from the ESP.
 //
 // Every nonce is minted at one instant, `now` in the file, with ROOM_SECRET
 // below, so tests replay them at that instant. Private keys stay in a
@@ -437,15 +438,19 @@ function event2(pcr, type, data, measured = data) {
 
 /**
  * The events of one boot. `boot` changes the firmware, Secure Boot, the boot
- * applications, the UKI and DMA protection. Returns the log entries, each with
- * the SHA-256 digest to extend, and the PCR 11 boot phases (extended, not logged).
+ * applications, the UKI, DMA protection, and what systemd-stub takes from the
+ * ESP. Returns the log entries, each with the SHA-256 digest to extend, and the
+ * PCR 11 boot phases (extended, not logged).
  */
 function bootEvents({
   firmware = "firmware-v1",
   secureBoot = 1,
   extraApp = null,
+  apps = true,
   uki = "swiff-os-1",
   dmaOff = false,
+  credential = false,
+  sysext = false,
 }) {
   const events = [];
   const add = (pcr, type, data, measured = data) => events.push({ pcr, type, data, measured });
@@ -467,15 +472,26 @@ function bootEvents({
   for (let pcr = 0; pcr <= 7; pcr++) add(pcr, EV.SEPARATOR, Buffer.alloc(4));
   add(4, EV.ACTION, Buffer.from("Calling EFI Application from Boot Option", "latin1"));
   if (extraApp) add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\loader.efi"), Buffer.from(extraApp));
-  add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\BOOT\\BOOTX64.EFI"), Buffer.from("shim-15.8"));
+  if (apps)
+    add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\BOOT\\BOOTX64.EFI"), Buffer.from("shim-15.8"));
   add(7, EV.VARIABLE_AUTHORITY, variable(IMAGE_SECURITY, "db", Buffer.from("microsoft-uefi-ca-2023")));
-  add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\Linux\\swiff.efi"), Buffer.from(`uki:${uki}`));
+  if (apps)
+    add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\Linux\\swiff.efi"), Buffer.from(`uki:${uki}`));
   // systemd-stub: every UKI section's name, then its contents, into PCR 11.
   for (const section of [".linux", ".osrel", ".cmdline", ".initrd", ".uname"]) {
     const name = Buffer.from(`${section}\0`, "latin1");
     add(11, EV.IPL, name);
     add(11, EV.IPL, Buffer.from(section, "latin1"), Buffer.from(`${uki}${section}`));
   }
+  // systemd-stub: what it takes from outside the UKI, from the ESP.
+  if (credential)
+    add(
+      12,
+      EV.IPL,
+      Buffer.from("ssh.authorized_keys.root.cred\0", "latin1"),
+      Buffer.from("ssh-ed25519 AAAA owner"),
+    );
+  if (sysext) add(13, EV.IPL, Buffer.from("owner-tools.sysext.raw\0", "latin1"), Buffer.from("owner-tools"));
   return { events, phases: ["enter-initrd", "leave-initrd", "sysinit", "ready"] };
 }
 
@@ -577,7 +593,7 @@ async function measure(tpm, boot) {
   return Buffer.concat(log);
 }
 
-const QUOTED = [0, 1, 2, 3, 4, 5, 6, 7, 11];
+const QUOTED = [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13];
 // A little ahead, so every certificate the local CA issues during the run is already valid then.
 const NOW = Date.now() + 5 * 60 * 1000;
 const roots = {
@@ -685,11 +701,15 @@ try {
       { boot: GOLDEN, labels: ["gap"] },
       { boot: { uki: "tampered" }, labels: ["tampered-uki"] },
       { boot: { extraApp: "other-loader" }, labels: ["extra-boot-app"] },
+      { boot: { apps: false }, labels: ["no-boot-apps"] },
+      { boot: { credential: true }, labels: ["esp-credential"] },
+      { boot: { sysext: true }, labels: ["esp-sysext"] },
       { boot: { secureBoot: 0 }, labels: ["secure-boot-off"] },
       { boot: { dmaOff: true }, labels: ["dma-off"] },
       { boot: { firmware: "firmware-v2" }, labels: ["firmware-v2", "firmware-v2-again"] },
       { boot: GOLDEN, labels: ["ak-under-srk"], akUnderSrk: true },
-      { boot: GOLDEN, labels: ["without-pcr11"], pcrs: [0, 1, 2, 3, 4, 5, 6, 7] },
+      { boot: GOLDEN, labels: ["without-pcr11"], pcrs: [0, 1, 2, 3, 4, 5, 6, 7, 12, 13] },
+      { boot: GOLDEN, labels: ["without-pcr12-13"], pcrs: [0, 1, 2, 3, 4, 5, 6, 7, 11] },
     ],
   );
 
@@ -761,7 +781,10 @@ try {
     vendorIntermediate: roots.intermediate(),
     release: {
       pcr11: rsa.pcr11.first,
+      pcr12: rsa.quotes.first.evidence.pcrs[12],
+      pcr13: rsa.quotes.first.evidence.pcrs[13],
       bootApplications: bootApplications(GOLDEN),
+      uki: bootApplications(GOLDEN).slice(-1),
     },
     tamperedPcr11: rsa.pcr11["tampered-uki"],
     p384EkCertificate: p384.toString("base64"),

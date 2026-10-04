@@ -11,7 +11,7 @@
 //   POST /attest-activation { nonce, akPublic } ──► TPM2_MakeCredential to the
 //                                                  registered EK, for that AK
 //   TPM2_ActivateCredential (EK + AK): the credential
-//   TPM2_Quote (AK) over SHA-256(nonce): PCRs 0-7 and 11
+//   TPM2_Quote (AK) over SHA-256(nonce): PCRs 0-7 and 11-13
 //   POST /attest { nonce, evidence }           ──► judged below
 //
 // The evidence (protocol.ts, TpmEvidence) is judged in this order, and the
@@ -25,7 +25,7 @@
 //                                  TPM's: firmware or discrete
 //   2. ak-unsuitable               the AK is a restricted signing key that never
 //                                  leaves its TPM (fixedTPM, fixedParent,
-//                                  sensitiveDataOrigin)
+//                                  sensitiveDataOrigin), and a key at all
 //   3. bad-signature               the quote is the AK's
 //   4. wrong-nonce                 quoted over SHA-256 of this challenge
 //   5. ak-not-activated            the credential the AK's TPM recovered is the one
@@ -34,30 +34,36 @@
 //   6. ak-not-under-ek             the AK is a child of the EK, so it is in the
 //                                  endorsement hierarchy and the quote's
 //                                  resetCount and restartCount are not obfuscated
-//   7. pcrs-not-quoted             the quote covers SHA-256 PCRs 0-7 and 11
+//   7. pcrs-not-quoted             the quote covers SHA-256 PCRs 0-7 and 11-13
 //   8. pcr-digest-mismatch         the PCR values sent are the ones quoted
 //   9. event-log-mismatch          the firmware's event log replays to PCRs 0-7
 //  10. unknown-boot-image          PCR 11 is a signed release's (boot-policy.ts)
-//  11. unknown-boot-application    everything measured into PCR 4 is that release's
-//  12. firmware-changed            PCRs 0-3 (firmware and its settings) are the
+//  11. unknown-boot-extras         PCRs 12 and 13 are that release's: systemd-stub
+//                                  took no command line, credential or extension
+//                                  from outside the UKI the release does not expect
+//  12. unknown-boot-application    PCR 4 measured at least one application, all of
+//                                  them the release's, the last one its UKI
+//  13. firmware-changed            PCRs 0-3 (firmware and its settings) are the
 //                                  ones this machine first attested with. A
 //                                  change, such as a BIOS update, is refused until
 //                                  the same new values have been seen for
 //                                  FIRMWARE_COOLDOWN_SECONDS, and then becomes the
-//                                  machine's
-//  13. counter-rollback / replayed-quote
+//                                  machine's. After the EK is registered again,
+//                                  even unchanged firmware waits out the cooldown
+//  14. counter-rollback / replayed-quote
 //                                  the TPM's resetCount, restartCount and clock
 //                                  never go back from the last accepted quote
 //
 // What passes: the platform facts (UEFI, Secure Boot and pre-boot DMA
 // protection from the replayed log, IOMMU from the release, the TPM's kind from
-// its EK root) and the boot's continuity with the machine's last accepted
-// quote: `gap` when the TPM was reset more than once or restarted in between,
-// so something else may have run, and the games drive must be verified again.
+// its EK root).
 //
 // Per machine the store keeps the registered EK, the firmware baseline and the
 // last accepted counters, in the platform database (migration 4, schema.ts) so a restart
-// never makes a changed firmware look like a first use.
+// never makes a changed firmware look like a first use. The firmware baseline is
+// the machine's, not its EK's: registering an EK again (the same one after the
+// owner cleared the TPM, which sets its counters back to zero, or another one)
+// keeps it, forgets the counters, and holds the firmware for the cooldown.
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Queryable } from "./db.js";
@@ -73,6 +79,7 @@ import {
   ekPublicFor,
   makeCredential,
   nameOf,
+  publicKeyOf,
   qualifiedNameUnder,
   quoteSignatureHash,
   readAttest,
@@ -80,10 +87,10 @@ import {
   type TpmPublic,
 } from "./tpm.js";
 import type { Activate, AttestationVerifier, Enroll, Verdict } from "./attestation.js";
-import type { AttestRefusalDetail, BootContinuity } from "./protocol.js";
+import type { AttestRefusalDetail } from "./protocol.js";
 
 /** The PCRs a quote must cover, all in the SHA-256 bank. */
-export const QUOTED_PCRS = [0, 1, 2, 3, 4, 5, 6, 7, 11] as const;
+export const QUOTED_PCRS = [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13] as const;
 /** The PCRs the firmware's event log must replay to. */
 const REPLAYED_PCRS = [0, 1, 2, 3, 4, 5, 6, 7];
 /** Firmware code and settings: trusted on first use per machine. */
@@ -105,6 +112,8 @@ export type MachineRecord = {
   pendingFirmware: { pcrs: Record<string, string>; since: number } | null;
   /** The counters of the last accepted quote. */
   counters: { resetCount: number; restartCount: number; clock: string } | null;
+  /** When (Unix ms) the EK was registered again over a firmware baseline, until the firmware cools down again. */
+  reenrolledAt: number | null;
 };
 
 export type AttestationStore = {
@@ -124,6 +133,7 @@ const copy = (record: MachineRecord): MachineRecord => ({
     since: record.pendingFirmware.since,
   },
   counters: record.counters && { ...record.counters },
+  reenrolledAt: record.reenrolledAt,
 });
 
 /** A store in this process's memory: a restart forgets every machine. */
@@ -149,6 +159,7 @@ type Row = {
   reset_count: number | null;
   restart_count: number | null;
   tpm_clock: string | null;
+  reenrolled_at: number | null;
 };
 
 /** The store in the platform database's machine_attestation table. */
@@ -183,16 +194,18 @@ export function databaseStore(db: Queryable): AttestationStore {
                 clock: row.tpm_clock,
               }
             : null,
+        reenrolledAt: row.reenrolled_at === null ? null : Number(row.reenrolled_at),
       };
     },
     async put(room, record) {
       await db.query(
         `INSERT INTO machine_attestation (machine_id, ek_certificate, ek_intermediates, firmware_pcrs,
-           pending_firmware_pcrs, pending_since, reset_count, restart_count, tpm_clock, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           pending_firmware_pcrs, pending_since, reset_count, restart_count, tpm_clock, reenrolled_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (machine_id) DO UPDATE SET
            ek_certificate = $2, ek_intermediates = $3, firmware_pcrs = $4, pending_firmware_pcrs = $5,
-           pending_since = $6, reset_count = $7, restart_count = $8, tpm_clock = $9, updated_at = $10`,
+           pending_since = $6, reset_count = $7, restart_count = $8, tpm_clock = $9, reenrolled_at = $10,
+           updated_at = $11`,
         [
           room,
           record.ek?.certificate.toString("base64") ?? null,
@@ -203,6 +216,7 @@ export function databaseStore(db: Queryable): AttestationStore {
           record.counters?.resetCount ?? null,
           record.counters?.restartCount ?? null,
           record.counters?.clock ?? null,
+          record.reenrolledAt,
           Date.now(),
         ],
       );
@@ -228,7 +242,7 @@ const b64 = (value: unknown): Buffer | null =>
   typeof value === "string" && /^[A-Za-z0-9+/]*={0,2}$/.test(value) ? Buffer.from(value, "base64") : null;
 const HEX_PCR = /^[0-9a-fA-F]{64}$/;
 
-/** The AK in `akPublic` (base64 TPM2B_PUBLIC), or why it cannot be one. */
+/** The AK in `akPublic` (base64 TPM2B_PUBLIC), when it is a key Node can verify with, or why it cannot be one. */
 function readAk(akPublic: unknown): TpmPublic | AttestRefusalDetail {
   const bytes = b64(akPublic);
   if (!bytes) return "malformed-evidence";
@@ -243,6 +257,11 @@ function readAk(akPublic: unknown): TpmPublic | AttestRefusalDetail {
   if ((ak.attributes & required) !== required || ak.attributes & TPMA.decrypt) return "ak-unsuitable";
   if (ak.nameAlg === TPM_ALG.SHA1) return "ak-unsuitable";
   if (ak.rsa && ak.rsa.keyBits < 2048) return "ak-unsuitable";
+  try {
+    publicKeyOf(ak);
+  } catch {
+    return "ak-unsuitable";
+  }
   return ak;
 }
 
@@ -314,15 +333,23 @@ export function tpmVerifier({
         const ek = endorsement(der, extra as Buffer[], now);
         if (typeof ek === "string") return { ok: false, reason: ek } as const;
         const record = await store.get(room);
-        // The same EK again keeps what the machine has earned. Another TPM is
-        // another machine: it starts again from first use.
-        const same = record?.ek?.certificate.equals(der);
+        // The firmware baseline is the machine's, whichever EK it registers.
+        // The counters start again (a cleared TPM's are back at zero), and a
+        // machine that has a baseline waits out the firmware cooldown again.
+        const firmware = record?.firmware ?? null;
         await store.put(room, {
           ek: { certificate: der, intermediates: extra as Buffer[] },
-          firmware: same ? record!.firmware : null,
-          pendingFirmware: same ? record!.pendingFirmware : null,
-          counters: same ? record!.counters : null,
+          firmware,
+          pendingFirmware: record?.pendingFirmware ?? null,
+          counters: null,
+          reenrolledAt: firmware ? now : null,
         });
+        if (firmware) {
+          const which = record?.ek?.certificate.equals(der) ? "its EK again" : "another EK";
+          console.warn(
+            `[swiff] machine ${room} registered ${which}: TPM counters reset, firmware held for the cooldown`,
+          );
+        }
         return { ok: true } as const;
       }),
 
@@ -418,27 +445,41 @@ export function tpmVerifier({
           return refuse("event-log-mismatch");
         }
 
-        // 10-11. A released Swiff OS, booted through only its own applications.
+        // 10-12. A released Swiff OS, with nothing from outside its UKI, booted
+        // through only its own applications and into its UKI last.
         const release = releaseFor(policy, pcrs.get(11)!.toString("hex"));
         if (!release) return refuse("unknown-boot-image");
+        if (
+          !release.pcr12.includes(pcrs.get(12)!.toString("hex")) ||
+          !release.pcr13.includes(pcrs.get(13)!.toString("hex"))
+        ) {
+          return refuse("unknown-boot-extras");
+        }
         const boot = bootFacts(log);
-        if (!boot.bootApplications.every((app) => release.bootApplications.includes(app.toString("hex")))) {
+        const apps = boot.bootApplications.map((app) => app.toString("hex"));
+        if (
+          !apps.length ||
+          !apps.every((app) => release.bootApplications.includes(app)) ||
+          !release.uki.includes(apps[apps.length - 1]!)
+        ) {
           return refuse("unknown-boot-application");
         }
 
-        // 12. The firmware it first attested with, or a change that has cooled down.
+        // 13. The firmware it first attested with, or a change that has cooled
+        // down; after the EK was registered again, any firmware cools down.
         const firmware = Object.fromEntries(
           FIRMWARE_PCRS.map((pcr) => [pcr, pcrs.get(pcr)!.toString("hex")]),
         );
         const sameFirmware = (other: Record<string, string>) =>
           FIRMWARE_PCRS.every((pcr) => other[pcr] === firmware[pcr]);
-        const next: MachineRecord = { ...record!, pendingFirmware: null };
-        if (!record!.firmware || sameFirmware(record!.firmware)) {
+        const next: MachineRecord = { ...record!, pendingFirmware: null, reenrolledAt: null };
+        if (!record!.reenrolledAt && (!record!.firmware || sameFirmware(record!.firmware))) {
           next.firmware = firmware;
         } else if (
           record!.pendingFirmware &&
           sameFirmware(record!.pendingFirmware.pcrs) &&
-          now - record!.pendingFirmware.since >= firmwareCooldownSeconds * 1000
+          now - Math.max(record!.pendingFirmware.since, record!.reenrolledAt ?? 0) >=
+            firmwareCooldownSeconds * 1000
         ) {
           next.firmware = firmware;
         } else {
@@ -448,21 +489,15 @@ export function tpmVerifier({
           return refuse("firmware-changed");
         }
 
-        // 13. The TPM's counters only go forward.
+        // 14. The TPM's counters only go forward.
         const { resetCount, restartCount, clock } = quote.clock;
-        let continuity: BootContinuity = "first";
         const last = record!.counters;
         if (last) {
-          const lastClock = BigInt(last.clock);
           if (resetCount < last.resetCount) return refuse("counter-rollback");
           if (resetCount === last.resetCount) {
             if (restartCount < last.restartCount) return refuse("counter-rollback");
-            if (restartCount === last.restartCount && clock <= lastClock) return refuse("replayed-quote");
-            continuity = restartCount === last.restartCount ? "same-boot" : "gap";
-          } else {
-            // A TPM restart within the new boot (hibernation, or another
-            // system resumed over it) means it was not one clean boot either.
-            continuity = resetCount === last.resetCount + 1 && restartCount === 0 ? "next-boot" : "gap";
+            if (restartCount === last.restartCount && clock <= BigInt(last.clock))
+              return refuse("replayed-quote");
           }
         }
         next.counters = { resetCount, restartCount, clock: clock.toString() };
@@ -477,7 +512,6 @@ export function tpmVerifier({
             ekCertificate: true,
             iommu: release.iommu && !boot.dmaProtectionDisabled,
           },
-          continuity,
         };
       }),
   };
