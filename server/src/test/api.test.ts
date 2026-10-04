@@ -15,6 +15,7 @@ import {
   mintTicket,
   parseMachineKeys,
   parseMachineOwners,
+  verifyProbeToken,
   verifyTicket,
   type Access,
 } from "../access.js";
@@ -32,6 +33,7 @@ const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 const SESSION = "test-session-secret-that-is-long-enough-too";
+const TURN: RTCIceServer = { urls: ["turn:turn.example:3478?transport=udp"], username: "u", credential: "c" };
 const RENTER = "76561198000000001";
 const OTHER = "76561198000000002";
 const OWNER = "76561198000000003";
@@ -77,6 +79,8 @@ describe("booking and host API", () => {
   // has their library hidden. Renters in `unreachable` cannot be read at all.
   let libraries: Map<string, number[]>;
   let unreachable: Set<string>;
+  /** The TURN relay the server offers. */
+  let ice: RTCIceServer[];
 
   before(async () => {
     access = {
@@ -110,6 +114,7 @@ describe("booking and host API", () => {
         profile,
         discovery,
         isFree,
+        iceServers: () => ice,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -127,6 +132,7 @@ describe("booking and host API", () => {
     now = Date.UTC(2026, 8, 30, 12);
     platform = await Platform.open({ database: await testDatabase(), now: () => now, owners: access.owners });
     discovery = new RequestBudget({ now: () => now });
+    ice = [TURN];
     access.secret = SECRET;
     libraries = new Map();
     unreachable = new Set();
@@ -757,6 +763,7 @@ describe("booking and host API", () => {
       "name",
       "picture",
       "price",
+      "probe",
       "ramMb",
       "refreshHz",
       "response",
@@ -806,6 +813,155 @@ describe("booking and host API", () => {
       // Nothing says who owns a machine or where it is.
       assert.doesNotMatch(JSON.stringify(body), /owner|address|"ip"/i);
       assert.deepEqual(body.busy, []);
+    });
+
+    it("hands out a probe token for each of the top three only, for this renter and that machine", async () => {
+      for (const [id, rttMs] of [
+        ["pc-1", 4],
+        ["pc-2", 3],
+        ["pc-4", 2],
+        ["pc-5", 1],
+      ] as const) {
+        await offer(id, { available: true, ...REPORT, net: { rttMs, jitterMs: 1, upMbps: 48 } });
+      }
+      const { body } = await renter("GET", "/api/games/730/machines?minutes=60&rtt=0");
+      assert.deepEqual(
+        body.machines.map((m: any) => m.id),
+        ["pc-5", "pc-4", "pc-2", "pc-1"],
+      );
+      const tokens = body.machines.map((m: any) => m.probe && verifyProbeToken(SESSION, m.probe));
+      assert.deepEqual(
+        tokens.map((t: any) => t && [t.renter, t.host]),
+        [[RENTER, "pc-5"], [RENTER, "pc-4"], [RENTER, "pc-2"], null],
+      );
+      assert.ok(tokens[0].exp * 1000 <= Date.now() + 60_000, "good for a minute at most");
+      assert.equal(new Set(tokens.slice(0, 3).map((t: any) => t.id)).size, 3, "each its own");
+      assert.deepEqual(body.iceServers, [TURN], "the relay the probes go through");
+    });
+
+    it("hands out no probe token, nor the relay's credentials, without a TURN relay to probe through", async () => {
+      await offer("pc-1");
+      ice = [{ urls: "stun:stun.example:3478" }];
+      const { body } = await renter("GET", "/api/games/730/machines?minutes=60&rtt=0");
+      assert.equal(body.machines[0].probe, null);
+      assert.ok(!("iceServers" in body));
+    });
+
+    it("sends the relay's credentials only with a token to spend them on", async () => {
+      await offer("pc-1");
+      const links = encodeURIComponent(JSON.stringify({ "pc-1": { rttMs: 5, jitterMs: 1 } }));
+      const { body } = await renter("GET", `/api/games/730/machines?minutes=60&rtt=0&links=${links}`);
+      assert.equal(body.machines[0].probe, null, "measured already");
+      assert.ok(!("iceServers" in body));
+    });
+
+    it("never hands a token past the server's own top three, whatever links the page sends", async () => {
+      for (const [id, rttMs] of [
+        ["pc-1", 1],
+        ["pc-2", 2],
+        ["pc-4", 3],
+        ["pc-5", 4],
+      ] as const) {
+        await offer(id, { available: true, ...REPORT, net: { rttMs, jitterMs: 1, upMbps: 48 } });
+      }
+      const read = async (links: object) =>
+        (
+          await renter(
+            "GET",
+            `/api/games/730/machines?minutes=60&rtt=0&links=${encodeURIComponent(JSON.stringify(links))}`,
+          )
+        ).body;
+      const tokened = (body: any) => body.machines.filter((m: any) => m.probe).map((m: any) => m.id);
+
+      // Claiming the top three too far away takes them off the list, but moves no token down it.
+      const far = { rttMs: 81, jitterMs: 1 };
+      const pushed = await read({ "pc-1": far, "pc-2": far, "pc-4": far });
+      assert.deepEqual(
+        pushed.machines.map((m: any) => m.id),
+        ["pc-5"],
+      );
+      assert.deepEqual(tokened(pushed), []);
+      assert.ok(!("iceServers" in pushed));
+
+      // Measured slow, the best estimate drops down the list, and keeps no token; the other two do.
+      const slow = await read({ "pc-1": { rttMs: 60, jitterMs: 1 } });
+      assert.equal(slow.machines.at(-1).id, "pc-1");
+      assert.deepEqual(tokened(slow), ["pc-2", "pc-4"]);
+    });
+
+    it("ranks a probed machine by what the renter measured, and drops one measured too far away", async () => {
+      await offer("pc-1", { available: true, ...REPORT, net: { rttMs: 2, jitterMs: 1, upMbps: 48 } });
+      await offer("pc-2", { available: true, ...REPORT, net: { rttMs: 8, jitterMs: 1, upMbps: 48 } });
+      await offer("pc-4", { available: true, ...REPORT, net: { rttMs: 12, jitterMs: 1, upMbps: 48 } });
+      const read = async (links: object) =>
+        (
+          await renter(
+            "GET",
+            `/api/games/730/machines?minutes=60&rtt=1&links=${encodeURIComponent(JSON.stringify(links))}`,
+          )
+        ).body;
+
+      // pc-1 measured slower than its estimate; pc-2 past 80 ms.
+      const body = await read({ "pc-1": { rttMs: 30, jitterMs: 2 }, "pc-2": { rttMs: 81, jitterMs: 1 } });
+      assert.deepEqual(
+        body.machines.map((m: any) => [m.id, m.latency.source]),
+        [
+          ["pc-4", "estimate"],
+          ["pc-1", "probe"],
+        ],
+      );
+      const pc1 = body.machines[1];
+      assert.deepEqual(pc1.latency, { rttMs: 30, jitterMs: 2, source: "probe" });
+      assert.equal(pc1.response, 2, "30 ms is 2: measured through the relay costs no step");
+      assert.equal(pc1.probe, null, "measured already: nothing more to probe");
+      assert.ok(body.machines[0].probe, "the estimate is still worth probing");
+
+      // A `relayed` the page still sends is not read.
+      const old = await read({ "pc-1": { rttMs: 30, jitterMs: 2, relayed: true } });
+      assert.equal(old.machines.find((m: any) => m.id === "pc-1").response, 2);
+
+      // Jitter costs a step (5 ms would be 4); past 80 ms a measured machine is not listed.
+      const jittery = await read({ "pc-1": { rttMs: 5, jitterMs: 11 } });
+      assert.deepEqual(
+        jittery.machines.map((m: any) => [m.id, m.response]),
+        [
+          ["pc-2", 4],
+          ["pc-1", 3],
+          ["pc-4", 3],
+        ],
+      );
+      const far = await read({ "pc-1": { rttMs: 81, jitterMs: 1 } });
+      assert.deepEqual(
+        far.machines.map((m: any) => m.id),
+        ["pc-2", "pc-4"],
+      );
+      // The wall counts by the same links.
+      const wall = await renter(
+        "GET",
+        `/api/availability?appids=730&rtt=1&links=${encodeURIComponent(JSON.stringify({ "pc-2": { rttMs: 81, jitterMs: 1 } }))}`,
+      );
+      assert.equal(wall.body[0].free, 2);
+    });
+
+    it("refuses measured links that are not well formed", async () => {
+      const bad = [
+        "not json",
+        "[]",
+        "1",
+        JSON.stringify({ "pc-1": { rttMs: -1, jitterMs: 0 } }),
+        JSON.stringify({ "pc-1": { rttMs: 1 } }),
+        JSON.stringify({ "pc-1": [1, 0] }),
+        JSON.stringify({ "pc-1": "fast" }),
+        JSON.stringify({ "pc-1": null }),
+        JSON.stringify({ ["x".repeat(201)]: { rttMs: 1, jitterMs: 0 } }),
+        JSON.stringify(
+          Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`pc-${i}`, { rttMs: 1, jitterMs: 0 }])),
+        ),
+      ];
+      for (const links of bad) {
+        const path = `/api/games/730/machines?minutes=60&rtt=0&links=${encodeURIComponent(links)}`;
+        assert.equal((await renter("GET", path)).status, 400, links);
+      }
     });
 
     it("never lists the renter's own machine, nor one too far away or without the game", async () => {

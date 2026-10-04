@@ -6,8 +6,10 @@ import {
   BookingRefused,
   endBooking,
   followBooking,
+  rttsOf,
   storedBookingId,
   type Booking,
+  type BookingAsk,
   type Claim,
   type NextBest,
   type Refusal,
@@ -197,6 +199,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [demo, game, pool, session, prefs, liveGame]);
   /** Signed in, the open game's machines have not been read yet. */
   const machinesLoading = !demo && signedIn && game !== null && liveGame === null;
+  /** The open game's machines being probed for their latency right now, if any. */
+  const probing = useMemo(
+    () => new Set(!demo && game !== null && live.measuring?.appid === game.appid ? live.measuring.ids : []),
+    [demo, game, live.measuring],
+  );
+  const measuring = probing.size > 0;
   const picked = useMemo(
     () => machines.find((m) => m.id === machineId && (phase !== "idle" || !m.busy)) ?? null,
     [machines, machineId, phase],
@@ -315,11 +323,16 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // Which launch is current, so one cancelled while its booking call was in
   // flight hands its machine back rather than claiming it.
   const launchRun = useRef(0);
-  // The renter's measured round trip to the server, which bookings carry so
-  // the server judges each machine's latency from where they are.
-  const rttNow = useRef(live.rttMs);
-  rttNow.current = live.rttMs;
-  const rtts = () => (rttNow.current === null ? {} : { rtts: { server: rttNow.current } });
+  // The renter's measured round trips, to the server and through the relay to
+  // each machine probed, which bookings carry so the server judges each
+  // machine's latency from where they are.
+  const rttNow = useRef(live.rtts);
+  rttNow.current = live.rtts;
+  const rtts = (): BookingAsk => {
+    const now = rttNow.current();
+    const measured = rttsOf(now.server ?? null, now.machines);
+    return measured ? { rtts: measured } : {};
+  };
   // How the renter plays, which bookings carry so the server ranks machines as their list was.
   const prefsNow = useRef(prefs);
   prefsNow.current = prefs;
@@ -725,6 +738,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     game,
     machines,
     machinesLoading,
+    measuring,
+    probing,
     reason: why,
     picked,
     pool,

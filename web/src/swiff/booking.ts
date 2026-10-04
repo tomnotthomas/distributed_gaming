@@ -46,10 +46,18 @@ export type Booking = {
 };
 
 /**
- * The renter's round trips in ms: to the server, and straight to any machine
- * probed, by id. The server matches the booking by them.
+ * The renter's round trips in ms: to the server, and through the relay to each
+ * machine their probes measured, by id (useLive's `rtts`). The server matches
+ * the booking by them.
  */
 export type Rtts = { server?: number; machines?: Record<string, number> };
+
+/** A booking's round trips: the server's if measured, and each machine measured, if any. */
+export function rttsOf(server: number | null, machines: Record<string, number>): Rtts | undefined {
+  const measured = Object.keys(machines).length > 0;
+  if (server === null && !measured) return undefined;
+  return { ...(server === null ? {} : { server }), ...(measured ? { machines } : {}) };
+}
 
 /** The machine the server offers instead of one that was taken: the next on the renter's list. */
 export type NextBest = {

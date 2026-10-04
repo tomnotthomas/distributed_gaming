@@ -9,13 +9,20 @@
 // Each read spends one of the renter's budget of them (server/src/budget.ts);
 // past it the server answers 429 with Retry-After, which is handed back here so
 // the caller waits that long before asking again.
+//
+// The machine list also hands out a probe token for each of the top three,
+// with the TURN relay to probe through, which useLive spends measuring the path
+// to them through the relay (@swiff/rtc probeLatency); both reads then take
+// what was measured as `links`, and the server ranks a measured machine by it
+// rather than by its estimate.
 
 import type { Control, PicturePref } from "@swiff/rank";
+import type { MeasuredLink } from "@swiff/rtc";
 import type { Machine, Spot } from "./data";
 import { clockTime, type Prefs } from "./derive";
 
-/** One machine's latency, as the server estimated it through itself. */
-type Latency = { rttMs: number; jitterMs: number; source: "estimate" };
+/** One machine's latency: estimated by the server through itself, or measured by this page's own probe. */
+type Latency = { rttMs: number; jitterMs: number; source: "estimate" | "probe" };
 
 /** The machine a wall tile offers (server/src/candidates.ts WallMachine). */
 export type WallMachine = {
@@ -50,6 +57,8 @@ export type MachineCandidate = {
   latency: Latency;
   response: number;
   picture: number;
+  /** A token for one latency probe of it, for the top three not measured already; else null. */
+  probe: string | null;
 };
 
 /** One game's machines (server/src/candidates.ts GameMachines), as far as the page reads it. */
@@ -59,10 +68,15 @@ export type GameMachines = {
   machines: MachineCandidate[];
   reason: { rule: string; label: string } | null;
   busy: { id: string; name: string | null; backAt: number | null }[];
+  /** The TURN relay the probes go through: only there when some machine has a token. */
+  iceServers?: RTCIceServer[];
 };
 
-/** How the renter asks: their round trip to the server in ms, and how they play. */
-export type Ask = { rttMs: number; controls: Control[]; picture: PicturePref };
+/** What this page measured through the relay to machines it probed, by id. */
+export type Links = Record<string, MeasuredLink>;
+
+/** How the renter asks: their round trip to the server in ms, how they play, and what they measured. */
+export type Ask = { rttMs: number; controls: Control[]; picture: PicturePref; links?: Links };
 
 /** A read's answer, or why there is none: `retryAfterMs` when over budget, else a failure to try later. */
 export type Answer<T> = { ok: true; value: T } | { ok: false; retryAfterMs: number | null };
@@ -84,14 +98,16 @@ const ALL_NIGHT_MINUTES = 12 * 60;
 const PICTURE: Record<Prefs["quality"], PicturePref> = { auto: "best", fps: "120fps", resolution: "4k" };
 
 /** The renter's settings as the reads take them. */
-export const askOf = (rttMs: number, prefs: Prefs): Ask => ({
+export const askOf = (rttMs: number, prefs: Prefs, links?: Links): Ask => ({
   rttMs,
   controls: prefs.devices,
   picture: PICTURE[prefs.quality],
+  ...(links && Object.keys(links).length ? { links } : {}),
 });
 
 const queryOf = (ask: Ask) =>
-  `rtt=${Math.round(ask.rttMs)}&controls=${ask.controls.join(",")}&picture=${ask.picture}`;
+  `rtt=${Math.round(ask.rttMs)}&controls=${ask.controls.join(",")}&picture=${ask.picture}` +
+  (ask.links ? `&links=${encodeURIComponent(JSON.stringify(ask.links))}` : "");
 
 /** How many pings the round trip is measured over, and the pause between them. */
 const PINGS = 3;
@@ -253,6 +269,7 @@ export function machinesOf(game: GameMachines, now: number): Machine[] {
     ...untilOf(m.availableUntil, now),
     busy: false,
     scores: { picture: m.picture, response: m.response },
+    ...(m.latency.source === "probe" ? { measured: true } : {}),
   }));
   const busy = game.busy.map((m): Machine => ({
     id: m.id,
