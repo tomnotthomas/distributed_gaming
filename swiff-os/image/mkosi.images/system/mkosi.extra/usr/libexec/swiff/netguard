@@ -24,6 +24,7 @@ onlink() { # family
 		printf '%s\n' "$routes" | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }'
 		printf '%s\n' "$addrs" | awk '{ print $4 }'
 	} | awk -F/ '
+	# Parses a hex group of an IPv6 address.
 	function hex(s,   i, v) {
 		v = 0
 		for (i = 1; i <= length(s); i++) v = v * 16 + index("0123456789abcdef", substr(tolower(s), i, 1)) - 1

@@ -52,7 +52,9 @@ for arg in "$@"; do
 	esac
 done
 
+# Prints a section heading.
 log() { printf '\n== %s\n' "$*"; }
+# Prints an error and exits.
 die() {
 	echo "run-test: $*" >&2
 	exit 1
@@ -114,6 +116,8 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
     if p.get("name") == "swiff-scratch": print(p["start"], p["size"])')
 [ -n "${scratch_start:-}" ] || die "no swiff-scratch partition in the image"
 
+# Boots the VM once with swtpm and waits for the self-test to finish;
+# dies if it does not.
 boot_vm() { # boot number
 	local n=$1 serial=$run/serial-$1.log
 	log "Boot $n"
@@ -153,6 +157,7 @@ boot_vm() { # boot number
 	}
 }
 
+# Hashes the first 4 MiB of the scratch partition in the disk image.
 scratch_digest() {
 	dd if="$run/disk.raw" bs=512 skip="$scratch_start" count=8192 status=none | sha256sum | cut -d' ' -f1
 }
@@ -183,6 +188,7 @@ expected_pcr11=$(bwrap --ro-bind "$tools/usr" /usr \
 # --- Verdict -------------------------------------------------------------------
 log "Results"
 fail=0
+# Prints one row of the results table and records a failure.
 result() { # PASS|FAIL name detail
 	printf '%-4s  %-30s %s\n' "$1" "$2" "$3"
 	[ "$1" = PASS ] || fail=1

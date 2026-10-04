@@ -11,14 +11,19 @@ EFI_LOADER=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
 MARKER=/home/renter/swiff-selftest-marker
 GAMES_MARKER=/srv/games/steamapps/swiff-selftest-marker
 
+# Prints one result line for run-test.sh.
 say() { echo "SWIFF-SELFTEST $*"; }
+# Runs a command and reports PASS or FAIL under the given name.
 check() { # name detail command...
 	local name=$1 detail=$2
 	shift 2
 	if "$@" > /dev/null 2>&1; then say PASS "$name" "$detail"; else say FAIL "$name" "$detail"; fi
 }
+# Runs a command as the renter, without privileges.
 as_renter() { setpriv --reuid=renter --regid=renter --init-groups --no-new-privs -- "$@"; }
+# Prints the last byte of an EFI variable (its boolean value).
 efivar_byte() { od -An -t u1 "/sys/firmware/efi/efivars/$1" 2> /dev/null | awk '{ print $NF }'; }
+# Prints a SHA-256 PCR value from the TPM.
 pcr() { cat "/sys/class/tpm/tpm0/pcr-sha256/$1" 2> /dev/null; }
 # TCP connect as the renter. Prints "connected", or bash's error text.
 tcp_connect() { as_renter timeout 6 bash -c "exec 3<>/dev/tcp/$1/$2 && echo connected" 2>&1; }
@@ -86,6 +91,7 @@ check renter-unprivileged "uid=$uid gid=$gid groups=$(id -nG renter)" \
 check renter-no-shell "$shell" test "$shell" = /usr/sbin/nologin
 # The password field from shadow, or from passwd when there is no shadow entry.
 password_field() { getent shadow "$1" | cut -d: -f2 | grep . || getent passwd "$1" | cut -d: -f2; }
+# Succeeds when the account has a locked or no usable password.
 locked() { case $(password_field "$1") in '!'* | '*'* | x) return 0 ;; *) return 1 ;; esac }
 # The detail says only whether the account is locked: the password field
 # itself (a hash on other systems) never goes to the console log.
@@ -192,8 +198,9 @@ check internet-works "$addr:443 -> $inet" test "$inet" = connected
 # the server's address is added to onlink4, as a refresh would.
 # Prints "opened" once the connection is up, then the server's first line.
 held() { as_renter timeout 15 bash -c "exec 3<>/dev/tcp/$1/80 || exit; echo opened; sleep 3; printf 'HEAD / HTTP/1.0\r\nHost: snapshot.ubuntu.com\r\n\r\n' >&3; timeout 6 head -n1 <&3 || echo no-answer" 2>&1 | tr -d '\r'; }
-# The held connection was opened, and got (or did not get) an HTTP answer.
+# The held connection was opened and got an HTTP answer.
 held_answered() { grep -qx opened <<< "$1" && grep -q '^HTTP/' <<< "$1"; }
+# The held connection was opened but got no HTTP answer.
 held_cut_off() { grep -qx opened <<< "$1" && ! grep -q '^HTTP/' <<< "$1"; }
 systemctl stop swiff-netguard.timer swiff-netguard.path
 ctl=$( [ -n "$addr" ] && held "$addr")

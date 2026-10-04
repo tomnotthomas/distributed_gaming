@@ -6,6 +6,8 @@
 set -eu
 . /usr/lib/swiff/rental-policy.conf
 
+# Succeeds when this PC meets one floor item; returns 2 for an item
+# Swiff OS cannot check on its own yet.
 check() {
 	case $1 in
 	uefi) [ -d /sys/firmware/efi ] ;;
