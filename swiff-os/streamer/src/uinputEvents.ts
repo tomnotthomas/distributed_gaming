@@ -69,6 +69,22 @@ const STICK_MAX = 32767;
 const TRIGGER_MAX = 255;
 const NOTCH = 120;
 
+const CTRL = ["ControlLeft", "ControlRight"];
+const ALT = ["AltLeft", "AltRight"];
+const F_KEYS = new Set(Array.from({ length: 24 }, (_, i) => `F${i + 1}`));
+
+/**
+ * Whether pressing `code` with `held` down would act on the PC rather than the
+ * game, as the kernel's default keymap has it: Ctrl+Alt+Delete reboots, and
+ * Alt+F<n>, Ctrl+Alt+F<n> and Alt+Left/Right switch the virtual console.
+ */
+function actsOnPc(code: string, held: ReadonlySet<string>): boolean {
+  const alt = ALT.some((k) => held.has(k));
+  if (!alt) return false;
+  if (code === "Delete" || code === "NumpadDecimal") return CTRL.some((k) => held.has(k));
+  return F_KEYS.has(code) || code === "ArrowLeft" || code === "ArrowRight";
+}
+
 type Event = [device: number, type: number, code: number, value: number];
 
 /** Pack events into the helper's records. */
@@ -93,6 +109,10 @@ export function createUinputSink(write: (records: Buffer) => void): InputSink {
   // a touchpad's small steps add up to notches for games that count only those.
   let restX = 0;
   let restY = 0;
+  // Keys whose press was sent, and keys whose press was dropped as acting on
+  // the PC; a dropped press drops its release too.
+  const held = new Set<string>();
+  const dropped = new Set<string>();
 
   const emit = (device: number, events: [type: number, code: number, value: number][]) => {
     if (!events.length) return;
@@ -136,7 +156,19 @@ export function createUinputSink(write: (records: Buffer) => void): InputSink {
     },
     key(code, down) {
       const key = linuxKey(code);
-      if (key !== null) emit(DEVICE.keyboard, [[EV_KEY, key, down ? 1 : 0]]);
+      if (key === null) return;
+      if (down) {
+        if (dropped.has(code)) return;
+        if (!held.has(code) && actsOnPc(code, held)) {
+          dropped.add(code);
+          return;
+        }
+        held.add(code);
+      } else {
+        if (dropped.delete(code)) return;
+        held.delete(code);
+      }
+      emit(DEVICE.keyboard, [[EV_KEY, key, down ? 1 : 0]]);
     },
     gamepad(index, state) {
       if (!Number.isInteger(index) || index < 0 || index >= MAX_GAMEPADS) return;

@@ -229,7 +229,9 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   through `/dev/uinput`, which only the `swiff-stream` group may open
   (`system/70-swiff-streamer.rules`). The receiver lets go of everything held when the
   renter blurs, disconnects or falls silent for a second. Keys that act on the PC rather
-  than the game (Power, Sleep, PrintScreen, which is SysRq) are never sent. The devices
+  than the game (Power, Sleep, PrintScreen, which is SysRq) are never sent, and the sink
+  drops Ctrl+Alt+Delete and the console switches (Alt+F<n>, Ctrl+Alt+F<n>,
+  Alt+Left/Right). The devices
   carry `phys=swiff-streamer`, tagged `SWIFF_STREAMER=1` by udev, so the image can ignore
   every other input device during a session.
 
@@ -295,3 +297,7 @@ PipeWire to the encoder), gamescope's headless or virtual-output mode taking uin
 devices, the time from Play to first frame, Steam Input taking the virtual controllers,
 controller rumble (force feedback back to the renter), and werift's CPU cost at 10–20
 Mbit/s.
+
+**Follow-up (image).** Harden below the streamer too: mask `ctrl-alt-del.target` and keep
+the virtual consoles off, so no key combination reaches them even if one gets past the
+sink.

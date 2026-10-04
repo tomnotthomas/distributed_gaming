@@ -68,6 +68,107 @@ describe("createUinputSink", () => {
     expect(batches).toHaveLength(0);
   });
 
+  /** The keys a sequence of presses and releases sends, as [linux code, value]. */
+  function keysSent(steps: [code: string, down: boolean][]) {
+    const { sink, events } = recorder();
+    for (const [code, down] of steps) sink.key(code, down);
+    return events.filter(([, type]) => type === 1).map(([, , code, value]) => [code, value]);
+  }
+  const CTRL = 29,
+    ALT = 56,
+    DEL = 111,
+    F2 = 60,
+    F4 = 62;
+
+  it("drops Ctrl+Alt+Delete, press and release, and sends the modifiers", () => {
+    expect(keysSent([
+      ["ControlLeft", true], ["AltLeft", true], ["Delete", true], ["Delete", false],
+      ["AltLeft", false], ["ControlLeft", false],
+    ])).toEqual([[CTRL, 1], [ALT, 1], [ALT, 0], [CTRL, 0]]); // prettier-ignore
+    expect(keysSent([["ControlRight", true], ["AltRight", true], ["NumpadDecimal", true]])).toEqual([
+      [97, 1], [100, 1],
+    ]); // prettier-ignore
+  });
+
+  it("drops the console switches: Ctrl+Alt+F2, Alt+F4, Alt+Left", () => {
+    expect(keysSent([["ControlLeft", true], ["AltLeft", true], ["F2", true], ["F2", false]])).toEqual([
+      [CTRL, 1], [ALT, 1],
+    ]); // prettier-ignore
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["F4", true],
+        ["F4", false],
+      ]),
+    ).toEqual([[ALT, 1]]);
+    expect(
+      keysSent([
+        ["AltRight", true],
+        ["F24", true],
+      ]),
+    ).toEqual([[100, 1]]);
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["ArrowLeft", true],
+      ]),
+    ).toEqual([[ALT, 1]]);
+  });
+
+  it("still sends F-keys, Delete and Ctrl or Alt alone", () => {
+    expect(
+      keysSent([
+        ["F2", true],
+        ["F2", false],
+      ]),
+    ).toEqual([
+      [F2, 1],
+      [F2, 0],
+    ]);
+    expect(keysSent([["ControlLeft", true], ["F2", true], ["F2", false]])).toEqual([
+      [CTRL, 1], [F2, 1], [F2, 0],
+    ]); // prettier-ignore
+    expect(
+      keysSent([
+        ["Delete", true],
+        ["Delete", false],
+      ]),
+    ).toEqual([
+      [DEL, 1],
+      [DEL, 0],
+    ]);
+    expect(
+      keysSent([
+        ["ControlLeft", true],
+        ["Delete", true],
+      ]),
+    ).toEqual([
+      [CTRL, 1],
+      [DEL, 1],
+    ]);
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["KeyA", true],
+      ]),
+    ).toEqual([
+      [ALT, 1],
+      [30, 1],
+    ]);
+  });
+
+  it("pairs every release with a press that was sent", () => {
+    // Pressed before Alt: sent, so released normally, even while Alt is down.
+    expect(keysSent([["F4", true], ["AltLeft", true], ["F4", true], ["F4", false]])).toEqual([
+      [F4, 1], [ALT, 1], [F4, 1], [F4, 0],
+    ]); // prettier-ignore
+    // Dropped with Alt down: its release stays dropped after Alt goes up, and
+    // the next press, now alone, is sent.
+    expect(keysSent([
+      ["AltLeft", true], ["F4", true], ["AltLeft", false], ["F4", true], ["F4", false], ["F4", true],
+    ])).toEqual([[ALT, 1], [ALT, 0], [F4, 1]]); // prettier-ignore
+  });
+
   it("puts an absolute move on the pointer, across 0..65535", () => {
     const { sink, events } = recorder();
     sink.move(0.5, 1.2);

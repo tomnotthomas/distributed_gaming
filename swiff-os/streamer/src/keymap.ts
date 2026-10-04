@@ -10,6 +10,10 @@
 //   PrintScreen           it is KEY_SYSRQ, and Alt+SysRq+<key> is the kernel's
 //                         magic SysRq, which can reboot or kill processes
 //   Eject, browser and launcher keys — nothing a game binds, and some start programs
+//
+// Combinations of mapped keys that act on the PC (Ctrl+Alt+Delete, and the
+// console switches Alt+F<n>, Ctrl+Alt+F<n> and Alt+Left/Right) are dropped by
+// the sink in uinputEvents.ts, which knows what is held.
 
 // prettier-ignore
 const LETTERS: Record<string, number> = {
