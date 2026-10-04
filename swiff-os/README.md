@@ -70,8 +70,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **The renter user is unprivileged.** `renter` (uid 1000) has no password, no login shell, no sudo and
   no supplementary groups. The root has no setuid or setgid programs at all.
 - **The session is the whole UI.** `swiff-session.service` runs gamescope with Steam on tty1 as
-  `renter`, with `NoNewPrivileges`. There is no display manager, desktop, getty, serial console login or
-  sshd.
+  `renter`, with `NoNewPrivileges`. It starts only after `nftables.service` has loaded the firewall
+  and does not start at all if loading fails. There is no display manager, desktop, getty, serial
+  console login or sshd.
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
   multicast and broadcast addresses, their IPv6 counterparts, every on-link prefix and the prefix of
   each of the host's own global addresses, so the LAN's global IPv6 addresses (even when the router
