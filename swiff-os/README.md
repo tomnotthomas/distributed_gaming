@@ -262,7 +262,7 @@ PipeWire grant, x264 chosen with no GPU, picture and sound flowing, the renter d
 1280×720 and playing it, the renter's key, click and pointer arriving as kernel input
 events on the virtual devices, Ctrl+Alt+Delete, Ctrl+Alt+F3 and Alt+F4 never arriving
 while plain F2, Delete, Ctrl and Alt do, and the streamer exiting cleanly when the
-session ends. In the last run all 24 checks passed: the streamer was registered 0.8 s
+session ends. In the last run all 24 checks passed: the streamer was registered 0.5 s
 after start and the renter decoded the first frame 2.1 s after pressing Connect (x264,
 720p30, no GPU). It waits while another VM runs or the PC has under 4 GB free, never touches the host's
 disks, boot entries or firmware, and needs `sudo` for mkosi (and for QEMU when this
