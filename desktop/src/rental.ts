@@ -35,7 +35,7 @@ export const chosenTarget = (read: RentalRead, id: string | null): RentalTarget 
   id === null ? (read.targets[0] ?? null) : (read.targets.find((t) => t.id === id) ?? null);
 
 /** The owner chose a place for Swiff OS that this read no longer offers. */
-const choiceGone = (read: RentalRead, id: string | null): boolean =>
+export const choiceGone = (read: RentalRead, id: string | null): boolean =>
   id !== null && read.targets.length > 0 && !chosenTarget(read, id);
 
 /** Where Swiff OS goes, in words: "24 GB from C:", "24 GB of free space on disk 1". */
