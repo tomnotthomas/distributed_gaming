@@ -6,7 +6,7 @@ import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
 import { HOLD_MS } from "./ui/hold";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
-import { installPlan, rentalOf, TYPE } from "../rental.cjs";
+import { installPlan, rentalOf, TYPE, type RentalRead } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 
 const FAKE = [
@@ -676,11 +676,10 @@ describe("rental mode", () => {
     expect(acts.chooseRentalTarget).toHaveBeenCalledWith("shrink:C");
   });
 
-  it("never swaps in another drive when the chosen one is gone after checking again", async () => {
-    const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
-    let next = read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] }));
+  /** The rental screen on useRental itself, over a bridge that answers each read with `reads.next`. */
+  function renderLive(reads: { next: RentalRead }) {
     (window as { swiffHost?: Partial<HostBridge> }).swiffHost = {
-      readRental: vi.fn(async () => next),
+      readRental: vi.fn(async () => reads.next),
       planRental: vi.fn(async () => null),
       setGlance: vi.fn(),
       onTrayAction: vi.fn(() => () => {}),
@@ -699,24 +698,41 @@ describe("rental mode", () => {
       };
       return <Shell host={host} step="rental" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />;
     }
-    try {
-      render(<Live />);
-      fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
-      next = read();
-      await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
-      const gone = "The drive you chose is no longer available: choose again";
-      expect(screen.getByText(gone).closest(".krow")).toBeInTheDocument();
-      expect(screen.queryByText("24 GB from C:")).not.toBeInTheDocument();
-      expect(screen.queryByText(/takes 24 GB from C:/)).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
-      expect(screen.getByRole("radio", { name: /C:/ })).toHaveAttribute("aria-checked", "false");
-      fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
-      expect(screen.queryByText(gone)).not.toBeInTheDocument();
-      expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Review the install/ })).toBeEnabled();
-    } finally {
-      delete (window as { swiffHost?: unknown }).swiffHost;
-    }
+    render(<Live />);
+  }
+  const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
+  const gone = "The drive you chose is no longer available: choose again";
+  afterEach(() => {
+    delete (window as { swiffHost?: unknown }).swiffHost;
+  });
+
+  it("never swaps in another drive when the chosen one is gone after checking again", async () => {
+    const reads = { next: read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] })) };
+    renderLive(reads);
+    fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
+    reads.next = read();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
+    expect(screen.getByText(gone).closest(".krow")).toBeInTheDocument();
+    expect(screen.queryByText("24 GB from C:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/takes 24 GB from C:/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /C:/ })).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
+    expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeEnabled();
+  });
+
+  it("asks for no drive once Swiff OS is installed where the owner chose", async () => {
+    const reads = { next: read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] })) };
+    renderLive(reads);
+    fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
+    reads.next = installed();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
+    expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Check again/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Space").closest(".krow")).toHaveTextContent("24 GB: Swiff OS is installed");
   });
 
   it("switches, once installed: going live and back to Windows, as previews", () => {

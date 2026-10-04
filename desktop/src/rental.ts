@@ -127,11 +127,13 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
     {
       id: "space",
       label: "Space",
-      ...(target
-        ? { value: targetLine(target, need), state: "ok" }
-        : choiceGone(read, targetId)
-          ? { value: "The drive you chose is no longer available: choose again", state: "blocked" }
-          : { value: `No drive has ${gb(need)} free`, state: "blocked" }),
+      ...(read.installed
+        ? { value: `${gb(need)}: Swiff OS is installed`, state: "ok" }
+        : target
+          ? { value: targetLine(target, need), state: "ok" }
+          : choiceGone(read, targetId)
+            ? { value: "The drive you chose is no longer available: choose again", state: "blocked" }
+            : { value: `No drive has ${gb(need)} free`, state: "blocked" }),
     },
     {
       id: "games",
