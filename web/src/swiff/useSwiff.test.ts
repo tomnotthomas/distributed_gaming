@@ -511,6 +511,31 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
+    it("keeps Ignition held on the code for any Steam sign-in state but signed-in", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(signaling).toHaveLength(1));
+        act(() => signaling[0]!.open());
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.steamLogin?.state).toBe("qr");
+        expect(signaling[0]!.closed).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),

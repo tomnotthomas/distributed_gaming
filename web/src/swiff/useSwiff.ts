@@ -545,10 +545,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         if (msg.type !== "steam-login") return;
         if (msg.state === "qr") {
           if (isSteamSignInUrl(msg.url)) setSteamLogin(msg);
-          return;
+        } else if (msg.state === "signed-in") {
+          setSteamLogin(null);
+          setSteamSignedIn(true);
         }
-        setSteamLogin(null);
-        setSteamSignedIn(true);
       },
     });
     return () => {
