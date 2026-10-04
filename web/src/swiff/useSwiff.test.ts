@@ -71,6 +71,8 @@ const booked = (status: string, claimBy?: number) => ({
 });
 
 const TICKET = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+/** The same claim on a rental-mode (Swiff OS) PC. */
+const RENTAL_TICKET = { ...TICKET, rentalMode: true };
 
 /** The page's event streams, opened through a stand-in for EventSource that each test drives. */
 function streams() {
@@ -383,7 +385,7 @@ describe("useSwiff", () => {
     it("shows a rental-mode PC's Steam sign-in code from the claimed room until the renter approves it", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
       });
       streams();
       const result = await openLive();
@@ -412,7 +414,7 @@ describe("useSwiff", () => {
     it("drops the Steam sign-in code and leaves the room when the launch is left", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
         "POST /api/bookings/b-1/end": json(200, booked("ended")),
       });
       streams();
@@ -430,10 +432,10 @@ describe("useSwiff", () => {
       expect(signaling[0]!.closed).toBe(true);
     });
 
-    it("drops the Steam sign-in code and leaves the room once the launch goes live", async () => {
+    it("holds Ignition on the Steam sign-in code until the renter approves it, then goes live", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
       });
       streams();
       const result = await openLive();
@@ -443,13 +445,41 @@ describe("useSwiff", () => {
         await waitFor(() => expect(signaling).toHaveLength(1));
         act(() => signaling[0]!.open());
         act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-        expect(result.current.steamLogin).not.toBeNull();
+        const held = result.current.progress;
 
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.progress).toBe(held);
+        expect(result.current.steamLogin?.state).toBe("qr");
+        expect(signaling[0]!.closed).toBe(false);
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
         await act(() => vi.advanceTimersByTimeAsync(60_000));
 
         expect(result.current.phase).toBe("live");
         expect(result.current.steamLogin).toBeNull();
         expect(signaling[0]!.closed).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never joins the room of a PC not in rental mode, and goes live on Ignition's timer", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.phase).toBe("live");
+        expect(signaling).toHaveLength(0);
       } finally {
         vi.useRealTimers();
       }

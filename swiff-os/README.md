@@ -242,9 +242,13 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 - **The PC-side sender.** The streamer passes `play` to this socket and relays `qr` and
   `signed-in` to the renter as `steam-login`. It lands with the streamer and
-  `swiff-hostd` integration. The page side is here: while Ignition is up, `useSwiff`
-  joins the claimed room's signaling and shows the code it hears there, until the
-  renter approves it or the launch goes live or is left.
+  `swiff-hostd` integration. The page side is here: while Ignition is up on a claim
+  marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
+  hears there and holds Ignition on it until the renter approves it or leaves. Nothing
+  marks a claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
+- **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
+  event-driven one; whichever of the two lands second reconciles the sign-in hold with
+  it.
 - **Play-to-first-frame** on real GPU hardware with a real Steam account, in a
   supervised session with the captain at the PC.
 - **The image** runs `steam/session` as the renter session. It also needs:

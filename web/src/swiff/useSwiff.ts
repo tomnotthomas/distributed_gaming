@@ -513,17 +513,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearTimeout(timer);
   }, [freed]);
 
+  // Ignition holds on a Steam sign-in code until the renter approves it.
   useEffect(() => {
-    if (phase !== "connecting") return;
+    if (phase !== "connecting" || steamLogin) return;
     const timer = window.setInterval(() => setBeat((b) => b + 1), IGNITION_MS);
     return () => window.clearInterval(timer);
-  }, [phase]);
+  }, [phase, steamLogin]);
 
-  // While Ignition is up, the claimed room's signaling carries a rental-mode
-  // PC's Steam sign-in code. It is shown until the renter approves it, and
-  // dropped with the launch, once it goes live or is left.
+  // While Ignition is up, a rental-mode PC's room carries its Steam sign-in
+  // code. It is shown until the renter approves it, and dropped with the
+  // launch once it goes live or is left. Other PCs' rooms are not joined here:
+  // their host would take the page for a renter and offer it a stream.
   useEffect(() => {
-    if (phase !== "connecting" || !claim) return;
+    if (phase !== "connecting" || !claim?.rentalMode) return;
     const signaling = connectSignaling({
       url: claim.signalingUrl,
       onOpen: (send) => send({ type: "join", ticket: claim.ticket }),
@@ -538,11 +540,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [phase, claim]);
 
   useEffect(() => {
-    if (phase !== "connecting" || beat < IGNITION_BEATS) return;
+    if (phase !== "connecting" || beat < IGNITION_BEATS || steamLogin) return;
     track("session_started", { game: gameId, machine: machineId });
     setPhase("live");
     setElapsedMs(0);
-  }, [phase, beat, gameId, machineId]);
+  }, [phase, beat, steamLogin, gameId, machineId]);
 
   useEffect(() => {
     if (phase !== "live") return;
