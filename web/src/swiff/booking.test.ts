@@ -4,10 +4,12 @@ import {
   bookMachine,
   BookingRefused,
   claim,
+  continueBooking,
   endBooking,
   fetchBooking,
   followBooking,
   forgetStoredTicket,
+  machineLost,
   resumeBooking,
   resumeTicket,
   storedPlay,
@@ -147,6 +149,23 @@ describe("watching a booking over the event stream", () => {
     expect(updates).toEqual(["matched", "claimed"]);
     expect(stream.closed).toBe(true);
     expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
+  it("follows a running session's booking on to its end with toEnd", () => {
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: { ticket: "t" } }));
+    const { stream, open } = fakeStream();
+    const updates: (BookingStatus | null)[] = [];
+    watchBooking("b-1", (b) => updates.push(b?.status ?? null), { eventSource: open, toEnd: true });
+    expect(stream.url).toBe("/api/events?booking=b-1&to=end");
+    stream.push("claimed");
+    stream.push("playing");
+    expect(stream.closed).toBe(false);
+    expect(storedPlay()).not.toBeNull();
+    stream.push("ended");
+
+    expect(updates).toEqual(["claimed", "playing", "ended"]);
+    expect(stream.closed).toBe(true);
+    expect(storedPlay()).toBeNull();
   });
 
   it("falls back to a slow poll while the stream is down, and stops it when the stream is back", async () => {
@@ -798,6 +817,31 @@ describe("the ticket, never stored", () => {
     expect(await resumeTicket("b-1", { fetch: server.fetch })).toBeNull();
     expect(await resumeTicket("nope", { fetch: server.fetch })).toBeNull();
     await expect(resumeTicket("b-2", { fetch: server.fetch })).rejects.toThrow("500");
+  });
+
+  it("tells a session whose machine was lost from one that ended any other way", () => {
+    const ended = { ...booking("ended"), endReason: "host_offline" as const };
+    expect(machineLost(ended)).toBe(true);
+    expect(machineLost({ ...ended, endReason: "owner_kill" })).toBe(true);
+    for (const endReason of ["renter", "time_up", "grace_expired"] as const) {
+      expect(machineLost({ ...ended, endReason })).toBe(false);
+    }
+    expect(machineLost({ ...booking("playing"), endReason: "host_offline" })).toBe(false);
+    expect(machineLost(booking("ended"))).toBe(false);
+    expect(machineLost(null)).toBe(false);
+  });
+
+  it("carries a lost session on as a new booking, remembered to pick up, and null when there is none", async () => {
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: CLAIMED }));
+    const next = { ...booking("matched", 1_000), bookingId: "b-2" };
+    const server = answering(202, next);
+    expect(await continueBooking("b-1", { fetch: server.fetch })).toEqual(next);
+    expect(server.calls).toEqual(["POST /api/bookings/b-1/continue"]);
+    expect(localStorage.getItem("swiff.booking")).toBe("b-2");
+    expect(storedPlay()).toBeNull();
+
+    expect(await continueBooking("b-1", { fetch: answering(409, { status: "ended" }).fetch })).toBeNull();
+    await expect(continueBooking("b-1", { fetch: answering(503).fetch })).rejects.toThrow();
   });
 
   it("drops a kept play that still holds a ticket, and keeps one that does not", () => {

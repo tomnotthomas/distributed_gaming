@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Backdrop, Button, Dialog, StatusDot, Tag, TopBar } from "@swiff/ui";
+import { Backdrop, Button, StatusDot, Tag, TopBar } from "@swiff/ui";
 import type { RenterStats } from "@swiff/rtc";
 import { Reconnecting } from "./Reconnect";
 import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
@@ -69,7 +69,7 @@ function useFullscreen(element: HTMLElement | null) {
  * machines are invented, the game's trailer stands in for the stream.
  */
 export function Session({ swiff }: { swiff: Swiff }) {
-  const { game, picked, machines, elapsedMs, demo, play } = swiff;
+  const { game, picked, elapsedMs, demo, play } = swiff;
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [hudShown, wake] = useAutoHide();
   const [fullscreen, toggleFullscreen] = useFullscreen(root);
@@ -106,7 +106,6 @@ export function Session({ swiff }: { swiff: Swiff }) {
   }, [root, behindIgnition, wake]);
   if (!game) return null;
 
-  const fallback = machines.find((m) => !m.busy && m.id !== picked?.id);
   const real = !demo;
   // A session come back to may be on a machine the open game's list no longer shows.
   const host = picked?.name ?? swiff.booking?.machine?.name ?? "your machine";
@@ -190,23 +189,6 @@ export function Session({ swiff }: { swiff: Swiff }) {
       </div>
 
       {real ? <Reconnecting swiff={swiff} host={host} /> : null}
-
-      {swiff.ownerDropped && fallback ? (
-        <Dialog
-          title={`${picked?.name} went offline`}
-          actions={
-            <>
-              <Button variant="secondary" onClick={swiff.endSession}>
-                Stop for now
-              </Button>
-              <Button onClick={() => swiff.switchMachine(fallback.id)}>Continue on {fallback.name}</Button>
-            </>
-          }
-        >
-          The owner took the machine back. Your save was synced 40 seconds ago and nothing is lost.{" "}
-          {fallback.name} has {game.title} ready at {fallback.ping} ms.
-        </Dialog>
-      ) : null}
     </div>
   );
 }

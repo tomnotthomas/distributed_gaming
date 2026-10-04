@@ -14,10 +14,13 @@ import type { Swiff } from "./useSwiff";
  * Cancel ends the booking; once the session has started it reads End. Nothing
  * of the stream shows until the PC says the game runs. It is modal: Swiff.tsx makes the page behind it
  * inert, and focus moves to Cancel while it is up and back to where it was
- * when it closes.
+ * when it closes. A session carried on from a lost machine starts here too,
+ * saying which machine it moved from.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
-  const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow } = swiff;
+  const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow, lost } = swiff;
+  // A machine carried on to may not be on the list the game's page last read.
+  const host = picked?.name ?? swiff.booking?.machine?.name;
   const shown = useEased(progress * 100);
   const pct = Math.round(shown);
   const ignitionStep = ignitionSteps[now]!;
@@ -52,10 +55,13 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         <div className="ig-shade" />
         <span className="wm ig-wm">Swiff</span>
         <div className="ig-copy">
-          <div className="mono">Starting</div>
+          <div className="mono" data-testid="ignition-kicker">
+            {lost ? (lost.taken ? `${lost.host} was taken back` : `${lost.host} went offline`) : "Starting"}
+          </div>
           <div className="ig-title">{title}</div>
           <div className="ig-where">
-            on <b>{picked?.name ?? "a machine"}</b>
+            {lost ? "now on " : "on "}
+            <b>{host ?? "a machine"}</b>
             {picked ? `, ${picked.ping} ms away` : null}
           </div>
         </div>

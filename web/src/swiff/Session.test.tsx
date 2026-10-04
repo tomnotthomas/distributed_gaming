@@ -40,10 +40,8 @@ const swiffWith = (more: Partial<Swiff> = {}) =>
     machines: [],
     elapsedMs: 65_000,
     play: playing(),
-    ownerDropped: false,
     attachVideo: vi.fn(),
     endSession: vi.fn(),
-    switchMachine: vi.fn(),
     ...more,
   }) as unknown as Swiff;
 

@@ -17,6 +17,10 @@ import type { Swiff } from "./useSwiff";
 //                      Glasshouse, 0:12, by itself for 15 s, then a button
 //   C  QueueBackDialog on load, a queued booking picked up where it was:
 //                      Still finding a machine, in the queue, the place held
+//   D  MachineLost     the session's machine was lost (gone offline, or taken
+//                      back by its owner): Glasshouse went offline, finding
+//                      another machine, 0:03; it carries on there by itself
+//                      through Ignition, or waits for one; Stop for now
 //
 // Only the renter's End skips the PC's two minutes: closing the page, or
 // leaving it open, never does.
@@ -226,6 +230,57 @@ export function Reconnecting({ swiff, host }: { swiff: Swiff; host: string }) {
       }
       primary={gaveUp ? { label: "Reconnect", onClick: swiff.retryConnection } : undefined}
       secondary={{ label: "End session", onClick: swiff.endSession }}
+    />
+  );
+}
+
+/**
+ * Screen D: the session's machine was lost, and the page is carrying it on
+ * elsewhere by itself (useSwiff carryOn). It counts while the next machine is
+ * found, and while one is waited for when every machine with the game is
+ * busy; once it is found, Ignition takes over in this same layout. With none
+ * to move to, it says so and hands the choice back.
+ */
+export function MachineLost({ swiff }: { swiff: Swiff }) {
+  const now = useNow();
+  const { lost, bookingFailed } = swiff;
+  if (!lost) return null;
+  const game = gameOf(swiff, lost.booking.gameId);
+  const title = game?.title ?? "your game";
+  const what = lost.taken ? `${lost.host} was taken back` : `${lost.host} went offline`;
+  const failed = lost.failed || (bookingFailed && lost.next !== null);
+  const waiting = !failed && lost.next?.status === "queued";
+  const away = minutesSeconds(now - lost.at);
+  const stop = { label: "Stop for now", onClick: swiff.stopLost };
+  return (
+    <ComeBack
+      testId="machine-lost"
+      label={`${what}. ${failed ? "No machine to move to" : "Moving you to another machine"}`}
+      game={game}
+      kicker={lost.taken ? "Taken back" : "Machine lost"}
+      where={
+        lost.taken ? (
+          <>
+            <b>{lost.host}</b>&rsquo;s owner took it back
+          </>
+        ) : (
+          <>
+            <b>{lost.host}</b> went offline
+          </>
+        )
+      }
+      reading={failed ? "Couldn't move you" : waiting ? "Waiting for a machine" : "Finding another machine"}
+      timeTestId="machine-lost-time"
+      time={failed ? "\u2013" : away}
+      line={
+        failed
+          ? `No other machine could carry ${title} on. Choose one yourself, or stop for now.`
+          : waiting
+            ? `Every machine with ${title} is busy. You keep your place, and it starts by itself the moment one is free.`
+            : `Your session carries on by itself on the best other machine with ${title}.`
+      }
+      primary={failed ? { label: "Choose a machine", onClick: swiff.chooseMachine } : undefined}
+      secondary={stop}
     />
   );
 }
