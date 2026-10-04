@@ -4,6 +4,7 @@
 //
 //   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
 //   client  join     ──► joined, offer, ice, steam-login, peer-left
+//   client  steam-login retry ──► the PC, for a fresh sign-in code
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -99,12 +100,18 @@ export type SessionClaimedMessage = {
  * `signed-in` says the renter approved it and the game is being launched.
  * `failed` says the sign-in or the launch stopped short (Steam's code timed
  * out, the game never came up): the renter is not signed in and nothing is
- * starting. The server never reads or logs any of them.
+ * starting. The server never logs any of them.
  */
 export type SteamLoginMessage =
   | { type: "steam-login"; state: "qr"; url: string }
   | { type: "steam-login"; state: "signed-in" }
   | { type: "steam-login"; state: "failed" };
+/**
+ * The one Steam sign-in message the other way: the renter asks the PC for a
+ * fresh sign-in code after a `failed`, on the same claim. The renter keeps the
+ * machine; nothing is ended or booked again.
+ */
+export type SteamLoginRetryMessage = { type: "steam-login"; state: "retry" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -122,6 +129,7 @@ export type SignalMessage =
   | DeniedMessage
   | SessionClaimedMessage
   | SteamLoginMessage
+  | SteamLoginRetryMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
@@ -130,7 +138,7 @@ export type SignalMessage =
 /** Messages the server forwards to the other peer without inspecting them. */
 export const RELAYED_TYPES = ["offer", "answer", "ice", "steam-login"] as const;
 
-export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | SteamLoginMessage {
+export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | SteamLoginMessage | SteamLoginRetryMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

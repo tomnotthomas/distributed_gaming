@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { connectSignaling, type SteamLogin } from "@swiff/rtc";
+import { connectSignaling, type Signaling, type SteamLogin } from "@swiff/rtc";
 import posthog, { isPostHogEnabled } from "../posthog";
 import {
   bookMachine,
@@ -531,6 +531,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // code. It is shown until the renter approves it, and dropped with the
   // launch once it goes live or is left. Other PCs' rooms are not joined here:
   // their host would take the page for a renter and offer it a stream.
+  const steamRoom = useRef<Signaling | null>(null);
   useEffect(() => {
     if (phase !== "connecting" || !claim?.rentalMode) return;
     const signaling = connectSignaling({
@@ -559,7 +560,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         }
       },
     });
+    steamRoom.current = signaling;
     return () => {
+      steamRoom.current = null;
       signaling.close();
       setSteamLogin(null);
       setSteamSignedIn(false);
@@ -666,13 +669,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     launchOn(next.id);
   }, [taken, gameId, signedIn, launchOn]);
 
-  /** Try a failed Steam sign-in again: launch afresh on the machine that was claimed for it. */
+  /** Try a failed Steam sign-in again: the claimed PC is asked for a fresh code, and the machine stays the renter's. */
   const retrySignIn = useCallback(() => {
-    const machine = claim?.roomId ?? picked?.id;
-    if (!machine || !signedIn) return;
-    track("launch_confirmed", { game: gameId, machine, retry: true });
-    launchOn(machine);
-  }, [claim, picked, gameId, signedIn, launchOn]);
+    if (!steamRoom.current) return;
+    track("steam_sign_in_retried", { game: gameId, machine: claim?.roomId });
+    steamRoom.current.send({ type: "steam-login", state: "retry" });
+    setSteamLogin(null);
+    setSteamSignInFailed(false);
+  }, [claim, gameId]);
 
   const endSession = useCallback(() => {
     track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
@@ -811,7 +815,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
     /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
     steamLogin,
-    /** The PC's Steam sign-in stopped short: Ignition offers to try again (a fresh launch) or end. */
+    /** The PC's Steam sign-in stopped short: Ignition offers to try again (a fresh code on the same claim) or end. */
     steamSignInFailed,
     elapsedMs,
     ownerDropped,

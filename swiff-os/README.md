@@ -246,7 +246,8 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
   marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
   hears there and holds Ignition from the claim until the renter is signed in or leaves,
   or the room refuses the ticket (`denied` ends the claim). On `failed` it offers Try
-  again, a fresh launch on the claimed machine for a new code, or End. Nothing marks a
+  again, which sends `steam-login retry` to the PC for a new code on the same claim
+  (the sender answers it with a fresh `play`), or End. Nothing marks a
   claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
 - **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
   event-driven one; whichever of the two lands second reconciles the sign-in hold with
