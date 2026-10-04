@@ -14,6 +14,7 @@ import {
   type Refusal,
 } from "./booking";
 import { chime } from "./chime";
+import { isSteamSignInUrl } from "./SteamSignIn";
 import {
   GAMES,
   IGNITION_STEPS,
@@ -130,6 +131,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   // A rental-mode PC's Steam sign-in code, while the renter has yet to approve it.
   const [steamLogin, setSteamLogin] = useState<SteamLogin | null>(null);
+  // Whether that PC has said the renter is signed in to Steam, for this launch.
+  const [steamSignedIn, setSteamSignedIn] = useState(false);
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -513,12 +516,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearTimeout(timer);
   }, [freed]);
 
-  // Ignition holds on a Steam sign-in code until the renter approves it.
+  // On a rental-mode PC, Ignition holds from the claim until the renter is
+  // signed in to Steam: its code may come at any time, and the game only after.
+  const signingIn = !!claim?.rentalMode && !steamSignedIn;
   useEffect(() => {
-    if (phase !== "connecting" || steamLogin) return;
+    if (phase !== "connecting" || signingIn) return;
     const timer = window.setInterval(() => setBeat((b) => b + 1), IGNITION_MS);
     return () => window.clearInterval(timer);
-  }, [phase, steamLogin]);
+  }, [phase, signingIn]);
 
   // While Ignition is up, a rental-mode PC's room carries its Steam sign-in
   // code. It is shown until the renter approves it, and dropped with the
@@ -530,21 +535,28 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       url: claim.signalingUrl,
       onOpen: (send) => send({ type: "join", ticket: claim.ticket }),
       onMessage: (msg) => {
-        if (msg.type === "steam-login") setSteamLogin(msg.state === "qr" ? msg : null);
+        if (msg.type !== "steam-login") return;
+        if (msg.state === "qr") {
+          if (isSteamSignInUrl(msg.url)) setSteamLogin(msg);
+          return;
+        }
+        setSteamLogin(null);
+        setSteamSignedIn(true);
       },
     });
     return () => {
       signaling.close();
       setSteamLogin(null);
+      setSteamSignedIn(false);
     };
   }, [phase, claim]);
 
   useEffect(() => {
-    if (phase !== "connecting" || beat < IGNITION_BEATS || steamLogin) return;
+    if (phase !== "connecting" || beat < IGNITION_BEATS || signingIn) return;
     track("session_started", { game: gameId, machine: machineId });
     setPhase("live");
     setElapsedMs(0);
-  }, [phase, beat, steamLogin, gameId, machineId]);
+  }, [phase, beat, signingIn, gameId, machineId]);
 
   useEffect(() => {
     if (phase !== "live") return;

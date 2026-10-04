@@ -465,6 +465,52 @@ describe("useSwiff", () => {
       }
     });
 
+    it("holds Ignition from a rental-mode claim until signed in, however late the code comes", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(signaling).toHaveLength(1));
+        act(() => signaling[0]!.open());
+
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.steamLogin).toBeNull();
+        expect(signaling[0]!.closed).toBe(false);
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+        expect(result.current.steamLogin?.state).toBe("qr");
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(result.current.phase).toBe("live");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows no code but a Steam sign-in link, and keeps Ignition held for a real one", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      act(() => signaling[0]!.open());
+
+      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://evil.test/q/1/42" }));
+
+      expect(result.current.steamLogin).toBeNull();
+      expect(result.current.phase).toBe("connecting");
+    });
+
     it("never joins the room of a PC not in rental mode, and goes live on Ignition's timer", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),
