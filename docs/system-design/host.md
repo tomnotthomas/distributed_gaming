@@ -116,6 +116,9 @@ Served under `/api` (`server/src/api.ts`). Every call carries the machine key as
 `Authorization: Bearer <machine key>`; a session call needs the key of the machine the
 session runs on. In Swiff OS the hosting calls bear a host certificate instead
 ([`session-keys.md`](session-keys.md), Control and hosting credentials).
+Availability, heartbeat, upload-test, demand and session start and end
+answer any origin (`access-control-allow-origin: *`, preflight included), so the host app
+can call them from its `file://` page: the bearer credential is the only one.
 
 ```
 PUT  /machines/:id/availability
@@ -142,8 +145,7 @@ GET  /machines/:id/demand
   What renters ask for, for the owner choosing what to install: per game, busiest first
   and at most 24, the renters who booked it in the last hour or still wait for it
   (`looking`), and its bookings in the queue now (`waiting`). Counts only, never who
-  asked. `name` is the catalogue's, null where it has none. The host app calls it from
-  its own origin, so it answers any origin (CORS): the machine key is its only credential.
+  asked. `name` is the catalogue's, null where it has none.
 
 POST /machines/:id/session
   { sessionId }
@@ -252,9 +254,6 @@ A claim for a game the owner does not offer (the owner stopped offering it as th
 came in) is turned down: the app ends that session at once (`POST /sessions/:id/end`)
 instead of serving it, and until the platform confirms that end it offers the screen to no
 renter who joins.
-
-The Host API answers any origin (`access-control-allow-origin: *`, preflight included), so
-the host app can call it from its `file://` page: the machine key is the only credential.
 
 A bad field is a `400` naming it; nothing in that body is stored. The matcher gives a
 booking only to a machine that lists the game in `games` and meets the game's minimum
