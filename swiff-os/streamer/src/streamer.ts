@@ -69,14 +69,28 @@ export function startStreamer({
   let end!: (reason: DeniedReason) => void;
   const ended = new Promise<DeniedReason>((resolve) => (end = resolve));
 
+  /**
+   * Run an input call from an event handler. The receiver passes on whatever
+   * the sink throws, and an exception escaping a data-channel or signaling
+   * callback would take the streamer down with it.
+   */
+  const guarded = (what: string, call: () => void) => {
+    try {
+      call();
+    } catch (cause) {
+      log(`[swiff-streamer] input ${what} failed: ${cause instanceof Error ? cause.message : cause}`);
+    }
+  };
+
   const teardown = () => {
     // Lets go of everything the renter held before the connection goes.
-    receiver?.close();
+    const old = receiver;
+    if (old) guarded("release", () => old.close());
     receiver = null;
     inbox = null;
-    const old = peer;
+    const gone = peer;
     peer = null;
-    void old?.pc.close().catch(() => {});
+    void gone?.pc.close().catch(() => {});
   };
 
   const offerTo = async (send: (m: SignalMessage) => void) => {
@@ -124,10 +138,10 @@ export function startStreamer({
         protocol: init.protocol,
       });
       channel.onMessage.subscribe((data) => {
-        if (peer === owner && typeof data !== "string") into.receive(data);
+        if (peer === owner && typeof data !== "string") guarded("delivery", () => into.receive(data));
       });
       channel.stateChanged.subscribe((state) => {
-        if (state === "closed") into.releaseAll("closed");
+        if (state === "closed") guarded("release", () => into.releaseAll("closed"));
       });
     }
   };

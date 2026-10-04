@@ -161,7 +161,10 @@ function recordingSink() {
     wheel: (dx, dy) => calls.push(`wheel ${dx} ${dy}`),
     button: (b, down) => calls.push(`button ${b} ${down}`),
     key: (code, down) => calls.push(`key ${code} ${down}`),
-    gamepad: (i) => calls.push(`gamepad ${i}`),
+    // A sink that fails, as a uinput write can: the streamer must outlive it.
+    gamepad: () => {
+      throw new Error("controller sink failed");
+    },
   };
   return { calls, sink };
 }
@@ -203,6 +206,7 @@ describe("swiff-streamer against the server", () => {
       expect(grant.status).toBe(201);
 
       const { calls, sink } = recordingSink();
+      const logs: string[] = [];
       let keyframes = 0;
       const streamer = startStreamer({
         config: {
@@ -217,7 +221,7 @@ describe("swiff-streamer against the server", () => {
         onKeyframeNeeded: () => keyframes++,
         // Loopback needs no STUN, and a test should not depend on reaching Google.
         makePeer: (options) => createPeer({ ...options, iceServers: [] }),
-        log: () => {},
+        log: (line) => logs.push(line),
       });
 
       const renter = renterPeer(claim.body!.ticket as string);
@@ -241,6 +245,21 @@ describe("swiff-streamer against the server", () => {
         expect(calls).toContain("key KeyW true");
         expect(calls).toContain("moveBy 5 -3");
 
+        // A sink that throws is logged, and the next input still gets through.
+        keys.send(
+          Buffer.from(
+            encodeInput({
+              type: "gamepad",
+              index: 0,
+              state: { buttons: 1, axes: [0, 0, 0, 0], triggers: [0, 0] },
+            }),
+          ),
+        );
+        keys.send(Buffer.from(encodeInput({ type: "key", code: "KeyA", down: true })));
+        keys.send(Buffer.from(encodeInput({ type: "key", code: "KeyA", down: false })));
+        await until(() => calls.includes("key KeyA false"), "input after a failing sink");
+        expect(logs.some((l) => l.includes("input delivery failed: controller sink failed"))).toBe(true);
+
         // A decoder that lost a frame asks for a keyframe, and the encoder is told.
         const before = keyframes;
         renter.pictureLost();
@@ -252,6 +271,8 @@ describe("swiff-streamer against the server", () => {
         });
         expect(left.status).toBe(200);
         expect(await streamer.ended).toBe("session-ended");
+        // Letting go of the held controller on the way out failed too, and was logged, not thrown.
+        expect(logs.some((l) => l.includes("input release failed: controller sink failed"))).toBe(true);
       } finally {
         clearInterval(feed);
         streamer.stop();

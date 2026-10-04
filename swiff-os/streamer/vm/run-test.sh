@@ -86,6 +86,8 @@ echo "== starting the platform and the renter (harness)"
 PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
     --server-port "$server_port" --harness-port "$harness_port" --out "$results" &
 harness=$!
+# The harness runs the server; neither may outlive an early exit of this script.
+trap 'kill "$harness" 2>/dev/null || true' EXIT
 
 vars="$build/OVMF_VARS.fd"
 cp /usr/share/OVMF/OVMF_VARS_4M.fd "$vars"
@@ -108,7 +110,8 @@ qemu=$?
 set -e
 echo "== the VM is off (qemu exit $qemu)"
 
-wait "$harness"
-status=$?
+status=0
+wait "$harness" || status=$?
+trap - EXIT
 echo "== results in $results"
 exit "$status"

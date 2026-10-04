@@ -355,5 +355,6 @@ process.on("SIGINT", () => stopAll(1));
 // The VM reports /finished once the streamer has exited; give the whole run a ceiling.
 const deadline = Date.now() + 9 * 60_000;
 while (!finished && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
-await renterDone;
+// A renter that hangs (a stalled browser) must not hang the run: write what there is.
+await Promise.race([renterDone, new Promise((r) => setTimeout(r, 30_000))]);
 stopAll();
