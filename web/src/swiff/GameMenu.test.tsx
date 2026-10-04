@@ -18,6 +18,8 @@ const swiffWith = (phase: Swiff["phase"], signedIn = true, over: Partial<Swiff> 
     signedIn,
     seesAvailability: true,
     machinesLoading: false,
+    measuring: false,
+    probing: new Set(),
     game: bg3,
     machines,
     reason: reason(bg3, MACHINES, "evening"),
@@ -46,7 +48,7 @@ const hosts: Machine[] = machinesOf(
         availableUntil: null,
         minutesLeft: null,
         coversSession: true,
-        latency: { rttMs: 22.6, jitterMs: 2, relayed: false, source: "estimate" },
+        latency: { rttMs: 22.6, jitterMs: 2, source: "estimate" },
         response: 3,
         picture: 3,
         probe: "token-h1",
@@ -60,7 +62,7 @@ const hosts: Machine[] = machinesOf(
         availableUntil: now + 90 * 60_000,
         minutesLeft: 90,
         coversSession: false,
-        latency: { rttMs: 40, jitterMs: 4, relayed: true, source: "probe" },
+        latency: { rttMs: 40, jitterMs: 4, source: "probe" },
         response: 2,
         picture: 2,
         probe: null,
@@ -68,7 +70,6 @@ const hosts: Machine[] = machinesOf(
     ],
     reason: { rule: "O1", label: "Free all session" },
     busy: [{ id: "h3", name: "Loft", backAt: new Date(2026, 9, 3, 23, 10).getTime() }],
-    iceServers: [],
   },
   now,
 );
@@ -155,6 +156,7 @@ describe("GameMenu", () => {
         picked: hosts[0]!,
         clock: now,
         measuring: true,
+        probing: new Set(["h1"]),
       });
       const { container } = render(<GameMenu swiff={swiff} />);
       expect(screen.getByText("Measuring latency…")).toBeInTheDocument();
@@ -163,9 +165,22 @@ describe("GameMenu", () => {
       expect(ms.map((m) => m.classList.contains("measuring"))).toEqual([true, false]);
       expect(ms.map((m) => m.getAttribute("title"))).toEqual([
         "Estimated through Swiff",
-        "Measured straight to this PC, through a relay",
+        "Measured through Swiff's relay",
       ]);
       expect(container.querySelector(".menu-reads")).toHaveTextContent("Measuring…");
+    });
+
+    it("reads a picked machine that is not being probed as its figure, while others are", () => {
+      const swiff = swiffWith("idle", true, {
+        machines: hosts,
+        picked: hosts[1]!,
+        clock: now,
+        measuring: true,
+        probing: new Set(["h1"]),
+      });
+      const { container } = render(<GameMenu swiff={swiff} />);
+      expect(container.querySelector(".menu-reads")).not.toHaveTextContent("Measuring…");
+      expect(container.querySelector(".menu-reads")).toHaveTextContent("40 ms");
     });
 
     it("says so when no host can play it", () => {

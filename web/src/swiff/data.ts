@@ -74,8 +74,8 @@ export type Machine = {
   self?: boolean;
   /** Picture and Response 1-4 as the server's rank() scored them for this game; demo machines are scored here. */
   scores?: { picture: number; response: number };
-  /** How `ping` was measured straight to it, when this page probed it; absent for an estimate. */
-  path?: "direct" | "relay";
+  /** `ping` was measured by this page's probe, through Swiff's relay; absent for an estimate. */
+  measured?: boolean;
 };
 
 /** A demo machine: everything the host app would report, so rank() can run on it in the page. */

@@ -11,20 +11,18 @@
 // the caller waits that long before asking again.
 //
 // The machine list also hands out a probe token for each of the top three,
-// which useLive spends measuring the real path to them (@swiff/rtc
-// probeLatency); both reads then take what was measured as `links`, and the
-// server ranks a measured machine by it rather than by its estimate.
+// with the TURN relay to probe through, which useLive spends measuring the path
+// to them through the relay (@swiff/rtc probeLatency); both reads then take
+// what was measured as `links`, and the server ranks a measured machine by it
+// rather than by its estimate.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import type { MeasuredLink } from "@swiff/rtc";
 import type { Machine, Spot } from "./data";
 import { clockTime, type Prefs } from "./derive";
 
-/**
- * One machine's latency: estimated by the server through itself, or measured
- * by this page's own probe. `relayed`: the probe went through a TURN relay.
- */
-type Latency = { rttMs: number; jitterMs: number; relayed: boolean; source: "estimate" | "probe" };
+/** One machine's latency: estimated by the server through itself, or measured by this page's own probe. */
+type Latency = { rttMs: number; jitterMs: number; source: "estimate" | "probe" };
 
 /** The machine a wall tile offers (server/src/candidates.ts WallMachine). */
 export type WallMachine = {
@@ -70,11 +68,11 @@ export type GameMachines = {
   machines: MachineCandidate[];
   reason: { rule: string; label: string } | null;
   busy: { id: string; name: string | null; backAt: number | null }[];
-  /** The TURN relay a probe may use, beside the default STUN; empty when the server has none. */
-  iceServers: RTCIceServer[];
+  /** The TURN relay the probes go through: only there when some machine has a token. */
+  iceServers?: RTCIceServer[];
 };
 
-/** What this page measured straight to machines it probed, by id; null for one it could not reach. */
+/** What this page measured through the relay to machines it probed, by id; null for one it could not reach. */
 export type Links = Record<string, MeasuredLink | null>;
 
 /** How the renter asks: their round trip to the server in ms, how they play, and what they measured. */
@@ -271,7 +269,7 @@ export function machinesOf(game: GameMachines, now: number): Machine[] {
     ...untilOf(m.availableUntil, now),
     busy: false,
     scores: { picture: m.picture, response: m.response },
-    ...(m.latency.source === "probe" ? { path: m.latency.relayed ? "relay" : "direct" } : {}),
+    ...(m.latency.source === "probe" ? { measured: true } : {}),
   }));
   const busy = game.busy.map((m): Machine => ({
     id: m.id,

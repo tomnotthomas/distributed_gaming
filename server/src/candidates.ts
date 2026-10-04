@@ -7,12 +7,12 @@
 // round trip to the server, as the page measured it, plus the host's, as its
 // report last said. The real path between the two is usually shorter, so the
 // estimate is an upper bound; it cannot tell a direct path from a relayed one.
-// The page then probes its top three straight (probes.ts) and asks again with
-// what it measured (`links`): a measured machine is ranked by its own round
-// trip, jitter and path, and one the probe could not reach fails E6.
-// Nothing about where a host is (its address) is ever stored here, let alone
-// sent: a renter learns a machine's id, name, hardware, terms and the scores,
-// never its owner. Only a probe's own answer, from the PC, carries an address.
+// The page then probes its top three through the TURN relay (probes.ts) and
+// asks again with what it measured (`links`): a measured machine is ranked by
+// its own round trip and jitter, and one the probe could not reach fails E6.
+// Nothing about where a host is (its address) is ever stored, let alone sent:
+// a renter learns a machine's id, name, hardware, terms and the scores, never
+// its owner. A probe reveals no address either: only relay candidates pass.
 //
 // Pure: platform.ts reads the rows, api.ts checks the request.
 
@@ -38,18 +38,19 @@ export type RenterAsk = {
   controls: Control[];
   picture: PicturePref;
   /**
-   * What the page measured straight to machines it probed, by id: their link,
-   * or null for one the probe could not reach. They stand in for the estimate.
+   * What the page measured through the relay to machines it probed, by id:
+   * their link, or null for one the probe could not reach. They stand in for
+   * the estimate.
    */
   links?: ReadonlyMap<string, LinkStats | null>;
 };
 
 /**
  * A machine's latency and how it was arrived at: estimated through the server,
- * or measured by the renter's own probe. `relayed`: the probe went through TURN
- * (an estimate cannot tell, so it is always false).
+ * or measured by the renter's own probe through the relay. Both are upper
+ * bounds on the path a session takes.
  */
-export type Latency = { rttMs: number; jitterMs: number; relayed: boolean; source: "estimate" | "probe" };
+export type Latency = { rttMs: number; jitterMs: number; source: "estimate" | "probe" };
 
 /** One machine as a renter sees it on the game page. */
 export type MachineCandidate = {
@@ -136,7 +137,6 @@ function candidatesFor(machines: OfferedMachine[], renter: RenterAsk): Candidate
 const latencyOf = (renter: RenterAsk, id: string, link: LinkStats): Latency => ({
   rttMs: link.rttMs,
   jitterMs: link.jitterP95Ms,
-  relayed: link.relayed,
   source: renter.links?.has(id) ? "probe" : "estimate",
 });
 

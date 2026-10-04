@@ -197,8 +197,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [demo, game, pool, session, prefs, liveGame]);
   /** Signed in, the open game's machines have not been read yet. */
   const machinesLoading = !demo && signedIn && game !== null && liveGame === null;
-  /** The open game's best machines are being probed for their real latency. */
-  const measuring = !demo && game !== null && live.measuring === game.appid;
+  /** The open game's machines being probed for their latency right now, if any. */
+  const probing = useMemo(
+    () => new Set(!demo && game !== null && live.measuring?.appid === game.appid ? live.measuring.ids : []),
+    [demo, game, live.measuring],
+  );
+  const measuring = probing.size > 0;
   const picked = useMemo(
     () => machines.find((m) => m.id === machineId && (phase !== "idle" || !m.busy)) ?? null,
     [machines, machineId, phase],
@@ -728,7 +732,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     machines,
     machinesLoading,
     measuring,
-    /** The renter's round trips, to the server and straight to each machine measured, for a booking. */
+    probing,
+    /** The renter's round trips, to the server and through the relay to each machine measured, for a booking. */
     rtts: live.rtts,
     reason: why,
     picked,

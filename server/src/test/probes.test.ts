@@ -3,14 +3,18 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { mintProbeToken, mintTicket, type RenterSession } from "../access.js";
-import { PROBE_BURST, PROBE_REFILL_MS, PROBE_TOKEN_TTL_S, ProbeRelay } from "../probes.js";
+import { PROBE_BURST, PROBE_REFILL_MS, PROBE_TOKEN_TTL_S, ProbeRelay, relayOnly } from "../probes.js";
 import type { ProbeMessage, SignalMessage } from "../protocol.js";
+import { OWN_ADDRESSES, RELAY_ADDRESS, sdpOf, straightSdpOf } from "./sdp.js";
 
 const SECRET = "test-session-secret-that-is-long-enough-too";
 const RENTER = "76561198000000001";
 const OTHER = "76561198000000002";
-const OFFER = { type: "offer", sdp: "v=0 offer" } as const;
-const ANSWER = { type: "answer", sdp: "v=0 answer" } as const;
+const OFFER = sdpOf("offer");
+const ANSWER = sdpOf("answer");
+/** The descriptions as the other side gets them: relay candidates only. */
+const OFFER_SENT = { type: "offer", sdp: relayOnly(OFFER.sdp)! };
+const ANSWER_SENT = { type: "answer", sdp: relayOnly(ANSWER.sdp)! };
 
 /** A socket that keeps what it was sent. */
 type Socket = { name: string; got: SignalMessage[] };
@@ -52,17 +56,54 @@ describe("probe relay", () => {
     const host = hosts.get("pc-1")!;
     const [offer] = host.got as Extract<SignalMessage, { type: "probe-offer" }>[];
     assert.equal(offer?.type, "probe-offer");
-    assert.deepEqual(offer.sdp, OFFER);
+    assert.deepEqual(offer.sdp, OFFER_SENT);
     assert.notEqual(offer.probeId, "mine-1", "the renter's id never reaches the PC");
     assert.deepEqual(renter.got, []);
 
     relay.answer(host, { type: "probe-answer", probeId: offer.probeId, sdp: ANSWER });
-    assert.deepEqual(renter.got, [{ type: "probe-answer", probeId: "mine-1", sdp: ANSWER }]);
+    assert.deepEqual(renter.got, [{ type: "probe-answer", probeId: "mine-1", sdp: ANSWER_SENT }]);
     assert.equal(relay.pending, 0);
 
     // Once only.
     relay.answer(host, { type: "probe-answer", probeId: offer.probeId, sdp: ANSWER });
     assert.equal(renter.got.length, 1);
+  });
+
+  it("passes on relay candidates alone, every address of the sender's own blanked, both ways", () => {
+    relay.probe(renter, session(), probe());
+    const host = hosts.get("pc-1")!;
+    const [offer] = host.got as Extract<SignalMessage, { type: "probe-offer" }>[];
+    relay.answer(host, { type: "probe-answer", probeId: offer!.probeId, sdp: ANSWER });
+    const [answer] = renter.got as Extract<SignalMessage, { type: "probe-answer" }>[];
+    for (const sdp of [offer!.sdp.sdp!, answer!.sdp.sdp!]) {
+      for (const own of OWN_ADDRESSES) assert.ok(!sdp.includes(own), `${own} must not cross: ${sdp}`);
+      const candidates = sdp.split("\r\n").filter((line) => line.startsWith("a=candidate:"));
+      assert.deepEqual(candidates, [
+        `a=candidate:6 1 udp 41885439 ${RELAY_ADDRESS} typ relay raddr 0.0.0.0 rport 0 generation 0`,
+      ]);
+      assert.match(sdp, /\r\nm=application 9 UDP\/DTLS\/SCTP webrtc-datachannel\r\nc=IN IP4 0\.0\.0\.0\r\n/);
+      assert.match(sdp, /\r\na=rtcp:9 IN IP4 0\.0\.0\.0\r\n/);
+      assert.match(sdp, /^v=0\r\no=- 4611731400430051336 2 IN IP4 127\.0\.0\.1\r\n/);
+      assert.ok(sdp.includes("a=ice-ufrag:Zx4r\r\n"), "the rest passes as it is");
+      assert.ok(sdp.endsWith("a=sctp-port:5000\r\n"));
+    }
+  });
+
+  it("drops an offer or answer with no relay candidate: it could only connect straight", () => {
+    relay.probe(renter, session(), probe({ sdp: straightSdpOf("offer") }));
+    assert.deepEqual(hosts.get("pc-1")!.got, []);
+    assert.deepEqual(renter.got, [], "unanswered, and the token not spent");
+
+    relay.probe(renter, session(), probe());
+    const [offer] = hosts.get("pc-1")!.got as Extract<SignalMessage, { type: "probe-offer" }>[];
+    relay.answer(hosts.get("pc-1")!, {
+      type: "probe-answer",
+      probeId: offer!.probeId,
+      sdp: straightSdpOf("answer"),
+    });
+    assert.deepEqual(renter.got, []);
+    assert.equal(relay.pending, 0, "the probe is over: the renter's times out");
+    assert.equal(relayOnly("v=0\r\n"), null);
   });
 
   it("refuses a renter who is not signed in, or whose token is not theirs, for that machine, or live", () => {

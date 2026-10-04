@@ -13,9 +13,10 @@
 // or a refresh, asks only for the rest.
 //
 // Once the open game's machines are in, the top three the server handed a
-// probe token for are measured straight (@swiff/rtc probeLatency, a second or
-// two: the game page's "measuring" moment), and the machines are read again
-// with what was measured, so the list is ranked by the real path. A machine is
+// probe token for are measured through its TURN relay (@swiff/rtc
+// probeLatency, a second or two: the game page's "measuring" moment), and the
+// machines are read again with what was measured, so the list is ranked by it.
+// Without the relay the server hands out no token and the estimate stands. A machine is
 // probed at most once every MEASURED_FOR_MS; what was measured goes with every
 // read until then. Only the game page probes: the wall, its attract loop and
 // its hover trailers never do.
@@ -73,7 +74,7 @@ export type LiveOptions = {
   fetch?: typeof fetch;
   /** Opens the event stream; null polls only. Defaults to the browser's EventSource where there is one. */
   eventSource?: ((url: string) => EventStream) | null;
-  /** Measures machines' latency straight. Defaults to probing over this server's signaling. */
+  /** Measures machines' latency through the relay. Defaults to probing over this server's signaling. */
   probe?: Prober;
 };
 
@@ -84,11 +85,12 @@ export type Live = {
   game: { at: number; machines: GameMachines } | null;
   /** The renter's round trip to the server in ms, as timed against GET /api/ping; null until measured. */
   rttMs: number | null;
-  /** The game whose machines are being probed right now, if any. */
-  measuring: number | null;
+  /** The game whose machines are being probed right now, and which, if any. */
+  measuring: { appid: number; ids: string[] } | null;
   /**
-   * The renter's round trips in ms: to this server, and straight to each
-   * machine measured (unreachable ones left out), for a booking to be matched by.
+   * The renter's round trips in ms: to this server, and through the relay to
+   * each machine measured (unreachable ones left out), for a booking to be
+   * matched by.
    */
   rtts: { server?: number; machines: Record<string, number> };
 };
@@ -113,7 +115,7 @@ export function useLive({
   const [rtt, setRtt] = useState<number | null>(null);
   const [wall, setWall] = useState<Live["wall"]>(null);
   const [game, setGame] = useState<Live["game"]>(null);
-  const [measuring, setMeasuring] = useState<number | null>(null);
+  const [measuring, setMeasuring] = useState<Live["measuring"]>(null);
   // Every machine probed, by id. Kept across games: a path is a path whichever game it is for.
   const probed = useRef(new Map<string, Probed>());
   // Bumped on sign-out, so a probe started before it changes nothing after.
@@ -205,7 +207,7 @@ export function useLive({
    * leaves the estimate standing.
    */
   const measure = (list: GameMachines) => {
-    if (measuringNow.current) return;
+    if (measuringNow.current || !list.iceServers?.length) return;
     const now = Date.now();
     const targets = list.machines.flatMap((m) => {
       const last = probed.current.get(m.id);
@@ -215,9 +217,9 @@ export function useLive({
     for (const { hostId } of targets) probed.current.set(hostId, { at: now, link: undefined });
     const epoch = probeEpoch.current;
     measuringNow.current = true;
-    setMeasuring(list.appid);
+    setMeasuring({ appid: list.appid, ids: targets.map((t) => t.hostId) });
     void latest.current
-      .probe(targets, list.iceServers ?? [])
+      .probe(targets, list.iceServers)
       .catch((): ProbeResult[] => [])
       .then((results) => {
         if (epoch !== probeEpoch.current) return;
