@@ -55,10 +55,11 @@ export function SteamSignIn({ url }: { url: string }) {
 /**
  * The PC's Steam sign-in stopped short (its code timed out, or the game never
  * came up), in the code's place: the game is not starting. Trying again
- * asks the same PC for a new code, keeping the machine; ending leaves, as
- * Cancel does. Focus moves to Try again so the way on is one key away.
+ * asks the same PC for a new code, keeping the machine; Ignition's own Cancel
+ * is the way out, so there is no second one here. Focus moves to Try again so
+ * the way on is one key away.
  */
-export function SteamSignInFailed({ onRetry, onEnd }: { onRetry: () => void; onEnd: () => void }) {
+export function SteamSignInFailed({ onRetry }: { onRetry: () => void }) {
   const retry = useRef<HTMLButtonElement>(null);
   useEffect(() => retry.current?.focus(), []);
 
@@ -73,9 +74,6 @@ export function SteamSignInFailed({ onRetry, onEnd }: { onRetry: () => void; onE
             <span className="lpill-c">
               <Glyph name="arrow" size={18} />
             </span>
-          </button>
-          <button type="button" className="lpill lpill-sm" onClick={onEnd}>
-            End
           </button>
         </div>
       </div>

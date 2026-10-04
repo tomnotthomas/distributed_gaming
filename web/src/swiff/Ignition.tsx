@@ -96,7 +96,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         </p>
 
         {signInFailed ? (
-          <SteamSignInFailed onRetry={swiff.retrySignIn} onEnd={swiff.goHome} />
+          <SteamSignInFailed onRetry={swiff.retrySignIn} />
         ) : signIn ? (
           <SteamSignIn url={signIn} />
         ) : (
@@ -105,12 +105,21 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         <ol className="ig-legend mono">
           {IGNITION_STEPS.map((step, index) => {
-            const state = index < now ? "done" : index === now ? "now" : "next";
+            // A failed sign-in stops the step it held at: no live dot or percentage there.
+            const state = index < now ? "done" : index === now ? (signInFailed ? "stopped" : "now") : "next";
             return (
               <li key={step} data-state={state}>
                 <span className="ig-dot" />
                 <span>{step}</span>
-                <span>{state === "done" ? "Done" : state === "now" ? `${pct}%` : "Next"}</span>
+                <span>
+                  {state === "done"
+                    ? "Done"
+                    : state === "now"
+                      ? `${pct}%`
+                      : state === "stopped"
+                        ? "Stopped"
+                        : "Next"}
+                </span>
               </li>
             );
           })}

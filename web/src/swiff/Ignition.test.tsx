@@ -121,7 +121,7 @@ describe("Ignition", () => {
     expect(document.querySelector(".ig-dial")).not.toBeNull();
   });
 
-  it("says a failed Steam sign-in in the code's place, and offers to try again or end", () => {
+  it("says a failed Steam sign-in in the code's place, stops its step, and offers to try again", () => {
     const retrySignIn = vi.fn();
     const goHome = vi.fn();
     const at = (steamSignInFailed: boolean) =>
@@ -144,7 +144,14 @@ describe("Ignition", () => {
 
     fireEvent.click(retry);
     expect(retrySignIn).toHaveBeenCalledOnce();
-    fireEvent.click(within(panel).getByRole("button", { name: "End" }));
+    // Ignition's own Cancel is the one way out; the panel adds no second one.
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(goHome).toHaveBeenCalledOnce();
+    // The step it held at is stopped: no live percentage beside it.
+    const held = document.querySelector('.ig-legend [data-state="stopped"]');
+    expect(held).toHaveTextContent("Syncing your save");
+    expect(held).toHaveTextContent("Stopped");
+    expect(document.querySelector('.ig-legend [data-state="now"]')).toBeNull();
   });
 });

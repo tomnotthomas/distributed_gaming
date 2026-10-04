@@ -1557,6 +1557,9 @@ button.band-tab:hover {
   background: var(--lime);
   box-shadow: 0 0 0 1px var(--lime-edge);
 }
+.ig-legend [data-state="stopped"] {
+  color: var(--on-paper);
+}
 .ig-legend [data-state="next"] {
   color: var(--on-paper-3);
 }
