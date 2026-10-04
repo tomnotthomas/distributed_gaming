@@ -291,6 +291,23 @@ describe("createHostReporter", () => {
     expect(calls.at(-1)!.body).toEqual({});
   });
 
+  it("offers again after a refused offer, with its sections", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    answer.availability = 400;
+    const r = reporter({ games: [730] });
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.filter((c) => c.action === "upload-test")).toHaveLength(0);
+    delete answer.availability;
+    await beat();
+    expect(calls.filter((c) => c.action !== "upload-test")).toEqual([
+      { method: "PUT", action: "availability", keepalive: false, body: { available: true, games: [730] } },
+      { method: "PUT", action: "availability", keepalive: false, body: { available: true, games: [730] } },
+    ]);
+    await beat();
+    expect(calls.at(-1)).toMatchObject({ action: "heartbeat", body: {} });
+  });
+
   it("takes the PC back and stops; the next offer waits for that", async () => {
     const r = reporter();
     r.offer(null);

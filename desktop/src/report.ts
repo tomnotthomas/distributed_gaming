@@ -270,7 +270,8 @@ export function createHostReporter(
           });
       if (stopped) return;
       // A refused section would be refused again: it waits for its next change instead.
-      if (res.ok || res.status === 400) {
+      // A refused offer stored nothing, so the next beat offers again.
+      if (res.ok || (res.status === 400 && !offering)) {
         sent = { ...sent, ...changes };
         if (net) netSent = net;
         if (offering) untilSent = asked;

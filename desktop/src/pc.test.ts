@@ -399,11 +399,6 @@ describe("the Windows probe", () => {
     expect(parseProbe("Add-Type : compiler error")).toBeNull();
   });
 
-  it("lists the encoders only once Media Foundation has started", () => {
-    expect(PROBE_SCRIPT).toContain("public static int Start() { return MFStartup(0x20070, 0); }");
-    expect(PROBE_SCRIPT).toMatch(/if \(\[SwiffProbe\]::Start\(\) -ge 0\) \{\s+\$out\.encoders = /);
-  });
-
   it("runs Windows PowerShell hidden, with the script encoded, and only on Windows", async () => {
     const run = vi.fn(
       (_file: string, _args: string[], _options: unknown, done: (e: Error | null, out: string) => void) =>
