@@ -188,7 +188,7 @@ export type ClaimResult =
 
 /**
  * The renter's round trips in ms, as their page measured them: to the server,
- * and straight to any machine it probed, by machine id. Matching judges a
+ * and through the relay to any machine it probed, by machine id. Matching judges a
  * machine's latency by them (gate E6 and the sort).
  */
 export type Rtts = { server?: number; machines?: Record<string, number> };
@@ -345,7 +345,7 @@ export function estimateLink(renterRttMs: number, net: Net | null): LinkStats | 
 
 /**
  * The path from the renter who made a booking to a machine: the round trip
- * they measured straight to it, when they did, else the estimate through the
+ * they measured through the relay to it, when they did, else the estimate through the
  * server from theirs to the server. A renter who sent no round trips counts
  * their own leg as nothing, so only the host's leg is judged.
  */

@@ -231,7 +231,7 @@ function optionalMachineId(value: unknown): string | undefined {
 
 /**
  * The renter's round trips in a booking body, each from 0 to MAX_RENTER_RTT_MS
- * ms: `server`, to this server, and `machines`, straight to each machine
+ * ms: `server`, to this server, and `machines`, through the relay to each machine
  * probed, by id. Either may be left out, as may the whole.
  */
 function bookingRtts(value: unknown): Rtts {
