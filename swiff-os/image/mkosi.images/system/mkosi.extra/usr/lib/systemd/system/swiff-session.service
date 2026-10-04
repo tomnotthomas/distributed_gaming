@@ -1,10 +1,10 @@
 # The renter's whole UI: gamescope on tty1 running Steam, as the unprivileged
 # renter user. There is no display manager, desktop or login prompt; when the
-# session ends it is simply started again.
+# session ends it is simply started again. It never runs without the firewall.
 [Unit]
 Description=Swiff renter session (gamescope + Steam)
-After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games-overlay.service
-Requires=home.mount
+After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games-overlay.service nftables.service
+Requires=home.mount nftables.service
 Conflicts=getty@tty1.service
 
 [Service]

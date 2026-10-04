@@ -73,8 +73,10 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   `renter`, with `NoNewPrivileges`. There is no display manager, desktop, getty, serial console login or
   sshd.
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
-  multicast and broadcast addresses, their IPv6 counterparts, and every on-link prefix, so the LAN's
-  global IPv6 addresses and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10) are blocked too.
+  multicast and broadcast addresses, their IPv6 counterparts, every on-link prefix and the prefix of
+  each of the host's own global addresses, so the LAN's global IPv6 addresses (even when the router
+  advertises the prefix without an on-link route) and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10)
+  are blocked too.
   Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
   "Permission denied"). It allows DHCP, IPv6
   neighbour discovery, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
@@ -141,6 +143,7 @@ host's view. Together they cover:
   sudo and no setuid binary.
 - The session is gamescope with Steam as `renter`, and no login of any kind is offered.
 - The LAN is blocked for the renter, including the host's address in an on-link global IPv6 prefix,
+  also after its on-link route is deleted (a SLAAC prefix advertised without the on-link flag),
   while DNS and the internet work. As a control, the same LAN service and IPv6 address answer once
   the firewall is removed.
 - The scratch is encrypted: the renter's marker never appears in the partition's raw bytes. It is

@@ -147,6 +147,20 @@ gw=$(tcp_connect 10.0.2.2 80)
 check gateway-admin-blocked "10.0.2.2:80 -> $gw" grep -q "$blocked" <<< "$gw"
 v6=$(tcp_connect 2001:db8:1::2 80)
 check lan-onlink-ipv6-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked6" <<< "$v6"
+# A router may advertise the prefix for SLAAC without the on-link flag, so
+# there is no on-link route; QEMU cannot, so delete the route instead. The
+# prefix of the host's own address must still be blocked.
+v6dev=$(ip -6 route show 2001:db8:1::/64 | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1) }' | head -n1)
+ip -6 route del 2001:db8:1::/64 dev "$v6dev"
+/usr/libexec/swiff/netguard
+noroute=$(ip -6 route show 2001:db8:1::/64)
+v6set=$(nft list set inet swiff onlink6 | grep elements)
+v6=$(tcp_connect 2001:db8:1::2 80)
+ip -6 route replace 2001:db8:1::/64 dev "$v6dev" proto ra
+/usr/libexec/swiff/netguard
+check lan-slaac-no-route-in-onlink6 "dev=$v6dev route=${noroute:-none} $v6set" \
+	bash -c "test -n '$v6dev' -a -z '$noroute' && grep -q '2001:db8:1::/64' <<< '$v6set'"
+check lan-slaac-no-route-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked6" <<< "$v6"
 for target in 192.168.1.1 172.16.0.1 169.254.169.254; do
 	r=$(tcp_connect $target 80)
 	check "lan-$target-blocked" "$r" grep -q "$blocked" <<< "$r"

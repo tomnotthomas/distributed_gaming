@@ -1,17 +1,59 @@
 #!/bin/sh
 # Points the LAN exceptions in /etc/nftables.conf at the current default
-# gateways and DNS servers, and fills the on-link sets with the prefixes the
-# kernel reaches directly (no gateway), whatever their address range. Run by swiff-netguard.path/.timer whenever the
-# network configuration may have changed. Flushing and refilling happens in
-# one nft transaction, so there is no window with stale or missing entries.
+# gateways and DNS servers, and fills the on-link sets with the home network:
+# the prefixes the kernel reaches directly (no gateway) and the prefix of each
+# of the host's own global addresses (a SLAAC prefix advertised without the
+# on-link flag has no route), whatever their address range. Run by
+# swiff-netguard.path/.timer whenever the network configuration may have
+# changed. Flushing and refilling happens in one nft transaction, so there is
+# no window with stale or missing entries.
 set -eu
 
 gw4=$(ip -4 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
 gw6=$(ip -6 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
 # On-link routes are the ones whose second field is "dev": no "via", not
-# default, and not a typed route such as unreachable or multicast.
-onlink4=$(ip -4 route show | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }' | sort -u | paste -sd, -)
-onlink6=$(ip -6 route show | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }' | sort -u | paste -sd, -)
+# default, and not a typed route such as unreachable or multicast. Global
+# addresses exclude loopback (scope host).
+onlink() { # family
+	{
+		ip "-$1" route show | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }'
+		ip -o "-$1" addr show scope global | awk '{ print $4 }'
+	} | awk -F/ '
+	function hex(s,   i, v) {
+		v = 0
+		for (i = 1; i <= length(s); i++) v = v * 16 + index("0123456789abcdef", substr(tolower(s), i, 1)) - 1
+		return v
+	}
+	# Keeps the first len bits of a width-bit group.
+	function mask(v, len, width) {
+		if (len >= width) return v
+		if (len <= 0) return 0
+		return v - v % 2 ^ (width - len)
+	}
+	/\./ && !/:/ {
+		len = $2 == "" ? 32 : $2 + 0
+		split($1, o, ".")
+		out = ""
+		for (i = 1; i <= 4; i++) out = out (i > 1 ? "." : "") mask(o[i], len - 8 * (i - 1), 8)
+		print out "/" len
+		next
+	}
+	/:/ {
+		len = $2 == "" ? 128 : $2 + 0
+		n = index($1, "::")
+		if (n) { head = substr($1, 1, n - 1); tail = substr($1, n + 2) } else { head = $1; tail = "" }
+		nh = head == "" ? 0 : split(head, h, ":")
+		nt = tail == "" ? 0 : split(tail, t, ":")
+		for (i = 1; i <= 8; i++) w[i] = 0
+		for (i = 1; i <= nh; i++) w[i] = hex(h[i])
+		for (i = 1; i <= nt; i++) w[8 - nt + i] = hex(t[i])
+		out = ""
+		for (i = 1; i <= 8; i++) out = out (i > 1 ? ":" : "") sprintf("%x", mask(w[i], len - 16 * (i - 1), 16))
+		print out "/" len
+	}' | sort -u | paste -sd, -
+}
+onlink4=$(onlink 4)
+onlink6=$(onlink 6)
 dns=$(awk '$1 == "nameserver" { print $2 }' /run/systemd/resolve/resolv.conf 2>/dev/null | sort -u || true)
 dns4=$(printf '%s\n' "$dns" | grep -v ':' | paste -sd, - || true)
 dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
