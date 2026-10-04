@@ -290,7 +290,7 @@ describe("startRenterSession", () => {
     const { types } = start();
     await answered();
 
-    socket().deliver({ type: "game-started" });
+    socket().deliver({ type: "game-started", sessionId: "s-1" });
 
     expect(types()).toContain("game-started");
   });

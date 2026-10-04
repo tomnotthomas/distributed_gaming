@@ -78,7 +78,7 @@ describe("booking and host API", () => {
   let libraries: Map<string, number[]>;
   let unreachable: Set<string>;
   /** Each launch the API asked for: machine, session, game. */
-  let launches: [string, string, number][];
+  let launches: [string, string, number, string][];
 
   before(async () => {
     access = {
@@ -752,7 +752,9 @@ describe("booking and host API", () => {
     assert.equal(started.status, 200);
     assert.deepEqual(started.body, { sessionId: mine.body.sessionId, roomId: "pc-1" });
     assert.equal((await renter("GET", `/api/bookings/${first.body.bookingId}`)).body.status, "playing");
-    assert.deepEqual(launches, [["pc-1", mine.body.sessionId, 730]]);
+    assert.deepEqual(launches, [
+      ["pc-1", mine.body.sessionId, 730, verifyTicket(SECRET, mine.body.ticket)!.id],
+    ]);
 
     // A first frame again (a new connection) launches again, and the clock runs from the first.
     for (let beat = 0; beat < 6; beat++) {

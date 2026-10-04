@@ -107,8 +107,8 @@ export type ApiOptions = {
   isFree?: FreeToPlay;
   /** Who may host, and how a machine attests. Defaults to the machine key hosting, with no verifier. */
   attestation?: Attestation;
-  /** The renter's page started session `sessionId` on `machineId`: the PC launches `gameId`. */
-  onRenterStarted?: (machineId: string, sessionId: string, gameId: number) => void;
+  /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
+  onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -713,7 +713,7 @@ export function createApi({
     if (ticket && id) {
       const started = await platform.renterStarted(id, ticket.id);
       if (typeof started === "string") throw renterRefusal(started);
-      onRenterStarted?.(started.machineId, id, started.gameId);
+      onRenterStarted?.(started.machineId, id, started.gameId, ticket.id);
       reply(res, 200, { sessionId: id, roomId: started.machineId });
       return true;
     }

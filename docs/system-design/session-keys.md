@@ -147,8 +147,10 @@ tells the streamer to launch the game booked:
 { "type": "launch-game", "sessionId": "<platform session id>", "appid": 730 }
 ```
 
-The streamer launches it and answers `{ "type": "game-started" }` once it runs, which the
-server relays to the renter: until then the renter's page holds Ignition on Launching, past
+The streamer launches it and answers `{ "type": "game-started", "sessionId": "<the same id>" }`
+once it runs, which the server relays to the renter only when that is the session their page
+started with their ticket, so a launch that outlived its session never reaches the next
+renter: until then the renter's page holds Ignition on Launching, past
 90 s offering another machine, and shows none of the stream. Send it only once the game's
 own window is what is being captured: the renter's first sight of the stream is the frame
 after it, and must never be the desktop, the Steam library or any other Steam window. It is sent again on every first frame of a new connection, so launching

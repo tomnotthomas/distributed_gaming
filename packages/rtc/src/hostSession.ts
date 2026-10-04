@@ -368,7 +368,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         void Promise.resolve()
           .then(() => launchGame(msg.appid))
           .then(
-            () => send({ type: "game-started" }),
+            () => send({ type: "game-started", sessionId: msg.sessionId }),
             (cause: unknown) =>
               console.warn(
                 "[swiff] could not launch the game:",

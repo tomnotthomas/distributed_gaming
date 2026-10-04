@@ -451,15 +451,15 @@ a session all end the booking (POST /bookings/:id/end).
 
 The wire format lives in `server/src/protocol.ts`.
 
-| Message                    | Direction        | Meaning                                                                                                  |
-| -------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                        |
-| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                              |
-| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry. |
-| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                     |
-| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).              |
-| `game-started`             | PC → renter      | The PC's answer to `launch-game`: the game runs. Relayed like `offer`.                                   |
-| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                           |
+| Message                    | Direction        | Meaning                                                                                                                        |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                              |
+| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                    |
+| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                       |
+| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                           |
+| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                    |
+| `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started. |
+| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                 |
 
 ### Room access
 

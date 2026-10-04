@@ -100,11 +100,14 @@ export type SessionClaimedMessage = {
  */
 export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid: number };
 /**
- * The host's answer to `launch-game`: the game runs. Relayed to the renter, whose
- * page shows the stream from here on and not before, so it is sent only once
- * the game's own window is what is captured, never the desktop or Steam.
+ * The host's answer to `launch-game`: the game runs. `sessionId` is the session
+ * of the `launch-game` it answers. Relayed to the renter only when that is the
+ * session their page started with their ticket, so a launch that outlived its
+ * session never reaches the next renter. Their page shows the stream from here
+ * on and not before, so it is sent only once the game's own window is what is
+ * captured, never the desktop or Steam.
  */
-export type GameStartedMessage = { type: "game-started" };
+export type GameStartedMessage = { type: "game-started"; sessionId: string };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 

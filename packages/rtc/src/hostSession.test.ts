@@ -297,7 +297,7 @@ describe("startHostSession", () => {
 
     running();
     await settle();
-    expect(socket.messages.at(-1)).toEqual({ type: "game-started" });
+    expect(socket.messages.at(-1)).toEqual({ type: "game-started", sessionId: "s1" });
     session.stop();
   });
 
