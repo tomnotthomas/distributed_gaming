@@ -1,0 +1,15 @@
+# Locks the console on tty1 before the renter session can start. The session
+# requires it, so it never runs with VT switching open.
+[Unit]
+Description=Lock VT switching on the renter session's VT
+DefaultDependencies=no
+Before=sysinit.target swiff-session.service
+ConditionPathExists=/dev/tty0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/vtlock
+
+[Install]
+WantedBy=sysinit.target

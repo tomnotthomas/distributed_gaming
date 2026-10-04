@@ -74,6 +74,13 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   `renter`, with `NoNewPrivileges`. It starts only after `nftables.service` has loaded the firewall
   and does not start at all if loading fails. There is no display manager, desktop, getty, serial
   console login or sshd.
+- **The keyboard reaches nothing but the session.** Ctrl+Alt+Del never reboots:
+  `ctrl-alt-del.target` is masked, and `CtrlAltDelBurstAction=none` turns off systemd's forced
+  reboot after 7 presses within 2 s. Alt+Up (`kbrequest.target`) is masked too. Before the session
+  starts, `swiff-vtlock.service` makes tty1 the active VT and locks VT switching (`VT_LOCKSWITCH`)
+  until the next boot, so Ctrl+Alt+Fn, Alt+Fn and Alt+Left/Right do nothing, and neither does a
+  program's or logind's `VT_ACTIVATE`. The session does not start without the lock. No getty runs on
+  any VT. This stands behind the streamer's own key filter.
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
   multicast and broadcast addresses, their IPv6 counterparts, every on-link prefix and the prefix of
   each of the host's own global addresses, so the LAN's global IPv6 addresses (even when the router
@@ -144,6 +151,10 @@ host's view. Together they cover:
 - The renter user is unprivileged, with no shell and no password. Root is locked, and there is no
   sudo and no setuid binary.
 - The session is gamescope with Steam as `renter`, and no login of any kind is offered.
+- Keys pressed on the VM's keyboard through QEMU's monitor do nothing: 10 Ctrl+Alt+Del within
+  2 s reach systemd and neither reboot the VM nor queue a reboot, and Ctrl+Alt+F2, Alt+F2,
+  Alt+Left/Right and Alt+Up leave tty1 active, as does `VT_ACTIVATE` as root. As a control,
+  Ctrl+Alt+F2 does switch to tty2 once the lock is lifted.
 - The LAN is blocked for the renter, including the host's address in an on-link global IPv6 prefix,
   also after its on-link route is deleted (a SLAAC prefix advertised without the on-link flag),
   while DNS and the internet work. As a control, the same LAN service and IPv6 address answer once

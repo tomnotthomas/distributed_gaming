@@ -15,3 +15,8 @@ for moddir in "$BUILDROOT"/usr/lib/modules/*/; do
 	rm -rf "$moddir/ubuntu"
 	depmod -b "$BUILDROOT" "$(basename "$moddir")"
 done
+
+# Ctrl+Alt+Del never reboots. The mask is set here rather than in mkosi.extra
+# because enabling reboot.target during the build (its Alias=) replaces it
+# with a link back to reboot.target.
+ln -sfn /dev/null "$BUILDROOT/etc/systemd/system/ctrl-alt-del.target"
