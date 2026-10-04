@@ -740,8 +740,6 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     machinesLoading,
     measuring,
     probing,
-    /** The renter's round trips, to the server and through the relay to each machine measured, for a booking. */
-    rtts: live.rtts,
     reason: why,
     picked,
     pool,
