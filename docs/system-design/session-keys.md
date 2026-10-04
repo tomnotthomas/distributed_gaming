@@ -347,7 +347,7 @@ fails again), so a flood of junk attempts cannot hold a machine's attestation ba
 | Streamer's socket drops, key expired     | `denied bad-session-key`                           | `DELETE`, start the same `sessionId`, relaunch with the new key            |
 | Streamer crashes                         | renter gets `peer-left`; room stays in the session | relaunch it; if the key has expired, `DELETE` and start first              |
 | Service restarts and lost the session    | the old session is still live; start answers `409` | on startup, always `DELETE` first, then start the heartbeat's `session.id` |
-| PC restarts between renters, claimed     | with `reset: true`, the session is held 3 minutes  | `DELETE` before the restart; after it, start the heartbeat's `session.id`  |
+| PC restarts before a claim is served     | with `reset: true`, the session is held 3 minutes  | `DELETE` before the restart; after it, start the heartbeat's `session.id`  |
 | Signaling server restarts                | live sessions and their keys are kept              | nothing; the streamer reconnects with its key as after any drop            |
 | Server cannot be reached for `DELETE`    | the room stays in the session; the streamer stays  | retry until `204`; stop the streamer locally meanwhile                     |
 | `ROOM_SECRET` not set on the server      | every call `503 not-configured`                    | report the machine unavailable                                             |
