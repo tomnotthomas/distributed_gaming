@@ -25,7 +25,7 @@ import {
 import { connectSignaling, type SignalMessage } from "./signaling";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
-export type SteamLogin = Extract<SignalMessage, { type: "steam-login" }>;
+export type SteamLogin = Exclude<Extract<SignalMessage, { type: "steam-login" }>, { state: "retry" }>;
 
 /** How often the stats snapshot is refreshed unless the caller says otherwise. */
 export const DEFAULT_STATS_INTERVAL_MS = 1000;
@@ -332,7 +332,7 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
           emit({ type: "game-started" });
           break;
         case "steam-login":
-          emit(msg);
+          if (msg.state !== "retry") emit(msg);
           break;
         case "peer-left":
           teardown();

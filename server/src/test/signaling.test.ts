@@ -306,6 +306,8 @@ describe("signaling", () => {
     send(host, qr);
     send(host, { type: "steam-login", state: "signed-in" });
     send(client, { type: "steam-login", state: "qr", url: "https://s.team/q/1/9" });
+    send(client, { type: "steam-login", state: "failed" });
+    send(host, { type: "steam-login", state: "retry" });
     await handled(host);
     await handled(client);
 
@@ -314,6 +316,28 @@ describe("signaling", () => {
       [qr, { type: "steam-login", state: "signed-in" }],
     );
     assert.ok(!types(host).includes("steam-login"), `host saw [${types(host)}]`);
+    host.close();
+    client.close();
+  });
+
+  it("relays the renter's Steam sign-in retry to the PC, and only to the PC", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+
+    send(client, { type: "steam-login", state: "retry" });
+    await handled(client);
+    await handled(host);
+
+    assert.deepEqual(
+      host.received.filter((m) => m.type === "steam-login"),
+      [{ type: "steam-login", state: "retry" }],
+    );
+    assert.ok(!types(client).includes("steam-login"), `client saw [${types(client)}]`);
     host.close();
     client.close();
   });

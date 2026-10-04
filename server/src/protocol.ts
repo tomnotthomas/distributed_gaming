@@ -2,7 +2,8 @@
 // server relays these and the browser sends them, so a change here is a change
 // to both or it is a bug.
 //
-//   host    register ──► registered, session-claimed, peer-joined, answer, ice, launch-game, peer-left
+//   host    register ──► registered, session-claimed, peer-joined, answer, ice, launch-game,
+//                        steam-login retry, peer-left
 //   client  join     ──► joined, offer, ice, game-started, steam-login, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
@@ -28,11 +29,17 @@
  * A register with none of them, more than one, or one that is not a string is
  * refused: `bad-host-cert` if it names `hostCert`, else `bad-session-key` if it
  * names `sessionKey`, else `bad-machine-key`.
+ *
+ * `rental`, from the PC service only: true when the PC runs rental mode (Swiff
+ * OS, whose renter signs in to Steam first), carried on its claims as
+ * `rentalMode`. A socket registered with an attested host certificate is a
+ * rental-mode PC whether or not it says so. Anything but a boolean is refused
+ * as its credential would be.
  */
 export type RegisterMessage =
-  | { type: "register"; hostId: string; key: string; hostCert?: never; sessionKey?: never }
-  | { type: "register"; hostId: string; hostCert: string; key?: never; sessionKey?: never }
-  | { type: "register"; hostId: string; sessionKey: string; key?: never; hostCert?: never };
+  | { type: "register"; hostId: string; key: string; rental?: boolean; hostCert?: never; sessionKey?: never }
+  | { type: "register"; hostId: string; hostCert: string; rental?: boolean; key?: never; sessionKey?: never }
+  | { type: "register"; hostId: string; sessionKey: string; key?: never; hostCert?: never; rental?: never };
 
 /** Sent by the renter to join a room. The room is the one the ticket names. */
 export type JoinMessage = { type: "join"; ticket: string };
@@ -110,20 +117,29 @@ export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid:
  * captured, never the desktop or Steam.
  */
 export type GameStartedMessage = { type: "game-started"; sessionId: string };
+/** Why a rental-mode PC's Steam sign-in or launch stopped short. */
+export type SteamLoginFailure = "sign-in-timeout" | "launch-timeout";
 /**
  * Rental mode's Steam sign-in, sent by the PC to its renter and relayed like
  * the handshake, never the other way. `qr` is the link Steam's own sign-in QR
  * code encodes, for the renter's page to draw as a QR code they scan with the
  * Steam app; the PC sends it again whenever Steam shows a new code.
  * `signed-in` says the renter approved it and the game is being launched.
- * `failed` says the sign-in or the launch stopped short (Steam's code timed
- * out, the game never came up): the renter is not signed in and nothing is
- * starting. The server never reads or logs any of them.
+ * `failed` says the sign-in or the launch stopped short: the renter is not
+ * signed in and nothing is starting. Its `reason`, when the PC knows it, is
+ * `sign-in-timeout` (Steam's code was never approved) or `launch-timeout` (the
+ * game never came up after sign-in). The server never logs any of them.
  */
 export type SteamLoginMessage =
   | { type: "steam-login"; state: "qr"; url: string }
   | { type: "steam-login"; state: "signed-in" }
-  | { type: "steam-login"; state: "failed" };
+  | { type: "steam-login"; state: "failed"; reason?: SteamLoginFailure };
+/**
+ * The one Steam sign-in message the other way: the renter asks the PC for a
+ * fresh sign-in code after a `failed`, on the same claim. The renter keeps the
+ * machine; nothing is ended or booked again.
+ */
+export type SteamLoginRetryMessage = { type: "steam-login"; state: "retry" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 /**
  * The other side left the room. To the host, `grace` (seconds) says the renter
@@ -149,6 +165,7 @@ export type SignalMessage =
   | LaunchGameMessage
   | GameStartedMessage
   | SteamLoginMessage
+  | SteamLoginRetryMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
@@ -159,7 +176,7 @@ export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started", "steam-l
 
 export function isRelayed(
   msg: SignalMessage,
-): msg is SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage {
+): msg is SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage | SteamLoginRetryMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 
