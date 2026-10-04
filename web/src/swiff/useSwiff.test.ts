@@ -607,7 +607,11 @@ describe("useSwiff", () => {
       expect(fetched()).not.toContain("/api/bookings/b-1/end");
 
       act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" }));
-      expect(result.current.steamLogin).toEqual({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" });
+      expect(result.current.steamLogin).toEqual({
+        type: "steam-login",
+        state: "qr",
+        url: "https://s.team/q/1/43",
+      });
     });
 
     it("holds a Steam sign-in retry while the room is reconnecting, and sends it once joined again", async () => {
@@ -638,6 +642,56 @@ describe("useSwiff", () => {
       act(() => again.deliver({ type: "steam-login", state: "failed" }));
       expect(result.current.steamSignInFailed).toBe(true);
       expect(again.sent.filter((m) => JSON.stringify(m).includes("retry"))).toHaveLength(1);
+    });
+
+    it("holds a Steam sign-in retry while the PC is away, and sends it once the PC is heard again", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      const room = signaling[0]!;
+      const retries = () =>
+        room.sent.filter(
+          (m) => JSON.stringify(m) === JSON.stringify({ type: "steam-login", state: "retry" }),
+        );
+      act(() => room.open());
+      act(() => room.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
+      act(() => room.deliver({ type: "steam-login", state: "failed" }));
+      act(() => room.deliver({ type: "peer-left" }));
+
+      act(() => result.current.retrySignIn());
+      expect(retries()).toHaveLength(0);
+      expect(result.current.steamSignInFailed).toBe(false);
+
+      act(() => room.deliver({ type: "ice", candidate: { candidate: "" } }));
+      act(() => room.deliver({ type: "ice", candidate: { candidate: "" } }));
+      expect(retries()).toHaveLength(1);
+      expect(room.closed).toBe(false);
+      expect(signaling).toHaveLength(1);
+    });
+
+    it("counts the PC back on its Steam sign-in frame, so Try again reaches it", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      const room = signaling[0]!;
+      act(() => room.open());
+      act(() => room.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
+      act(() => room.deliver({ type: "peer-left" }));
+      act(() => room.deliver({ type: "steam-login", state: "failed" }));
+
+      act(() => result.current.retrySignIn());
+
+      expect(room.sent).toContainEqual({ type: "steam-login", state: "retry" });
     });
 
     it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {

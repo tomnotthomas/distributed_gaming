@@ -532,7 +532,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // launch once it goes live or is left. Other PCs' rooms are not joined here:
   // their host would take the page for a renter and offer it a stream.
   // A retry the renter asked for is sent while they are joined with the PC
-  // in the room, again on each join, until the PC answers it.
+  // in the room, again on each join or return of the PC, until the PC answers it.
+  // Any frame the PC sends shows it is in the room.
   const steamRoom = useRef<Signaling | null>(null);
   const pcHere = useRef(false);
   const retryWanted = useRef(false);
@@ -545,6 +546,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         if (status !== "open") pcHere.current = false;
       },
       onMessage: (msg, send) => {
+        const fromPc =
+          msg.type === "offer" || msg.type === "ice" || (msg.type === "steam-login" && msg.state !== "retry");
+        if (fromPc && !pcHere.current) {
+          pcHere.current = true;
+          if (retryWanted.current && msg.type !== "steam-login")
+            send({ type: "steam-login", state: "retry" });
+        }
         if (msg.type === "joined") {
           pcHere.current = msg.hostOnline;
           if (pcHere.current && retryWanted.current) send({ type: "steam-login", state: "retry" });

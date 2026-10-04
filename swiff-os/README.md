@@ -248,7 +248,8 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
   or the room refuses the ticket (`denied` ends the claim). On `failed` it offers Try
   again, which sends `steam-login retry` to the PC for a new code on the same claim (the
   sender answers it with a fresh `play`), or End. A retry made while the room is
-  reconnecting or the PC is away is held and sent on each join until the PC answers it. Nothing marks a
+  reconnecting or the PC is away is held and sent on each join, or once any frame from the
+  PC shows it is back, until the PC answers it. Nothing marks a
   claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
 - **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
   event-driven one; whichever of the two lands second reconciles the sign-in hold with
