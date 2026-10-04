@@ -13,8 +13,9 @@ export type Resume = { until: number | null };
 
 export type ResumeStore = {
   save(resume: Resume): Promise<void>;
-  /** The saved resume, removed as it is read; null when none was saved. */
-  take(): Promise<Resume | null>;
+  /** The saved resume; null when none was saved. It stays saved until cleared. */
+  read(): Promise<Resume | null>;
+  clear(): Promise<void>;
   /** Note that a renter is served in boot `bootId`, before anything of theirs runs. */
   markServed(bootId: string): Promise<void>;
   /** The boot a renter was last served in; null when none is noted. */
@@ -33,14 +34,13 @@ export function fileResumeStore(stateDir: string): ResumeStore {
   };
   return {
     save: (resume) => write(path, JSON.stringify(resume)),
-    take: async () => {
+    read: async () => {
       let text: string;
       try {
         text = await readFile(path, "utf8");
       } catch {
         return null;
       }
-      await rm(path, { force: true });
       try {
         const { until } = JSON.parse(text) as { until?: unknown };
         return { until: typeof until === "number" && Number.isFinite(until) ? until : null };
@@ -48,6 +48,7 @@ export function fileResumeStore(stateDir: string): ResumeStore {
         return null;
       }
     },
+    clear: () => rm(path, { force: true }),
     markServed: (bootId) => write(servedPath, bootId),
     servedBoot: async () => (await readFile(servedPath, "utf8").catch(() => "")).trim() || null,
     forgetServed: () => rm(servedPath, { force: true }),

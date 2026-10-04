@@ -168,11 +168,8 @@ function harness(
     },
     resume: {
       save: async (resume) => void (saved = resume),
-      take: async () => {
-        const taken = saved;
-        saved = null;
-        return taken;
-      },
+      read: async () => saved,
+      clear: async () => void (saved = null),
       markServed: async (id) => void (served = id),
       servedBoot: async () => served,
       forgetServed: async () => void (served = null),
@@ -276,6 +273,16 @@ describe("offering and serving", () => {
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.calls.filter((c) => c === "availability true")).toHaveLength(3);
     expect(h.system).toEqual({ reboots: 0, windows: 0 });
+  });
+
+  it("keeps its resume while it retries, and clears it once offered again", async () => {
+    const h = harness(fakeServer({ status: "idle", unreachable: 1_000 }), { saved: { until: null } });
+    await until(() => h.server.calls.includes("availability true"), "a try to offer again");
+    // An agent restarted now still knows the reset was its own.
+    expect(h.saved()).toEqual({ until: null });
+    h.server.state.unreachable = 0;
+    await until(() => phase(h.agent) === "offered", "the offer");
+    expect(h.saved()).toBeNull();
   });
 
   it("goes back to Windows when it boots off offer with no reset of its own behind it", async () => {

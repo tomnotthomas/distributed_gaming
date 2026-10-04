@@ -69,8 +69,7 @@ export async function loadConfig(path: string): Promise<Config> {
 /** Check a parsed config. Throws ConfigError naming the first bad field. */
 export function parseConfig(raw: unknown): Config {
   const c = record(raw, "config");
-  const serverUrl = text(c.serverUrl, "serverUrl");
-  if (!/^wss?:\/\//.test(serverUrl)) throw new ConfigError("serverUrl must be a ws:// or wss:// URL");
+  const serverUrl = serverOrigin(text(c.serverUrl, "serverUrl"));
   const s = record(c.streamer, "streamer");
   const args = s.args ?? [];
   if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
@@ -96,12 +95,39 @@ export function parseConfig(raw: unknown): Config {
  * The machine key, from a file nobody but its owner may read: a key the
  * renter's or the streamer's user could read would let them hold the room.
  */
-export async function readMachineKey(path: string): Promise<string> {
-  const { mode } = await stat(path);
+export async function readMachineKey(path: string, uid = process.getuid?.()): Promise<string> {
+  const { mode, uid: owner } = await stat(path);
+  // A file another user owns, that user could rewrite or read whatever its mode says.
+  if (uid !== undefined && owner !== uid) throw new ConfigError(`${path} must be owned by the agent's user`);
   if (mode & 0o077) throw new ConfigError(`${path} must be readable by its owner only (chmod 600)`);
   const key = (await readFile(path, "utf8")).trim();
   if (!key) throw new ConfigError(`${path} is empty`);
   return key;
+}
+
+/**
+ * The server's ws:// or wss:// URL. The machine key rides on it, so plain ws://
+ * is only for a server on this machine (tests, local development).
+ */
+function serverOrigin(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError("serverUrl must be a ws:// or wss:// URL");
+  }
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new ConfigError("serverUrl must be a ws:// or wss:// URL");
+  }
+  if (url.protocol === "ws:" && !isLoopback(url.hostname)) {
+    throw new ConfigError("serverUrl must be wss:// unless the server is on this machine");
+  }
+  return value;
+}
+
+/** localhost, ::1, or an IPv4 address in 127.0.0.0/8. */
+function isLoopback(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "[::1]" || /^127(\.\d{1,3}){3}$/.test(hostname);
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {

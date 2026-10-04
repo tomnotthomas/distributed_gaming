@@ -179,8 +179,13 @@ export function createAgent(deps: AgentDeps): Agent {
     const served = await resume.servedBoot();
     if (served !== null && served === (await system.bootId())) return "unclean";
     if (served !== null) await resume.forgetServed();
-    const resumed = await resume.take();
-    if (view.session) return { sessionId: view.session.id };
+    // Kept on disk until the server has the machine on offer again: an agent
+    // restarted while offerAgain() retries must still know the reset was its own.
+    const resumed = await resume.read();
+    if (view.session) {
+      await resume.clear();
+      return { sessionId: view.session.id };
+    }
     if (view.status === "idle") {
       if (!resumed) {
         log("the owner is not sharing this PC");
@@ -192,6 +197,7 @@ export function createAgent(deps: AgentDeps): Agent {
       }
       view = await offerAgain(resumed.until);
     }
+    await resume.clear();
     if (!sharing(view)) return "windows";
     return "offer";
   }
@@ -391,7 +397,7 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "returning";
     answer({ ok: true });
     // Whatever a reset saved is not for the next time the owner shares.
-    await resume.take();
+    await resume.clear();
     const view = await beat().catch(() => null);
     if (view && view.status !== "idle" && !view.session) {
       await api.setAvailability(false, view.until ?? null).catch((cause) => {

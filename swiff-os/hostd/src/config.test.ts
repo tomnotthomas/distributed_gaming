@@ -32,6 +32,21 @@ describe("config", () => {
     expect(() => parseConfig([])).toThrow(ConfigError);
   });
 
+  it("takes plain ws:// only for a server on this machine", () => {
+    for (const url of ["ws://localhost:8080", "ws://127.0.0.1:8080", "ws://127.4.5.6", "ws://[::1]:8080"]) {
+      expect(parseConfig({ ...VALID, serverUrl: url }).serverUrl).toBe(url);
+    }
+    for (const url of [
+      "ws://swiff.example",
+      "ws://10.0.0.2",
+      "ws://127.0.0.1.example.com",
+      "wss://",
+      "not a url",
+    ]) {
+      expect(() => parseConfig({ ...VALID, serverUrl: url }), url).toThrow(ConfigError);
+    }
+  });
+
   it("never runs the streamer as root", () => {
     expect(() => parseConfig({ ...VALID, streamer: { ...VALID.streamer, uid: 0 } })).toThrow(/streamer.uid/);
     expect(() => parseConfig({ ...VALID, streamer: { ...VALID.streamer, gid: 0 } })).toThrow(/streamer.gid/);
@@ -50,6 +65,12 @@ describe("the machine key file", () => {
     const path = join(await dir(), "machine-key");
     await writeFile(path, "the-key\n", { mode: 0o600 });
     expect(await readMachineKey(path)).toBe("the-key");
+  });
+
+  it("is refused when another user owns it", async () => {
+    const path = join(await dir(), "machine-key");
+    await writeFile(path, "the-key\n", { mode: 0o600 });
+    await expect(readMachineKey(path, process.getuid!() + 1)).rejects.toThrow(/owned by/);
   });
 
   it("is refused when anyone else can read it, or it is empty", async () => {

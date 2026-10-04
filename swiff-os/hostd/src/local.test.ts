@@ -111,13 +111,15 @@ describe("the resume file", () => {
     expect(await store.servedBoot()).toBeNull();
   });
 
-  it("is read once", async () => {
+  it("is kept until cleared", async () => {
     const store = fileResumeStore(join(await dir(), "state"));
-    expect(await store.take()).toBeNull();
+    expect(await store.read()).toBeNull();
     await store.save({ until: 1_700_000_000_000 });
-    expect(await store.take()).toEqual({ until: 1_700_000_000_000 });
-    expect(await store.take()).toBeNull();
+    expect(await store.read()).toEqual({ until: 1_700_000_000_000 });
+    expect(await store.read()).toEqual({ until: 1_700_000_000_000 });
+    await store.clear();
+    expect(await store.read()).toBeNull();
     await store.save({ until: null });
-    expect(await store.take()).toEqual({ until: null });
+    expect(await store.read()).toEqual({ until: null });
   });
 });
