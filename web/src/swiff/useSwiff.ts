@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SteamLogin } from "@swiff/rtc";
 import posthog, { isPostHogEnabled } from "../posthog";
 import {
   bookMachine,
@@ -777,6 +776,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     };
   }, [demo, claim, video]);
 
+  /** Try a failed Steam sign-in again: the claimed PC is asked for a fresh code, and the machine stays the renter's. */
+  const retrySignIn = useCallback(() => {
+    if (!play?.signInFailed) return;
+    track("steam_sign_in_retried", { game: funnel.current.gameId, machine: claim?.roomId });
+    playNow.current?.retrySignIn();
+  }, [play?.signInFailed, claim]);
+
   // While this page plays a session, no other page of this browser offers to go back to it.
   const playingSession = claim?.sessionId ?? null;
   useEffect(() => (playingSession ? holdPlay(playingSession) : undefined), [playingSession]);
@@ -1209,16 +1215,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     devices,
     showAll,
     ...ignition,
-    /**
-     * A rental-mode PC's Steam sign-in, for Ignition to show: the stream's
-     * steam-login events. Null until Play feeds them in here.
-     */
-    steamLogin: null as SteamLogin | null,
     elapsedMs,
     lost,
     week,
     estimateOpen,
     goHome,
+    /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
+    steamLogin: play?.steamLogin ?? null,
+    /**
+     * The PC's Steam sign-in stopped short, and why: Ignition offers a fresh
+     * code on the same claim, or another machine when the game never came up.
+     */
+    steamSignInFailed: play?.signInFailed ?? null,
+    retrySignIn,
     openShare,
     setWeek,
     setEstimateOpen,

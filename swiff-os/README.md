@@ -513,11 +513,13 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 ### Not yet here
 
-- **The streamer** passes `play` to this socket and relays `qr` and `signed-in` to the
-  renter as `steam-login`.
-- **The Swiff page** feeds the renter session's `steam-login` events into
-  `useSwiff().steamLogin`. Its Play does not run the real stream on main yet, so for
-  now only Ignition's tests set it.
+- **The PC-side sender.** The streamer passes `play` to this socket and relays `qr` and
+  `signed-in` to the renter as `steam-login`. It lands with the streamer and
+  `swiff-hostd` integration. The page side is here: while Ignition is up, `useSwiff`
+  joins the claimed room's signaling and shows the code it hears there, until the
+  renter approves it or the launch goes live or is left.
+- **Play-to-first-frame** on real GPU hardware with a real Steam account, in a
+  supervised session with the captain at the PC.
 - **The image** runs `steam/session` as the renter session. It also needs:
   - the Steam client installed outside the wiped home. Otherwise every boot would show
     Ubuntu's installer prompt and then download Steam for about 2.5 minutes;
