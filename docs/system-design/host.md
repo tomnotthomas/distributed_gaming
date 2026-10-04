@@ -205,7 +205,8 @@ sends `reset: true` instead, which the server settles in one step
   `owner_kill`, priced up to the reset, and the machine goes `idle`.
 - **A session was claimed, not yet started**: the session is kept and the answer names it in `session`.
   The machine stays `in_session` and holds the reset for up to 3 minutes
-  (`RESET_HOLD_MS`, from the call, `resetUntil` in the answer). Meanwhile its silence
+  (`RESET_HOLD_MS`, from the first call: asking again during the hold keeps its deadline;
+  `resetUntil` in the answer). Meanwhile its silence
   does not end the session as `host_offline`. After the restart its heartbeat names the
   session, and the PC serves it.
 

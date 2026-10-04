@@ -1178,6 +1178,20 @@ describe("the reset hold", () => {
     assert.equal((await platform.heartbeat("pc-1")).status, "available");
   });
 
+  it("keeps the hold's deadline when the PC asks for the reset again during it", async () => {
+    const { sessionId } = await claimed();
+    const until = (await reset()).resetUntil;
+    assert.equal(until, now + RESET_HOLD_MS);
+
+    await advance(RESET_HOLD_MS - 10_000);
+    assert.equal((await reset()).resetUntil, until);
+    // The hold is over at its first deadline: silence counts from that last call as usual.
+    await advance(10_000);
+    assert.equal(await platform.sessionEndReason(sessionId), null);
+    await advance(LIVENESS_MS - 10_000);
+    assert.equal(await platform.sessionEndReason(sessionId), "host_offline");
+  });
+
   it("does not hold a session already started: it ends as owner_kill, priced up to the reset", async () => {
     await offer("pc-1", { price: 120 });
     const { bookingId } = await platform.book(730, 60);

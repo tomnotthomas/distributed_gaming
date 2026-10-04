@@ -574,7 +574,14 @@ export class Platform {
         ));
       if (unstarted) {
         // Claimed in the instant before the restart, not yet served: served once the PC is back.
-        await this.#run("UPDATE machines SET reset_until = $1 WHERE id = $2", now + RESET_HOLD_MS, machineId);
+        // Asking again during a hold keeps its deadline: a hold never outlasts RESET_HOLD_MS.
+        await this.#run(
+          `UPDATE machines SET reset_until = CASE WHEN reset_until > $1 THEN reset_until ELSE $2 END
+             WHERE id = $3`,
+          now,
+          now + RESET_HOLD_MS,
+          machineId,
+        );
       } else {
         await this.#run("UPDATE machines SET reset_until = NULL WHERE id = $1", machineId);
         if (!available) {
