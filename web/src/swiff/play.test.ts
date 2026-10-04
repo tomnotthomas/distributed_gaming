@@ -223,6 +223,29 @@ describe("startPlay", () => {
     expect(fetch).toHaveBeenCalledTimes(calls);
   });
 
+  it("keeps a launch timeout from going live after the PC hands the room over", async () => {
+    let up = false;
+    const fetch = vi.fn(async () => {
+      if (!up) throw new TypeError("offline");
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
+
+    latest().emit({ type: "peer-left" });
+    await vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "waking", slow: true });
+
+    up = true;
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS);
+    expect(handle.state()).toMatchObject({ step: "waking", slow: true });
+    latest().emit({ type: "game-started" });
+    expect(handle.state().step).toBe("waking");
+  });
+
   it("tries a start the server failed again", async () => {
     const answers = [500, 200];
     const fetch = vi.fn(async () => new Response("{}", { status: answers.shift() ?? 200 }));
