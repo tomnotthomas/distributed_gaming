@@ -308,14 +308,13 @@ describe("useLive", () => {
         null,
         {
           "pc-1": { rttMs: 9, jitterMs: 1 },
-          "pc-2": null,
           "pc-3": { rttMs: 12, jitterMs: 1 },
         },
       ]);
       // pc-4 moved up the list, but the server's top three by estimate are spent: no more rounds.
       expect(probes.rounds).toHaveLength(1);
       expect(result.current.measuring).toBeNull();
-      // A booking goes by the server and every machine reached.
+      // A booking goes by the server and every machine measured.
       expect(result.current.rtts.machines).toEqual({ "pc-1": 9, "pc-3": 12 });
       expect(result.current.rtts.server).toEqual(expect.any(Number));
     });
@@ -345,6 +344,30 @@ describe("useLive", () => {
       await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
       await flush();
       expect(probes.rounds).toHaveLength(2);
+    });
+
+    it("leaves a machine the relay could not reach listed by its estimate, and does not ask again at once", async () => {
+      const api = listing(["pc-1", "pc-2"]);
+      const probes = prober((hostId) =>
+        hostId === "pc-1"
+          ? { hostId, status: "unreachable" }
+          : { hostId, status: "measured", link: { rttMs: 9, jitterMs: 1 } },
+      );
+      const { stream, fire } = fakeStream();
+      const { result } = renderHook(() =>
+        useLive(options({ appid: 730, fetch: api.get, probe: probes.probe, eventSource: () => stream })),
+      );
+      await started();
+      await probes.finish();
+      await flush();
+      expect(api.links).toEqual([null, { "pc-2": { rttMs: 9, jitterMs: 1 } }]);
+      expect(result.current.game?.machines.machines.map((m) => m.id)).toEqual(["pc-1", "pc-2"]);
+      expect(result.current.rtts.machines).toEqual({ "pc-2": 9 });
+
+      fire("availability");
+      await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
+      await flush();
+      expect(probes.rounds).toHaveLength(1);
     });
 
     it("never probes without a relay to probe through, and the estimate stands", async () => {

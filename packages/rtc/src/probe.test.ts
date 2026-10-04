@@ -102,6 +102,22 @@ describe("createProbeResponder", () => {
     ]);
   });
 
+  it("answers as soon as its first relay candidate is gathered", async () => {
+    const { probes, sent, send } = responder();
+    probes.answer(OFFER, send);
+    await vi.advanceTimersByTimeAsync(0);
+    const peer = FakePeer.made[0]!;
+    expect(sent).toEqual([]);
+
+    peer.dispatchEvent(Object.assign(new Event("icecandidate"), { candidate: null }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent).toEqual([]);
+
+    peer.dispatchEvent(Object.assign(new Event("icecandidate"), { candidate: { type: "relay" } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent.map((m) => m.type)).toEqual(["probe-answer"]);
+  });
+
   it("drops an offer it cannot apply without logging any of its SDP", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const bad = "a=candidate:1 1 udp 2122260223 192.0.2.7 50000 typ host";

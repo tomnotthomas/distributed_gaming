@@ -72,8 +72,8 @@ export type GameMachines = {
   iceServers?: RTCIceServer[];
 };
 
-/** What this page measured through the relay to machines it probed, by id; null for one it could not reach. */
-export type Links = Record<string, MeasuredLink | null>;
+/** What this page measured through the relay to machines it probed, by id. */
+export type Links = Record<string, MeasuredLink>;
 
 /** How the renter asks: their round trip to the server in ms, how they play, and what they measured. */
 export type Ask = { rttMs: number; controls: Control[]; picture: PicturePref; links?: Links };

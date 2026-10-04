@@ -341,9 +341,10 @@ stored or sent by these reads: a renter sees a machine's id, name, hardware, ter
 scores, never its owner.
 
 `links` replaces the estimate for the machines the page probed (below): a JSON object
-from machine id to `{ rttMs, jitterMs }`, or to null for one the probe could not reach,
-at most 30 of them. A measured machine is ranked by its own round trip, so past 80 ms or
-unreachable it fails E6, and its Response bucket drops a step for jitter over 10 ms, as
+from machine id to `{ rttMs, jitterMs }`, at most 30 of them. The server also takes null
+for a machine that could not be reached, which fails E6, but the page never sends it: a
+probe that measured nothing leaves the estimate standing. A measured machine is ranked
+by its own round trip, so past 80 ms it fails E6, and its Response bucket drops a step for jitter over 10 ms, as
 `@swiff/rank` scores any link. A probe always goes through the relay, which says nothing
 of the path the session will take, so a measured machine never loses the relay step.
 
@@ -358,6 +359,12 @@ side's description. What it measures is the path through the relay: an upper bou
 like the estimate, but measured end to end. Without a TURN relay there are no probes,
 and the estimate stands. A probe still costs the PC a peer connection, so a renter may
 probe only those three, and no more than 20 a minute.
+
+Probing through the relay only departs, by captain decision, from the plan's direct
+probes of the top three (which would have told a direct path from a relayed one, at the
+cost of revealing up to three hosts' addresses). No TURN relay is configured today, so
+for now every machine is ranked by the estimate; adding one is tracked in
+[#60](https://github.com/tomnotthomas/distributed_gaming/issues/60).
 
 1. `/games/:appid/machines` hands out a probe token for each of the server's own first
    three machines by the estimate, whatever `links` says, that `links` has not measured
@@ -381,19 +388,21 @@ probe only those three, and no more than 20 a minute.
    relay candidate is dropped, and the probe goes unanswered. Anything else is answered
    `probe-refused` (`bad-token`, `too-many` or `host-offline`).
 4. The PC (`@swiff/rtc`'s `probe.ts`, in the desktop app and the browser /host page)
-   answers alongside whatever it is doing, echoes what the channel carries, and closes
+   answers alongside whatever it is doing, through the TURN servers alone, as soon as it
+   has gathered its first relay candidate (3 s at most), echoes what the channel carries, and closes
    the probe after 15 s at most.
 5. On the unordered channel, which never retransmits, the page sends 10 pings 25 ms
    apart. From the echoes: the median round trip and the jitter (the 95th percentile of
-   the change from one round trip to the next). A PC that answered but echoed nothing is
-   unreachable; a probe refused or unanswered leaves the estimate standing. Each probe
+   the change from one round trip to the next). A probe that measured nothing (refused,
+   unanswered, or answered but nothing echoed) leaves the estimate standing, and the
+   machine is not probed again for 5 minutes. Each probe
    settles within 5 s, and the three run at once: a second or two in all, while the
    ledger says "Measuring latency…" and the machines being probed read "Measuring…".
 6. The page reads the machines again with what it measured as `links`, and sends the
    same with every read of the wall and the game page for 5 minutes. A machine is probed
    at most once in that time. `web/src/swiff/booking.ts`'s `book()` sends the round
    trips with the booking as `rtts`, `{ server, machines: { id: ms } }` (the machines
-   reached), for matching to judge E6 by; the server does not read them yet.
+   measured), for matching to judge E6 by; the server does not read them yet.
 
 Only the game page probes: the wall, its attract loop and its hover trailers never do.
 
