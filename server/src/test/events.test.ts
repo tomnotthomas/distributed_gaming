@@ -378,6 +378,26 @@ describe("renter event stream", () => {
     assert.equal(late.ended, true);
   });
 
+  it("follows a running session on to its end with to=end, saying why it ended", async () => {
+    await platform.setAvailability("pc-1", true, REPORT);
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    const claim = await platform.claim(bookingId, RENTER);
+    assert.ok(claim.ok);
+    const s = await stream(`?booking=${bookingId}&to=end`);
+    assert.deepEqual(statuses(s), ["claimed"]);
+    assert.equal(s.ended, false);
+
+    await platform.startSession("pc-1", claim.sessionId);
+    await until(() => s.events.length > 1);
+    assert.equal(s.ended, false);
+
+    // The owner takes the machine back mid-session.
+    await platform.setAvailability("pc-1", false);
+    await until(() => s.ended);
+    assert.deepEqual(statuses(s), ["claimed", "playing", "ended"]);
+    assert.equal(s.events[2]!.data.endReason, "owner_kill");
+  });
+
   /**
    * A stand-in response: `write` answers `writes` and counts the chunks written
    * after end(), and destroy() closes it as a hung-up socket does.

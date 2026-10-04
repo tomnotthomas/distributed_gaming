@@ -649,6 +649,33 @@ describe("booking and host API", () => {
     });
   });
 
+  it("carries a session whose machine was lost on to another machine, for its renter only", async () => {
+    await offer("pc-1");
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const carry = `/api/bookings/${body.bookingId}/continue`;
+    assert.equal((await renter("POST", carry)).status, 409, "the session still runs");
+
+    // The owner takes pc-1 back mid-session.
+    await call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+    const lost = await renter("GET", `/api/bookings/${body.bookingId}`);
+    assert.equal(lost.body.status, "ended");
+    assert.equal(lost.body.endReason, "owner_kill");
+
+    await offer("pc-2");
+    assert.equal((await call("POST", carry)).status, 401);
+    assert.equal((await as(signedIn(OTHER))("POST", carry)).status, 404);
+    assert.equal((await renter("POST", "/api/bookings/nope/continue")).status, 404);
+    const continued = await renter("POST", carry);
+    assert.equal(continued.status, 202);
+    assert.equal(continued.body.status, "matched");
+    assert.equal(continued.body.machine.id, "pc-2");
+    assert.equal(continued.body.gameId, 730);
+    const claim = await renter("POST", `/api/bookings/${continued.body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+    assert.equal(claim.body.roomId, "pc-2");
+  });
+
   it("tells the page who is signed in, and signs them out", async () => {
     const me = await renter("GET", "/api/me");
     assert.equal(me.status, 200);
