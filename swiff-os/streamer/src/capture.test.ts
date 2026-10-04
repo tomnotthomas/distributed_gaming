@@ -136,7 +136,7 @@ describe("startCapture", () => {
     expect(fake.running("video")).toHaveLength(0);
   });
 
-  it("asks for one keyframe per burst of requests, and passes on bitrate changes", async () => {
+  it("asks for one keyframe per burst of requests", async () => {
     const fake = fakeSpawn({ elements: ["x264enc"], working: ["x264enc"] });
     const capture = await startCapture({
       config: config("--audio", "off"),
@@ -147,9 +147,8 @@ describe("startCapture", () => {
     capture.requestKeyframe();
     capture.requestKeyframe();
     capture.requestKeyframe();
-    capture.setBitrate(6_000_000);
     await settle();
-    expect(fake.running("video")[0]!.commands).toEqual(["keyframe", "bitrate 6000"]);
+    expect(fake.running("video")[0]!.commands).toEqual(["keyframe"]);
     await capture.stop();
   });
 });

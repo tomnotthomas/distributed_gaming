@@ -5,10 +5,9 @@ const ENV = { SWIFF_SERVER_URL: "wss://swiff.example", SWIFF_HOST_ID: "gaming-pc
 
 describe("readConfig", () => {
   it("takes hostd's environment and defaults the rest to the desktop host's settings", () => {
-    expect(readConfig({ ...ENV, SWIFF_APPID: "730" }, [], "/helpers")).toMatchObject({
+    expect(readConfig(ENV, [], "/helpers")).toMatchObject({
       serverUrl: "wss://swiff.example",
       hostId: "gaming-pc-1",
-      appid: 730,
       video: "pipewire",
       audio: "pipewire",
       encoder: "auto",
@@ -20,6 +19,10 @@ describe("readConfig", () => {
       input: true,
       helperDir: "/helpers",
     });
+  });
+
+  it("accepts and ignores whatever SWIFF_APPID hostd sends", () => {
+    expect(readConfig({ ...ENV, SWIFF_APPID: "abc" }, [], "/helpers")).toEqual(readConfig(ENV, [], "/helpers"));
   });
 
   it("reads the image's arguments", () => {
@@ -52,7 +55,6 @@ describe("readConfig", () => {
     [{}, [], /SWIFF_SERVER_URL is not set/],
     [{ ...ENV, SWIFF_SERVER_URL: "https://swiff.example" }, [], /ws:\/\/ or wss:\/\//],
     [{ SWIFF_SERVER_URL: "ws://x" }, [], /SWIFF_HOST_ID is not set/],
-    [{ ...ENV, SWIFF_APPID: "abc" }, [], /SWIFF_APPID/],
     [ENV, ["--video", "x11"], /--video must be one of/],
     [ENV, ["--size", "1921x1080"], /even/],
     [ENV, ["--fps"], /needs a value/],

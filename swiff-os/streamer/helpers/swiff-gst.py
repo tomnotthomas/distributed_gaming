@@ -7,8 +7,7 @@
 
 While running, it takes commands on stdin, one per line:
 
-    keyframe          the encoder (named "enc") sends a keyframe next
-    bitrate <kbit/s>  the encoder's new target
+    keyframe  the encoder (named "enc") sends a keyframe next
 
 It exits 0 at end of stream and 1 on any pipeline error, which the streamer
 takes as the source gone (gamescope restarting) or the encoder unusable.
@@ -70,8 +69,6 @@ def run(description, check_seconds=None):
         if enc is not None and words == ["keyframe"]:
             event = GstVideo.video_event_new_upstream_force_key_unit(Gst.CLOCK_TIME_NONE, True, 0)
             enc.get_static_pad("src").send_event(event)
-        elif enc is not None and len(words) == 2 and words[0] == "bitrate" and words[1].isdigit():
-            enc.set_property("bitrate", int(words[1]))
         return True
 
     bus = pipeline.get_bus()

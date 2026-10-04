@@ -3,7 +3,7 @@
 // swiff-hostd starts one streamer per renter session, as the unprivileged
 // swiff-stream user, and gives it three kinds of input (hostd's streamer.ts):
 //
-//   environment  SWIFF_SERVER_URL, SWIFF_HOST_ID, SWIFF_APPID — not secret
+//   environment  SWIFF_SERVER_URL, SWIFF_HOST_ID — not secret (hostd's SWIFF_APPID is ignored)
 //   stdin        one JSON line { "sessionKey": "...", "expiresAt": <Unix s> }, then closed
 //   arguments    hostd's `streamer.args`, set by the image — not secret
 //
@@ -23,7 +23,6 @@ export type EncoderChoice = "auto" | "nvenc" | "vaapi" | "x264";
 export type StreamerConfig = {
   serverUrl: string;
   hostId: string;
-  appid: number | null;
   video: VideoSource;
   audio: AudioSource;
   encoder: EncoderChoice;
@@ -90,12 +89,10 @@ export function readConfig(
   const serverUrl = required(env.SWIFF_SERVER_URL, "SWIFF_SERVER_URL");
   if (!/^wss?:\/\//.test(serverUrl)) throw new ConfigError("SWIFF_SERVER_URL must be ws:// or wss://");
   const hostId = required(env.SWIFF_HOST_ID, "SWIFF_HOST_ID");
-  const appid = env.SWIFF_APPID ? whole(env.SWIFF_APPID, "SWIFF_APPID") : null;
 
   const config: StreamerConfig = {
     serverUrl,
     hostId,
-    appid,
     ...DEFAULTS,
     pipewireRemote: null,
     input: true,

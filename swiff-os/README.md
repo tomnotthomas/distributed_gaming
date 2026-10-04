@@ -206,7 +206,7 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   never as the renter, because it holds the session key. swiff-hostd starts it once per
   renter session and hands it the key as one JSON line on stdin
   (`{"sessionKey": "...", "expiresAt": <Unix s>}`); its environment carries only
-  `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`. It registers with the session
+  `SWIFF_SERVER_URL` and `SWIFF_HOST_ID` (hostd's `SWIFF_APPID` is ignored). It registers with the session
   key, never sees the machine key, and exits whenever the server puts it out (session
   ended, or the key refused after a reconnect); swiff-hostd decides what follows.
 - **Capture.** `helpers/swiff-gst.py` runs the GStreamer pipelines `src/pipeline.ts`
@@ -280,8 +280,8 @@ where they are missing, point `LD_LIBRARY_PATH` at extracted copies.
   language. `webrtcbin` stays the fallback if werift's throughput falls short on real
   hardware.
 - **No adaptive bitrate yet.** The video is constant bitrate (10 Mbit/s by default, the
-  desktop host's ceiling); the encoder's bitrate can already be changed at runtime
-  (`Capture.setBitrate`), but nothing drives it from the renter's bandwidth estimate yet.
+  desktop host's ceiling); nothing changes the encoder's bitrate at runtime yet. Adapting
+  it to the renter's bandwidth estimate is a follow-up.
 - **Physical input and outputs off during a session** (report §5.2) belong to the image
   and swiff-hostd; the streamer only tags its own devices so they can tell.
 

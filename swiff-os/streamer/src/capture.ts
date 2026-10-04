@@ -29,8 +29,6 @@ export type Capture = {
   readonly encoder: Encoder;
   /** Ask the encoder for a keyframe; requests closer together than KEYFRAME_GAP_MS are one. */
   requestKeyframe(): void;
-  /** Change the video encoder's target, in bits per second. */
-  setBitrate(bitsPerSecond: number): void;
   /** Stop every helper and wait for them to exit. */
   stop(): Promise<void>;
 };
@@ -152,9 +150,6 @@ export async function startCapture({
       if (now - lastKeyframe < KEYFRAME_GAP_MS) return;
       lastKeyframe = now;
       video.command("keyframe");
-    },
-    setBitrate(bitsPerSecond) {
-      video.command(`bitrate ${Math.max(1, Math.round(bitsPerSecond / 1000))}`);
     },
     async stop() {
       stopped = true;
