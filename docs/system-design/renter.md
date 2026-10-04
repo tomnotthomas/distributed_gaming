@@ -66,7 +66,9 @@ one session per machine.
 6. The page joins the PC's room and plays its stream; on the first frame it starts the
    session (booking `playing`) and the PC launches the game.
 7. The renter plays, and ends the session with End. A renter whose connection drops
-   comes back to the same PC within 2 minutes; see "Coming back" below.
+   comes back to the same PC within 2 minutes; see "Coming back" below. A PC lost
+   mid-session (gone offline, or taken back by its owner) is replaced by the next best
+   PC with nothing to press: back to step 4 there; see "Machine lost" below.
 
 Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
 booking the moment it hears of the match, over its event stream or its fallback poll.
@@ -247,13 +249,16 @@ POST /bookings
   wall's curated free-to-play titles when the store does not answer within 3 s.
 
 GET  /bookings/:id
-  → 200 { bookingId, status, machine?, claimBy?, startedAt?, price?, heldUntil? }
+  → 200 { bookingId, status, machine?, claimBy?, startedAt?, price?, heldUntil?, endReason? }
   Check whether a machine has been found yet. `machine` names it too (`name`, the one
   its owner gave it). `claimBy` is when the reservation lapses; `startedAt` (Unix ms) is
   when a running session started, so a page coming back to it keeps its clock; `price`
   (cents) is set once the session has ended. `heldUntil` (Unix ms) is set on a claimed or playing
   booking whose renter dropped out of the room: until then the PC holds the session
-  for them (see "Coming back"). Checking also keeps a
+  for them (see "Coming back"). `endReason` is set once the session has ended, as the
+  session records it (`renter`, `time_up`, `host_offline`, `owner_kill`,
+  `grace_expired`); `host_offline` and `owner_kill` mean the machine was lost (see
+  "Machine lost"). Checking also keeps a
   queued booking in the queue: one nobody has checked on for 2 minutes expires.
   → 404 for an unknown booking, and for one another renter made: a renter only ever
   sees their own.
@@ -288,7 +293,9 @@ GET  /events?booking=:id
   at the match is there for it: their 60 s to claim run from the match. The stream ends once the booking is claimed, playing,
   ended or expired, after sending that status, and when the renter's sign-in session
   runs out; the page then treats the booking as gone from view, as it does a 401 on its
-  heartbeat or poll. A booking takes at most 3 streams at a time, a signed-in renter 10
+  heartbeat or poll. Opened with `&to=end`, it follows a claimed or playing booking on
+  until it is ended or expired instead: how the page playing a session hears at once that
+  its machine was lost. A booking takes at most 3 streams at a time, a signed-in renter 10
   and the server 500 (`MAX_EVENT_STREAMS_PER_RENTER`, `MAX_EVENT_STREAMS`); more are
   refused with 429. A stream the renter does not read fast enough is dropped (EventSource
   reconnects it). → 404 for an unknown booking or another renter's, even while a stream
@@ -329,6 +336,22 @@ POST /bookings/:id/end
   revoked, the PC's host session ends and the time played is priced.
   → 409 { error, status } once the booking is over (ended or expired).
   → 404 for an unknown booking or another renter's.
+
+POST /bookings/:id/continue
+  → 202 { bookingId, status, machine?, claimBy?, ... }
+  Carry on a session whose machine was lost (`endReason` `host_offline` or
+  `owner_kill`, within the last 10 minutes) on another machine: a new booking for the
+  same game and the whole minutes the renter had left, asked with the `rtts`, `controls`
+  and `picture` the lost booking was, and never matched to the machine that lost it. It
+  takes the lost booking's place in the queue, ahead of bookings made after it, and is
+  matched at once to the machine rank() puts first among those free for it (`status`
+  "matched", to be claimed by `claimBy`, 60 s from now), or waits in the queue. Asked
+  again while that booking is not over, it is answered with the same one. → 409 { error,
+  status } when there is nothing to carry on (the session is still running, ended any
+  other way, was lost more than 10 minutes ago, or had less than a minute left).
+  → 403 { error, code } and 503 as `POST /bookings/:id/claim`, checked again since the
+  library may have changed; nothing is booked. → 404 for an unknown booking or another
+  renter's.
 
 POST /sessions/:id/start
   → 200 { sessionId, roomId }
@@ -626,3 +649,35 @@ joins with the rejoin ticket; its first frame starts the session again (POST
 launched the game already, only answers `game-started` again (`launch-game` in
 `server/src/protocol.ts`). The ticket is never stored: the page keeps only the booking,
 session and room, and asks for the seat again.
+
+### Machine lost
+
+A session whose PC goes away is over on that PC: the server takes a machine that has not
+been heard from for 15 s offline (its socket closed, or it stopped answering pings and
+heartbeats), and a machine whose owner takes it back is withdrawn at once. Either way
+the running session ends, as `host_offline` or `owner_kill`, its ticket is revoked and
+the booking says so in `endReason`. The renter carries on elsewhere with nothing to
+press:
+
+1. While a session is claimed or playing, the page follows its booking on to its end
+   (GET /events?booking=:id&to=end), so it hears the moment the server gives up on the PC,
+   whether the stream is reconnecting (screen B) or has left that to the renter. A ticket
+   refused at the door (`denied`) makes the page read the booking too, to tell a lost
+   machine from any other end.
+2. The stream is let go and the page asks to carry on (POST /bookings/:id/continue): a
+   booking for the time left, ranked as the renter's list was, on the best other machine
+   with the game installed and the hardware it asks for, never the one that was lost.
+3. Matched, it is claimed at once, as a picked machine is, and the game starts through
+   Ignition there, which says which machine it moved from ("Glasshouse went offline",
+   now on Ember). Queued, because every machine with the game is busy, it is claimed the
+   moment it is matched, as any queued booking is.
+
+Meanwhile screen D (`MachineLost` in `web/src/swiff/Reconnect.tsx`, in the same layout
+as A to C) says what happened: "Machine lost, Glasshouse went offline" (or "Taken back,
+Glasshouse's owner took it back"), "Finding another machine" or "Waiting for a machine"
+with the time since, and Stop for now, which ends the booking carrying it on. It says
+nothing about saves, which are not built. When nothing can carry it on (the session had
+under a minute left, the game is no longer the renter's to play, or the next machine's
+claim was refused), it says so and hands the
+choice back: Choose a machine, or Stop for now. A page loaded after the machine was lost
+does not carry the session on by itself; the renter starts again from the game.

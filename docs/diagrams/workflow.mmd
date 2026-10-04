@@ -11,11 +11,14 @@ config:
     fontSize: 16px
     lineColor: "#333333"
     primaryTextColor: "#0b2a4a"
+    edgeLabelBackground: "#ffffff"
   themeCSS: >-
     svg, text, span, p, div { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important; }
 ---
 flowchart LR
   S1["<b>1</b><br/>Renter signs in<br/>with Steam"] --> S2["<b>2</b><br/>Renter<br/>chooses a game"] --> S3["<b>3</b><br/>Renter picks a ranked PC<br/>or joins the queue"] --> S4["<b>4</b><br/>Page claims<br/>the reserved PC"] --> S5["<b>5</b><br/>Gaming PC starts the streamer<br/>and Steam, locks the PC"] --> S6["<b>6</b><br/>Renter<br/>plays"]
+
+  S6 -. "<b>PC lost</b>: the page books<br/>the next best PC" .-> S4
 
   classDef step fill:#e8f1fb,stroke:#6d9ed3,color:#0b2a4a
   classDef done fill:#fdf1dc,stroke:#e0a458,color:#8a5300
