@@ -32,10 +32,10 @@ import { createPeer, type Peer } from "./peer";
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
 
 export type StreamerOptions = {
-  config: Pick<StreamerConfig, "serverUrl" | "hostId" | "audio" | "icePortRange" | "forceRelay">;
+  config: Pick<StreamerConfig, "serverUrl" | "hostId" | "audio">;
   grant: SessionGrant;
-  /** Where the renter's input goes. Null: received, and dropped. */
-  input: InputSink | null;
+  /** Where the renter's input goes. */
+  input: InputSink;
   /** The renter's decoder needs a keyframe: it just connected, or lost one. */
   onKeyframeNeeded: () => void;
   /** Stand-in for werift's peer connection, so tests can wrap it. */
@@ -97,8 +97,6 @@ export function startStreamer({
     teardown();
     const current = makePeer({
       iceServers: [...DEFAULT_ICE_SERVERS, ...serverIce],
-      forceRelay: config.forceRelay,
-      icePortRange: config.icePortRange,
       audio: config.audio !== "off",
     });
     peer = current;
@@ -116,7 +114,7 @@ export function startStreamer({
     current.video.sender.onPictureLossIndication.subscribe(() => peer === current && onKeyframeNeeded());
 
     receiver = createInputReceiver({
-      sink: input ?? DROP,
+      sink: input,
       onRelease: (reason) => log(`[swiff-streamer] released the renter's input (${reason})`),
     });
     attachInput(pc, receiver, current);
@@ -209,12 +207,3 @@ export function startStreamer({
     stop,
   };
 }
-
-const DROP: InputSink = {
-  move() {},
-  moveBy() {},
-  wheel() {},
-  button() {},
-  key() {},
-  gamepad() {},
-};

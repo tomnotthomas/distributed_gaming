@@ -20,8 +20,6 @@ import { AUDIO_PT, VIDEO_PT } from "./pipeline";
 
 export type PeerOptions = {
   iceServers: RTCIceServer[];
-  forceRelay: boolean;
-  icePortRange: [number, number] | null;
   audio: boolean;
 };
 
@@ -33,11 +31,9 @@ export const H264_FMTP = "profile-level-id=42e01f;packetization-mode=1;level-asy
 /** Stereo, as the desktop host sends it (@swiff/rtc's opus.ts), with in-band FEC. */
 export const OPUS_FMTP = "minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1";
 
-export function createPeer({ iceServers, forceRelay, icePortRange, audio }: PeerOptions): Peer {
+export function createPeer({ iceServers, audio }: PeerOptions): Peer {
   const pc = new RTCPeerConnection({
     iceServers: iceServers.map(({ urls, username, credential }) => ({ urls, username, credential })),
-    iceTransportPolicy: forceRelay ? "relay" : "all",
-    icePortRange: icePortRange ?? undefined,
     bundlePolicy: "max-bundle",
     codecs: {
       video: [

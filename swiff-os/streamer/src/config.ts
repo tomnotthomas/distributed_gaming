@@ -37,11 +37,6 @@ export type StreamerConfig = {
   bitrate: number;
   /** Opus bits per second. */
   audioBitrate: number;
-  /** Inject the renter's input through uinput. Off, input is received and dropped. */
-  input: boolean;
-  /** UDP ports for ICE, so a firewall can allow exactly these. */
-  icePortRange: [number, number] | null;
-  forceRelay: boolean;
   /** The helpers, so a test or a dev checkout can point at its own. */
   python: string;
   helperDir: string;
@@ -74,9 +69,6 @@ const USAGE = `swiff-streamer [options] < grant.json
   --fps <n>                    frame rate (60)
   --bitrate <bits/s>           video bitrate (10000000)
   --audio-bitrate <bits/s>     Opus bitrate (128000)
-  --no-input                   receive input but inject nothing
-  --ice-ports <min>-<max>      UDP ports for ICE
-  --force-relay                TURN only
   --python <path>              python3 for the helpers
   --helpers <dir>              directory of swiff-gst.py and swiff-uinput.py`;
 
@@ -95,9 +87,6 @@ export function readConfig(
     hostId,
     ...DEFAULTS,
     pipewireRemote: null,
-    input: true,
-    icePortRange: null,
-    forceRelay: false,
     python: "python3",
     helperDir,
   };
@@ -148,20 +137,6 @@ export function readConfig(
         break;
       case "--audio-bitrate":
         config.audioBitrate = whole(value(), flag);
-        break;
-      case "--no-input":
-        config.input = false;
-        break;
-      case "--ice-ports": {
-        const m = /^(\d+)-(\d+)$/.exec(value());
-        const [min, max] = m ? [Number(m[1]), Number(m[2])] : [0, 0];
-        if (!m || min < 1024 || max > 65535 || min >= max)
-          throw new ConfigError("--ice-ports must be <min>-<max>, from 1024 to 65535, min below max");
-        config.icePortRange = [min, max];
-        break;
-      }
-      case "--force-relay":
-        config.forceRelay = true;
         break;
       case "--python":
         config.python = value();

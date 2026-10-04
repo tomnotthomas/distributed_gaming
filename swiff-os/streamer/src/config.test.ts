@@ -16,7 +16,6 @@ describe("readConfig", () => {
       height: 1080,
       frameRate: 60,
       bitrate: 10_000_000,
-      input: true,
       helperDir: "/helpers",
     });
   });
@@ -32,8 +31,7 @@ describe("readConfig", () => {
       ENV,
       [
         "--video", "test", "--audio", "off", "--encoder", "x264", "--size", "1280x720", "--fps", "30",
-        "--bitrate", "4000000", "--pipewire-remote", "/run/user/1000/pipewire-0", "--no-input",
-        "--ice-ports", "40000-40100", "--force-relay", "--helpers", "/opt/h",
+        "--bitrate", "4000000", "--pipewire-remote", "/run/user/1000/pipewire-0", "--helpers", "/opt/h",
       ],
       "/helpers",
     ); // prettier-ignore
@@ -46,9 +44,6 @@ describe("readConfig", () => {
       frameRate: 30,
       bitrate: 4_000_000,
       pipewireRemote: "/run/user/1000/pipewire-0",
-      input: false,
-      icePortRange: [40000, 40100],
-      forceRelay: true,
       helperDir: "/opt/h",
     });
   });
@@ -63,7 +58,6 @@ describe("readConfig", () => {
     [ENV, ["--pipewire-remote", "pipewire-0"], /absolute/],
     // Into the pipeline text it goes, so nothing that could start another property.
     [ENV, ["--pipewire-target", "gamescope ! filesink location=/tmp/x"], /node name/],
-    [ENV, ["--ice-ports", "50000-40000"], /min below max/],
     [ENV, ["--session-key", "k"], /unknown option/],
   ])("refuses %o %o", (env, argv, message) => {
     expect(() => readConfig(env, argv as string[], "/h")).toThrow(ConfigError);

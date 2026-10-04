@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { startCapture, type Capture } from "./capture";
 import { ConfigError, parseGrant, readConfig } from "./config";
 import { startStreamer, type Streamer } from "./streamer";
-import { startVirtualInput, type VirtualInput } from "./uinput";
+import { startVirtualInput } from "./uinput";
 
 /** The grant is one short line; anything past this is not hostd talking. */
 const MAX_GRANT_BYTES = 4096;
@@ -36,19 +36,18 @@ async function main(): Promise<number> {
   const config = readConfig(process.env, process.argv.slice(2), join(here, "..", "helpers"));
   const grant = parseGrant(await readStdin());
 
-  let input: VirtualInput | null = null;
+  const input = startVirtualInput({ config });
   let capture: Capture | null = null;
   let streamer: Streamer | null = null;
   const shutdown = async () => {
     streamer?.stop();
-    await Promise.all([capture?.stop(), input?.stop()]);
+    await Promise.all([capture?.stop(), input.stop()]);
   };
 
-  input = config.input ? startVirtualInput({ config }) : null;
   streamer = startStreamer({
     config,
     grant,
-    input: input?.sink ?? null,
+    input: input.sink,
     onKeyframeNeeded: () => capture?.requestKeyframe(),
   });
 

@@ -84,20 +84,18 @@ results="$build/results.json"
 # The VM's key to the harness. It reaches the VM as a systemd credential that
 # QEMU reads from a file (SMBIOS type 11, path=), and the harness through its
 # environment, so it is never on a command line other users can read.
-token_file="$build/harness-token"
-token_cred="$build/harness-token.smbios"
-(
-    umask 077
-    od -An -N32 -tx1 /dev/urandom | tr -d ' \n' >"$token_file"
-    printf 'io.systemd.credential:swifftest.token=%s' "$(cat "$token_file")" >"$token_cred"
-)
+# The file lives only while QEMU needs it.
+token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+token_cred=$(umask 077 && mktemp "$build/harness-token.XXXXXX")
+trap 'rm -f "$token_cred"' EXIT
+printf 'io.systemd.credential:swifftest.token=%s' "$token" >"$token_cred"
 
 echo "== starting the platform and the renter (harness)"
-SWIFF_HARNESS_TOKEN=$(cat "$token_file") PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
+SWIFF_HARNESS_TOKEN="$token" PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
     --server-port "$server_port" --harness-port "$harness_port" --out "$results" &
 harness=$!
 # The harness runs the server; neither may outlive an early exit of this script.
-trap 'kill "$harness" 2>/dev/null || true' EXIT
+trap 'kill "$harness" 2>/dev/null || true; rm -f "$token_cred"' EXIT
 
 vars="$build/OVMF_VARS.fd"
 cp /usr/share/OVMF/OVMF_VARS_4M.fd "$vars"
@@ -119,6 +117,7 @@ timeout 600 $kvm_sudo qemu-system-x86_64 \
     -display none -serial file:"$build/console.log" -monitor none
 qemu=$?
 set -e
+rm -f "$token_cred"
 echo "== the VM is off (qemu exit $qemu)"
 
 status=0

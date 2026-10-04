@@ -209,13 +209,7 @@ describe("swiff-streamer against the server", () => {
       const logs: string[] = [];
       let keyframes = 0;
       const streamer = startStreamer({
-        config: {
-          serverUrl: SERVER_URL,
-          hostId: MACHINE,
-          audio: "off",
-          icePortRange: null,
-          forceRelay: false,
-        },
+        config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
         grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
         input: sink,
         onKeyframeNeeded: () => keyframes++,
