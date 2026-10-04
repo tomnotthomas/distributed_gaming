@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { after, describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocket } from "ws";
@@ -30,16 +30,18 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const servers: ChildProcess[] = [];
 const databases: ServerDatabase[] = [];
 
-after(async () => {
+// Each test's server and database go when the test ends, not with the file: a
+// PGlite in this process holds a few hundred MB, and a dozen at once is gigabytes.
+afterEach(async () => {
   await Promise.all(
-    servers.map((server) => {
+    servers.splice(0).map((server) => {
       if (server.exitCode !== null || server.signalCode !== null) return;
       const exited = new Promise((resolve) => server.once("exit", resolve));
       server.kill();
       return exited;
     }),
   );
-  for (const database of databases) await database.close();
+  for (const database of databases.splice(0)) await database.close();
 });
 
 /** Ports already given to a server here: each child server gets its own. */
