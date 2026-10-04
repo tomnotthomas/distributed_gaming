@@ -1,29 +1,38 @@
-// The one thing the agent keeps across its own reset reboot: that it took the
-// machine off offer itself, and the owner's share-until to offer it again with.
-// Without it, a machine found off offer at boot is one its owner stopped sharing.
-// It names the boot it was saved in: found in that same boot, the reboot never
-// happened, and the machine is not clean yet.
+// What the agent keeps across its own reset reboot: that it took the machine off
+// offer itself, and the owner's share-until to offer it again with. Without it,
+// a machine found off offer at boot is one its owner stopped sharing.
+//
+// And the boot a renter was last served in: an agent that starts in that same
+// boot (systemd restarted it, the reboot never happened) is on a PC that is not
+// clean yet.
 
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export type Resume = { until: number | null; bootId: string };
+export type Resume = { until: number | null };
 
 export type ResumeStore = {
   save(resume: Resume): Promise<void>;
   /** The saved resume, removed as it is read; null when none was saved. */
   take(): Promise<Resume | null>;
+  /** Note that a renter is served in boot `bootId`, before anything of theirs runs. */
+  markServed(bootId: string): Promise<void>;
+  /** The boot a renter was last served in; null when none is noted. */
+  servedBoot(): Promise<string | null>;
+  forgetServed(): Promise<void>;
 };
 
 export function fileResumeStore(stateDir: string): ResumeStore {
   const path = join(stateDir, "resume.json");
+  const servedPath = join(stateDir, "served-boot");
+  /** Written whole or not at all: the reboot may come at any moment after. */
+  const write = async (file: string, text: string) => {
+    await mkdir(stateDir, { recursive: true, mode: 0o700 });
+    await writeFile(`${file}.tmp`, text, { mode: 0o600 });
+    await rename(`${file}.tmp`, file);
+  };
   return {
-    save: async (resume) => {
-      await mkdir(stateDir, { recursive: true, mode: 0o700 });
-      // Written whole or not at all: the reboot may come at any moment after.
-      await writeFile(`${path}.tmp`, JSON.stringify(resume), { mode: 0o600 });
-      await rename(`${path}.tmp`, path);
-    },
+    save: (resume) => write(path, JSON.stringify(resume)),
     take: async () => {
       let text: string;
       try {
@@ -33,12 +42,14 @@ export function fileResumeStore(stateDir: string): ResumeStore {
       }
       await rm(path, { force: true });
       try {
-        const { until, bootId } = JSON.parse(text) as { until?: unknown; bootId?: unknown };
-        if (typeof bootId !== "string") return null;
-        return { until: typeof until === "number" && Number.isFinite(until) ? until : null, bootId };
+        const { until } = JSON.parse(text) as { until?: unknown };
+        return { until: typeof until === "number" && Number.isFinite(until) ? until : null };
       } catch {
         return null;
       }
     },
+    markServed: (bootId) => write(servedPath, bootId),
+    servedBoot: async () => (await readFile(servedPath, "utf8").catch(() => "")).trim() || null,
+    forgetServed: () => rm(servedPath, { force: true }),
   };
 }

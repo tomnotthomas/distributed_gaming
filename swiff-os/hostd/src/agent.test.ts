@@ -114,13 +114,25 @@ function harness(
   {
     unmet = [],
     saved: initial = null,
+    served: servedBefore = null,
+    bootId = "boot-now",
+    rebootFails = false,
     ...deps
-  }: { unmet?: FloorCheck[]; saved?: Resume | null } & Partial<AgentDeps> = {},
+  }: {
+    unmet?: FloorCheck[];
+    saved?: Resume | null;
+    /** The boot a renter was last served in, as a previous run of the agent noted it. */
+    served?: string | null;
+    bootId?: string;
+    /** `systemctl reboot` fails: the agent is left running in the same boot. */
+    rebootFails?: boolean;
+  } & Partial<AgentDeps> = {},
 ) {
   const streamers: FakeStreamer[] = [];
   const sockets: { emit: (event: SocketEvent) => void; closed: boolean }[] = [];
   const system = { reboots: 0, windows: 0 };
   let saved: Resume | null = initial;
+  let served: string | null = servedBefore;
   const agent = createAgent({
     api: server.api,
     openSocket: (onEvent) => {
@@ -146,10 +158,13 @@ function harness(
       return streamer;
     },
     system: {
-      reboot: async () => void system.reboots++,
+      reboot: async () => {
+        system.reboots++;
+        if (rebootFails) throw new Error("systemctl reboot failed");
+      },
       returnToWindows: async () => void system.windows++,
       unmetFloor: async () => unmet,
-      bootId: async () => "boot-now",
+      bootId: async () => bootId,
     },
     resume: {
       save: async (resume) => void (saved = resume),
@@ -158,6 +173,9 @@ function harness(
         saved = null;
         return taken;
       },
+      markServed: async (id) => void (served = id),
+      servedBoot: async () => served,
+      forgetServed: async () => void (served = null),
     },
     ownerTakeover: "when-idle",
     timing: FAST,
@@ -175,6 +193,7 @@ function harness(
     system,
     running,
     saved: () => saved,
+    served: () => served,
     socket: () => sockets.at(-1)!,
   };
 }
@@ -222,7 +241,8 @@ describe("offering and serving", () => {
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
     // Off offer for the reset, on the owner's terms, and remembered for the next boot.
     expect(h.server.state).toMatchObject({ status: "idle", until: until2h, hostSession: null });
-    expect(h.saved()).toEqual({ until: until2h, bootId: "boot-now" });
+    expect(h.saved()).toEqual({ until: until2h });
+    expect(h.served()).toBe("boot-now");
     expect(h.server.calls.slice(-3)).toEqual(["heartbeat", "availability false", "session end"]);
   });
 
@@ -240,16 +260,18 @@ describe("offering and serving", () => {
   it("offers again after its own reset, with the share-until it kept", async () => {
     const until2h = Date.now() + 2 * HOUR;
     const h = harness(fakeServer({ status: "idle", until: until2h }), {
-      saved: { until: until2h, bootId: "boot-before" },
+      saved: { until: until2h },
+      served: "boot-before",
     });
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.state).toMatchObject({ status: "available", until: until2h });
     expect(h.saved()).toBeNull();
+    expect(h.served()).toBeNull();
   });
 
   it("keeps trying to offer itself again after its reset while the server cannot be reached", async () => {
     const h = harness(fakeServer({ status: "idle", unreachable: 2 }), {
-      saved: { until: null, bootId: "boot-before" },
+      saved: { until: null },
     });
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.calls.filter((c) => c === "availability true")).toHaveLength(3);
@@ -266,7 +288,8 @@ describe("offering and serving", () => {
   it("stays off offer and restarts again when its reset's reboot never happened", async () => {
     const until2h = Date.now() + 2 * HOUR;
     const h = harness(fakeServer({ status: "idle", until: until2h }), {
-      saved: { until: until2h, bootId: "boot-now" },
+      saved: { until: until2h },
+      served: "boot-now",
     });
     expect(await h.running).toBe("reset");
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
@@ -274,13 +297,62 @@ describe("offering and serving", () => {
     expect(h.server.state.status).toBe("idle");
     expect(h.sockets).toHaveLength(0);
     // Kept for the boot that does come back clean.
-    expect(h.saved()).toEqual({ until: until2h, bootId: "boot-now" });
+    expect(h.saved()).toEqual({ until: until2h });
+    expect(h.served()).toBe("boot-now");
+  });
+
+  it("never serves the renter claimed as the last one left when the reboot never happened", async () => {
+    const server = fakeServer();
+    const h = harness(server, { rebootFails: true });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    server.endSession();
+    server.claim("s2");
+    h.streamers[0]!.exit();
+    await expect(h.running).rejects.toThrow("systemctl reboot failed");
+
+    // systemd starts the agent again, in the same boot.
+    const again = harness(server, { saved: h.saved(), served: h.served() });
+    expect(await again.running).toBe("reset");
+    expect(again.streamers).toHaveLength(0);
+    expect(again.system).toEqual({ reboots: 1, windows: 0 });
+    // Still the renter's, served once the PC is back.
+    expect(server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
+
+    const back = harness(server, { saved: again.saved(), served: again.served(), bootId: "boot-next" });
+    await until(() => back.streamers.length === 1, "the streamer after the reboot");
+    expect(back.agent.status().sessionId).toBe("s2");
+  });
+
+  it("takes the PC off offer and restarts again after a broken streamer when the reboot never happened", async () => {
+    const until2h = Date.now() + 2 * HOUR;
+    const server = fakeServer({ until: until2h });
+    const h = harness(server, { timing: { ...FAST, maxStreamerStarts: 1 }, rebootFails: true });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    // Taking it off offer for the reset did not get through either.
+    server.state.unreachable = 1;
+    h.streamers[0]!.exit();
+    await expect(h.running).rejects.toThrow("systemctl reboot failed");
+    expect(server.calls).toContain("platform session end");
+    expect(server.state.status).toBe("available");
+
+    const again = harness(server, { saved: h.saved(), served: h.served() });
+    expect(await again.running).toBe("reset");
+    expect(again.sockets).toHaveLength(0);
+    expect(server.calls).not.toContain("availability true");
+    expect(server.state).toMatchObject({ status: "idle", until: until2h });
+    expect(again.saved()).toEqual({ until: until2h });
   });
 
   it("goes back to Windows when the share-until passed during the reset", async () => {
     const past = Date.now() - 1_000;
     const h = harness(fakeServer({ status: "idle", until: past }), {
-      saved: { until: past, bootId: "boot-before" },
+      saved: { until: past },
     });
     expect(await h.running).toBe("windows");
     expect(h.server.state.status).toBe("idle");

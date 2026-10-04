@@ -11,11 +11,12 @@
 // One run is one boot: it ends by handing the machine to a reboot.
 //
 // Boot. End any host session a crash left behind (its keys die), then ask the
-// server where the machine stands. A reset saved in this same boot means its
-// reboot never happened: the machine stays off offer and restarts again. A
-// session still live there is served at once. A machine off offer is one the
-// agent paused before its reset reboot, and is offered again on the owner's
-// terms; otherwise its owner stopped sharing it, and it goes back to Windows.
+// server where the machine stands. A renter already served in this same boot
+// means the reset's reboot never happened: nobody is served or offered on it,
+// and it restarts again, off offer unless a session is live. A session still
+// live there is served at once. A machine off offer is one the agent paused
+// before its reset reboot, and is offered again on the owner's terms;
+// otherwise its owner stopped sharing it, and it goes back to Windows.
 //
 // Offered. The machine-key socket holds the room and hears `session-claimed`.
 // A heartbeat now and then also learns of a claim the socket missed, and of
@@ -159,7 +160,7 @@ export function createAgent(deps: AgentDeps): Agent {
   }
 
   /** The first boot step: whom to serve, or whether to offer or go back to Windows. */
-  async function boot(): Promise<SessionClaim | { sessionId: string } | "offer" | "reset" | "windows"> {
+  async function boot(): Promise<SessionClaim | { sessionId: string } | "offer" | "unclean" | "windows"> {
     unmet = await system.unmetFloor();
     if (unmet.length) {
       phase = "unfit";
@@ -170,12 +171,10 @@ export function createAgent(deps: AgentDeps): Agent {
     // A host session a crash left behind holds keys this boot never handed out.
     await endHostSession();
     let view = await beatUntilAnswered();
+    const served = await resume.servedBoot();
+    if (served !== null && served === (await system.bootId())) return "unclean";
+    if (served !== null) await resume.forgetServed();
     const resumed = await resume.take();
-    if (resumed && resumed.bootId === (await system.bootId())) {
-      log("the reset's reboot did not happen; restarting again");
-      await resume.save(resumed);
-      return "reset";
-    }
     if (view.session) return { sessionId: view.session.id };
     if (view.status === "idle") {
       if (!resumed) {
@@ -260,6 +259,7 @@ export function createAgent(deps: AgentDeps): Agent {
     const appid = "appid" in claim ? claim.appid : null;
     sessionId = id;
     log(`serving session ${id}`);
+    await resume.markServed(await system.bootId());
 
     let starts = 1;
     let startedAt = now();
@@ -317,17 +317,34 @@ export function createAgent(deps: AgentDeps): Agent {
     if (view?.session && view.session.id !== endedId) {
       log(`session ${view.session.id} was claimed as ${endedId} ended; it is served after the reset`);
     } else if (view && !view.session && !toWindows && !returnWanted && sharing(view)) {
-      try {
-        // Saved first: a machine found off offer at boot with nothing saved goes back to Windows.
-        await resume.save({ until: view.until ?? null, bootId: await system.bootId() });
-        await api.setAvailability(false, view.until ?? null);
-      } catch (cause) {
-        log(`could not take the machine off offer for the reset: ${describe(cause)}`);
-      }
+      await offOfferForReset(view);
     }
     await endHostSession();
     sessionId = null;
     if (toWindows || returnWanted || (view && !view.session && !sharing(view))) return returnToWindows();
+    return restart();
+  }
+
+  /** Off offer for the reset, remembered so the next boot offers it again on the same terms. */
+  async function offOfferForReset(view: MachineView): Promise<void> {
+    try {
+      // Saved first: a machine found off offer at boot with nothing saved goes back to Windows.
+      await resume.save({ until: view.until ?? null });
+      await api.setAvailability(false, view.until ?? null);
+    } catch (cause) {
+      log(`could not take the machine off offer for the reset: ${describe(cause)}`);
+    }
+  }
+
+  /** Booted where a renter was served and no reboot came since: the reset again, from the start. */
+  async function resetAgain(): Promise<Outcome> {
+    phase = "resetting";
+    log("a renter was served in this boot and it has not restarted since");
+    const view = await beatUntilAnswered();
+    if (!view.session && view.status !== "idle") {
+      if (!sharing(view)) return returnToWindows();
+      await offOfferForReset(view);
+    }
     return restart();
   }
 
@@ -355,13 +372,10 @@ export function createAgent(deps: AgentDeps): Agent {
 
   async function run(): Promise<Outcome> {
     try {
-      let next: SessionClaim | { sessionId: string } | "offer" | "reset" | "windows" = await boot();
+      let next: SessionClaim | { sessionId: string } | "offer" | "unclean" | "windows" = await boot();
       for (;;) {
         if (next === "windows") return await returnToWindows();
-        if (next === "reset") {
-          phase = "resetting";
-          return await restart();
-        }
+        if (next === "unclean") return await resetAgain();
         if (next === "offer") {
           next = await offer();
           continue;

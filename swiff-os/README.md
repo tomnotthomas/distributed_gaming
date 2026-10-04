@@ -41,8 +41,9 @@ host protocol the desktop app already speaks, with no new messages
   sent back), so no renter is matched to a PC that is about to restart. It then ends the
   host session and reboots. On the way back up it offers the PC again on the same terms.
   It keeps a small `resume.json` in its state directory to remember that it took the PC
-  off offer itself, and in which boot. If it finds that file from the same boot, the reboot
-  never happened, so it keeps the PC off offer and reboots again.
+  off offer itself. Before serving a renter it also notes the current boot id. If the agent
+  starts again in a boot where a renter was already served, the reboot never happened, so
+  it serves and offers nobody and reboots again.
 - **Goes back to Windows** when the owner asks at the PC, when the owner stops sharing
   from elsewhere, or when the share-until passes. It puts Windows Boot Manager first in
   the firmware boot order and reboots.

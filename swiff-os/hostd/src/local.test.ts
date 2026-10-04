@@ -101,13 +101,23 @@ describe("the streamer", () => {
 });
 
 describe("the resume file", () => {
+  it("notes the boot a renter was served in until it is forgotten", async () => {
+    const stateDir = join(await dir(), "state");
+    const store = fileResumeStore(stateDir);
+    expect(await store.servedBoot()).toBeNull();
+    await store.markServed("boot-1");
+    expect(await fileResumeStore(stateDir).servedBoot()).toBe("boot-1");
+    await store.forgetServed();
+    expect(await store.servedBoot()).toBeNull();
+  });
+
   it("is read once", async () => {
     const store = fileResumeStore(join(await dir(), "state"));
     expect(await store.take()).toBeNull();
-    await store.save({ until: 1_700_000_000_000, bootId: "boot-1" });
-    expect(await store.take()).toEqual({ until: 1_700_000_000_000, bootId: "boot-1" });
+    await store.save({ until: 1_700_000_000_000 });
+    expect(await store.take()).toEqual({ until: 1_700_000_000_000 });
     expect(await store.take()).toBeNull();
-    await store.save({ until: null, bootId: "boot-2" });
-    expect(await store.take()).toEqual({ until: null, bootId: "boot-2" });
+    await store.save({ until: null });
+    expect(await store.take()).toEqual({ until: null });
   });
 });
