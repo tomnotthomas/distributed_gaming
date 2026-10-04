@@ -80,7 +80,7 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   are blocked too.
   Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
   "Permission denied"). It allows DHCP, IPv6
-  neighbour discovery, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
+  neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
   gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
   is allowed.
 - **The shared games library is read-only.** It is mounted read-only at `/srv/games-lower`, with an
