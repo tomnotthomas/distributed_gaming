@@ -73,11 +73,31 @@ export function Session({ swiff }: { swiff: Swiff }) {
   const [hudShown, wake] = useAutoHide();
   const [fullscreen, toggleFullscreen] = useFullscreen(root);
   const [unmuted, setUnmuted] = useState(false);
-  // Behind Ignition the session can be neither seen nor used; once live, its HUD comes up afresh.
+  const [refused, setRefused] = useState(false);
+  const hushed = useRef(false);
+  // Behind Ignition the session can be neither seen, heard nor used; once live,
+  // its HUD comes up afresh and its sound is tried, muted again if the browser refuses.
   const behindIgnition = swiff.phase === "connecting";
   useEffect(() => {
     root?.toggleAttribute("inert", behindIgnition);
-    if (!behindIgnition) wake();
+    const video = root?.querySelector("video");
+    if (behindIgnition) {
+      if (video) {
+        video.muted = true;
+        hushed.current = true;
+      }
+      return;
+    }
+    wake();
+    if (!video || !hushed.current) return;
+    hushed.current = false;
+    video.muted = false;
+    void video.play().catch(() => {
+      video.muted = true;
+      setRefused(true);
+      setUnmuted(false);
+      return video.play().catch(() => {});
+    });
   }, [root, behindIgnition, wake]);
   if (!game) return null;
 
@@ -152,7 +172,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
       />
 
       <div className="session-end">
-        {play?.muted && !unmuted ? (
+        {(play?.muted || refused) && !unmuted ? (
           <Button variant="secondary" onClick={unmute}>
             Turn sound on
           </Button>

@@ -87,6 +87,8 @@ export function Host() {
       serveClaims: true,
       onSessionClaimed: setClaim,
       onClaimOver: () => setClaim(null),
+      // The screen being shared stands in for the game, so it is running at once.
+      launchGame: () => {},
       onPeerConnection: (next) => {
         if (!next) closeInput();
         setPc(next);

@@ -143,8 +143,10 @@ server relays to the renter: until then the renter's page holds Ignition on Laun
 own window is what is being captured: the renter's first sight of the stream is the frame
 after it, and must never be the desktop, the Steam library or any other Steam window. It is sent again on every first frame of a new connection, so launching
 must be idempotent; a game already running is only answered again. Until the streamer
-exists, `startHostSession`'s `launchGame` stands in for it, and with none (the web host
-page) the answer is immediate: the screen being shared is the game.
+exists, `startHostSession`'s `launchGame` stands in for it, and with none nothing is
+answered, so the renter stays on Launching. The desktop app has no launcher until the PC
+session step, so it never answers until then; the web host page, a dev and test
+responder, answers at once: the screen it shares stands in for the game.
 
 The server also ends the host session whenever the renter's platform session ends
 ([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the

@@ -81,6 +81,7 @@ describe("Session", () => {
   it("stays inert behind Ignition, and puts the HUD up afresh once live", () => {
     const { rerender } = render(<Session swiff={swiffWith({ phase: "connecting" })} />);
     const session = screen.getByTestId("session");
+    screen.getByTestId<HTMLVideoElement>("session-video").play = vi.fn(async () => {});
     expect(session).toHaveAttribute("inert");
 
     act(() => vi.advanceTimersByTime(HUD_IDLE_MS * 2));
@@ -131,6 +132,33 @@ describe("Session", () => {
     fireEvent.click(screen.getByRole("button", { name: "Turn sound on" }));
     expect(video.muted).toBe(false);
     expect(screen.queryByRole("button", { name: "Turn sound on" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the stream silent behind Ignition and sounds it once live", async () => {
+    const { rerender } = render(<Session swiff={swiffWith({ phase: "connecting" })} />);
+    const video = screen.getByTestId<HTMLVideoElement>("session-video");
+    expect(video.muted).toBe(true);
+
+    video.play = vi.fn(async () => {});
+    await act(async () => rerender(<Session swiff={swiffWith({ phase: "live" })} />));
+    expect(video.muted).toBe(false);
+    expect(video.play).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Turn sound on" })).not.toBeInTheDocument();
+  });
+
+  it("offers sound once live when the browser refuses it after Ignition", async () => {
+    const { rerender } = render(<Session swiff={swiffWith({ phase: "connecting" })} />);
+    const video = screen.getByTestId<HTMLVideoElement>("session-video");
+    video.play = vi.fn(async () => {
+      if (!video.muted) throw new Error("NotAllowedError");
+    });
+
+    await act(async () => rerender(<Session swiff={swiffWith({ phase: "live" })} />));
+    expect(video.muted).toBe(true);
+    expect(video.play).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn sound on" }));
+    expect(video.muted).toBe(false);
   });
 
   it("stands the trailer in for the stream in the demo, whose machines are invented", () => {
