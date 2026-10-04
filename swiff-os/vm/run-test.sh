@@ -81,9 +81,14 @@ flock -n 9 || die "another run-test.sh is running"
 # --- Build -------------------------------------------------------------------
 if [ ! -e "$image_dir/mkosi.key" ]; then
 	log "Generating a VM-only test Secure Boot key"
-	openssl req -new -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
-		-subj "/CN=Swiff OS VM test Secure Boot key/" \
-		-keyout "$image_dir/mkosi.key" -out "$image_dir/mkosi.crt"
+	# The private key is unencrypted (mkosi signs non-interactively), so it
+	# is created readable by its owner only.
+	(
+		umask 077
+		openssl req -new -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
+			-subj "/CN=Swiff OS VM test Secure Boot key/" \
+			-keyout "$image_dir/mkosi.key" -out "$image_dir/mkosi.crt"
+	)
 fi
 if [ "$build" = 1 ]; then
 	log "Building the test image (mkosi --profile=selftest)"
