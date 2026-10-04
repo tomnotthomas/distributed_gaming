@@ -12,6 +12,9 @@ SWIFF-SELFTEST lines, as in the Stage 1 self-test.
                 or refused, then sealing is closed and the session changes 1003
   after-update  only the good update (1001) was promoted
   tampered      another OS booted and changed the library: full re-hash
+  still-blocked no other OS booted since: both games stay blocked
+  key-locked    the table key no longer unseals: every game is blocked, the
+                key is kept, and the owner bootstraps 1002 again
   ext4          the same with an ext4 library
 """
 
@@ -98,7 +101,11 @@ def session_layer_checks(fs):
     check("session-layer-encrypted", " crypt aes-xts-plain64 " in table, " ".join(table.split()[2:4]))
     img = f"{VOLUME}/SwiffOS/session.img"
     st = os.stat(img)
-    say("INFO", "session-layer-size", f"apparent {st.st_size >> 20} MiB, allocated {st.st_blocks * 512 >> 20} MiB")
+    vfs = os.statvfs(VOLUME)
+    free = vfs.f_bavail * vfs.f_frsize
+    # What the session layer holds must fit onto the library at promotion.
+    check("session-layer-leaves-room", st.st_size <= free + (16 << 20),
+          f"apparent {st.st_size >> 20} MiB, allocated {st.st_blocks * 512 >> 20} MiB, {free >> 20} MiB free on the library")
     r = as_renter("ls", "/run/swiff/games")
     check("volume-not-reachable", r.returncode != 0, r.stderr.strip())
     overlay = run("findmnt", "-no", "FSTYPE,OPTIONS", "/srv/games").stdout.strip()
@@ -202,6 +209,31 @@ def phase_tampered():
           " ".join(shown))
 
 
+def phase_still_blocked():
+    rep = report()
+    report_checks(rep, "quick", {"1001": "blocked", "1002": "verified", "1003": "verified", "1004": "blocked", "1005": "not-bootstrapped"})
+    reason = rep["games"]["1004"].get("reason", "")
+    check("same-size-edit-stays-blocked", "verified file changed: data/d.pak" in reason, reason)
+    rc, detail = verify("view")
+    shown = sorted(os.listdir(f"{GAMES}/common"))
+    check("view-keeps-blocked-hidden", rc == 0 and shown == ["Bravo", "Charlie"], f"{' '.join(shown)} {detail}".strip())
+
+
+def phase_key_locked():
+    rep = report()
+    report_checks(rep, "full", {a: "blocked" for a in ("1001", "1002", "1003", "1004", "1005")})
+    check("key-locked-reported", "does not unseal" in rep["table"], rep["table"])
+    check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
+    kept = open(f"{FIX}/key-sha256").read().split()[0]
+    check("key-kept", sha(f"{VOLUME}/SwiffOS/table-key.cred") == kept, "the credential that does not unseal is not replaced")
+    # The owner bootstraps Bravo again; promotion at shutdown seals a new key.
+    rc, detail = verify("view", "--bootstrap")
+    check("rebootstrap-view", rc == 0, detail)
+    steam("bootstrap")
+    rc, detail = verify("seal", "--bootstrap", "1002")
+    check("rebootstrap-sealed", rc == 0, detail)
+
+
 def phase_ext4():
     session_layer_checks("ext4")
     report_checks(report(), "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
@@ -213,7 +245,8 @@ def phase_ext4():
 
 
 PHASES = {"bootstrap": phase_bootstrap, "update": phase_update, "after-update": phase_after_update,
-          "tampered": phase_tampered, "ext4": phase_ext4}
+          "tampered": phase_tampered, "still-blocked": phase_still_blocked, "key-locked": phase_key_locked,
+          "ext4": phase_ext4}
 
 if __name__ == "__main__":
     active = run("systemctl", "is-active", "swiff-games.service").stdout.strip()

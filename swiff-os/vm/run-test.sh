@@ -13,9 +13,15 @@
 #           game updates are sealed or refused.
 #   boot 3  only the update that verified was promoted onto the library.
 #   (firmware only, standing in for the owner's Windows, after the library
-#           was changed: a DLL planted in one game, a file changed in another)
+#           was changed: a DLL planted in one game, a file changed in another
+#           with its size and mtime kept)
 #   boot 4  a full re-hash blocks both games.
-#   boot 5  the same disk with an ext4 library instead of NTFS.
+#   boot 5  no other OS booted: both games stay blocked.
+#   boot 6  the table key no longer unseals: every game is blocked and the
+#           key is kept until the owner bootstraps a game again.
+#   boot 7  the same disk with an ext4 library instead of NTFS.
+#
+# vm/test_verify.py first runs swiff-verify's host-side tests.
 #
 # The self-test reports on the serial console; this script collects the
 # results and adds the checks that need the host's view: the scratch
@@ -86,6 +92,9 @@ if [ ! -w /dev/kvm ]; then
 	qemu=(sudo -n qemu-system-x86_64 -runas "$(id -un)")
 fi
 
+log "Host-side tests (vm/test_verify.py)"
+python3 "$here/test_verify.py" || die "host-side tests failed"
+
 mkdir -p "$run"
 # One VM at a time.
 exec 9> "$run/lock"
@@ -134,15 +143,19 @@ python3 "$here/games-fixture.py" "$run/games"
 truncate -s 512M "$run/games-ntfs.img"
 in_tools mkntfs -q -F -f -L SWIFFGAMES "$run/games-ntfs.img" > /dev/null
 mkdir -p "$run/mnt"
-# ntfs-3g needs root to mount; it runs in the foreground (no_detach) so that
-# every write is on the image once it has exited.
-sudo -n bwrap --ro-bind "$tools/usr" /usr \
-	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-	--bind "$run" "$run" --proc /proc --dev-bind /dev /dev --tmpfs /tmp \
-	sh -c 'ntfs-3g -o no_detach "$1/games-ntfs.img" "$1/mnt" & pid=$!
-		for _ in $(seq 100); do mountpoint -q "$1/mnt" && break; sleep 0.1; done
-		cp -r "$1/games/library/." "$1/mnt/" && umount "$1/mnt" && wait $pid' sh "$run" ||
-	die "cannot fill the NTFS games library"
+# Runs a shell script with the NTFS library mounted at $1/mnt ($1 is the run
+# directory), as the owner's Windows would change it. ntfs-3g needs root to
+# mount; it runs in the foreground (no_detach) so that every write is on the
+# image once it has exited.
+in_ntfs() { # script
+	sudo -n bwrap --ro-bind "$tools/usr" /usr \
+		--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+		--bind "$run" "$run" --proc /proc --dev-bind /dev /dev --tmpfs /tmp \
+		sh -c 'ntfs-3g -o no_detach "$1/games-ntfs.img" "$1/mnt" & pid=$!
+			for _ in $(seq 100); do mountpoint -q "$1/mnt" && break; sleep 0.1; done
+			sh -c "$2" sh "$1" && umount "$1/mnt" && wait $pid' sh "$run" "$1"
+}
+in_ntfs 'cp -r "$1/games/library/." "$1/mnt/"' || die "cannot fill the NTFS games library"
 mkfs.ext4 -q -L SWIFFGAMES -E root_owner=1000:1000 -d "$run/games/library" "$run/games-ext4.img" 512M
 # Owned by the renter's uid (1000) whatever the host user's uid is.
 (cd "$run/games/library" && find . -mindepth 1 -printf 'set_inode_field "/%P" uid 1000\nset_inode_field "/%P" gid 1000\n') |
@@ -305,16 +318,37 @@ boot_vm 3
 alpha_exe=$(ntfs_cat steamapps/common/Alpha/Alpha.exe | sha256sum | cut -d' ' -f1)
 alpha_v2=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["v2"]["1001"]["Alpha.exe"])' "$run/games/fixtures/expect.json")
 
-# The owner's Windows plants a DLL in Alpha and changes a file of Delta.
-in_tools ntfscp -f "$games_img" "$run/games/tamper/Alpha-version.dll" steamapps/common/Alpha/bin/version.dll > /dev/null
-in_tools ntfscp -f "$games_img" "$run/games/tamper/Delta-d.pak" steamapps/common/Delta/data/d.pak > /dev/null
+# The owner's Windows plants a DLL in Alpha and changes a file of Delta,
+# keeping its size and putting its mtime back.
+in_ntfs 'cp "$1/games/tamper/Alpha-version.dll" "$1/mnt/steamapps/common/Alpha/bin/version.dll" &&
+	d=$1/mnt/steamapps/common/Delta/data/d.pak && t=$(stat -c %y "$d") &&
+	cat "$1/games/tamper/Delta-d.pak" > "$d" && touch -d "$t" "$d"' || die "cannot change the NTFS games library"
 foreign_boot
 fixtures tampered
 boot_vm 4
 
+fixtures still-blocked
+boot_vm 5
+
+# The table key stops unsealing, as after a Secure Boot update: one character
+# of its credential is changed in place.
+ntfs_cat SwiffOS/table-key.cred > "$run/key.cred"
+python3 -c 'import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+i = next(i for i in range(len(data) // 2, len(data)) if chr(data[i]).isalnum())
+data[i] = ord("A") if data[i] != ord("A") else ord("B")
+open(sys.argv[1], "wb").write(data)' "$run/key.cred"
+in_tools ntfscp -f "$games_img" "$run/key.cred" SwiffOS/table-key.cred > /dev/null
+key_locked=$(sha256sum < "$run/key.cred")
+echo "$key_locked" > "$run/games/fixtures/key-sha256"
+fixtures key-locked
+boot_vm 6
+key_after=$(ntfs_cat SwiffOS/table-key.cred | sha256sum)
+rebootstrap_apps=$(ntfs_cat SwiffOS/verified-games.json | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
+
 games_img=$run/games-ext4.img
 fixtures ext4
-boot_vm 5
+boot_vm 7
 ext4_apps=$(debugfs -R "cat /SwiffOS/verified-games.json" "$games_img" 2> /dev/null |
 	python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
@@ -336,7 +370,7 @@ result() { # PASS|FAIL name detail
 	[ "$1" = PASS ] || fail=1
 }
 
-for n in 1 2 3 4 5; do
+for n in 1 2 3 4 5 6 7; do
 	while read -r status name detail; do
 		result "$status" "boot$n/$name" "$detail"
 	done < <(sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p' "$run/serial-$n.log" | tr -d '\r')
@@ -381,6 +415,11 @@ if [ "$alpha_exe" = "$alpha_v2" ]; then
 	result PASS games-update-on-ntfs "the verified update is on the NTFS library as Windows reads it"
 else
 	result FAIL games-update-on-ntfs "Alpha.exe on the library is $alpha_exe, not $alpha_v2"
+fi
+if [ "$rebootstrap_apps" = 1002 ] && [ "$key_after" != "$key_locked" ]; then
+	result PASS games-rebootstrap-new-key "the owner's bootstrap sealed a new table key; table apps: $rebootstrap_apps"
+else
+	result FAIL games-rebootstrap-new-key "table apps '${rebootstrap_apps}', key replaced: $([ "$key_after" != "$key_locked" ] && echo yes || echo no)"
 fi
 if [ "$ext4_apps" = "1001 1003" ]; then
 	result PASS games-bootstrap-on-ext4 "verified table on the ext4 library: $ext4_apps"

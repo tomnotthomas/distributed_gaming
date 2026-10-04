@@ -17,7 +17,7 @@ Five games, each with one depot:
   1003 Charlie  one file damaged on the library, which Steam's validation
                 repairs; the owner's mod files stay. Its update is changed by
                 the session after it was sealed.
-  1004 Delta    later modified by the owner's Windows.
+  1004 Delta    later modified by the owner's Windows: same size, mtime kept.
   1005 Echo     never validated in rental mode; its manifest in the owner's
                 depotcache is not trusted.
 """

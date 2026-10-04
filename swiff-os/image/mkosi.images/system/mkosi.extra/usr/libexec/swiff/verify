@@ -6,11 +6,12 @@ and written by the owner's Windows. Rental mode trusts none of it as it is:
 
   start          (boot) mounts the library volume and checks every game against
                  the verified table: a full re-hash when the TPM's resetCount
-                 shows that another OS booted since the last rental-mode boot,
-                 otherwise a size and time check. Writes the games report to
-                 /run/swiff/games-report.json and mounts the renter's view at
-                 /srv/games: only files in the table show; everything else on
-                 the library is hidden. Writes land in a session layer that is
+                 or restartCount shows that another OS booted since the last
+                 rental-mode boot, otherwise a size and time check. A game
+                 once blocked is re-hashed in full until it passes. Writes
+                 the games report to /run/swiff/games-report.json and mounts
+                 the renter's view at /srv/games: only files in the table
+                 show; everything else on the library is hidden. Writes land in a session layer that is
                  erased by the next reboot.
   view [--bootstrap]
                  mounts the view again. --bootstrap shows the library as the
@@ -31,7 +32,9 @@ and written by the owner's Windows. Rental mode trusts none of it as it is:
   report         prints the games report.
 
 The table lives on the library volume itself (SwiffOS/verified-games.json),
-authenticated with a key only this boot chain can unseal from the TPM.
+authenticated with a key only this boot chain can unseal from the TPM. A key
+that no longer unseals is kept; every game is then blocked until the owner
+bootstraps games again, which seals a new key.
 """
 
 import base64
@@ -74,6 +77,11 @@ LIBRARY_DIRS = ("", "SteamLibrary", "Steam", "Program Files (x86)/Steam", "Progr
 CODE_MAGIC = (b"MZ", b"\x7fELF", b"#!")
 CODE_SUFFIXES = (".dll", ".exe", ".so", ".sys", ".asi", ".bat", ".cmd", ".ps1", ".vbs")
 TEMP_SUFFIX = ".swiff-new"
+KEY_LOCKED = ("the table key does not unseal on this PC's TPM and boot chain (after a Secure Boot update, for example); "
+              "every game is blocked until the owner bootstraps the games again from the host app")
+# The session layer's share of the library's free space, in percent. The rest
+# stays free, so that an update the session layer holds fits onto the library.
+SESSION_SHARE = int(os.environ.get("SWIFF_GAMES_SESSION_SHARE", "50"))
 # Steam's EDepotFileFlag bits. UserConfig files are the game's own settings,
 # which Steam does not restore: one that differs is hidden, not a tamper sign.
 USER_CONFIG = 0x1 | 0x2
@@ -332,8 +340,11 @@ def depot_keys():
 # --- The verified table -------------------------------------------------------
 
 
-def tpm_reset_count():
-    """The TPM's resetCount (TPM2_ReadClock): one more on every power-up of any OS."""
+def tpm_clock():
+    """The TPM's resetCount and restartCount (TPM2_ReadClock). resetCount goes
+    up by one on every power-up of any OS. An OS that saves the TPM's state on
+    the way down (TPM2_Shutdown(STATE): Windows' hibernation and Fast Startup)
+    leaves resetCount as it is and makes restartCount non-zero instead."""
     fd = os.open("/dev/tpmrm0", os.O_RDWR)
     try:
         os.write(fd, struct.pack(">HII", 0x8001, 10, 0x181))
@@ -342,20 +353,38 @@ def tpm_reset_count():
         os.close(fd)
     if struct.unpack_from(">I", resp, 6)[0] != 0:
         raise OSError("TPM2_ReadClock failed")
-    # TPMS_TIME_INFO: time, then TPMS_CLOCK_INFO: clock, resetCount, ...
-    return struct.unpack_from(">QQI", resp, 10)[2]
+    # TPMS_TIME_INFO: time, then TPMS_CLOCK_INFO: clock, resetCount, restartCount, ...
+    return struct.unpack_from(">QQII", resp, 10)[2:]
+
+
+def rehash_all(clock, table):
+    """True when another OS may have run since the last rental-mode boot: the
+    clock is neither this boot's (start run again) nor the next clean power-up."""
+    if clock is None or table["reset_count"] is None:
+        return True
+    previous = (table["reset_count"], table.get("restart_count"))
+    return tuple(clock) not in (previous, (previous[0] + 1, 0))
 
 
 def table_key(create):
-    """The table's HMAC key, sealed to the TPM under the Secure Boot policy (PCR 7)."""
+    """The table's HMAC key, sealed to the TPM under the Secure Boot policy (PCR 7).
+    A key is created only when there is none: one that does not unseal is kept."""
     path = os.path.join(VOLUME, KEY)
-    if os.path.exists(path):
+    if not os.path.lexists(path):
+        return new_table_key() if create else None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(2)
         r = subprocess.run(["systemd-creds", "decrypt", "--name=swiff-games-table", path, "-"], capture_output=True)
         if r.returncode == 0 and len(r.stdout) == 32:
             return r.stdout
-        log("the table key does not unseal under this TPM and boot chain")
-    if not create:
-        return None
+    log(f"the table key does not unseal under this TPM and boot chain: {r.stderr.decode('utf-8', 'replace').strip()}")
+    return None
+
+
+def new_table_key():
+    """Seals a new table key to the TPM, replacing any old one."""
+    path = os.path.join(VOLUME, KEY)
     key = secrets.token_bytes(32)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     run("systemd-creds", "encrypt", "--with-key=tpm2", "--tpm2-pcrs=7", "--name=swiff-games-table", "-", path + TEMP_SUFFIX, input=key)
@@ -370,9 +399,9 @@ def mac(key, table):
 
 def load_table(key):
     """Returns the table and, when it cannot be used, why."""
-    empty = {"version": 1, "reset_count": None, "apps": {}}
+    empty = {"version": 1, "reset_count": None, "restart_count": None, "apps": {}}
     if key is None:
-        return empty, "no table key"
+        return empty, KEY_LOCKED if os.path.lexists(os.path.join(VOLUME, KEY)) else "no table key"
     try:
         doc = json.loads(read_regular(os.path.join(VOLUME, TABLE), 1 << 30))
     except FileNotFoundError:
@@ -442,12 +471,21 @@ def find_library():
     return VOLUME
 
 
+def container_size(total, free, share=SESSION_SHARE):
+    """The session layer's size: its share of the free space, leaving the
+    owner at least 5% of the volume (at most 8 GiB)."""
+    size = min(free * share // 100, free - min(total // 20, 8 << 30))
+    return max(size, 0) & ~((1 << 20) - 1)
+
+
 def open_container():
     """The session layer: a file on the library volume, opened with
     plain dm-crypt under a key read from /dev/urandom and never stored, then
     formatted fresh. A reboot is a cryptographic erase, as for the scratch
     partition, but the space is the library's: game updates, shader caches
     and Proton prefixes fit there, not in the small Swiff OS partition (D6).
+    It takes at most half the free space (SESSION_SHARE), as ntfs3 allocates
+    it in full: the other half is where its updates are promoted to.
     This is also what makes NTFS libraries work: overlayfs cannot keep its
     writes on NTFS, but on ext4 inside a file on NTFS it can."""
     img = os.path.join(VOLUME, CONTAINER)
@@ -455,9 +493,7 @@ def open_container():
     with contextlib.suppress(FileNotFoundError):
         os.unlink(img)
     vfs = os.statvfs(VOLUME)
-    total, free = vfs.f_blocks * vfs.f_frsize, vfs.f_bavail * vfs.f_frsize
-    # Leave the owner 5% of the volume, at most 8 GiB.
-    size = (free - min(total // 20, 8 << 30)) & ~((1 << 20) - 1)
+    size = container_size(vfs.f_blocks * vfs.f_frsize, vfs.f_bavail * vfs.f_frsize)
     if size < 256 << 20:
         raise OSError(errno.ENOSPC, "less than 256 MiB free on the library volume")
     with open(img, "wb") as f:
@@ -634,18 +670,21 @@ def check_app(lib, entry, full):
 
 
 def survey(setup, table, full):
-    """Checks every game in the table and lists the library's other games."""
+    """Checks every game in the table and lists the library's other games.
+    A blocked game stays marked in its entry and is re-hashed in full until
+    it passes: a quick check could not tell a same-size edit that kept the mtime."""
     games, verified, hashed = {}, {}, 0
     lib = setup.get("library")
     for appid, entry in sorted(table["apps"].items()):
-        problem, hidden, n = check_app(lib, entry, full or entry.get("promoting")) if lib else ("no library", [], 0)
+        problem, hidden, n = check_app(lib, entry, full or "promoting" in entry or "blocked" in entry) if lib else ("no library", [], 0)
         hashed += n
         games[appid] = {"name": entry["name"], "buildid": entry["buildid"], "state": "blocked" if problem else "verified"}
         if problem:
-            games[appid]["reason"] = problem
+            games[appid]["reason"] = entry["blocked"] = problem
             log(f"app {appid} ({entry['name']}) is blocked: {problem}")
         else:
             entry.pop("promoting", None)
+            entry.pop("blocked", None)
             verified[appid] = (entry, hidden)
     apps = os.path.join(lib, "steamapps") if lib else None
     if apps and is_dir(apps):
@@ -681,22 +720,24 @@ def cmd_start(_):
     key = table_key(create=setup["writable"]) if volume else None
     table, table_problem = load_table(key)
     try:
-        reset = tpm_reset_count()
+        clock = tpm_clock()
     except OSError as e:
-        log(f"cannot read the TPM's resetCount: {e}")
-        reset = None
+        log(f"cannot read the TPM's clock: {e}")
+        clock = None
     previous = table["reset_count"]
-    # Each power-up adds one to resetCount. Anything but one more than at the
-    # last rental-mode boot (or the same boot) means another OS may have run.
-    gap = reset is None or previous is None or reset not in (previous, previous + 1)
+    gap = rehash_all(clock, table)
     games, verified, hashed = survey(setup, table, gap)
-    table["reset_count"] = reset
+    if table_problem == KEY_LOCKED:
+        for game in games.values():
+            game.update(state="blocked", reason=KEY_LOCKED)
+    table["reset_count"], table["restart_count"] = clock or (None, None)
     if setup["writable"] and key:
         save_table(key, table)
     write_report({
         "library": {k: setup[k] for k in ("fs", "writable")},
         "table": table_problem or "ok",
-        "reset_count": reset,
+        "reset_count": table["reset_count"],
+        "restart_count": table["restart_count"],
         "previous_reset_count": previous,
         "rehash": "full" if gap else "quick",
         "hashed_files": hashed,
@@ -723,6 +764,10 @@ def cmd_view(args):
         mount_view(setup, "bootstrap", {})
         return
     table, _ = load_table(table_key(create=False))
+    # Only the games this boot's check verified: a read-only library keeps no record of a block.
+    with open(REPORT) as f:
+        offered = {appid for appid, game in json.load(f)["games"].items() if game["state"] == "verified"}
+    table["apps"] = {appid: entry for appid, entry in table["apps"].items() if appid in offered}
     mount_view(setup, "normal", survey(setup, table, False)[1])
 
 
@@ -915,6 +960,35 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
     base_up = os.path.join(upper, "common", entry["installdir"])
     # Only an entry this boot verified describes what the library holds now.
     old = table["apps"].get(appid) if verified_at_boot else None
+    copies = []  # (session copy, final path on the library, SHA-256, what it is)
+    for rel, record in sorted(entry["files"].items()):
+        final = os.path.join(base, rel)
+        src = session_copy(os.path.join(base_up, rel))
+        if old and old["files"].get(rel, [None, None])[1] == record[1]:
+            continue  # the library holds this content, verified at boot
+        if src is None:
+            # Sealed from the library's own copy, which no boot changes.
+            if not os.path.isfile(final) or os.path.islink(final):
+                raise Refused(f"{rel} is gone from the session")
+            continue
+        if src == "deleted":
+            # Deleted in the session since: the library's copy must match.
+            try:
+                if hash_file(final)[1] == record[1]:
+                    continue
+            except OSError:
+                pass
+            raise Refused(f"{rel} is gone from the session")
+        copies.append((src, final, record[1], rel))
+    for name, digest in entry["manifests"].items():
+        src = session_copy(os.path.join(upper, "depotcache", name))
+        if src and src != "deleted":
+            copies.append((src, os.path.join(apps, "depotcache", name), digest, f"manifest {name}"))
+    # Each file is written next to the one it replaces, so all of it must fit.
+    need = sum(os.lstat(src).st_size for src, *_ in copies) + (64 << 20)
+    vfs = os.statvfs(setup["library"])
+    if need > vfs.f_bavail * vfs.f_frsize:
+        raise Refused(f"it needs {need >> 20} MiB on the library and {vfs.f_bavail * vfs.f_frsize >> 20} MiB are free; it stays on its verified version")
     for path in (apps, os.path.join(apps, "common"), os.path.join(apps, "depotcache"), base):
         if not os.path.lexists(path):
             os.mkdir(path)
@@ -930,35 +1004,10 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
     owner = (st.st_uid, st.st_gid)
     staged = []  # (temporary, final) paths on the library
     try:
-        for rel, record in sorted(entry["files"].items()):
-            final = os.path.join(base, rel)
-            src = session_copy(os.path.join(base_up, rel))
-            if old and old["files"].get(rel, [None, None])[1] == record[1]:
-                continue  # the library holds this content, verified at boot
-            if src is None:
-                # Sealed from the library's own copy, which no boot changes.
-                if not os.path.isfile(final) or os.path.islink(final):
-                    raise Refused(f"{rel} is gone from the session")
-                continue
-            if src == "deleted":
-                # Deleted in the session since: the library's copy must match.
-                try:
-                    if hash_file(final)[1] == record[1]:
-                        continue
-                except OSError:
-                    pass
-                raise Refused(f"{rel} is gone from the session")
-            if copy_verified(src, final + TEMP_SUFFIX, owner) != record[1]:
-                staged.append((final + TEMP_SUFFIX, final))
-                raise Refused(f"{rel} changed after it was verified")
+        for src, final, digest, what in copies:
             staged.append((final + TEMP_SUFFIX, final))
-        for name, digest in entry["manifests"].items():
-            src = session_copy(os.path.join(upper, "depotcache", name))
-            final = os.path.join(apps, "depotcache", name)
-            if src and src != "deleted":
-                staged.append((final + TEMP_SUFFIX, final))
-                if copy_verified(src, final + TEMP_SUFFIX, owner) != digest:
-                    raise Refused(f"manifest {name} changed after it was verified")
+            if copy_verified(src, final + TEMP_SUFFIX, owner) != digest:
+                raise Refused(f"{what} changed after it was verified")
         for rel, (target, _) in entry["symlinks"].items():
             final = os.path.join(base, rel)
             if not (os.path.islink(final) and os.readlink(final) == target):
@@ -991,16 +1040,23 @@ def cmd_stop(_):
         return
     umount(GAMES)
     umount(VIEW)
-    sealed = sorted(os.listdir(SEALED)) if os.path.isdir(SEALED) else []
-    key = table_key(create=False) if sealed and setup["writable"] else None
+    cands = {}
+    if setup["writable"] and os.path.isdir(SEALED):
+        for name in sorted(os.listdir(SEALED)):
+            with open(os.path.join(SEALED, name)) as f:
+                cands[name.removesuffix(".json")] = json.load(f)
+    key = table_key(create=False) if cands else None
+    if cands:
+        with open(REPORT) as f:
+            report = json.load(f)
+        games = report["games"]
+        if key is None and report["table"] == KEY_LOCKED and any(c["bootstrap"] for c in cands.values()):
+            # The owner's bootstrap is the one way past a key that no longer unseals.
+            log("the owner bootstrapped games again: replacing the table key")
+            key = new_table_key()
     if key:
         table, problem = load_table(key)
-        with open(REPORT) as f:
-            games = json.load(f)["games"]
-        for name in sealed:
-            with open(os.path.join(SEALED, name)) as f:
-                cand = json.load(f)
-            appid = name.removesuffix(".json")
+        for appid, cand in cands.items():
             if problem and not cand["bootstrap"]:
                 log(f"app {appid} not promoted: {problem}")
                 continue
