@@ -10,8 +10,15 @@
 //   npm run ticket -- <machine-id> [minutes] [origin]
 //       A join link for one renter. Needs ROOM_SECRET from .env. Default 60
 //       minutes. With an origin (the tunnel URL), prints the whole link.
+//
+//   npm run boot-policy -- <payload.json> <private-key.pem>
+//       The signed boot policy for ATTESTATION_POLICY (boot-policy.ts says what
+//       the payload holds), signed with the release key whose public half is
+//       ATTESTATION_POLICY_KEY. Printed; the payload is checked first.
 
+import { readFileSync } from "node:fs";
 import { accessFromEnv, MIN_SECRET_LENGTH, mintTicket, newMachineKey, STEAM_ID } from "./access.js";
+import { signBootPolicy } from "./boot-policy.js";
 
 const [command, id, ...rest] = process.argv.slice(2);
 
@@ -42,6 +49,16 @@ if (command === "machine-key") {
   // proxy or a Referer header.
   const path = `/rtc#ticket=${mintTicket(secret, id, Math.round(minutes * 60))}`;
   console.log(origin ? `${origin}${path}` : path);
+} else if (command === "boot-policy") {
+  const keyFile = rest[0];
+  if (!id || !keyFile) fail("usage: npm run boot-policy -- <payload.json> <private-key.pem>");
+  try {
+    process.stdout.write(signBootPolicy(JSON.parse(readFileSync(id, "utf8")), readFileSync(keyFile, "utf8")));
+  } catch (error) {
+    fail(`the policy was not signed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 } else {
-  fail("usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]");
+  fail(
+    "usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]  |  npm run boot-policy -- <payload.json> <private-key.pem>",
+  );
 }

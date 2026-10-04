@@ -82,10 +82,15 @@ const iceServers = () => {
 
 const access = accessFromEnv(process.env);
 
+// Machines, bookings, reservations and sessions (platform.ts below), and what
+// the TPM verifier keeps per machine: Postgres at DATABASE_URL, or in memory
+// without one.
+const database = openDatabase(process.env.DATABASE_URL);
+
 // Which credential may host (HOSTING_ATTESTATION) and who judges attestation
 // (ATTESTATION_VERIFIER). Unset: the machine key hosts, unattested, and no
 // machine can attest.
-const attestationConfig = attestationFromEnv(process.env, access.machines);
+const attestationConfig = attestationFromEnv(process.env, access.machines, database);
 const attestation = createAttestation({ access, ...attestationConfig });
 
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can
@@ -108,7 +113,7 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 // is ever matched to their own PC. The platform arms its own timer for whatever
 // changes only with time.
 const platform = await Platform.open({
-  database: openDatabase(process.env.DATABASE_URL),
+  database,
   owners: access.owners,
   // Attested-only: a machine is on the market only while a socket that may
   // host it is open, never on its machine key's heartbeat alone.
