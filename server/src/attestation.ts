@@ -30,8 +30,9 @@
 //                                            ◄─── { hostCert, tier, expiresAt }   ten minutes
 //
 // The verifier sits behind an interface. The only one built so far is
-// `insecure-dev`, which believes whatever the evidence claims: for VMs and tests,
-// never for a server renters reach. The real one (Keylime, or Swiff's own:
+// `insecure-dev`, which believes the facts claimed by the holder of the
+// machine's own key: for VMs and tests, never for a server renters reach.
+// The real one (Keylime, or Swiff's own:
 // EK chain, AK activation, event-log replay, golden PCR 11) is a later stage.
 // See docs/system-design/session-keys.md, "Control and hosting credentials".
 
