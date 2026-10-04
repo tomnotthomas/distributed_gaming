@@ -1,9 +1,19 @@
-// The first run: read this PC, then the games players can stream.
+// The first run: read this PC, and, after Steam (Steam.tsx), the games players can stream.
 
+import { useId, useState } from "react";
 import { count, shortGpu } from "../format";
-import { installUrl, type DemandRow, type Game } from "../model";
+import {
+  appidIn,
+  installShare,
+  installUrl,
+  STEAM_LIBRARY_URL,
+  type DemandRow,
+  type Game,
+  type SteamInstall,
+} from "../model";
 import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
+import { Notice } from "../ui/Notice";
 import { Art, Eur, Figure, Kv, Plate, Zone } from "../ui/parts";
 import { Pill } from "../ui/Pill";
 import { listedGames, type ScreenProps } from "./types";
@@ -70,8 +80,8 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
                 : "No installed Steam games were found on this PC."}
           </p>
           <div className="acts">
-            <Pill icon="arrow" onClick={() => go("games")} disabled={reading}>
-              {view.games.offered ? "Choose games" : "See games"}
+            <Pill icon="arrow" onClick={() => go("steam")} disabled={reading}>
+              Set up Steam
             </Pill>
           </div>
         </Zone>
@@ -95,19 +105,136 @@ function DemandTicks({ looking, top }: { looking: number; top: number }) {
 
 type Row = { game: Game; rank: number | null; demand: DemandRow | null; installed: boolean };
 
-/** Ranked by demand where Swiff reports it; otherwise the installed games by name. */
-function rows(installed: Game[], demand: DemandRow[] | null): Row[] {
-  if (!demand) return installed.map((game) => ({ game, rank: null, demand: null, installed: true }));
-  const ranked: Row[] = demand.map((d, i) => ({
+/**
+ * Ranked by demand where Swiff reports it, then the games Steam is
+ * installing, then the installed games by name.
+ */
+function rows(installed: Game[], demand: DemandRow[] | null, installing: SteamInstall[]): Row[] {
+  const has = (appid: number) => installed.some((g) => g.appid === appid);
+  const ranked: Row[] = (demand ?? []).map((d, i) => ({
     game: { appid: d.appid, name: d.name },
     rank: i + 1,
     demand: d,
-    installed: installed.some((g) => g.appid === d.appid),
+    installed: has(d.appid),
   }));
+  const listed = (appid: number) => ranked.some((r) => r.game.appid === appid);
+  const pending = installing
+    .filter((i) => !listed(i.appid) && !has(i.appid))
+    .map(({ appid, name }) => ({ game: { appid, name }, rank: null, demand: null, installed: false }));
   const rest = installed
-    .filter((g) => !demand.some((d) => d.appid === g.appid))
+    .filter((g) => !listed(g.appid))
     .map((game) => ({ game, rank: null, demand: null, installed: true }));
-  return [...ranked, ...rest];
+  return [...ranked, ...pending, ...rest];
+}
+
+const PHASE: Record<SteamInstall["phase"], string> = {
+  queued: "Queued in Steam",
+  downloading: "Downloading",
+  finishing: "Finishing",
+  paused: "Paused",
+};
+
+/** How far Steam is with one game, from its own files. */
+function Progress({ install }: { install: SteamInstall }) {
+  const share = installShare(install);
+  const pct = share === null ? null : Math.floor(share * 100);
+  return (
+    <span className="gprog">
+      <span
+        className="gbar"
+        role="progressbar"
+        aria-label={`Installing ${install.name}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? undefined}
+      >
+        <i style={{ width: `${pct ?? 0}%` }} />
+      </span>
+      <span className="mono gst">
+        {PHASE[install.phase]}
+        {pct !== null && install.phase !== "queued" ? ` ${pct}%` : ""}
+      </span>
+    </span>
+  );
+}
+
+/** A game this PC lacks: its install under way, waiting on the owner in Steam, or the link to install it. */
+function Missing({ appid, view, actions, go }: ScreenProps & { appid: number }) {
+  const { status, installs, asked } = view.steam;
+  const install = installs.find((i) => i.appid === appid);
+  if (install) return <Progress install={install} />;
+  if (asked.includes(appid)) return <span className="mono gst">Confirm in Steam</span>;
+  if (status && !status.installed) {
+    return (
+      <button type="button" className="inst" onClick={() => go("steam")}>
+        Install Steam first
+      </button>
+    );
+  }
+  return (
+    <a
+      className="inst"
+      href={installUrl(appid)}
+      target="_blank"
+      rel="noreferrer"
+      onClick={() => actions.askInstall(appid)}
+    >
+      <Glyph name="download" size={15} />
+      Install on Steam
+    </a>
+  );
+}
+
+/** Any game the owner's Steam account has, by its store link or appid, and their library in Steam. */
+function InstallAny({ view, actions }: ScreenProps) {
+  const id = useId();
+  const [text, setText] = useState("");
+  const appid = appidIn(text);
+  const has = appid !== null && view.games.installed.some((g) => g.appid === appid);
+  return (
+    <div className="ginst">
+      <div className="fld">
+        <label className="mono" htmlFor={id}>
+          Install any game you own
+        </label>
+        <input
+          id={id}
+          value={text}
+          placeholder="Steam store link or app id"
+          autoComplete="off"
+          spellCheck={false}
+          aria-describedby={`${id}-hint`}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <small id={`${id}-hint`}>
+          {has
+            ? "That game is installed already."
+            : "Paid games install only if your account owns them; free to play ones always do."}
+        </small>
+      </div>
+      {appid !== null && !has ? (
+        <a
+          className="inst"
+          href={installUrl(appid)}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => actions.askInstall(appid)}
+        >
+          <Glyph name="download" size={15} />
+          Install on Steam
+        </a>
+      ) : (
+        <span className="inst off" aria-disabled="true">
+          <Glyph name="download" size={15} />
+          Install on Steam
+        </span>
+      )}
+      <a className="inst" href={STEAM_LIBRARY_URL} target="_blank" rel="noreferrer">
+        <Glyph name="arrow" size={15} />
+        Open your Steam library
+      </a>
+    </div>
+  );
 }
 
 /**
@@ -118,7 +245,8 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
   const { installed, offered, demand } = view.games;
   const toggle = offered ? actions.toggleOffer : null;
   const top = demand?.[0]?.looking ?? 0;
-  const list = rows(installed, demand);
+  const list = rows(installed, demand, view.steam.installs);
+  const steamMissing = view.steam.status !== null && !view.steam.status.installed;
 
   return (
     <main className="step">
@@ -127,7 +255,8 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
           <p className="mono ctx">{demand ? "Demand, last hour" : "Installed on this PC"}</p>
           <h1>{toggle ? "Choose the games you offer" : "Your installed games"}</h1>
           <p className="ln">
-            Players can stream a game only if they own it too.
+            Players can stream a game only if they own it too: they play with their own Steam copy, and
+            installing it here only puts its files on this PC.
             {demand ? " Offer the games you have; install the popular ones you don't." : ""}
             {toggle ? "" : " Choosing which ones to offer comes with a later update."}
           </p>
@@ -166,7 +295,9 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
                 {d ? (
                   <span className="gdem">
                     <DemandTicks looking={d.looking} top={top} />
-                    <span className="mono">{d.looking} looking</span>
+                    <span className="mono">
+                      {d.looking} looking{d.waiting ? `, ${d.waiting} waiting` : ""}
+                    </span>
                   </span>
                 ) : null}
               </>
@@ -176,10 +307,7 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
                 <div key={game.appid} className="gtile missing">
                   {body}
                   <span className="gact">
-                    <a className="inst" href={installUrl(game.appid)} target="_blank" rel="noreferrer">
-                      <Glyph name="download" size={15} />
-                      Install on Steam
-                    </a>
+                    <Missing appid={game.appid} view={view} actions={actions} go={go} />
                   </span>
                 </div>
               );
@@ -218,8 +346,19 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
         <p className="empty soft">
           {view.pc.reading
             ? "Looking for installed Steam games."
-            : "No installed Steam games were found on this PC. Install games in Steam, then open Swiff again."}
+            : "No installed Steam games were found on this PC yet. Each one shows here once Steam has installed it."}
         </p>
+      )}
+
+      {steamMissing ? (
+        <Notice icon="info">
+          Steam is not installed on this PC.{" "}
+          <button type="button" className="inst" onClick={() => go("steam")}>
+            Install Steam first
+          </button>
+        </Notice>
+      ) : (
+        <InstallAny view={view} actions={actions} go={go} />
       )}
 
       <div className="gfoot">

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { clock, count, euros, shortGpu } from "../format";
-import { claimEnd, levelProgress, type HostView, type Standing, type Step } from "../model";
+import { claimEnd, levelProgress, steamReady, type HostView, type Standing, type Step } from "../model";
 import { DemoTag } from "./parts";
 
 type RailStep = { id: Exclude<Step, "settings">; title: string };
 
 const STEPS: RailStep[] = [
   { id: "pc", title: "This PC" },
+  { id: "steam", title: "Steam" },
   { id: "games", title: "Games" },
   { id: "live", title: "Go live" },
   { id: "paid", title: "Get paid" },
@@ -31,10 +32,21 @@ function liveLine(live: HostView["live"], setupDone: boolean): string {
   }
 }
 
+/** Where Steam stands on this PC, in a few words. */
+function steamLine({ steam }: HostView): string {
+  const { status, installs } = steam;
+  if (!status) return "Looking for Steam";
+  if (!status.installed) return "Not installed";
+  if (!steamReady(steam)) return "Sign in to Steam";
+  return installs.length ? `Installing ${count(installs.length, "game", "games")}` : "Signed in";
+}
+
 /** One line under each step: what it has, or what it is doing now. */
 function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): string {
   const { pc, games } = view;
   switch (id) {
+    case "steam":
+      return steamLine(view);
     case "pc": {
       if (pc.reading) return "Reading hardware";
       const gpu = pc.hardware?.gpu ? shortGpu(pc.hardware.gpu) : "Hardware read";
@@ -100,7 +112,7 @@ export function StandingCard({ standing }: { standing: Standing }) {
 }
 
 /**
- * The rail: the four PC steps with where each stands, the owner's standing at
+ * The rail: the five PC steps with where each stands, the owner's standing at
  * its foot from the second step on, and Settings.
  */
 export function Rail({
@@ -117,7 +129,8 @@ export function Rail({
   /** The demo's screen picker, in demo mode. */
   foot?: ReactNode;
 }) {
-  const at = step === "settings" ? 2 : STEPS.findIndex((s) => s.id === step);
+  const live = STEPS.findIndex((s) => s.id === "live");
+  const at = step === "settings" ? live : STEPS.findIndex((s) => s.id === step);
   return (
     <nav className="path" aria-label="Steps">
       <div className="pwm">
@@ -131,7 +144,7 @@ export function Rail({
       ) : null}
       <ol>
         {STEPS.map((s, i) => {
-          const state = i === at ? "now" : i < at || (setupDone && i < 2) ? "done" : "next";
+          const state = i === at ? "now" : i < at || (setupDone && i < live) ? "done" : "next";
           return (
             <li key={s.id} className={`pt ${state}`}>
               <button

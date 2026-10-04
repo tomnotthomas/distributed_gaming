@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
+import { demandRows, useDemand } from "./demand";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
 import {
@@ -14,6 +15,7 @@ import {
   saveUrl,
 } from "./settings";
 import { useScreenShare } from "./useScreenShare";
+import { useSteam } from "./useSteam";
 
 /** How often the clock on the screens moves. Every figure on them is in whole minutes. */
 const TICK_MS = 5_000;
@@ -26,9 +28,10 @@ const AWAY_S = 60;
 type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
 
 /**
- * This PC's view-model: what the app reads about the PC, the owner's choices,
- * and the live sharing session. The platform does not report demand,
- * reliability, levels, a rate or earnings yet, so those stay null here.
+ * This PC's view-model: what the app reads about the PC and its Steam, what
+ * renters ask for, the owner's choices, and the live sharing session. The
+ * platform does not report reliability, levels, a rate or earnings yet, so
+ * those stay null here.
  */
 export function useHost(): Host {
   const [now, setNow] = useState(Date.now);
@@ -46,9 +49,10 @@ export function useHost(): Host {
     void loadMachineKey().then((saved) => setMachineKey((typed) => typed || saved));
   }, []);
 
-  // --- what the app reads about this PC
+  // --- what the app reads about this PC, read again when Steam installs something
   const [pc, setPc] = useState<PcRead | null>(null);
   const [reading, setReading] = useState(true);
+  const [reads, setReads] = useState(0);
   useEffect(() => {
     const host = bridge();
     if (!host) return setReading(false);
@@ -61,9 +65,14 @@ export function useHost(): Host {
     return () => {
       current = false;
     };
-  }, []);
+  }, [reads]);
 
   const installed = pc?.games ?? [];
+  const steam = useSteam({
+    installed: installed.map((g) => g.appid),
+    onChanged: () => setReads((n) => n + 1),
+  });
+  const demand = useDemand({ url, machineId, machineKey });
 
   // --- the owner's plan, and the live session
   // Until the owner picks one, the plan is the ~4 hours choice from now.
@@ -189,7 +198,8 @@ export function useHost(): Host {
     now,
     machine,
     pc: { reading, hardware: pc?.hardware ?? null, hardwareRate: null },
-    games: { installed, offered: null, demand: null, near: null },
+    games: { installed, offered: null, demand: demand && demandRows(demand, installed), near: null },
+    steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -247,6 +257,8 @@ export function useHost(): Host {
       },
       // Payouts are not open: details typed into the form are never sent or kept.
       savePayout: () => {},
+      installSteam: steam.installSteam,
+      askInstall: steam.askInstall,
     },
   };
 }

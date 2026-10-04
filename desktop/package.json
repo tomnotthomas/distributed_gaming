@@ -43,6 +43,7 @@
       "main.cjs",
       "preload.cjs",
       "pc.cjs",
+      "steam.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
       "dist/**"

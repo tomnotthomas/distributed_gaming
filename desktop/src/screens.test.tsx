@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DemoApp, Shell } from "./App";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
@@ -50,6 +50,12 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       demand: null,
       near: null,
     },
+    steam: {
+      status: { installed: true, running: true, signedIn: true },
+      installer: { kind: "idle" },
+      installs: [],
+      asked: [],
+    },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -84,6 +90,8 @@ function actions(): HostActions {
     toggleOffer: null,
     saveConnection: vi.fn(async () => {}),
     savePayout: vi.fn(),
+    installSteam: vi.fn(),
+    askInstall: vi.fn(),
   };
 }
 
@@ -117,6 +125,7 @@ function expectNoDemoData() {
 describe("demo", () => {
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
     pc: "Reading this PC",
+    steam: "Steam is ready",
     games: "Choose the games you offer",
     golive: "Ready to share",
     waiting: "Waiting for a player",
@@ -149,10 +158,12 @@ describe("demo", () => {
     render(<DemoApp screen="games" />);
     expect(screen.getByText("38 looking")).toBeInTheDocument();
     const install = screen.getAllByRole("link", { name: /Install on Steam/ });
-    expect(install.map((a) => a.getAttribute("href"))).toEqual([
-      "steam://install/1086940",
-      "steam://install/553850",
-    ]);
+    expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/553850"]);
+    expect(screen.getByRole("progressbar", { name: "Installing Baldur's Gate 3" })).toHaveAttribute(
+      "aria-valuenow",
+      "42",
+    );
+    expect(screen.getByText("Downloading 42%")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Starfield/ }));
     expect(screen.getByRole("button", { name: /Starfield/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("5", { selector: ".gcount b" })).toBeInTheDocument();
@@ -280,7 +291,8 @@ describe("this PC's screens", () => {
     expect(screen.queryByRole("button", { name: /ELDEN RING/ })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/offered|Offering/);
     expect(screen.getByText("2 games installed")).toBeInTheDocument();
-    expect(screen.queryByText("Install on Steam")).not.toBeInTheDocument();
+    // No game tile to install: only the field for any game the owner has, empty yet.
+    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
     expect(screen.getByText("Read from this PC's Steam library.")).toBeInTheDocument();
     expectNoDemoData();
   });
@@ -360,6 +372,159 @@ describe("this PC's screens", () => {
     const tonight = screen.getByRole("heading", { name: "Tonight" }).closest("section")!;
     expect(within(tonight).getByText("1")).toBeInTheDocument();
     expectNoDemoData();
+  });
+});
+
+describe("getting Steam ready", () => {
+  const steam = (more: Partial<HostView["steam"]>): Partial<HostView> => ({
+    steam: { status: null, installer: { kind: "idle" }, installs: [], asked: [], ...more },
+  });
+  const DOTA = { appid: 570, name: "Dota 2", phase: "downloading" as const, done: 25, total: 100 };
+
+  it("offers Valve's installer when Steam is not installed", () => {
+    const acts = renderReal(
+      "steam",
+      off,
+      steam({ status: { installed: false, running: false, signedIn: false } }),
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install Steam");
+    expect(screen.getByText(/Valve's own installer/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Get Steam/ }));
+    expect(acts.installSteam).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Steam Not installed" })).toBeInTheDocument();
+    expectNoDemoData();
+  });
+
+  it("says where the installer is, and why it failed", () => {
+    renderReal(
+      "steam",
+      off,
+      steam({ status: { installed: false, running: false, signedIn: false }, installer: { kind: "opened" } }),
+    );
+    expect(screen.getByText(/Valve's installer is open/)).toBeInTheDocument();
+    cleanup();
+    renderReal(
+      "steam",
+      off,
+      steam({
+        status: { installed: false, running: false, signedIn: false },
+        installer: {
+          kind: "failed",
+          error: "The downloaded installer is not signed by Valve, so it was deleted.",
+        },
+      }),
+    );
+    expect(screen.getByText(/not signed by Valve/)).toBeInTheDocument();
+  });
+
+  it("sends the owner to Steam's own window to sign in, never asking for a password", () => {
+    renderReal("steam", off, steam({ status: { installed: true, running: true, signedIn: false } }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Sign in to Steam");
+    expect(screen.getByRole("link", { name: /Open Steam to sign in/ })).toHaveAttribute(
+      "href",
+      "steam://open/main",
+    );
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+    expect(document.querySelector("input")).toBeNull();
+    expect(screen.getByRole("button", { name: "Steam Sign in to Steam" })).toBeInTheDocument();
+  });
+
+  it("is ready once signed in, and moves on to the games", () => {
+    const go = vi.fn();
+    const host: Host = {
+      view: realView(
+        off,
+        steam({ status: { installed: true, running: true, signedIn: true }, installs: [DOTA] }),
+      ),
+      actions: actions(),
+    };
+    render(<Shell host={host} step="steam" onStep={go} setupDone finishSetup={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Steam is ready");
+    expect(screen.getByText("3 of 3")).toBeInTheDocument();
+    expect(screen.getByText("Steam is installing 1 game.")).toBeInTheDocument();
+    expect(screen.getByText(/a player who does not own it cannot play it/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Choose games/ }));
+    expect(go).toHaveBeenCalledWith("games");
+  });
+
+  const DEMAND = [
+    { appid: 730, name: "Counter-Strike 2", looking: 4, waiting: 2 },
+    { appid: 570, name: "Dota 2", looking: 3, waiting: 0 },
+    { appid: 440, name: "Team Fortress 2", looking: 2, waiting: 0 },
+    { appid: 1172470, name: "Apex Legends", looking: 1, waiting: 0 },
+  ];
+
+  it("ranks what renters ask for, with each install's progress and the rest to install", () => {
+    const acts = renderReal("games", off, {
+      ...steam({
+        status: { installed: true, running: true, signedIn: true },
+        installs: [DOTA],
+        asked: [440],
+      }),
+      games: { ...realView(off).games, demand: DEMAND },
+    });
+    expect(screen.getByText("4 looking, 2 waiting")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Installing Dota 2" })).toHaveAttribute(
+      "aria-valuenow",
+      "25",
+    );
+    expect(screen.getByText("Downloading 25%")).toBeInTheDocument();
+    expect(screen.getByText("Confirm in Steam")).toBeInTheDocument();
+    const install = screen.getAllByRole("link", { name: /Install on Steam/ });
+    expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/1172470"]);
+    fireEvent.click(install[0]!);
+    expect(acts.askInstall).toHaveBeenCalledWith(1172470);
+    expect(screen.getByText(/they play with their own Steam copy/)).toBeInTheDocument();
+  });
+
+  it("lists a game Steam is installing that no renter asked for", () => {
+    renderReal(
+      "games",
+      off,
+      steam({ status: { installed: true, running: true, signedIn: true }, installs: [DOTA] }),
+    );
+    expect(screen.getByText("Dota 2")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Installing Dota 2" })).toBeInTheDocument();
+  });
+
+  it("installs any game the owner has, by its store link or appid", () => {
+    const acts = renderReal(
+      "games",
+      off,
+      steam({ status: { installed: true, running: true, signedIn: true } }),
+    );
+    const field = screen.getByLabelText("Install any game you own");
+    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: "https://store.steampowered.com/app/570/Dota_2/" } });
+    const link = screen.getByRole("link", { name: /Install on Steam/ });
+    expect(link).toHaveAttribute("href", "steam://install/570");
+    fireEvent.click(link);
+    expect(acts.askInstall).toHaveBeenCalledWith(570);
+
+    fireEvent.change(field, { target: { value: "730" } });
+    expect(screen.getByText("That game is installed already.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open your Steam library/ })).toHaveAttribute(
+      "href",
+      "steam://open/games",
+    );
+  });
+
+  it("sends the owner to install Steam before any game", () => {
+    const go = vi.fn();
+    const host: Host = {
+      view: realView(off, {
+        ...steam({ status: { installed: false, running: false, signedIn: false } }),
+        games: { ...realView(off).games, demand: DEMAND },
+      }),
+      actions: actions(),
+    };
+    render(<Shell host={host} step="games" onStep={go} setupDone finishSetup={vi.fn()} />);
+    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Install any game you own")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Install Steam first" })[0]!);
+    expect(go).toHaveBeenCalledWith("steam");
   });
 });
 

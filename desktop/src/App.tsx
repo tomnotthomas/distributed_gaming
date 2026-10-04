@@ -8,6 +8,7 @@ import { GoLive } from "./screens/GoLive";
 import { Ending, InUse, Offline, Paused, Streaming, Waiting } from "./screens/Live";
 import { Settings } from "./screens/Settings";
 import { Games, ReadPc } from "./screens/Setup";
+import { SteamSetup } from "./screens/Steam";
 import { TrayDesk } from "./screens/Tray";
 import type { ScreenProps } from "./screens/types";
 import { loadSetupDone, saveSetupDone } from "./settings";
@@ -91,6 +92,8 @@ export function Shell({
     switch (step) {
       case "pc":
         return <ReadPc {...props} setupDone={setupDone} />;
+      case "steam":
+        return <SteamSetup {...props} />;
       case "games":
         return <Games {...props} finishSetup={finishSetup} />;
       case "live":

@@ -23,6 +23,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamRootOnce } = require("./pc.cjs");
+const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
 const INDEX = path.join(__dirname, "dist", "index.html");
@@ -67,6 +68,24 @@ ipcMain.handle("machine-key:save", (event, key) => {
 // What the app can read about this PC: its parts and its installed Steam games.
 ipcMain.handle("pc:read", (event) => (fromApp(event) ? readPc({ app, screen }) : null));
 
+// Getting this PC ready to host (steam.cjs): whether Steam is installed and
+// signed in, and the games it is installing, read fresh on each call.
+ipcMain.handle("steam:read", (event) => (fromApp(event) ? readSteam() : null));
+
+// Valve's installer, downloaded and opened for the owner to click through.
+// One at a time: a second ask while one is under way gets the same answer.
+let installingSteam = null;
+ipcMain.handle("steam:install", (event) => {
+  if (!fromApp(event)) return "Not allowed.";
+  installingSteam ??= openSteamInstaller({
+    dir: path.join(app.getPath("temp"), "SwiffHost"),
+    open: (file) => shell.openPath(file),
+  }).finally(() => {
+    installingSteam = null;
+  });
+  return installingSteam;
+});
+
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.
 ipcMain.handle("pc:idle", (event) => (fromApp(event) ? powerMonitor.getSystemIdleTime() : null));
@@ -97,8 +116,12 @@ const TITLE_BAR =
         titleBarOverlay: { color: "#c9cac9", symbolColor: "#242525", height: 38 },
       };
 
-/** Links the app may hand to the OS: installing a game in Steam, and Steam's store. */
-const EXTERNAL = /^(steam:\/\/install\/\d+|https:\/\/store\.steampowered\.com\/app\/\d+\/?)$/;
+/**
+ * Links the app may hand to the OS: installing a game in Steam, opening
+ * Steam (to sign in) or its library, and Steam's store.
+ */
+const EXTERNAL =
+  /^(steam:\/\/install\/\d+|steam:\/\/open\/(main|games)|https:\/\/store\.steampowered\.com\/app\/\d+\/?)$/;
 
 /** Open allowed links outside the app; the app itself never navigates away. */
 function guardNavigation(contents) {

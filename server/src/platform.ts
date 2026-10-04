@@ -188,6 +188,12 @@ export type EndResult =
 /** What became of a renter's ticket-authenticated call (a QoS report or leaving): done, or why not. */
 export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
+/**
+ * What renters ask for, for one game: the renters who booked it within the
+ * window or are still waiting for it, and the bookings for it in the queue now.
+ */
+export type GameDemand = { appid: number; looking: number; waiting: number };
+
 type MachineRow = {
   id: string;
   owner_id: string | null;
@@ -648,6 +654,24 @@ export class Platform {
       });
       return { at: now, machines };
     });
+  }
+
+  /**
+   * What renters ask for, by game, busiest first and at most `limit` games:
+   * bookings made in the last `windowMs` and those still in the queue. Counts
+   * only: no renter is named.
+   */
+  demand(windowMs: number, limit: number): Promise<GameDemand[]> {
+    return this.#read(() =>
+      this.#all<GameDemand>(
+        `SELECT game_id AS appid, count(DISTINCT coalesce(renter_id, id))::int AS looking,
+                count(*) FILTER (WHERE status = 'queued')::int AS waiting
+           FROM bookings WHERE created_at > $1 OR status = 'queued'
+           GROUP BY game_id ORDER BY looking DESC, waiting DESC, game_id LIMIT $2`,
+        this.#now() - windowMs,
+        limit,
+      ),
+    );
   }
 
   /**

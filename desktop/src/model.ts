@@ -1,14 +1,15 @@
 // The host app's view-model: everything a screen shows, as one typed value,
 // and the actions a screen can take. Two sources fill it:
 //
-//   useHost      this PC: its parts and Steam games, the connection settings
-//                and the live sharing session. Whatever the platform does not
-//                report yet (demand, reliability, levels, the rate, earnings)
-//                is null, and the screens leave it out.
+//   useHost      this PC: its parts, Steam and its games, the connection
+//                settings, what renters ask for and the live sharing session.
+//                Whatever the platform does not report yet (reliability,
+//                levels, the rate, earnings) is null, and the screens leave it out.
 //   useDemoHost  the labelled demo data behind --demo, so every screen of the
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 
 export type Game = SteamGame;
@@ -16,8 +17,49 @@ export type Game = SteamGame;
 /** What the app read about the PC. The demo also knows a connection speed, which the app cannot measure. */
 export type Hardware = PcHardware & { upMbps?: number | null };
 
-/** Players looking for a PC with a game in the last hour, across Swiff. */
-export type DemandRow = { appid: number; name: string; looking: number };
+/**
+ * Players looking for a PC with a game in the last hour, across Swiff, and
+ * how many of them wait in the queue now where the platform says.
+ */
+export type DemandRow = { appid: number; name: string; looking: number; waiting?: number };
+
+// --- Steam on this PC -------------------------------------------------------------
+
+export type { SteamInstall };
+
+/** Valve's installer, once the owner asks for it: being fetched, open for them to click through, or why not. */
+export type Installer =
+  { kind: "idle" } | { kind: "fetching" } | { kind: "opened" } | { kind: "failed"; error: string };
+
+/**
+ * Steam on this PC. `status` is null until it has been read, and where the
+ * app cannot read this PC. `installs` are the games Steam is installing;
+ * `asked` the ones the owner sent to Steam that it has not started yet.
+ */
+export type SteamSetup = {
+  status: Omit<SteamStatus, "path"> | null;
+  installer: Installer;
+  installs: SteamInstall[];
+  asked: number[];
+};
+
+/** Steam is installed and signed in: games can be installed. */
+export const steamReady = ({ status }: SteamSetup): boolean => Boolean(status?.installed && status.signedIn);
+
+/** How far along an install is, from 0 to 1; null until Steam knows its size. */
+export const installShare = ({ done, total }: SteamInstall): number | null =>
+  total > 0 ? Math.min(1, done / total) : null;
+
+/** The Steam appid in what the owner pasted: `730`, a store link, or a steam://install link. */
+export function appidIn(text: string): number | null {
+  const trimmed = text.trim();
+  const match =
+    /^(\d{1,10})$/.exec(trimmed) ??
+    /^(?:https?:\/\/)?store\.steampowered\.com\/app\/(\d{1,10})(?:[/?#].*)?$/i.exec(trimmed) ??
+    /^steam:\/\/(?:install|run|rungameid)\/(\d{1,10})\/?$/i.exec(trimmed);
+  const appid = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(appid) && appid > 0 && appid < 2 ** 31 ? appid : null;
+}
 
 // --- standing, levels and the rate ---------------------------------------------
 
@@ -178,6 +220,7 @@ export type HostView = {
    * `near`: players looking for a PC near this one now. Both it and `demand` are null until the platform reports demand.
    */
   games: { installed: Game[]; offered: number[] | null; demand: DemandRow[] | null; near: number | null };
+  steam: SteamSetup;
   standing: Standing | null;
   /** What ending a session early would leave the reliability score at; null where it cannot be done. */
   earlyEnd: { reliability: number } | null;
@@ -211,6 +254,10 @@ export type HostActions = {
   toggleOffer: ((appid: number) => void) | null;
   saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey">): Promise<void>;
   savePayout(): void;
+  /** Download Valve's installer and open it for the owner. */
+  installSteam(): void;
+  /** The owner sent a game to Steam to install: follow it until Steam starts. */
+  askInstall(appid: number): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };
@@ -259,7 +306,7 @@ export function untilSentence(machine: string, until: number | null): string {
 
 // --- screens --------------------------------------------------------------------
 
-export type Step = "pc" | "games" | "live" | "paid" | "settings";
+export type Step = "pc" | "steam" | "games" | "live" | "paid" | "settings";
 
 /** Which of the Go live step's screens a live state shows. */
 export type LiveScreen = "golive" | "waiting" | "streaming" | "inuse" | "ending" | "paused" | "offline";
@@ -356,3 +403,9 @@ export function glanceOf(view: HostView): Glance {
 
 /** Where Steam installs a game the owner does not have. */
 export const installUrl = (appid: number) => `steam://install/${appid}`;
+
+/** Steam's own window, where the owner signs in to their account. */
+export const OPEN_STEAM_URL = "steam://open/main";
+
+/** The owner's Steam library, where every game they own can be installed. */
+export const STEAM_LIBRARY_URL = "steam://open/games";

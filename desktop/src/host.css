@@ -1000,6 +1000,8 @@ body {
   font-size: 12px;
 }
 .hz.games {
+  /* As tall as its words: the grid under it scrolls with the page instead. */
+  flex: none;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
@@ -1161,6 +1163,56 @@ button.gtile:hover .rad {
   text-decoration: underline;
   text-decoration-color: var(--lime-d);
   text-underline-offset: 3px;
+}
+button.inst {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.inst.off {
+  color: var(--t3);
+  text-decoration: none;
+  cursor: default;
+}
+/* an install under way, as Steam reports it */
+.gprog {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.gbar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  background: var(--ln);
+}
+.gbar i {
+  display: block;
+  height: 100%;
+  background: var(--olive);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gbar i {
+    transition: width 0.6s var(--ease);
+  }
+}
+/* install any game the owner has, by its store link or appid */
+.ginst {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin-top: 28px;
+}
+.ginst .fld {
+  flex: 1 1 320px;
+  max-width: 460px;
+  margin-top: 0;
+}
+.zc .soft.zl {
+  margin-top: 10px;
 }
 .gfoot {
   display: flex;

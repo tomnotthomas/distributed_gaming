@@ -136,6 +136,53 @@ describe("booking and host API", () => {
     assert.deepEqual(body, [{ id: 730, name: "Counter-Strike 2", image: null }]);
   });
 
+  it("tells the owner's PC what renters ask for, as counts per game, never who asked", async () => {
+    await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 60 });
+    await as(signedIn(OWNER))("POST", "/api/bookings", { gameId: 570, minutes: 30 });
+
+    const { status, body, headers } = await call("GET", "/api/machines/pc-1/demand", undefined, MACHINE_KEY);
+    assert.equal(status, 200);
+    assert.equal(headers.get("access-control-allow-origin"), "*");
+    assert.equal(headers.get("cache-control"), "no-store");
+    assert.deepEqual(body, {
+      windowMinutes: 60,
+      games: [
+        { appid: 730, looking: 2, waiting: 2, name: "Counter-Strike 2" },
+        { appid: 570, looking: 1, waiting: 1, name: null },
+      ],
+    });
+    assert.doesNotMatch(JSON.stringify(body), /7656119/);
+  });
+
+  it("counts a booking that left the queue for an hour, then forgets it", async () => {
+    const { body: booked } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    assert.equal((await renter("POST", `/api/bookings/${booked.bookingId}/end`)).status, 200);
+    const demand = async () =>
+      (await call("GET", "/api/machines/pc-1/demand", undefined, MACHINE_KEY)).body.games;
+
+    assert.deepEqual(await demand(), [{ appid: 730, looking: 1, waiting: 0, name: "Counter-Strike 2" }]);
+    now += 60 * 60_000;
+    assert.deepEqual(await demand(), []);
+  });
+
+  it("shows demand only to a machine's own key, and lets the host app ask from its own origin", async () => {
+    assert.equal((await call("GET", "/api/machines/pc-1/demand")).status, 401);
+    assert.equal((await call("GET", "/api/machines/pc-1/demand", undefined, "wrong-key")).status, 401);
+    assert.equal((await call("GET", "/api/machines/nope/demand", undefined, MACHINE_KEY)).status, 401);
+    assert.equal((await renter("GET", "/api/machines/pc-1/demand")).status, 401);
+
+    const origin = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const preflight = await fetch(`${origin}/api/machines/pc-1/demand`, {
+      method: "OPTIONS",
+      headers: { origin: "null", "access-control-request-method": "GET" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+    assert.match(preflight.headers.get("access-control-allow-headers") ?? "", /authorization/);
+    assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
+  });
+
   it("books, matches and claims, handing out a ticket for the matched room", async () => {
     const booked = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal(booked.status, 202);

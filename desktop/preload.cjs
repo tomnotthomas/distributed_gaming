@@ -4,6 +4,8 @@
 //   loadMachineKey / saveMachineKey   this machine's key, kept encrypted by the
 //                                     OS (safeStorage: DPAPI on Windows)
 //   readPc                            the PC's parts and installed Steam games
+//   readSteam                         Steam on this PC: installed, signed in, installing
+//   installSteam                      download Valve's installer and open it for the owner
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
@@ -23,6 +25,8 @@ contextBridge.exposeInMainWorld("swiffHost", {
   loadMachineKey: () => ipcRenderer.invoke("machine-key:load"),
   saveMachineKey: (key) => ipcRenderer.invoke("machine-key:save", String(key)),
   readPc: () => ipcRenderer.invoke("pc:read"),
+  readSteam: () => ipcRenderer.invoke("steam:read"),
+  installSteam: () => ipcRenderer.invoke("steam:install"),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
