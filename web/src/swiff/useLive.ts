@@ -89,11 +89,11 @@ export type Live = {
   /** The game whose machines are being probed right now, and which, if any. */
   measuring: { appid: number; ids: string[] } | null;
   /**
-   * The renter's round trips in ms: to this server, and through the relay to
-   * each machine measured, for a booking to be
-   * matched by.
+   * The renter's round trips in ms as they stand now: to this server, and
+   * through the relay to each machine measured within MEASURED_FOR_MS, for a
+   * booking to be matched by.
    */
-  rtts: { server?: number; machines: Record<string, number> };
+  rtts: () => { server?: number; machines: Record<string, number> };
 };
 
 /** One machine's probe: when it was started, and what it measured; undefined while nothing is. */
@@ -125,7 +125,6 @@ export function useLive({
   const measuringNow = useRef(false);
   // The latest list read while a round was out, measured once it is over.
   const pendingList = useRef<GameMachines | null>(null);
-  const [measured, setMeasured] = useState(0);
 
   // One key per question, so a new wall or a new session asks again and an
   // unchanged one does not.
@@ -244,7 +243,6 @@ export function useLive({
           probed.current.set(result.hostId, { at: Date.now(), link: result.link });
         }
         if (learnt) {
-          setMeasured((n) => n + 1);
           readGame();
         } else if (pending && pending.appid === latest.current.appid) {
           measure(pending);
@@ -347,13 +345,12 @@ export function useLive({
     };
   }, [enabled, rtt, readWall, readGame]);
 
-  const rtts = useMemo<Live["rtts"]>(() => {
+  const rtts: Live["rtts"] = () => {
     const machines: Record<string, number> = {};
     for (const [id, link] of Object.entries(linksNow())) machines[id] = link.rttMs;
-    return { ...(rtt === null ? {} : { server: rtt }), machines };
-    // `measured` moves whenever a probe round has recorded what it found.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rtt, measured]);
+    const server = latest.current.rtt;
+    return { ...(server === null ? {} : { server }), machines };
+  };
 
   return { wall, game, rttMs: rtt, measuring, rtts };
 }

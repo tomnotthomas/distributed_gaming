@@ -326,10 +326,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // The renter's measured round trips, to the server and through the relay to
   // each machine probed, which bookings carry so the server judges each
   // machine's latency from where they are.
-  const rttNow = useRef({ server: live.rttMs, machines: live.rtts.machines });
-  rttNow.current = { server: live.rttMs, machines: live.rtts.machines };
+  const rttNow = useRef(live.rtts);
+  rttNow.current = live.rtts;
   const rtts = (): BookingAsk => {
-    const measured = rttsOf(rttNow.current.server, rttNow.current.machines);
+    const now = rttNow.current();
+    const measured = rttsOf(now.server ?? null, now.machines);
     return measured ? { rtts: measured } : {};
   };
   // How the renter plays, which bookings carry so the server ranks machines as their list was.

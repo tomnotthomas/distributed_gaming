@@ -315,8 +315,13 @@ describe("useLive", () => {
       expect(probes.rounds).toHaveLength(1);
       expect(result.current.measuring).toBeNull();
       // A booking goes by the server and every machine measured.
-      expect(result.current.rtts.machines).toEqual({ "pc-1": 9, "pc-3": 12 });
-      expect(result.current.rtts.server).toEqual(expect.any(Number));
+      expect(result.current.rtts().machines).toEqual({ "pc-1": 9, "pc-3": 12 });
+      expect(result.current.rtts().server).toEqual(expect.any(Number));
+
+      // Once MEASURED_FOR_MS has passed, a booking no longer carries what was measured.
+      vi.setSystemTime(Date.now() + MEASURED_FOR_MS);
+      expect(result.current.rtts().machines).toEqual({});
+      expect(result.current.rtts().server).toEqual(expect.any(Number));
     });
 
     it("probes a list read while a round was out once that round measured nothing", async () => {
@@ -385,7 +390,7 @@ describe("useLive", () => {
       await flush();
       expect(api.links).toEqual([null, { "pc-2": { rttMs: 9, jitterMs: 1 } }]);
       expect(result.current.game?.machines.machines.map((m) => m.id)).toEqual(["pc-1", "pc-2"]);
-      expect(result.current.rtts.machines).toEqual({ "pc-2": 9 });
+      expect(result.current.rtts().machines).toEqual({ "pc-2": 9 });
 
       fire("availability");
       await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
