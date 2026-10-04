@@ -369,11 +369,9 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
           .then(() => launchGame(msg.appid))
           .then(
             () => send({ type: "game-started", sessionId: msg.sessionId }),
-            (cause: unknown) =>
-              console.warn(
-                "[swiff] could not launch the game:",
-                cause instanceof Error ? cause.message : cause,
-              ),
+            // Only a fixed line: the launcher is the caller's, and what it
+            // rejects with may carry a ticket or a token.
+            () => console.warn(`[swiff] could not launch the game (app ${msg.appid})`),
           );
         break;
       }

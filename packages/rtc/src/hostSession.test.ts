@@ -315,8 +315,21 @@ describe("startHostSession", () => {
     await settle();
     expect(failing.socket.messages.map((m) => m.type)).toEqual(["register"]);
     expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
     failing.session.stop();
+
+    // What a launcher rejects with may be secret: none of it reaches the log.
+    for (const secret of [new Error("ticket=SECRET-TICKET"), "SECRET-TICKET", { token: "SECRET-TICKET" }]) {
+      warn.mockClear();
+      FakeSocket.instances = [];
+      const leaky = start(false, { launchGame: () => Promise.reject(secret) });
+      leaky.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+      await settle();
+      expect(warn).toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET");
+      expect(warn.mock.calls.flat()).not.toContain(secret);
+      leaky.session.stop();
+    }
+    warn.mockRestore();
   });
 
   it("only reports a claim unless asked to serve it", async () => {
