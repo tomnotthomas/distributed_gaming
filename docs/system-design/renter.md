@@ -538,7 +538,8 @@ booking and launches on the best other free machine on the list, or goes back to
 the list when there is none. Cancel ends the booking; once the session has started it
 reads End. From Play until the game is on screen the renter sees Ignition and nothing
 else: the frames the PC sends before `game-started` are its desktop or Steam, and they
-stay behind Ignition however long the launch takes.
+stay behind Ignition however long the launch takes, their sound muted until the game is
+on screen (then "Turn sound on" if the browser refuses it).
 
 The session's HUD reads `getStats` once a second: frames per second, round trip, bitrate,
 and whether the stream goes direct or through the relay. It hides 3 s after the pointer
