@@ -134,7 +134,9 @@ press_keys() { # round
 	unlocked) keys="ctrl-alt-f2 ctrl-alt-delete" ;;
 	*) return ;;
 	esac
-	for key in $keys; do printf 'sendkey %s 50\n' "$key" >&8; done
+	# QEMU waits the hold time (ms) after every key-down and key-up, so a
+	# Ctrl+Alt+Del chord takes 6 of them: 10 ms puts all 10 within 2 s.
+	for key in $keys; do printf 'sendkey %s 10\n' "$key" >&8; done
 }
 
 # Watches a boot's serial log for the self-test's "SWIFF-SELFTEST KEYS
