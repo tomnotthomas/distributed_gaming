@@ -72,10 +72,11 @@ stands in for it: `startHostSession` with `serveClaims` answers `session-claimed
 starting that session, registers again with the session key, and goes back to the machine
 key once the session is over. Given `hostCert`, a getter for host certificates from
 attestation, it registers and starts each session with a fresh certificate instead of the
-machine key, and still ends sessions with the machine key; it never attests itself. A session key refused with `bad-session-key` is replaced as
-the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
-A start or end that fails on the network or with a `5xx` is tried up to three times; a
-`4xx` refusal goes back to the machine key at once. A machine key refused with
+machine key, and still ends sessions with the machine key; it never attests itself. A
+session key refused with `bad-session-key` is replaced as the table under Failure behaviour
+says: `DELETE`, then start the same `sessionId` again. A start or end that fails on the
+network or with a `5xx` is tried up to three times; a `4xx` refusal goes back to waiting
+for the next claim at once. A machine key refused with
 `session-active` (the app reloaded mid-session) ends that session with `DELETE` and
 registers again, and the claim is pushed to it again; a `DELETE` that still fails on the
 network or with a `5xx` registers again and retries, and only a `4xx` refusal of that

@@ -113,7 +113,8 @@ it stops sending heartbeats).
 
 Served under `/api` (`server/src/api.ts`). Every call carries the machine key as
 `Authorization: Bearer <machine key>`; a session call needs the key of the machine the
-session runs on.
+session runs on. In Swiff OS the hosting calls bear a host certificate instead
+([`session-keys.md`](session-keys.md), Control and hosting credentials).
 
 ```
 PUT  /machines/:id/availability
