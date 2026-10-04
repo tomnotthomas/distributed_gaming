@@ -5,7 +5,8 @@
     "packages/*",
     "server",
     "web",
-    "desktop"
+    "desktop",
+    "swiff-os/steam"
   ],
   "scripts": {
     "build": "npm run build -w @swiff/web && npm run build -w @swiff/server",

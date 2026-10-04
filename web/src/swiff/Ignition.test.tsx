@@ -6,14 +6,17 @@ import { Ignition } from "./Ignition";
 import type { Swiff } from "./useSwiff";
 
 /** Just the slice of the hook Ignition reads. */
-const swiffAt = (progress: number, ignitionStep: string) =>
+const swiffAt = (progress: number, ignitionStep: string, steamLogin: Swiff["steamLogin"] = null) =>
   ({
     game: GAMES[0],
     picked: MACHINES.glass,
     progress,
     ignitionStep,
+    steamLogin,
     goHome: () => {},
   }) as unknown as Swiff;
+
+const SIGN_IN = "https://s.team/q/1/1234567890123456789";
 
 describe("Ignition", () => {
   it("follows the launch's real step: the ones before it done, the ones after it next", () => {
@@ -62,5 +65,59 @@ describe("Ignition", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(launch).toHaveFocus();
+  });
+
+  it("shows the PC's Steam sign-in code in the dial's place, to scan with the Steam app", () => {
+    render(
+      <Ignition swiff={swiffAt(0.5, "Launching game", { type: "steam-login", state: "qr", url: SIGN_IN })} />,
+    );
+
+    const panel = screen.getByRole("region", { name: "Sign in to Steam" });
+    expect(within(panel).getByRole("img", { name: "Steam sign-in QR code" })).toBeInTheDocument();
+    expect(panel).toHaveTextContent("Scan this with the Steam app");
+    expect(document.querySelector(".ig-dial")).toBeNull();
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("Sign in to Steam");
+  });
+
+  it("draws the code from the link it is given, with a scanner's quiet margin", () => {
+    const { rerender } = render(
+      <Ignition swiff={swiffAt(0.5, "Launching game", { type: "steam-login", state: "qr", url: SIGN_IN })} />,
+    );
+    const code = () => screen.getByRole("img", { name: "Steam sign-in QR code" });
+    const first = code().querySelector("path")!.getAttribute("d");
+    // 29 modules for this link at level M, plus 4 of white on each side.
+    expect(code().getAttribute("viewBox")).toBe("0 0 37 37");
+    expect(first).toMatch(/^M4 4h1v1h-1z/);
+
+    rerender(
+      <Ignition
+        swiff={swiffAt(0.5, "Launching game", {
+          type: "steam-login",
+          state: "qr",
+          url: `${SIGN_IN.slice(0, -1)}0`,
+        })}
+      />,
+    );
+    expect(code().querySelector("path")!.getAttribute("d")).not.toBe(first);
+  });
+
+  it("draws nothing to scan but a Steam sign-in link, and goes back to the dial once signed in", () => {
+    const { rerender } = render(
+      <Ignition
+        swiff={swiffAt(0.5, "Launching game", {
+          type: "steam-login",
+          state: "qr",
+          url: "https://evil.example/q/1/2",
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("steam-sign-in")).toBeNull();
+    expect(document.querySelector(".ig-dial")).not.toBeNull();
+
+    rerender(
+      <Ignition swiff={swiffAt(0.75, "Launching game", { type: "steam-login", state: "signed-in" })} />,
+    );
+    expect(screen.queryByTestId("steam-sign-in")).toBeNull();
+    expect(document.querySelector(".ig-dial")).not.toBeNull();
   });
 });

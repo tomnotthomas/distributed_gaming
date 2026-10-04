@@ -3,7 +3,7 @@
 // to both or it is a bug.
 //
 //   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
-//   client  join     ──► joined, offer, ice, peer-left
+//   client  join     ──► joined, offer, ice, steam-login, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -91,6 +91,16 @@ export type SessionClaimedMessage = {
   appid: number;
   minutes: number;
 };
+/**
+ * Rental mode's Steam sign-in, sent by the PC to its renter and relayed like
+ * the handshake, never the other way. `qr` is the link Steam's own sign-in QR
+ * code encodes, for the renter's page to draw as a QR code they scan with the
+ * Steam app; the PC sends it again whenever Steam shows a new code.
+ * `signed-in` says the renter approved it and the game is being launched.
+ * The server never reads or logs either.
+ */
+export type SteamLoginMessage =
+  { type: "steam-login"; state: "qr"; url: string } | { type: "steam-login"; state: "signed-in" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -107,15 +117,16 @@ export type SignalMessage =
   | JoinedMessage
   | DeniedMessage
   | SessionClaimedMessage
+  | SteamLoginMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
   | PongMessage;
 
 /** Messages the server forwards to the other peer without inspecting them. */
-export const RELAYED_TYPES = ["offer", "answer", "ice"] as const;
+export const RELAYED_TYPES = ["offer", "answer", "ice", "steam-login"] as const;
 
-export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
+export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | SteamLoginMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

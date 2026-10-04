@@ -1,0 +1,10 @@
+#!/bin/sh
+# The renter session: gamescope, with the Steam sign-in agent (src/main.ts) as
+# its only program. The agent starts Steam; gamescope shows the game once it
+# runs, and nothing before it, since there is no desktop or launcher to show.
+# SWIFF_GAMESCOPE_ARGS adds gamescope options, such as the headless backend
+# the test VM uses.
+set -eu
+export PATH=/usr/games:/usr/local/bin:/usr/bin
+# shellcheck disable=SC2086 # the options are meant to split
+exec gamescope --steam ${SWIFF_GAMESCOPE_ARGS:-} -- node /usr/lib/swiff/steam/src/main.ts

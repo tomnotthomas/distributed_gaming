@@ -9,6 +9,7 @@ stage by stage.
 | --------- | ----------------------------------------------------------------------------- |
 | `image/`  | The mkosi build of the Swiff OS image (stage 1)                               |
 | `vm/`     | The VM test: builds the image and boots it under Secure Boot with a TPM       |
+| `steam/`  | `swiff-steam-login`: QR sign-in on Swiff's page, then the game                |
 | later     | `hostd/` (session agent), `streamer/` (capture and input), attestation client |
 
 ## Server: hosting requires attestation
@@ -160,11 +161,99 @@ checks the session's wiring, not a running game.
   (stage 1 in the report) and, later, Swiff's own shim. The VM enrols the test key directly instead.
 - **Steam client persistence.** The Steam client's runtime is downloaded into the ephemeral `/home` on
   first start of each boot. It moves to the sealed state partition with attestation (stage 3).
-- **Starting the game directly.** Driving Steam's QR login from Swiff's own screen and launching the
-  game straight away, so the renter never sees Steam's UI, is a Stage 0 spike plus the session agent.
+- **Starting the game directly.** The Steam sign-in agent is in `steam/` (below). Running it as the
+  image's session is still to do; see "Not yet here" there.
 - **Steam's sandbox.** Ubuntu's AppArmor restriction on unprivileged user namespaces may need a Steam
   profile for pressure-vessel. This can only be tested with a GPU.
 - **NVIDIA.** Modules must be signed for `module.sig_enforce`, for example Ubuntu's prebuilt signed
   NVIDIA modules. Redistribution terms need checking.
 - **The `-security` pocket.** mkosi 20 always uses the live `security.ubuntu.com` for it. Pinning it
   too needs a newer mkosi or a local mirror.
+
+## Steam sign-in, straight into the game (`steam/`)
+
+When the renter presses Play, the game starts. If Steam needs them to sign in, Swiff's
+own Ignition screen shows Steam's sign-in QR code. They scan it with the Steam app and
+approve, and the game starts. They never see Steam's library, any other Steam window
+or a desktop. Nobody types a password or a Steam Guard code.
+
+- **The session** (`steam/session`) is gamescope with the agent, `src/main.ts`, as its
+  only program, run as the `renter` user. The agent starts Steam with `-silent`, so
+  Steam opens only its sign-in window. The agent serves Plays on a local socket
+  (`src/serve.ts`, default `/run/swiff/steam/login.sock`).
+- **Ready before the renter comes.** Steam sits at its sign-in window from boot.
+  `status` on the socket answers `sign-in` once Steam's QR code can be read, so the PC
+  can be offered only from then on.
+- **Play** is `play <appid>` on the socket. The streamer sends it, since it carries the
+  renter's signaling. The agent reads Steam's QR code off the screen with the stock X
+  tools and zbar (`src/x11.ts`) and sends the link it encodes as a `qr` event. Steam
+  shows a new code every 20 to 25 s, and each new one is sent within one 250 ms poll.
+  The streamer relays each code to the renter as `steam-login` (`server/src/protocol.ts`).
+  The server relays it from the PC to the renter only, and the renter has it before
+  the stream connects. Ignition redraws it, in the dial's place, as Swiff's own QR code
+  (`web/src/swiff/SteamSignIn.tsx`). It draws only `https://s.team/q/…` sign-in links.
+- **No credentials pass through Swiff.** Steam runs the whole sign-in itself. The agent
+  only copies the picture of Steam's code, the way a camera would. Each screen grab
+  goes to a private temporary directory and is deleted as soon as it is read. Nothing
+  logs a code: not the agent, not the server. Steam's own console output is kept out of
+  the journal. Whatever Steam keeps of the sign-in stays in the renter's home, which
+  goes when the PC restarts after each renter.
+- **Then the game.** Steam logs each step of its sign-in in its own
+  `logs/steamui_login.txt`. Once it logs `Success`, the agent runs
+  `steam -applaunch <appid>`. It then waits for gamescope to put that game on screen
+  (`GAMESCOPE_FOCUSED_APP`). Every event carries the time since Play (`src/login.ts`).
+
+```bash
+npm test -w @swiff/steam-login                            # unit tests
+SWIFF_STEAM_SOCKET=/tmp/login.sock node swiff-os/steam/src/main.ts   # on an X display, with Steam installed
+```
+
+The agent runs as TypeScript source on Node 22.18 or later, with no build step. It
+needs `steam`, `xwininfo`, `xprop`, `xwd` (x11-utils, x11-apps) and `zbarimg`
+(zbar-tools).
+
+### Measured in a VM
+
+The VM ran Ubuntu 26.04 (the image's release) with OVMF Secure Boot, 2 vCPUs and 2 GB
+of RAM, under QEMU 8.2 with no GPU. Steam ran for real and showed its real sign-in QR
+code.
+
+| Step                                                                                                              | Time                                        |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Play to the first `qr` event on the socket (11 Plays)                                                             | 42–621 ms, median 58 ms                     |
+| Renter joins the room to the code on their socket, via the real signaling server and a stand-in streamer (5 runs) | 0.28–0.42 s; 1.9 and 3.6 s on a loaded host |
+| Steam start to its sign-in code, client already installed (4 runs)                                                | 26–133 s, before the PC is offered          |
+| First Steam start on an empty home (download and update)                                                          | 157 s                                       |
+
+The code Ignition draws decoded back, with zbar, to exactly Steam's link: 3 of 3
+codes, 29 modules each. The rest of Play-to-first-frame could not run in the VM:
+
+- **gamescope.** Version 3.16 needs a GPU whose Vulkan driver reports its DRM device
+  (`VK_EXT_physical_device_drm`), headless or nested. Software Vulkan (lavapipe) does not,
+  and QEMU 8.2 has no Vulkan passthrough. So Steam ran on plain Xvfb, which covers
+  everything above except gamescope's focus check.
+- **The renter's approval.** It needs a real Steam account and its phone.
+
+Both wait for the Stage 0 run on a real host with the owner present. That run measures
+the approval to `signed-in` (and checks the `Success` line), the launch to
+`game-on-screen`, and so the full Play-to-first-frame.
+
+### Not yet here
+
+- **The streamer** passes `play` to this socket and relays `qr` and `signed-in` to the
+  renter as `steam-login`.
+- **The Swiff page** feeds the renter session's `steam-login` events into
+  `useSwiff().steamLogin`. Its Play does not run the real stream on main yet, so for
+  now only Ignition's tests set it.
+- **The image** runs `steam/session` as the renter session. It also needs:
+  - the Steam client installed outside the wiped home. Otherwise every boot would show
+    Ubuntu's installer prompt and then download Steam for about 2.5 minutes;
+  - the socket directory `/run/swiff/steam`, owned by `renter`, with the streamer's
+    group.
+- **Which city to expect.** The report wants the page to say which city Steam's map
+  should show, as a phishing check, but the platform has no host location yet.
+- **Phone-only renters** (D7's fallback: password and phone approval through the
+  stream).
+
+This part does not depend on the two open decisions, D3 (hardware floor) and D8 (the
+owner takes the PC back only when it is idle).

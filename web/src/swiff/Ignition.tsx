@@ -4,6 +4,7 @@ import { IGNITION_STEPS } from "./data";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
+import { isSteamSignInUrl, SteamSignIn } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
 
 /**
@@ -12,6 +13,9 @@ import type { Swiff } from "./useSwiff";
  * real progress, eased between beats. It is modal: Swiff.tsx makes the page
  * behind it inert, and focus moves to Cancel while it is up and back to where
  * it was when it closes.
+ *
+ * On a rental-mode PC, Steam's sign-in code takes the dial's place until the
+ * renter has approved it from the Steam app: the one sign-in step there is.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionStep } = swiff;
@@ -19,6 +23,8 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
   const pct = Math.round(shown);
   const now = IGNITION_STEPS.indexOf(ignitionStep);
   const title = game?.title ?? "your game";
+  const signIn =
+    swiff.steamLogin?.state === "qr" && isSteamSignInUrl(swiff.steamLogin.url) ? swiff.steamLogin.url : null;
 
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -83,10 +89,10 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
-          {ignitionStep}
+          {signIn ? "Sign in to Steam" : ignitionStep}
         </p>
 
-        <IgnitionDial pct={shown} />
+        {signIn ? <SteamSignIn url={signIn} /> : <IgnitionDial pct={shown} />}
 
         <ol className="ig-legend mono">
           {IGNITION_STEPS.map((step, index) => {

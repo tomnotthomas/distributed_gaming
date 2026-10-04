@@ -276,6 +276,35 @@ describe("signaling", () => {
     host.close();
   });
 
+  it("relays Steam's sign-in code from the PC to its renter, and never the other way", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+
+    const qr: SignalMessage = {
+      type: "steam-login",
+      state: "qr",
+      url: "https://s.team/q/1/1234567890123456789",
+    };
+    send(host, qr);
+    send(host, { type: "steam-login", state: "signed-in" });
+    send(client, { type: "steam-login", state: "qr", url: "https://s.team/q/1/9" });
+    await handled(host);
+    await handled(client);
+
+    assert.deepEqual(
+      client.received.filter((m) => m.type === "steam-login"),
+      [qr, { type: "steam-login", state: "signed-in" }],
+    );
+    assert.ok(!types(host).includes("steam-login"), `host saw [${types(host)}]`);
+    host.close();
+    client.close();
+  });
+
   // Register and join wait on the database; a socket's frames, and its close,
   // are still handled in the order they came.
   it("relays the frames a peer sends right behind its register or join", async () => {
