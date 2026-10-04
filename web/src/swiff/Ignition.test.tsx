@@ -66,6 +66,14 @@ describe("Ignition", () => {
     expect(tryAnother).toHaveBeenCalledTimes(1);
   });
 
+  it("reads End once the session's clock runs, and ends it", () => {
+    const goHome = vi.fn();
+    render(<Ignition swiff={swiffAt(0.9, 3, { goHome, play: { started: true } as Swiff["play"] })} />);
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(goHome).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels with Cancel", () => {
     const goHome = vi.fn();
     render(<Ignition swiff={swiffAt(0.1, 0, { goHome })} />);

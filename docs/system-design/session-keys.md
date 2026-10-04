@@ -148,8 +148,10 @@ tells the streamer to launch the game booked:
 ```
 
 The streamer launches it and answers `{ "type": "game-started" }` once it runs, which the
-server relays to the renter: until then the renter's page holds Ignition on Launching (for
-90 s at most). It is sent again on every first frame of a new connection, so launching
+server relays to the renter: until then the renter's page holds Ignition on Launching, past
+90 s offering another machine, and shows none of the stream. Send it only once the game's
+own window is what is being captured: the renter's first sight of the stream is the frame
+after it, and must never be the desktop, the Steam library or any other Steam window. It is sent again on every first frame of a new connection, so launching
 must be idempotent; a game already running is only answered again. Until the streamer
 exists, `startHostSession`'s `launchGame` stands in for it, and with none (the web host
 page) the answer is immediate: the screen being shared is the game.

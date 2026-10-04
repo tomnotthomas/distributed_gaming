@@ -99,7 +99,11 @@ export type SessionClaimedMessage = {
  * launched the game only answers again.
  */
 export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid: number };
-/** The host's answer to `launch-game`: the game runs. Relayed to the renter. */
+/**
+ * The host's answer to `launch-game`: the game runs. Relayed to the renter, whose
+ * page shows the stream from here on and not before, so it is sent only once
+ * the game's own window is what is captured, never the desktop or Steam.
+ */
 export type GameStartedMessage = { type: "game-started" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };

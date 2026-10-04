@@ -174,16 +174,30 @@ describe("startPlay", () => {
     expect(handle.state()).toMatchObject({ step: "launching", slow: false });
   });
 
-  it("shows the stream after 90 s even when the game never says it runs", async () => {
-    const { step } = play();
+  it("never shows the stream before the game runs: at 90 s Ignition stays, and the launch is slow", async () => {
+    const { handle, step } = play();
     latest().emit({ type: "peer-connection", pc: PC });
     latest().emit({ type: "connected" });
     latest().emit({ type: "first-frame" });
 
     await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS - 1);
-    expect(step()).toBe("launching");
+    expect(handle.state()).toMatchObject({ step: "launching", slow: false });
     await vi.advanceTimersByTimeAsync(1);
-    expect(step()).toBe("live");
+    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS * 3);
+    expect(step()).toBe("launching");
+
+    // The PC says the game runs after all: it is shown then.
+    latest().emit({ type: "game-started" });
+    expect(handle.state()).toMatchObject({ step: "live", slow: false });
+  });
+
+  it("says once the server has taken the session start, so leaving ends a session", async () => {
+    const { handle } = play();
+    expect(handle.state().started).toBe(false);
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handle.state().started).toBe(true);
   });
 
   it("never shows a stream whose session start the server refused, and says the ticket was refused", async () => {
@@ -201,7 +215,7 @@ describe("startPlay", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("tries a lost start again, and shows the stream at 90 s only once the server has taken it", async () => {
+  it("tries a lost start again every 2 s until the server takes it, and then no more", async () => {
     let up = false;
     const fetch = vi.fn(async () => {
       if (!up) throw new TypeError("offline");
@@ -211,39 +225,17 @@ describe("startPlay", () => {
     latest().emit({ type: "connected" });
     latest().emit({ type: "first-frame" });
 
-    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
-    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
-    expect(fetch.mock.calls.length).toBeGreaterThan(1);
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 3);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(handle.state().started).toBe(false);
 
     up = true;
     await vi.advanceTimersByTimeAsync(START_RETRY_MS);
-    expect(handle.state()).toMatchObject({ step: "live", slow: false });
+    expect(handle.state().started).toBe(true);
     const calls = fetch.mock.calls.length;
     await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
     expect(fetch).toHaveBeenCalledTimes(calls);
-  });
-
-  it("keeps a launch timeout from going live after the PC hands the room over", async () => {
-    let up = false;
-    const fetch = vi.fn(async () => {
-      if (!up) throw new TypeError("offline");
-      return new Response(JSON.stringify({}), { status: 200 });
-    });
-    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
-    latest().emit({ type: "connected" });
-    latest().emit({ type: "first-frame" });
-    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
-    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
-
-    latest().emit({ type: "peer-left" });
-    await vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS);
-    expect(handle.state()).toMatchObject({ step: "waking", slow: true });
-
-    up = true;
-    await vi.advanceTimersByTimeAsync(START_RETRY_MS);
-    expect(handle.state()).toMatchObject({ step: "waking", slow: true });
-    latest().emit({ type: "game-started" });
-    expect(handle.state().step).toBe("waking");
+    expect(handle.state().step).toBe("launching");
   });
 
   it("tries a start the server failed again", async () => {
@@ -255,8 +247,7 @@ describe("startPlay", () => {
     await vi.advanceTimersByTimeAsync(START_RETRY_MS);
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
-    expect(handle.state().step).toBe("live");
+    expect(handle.state().started).toBe(true);
   });
 
   it("goes back to waking when the PC hands the room over before the game is on screen", () => {

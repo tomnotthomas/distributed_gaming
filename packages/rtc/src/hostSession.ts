@@ -108,8 +108,10 @@ export type HostSessionOptions = IceConfig & {
   onRtt?: (ms: number) => void;
   /**
    * Launch Steam game `appid`: the renter's first frame arrived and the session
-   * started. Answered with `game-started` once it resolves; a rejection sends
-   * nothing, and the renter's page shows the stream once it stops waiting.
+   * started. Answered with `game-started` once it resolves, so it resolves only
+   * once the game's own window is what is captured: the renter sees the stream
+   * from then on. A rejection sends nothing, and the renter's page stays on
+   * Ignition and offers another machine.
    * Called again for every start the renter's page makes, so it must be
    * idempotent. Without it, nothing is launched and the answer is immediate:
    * the screen being shared is already what the renter came for.
