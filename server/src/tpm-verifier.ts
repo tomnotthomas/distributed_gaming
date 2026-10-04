@@ -43,11 +43,13 @@
 //                                  from outside the UKI the release does not expect
 //  12. unknown-boot-application    PCR 4 measured at least one application, all of
 //                                  them the release's, the last one its UKI
-//  13. secure-boot-untrusted       PCR 7 measured SecureBoot, PK, KEK, db and dbx
-//                                  with a platform key enrolled (not setup mode),
-//                                  and every Secure Boot authority it measured is
-//                                  one the release lists. Refused outright: no
-//                                  cooldown ever trusts another authority
+//  13. secure-boot-untrusted       PCR 7 measured SecureBoot, PK, KEK, db and dbx,
+//                                  each once before its separator, with a platform
+//                                  key enrolled (not setup mode), and every other
+//                                  extend of it, whatever type the log claims, is
+//                                  a known action or an authority the release
+//                                  lists. Refused outright: no cooldown ever
+//                                  trusts another authority
 //  14. firmware-changed            PCRs 0-3 (firmware and its settings) are the
 //                                  ones this machine first attested with. A
 //                                  change, such as a BIOS update, is refused until

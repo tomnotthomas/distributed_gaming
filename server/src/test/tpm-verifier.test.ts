@@ -106,6 +106,38 @@ function flip(base64: string, at: number): string {
   return bytes.toString("base64");
 }
 
+/**
+ * The event log `base64` written again with `type` claimed for every event
+ * `match` picks: the digests stay, so it still replays to the quoted PCRs.
+ * Fixture logs carry SHA-1 and SHA-256 digests.
+ */
+function relabel(
+  base64: string,
+  match: (event: { pcr: number; type: number; sha256: Buffer; data: Buffer }) => boolean,
+  type: number,
+): string {
+  const log = Buffer.from(base64, "base64");
+  let at = 32 + log.readUInt32LE(28);
+  let relabelled = 0;
+  while (at < log.length) {
+    const pcr = log.readUInt32LE(at);
+    const sha256 = log.subarray(at + 12 + 2 + 20 + 2, at + 12 + 2 + 20 + 2 + 32);
+    const size = log.readUInt32LE(at + 12 + 2 + 20 + 2 + 32);
+    const data = log.subarray(at + 12 + 2 + 20 + 2 + 32 + 4, at + 12 + 2 + 20 + 2 + 32 + 4 + size);
+    if (match({ pcr, type: log.readUInt32LE(at + 4), sha256, data })) {
+      log.writeUInt32LE(type, at + 4);
+      relabelled++;
+    }
+    at += 12 + 2 + 20 + 2 + 32 + 4 + size;
+  }
+  assert.equal(relabelled, 1, "relabels one event");
+  return log.toString("base64");
+}
+const EV_POST_CODE = 0x00000001;
+const EV_EFI_ACTION = 0x80000007;
+const EV_EFI_VARIABLE_DRIVER_CONFIG = 0x80000001;
+const EV_EFI_VARIABLE_AUTHORITY = 0x800000e0;
+
 const GOOD_FACTS = { uefi: true, secureBoot: true, tpm: "firmware", ekCertificate: true, iommu: true };
 
 describe("the TPM verifier accepts", () => {
@@ -420,6 +452,56 @@ describe("Secure Boot in PCR 7", () => {
         ["pc-rsa", true, 1],
       ],
     );
+  });
+
+  it("refuses an authority the log claims is another kind of event", async () => {
+    const events: SecurityEvent[] = [];
+    const verifier = await verifierFor("pc-rsa", { securityLog: (event) => events.push(event) });
+    assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
+    const { eventLog } = recorded("pc-rsa", "owner-db-key").evidence;
+    const ownerKey = (event: { pcr: number; type: number; sha256: Buffer }) =>
+      event.pcr === 7 &&
+      event.type === EV_EFI_VARIABLE_AUTHORITY &&
+      !fixture.release.secureBootAuthorities.includes(event.sha256.toString("hex"));
+    // As an action, and as a second db variable: neither hides it.
+    for (const type of [EV_EFI_ACTION, EV_EFI_VARIABLE_DRIVER_CONFIG]) {
+      const lie = relabel(eventLog, ownerKey, type);
+      assert.deepEqual(
+        await judge(verifier, "pc-rsa", "owner-db-key", { evidence: { eventLog: lie } }),
+        { ok: false, reason: "secure-boot-untrusted" },
+        type.toString(16),
+      );
+    }
+    assert.deepEqual(
+      events.map((event) => event.event),
+      ["secure-boot-untrusted", "secure-boot-untrusted"],
+    );
+  });
+
+  it("refuses a DMA protection action the log claims is another kind of event", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    const { eventLog } = recorded("pc-rsa", "dma-off").evidence;
+    const dma = relabel(
+      eventLog,
+      (event) => event.pcr === 7 && event.data.toString("latin1") === "DMA Protection Disabled",
+      EV_POST_CODE,
+    );
+    assert.deepEqual(await judge(verifier, "pc-rsa", "dma-off", { evidence: { eventLog: dma } }), {
+      ok: false,
+      reason: "secure-boot-untrusted",
+    });
+  });
+
+  it("refuses a boot application the log claims is an action", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    const { eventLog } = recorded("pc-rsa", "extra-boot-app").evidence;
+    const loader = (event: { pcr: number; sha256: Buffer }) =>
+      event.pcr === 4 && event.sha256.equals(createHash("sha256").update("other-loader").digest());
+    const lie = relabel(eventLog, loader, EV_EFI_ACTION);
+    assert.deepEqual(await judge(verifier, "pc-rsa", "extra-boot-app", { evidence: { eventLog: lie } }), {
+      ok: false,
+      reason: "unknown-boot-application",
+    });
   });
 
   it("refuses firmware in setup mode, with no platform key enrolled", async () => {

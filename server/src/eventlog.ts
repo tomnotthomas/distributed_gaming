@@ -22,9 +22,7 @@ export const EV = {
   NO_ACTION: 0x00000003,
   SEPARATOR: 0x00000004,
   EFI_VARIABLE_DRIVER_CONFIG: 0x80000001,
-  EFI_BOOT_SERVICES_APPLICATION: 0x80000003,
   EFI_ACTION: 0x80000007,
-  EFI_VARIABLE_AUTHORITY: 0x800000e0,
 } as const;
 
 /** One extend: which PCR, what kind of event, its SHA-256 digest, and the data the firmware logged. */
@@ -119,61 +117,84 @@ export function replay(log: EventLog, pcrs: readonly number[]): Map<number, Buff
   return values;
 }
 
-/** What a replayed log says about the boot, from events whose data matches their digest. */
+/**
+ * What a replayed log says about the boot, from events whose data matches their
+ * digest. An event's type is not extended, so a log may claim any type for a
+ * digest: every extend of PCRs 4 and 7 is accounted for by what its data binds,
+ * and one that is nothing known counts as an application or an authority, which
+ * the release must list.
+ */
 export type BootFacts = {
   /** The firmware logged UEFI events: booted by UEFI, not a legacy BIOS. */
   uefi: boolean;
   /** The SecureBoot variable, as measured into PCR 7, was 1. */
   secureBoot: boolean;
   /**
-   * PCR 7 measured SecureBoot, PK, KEK, db and dbx, each with data its digest
-   * binds, and a platform key: the firmware was not in setup mode, where
-   * anyone may enroll keys.
+   * PCR 7 measured SecureBoot, PK, KEK, db and dbx, each once, before its
+   * separator and with data its digest binds, and a platform key: the firmware
+   * was not in setup mode, where anyone may enroll keys.
    */
   secureBootConfigured: boolean;
-  /** The SHA-256 digests of every Secure Boot authority (EV_EFI_VARIABLE_AUTHORITY) measured into PCR 7. */
+  /**
+   * The SHA-256 digest of every other PCR 7 extend but its separator and the
+   * known actions, whatever type the log claims: the Secure Boot authorities.
+   */
   secureBootAuthorities: Buffer[];
   /** The firmware logged that it booted with pre-boot DMA protection off. */
   dmaProtectionDisabled: boolean;
-  /** The Authenticode digests of every boot application measured into PCR 4, in order. */
+  /**
+   * The digest of every PCR 4 extend but separators and the known actions,
+   * whatever type the log claims, in order: the boot applications.
+   */
   bootApplications: Buffer[];
 };
+
+/** The EV_EFI_ACTION strings each PCR may carry without being an application or an authority. */
+const KNOWN_ACTIONS = new Map([
+  [4, ["Calling EFI Application from Boot Option", "Returning from EFI Application from Boot Option"]],
+  [7, ["DMA Protection Disabled"]],
+]);
 
 export function bootFacts(log: EventLog): BootFacts {
   let secureBoot = false;
   let dmaProtectionDisabled = false;
   let platformKey = false;
+  let separated = false;
   const measured = new Set<string>();
   const secureBootAuthorities: Buffer[] = [];
   const bootApplications: Buffer[] = [];
   for (const event of log.events) {
-    if (event.pcr === 4 && event.type === EV.EFI_BOOT_SERVICES_APPLICATION) {
+    if (event.pcr !== 4 && event.pcr !== 7) continue;
+    const bound = event.sha256.equals(sha256(event.data));
+    if (event.type === EV.SEPARATOR && bound && event.data.equals(Buffer.alloc(4))) {
+      if (event.pcr === 7) separated = true;
+      continue;
+    }
+    const action = event.type === EV.EFI_ACTION && bound ? event.data.toString("latin1") : null;
+    if (action !== null && KNOWN_ACTIONS.get(event.pcr)!.includes(action)) {
+      if (action === "DMA Protection Disabled") dmaProtectionDisabled = true;
+      continue;
+    }
+    if (event.pcr === 4) {
       bootApplications.push(event.sha256);
+      continue;
     }
-    if (event.pcr !== 7) continue;
-    if (event.type === EV.EFI_VARIABLE_AUTHORITY) secureBootAuthorities.push(event.sha256);
-    if (event.type === EV.EFI_VARIABLE_DRIVER_CONFIG) {
-      const variable = readVariable(event.data);
-      // The profile hashes the whole UEFI_VARIABLE_DATA; some firmware hashes
-      // only the value. Either binds the data to what was extended.
-      if (
-        variable &&
-        SECURE_BOOT_VARIABLES.get(variable.name)?.equals(variable.guid) &&
-        (event.sha256.equals(sha256(event.data)) || event.sha256.equals(sha256(variable.value)))
-      ) {
-        measured.add(variable.name);
-        if (variable.name === "SecureBoot")
-          secureBoot = variable.value.length === 1 && variable.value[0] === 1;
-        if (variable.name === "PK") platformKey = variable.value.length > 0;
-      }
-    }
+    const variable =
+      event.type === EV.EFI_VARIABLE_DRIVER_CONFIG && !separated ? readVariable(event.data) : null;
+    // The profile hashes the whole UEFI_VARIABLE_DATA; some firmware hashes
+    // only the value. Either binds the data to what was extended.
     if (
-      event.type === EV.EFI_ACTION &&
-      event.sha256.equals(sha256(event.data)) &&
-      event.data.toString("latin1") === "DMA Protection Disabled"
+      variable &&
+      SECURE_BOOT_VARIABLES.get(variable.name)?.equals(variable.guid) &&
+      !measured.has(variable.name) &&
+      (bound || event.sha256.equals(sha256(variable.value)))
     ) {
-      dmaProtectionDisabled = true;
+      measured.add(variable.name);
+      if (variable.name === "SecureBoot") secureBoot = variable.value.length === 1 && variable.value[0] === 1;
+      if (variable.name === "PK") platformKey = variable.value.length > 0;
+      continue;
     }
+    secureBootAuthorities.push(event.sha256);
   }
   return {
     uefi: log.events.some((event) => event.type >= 0x80000000),
