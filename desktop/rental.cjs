@@ -34,23 +34,28 @@ const TYPE = {
   windowsData: "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
 };
 
+// GPT attribute bits the image sets (Discoverable Partitions Specification):
+// 60 read-only, 59 no-auto, which keeps the empty slot B from being mounted.
+const READ_ONLY = "0x1000000000000000";
+const NO_AUTO = "0x800000000000000";
+
 /**
  * Swiff OS's partitions, as swiff-os/image/mkosi.repart lays them out: a fixed
  * 23.6 GiB with no size choice (captain decision D6). `split` names the image
  * file a partition's contents come from; slot B and the scratch start empty.
- * The unique ids and names are the image's own: an installer reads them from
+ * The unique ids, names and attributes are the image's own: an installer reads them from
  * the image it writes (imageLayout), because Swiff OS finds its root by an id
  * derived from the root hash.
  */
 const SWIFF_OS = {
   version: "0.1.0",
   partitions: [
-    { role: "esp", type: TYPE.esp, bytes: 1 * GiB, split: "esp" },
-    { role: "root-a", type: TYPE.root, bytes: 8 * GiB, split: "root-x86-64" },
-    { role: "verity-a", type: TYPE.verity, bytes: 128 * MiB, split: "root-x86-64-verity" },
-    { role: "root-b", type: TYPE.root, bytes: 8 * GiB, split: null },
-    { role: "verity-b", type: TYPE.verity, bytes: 128 * MiB, split: null },
-    { role: "scratch", type: TYPE.linux, bytes: 6528 * MiB, split: null },
+    { role: "esp", type: TYPE.esp, bytes: 1 * GiB, split: "esp", attrs: "0x0" },
+    { role: "root-a", type: TYPE.root, bytes: 8 * GiB, split: "root-x86-64", attrs: READ_ONLY },
+    { role: "verity-a", type: TYPE.verity, bytes: 128 * MiB, split: "root-x86-64-verity", attrs: READ_ONLY },
+    { role: "root-b", type: TYPE.root, bytes: 8 * GiB, split: null, attrs: NO_AUTO },
+    { role: "verity-b", type: TYPE.verity, bytes: 128 * MiB, split: null, attrs: READ_ONLY },
+    { role: "scratch", type: TYPE.linux, bytes: 6528 * MiB, split: null, attrs: "0x0" },
   ],
 };
 
@@ -337,7 +342,7 @@ function imageLayout(gpt) {
     const bytes = (e.last - e.first + 1) * gpt.sectorSize;
     if (e.type !== want.type || bytes !== want.bytes)
       throw new Error(`The image's partition ${i + 1} is not Swiff OS's ${want.role}.`);
-    return { ...want, id: e.id, name: e.name };
+    return { ...want, id: e.id, name: e.name, attrs: `0x${e.attrs.toString(16)}` };
   });
 }
 
@@ -424,14 +429,21 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {})
       {
         op: "gpt-add",
         disk,
-        partitions: parts.map(({ type, id, name, offset, bytes }) => ({ type, id, name, offset, bytes })),
+        partitions: parts.map(({ type, id, name, attrs, offset, bytes }) => ({
+          type,
+          id,
+          name,
+          attrs,
+          offset,
+          bytes,
+        })),
       },
     ],
     commands: [
-      `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${disk}: types, ids and names as in the image`,
+      `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${disk}: types, ids, names and attributes as in the image`,
       ...parts.map(
         (p) =>
-          `#   ${p.role}: offset ${p.offset}, ${p.bytes} bytes, type ${p.type}, id ${p.id ?? "(image's)"}, name ${p.name ?? "(image's)"}`,
+          `#   ${p.role}: offset ${p.offset}, ${p.bytes} bytes, type ${p.type}, id ${p.id ?? "(image's)"}, name ${p.name ?? "(image's)"}, attributes ${p.attrs}`,
       ),
       `Update-Disk -Number ${disk}`,
     ],
@@ -466,7 +478,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {})
   if (games && games.label !== GAMES_LABEL) {
     steps.push({
       id: "games",
-      title: `Name ${games.letter}:, where your Steam games are, ${GAMES_LABEL}`,
+      title: `Name ${games.letter}: ${GAMES_LABEL}, so Swiff OS finds your Steam games`,
       ops: [{ op: "label", letter: games.letter, label: GAMES_LABEL }],
       commands: [`Set-Volume -DriveLetter ${games.letter} -NewFileSystemLabel ${q(GAMES_LABEL)}`],
     });
