@@ -38,7 +38,7 @@ export function SteamSignIn({ url }: { url: string }) {
         shapeRendering="crispEdges"
       >
         <rect width={size} height={size} fill="#fff" />
-        <path d={path} fill="#000" />
+        <path d={path} fill="#131313" />
       </svg>
       <div className="ig-qr-copy">
         <h2 id="ig-qr-title">Sign in to Steam</h2>
