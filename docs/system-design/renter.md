@@ -302,6 +302,17 @@ POST /bookings/:id/claim
   the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
 
+POST /bookings/:id/ticket
+  → 200 { sessionId, roomId, signalingUrl, ticket }
+  The renter's running session's ticket again, for a page that no longer holds it: the
+  page never stores the ticket (see "Playing" below). It carries the id recorded at
+  claim, so ending the session revokes it with the first, and is valid only until the
+  session's deadline.
+  → 409 { error, status } when the booking has no session running: not yet claimed,
+  over, or past its deadline.
+  → 503 when ROOM_SECRET is not set.
+  → 404 for an unknown booking or another renter's.
+
 POST /bookings/:id/end
   → 200 { bookingId, status: "ended", sessionId?, price? }
   The renter ends their booking, whatever it has come to: a queued one leaves the queue,
@@ -528,8 +539,11 @@ clock, each step with a timeout of its own:
 | Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above                     |
 | Launching _the game_ | the first frame and `game-started`, both | 90 s: Ignition stays up, with Try another machine as above; the stream is never shown before `game-started` |
 
-The claim's room and ticket are kept in `localStorage` as the booking being played until
-it ends, for the reconnect step to come. Reloading the page does not rejoin the stream
+The claim's session and room are kept in `localStorage` as the booking being played until
+it ends, for the reconnect step to come. Its join ticket is never stored: it is a bearer
+credential, held only in the page's memory, and the reconnect step asks for it again
+(POST /bookings/:id/ticket). A play kept with its ticket before then is dropped on page
+load. Reloading the page does not rejoin the stream
 yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s

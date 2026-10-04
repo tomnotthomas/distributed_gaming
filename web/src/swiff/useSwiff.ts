@@ -6,6 +6,7 @@ import {
   BookingRefused,
   endBooking,
   followBooking,
+  forgetStoredTicket,
   storedBookingId,
   type Booking,
   type Claim,
@@ -488,6 +489,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [steamId, demo, follow]);
 
   useEffect(() => stopFollowing, [stopFollowing]);
+
+  // No join ticket stays on disk, even one kept before tickets stopped being stored.
+  useEffect(() => forgetStoredTicket(), []);
 
   // --- timers ----------------------------------------------------------------
 

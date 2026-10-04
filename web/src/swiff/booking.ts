@@ -28,8 +28,9 @@
 // code, which reaches the page as a Refusal: BookingRefused from a booking
 // call, and onClaimFailed's argument from a claim.
 //
-// A claimed booking is kept as the one being played, with its room and ticket,
-// for the later resume step until it is ended.
+// A claimed booking is kept as the one being played, with its session and
+// room, for the later resume step until it is ended. Its join ticket is a
+// bearer credential and is never stored: resuming asks for a fresh one.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
@@ -100,7 +101,7 @@ export type BookMachineResult =
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
-/** The claimed booking being played, with its room and ticket, kept for the later resume step. */
+/** The claimed booking being played, with its session and room (never its ticket), kept for the later resume step. */
 const PLAY_KEY = "swiff.play";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
 const SLOW_POLL_MS = 5_000;
@@ -196,6 +197,20 @@ export async function bookMachine(
 export async function claim(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
   const answer = await askToClaim(bookingId, options);
   return "claim" in answer ? answer.claim : null;
+}
+
+/**
+ * The renter's running session's ticket again, for a page that no longer holds
+ * it (it is never stored): the same room and session, and a ticket valid until
+ * the session's deadline. Null when the server refuses it (4xx: the booking has
+ * no session running, or it is not the renter's).
+ */
+export async function resumeTicket(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
+  const { fetch: get = fetch } = options;
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/ticket`);
+  if (response.status >= 400 && response.status < 500) return null;
+  if (!response.ok) throw new Error(`ticket failed: ${response.status}`);
+  return (await response.json()) as Claim;
 }
 
 /**
@@ -351,16 +366,33 @@ export function watchBooking(
   return stop;
 }
 
-/** A claimed booking being played: the booking, and the room and ticket its claim handed out. */
-export type StoredPlay = { bookingId: string; claim: Claim };
+/** A claimed booking being played: the booking, and the session and room its claim handed out. */
+export type StoredPlay = { bookingId: string; sessionId: string; roomId: string };
 
 /** The claimed booking this browser is playing, kept for the later resume step; null when there is none. */
 export function storedPlay(storage: Storage = localStorage): StoredPlay | null {
   try {
     const play = JSON.parse(storage.getItem(PLAY_KEY) ?? "null") as StoredPlay | null;
-    return typeof play?.bookingId === "string" && typeof play.claim?.ticket === "string" ? play : null;
+    return typeof play?.bookingId === "string" &&
+      typeof play.sessionId === "string" &&
+      typeof play.roomId === "string"
+      ? { bookingId: play.bookingId, sessionId: play.sessionId, roomId: play.roomId }
+      : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * On page load: drop a kept play from before tickets stopped being stored, so
+ * no join ticket stays on disk. Its booking is still followed by its id.
+ */
+export function forgetStoredTicket(storage: Storage = localStorage): void {
+  try {
+    const raw = storage.getItem(PLAY_KEY);
+    if (raw !== null && /"ticket"\s*:/.test(raw)) storage.removeItem(PLAY_KEY);
+  } catch {
+    // Storage switched off holds nothing to forget.
   }
 }
 
@@ -496,7 +528,8 @@ export function followBooking(
     // Kept for the resume step only: storage that refuses it (full, or switched
     // off) must not keep the renter from the machine they just claimed.
     try {
-      storage.setItem(PLAY_KEY, JSON.stringify({ bookingId, claim: claimed } satisfies StoredPlay));
+      const play: StoredPlay = { bookingId, sessionId: claimed.sessionId, roomId: claimed.roomId };
+      storage.setItem(PLAY_KEY, JSON.stringify(play));
     } catch {
       console.warn("[swiff] could not keep the claimed booking for resume");
     }

@@ -12,6 +12,7 @@
 //                                          POST /api/sessions/:id/end          either
 //                                          POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
+//   POST /api/bookings/:id/ticket
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
 //   POST /api/sessions/:id/start (ticket)
@@ -39,6 +40,9 @@
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
+// The page never stores that ticket; a renter coming back to their running
+// session gets it again from `ticket`, with the same id, so ending the session
+// still revokes every copy.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
 // The renter's page starts the session on its first frame, reports stream
@@ -585,6 +589,27 @@ export function createApi({
         roomId: claim.roomId,
         signalingUrl: origin.replace(/^http/, "ws"),
         ticket,
+      });
+      return true;
+    }
+
+    if (resource === "bookings" && id && action === "ticket" && method === "POST") {
+      // The renter coming back to their running session: its ticket again,
+      // the one recorded at claim, valid only until the session's deadline.
+      const renter = requireRenter(req, sessionSecret);
+      if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      const session = await platform.runningSession(id, renter);
+      if (!session.ok) {
+        if (session.reason === "not-found") throw new HttpError(404, "no such booking");
+        reply(res, 409, { error: "the booking has no session running", status: session.status });
+        return true;
+      }
+      const ttl = Math.max(1, Math.floor(session.remainingMs / 1000));
+      reply(res, 200, {
+        sessionId: session.sessionId,
+        roomId: session.roomId,
+        signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
+        ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
       });
       return true;
     }

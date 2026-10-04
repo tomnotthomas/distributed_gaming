@@ -92,6 +92,8 @@ test.describe("real Play", () => {
       "now",
     );
     await expect.poll(async () => (await played(renter))?.status, { timeout: 15_000 }).toBe("claimed");
+    // Kept for resume without the join ticket, a bearer credential.
+    expect(await renter.evaluate(() => localStorage.getItem("swiff.play"))).not.toMatch(/ticket/);
 
     // The PC wakes, hears the claim and starts the session.
     const host = await wake(browser);
@@ -122,11 +124,15 @@ test.describe("real Play", () => {
     await expect(renter.getByTestId("session")).toHaveCount(0);
 
     // Ended on the server as the renter's own, and the PC is handed back.
-    const ended = await renter.evaluate(
-      async (id) => ((await (await fetch(`/api/bookings/${id}`)).json()) as { status: string }).status,
-      booking!.bookingId,
-    );
-    expect(ended).toBe("ended");
+    // End is not awaited before the session view goes, so the booking gets there a moment later.
+    await expect
+      .poll(() =>
+        renter.evaluate(
+          async (id) => ((await (await fetch(`/api/bookings/${id}`)).json()) as { status: string }).status,
+          booking!.bookingId,
+        ),
+      )
+      .toBe("ended");
     await expect(host.getByText(/Claimed by a renter/)).toHaveCount(0, { timeout: 15_000 });
 
     expect(hostErrors).toEqual([]);

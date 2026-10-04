@@ -770,6 +770,80 @@ describe("booking and host API", () => {
     assert.equal(launches.length, 2);
   });
 
+  it("refuses a start past the session's deadline, before the timer that ends it has run", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    now += 30 * 60_000;
+    const started = await platform.renterStarted(
+      claim.body.sessionId,
+      verifyTicket(SECRET, claim.body.ticket)!.id,
+    );
+    assert.equal(started, "over");
+    assert.equal((await platform.viewBooking(body.bookingId))?.status, "claimed");
+    assert.deepEqual(launches, []);
+  });
+
+  it("hands the renter their running session's ticket again, the same one, only until its deadline", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    // Nothing to hand out before the claim, nor to anyone but the renter.
+    const early = await renter("POST", ticketOf);
+    assert.equal(early.status, 409);
+    assert.equal(early.body.status, "matched");
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const claimed = verifyTicket(SECRET, claim.body.ticket)!;
+    assert.equal((await as(signedIn(OTHER))("POST", ticketOf)).status, 404);
+    assert.equal((await call("POST", ticketOf)).status, 401);
+    assert.equal((await renter("POST", "/api/bookings/nope/ticket")).status, 404);
+
+    for (let beat = 0; beat < 60; beat++) {
+      now += 10_000;
+      await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
+    }
+    const again = await renter("POST", ticketOf);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.sessionId, claim.body.sessionId);
+    assert.equal(again.body.roomId, "pc-1");
+    assert.equal(again.body.signalingUrl, claim.body.signalingUrl);
+    const ticket = verifyTicket(SECRET, again.body.ticket)!;
+    assert.equal(ticket.id, claimed.id, "the id recorded at claim, so ending the session revokes it");
+    assert.equal(ticket.room, "pc-1");
+    assert.ok(
+      Math.abs(ticket.exp * 1000 - (Date.now() + 20 * 60_000)) < 5_000,
+      "valid only for what is left",
+    );
+
+    // It opens the session as the claim's does.
+    const start = await call(
+      "POST",
+      `/api/sessions/${claim.body.sessionId}/start`,
+      undefined,
+      again.body.ticket,
+    );
+    assert.equal(start.status, 200);
+    assert.equal((await renter("POST", ticketOf)).status, 200);
+
+    await renter("POST", `/api/bookings/${body.bookingId}/end`);
+    const over = await renter("POST", ticketOf);
+    assert.equal(over.status, 409);
+    assert.equal(over.body.status, "ended");
+    assert.equal(await platform.ticketRevoked(ticket.id), true);
+  });
+
+  it("hands no ticket again once the session's deadline has passed, or when none can be minted", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    access.secret = null;
+    assert.equal((await renter("POST", ticketOf)).status, 503);
+    access.secret = SECRET;
+    now += 30 * 60_000;
+    assert.equal((await renter("POST", ticketOf)).status, 409);
+  });
+
   describe("renter QoS", () => {
     const QOS = { fps: 59.8, bitrate: 18_500_000, rttMs: 14.2, packetLoss: 0.004 };
 

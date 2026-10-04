@@ -369,6 +369,14 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
+    it("drops a join ticket kept on disk before tickets stopped being stored", async () => {
+      localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: TICKET }));
+      serve(unnamed, LIVE, {});
+      streams();
+      await openLive();
+      expect(localStorage.getItem("swiff.play")).toBeNull();
+    });
+
     it("plays the claimed stream behind Ignition, step by step, and ends the session with End", async () => {
       const calls = serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
@@ -383,7 +391,7 @@ describe("useSwiff", () => {
 
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       // Kept as the booking being played, for the later resume step.
-      expect(storedPlay()).toEqual({ bookingId: "b-1", claim: TICKET });
+      expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
       const video = document.createElement("video");
       act(() => result.current.attachVideo(video));
       expect(rtc.sessions).toHaveLength(1);
