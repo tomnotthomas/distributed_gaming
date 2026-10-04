@@ -75,7 +75,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
   multicast and broadcast addresses, their IPv6 counterparts, and every on-link prefix, so the LAN's
   global IPv6 addresses and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10) are blocked too.
-  Programs get "No route to host" at once rather than waiting for a timeout. It allows DHCP, IPv6
+  Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
+  "Permission denied"). It allows DHCP, IPv6
   neighbour discovery, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
   gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
   is allowed.
