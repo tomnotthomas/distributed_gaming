@@ -140,7 +140,7 @@ boot_vm() { # boot number
 		-device virtio-blk-pci,drive=os,bootindex=1 \
 		-drive if=none,id=games,format=raw,readonly=on,file="$run/games.img" \
 		-device virtio-blk-pci,drive=games \
-		-netdev "user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
+		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
 		-display none -vga none -monitor none \
 		-serial "file:$serial" || rc=$?

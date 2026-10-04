@@ -73,10 +73,11 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   `renter`, with `NoNewPrivileges`. There is no display manager, desktop, getty, serial console login or
   sshd.
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
-  multicast and broadcast addresses, and their IPv6 counterparts. Programs get "No route to host" at
-  once rather than waiting for a timeout. It allows DHCP, IPv6 neighbour
-  discovery, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps those two sets
-  current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
+  multicast and broadcast addresses, their IPv6 counterparts, and every on-link prefix, so the LAN's
+  global IPv6 addresses and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10) are blocked too.
+  Programs get "No route to host" at once rather than waiting for a timeout. It allows DHCP, IPv6
+  neighbour discovery, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
+  gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
   is allowed.
 - **The shared games library is read-only.** It is mounted read-only at `/srv/games-lower`, with an
   overlay at `/srv/games` whose writes go to the scratch. The VM stubs it with a small ext4 disk
@@ -138,8 +139,9 @@ host's view. Together they cover:
 - The renter user is unprivileged, with no shell and no password. Root is locked, and there is no
   sudo and no setuid binary.
 - The session is gamescope with Steam as `renter`, and no login of any kind is offered.
-- The LAN is blocked for the renter, while DNS and the internet work. As a control, the same LAN
-  service answers once the firewall is removed.
+- The LAN is blocked for the renter, including the host's address in an on-link global IPv6 prefix,
+  while DNS and the internet work. As a control, the same LAN service and IPv6 address answer once
+  the firewall is removed.
 - The scratch is encrypted: the renter's marker never appears in the partition's raw bytes. It is
   re-keyed and empty after the reboot, and the games overlay forgets the renter's writes.
 - The disk image fits the 24 GiB budget.
