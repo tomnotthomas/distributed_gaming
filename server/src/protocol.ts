@@ -2,8 +2,10 @@
 // server relays these and the browser sends them, so a change here is a change
 // to both or it is a bug.
 //
-//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
+//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left,
+//                        probe-offer (answered with probe-answer)
 //   client  join     ──► joined, offer, ice, peer-left
+//   renter  probe    ──► probe-answer, or probe-refused (no join: a probe never takes the seat)
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -70,6 +72,49 @@ export type SessionClaimedMessage = {
   appid: number;
   minutes: number;
 };
+/**
+ * A latency probe: a data channel to a PC through the TURN relay, which never
+ * takes the seat.
+ *
+ *   renter  probe        ──► server  asks to probe `hostId`, with its offer
+ *   server  probe-offer  ──► PC      the renter's offer, under the server's `probeId`
+ *   PC      probe-answer ──► server  the PC's answer, relayed to the renter
+ *                                    under the renter's own `probeId`
+ *
+ * Neither side trickles: each description carries all of its candidates. The
+ * renter gathers relay candidates only, and the server passes on only the relay
+ * candidates of either description, with every other address in it blanked,
+ * so neither side learns where the other is; a description left with none is
+ * dropped. The PC echoes every message on the renter's channel and closes the
+ * probe when it closes, or after 15 s. The PC side is in @swiff/rtc (probe.ts),
+ * the renter's in latency.ts.
+ *
+ * Only a signed-in renter may probe (the sign-in cookie on the socket's
+ * upgrade request), and only a machine in the server's own top three for a
+ * game by its estimate: `token` is minted for exactly those, for that renter,
+ * by GET /api/games/:appid/machines, and is good for one probe within a minute.
+ * Each renter may start 20 probes a minute. A probe that is not relayed is
+ * answered with probe-refused instead:
+ *
+ *   bad-token     forged, expired, used already, for another renter or machine, or not signed in
+ *   too-many      over the renter's 20 a minute
+ *   host-offline  the machine has no socket open to the server
+ */
+export type ProbeMessage = {
+  type: "probe";
+  hostId: string;
+  token: string;
+  probeId: string;
+  sdp: RTCSessionDescriptionInit;
+};
+export type ProbeOfferMessage = { type: "probe-offer"; probeId: string; sdp: RTCSessionDescriptionInit };
+export type ProbeAnswerMessage = { type: "probe-answer"; probeId: string; sdp: RTCSessionDescriptionInit };
+export type ProbeRefusedMessage = {
+  type: "probe-refused";
+  probeId: string;
+  reason: "bad-token" | "too-many" | "host-offline";
+};
+
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -86,6 +131,10 @@ export type SignalMessage =
   | JoinedMessage
   | DeniedMessage
   | SessionClaimedMessage
+  | ProbeMessage
+  | ProbeOfferMessage
+  | ProbeAnswerMessage
+  | ProbeRefusedMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage

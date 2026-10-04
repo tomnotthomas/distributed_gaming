@@ -7,9 +7,12 @@
 // round trip to the server, as the page measured it, plus the host's, as its
 // report last said. The real path between the two is usually shorter, so the
 // estimate is an upper bound; it cannot tell a direct path from a relayed one.
+// The page then probes its top three through the TURN relay (probes.ts) and
+// asks again with what it measured (`links`): a measured machine is ranked by
+// its own round trip and jitter, and one sent as null (unreachable) fails E6.
 // Nothing about where a host is (its address) is ever stored, let alone sent:
 // a renter learns a machine's id, name, hardware, terms and the scores, never
-// its owner. Direct probes of the top few are a later step.
+// its owner. A probe reveals no address either: only relay candidates pass.
 //
 // Pure: platform.ts reads the rows, api.ts checks the request.
 
@@ -18,6 +21,7 @@ import {
   type Candidate,
   type Control,
   type Encoder,
+  type LinkStats,
   type PicturePref,
   type Reason,
   type RenterPrefs,
@@ -33,10 +37,20 @@ export type RenterAsk = {
   rttMs: number;
   controls: Control[];
   picture: PicturePref;
+  /**
+   * What the page measured through the relay to machines it probed, by id:
+   * their link, or null for one the probe could not reach. They stand in for
+   * the estimate.
+   */
+  links?: ReadonlyMap<string, LinkStats | null>;
 };
 
-/** How a machine's latency was arrived at: through the server for now, direct probes later. */
-export type Latency = { rttMs: number; jitterMs: number; source: "estimate" };
+/**
+ * A machine's latency and how it was arrived at: estimated through the server,
+ * or measured by the renter's own probe through the relay. Both are upper
+ * bounds on the path a session takes.
+ */
+export type Latency = { rttMs: number; jitterMs: number; source: "estimate" | "probe" };
 
 /** One machine as a renter sees it on the game page. */
 export type MachineCandidate = {
@@ -108,14 +122,23 @@ export type GameAvailability = {
   backName: string | null;
 };
 
-/** Every machine with its estimated link from this renter. */
+/** Every machine with its link from this renter: measured where it was probed, else estimated. */
 function candidatesFor(machines: OfferedMachine[], renter: RenterAsk): Candidate[] {
   return machines.map((m) => ({
     host: m.host,
-    link: estimateLink(renter.rttMs, m.profile.net),
+    link: renter.links?.has(m.host.id)
+      ? renter.links.get(m.host.id)!
+      : estimateLink(renter.rttMs, m.profile.net),
     history: m.history,
   }));
 }
+
+/** A listed machine's link as the renter sees it, and where it came from. */
+const latencyOf = (renter: RenterAsk, id: string, link: LinkStats): Latency => ({
+  rttMs: link.rttMs,
+  jitterMs: link.jitterP95Ms,
+  source: renter.links?.has(id) ? "probe" : "estimate",
+});
 
 /** The renter as rank() reads them. */
 function prefs(renter: RenterAsk, minutes: number): RenterPrefs {
@@ -180,7 +203,7 @@ export function machinesFor(
         availableUntil: until,
         minutesLeft: until === null ? null : h.minutesLeft,
         coversSession: h.coversSession,
-        latency: { rttMs: h.link.rttMs, jitterMs: h.link.jitterP95Ms, source: "estimate" },
+        latency: latencyOf(renter, h.host.id, h.link),
         response: h.response,
         picture: h.picture,
         stability: h.stability,
@@ -227,7 +250,7 @@ export function availabilityFor(
             id: first.host.id,
             name: byId.get(first.host.id)!.profile.name,
             gpu: first.host.gpu,
-            latency: { rttMs: first.link.rttMs, jitterMs: first.link.jitterP95Ms, source: "estimate" },
+            latency: latencyOf(renter, first.host.id, first.link),
             availableUntil: untilOf(first.host),
           }
         : null,

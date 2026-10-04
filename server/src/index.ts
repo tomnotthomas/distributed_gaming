@@ -37,6 +37,10 @@
 // platform session. While it runs, the room is registered by the streamer in
 // the renter's Windows account with a short-lived session key instead, and the
 // machine key cannot register it at all. See sessions.ts.
+//
+// Signaling also relays a signed-in renter's latency probes to the PCs they
+// are choosing between (probes.ts). A probe takes no seat: the socket that
+// sends it need never join a room.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -44,7 +48,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
-import { accessFromEnv, verifyMachineKey, verifyTicket } from "./access.js";
+import { accessFromEnv, verifyMachineKey, verifyTicket, type RenterSession } from "./access.js";
 import {
   DENIED_CODE,
   isRelayed,
@@ -56,11 +60,12 @@ import {
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
-import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
+import { createSteamAuth, renterSessionOf, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
+import { ProbeRelay } from "./probes.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -128,6 +133,7 @@ const serveApi = createApi({
   fallbackOrigin: `http://localhost:${PORT}`,
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
+  iceServers: () => ice.servers(),
 });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
@@ -178,6 +184,8 @@ type PeerSocket = WebSocket & {
   queued: number;
   /** Frames from this socket dropped for MAX_QUEUED_FRAMES since its queue last drained, logged when it does. */
   dropped: number;
+  /** Who its upgrade request's sign-in cookie names, if anyone: only they may probe. */
+  renter: RenterSession | null;
 };
 
 type Room = { host: PeerSocket | null; client: PeerSocket | null };
@@ -225,6 +233,13 @@ function peerOf(ws: PeerSocket): PeerSocket | null {
 function send(ws: PeerSocket | null, message: SignalMessage): void {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
+
+// Renters' latency probes, relayed to the PCs with their room open here.
+const probes = new ProbeRelay<PeerSocket>({
+  secret: sessionSecret,
+  send,
+  hostSocket: (hostId) => rooms.get(hostId)?.host ?? null,
+});
 
 /** Refuse, say why, and hang up. The socket never enters a room. */
 function deny(ws: PeerSocket, reason: DeniedMessage["reason"]): void {
@@ -583,6 +598,15 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       return;
     }
 
+    case "probe":
+      // A PC never probes; a renter needs no room to.
+      if (ws.role !== "host") probes.probe(ws, ws.renter, msg);
+      return;
+
+    case "probe-answer":
+      if (ws.role === "host") probes.answer(ws, msg);
+      return;
+
     case "join": {
       if (ws.role) return;
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
@@ -727,6 +751,7 @@ async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise
 
 /** `ws` closed: give up its seat, and tell its peer and the platform. */
 function onClose(ws: PeerSocket): void {
+  probes.forget(ws);
   const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return;
 
@@ -751,8 +776,11 @@ function onClose(ws: PeerSocket): void {
   if (wasHost && ws.hostId) hostGone(ws.hostId, ws.sessionId === null);
 }
 
-wss.on("connection", (socket) => {
+wss.on("connection", (socket, req) => {
   const ws = socket as PeerSocket;
+  // Read once: the cookie cannot change on an open socket. Its expiry is
+  // checked again at each probe.
+  ws.renter = renterSessionOf(req, sessionSecret);
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;

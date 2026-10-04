@@ -16,6 +16,10 @@ function feelShort(machine: Machine, picture: number): string {
 
 const untilShort = (machine: Machine) => (machine.until === "late" ? "All night" : machine.until);
 
+/** How a machine's round trip was arrived at, for its tooltip. */
+const latencyNote = (machine: Machine) =>
+  machine.measured ? "Measured through Swiff's relay" : "Estimated through Swiff";
+
 /** "1 machine from 1 player": who is behind the machines listed, where that is known (the demo). */
 function ledgerCount(live: Machine[]): string {
   const machines = `${live.length} ${live.length === 1 ? "machine" : "machines"}`;
@@ -130,7 +134,9 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
             </div>
             <div>
               <dt>Response</dt>
-              <dd>{picked.ping} ms</dd>
+              <dd title={latencyNote(picked)}>
+                {swiff.probing.has(picked.id) ? "Measuring…" : `${picked.ping} ms`}
+              </dd>
             </div>
             <div>
               <dt>Free until</dt>
@@ -151,12 +157,14 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
               ? "Machines"
               : swiff.machinesLoading
                 ? "Finding machines…"
-                : ledgerCount(live)}
+                : swiff.measuring
+                  ? "Measuring latency…"
+                  : ledgerCount(live)}
           </span>
           <span>Ranked</span>
         </div>
 
-        <div className="ledger">
+        <div className="ledger" aria-busy={swiff.machinesLoading || swiff.measuring}>
           {!swiff.seesAvailability ? (
             <p className="ledger-busy mono">Sign in to see which machines can play it, and how well.</p>
           ) : !swiff.machinesLoading && !machines.length ? (
@@ -173,7 +181,10 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                 aria-pressed={chosen}
                 onClick={() => swiff.setMachineId(machine.id)}
               >
-                <span className="ledger-ms">
+                <span
+                  className={swiff.probing.has(machine.id) ? "ledger-ms measuring" : "ledger-ms"}
+                  title={latencyNote(machine)}
+                >
                   {machine.ping}
                   <small>ms</small>
                 </span>

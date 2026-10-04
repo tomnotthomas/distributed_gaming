@@ -26,6 +26,17 @@
 //                            Set as an HttpOnly cookie after Steam sign-in and
 //                            required to book or claim — see signin.ts.
 //
+//   Renter     probe token   Signed by this server (HMAC-SHA256 with
+//                            SESSION_SECRET, under its own domain), naming one
+//                            signed-in renter, one machine and an expiry a
+//                            minute away. Handed out with the renter's ranked
+//                            machines, for the server's top three by its own
+//                            estimate only. The one thing a socket may do
+//                            outside a room: with the sign-in cookie on its
+//                            upgrade request, spend it on one latency probe of
+//                            that machine, relaying only probe, probe-offer
+//                            and probe-answer, never taking a seat (probes.ts).
+//
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default
 // worth having on a machine that streams its screen to strangers.
@@ -48,7 +59,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter" | "signin";
+type Domain = "ticket" | "session" | "renter" | "signin" | "probe";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -217,6 +228,52 @@ export function verifySignInState(secret: string, token: unknown, now = Date.now
   if (!state || typeof state.nonce !== "string" || !state.nonce) return null;
   if (typeof state.exp !== "number" || state.exp * 1000 <= now) return null;
   return state.nonce;
+}
+
+export type ProbeToken = {
+  /** The signed-in renter's Steam id: only they may probe with it. */
+  renter: string;
+  /** The machine it may probe. */
+  host: string;
+  /** Unique per token, so each is spent once. */
+  id: string;
+  /** Unix seconds after which it probes nothing. */
+  exp: number;
+};
+
+/**
+ * Mint a signed token for one latency probe of `host` by `renter`, with a
+ * random id. Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded
+ * down to whole seconds.
+ */
+export function mintProbeToken(
+  secret: string,
+  { renter, host }: Pick<ProbeToken, "renter" | "host">,
+  ttlSeconds: number,
+  now = Date.now(),
+): string {
+  const token: ProbeToken = {
+    renter,
+    host,
+    id: b64url(randomBytes(12)),
+    exp: Math.floor(now / 1000) + ttlSeconds,
+  };
+  return seal(secret, token, "probe");
+}
+
+/**
+ * The token, if `secret` signed it as a probe token and it has not expired.
+ * Whether it was spent already is for the caller to say. `now` is Unix
+ * milliseconds; a token is expired at its expiry time.
+ */
+export function verifyProbeToken(secret: string, token: unknown, now = Date.now()): ProbeToken | null {
+  const body = unseal(secret, token, "probe");
+  if (!body) return null;
+  if (typeof body.renter !== "string" || !body.renter) return null;
+  if (typeof body.host !== "string" || !body.host) return null;
+  if (typeof body.id !== "string" || !body.id) return null;
+  if (typeof body.exp !== "number" || body.exp * 1000 <= now) return null;
+  return { renter: body.renter, host: body.host, id: body.id, exp: body.exp };
 }
 
 /** A new machine key and the hash the server stores for it. */

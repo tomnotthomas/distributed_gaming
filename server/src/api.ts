@@ -24,6 +24,9 @@
 // Booking a machine the renter picked from that list that has been taken since
 // answers 409 with the next best from the same ranking, which spends from the
 // same budget: past it, the 409 names none.
+// The machine list hands out a probe token for each of the top three by the
+// server's estimate, which the page spends on a latency probe through the TURN
+// relay (probes.ts); both reads take what those probes measured back as `links`.
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
 // key it registers its room with (access.ts). The renter authenticates with the
@@ -34,13 +37,21 @@
 // ticket as its bearer.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Control, PicturePref } from "@swiff/rank";
-import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
+import type { Control, LinkStats, PicturePref } from "@swiff/rank";
+import {
+  mintProbeToken,
+  mintTicket,
+  verifyMachineKey,
+  verifyTicket,
+  type Access,
+  type RenterSession,
+} from "./access.js";
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
+import { PROBED_PER_GAME, PROBE_TOKEN_TTL_S } from "./probes.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
@@ -57,6 +68,8 @@ const MAX_AVAILABILITY_APPIDS = 100;
 const MAX_RENTER_RTT_MS = 10_000;
 /** The most machines a booking may carry a measured round trip for: a list's worth. */
 const MAX_PROBED_MACHINES = 50;
+/** The most measured links a read may carry: more than a renter may probe in a minute. */
+const MAX_LINKS = 30;
 /** Machine ids are MACHINE_KEYS entries: short. */
 const MAX_MACHINE_ID_LENGTH = 200;
 const CONTROLS: readonly Control[] = ["kb", "mouse", "pad"];
@@ -81,6 +94,12 @@ export type ApiOptions = {
   profile?: ProfileReader;
   /** Each renter's budget of availability and machine-list reads. Defaults to one for this API alone. */
   discovery?: RequestBudget;
+  /**
+   * The TURN relay the page's probes go through, as signaling hands it to
+   * peers (ice.ts), read per request. Defaults to none, and with none there
+   * are no probes.
+   */
+  iceServers?: () => RTCIceServer[];
 };
 
 /** Answer with a JSON body that no cache keeps. */
@@ -180,7 +199,7 @@ function optionalMachineId(value: unknown): string | undefined {
 
 /**
  * The renter's round trips in a booking body, each from 0 to MAX_RENTER_RTT_MS
- * ms: `server`, to this server, and `machines`, straight to each machine
+ * ms: `server`, to this server, and `machines`, through the relay to each machine
  * probed, by id. Either may be left out, as may the whole.
  */
 function bookingRtts(value: unknown): Rtts {
@@ -236,11 +255,60 @@ const MAX_APPID = 2 ** 31 - 1;
 /** The request's query string. */
 const queryOf = (req: IncomingMessage) => new URL(req.url ?? "/", "http://localhost").searchParams;
 
+/** The renter's ask without what their page says it measured. */
+const estimateOnly = ({ links: _links, ...ask }: RenterAsk): RenterAsk => ask;
+
+/** Whether `servers` include a TURN relay, the only path a probe may take. */
+const hasTurn = (servers: RTCIceServer[]) =>
+  servers.some((server) => [server.urls].flat().some((url) => /^turns?:/i.test(url)));
+
+/**
+ * What the page measured through the relay to the machines it probed
+ * (`links`): a JSON object from machine id to `{ rttMs, jitterMs }`, or to
+ * null for one the probe could not reach. Absent: nothing was measured. A 400
+ * names what is wrong with it.
+ */
+function measuredLinks(value: string | null): Map<string, LinkStats | null> | undefined {
+  if (value === null) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new HttpError(400, "links must be a JSON object");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new HttpError(400, "links must be a JSON object");
+  }
+  const entries = Object.entries(parsed);
+  if (entries.length > MAX_LINKS) throw new HttpError(400, `links must name at most ${MAX_LINKS} machines`);
+  return new Map(
+    entries.map(([id, link]): [string, LinkStats | null] => {
+      if (!id || id.length > MAX_MACHINE_ID_LENGTH) throw new HttpError(400, "links names a bad machine id");
+      if (link === null) return [id, null];
+      if (typeof link !== "object" || Array.isArray(link)) {
+        throw new HttpError(400, `links[${id}] must be null or { rttMs, jitterMs }`);
+      }
+      const { rttMs, jitterMs } = link as Json;
+      return [
+        id,
+        {
+          rttMs: boundedNumber(rttMs, `links[${id}].rttMs`, MAX_RENTER_RTT_MS),
+          jitterP95Ms: boundedNumber(jitterMs, `links[${id}].jitterMs`, MAX_RENTER_RTT_MS),
+          // Through the relay is how a probe measures, not how the session will
+          // connect: it may well go direct, so it costs no Response step.
+          relayed: false,
+        },
+      ];
+    }),
+  );
+}
+
 /**
  * Who is asking and how, from the query: the renter's round trip to the
  * server (`rtt`, ms, as the page measured it; required), the controls
- * they play with (`controls`, comma-separated) and their Picture setting
- * (`picture`, default best).
+ * they play with (`controls`, comma-separated), their Picture setting
+ * (`picture`, default best) and what their probes measured (`links`, see
+ * measuredLinks).
  */
 function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
   const rtt = query.get("rtt");
@@ -249,7 +317,13 @@ function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
     throw new HttpError(400, `rtt must be a number from 0 to ${MAX_RENTER_RTT_MS}`);
   }
   const controls = (query.get("controls") ?? "").split(",").filter(Boolean);
-  return { steamId, rttMs, ...renterPrefs(controls, query.get("picture") ?? "best") };
+  const links = measuredLinks(query.get("links"));
+  return {
+    steamId,
+    rttMs,
+    ...renterPrefs(controls, query.get("picture") ?? "best"),
+    ...(links ? { links } : {}),
+  };
 }
 
 const defaultGames = async () =>
@@ -271,6 +345,7 @@ export function createApi({
   profile = (steamId) => readProfile(undefined, steamId),
   events,
   discovery = new RequestBudget(),
+  iceServers = () => [],
 }: ApiOptions) {
   /** The signed-in renter, once they are within their budget of discovery reads; 429 past it. */
   function requireDiscovery(req: IncomingMessage, res: ServerResponse): string | null {
@@ -342,7 +417,31 @@ export function createApi({
       const ask = renterAsk(steamId, query);
       const [game] = await platform.requirements([appid]);
       const { at, machines } = await platform.offeredMachines();
-      reply(res, 200, machinesFor(game!, minutes, ask, machines, at));
+      const ranked = machinesFor(game!, minutes, ask, machines, at);
+      // A probe token for each of the server's own top three not measured
+      // already: only these may the renter probe. The three are ranked by the
+      // estimate alone, so what the page says it measured (`links`) can reorder
+      // the list but never move a token further down it. Probes go through the
+      // TURN relay only, so without one there are none, and its credentials go
+      // out only with a token to spend them on.
+      const relay = iceServers();
+      const probed =
+        sessionSecret && hasTurn(relay)
+          ? (ask.links ? machinesFor(game!, minutes, estimateOnly(ask), machines, at) : ranked).machines
+              .slice(0, PROBED_PER_GAME)
+              .map((m) => m.id)
+              .filter((id) => !ask.links?.has(id))
+          : [];
+      const probe = (id: string) =>
+        probed.includes(id)
+          ? mintProbeToken(sessionSecret!, { renter: steamId, host: id }, PROBE_TOKEN_TTL_S)
+          : null;
+      const listed = ranked.machines.map((m) => ({ ...m, probe: probe(m.id) }));
+      reply(res, 200, {
+        ...ranked,
+        machines: listed,
+        ...(listed.some((m) => m.probe) ? { iceServers: relay } : {}),
+      });
       return true;
     }
 

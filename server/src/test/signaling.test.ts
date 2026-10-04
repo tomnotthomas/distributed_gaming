@@ -11,11 +11,13 @@ import { after, afterEach, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { mintProbeToken, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { relayOnly } from "../probes.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
+import { OWN_ADDRESSES, RELAY_ADDRESS, sdpOf } from "./sdp.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8100 + Math.floor(Math.random() * 400);
@@ -60,8 +62,9 @@ function joinedMessage(ws: RecordingSocket): JoinedMessage {
   return msg;
 }
 
-async function open(): Promise<RecordingSocket> {
-  const ws = new WebSocket(ORIGIN) as RecordingSocket;
+/** A socket to the server, its upgrade request carrying `cookie` when given (a renter signed in). */
+async function open(cookie?: string): Promise<RecordingSocket> {
+  const ws = new WebSocket(ORIGIN, cookie ? { headers: { cookie } } : {}) as RecordingSocket;
   ws.received = [];
   ws.barriers = 0;
   ws.on("message", (raw) => {
@@ -327,6 +330,95 @@ describe("signaling", () => {
     await wait(100);
     assert.ok(types(ws).includes("pong"), "still serving after garbage");
     ws.close();
+  });
+});
+
+describe("latency probes", () => {
+  const RENTER = "76561198000000001";
+  const OFFER = sdpOf("offer");
+  const ANSWER = sdpOf("answer");
+  const probe = (room: string, probeId = "mine", renter = RENTER): SignalMessage => ({
+    type: "probe",
+    hostId: room,
+    token: mintProbeToken(SESSION_SECRET, { renter, host: room }, 60),
+    probeId,
+    sdp: OFFER,
+  });
+
+  it("relays a signed-in renter's probe to the PC and its answer back, without taking the seat", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+
+    const prober = await open(RENTER_COOKIE);
+    send(prober, probe(room));
+    await handled(prober);
+    const offer = host.received.find((m) => m.type === "probe-offer");
+    assert.ok(offer && offer.type === "probe-offer");
+    assert.deepEqual(offer.sdp, { type: "offer", sdp: relayOnly(OFFER.sdp) });
+    assert.notEqual(offer.probeId, "mine");
+
+    send(host, { type: "probe-answer", probeId: offer.probeId, sdp: ANSWER });
+    await handled(host);
+    assert.deepEqual(prober.received, [
+      { type: "probe-answer", probeId: "mine", sdp: { type: "answer", sdp: relayOnly(ANSWER.sdp) } },
+    ]);
+    // Neither side learnt where the other is.
+    for (const sdp of [offer.sdp.sdp!, JSON.stringify(prober.received)]) {
+      for (const own of OWN_ADDRESSES) assert.ok(!sdp.includes(own), `${own} crossed`);
+      assert.ok(sdp.includes(RELAY_ADDRESS));
+    }
+    assert.ok(!types(host).includes("peer-joined"), "a probe is not a renter arriving");
+
+    // The seat is still free for whoever holds a ticket.
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+    assert.equal(joinedMessage(client).hostOnline, true);
+    for (const ws of [host, prober, client]) ws.close();
+  });
+
+  it("refuses a probe from a socket that is not signed in, or for a PC that is not there", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+
+    const stranger = await open();
+    send(stranger, probe(room));
+    await handled(stranger);
+    assert.deepEqual(stranger.received, [{ type: "probe-refused", probeId: "mine", reason: "bad-token" }]);
+
+    const prober = await open(RENTER_COOKIE);
+    send(prober, probe(room, "other renter's", "76561198000000002"));
+    send(prober, probe(nextRoom(), "nobody home"));
+    await handled(prober);
+    assert.deepEqual(prober.received, [
+      { type: "probe-refused", probeId: "other renter's", reason: "bad-token" },
+      { type: "probe-refused", probeId: "nobody home", reason: "host-offline" },
+    ]);
+    assert.ok(!types(host).includes("probe-offer"));
+    for (const ws of [host, stranger, prober]) ws.close();
+  });
+
+  it("takes a probe answer from the PC alone", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const prober = await open(RENTER_COOKIE);
+    send(prober, probe(room));
+    await handled(prober);
+    const offer = host.received.find((m) => m.type === "probe-offer");
+    assert.ok(offer && offer.type === "probe-offer");
+
+    // A renter who learned the id cannot answer for the PC.
+    const imposter = await open(RENTER_COOKIE);
+    send(imposter, { type: "probe-answer", probeId: offer.probeId, sdp: ANSWER });
+    await handled(imposter);
+    assert.deepEqual(prober.received, []);
+    for (const ws of [host, prober, imposter]) ws.close();
   });
 });
 

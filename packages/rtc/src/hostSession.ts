@@ -11,11 +11,14 @@
 // the same session again; when the session ends it goes back to the machine key
 // to wait for the next claim. A machine key kept out by a session this app lost
 // (reloaded mid-session) ends that session, and the server pushes its claim again.
+//
+// It also answers renters' latency probes (probe.ts), whichever key holds the room.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
 import { DEFAULT_AUDIO_BITRATE, setLocalWithStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
+import { createProbeResponder } from "./probe";
 import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
 
 export type CaptureSettings = {
@@ -162,6 +165,10 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
 
+  const probes = createProbeResponder({
+    iceServers: () => opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
+  });
+
   /** Leave the claim behind and wait for the next one with the machine key. */
   const backToMachineKey = () => {
     opts.onClaimOver?.();
@@ -272,6 +279,9 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         opts.onPeerHere(false);
         teardown();
         break;
+      case "probe-offer":
+        probes.answer(msg, send);
+        break;
     }
   };
 
@@ -282,6 +292,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       stopped = true;
       leave();
       teardown();
+      probes.closeAll();
     },
   };
 }
