@@ -401,6 +401,36 @@ describe("following a booking to its claim", () => {
     expect(storedPlay()).toBeNull();
   });
 
+  it("forgets the play once its booking is seen ended or expired, and keeps it while it plays", () => {
+    const play = (bookingId: string) =>
+      localStorage.setItem("swiff.play", JSON.stringify({ bookingId, claim: TICKET }));
+    const watch = (status: BookingStatus) => {
+      const { stream, open } = fakeStream();
+      watchBooking("b-1", () => {}, { eventSource: open });
+      stream.push(status);
+    };
+    play("b-1");
+    watch("playing");
+    expect(storedPlay()).toEqual({ bookingId: "b-1", claim: TICKET });
+    for (const over of ["ended", "expired"] as const) {
+      play("b-1");
+      watch(over);
+      expect(storedPlay()).toBeNull();
+    }
+    play("b-2");
+    watch("ended");
+    expect(storedPlay()).toEqual({ bookingId: "b-2", claim: TICKET });
+  });
+
+  it("forgets the play when it is ended, even when the network loses the call", async () => {
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: TICKET }));
+    const fetch = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof globalThis.fetch;
+    await expect(endBooking("b-1", { fetch })).rejects.toThrow("offline");
+    expect(storedPlay()).toBeNull();
+  });
+
   it("reads no play from what is not one", () => {
     localStorage.setItem("swiff.play", "{not json");
     expect(storedPlay()).toBeNull();
