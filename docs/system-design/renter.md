@@ -439,14 +439,14 @@ a session all end the booking (POST /bookings/:id/end).
 
 The wire format lives in `server/src/protocol.ts`.
 
-| Message                    | Direction        | Meaning                                                                                                                 |
-| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                       |
-| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                             |
-| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                |
-| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                    |
+| Message                    | Direction        | Meaning                                                                                                                                                          |
+| -------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                                                                |
+| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                                                      |
+| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                                                         |
+| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                                                             |
 | `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code, then `signed-in` or `failed` ([`host.md`](host.md)); the renter's `retry` asks for a new one. Ignition holds until signed in. |
-| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                          |
+| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                   |
 
 ### Room access
 
