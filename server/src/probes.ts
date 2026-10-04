@@ -1,16 +1,19 @@
-// Latency probes: the relay for a renter's data channel straight to a PC,
-// which measures the real path between them before anything is booked.
+// Latency probes: the relay for a renter's data channel to a PC through TURN,
+// which measures the path between them before anything is booked.
 //
 //   renter ── probe (token, offer) ──► here ── probe-offer ──► PC
 //   renter ◄── probe-answer ────────── here ◄── probe-answer ── PC
 //
-// A probe answer carries the PC's candidates, its public address among them,
-// so a renter may only probe what they are about to choose between: signed in,
-// only the machines the server ranked in their top three for a game (the
-// token, minted with the list in api.ts and spent here), and no more than 20
-// a minute. A probe never touches a room's seat: it is not a join, and the
-// renter in the room hears nothing of it. The server reads nothing in the
-// descriptions; it only checks they are the right shape and size.
+// A probe goes through the TURN relay only, so neither side learns where the
+// other is before anything is booked: the renter's peer connection gathers
+// relay candidates alone, and whatever either description carries, only its
+// relay candidates are passed on here, every other address in it blanked
+// (relayOnly). Even so a probe costs the PC a peer connection, so a renter may
+// only probe what they are about to choose between: signed in, only the
+// machines the server ranked in their top three for a game (the token, minted
+// with the list in api.ts and spent here), and no more than 20 a minute. A
+// probe never touches a room's seat: it is not a join, and the renter in the
+// room hears nothing of it.
 //
 // Wire format: protocol.ts. The PC's side is @swiff/rtc's probe.ts, the
 // renter's its latency.ts.
@@ -33,6 +36,40 @@ export const PROBE_WAIT_MS = 15_000;
 const MAX_PROBE_ID_CHARS = 64;
 /** The largest description relayed. A data-channel description with every candidate is a few KB. */
 const MAX_SDP_CHARS = 16 * 1024;
+
+/** The address that stands in for a real one in a relayed description: none. */
+const NO_ADDRESS = "0.0.0.0";
+/** The port that stands in for a real one (RFC 8840: 9, the discard port). */
+const NO_PORT = "9";
+
+/**
+ * `sdp` with nothing in it that says where its sender is: every candidate but
+ * the relay ones dropped, the relay ones' related address (the sender's own,
+ * as the relay saw it) blanked, and every connection, origin and RTCP address
+ * and media port replaced. Null when no relay candidate is left: it could only
+ * connect straight. Every other line passes as it is.
+ */
+export function relayOnly(sdp: string): string | null {
+  let relays = 0;
+  const lines = sdp.split(/\r?\n/).flatMap((line): string[] => {
+    if (line.startsWith("a=candidate:")) {
+      const fields = line.split(" ");
+      const at = (name: string) => fields.indexOf(name, 4) + 1;
+      if (!at("typ") || fields[at("typ")] !== "relay") return [];
+      if (at("raddr")) fields[at("raddr")] = NO_ADDRESS;
+      if (at("rport")) fields[at("rport")] = "0";
+      relays++;
+      return [fields.join(" ")];
+    }
+    if (line.startsWith("a=remote-candidates:")) return [];
+    if (line.startsWith("c=")) return [`c=IN IP4 ${NO_ADDRESS}`];
+    if (line.startsWith("a=rtcp:")) return [`a=rtcp:${NO_PORT} IN IP4 ${NO_ADDRESS}`];
+    if (line.startsWith("o=")) return [line.split(" ").slice(0, 4).concat("IP4", "127.0.0.1").join(" ")];
+    if (line.startsWith("m=")) return [line.replace(/^(m=\S+) \d+/, `$1 ${NO_PORT}`)];
+    return [line];
+  });
+  return relays ? lines.join("\r\n") : null;
+}
 
 /** A probe relayed to a PC, waiting for its answer. */
 type Pending<S> = { renter: S; renterProbeId: string; host: S; timer: ReturnType<typeof setTimeout> };
@@ -97,10 +134,13 @@ export class ProbeRelay<S> {
   /**
    * A renter's `probe` from socket `from`, signed in as `renter` (null when its
    * upgrade request carried no sign-in): relayed to the PC as a probe-offer, or
-   * refused. A message without a usable probe id or offer is dropped unanswered.
+   * refused. A message without a usable probe id or offer, or an offer with
+   * no relay candidate, is dropped unanswered.
    */
   probe(from: S, renter: RenterSession | null, msg: ProbeMessage): void {
     if (!isId(msg.probeId) || !isSdp(msg.sdp, "offer")) return;
+    const offer = relayOnly(msg.sdp.sdp!);
+    if (offer === null) return;
     const refuse = (reason: ProbeRefusedMessage["reason"]) =>
       this.#send(from, { type: "probe-refused", probeId: msg.probeId, reason });
 
@@ -126,20 +166,27 @@ export class ProbeRelay<S> {
     const timer = setTimeout(() => this.#pending.delete(probeId), this.#waitMs);
     timer.unref?.();
     this.#pending.set(probeId, { renter: from, renterProbeId: msg.probeId, host, timer });
-    this.#send(host, { type: "probe-offer", probeId, sdp: msg.sdp });
+    this.#send(host, { type: "probe-offer", probeId, sdp: { type: "offer", sdp: offer } });
   }
 
   /**
    * A PC's `probe-answer` from socket `from`: relayed to the renter who asked,
    * under their own probe id. Only the socket the offer went to may answer it,
-   * once; anything else is dropped.
+   * once; anything else is dropped. An answer with no relay candidate is
+   * dropped too, and with it the probe: the renter's times out.
    */
   answer(from: S, msg: ProbeAnswerMessage): void {
     if (!isId(msg.probeId) || !isSdp(msg.sdp, "answer")) return;
     const pending = this.#pending.get(msg.probeId);
     if (!pending || pending.host !== from) return;
     this.#drop(msg.probeId, pending);
-    this.#send(pending.renter, { type: "probe-answer", probeId: pending.renterProbeId, sdp: msg.sdp });
+    const answer = relayOnly(msg.sdp.sdp!);
+    if (answer === null) return;
+    this.#send(pending.renter, {
+      type: "probe-answer",
+      probeId: pending.renterProbeId,
+      sdp: { type: "answer", sdp: answer },
+    });
   }
 
   /** `socket` closed: nothing more is relayed to or from it. */

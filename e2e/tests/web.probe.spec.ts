@@ -1,12 +1,11 @@
-// Latency probes, end to end: a signed-in renter's game page measures the real
-// path to the machine at the top of its list, and the browser /host page, the
-// PC, answers. Real server, real production bundle, two real peer connections
-// over loopback.
+// Latency probes, end to end: they go through the TURN relay only, so a
+// server without one hands out no probe token and the signed-in renter's game
+// page probes nothing, keeping the estimate through the server. Real server
+// (the e2e one has no TURN), real production bundle, the browser /host page as
+// the PC.
 //
 // The host is offered as if it sat 40 ms from the server, so the estimate
-// through the server reads 40 ms or more; measured straight over loopback it is
-// a few. The probe must neither take the seat nor reach the renter the host
-// page waits for.
+// reads 40 ms or more.
 
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext } from "@playwright/test";
 import { E2E_MACHINE_KEY, E2E_ROOM, signIn } from "./credentials";
@@ -65,7 +64,7 @@ test.describe("latency probes", () => {
     await new Promise((r) => setTimeout(r, 400));
   });
 
-  test("measures the best machine straight from the game page, answered by the /host page", async ({
+  test("without a TURN relay the game page probes nothing and keeps the estimate", async ({
     browser,
     baseURL,
     request,
@@ -96,20 +95,27 @@ test.describe("latency probes", () => {
         if (msg.type === "probe") probes.push(msg);
       }),
     );
+    const lists: { machines: { probe: string | null }[]; iceServers?: unknown }[] = [];
+    renter.on("response", async (res) => {
+      if (/\/api\/games\/\d+\/machines/.test(res.url())) lists.push(await res.json());
+    });
     await renter.goto("/");
     const hero = renter.getByTestId("hero");
     await expect(hero.locator(".hero-strip-line")).toContainText("E2E rig");
-    expect(probes, "the wall never probes").toHaveLength(0);
     await hero.locator("button.resume").click();
 
-    // Measured straight over loopback: a few ms, not the 40 the estimate adds up to.
+    // No token and no relay credentials in the list, so nothing to probe with.
     const ms = renter.locator(".ledger-row").first().locator(".ledger-ms");
-    await expect(ms).toHaveAttribute("title", "Measured straight to this PC", { timeout: 15_000 });
-    expect(Number((await ms.textContent())!.replace(/\D+$/, ""))).toBeLessThan(40);
+    await expect(ms).toHaveAttribute("title", "Estimated through Swiff");
+    await expect.poll(() => lists.length).toBeGreaterThan(0);
+    expect(lists[0]!.machines.map((m) => m.probe)).toEqual([null]);
+    expect(lists[0]).not.toHaveProperty("iceServers");
     await expect(renter.locator(".ledger-head")).toContainText("1 machine");
-    expect(probes).toHaveLength(1);
+    expect(Number((await ms.textContent())!.replace(/\D+$/, ""))).toBeGreaterThanOrEqual(40);
+    await expect(renter.locator(".ledger")).toHaveAttribute("aria-busy", "false");
+    expect(probes, "nothing to probe through").toHaveLength(0);
 
-    // A probe is not a renter: the seat is still free.
+    // The seat is still free.
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
   });
 });

@@ -31,7 +31,9 @@ review:
     - path: "server/src/**"
       instructions: |
         Public-facing signaling server: anyone on the internet can open a
-        socket to it. Nothing but ping/pong and a refusal may happen before a
+        socket to it. Nothing but ping/pong, a refusal and a signed-in renter's
+        latency probe (sign-in cookie plus probe token; relays only probe,
+        probe-offer and probe-answer, never takes a seat) may happen before a
         socket is admitted to a room (server/src/access.ts). Credentials are
         compared in constant time and never logged. Bad input must not crash
         the process.

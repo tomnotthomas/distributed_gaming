@@ -239,18 +239,18 @@ describe("useLive", () => {
       availableUntil: null,
       minutesLeft: null,
       coversSession: true,
-      latency: { rttMs: 20, jitterMs: 1, relayed: false, source: "estimate" },
+      latency: { rttMs: 20, jitterMs: 1, source: "estimate" },
       response: 2,
       picture: 3,
       probe,
     });
 
     /**
-     * The server: lists `ids` but those the read's `links` say are unreachable,
-     * hands out a token for each of the top three not in `links`, and keeps
-     * every `links` read.
+     * The server: lists `ids` (best estimate first) but those the read's
+     * `links` say are unreachable, hands out a token for each of the first
+     * three ids not in `links` with the relay `ice`, and keeps every `links` read.
      */
-    function listing(ids: string[]) {
+    function listing(ids: string[], ice: RTCIceServer[] = [{ urls: "turn:turn.test" }]) {
       const links: (Record<string, unknown> | null)[] = [];
       const get = vi.fn(async (path: string) => {
         if (path.startsWith("/api/ping")) return new Response(null, { status: 204 });
@@ -258,15 +258,16 @@ describe("useLive", () => {
         const sent = query.get("links") ? (JSON.parse(query.get("links")!) as Record<string, unknown>) : null;
         if (path.startsWith("/api/availability")) return json([]);
         links.push(sent);
+        const tokened = ice.length ? ids.slice(0, 3).filter((id) => !(sent && id in sent)) : [];
         return json({
           appid: 730,
           minutes: 60,
           machines: ids
             .filter((id) => sent?.[id] !== null) // unreachable: not listed (E6)
-            .map((id, i) => machine(id, i < 3 && !(sent && id in sent) ? `token-${id}` : null)),
+            .map((id) => machine(id, tokened.includes(id) ? `token-${id}` : null)),
           reason: null,
           busy: [],
-          iceServers: [{ urls: "turn:turn.test" }],
+          ...(tokened.length ? { iceServers: ice } : {}),
         });
       });
       return { get: get as unknown as typeof fetch, links };
@@ -290,7 +291,7 @@ describe("useLive", () => {
       const probes = prober((hostId) =>
         hostId === "pc-2"
           ? { hostId, status: "unreachable" }
-          : { hostId, status: "measured", link: { rttMs: 9, jitterMs: 1, relayed: hostId === "pc-3" } },
+          : { hostId, status: "measured", link: { rttMs: hostId === "pc-3" ? 12 : 9, jitterMs: 1 } },
       );
       const { result } = renderHook(() =>
         useLive(options({ appid: 730, fetch: api.get, probe: probes.probe })),
@@ -299,26 +300,23 @@ describe("useLive", () => {
       expect(probes.rounds).toEqual([
         { targets: ["pc-1", "pc-2", "pc-3"], iceServers: [{ urls: "turn:turn.test" }] },
       ]);
-      expect(result.current.measuring).toBe(730);
+      expect(result.current.measuring).toEqual({ appid: 730, ids: ["pc-1", "pc-2", "pc-3"] });
 
       await probes.finish();
       await flush();
       expect(api.links).toEqual([
         null,
         {
-          "pc-1": { rttMs: 9, jitterMs: 1, relayed: false },
+          "pc-1": { rttMs: 9, jitterMs: 1 },
           "pc-2": null,
-          "pc-3": { rttMs: 9, jitterMs: 1, relayed: true },
+          "pc-3": { rttMs: 12, jitterMs: 1 },
         },
       ]);
-      // pc-4 is in the top three now that pc-2 is not listed: it is probed in a round of its own.
-      expect(probes.rounds.map((r) => r.targets)).toEqual([["pc-1", "pc-2", "pc-3"], ["pc-4"]]);
-      expect(result.current.measuring).toBe(730);
-      await probes.finish();
-      await flush();
+      // pc-4 moved up the list, but the server's top three by estimate are spent: no more rounds.
+      expect(probes.rounds).toHaveLength(1);
       expect(result.current.measuring).toBeNull();
       // A booking goes by the server and every machine reached.
-      expect(result.current.rtts.machines).toEqual({ "pc-1": 9, "pc-3": 9, "pc-4": 9 });
+      expect(result.current.rtts.machines).toEqual({ "pc-1": 9, "pc-3": 12 });
       expect(result.current.rtts.server).toEqual(expect.any(Number));
     });
 
@@ -347,6 +345,18 @@ describe("useLive", () => {
       await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
       await flush();
       expect(probes.rounds).toHaveLength(2);
+    });
+
+    it("never probes without a relay to probe through, and the estimate stands", async () => {
+      const api = listing(["pc-1"], []);
+      const probes = prober((hostId) => ({ hostId, status: "unreachable" }));
+      const { result } = renderHook(() =>
+        useLive(options({ appid: 730, fetch: api.get, probe: probes.probe })),
+      );
+      await started();
+      expect(result.current.game?.machines.machines.map((m) => m.probe)).toEqual([null]);
+      expect(probes.probe).not.toHaveBeenCalled();
+      expect(result.current.measuring).toBeNull();
     });
 
     it("never probes from the wall", async () => {

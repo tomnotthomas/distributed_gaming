@@ -185,10 +185,11 @@ GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=&links=
   first. Each is `{ id, name, gpu, vramMb, ramMb, cpu, cores, encoders, refreshHz,
   controls, price, availableUntil, minutesLeft, coversSession, latency, response,
   picture, stability, headroom, probe }`, where `latency` is `{ rttMs, jitterMs,
-  relayed, source }` (`source` is `estimate`, or `probe` for a machine `links`
-  measured), the scores are `@swiff/rank`'s, and `probe` is a token for one latency
-  probe of it for each of the first three not measured already, else null (Latency
-  probes, below). `iceServers` is the TURN relay a probe may use, empty without one.
+  source }` (`source` is `estimate`, or `probe` for a machine `links` measured), the
+  scores are `@swiff/rank`'s, and `probe` is a token for one latency probe of it for
+  each of the server's own first three by the estimate not measured already, else null
+  (Latency probes, below). `iceServers` is the TURN relay the probes go through, there
+  only when some machine has a token.
   `requirements` is what the game was
   judged against and its `source` (curated, steam or default); `reason` is the rule
   that put the first above the second (`{ rule, label }`, null with fewer than two);
@@ -340,48 +341,59 @@ stored or sent by these reads: a renter sees a machine's id, name, hardware, ter
 scores, never its owner.
 
 `links` replaces the estimate for the machines the page probed (below): a JSON object
-from machine id to `{ rttMs, jitterMs, relayed }`, or to null for one the probe could
-not reach, at most 30 of them. A measured machine is ranked by its own round trip, so
-past 80 ms or unreachable it fails E6, and its Response bucket drops a step for jitter
-over 10 ms or a TURN relay path, as `@swiff/rank` scores any link.
+from machine id to `{ rttMs, jitterMs }`, or to null for one the probe could not reach,
+at most 30 of them. A measured machine is ranked by its own round trip, so past 80 ms or
+unreachable it fails E6, and its Response bucket drops a step for jitter over 10 ms, as
+`@swiff/rank` scores any link. A probe always goes through the relay, which says nothing
+of the path the session will take, so a measured machine never loses the relay step.
 
 ### Latency probes
 
-The estimate cannot see the real path, so the game page measures it for the renter's
-best three machines for that game, signed in only, before anything is booked. The trade
-is that the PC's answer carries its candidates, its public address among them: so a
-renter may probe only those three, and no more than 20 a minute.
+The estimate is put together from two round trips to the server, so the game page
+measures the renter's best three machines for that game too, signed in only, before
+anything is booked. A probe goes through Swiff's TURN relay only, so no PC's or
+renter's own address is revealed before booking: the renter's peer connection gathers
+relay candidates alone, and the server passes on only the relay candidates of either
+side's description. What it measures is the path through the relay: an upper bound,
+like the estimate, but measured end to end. Without a TURN relay there are no probes,
+and the estimate stands. A probe still costs the PC a peer connection, so a renter may
+probe only those three, and no more than 20 a minute.
 
-1. `/games/:appid/machines` hands out a probe token for each of the first three machines
-   not measured already. It is signed with `SESSION_SECRET` under its own domain, names
-   the renter and the machine, and is good for one probe within a minute
+1. `/games/:appid/machines` hands out a probe token for each of the server's own first
+   three machines by the estimate, whatever `links` says, that `links` has not measured
+   already, and only when TURN is configured; the relay's credentials (`iceServers`) go
+   out only with a token. A token is signed with `SESSION_SECRET` under its own domain,
+   names the renter and the machine, and is good for one probe within a minute
    (`server/src/access.ts`).
 2. The page (`@swiff/rtc`'s `probeLatency`) opens a signaling socket, which needs no
    room and takes no seat, and sends `probe` for each, with the token, a probe id of its
-   own and an offer for a peer connection with one data channel and no media, every
-   candidate in it.
+   own and an offer for a peer connection with one data channel and no media, through
+   the TURN servers alone (`iceTransportPolicy: "relay"`), every candidate it gathered
+   in it. With no relay candidate in time it sends nothing.
 3. The server (`server/src/probes.ts`) takes it only from a socket whose upgrade request
    carries the renter's sign-in cookie, with a live token for that renter and machine
    not spent already, within the renter's 20 a minute (20 at once, then one more every
    3 s), and with the PC connected. It relays the offer to the PC as `probe-offer` under
-   an id of its own, and the PC's `probe-answer` back under the renter's. Anything else
-   is answered `probe-refused` (`bad-token`, `too-many` or `host-offline`).
+   an id of its own, and the PC's `probe-answer` back under the renter's. Before passing
+   on either description it drops every candidate but the relay ones (host, srflx and
+   prflx), blanks the relay ones' related address, and replaces the address on its `c=`,
+   `o=` and `a=rtcp` lines with a placeholder and its media port with 9; one left with no
+   relay candidate is dropped, and the probe goes unanswered. Anything else is answered
+   `probe-refused` (`bad-token`, `too-many` or `host-offline`).
 4. The PC (`@swiff/rtc`'s `probe.ts`, in the desktop app and the browser /host page)
    answers alongside whatever it is doing, echoes what the channel carries, and closes
    the probe after 15 s at most.
 5. On the unordered channel, which never retransmits, the page sends 10 pings 25 ms
-   apart. From the echoes: the median round trip, the jitter (the 95th percentile of the
-   change from one round trip to the next), and from `getStats`' selected candidate pair
-   whether the path goes through TURN. A PC that answered but echoed nothing is
+   apart. From the echoes: the median round trip and the jitter (the 95th percentile of
+   the change from one round trip to the next). A PC that answered but echoed nothing is
    unreachable; a probe refused or unanswered leaves the estimate standing. Each probe
    settles within 5 s, and the three run at once: a second or two in all, while the
-   ledger says "Measuring latency…".
+   ledger says "Measuring latency…" and the machines being probed read "Measuring…".
 6. The page reads the machines again with what it measured as `links`, and sends the
    same with every read of the wall and the game page for 5 minutes. A machine is probed
-   at most once in that time; one newly in the top three is probed in a round of its
-   own. `web/src/swiff/booking.ts`'s `book()` sends the round trips with the booking as
-   `rtts`, `{ server, machines: { id: ms } }` (the machines reached), for matching to
-   judge E6 by; the server does not read them yet.
+   at most once in that time. `web/src/swiff/booking.ts`'s `book()` sends the round
+   trips with the booking as `rtts`, `{ server, machines: { id: ms } }` (the machines
+   reached), for matching to judge E6 by; the server does not read them yet.
 
 Only the game page probes: the wall, its attract loop and its hover trailers never do.
 
@@ -504,7 +516,8 @@ configured the server lets nobody in (`server/src/access.ts`).
   reloading the page and takes the seat back.
 - **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
   send to a server, proxy or `Referer` header.
-- **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
+- **Sockets outside a room relay nothing** but a signed-in renter's latency probes
+  (Latency probes, above), and frames over 64 KB close the socket.
 - **A ticket dies with its session.** `claim` records the ticket on the session. Once the
   session ends (the host ends it, the renter leaves, the owner takes the machine back,
   the machine goes silent or the booked time runs out), the server records the ticket

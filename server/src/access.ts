@@ -30,8 +30,12 @@
 //                            SESSION_SECRET, under its own domain), naming one
 //                            signed-in renter, one machine and an expiry a
 //                            minute away. Handed out with the renter's ranked
-//                            machines for their top three only; good for one
-//                            latency probe of that machine (protocol.ts).
+//                            machines, for the server's top three by its own
+//                            estimate only. The one thing a socket may do
+//                            outside a room: with the sign-in cookie on its
+//                            upgrade request, spend it on one latency probe of
+//                            that machine, relaying only probe, probe-offer
+//                            and probe-answer, never taking a seat (probes.ts).
 //
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default

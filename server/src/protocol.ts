@@ -73,22 +73,26 @@ export type SessionClaimedMessage = {
   minutes: number;
 };
 /**
- * A latency probe: a data channel straight to a PC, which never takes the seat.
+ * A latency probe: a data channel to a PC through the TURN relay, which never
+ * takes the seat.
  *
  *   renter  probe        ──► server  asks to probe `hostId`, with its offer
  *   server  probe-offer  ──► PC      the renter's offer, under the server's `probeId`
  *   PC      probe-answer ──► server  the PC's answer, relayed to the renter
  *                                    under the renter's own `probeId`
  *
- * Neither side trickles: each description carries all of its candidates. The PC
- * echoes every message on the renter's channel and closes the probe when it
- * closes, or after 15 s. The PC side is in @swiff/rtc (probe.ts), the renter's
- * in latency.ts.
+ * Neither side trickles: each description carries all of its candidates. The
+ * renter gathers relay candidates only, and the server passes on only the relay
+ * candidates of either description, with every other address in it blanked,
+ * so neither side learns where the other is; a description left with none is
+ * dropped. The PC echoes every message on the renter's channel and closes the
+ * probe when it closes, or after 15 s. The PC side is in @swiff/rtc (probe.ts),
+ * the renter's in latency.ts.
  *
  * Only a signed-in renter may probe (the sign-in cookie on the socket's
- * upgrade request), and only a machine the server ranked in their top three
- * for a game: `token` is minted for exactly those, for that renter, by
- * GET /api/games/:appid/machines, and is good for one probe within a minute.
+ * upgrade request), and only a machine in the server's own top three for a
+ * game by its estimate: `token` is minted for exactly those, for that renter,
+ * by GET /api/games/:appid/machines, and is good for one probe within a minute.
  * Each renter may start 20 probes a minute. A probe that is not relayed is
  * answered with probe-refused instead:
  *

@@ -3,7 +3,14 @@
 // it always settles, and soon.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { linkOf, PROBE_PINGS, PROBE_TIMEOUT_MS, probeLatency, type ProbeResult } from "./latency";
+import {
+  linkOf,
+  PROBE_PINGS,
+  PROBE_TIMEOUT_MS,
+  probeLatency,
+  turnServersOf,
+  type ProbeResult,
+} from "./latency";
 import { FakeSocket } from "./test/fakes";
 
 /** The renter's end of the channel; the test plays the PC by echoing what it sends. */
@@ -26,16 +33,20 @@ class FakeChannel {
   }
 }
 
+/** An offer as a relay-only peer connection writes it: one relay candidate. */
+const OFFER_SDP = "v=0\r\na=candidate:6 1 udp 41885439 198.51.100.9 3478 typ relay raddr 0.0.0.0 rport 0\r\n";
+const TURN: RTCIceServer = { urls: "turn:turn.test", username: "u", credential: "c" };
+
 class FakePeer extends EventTarget {
   static made: FakePeer[] = [];
   iceGatheringState: RTCIceGatheringState = "complete";
   connectionState: RTCPeerConnectionState = "new";
-  localDescription: { toJSON(): RTCSessionDescriptionInit } | null = null;
+  localDescription: { sdp: string; toJSON(): RTCSessionDescriptionInit } | null = null;
+  /** What createOffer writes. */
+  static offer = OFFER_SDP;
   remote: RTCSessionDescriptionInit | null = null;
   channel: FakeChannel | null = null;
   closed = false;
-  /** The candidate types on the pair ICE selected. */
-  path: { local: string; remote: string } = { local: "srflx", remote: "srflx" };
   onconnectionstatechange: (() => void) | null = null;
   constructor(readonly iceServers: RTCIceServer[]) {
     super();
@@ -46,22 +57,13 @@ class FakePeer extends EventTarget {
     return this.channel;
   }
   async createOffer(): Promise<RTCSessionDescriptionInit> {
-    return { type: "offer", sdp: "v=0 offer" };
+    return { type: "offer", sdp: FakePeer.offer };
   }
   async setLocalDescription(sdp: RTCSessionDescriptionInit) {
-    this.localDescription = { toJSON: () => sdp };
+    this.localDescription = { sdp: sdp.sdp!, toJSON: () => sdp };
   }
   async setRemoteDescription(sdp: RTCSessionDescriptionInit) {
     this.remote = sdp;
-  }
-  async getStats() {
-    const reports = [
-      { id: "t", type: "transport", selectedCandidatePairId: "pair" },
-      { id: "pair", type: "candidate-pair", localCandidateId: "l", remoteCandidateId: "r" },
-      { id: "l", type: "local-candidate", candidateType: this.path.local },
-      { id: "r", type: "remote-candidate", candidateType: this.path.remote },
-    ];
-    return new Map(reports.map((r) => [r.id, r]));
   }
   close() {
     this.closed = true;
@@ -71,7 +73,7 @@ class FakePeer extends EventTarget {
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
 /** Start probing `hosts`; the socket opens at once. */
-async function start(hosts: string[], iceServers: RTCIceServer[] = []) {
+async function start(hosts: string[], iceServers: RTCIceServer[] = [TURN]) {
   let result: ProbeResult[] | null = null;
   const done = probeLatency({
     url: "wss://signal.test",
@@ -101,6 +103,7 @@ beforeEach(() => {
   vi.stubGlobal("WebSocket", FakeSocket);
   FakeSocket.instances = [];
   FakePeer.made = [];
+  FakePeer.offer = OFFER_SDP;
 });
 
 afterEach(() => {
@@ -110,8 +113,8 @@ afterEach(() => {
 
 describe("probeLatency", () => {
   it("sends one probe per machine with its token and full offer, over one socket", async () => {
-    const turn = { urls: "turn:turn.test", username: "u", credential: "c" };
-    const { socket } = await start(["pc-1", "pc-2"], [turn]);
+    const stun = { urls: "stun:stun.test" };
+    const { socket } = await start(["pc-1", "pc-2"], [stun, TURN]);
     expect(FakeSocket.instances).toHaveLength(1);
     expect(socket.messages).toEqual([
       {
@@ -119,49 +122,83 @@ describe("probeLatency", () => {
         hostId: "pc-1",
         token: "token-pc-1",
         probeId: "p0",
-        sdp: { type: "offer", sdp: "v=0 offer" },
+        sdp: { type: "offer", sdp: OFFER_SDP },
       },
       {
         type: "probe",
         hostId: "pc-2",
         token: "token-pc-2",
         probeId: "p1",
-        sdp: { type: "offer", sdp: "v=0 offer" },
+        sdp: { type: "offer", sdp: OFFER_SDP },
       },
     ]);
-    // Data only, unordered and never resent; the server's TURN beside the default STUN.
+    // Data only, unordered and never resent; through the server's TURN alone, no STUN.
     const [peer] = FakePeer.made;
     expect(peer!.channel!.options).toEqual({ ordered: false, maxRetransmits: 0 });
-    expect(peer!.iceServers.at(-1)).toEqual(turn);
-    expect(peer!.iceServers.length).toBeGreaterThan(1);
+    expect(peer!.iceServers).toEqual([{ ...TURN, urls: ["turn:turn.test"] }]);
   });
 
-  it("measures the median round trip and jitter from ten pings, and says the path was direct", async () => {
+  it("opens a peer connection that gathers relay candidates only, with the server's TURN", async () => {
+    let config: RTCConfiguration | undefined;
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      class extends FakePeer {
+        constructor(c: RTCConfiguration) {
+          super(c.iceServers ?? []);
+          config = c;
+        }
+      },
+    );
+    const done = probeLatency({
+      url: "wss://signal.test",
+      targets: [{ hostId: "pc-1", token: "t" }],
+      iceServers: [{ urls: ["stun:stun.test", "turns:turn.test:443"], username: "u", credential: "c" }],
+      openSocket: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    expect(config).toEqual({
+      iceServers: [{ urls: ["turns:turn.test:443"], username: "u", credential: "c" }],
+      iceTransportPolicy: "relay",
+    });
+    FakeSocket.instances[0]!.drop();
+    await done;
+  });
+
+  it("probes nothing without a TURN relay: no socket, no peer connection, nothing known", async () => {
+    for (const iceServers of [[], [{ urls: "stun:stun.test" }]]) {
+      const results = await probeLatency({
+        url: "wss://signal.test",
+        targets: [{ hostId: "pc-1", token: "t" }],
+        iceServers,
+        createPeer: (servers) => new FakePeer(servers) as unknown as RTCPeerConnection,
+      });
+      expect(results).toEqual([{ hostId: "pc-1", status: "unanswered" }]);
+    }
+    expect(FakeSocket.instances).toHaveLength(0);
+    expect(FakePeer.made).toHaveLength(0);
+  });
+
+  it("offers nothing when the relay gave no candidate in time", async () => {
+    FakePeer.offer = "v=0\r\na=candidate:1 1 udp 2122260223 192.168.1.20 51234 typ host\r\n";
+    const { socket, done } = await start(["pc-1"]);
+    expect(await done).toEqual([{ hostId: "pc-1", status: "unanswered" }]);
+    expect(socket.messages).toEqual([]);
+    expect(FakePeer.made[0]!.closed).toBe(true);
+  });
+
+  it("measures the median round trip and jitter from ten pings", async () => {
     const { socket, done } = await start(["pc-1"]);
     await answerAndEcho(socket, FakePeer.made[0]!, "p0", [20, 22, 20, 21, 20, 30, 20, 21, 20, 22]);
     const [result] = await done;
     expect(result).toEqual({
       hostId: "pc-1",
       status: "measured",
-      link: { rttMs: 20.5, jitterMs: 10, relayed: false },
+      link: { rttMs: 20.5, jitterMs: 10 },
     });
     expect(FakePeer.made[0]!.channel!.sent).toEqual(
       Array.from({ length: PROBE_PINGS }, (_, seq) => String(seq)),
     );
     expect(FakePeer.made[0]!.closed).toBe(true);
     expect(socket.closeCalls).toBe(1);
-  });
-
-  it("says the path went through TURN when either end of the chosen pair is a relay", async () => {
-    const { socket, done } = await start(["pc-1"]);
-    FakePeer.made[0]!.path = { local: "srflx", remote: "relay" };
-    await answerAndEcho(socket, FakePeer.made[0]!, "p0", Array(10).fill(15));
-    const [result] = await done;
-    expect(result).toEqual({
-      hostId: "pc-1",
-      status: "measured",
-      link: { rttMs: 15, jitterMs: 0, relayed: true },
-    });
   });
 
   it("measures what came back when some pings are lost", async () => {
@@ -212,7 +249,18 @@ describe("probeLatency", () => {
 
 describe("linkOf", () => {
   it("takes the median, and the 95th percentile of the change from one round trip to the next", () => {
-    expect(linkOf([10, 12, 11, 30, 11], false)).toEqual({ rttMs: 11, jitterMs: 19, relayed: false });
-    expect(linkOf([8], true)).toEqual({ rttMs: 8, jitterMs: 0, relayed: true });
+    expect(linkOf([10, 12, 11, 30, 11])).toEqual({ rttMs: 11, jitterMs: 19 });
+    expect(linkOf([8])).toEqual({ rttMs: 8, jitterMs: 0 });
+  });
+});
+
+describe("turnServersOf", () => {
+  it("keeps the TURN URLs alone, with their credentials", () => {
+    expect(
+      turnServersOf([
+        { urls: "stun:a" },
+        { urls: ["stun:b", "turn:b?transport=udp", "TURNS:b:443"], username: "u", credential: "c" },
+      ]),
+    ).toEqual([{ urls: ["turn:b?transport=udp", "TURNS:b:443"], username: "u", credential: "c" }]);
   });
 });

@@ -1,32 +1,38 @@
-// The renter's side of a latency probe: the real path to a few PCs, measured
-// before anything is booked. One peer connection per PC with a single data
-// channel and no media, opened over signaling and closed as soon as it has
-// answered. It never joins a room, so it never takes a seat.
+// The renter's side of a latency probe: the path to a few PCs, measured before
+// anything is booked. One peer connection per PC with a single data channel and
+// no media, opened over signaling and closed as soon as it has answered. It
+// never joins a room, so it never takes a seat.
 //
-//   probe (token, offer) ──► probe-answer ──► channel open ──► 10 pings echoed ──► getStats
+//   probe (token, offer) ──► probe-answer ──► channel open ──► 10 pings echoed
+//
+// It goes through the server's TURN relay only: this side gathers nothing but
+// relay candidates, and the server passes on only the PC's, so neither learns
+// where the other is. What it measures is the path through the relay, an upper
+// bound on the session's like the server's estimate, but measured. Without a
+// TURN relay there is nothing to probe with.
 //
 // The channel is unordered and never retransmits, so a late or lost ping is
 // seen as one rather than hidden behind a resend. From the echoes: the median
-// round trip, the jitter (95th percentile of the change from one round trip to
-// the next), and from the candidate pair ICE chose whether the path goes
-// through a TURN relay. All the probes run at once; the whole takes a second or
-// two. Wire format: server/src/protocol.ts. The PC's side is probe.ts.
+// round trip and the jitter (95th percentile of the change from one round trip
+// to the next). All the probes run at once; the whole takes a second or two.
+// Wire format: server/src/protocol.ts. The PC's side is probe.ts.
 
-import { candidateTypeOf, createPeerConnection, DEFAULT_ICE_SERVERS, selectedCandidatePair } from "./peer";
+import { createPeerConnection } from "./peer";
 import type { SignalMessage } from "./signaling";
 
 /** A PC to probe, with the token the server handed out for it. */
 export type ProbeTarget = { hostId: string; token: string };
 
-/** What a probe measured: the median round trip and its jitter in ms, and whether it went through TURN. */
-export type MeasuredLink = { rttMs: number; jitterMs: number; relayed: boolean };
+/** What a probe measured through the relay: the median round trip and its jitter in ms. */
+export type MeasuredLink = { rttMs: number; jitterMs: number };
 
 /**
  * How one probe ended:
  *
  *   measured     the PC answered and echoed: `link` is the real path
  *   unreachable  the PC answered, but no channel opened or nothing came back in time
- *   unanswered   the server refused the probe (`reason`), or no answer came: nothing is known
+ *   unanswered   no TURN relay to probe through, the server refused the probe (`reason`),
+ *                or no answer came: nothing is known
  */
 export type ProbeResult =
   | { hostId: string; status: "measured"; link: MeasuredLink }
@@ -48,9 +54,9 @@ export type ProbeOptions = {
   /** ws:// or wss:// origin of the signaling server. */
   url: string;
   targets: ProbeTarget[];
-  /** The TURN relay the server offers, added to the default STUN. */
+  /** The TURN relay the server offers: the only path a probe takes. */
   iceServers?: RTCIceServer[];
-  /** For tests. */
+  /** For tests. Defaults to a peer connection that gathers relay candidates only. */
   createPeer?: (iceServers: RTCIceServer[]) => RTCPeerConnection;
   openSocket?: (url: string) => WebSocket;
   now?: () => number;
@@ -74,25 +80,22 @@ function median(values: number[]): number {
  * The link from round trips in the order the pings were sent, lost ones left
  * out. Jitter is the 95th percentile of the change between consecutive ones.
  */
-export function linkOf(rtts: number[], relayed: boolean): MeasuredLink {
+export function linkOf(rtts: number[]): MeasuredLink {
   const changes = rtts.slice(1).map((rtt, i) => Math.abs(rtt - rtts[i]!));
   const round = (ms: number) => Math.round(ms * 10) / 10;
-  return { rttMs: round(median(rtts)), jitterMs: round(p95(changes)), relayed };
+  return { rttMs: round(median(rtts)), jitterMs: round(p95(changes)) };
 }
 
-/** Whether ICE chose a path through TURN, on either side, by the selected candidate pair. */
-async function viaRelay(pc: RTCPeerConnection): Promise<boolean> {
-  try {
-    const stats = await pc.getStats();
-    const pair = selectedCandidatePair(stats);
-    return (
-      candidateTypeOf(stats, pair?.localCandidateId) === "relay" ||
-      candidateTypeOf(stats, pair?.remoteCandidateId) === "relay"
-    );
-  } catch {
-    return false;
-  }
+/** The TURN servers among `servers`: STUN would only find the renter's own address. */
+export function turnServersOf(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers.flatMap((server) => {
+    const urls = [server.urls].flat().filter((url) => /^turns?:/i.test(url));
+    return urls.length ? [{ ...server, urls }] : [];
+  });
 }
+
+/** Whether a description has a relay candidate to offer: without one it could only connect straight. */
+const hasRelayCandidate = (sdp: string | undefined) => /^a=candidate:\S+ (\S+ ){5}typ relay/m.test(sdp ?? "");
 
 /** Resolve once `pc` has gathered its candidates, or after `ms`, whichever is first. */
 function gathered(pc: RTCPeerConnection, ms: number): Promise<void> {
@@ -131,13 +134,15 @@ export function probeLatency({
   url,
   targets,
   iceServers = [],
-  createPeer = (servers) => createPeerConnection({ iceServers: servers }),
+  createPeer = (servers) => createPeerConnection({ iceServers: servers, forceRelay: true }),
   openSocket = (to) => new WebSocket(to),
   now = () => performance.now(),
   timeoutMs = PROBE_TIMEOUT_MS,
 }: ProbeOptions): Promise<ProbeResult[]> {
   if (!targets.length) return Promise.resolve([]);
-  const servers = [...DEFAULT_ICE_SERVERS, ...iceServers];
+  const servers = turnServersOf(iceServers);
+  if (!servers.length)
+    return Promise.resolve(targets.map(({ hostId }) => ({ hostId, status: "unanswered" })));
   const probes = new Map<string, Probe>();
   let socket: WebSocket;
   try {
@@ -216,12 +221,11 @@ function run(
     const rtts = new Map<number, number>();
 
     /** Every ping is in, or the last has had its time: measure what came back. */
-    const measure = async () => {
+    const measure = () => {
       if (settled) return;
       if (!rtts.size) return finish({ hostId, status: "unreachable" });
       const inOrder = [...rtts.entries()].sort(([a], [b]) => a - b).map(([, rtt]) => rtt);
-      const relayed = await viaRelay(pc);
-      finish({ hostId, status: "measured", link: linkOf(inOrder, relayed) });
+      finish({ hostId, status: "measured", link: linkOf(inOrder) });
     };
 
     channel.onmessage = ({ data }) => {
@@ -229,7 +233,7 @@ function run(
       const at = sentAt.get(seq);
       if (at === undefined || rtts.has(seq)) return;
       rtts.set(seq, now() - at);
-      if (rtts.size === PROBE_PINGS) void measure();
+      if (rtts.size === PROBE_PINGS) measure();
     };
     channel.onopen = () => {
       for (let seq = 0; seq < PROBE_PINGS; seq++) {
@@ -241,7 +245,7 @@ function run(
           }, seq * PING_GAP_MS),
         );
       }
-      timers.push(setTimeout(() => void measure(), (PROBE_PINGS - 1) * PING_GAP_MS + ECHO_WAIT_MS));
+      timers.push(setTimeout(() => measure(), (PROBE_PINGS - 1) * PING_GAP_MS + ECHO_WAIT_MS));
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "failed") finish({ hostId, status: "unreachable" });
@@ -265,6 +269,8 @@ function run(
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc, GATHER_MS);
       if (settled || !pc.localDescription) return;
+      // The relay gave no candidate in time: there is no path to offer.
+      if (!hasRelayCandidate(pc.localDescription.sdp)) return finish({ hostId, status: "unanswered" });
       send({ type: "probe", hostId, token: target.token, probeId, sdp: pc.localDescription.toJSON() });
     })().catch(() => finish({ hostId, status: "unanswered" }));
   });

@@ -12,10 +12,12 @@ import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
 import { mintProbeToken, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { relayOnly } from "../probes.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
+import { OWN_ADDRESSES, RELAY_ADDRESS, sdpOf } from "./sdp.js";
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8100 + Math.floor(Math.random() * 400);
@@ -333,8 +335,8 @@ describe("signaling", () => {
 
 describe("latency probes", () => {
   const RENTER = "76561198000000001";
-  const OFFER = { type: "offer", sdp: "v=0 offer" } as const;
-  const ANSWER = { type: "answer", sdp: "v=0 answer" } as const;
+  const OFFER = sdpOf("offer");
+  const ANSWER = sdpOf("answer");
   const probe = (room: string, probeId = "mine", renter = RENTER): SignalMessage => ({
     type: "probe",
     hostId: room,
@@ -354,12 +356,19 @@ describe("latency probes", () => {
     await handled(prober);
     const offer = host.received.find((m) => m.type === "probe-offer");
     assert.ok(offer && offer.type === "probe-offer");
-    assert.deepEqual(offer.sdp, OFFER);
+    assert.deepEqual(offer.sdp, { type: "offer", sdp: relayOnly(OFFER.sdp) });
     assert.notEqual(offer.probeId, "mine");
 
     send(host, { type: "probe-answer", probeId: offer.probeId, sdp: ANSWER });
     await handled(host);
-    assert.deepEqual(prober.received, [{ type: "probe-answer", probeId: "mine", sdp: ANSWER }]);
+    assert.deepEqual(prober.received, [
+      { type: "probe-answer", probeId: "mine", sdp: { type: "answer", sdp: relayOnly(ANSWER.sdp) } },
+    ]);
+    // Neither side learnt where the other is.
+    for (const sdp of [offer.sdp.sdp!, JSON.stringify(prober.received)]) {
+      for (const own of OWN_ADDRESSES) assert.ok(!sdp.includes(own), `${own} crossed`);
+      assert.ok(sdp.includes(RELAY_ADDRESS));
+    }
     assert.ok(!types(host).includes("peer-joined"), "a probe is not a renter arriving");
 
     // The seat is still free for whoever holds a ticket.

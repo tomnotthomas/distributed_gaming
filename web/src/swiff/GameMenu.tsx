@@ -17,14 +17,8 @@ function feelShort(machine: Machine, picture: number): string {
 const untilShort = (machine: Machine) => (machine.until === "late" ? "All night" : machine.until);
 
 /** How a machine's round trip was arrived at, for its tooltip. */
-const PATH_NOTE = {
-  direct: "Measured straight to this PC",
-  relay: "Measured straight to this PC, through a relay",
-  estimate: "Estimated through Swiff",
-} as const;
-
-/** How many of the best machines the page measures straight (PROBED_PER_GAME on the server). */
-const PROBED = 3;
+const latencyNote = (machine: Machine) =>
+  machine.measured ? "Measured through Swiff's relay" : "Estimated through Swiff";
 
 /** "1 machine from 1 player": who is behind the machines listed, where that is known (the demo). */
 function ledgerCount(live: Machine[]): string {
@@ -140,8 +134,8 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
             </div>
             <div>
               <dt>Response</dt>
-              <dd title={PATH_NOTE[picked.path ?? "estimate"]}>
-                {swiff.measuring && !picked.path ? "Measuring…" : `${picked.ping} ms`}
+              <dd title={latencyNote(picked)}>
+                {swiff.probing.has(picked.id) ? "Measuring…" : `${picked.ping} ms`}
               </dd>
             </div>
             <div>
@@ -188,10 +182,8 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                 onClick={() => swiff.setMachineId(machine.id)}
               >
                 <span
-                  className={
-                    swiff.measuring && index < PROBED && !machine.path ? "ledger-ms measuring" : "ledger-ms"
-                  }
-                  title={PATH_NOTE[machine.path ?? "estimate"]}
+                  className={swiff.probing.has(machine.id) ? "ledger-ms measuring" : "ledger-ms"}
+                  title={latencyNote(machine)}
                 >
                   {machine.ping}
                   <small>ms</small>
