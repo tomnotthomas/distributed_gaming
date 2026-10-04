@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { after, describe, it } from "node:test";
+import { after, afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocket } from "ws";
@@ -30,7 +30,8 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const servers: ChildProcess[] = [];
 const databases: ServerDatabase[] = [];
 
-after(async () => {
+/** Kills the servers spawned so far, waiting for their exit, and closes their databases. */
+async function stopServers() {
   await Promise.all(
     servers.map((server) => {
       if (server.exitCode !== null || server.signalCode !== null) return;
@@ -40,7 +41,13 @@ after(async () => {
     }),
   );
   for (const database of databases) await database.close();
-});
+  servers.length = 0;
+  databases.length = 0;
+}
+
+// Each test's server and database are gone before the next test starts.
+afterEach(stopServers);
+after(stopServers);
 
 /** Ports already given to a server here: each child server gets its own. */
 const usedPorts = new Set<number>();
