@@ -24,6 +24,8 @@ const playing = (more: Partial<PlayState> = {}): PlayState => ({
   muted: false,
   denied: false,
   started: true,
+  lostAt: null,
+  gaveUp: false,
   ...more,
 });
 

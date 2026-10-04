@@ -6,6 +6,9 @@ import {
   ignitionProgress,
   LAUNCH_TIMEOUT_MS,
   NEGOTIATE_TIMEOUT_MS,
+  RECONNECT_AUTO_MS,
+  RECONNECT_EVERY_MS,
+  RECONNECT_WAIT_MS,
   START_RETRY_MS,
   startPlay,
   WAKE_TIMEOUT_MS,
@@ -66,7 +69,7 @@ const start = (options: RenterSessionOptions): RenterSession => {
 const latest = () => sessions[sessions.length - 1]!;
 
 /** Start playing CLAIM with the fakes, recording every state and every start call. */
-function play() {
+function play(resume = false) {
   const states: PlayState[] = [];
   const fetch = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
   const onFirstFrame = vi.fn();
@@ -77,9 +80,135 @@ function play() {
     onFirstFrame,
     start,
     fetch,
+    resume,
   });
   return { handle, states, fetch, onFirstFrame, step: () => handle.state().step };
 }
+
+/** Play until the game is on screen. */
+function live() {
+  const playing = play();
+  latest().emit({ type: "peer-connection", pc: PC });
+  latest().emit({ type: "connected" });
+  latest().emit({ type: "first-frame" });
+  latest().emit({ type: "game-started" });
+  expect(playing.step()).toBe("live");
+  return playing;
+}
+
+describe("reconnecting", () => {
+  it("says the connection dropped, waits for it, and joins the room again with the same ticket", async () => {
+    const { handle } = live();
+    vi.setSystemTime(50_000);
+
+    latest().emit({ type: "disconnected", failed: false });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: 50_000, gaveUp: false, stats: null });
+    expect(sessions).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(RECONNECT_WAIT_MS);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]!.ended).toBe(true);
+    expect(latest().options).toMatchObject({ ticket: "t-1", forceRelay: false });
+
+    await vi.advanceTimersByTimeAsync(RECONNECT_EVERY_MS);
+    expect(sessions).toHaveLength(3);
+  });
+
+  it("joins again at once when the connection failed and cannot come back by itself", async () => {
+    live();
+    latest().emit({ type: "disconnected", failed: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sessions).toHaveLength(2);
+  });
+
+  it("is back when the connection comes back by itself, or a new one shows the game", async () => {
+    const { handle } = live();
+    latest().emit({ type: "disconnected", failed: false });
+    latest().emit({ type: "connected" });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: null });
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(sessions).toHaveLength(1);
+
+    latest().emit({ type: "disconnected", failed: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sessions).toHaveLength(2);
+    // A new connection's frames may be the desktop: back only with a fresh game-started.
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(handle.state().lostAt).not.toBeNull();
+    latest().emit({ type: "game-started" });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: null, gaveUp: false });
+  });
+
+  it("never treats a drop before the game is on screen as a reconnect", () => {
+    const { handle } = play();
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "disconnected", failed: true });
+    expect(handle.state()).toMatchObject({ step: "negotiating", lostAt: null });
+    expect(sessions).toHaveLength(1);
+  });
+
+  it("gives up reconnecting by itself after 15 s, and tries again when the renter asks", async () => {
+    const { handle } = live();
+    latest().emit({ type: "disconnected", failed: false });
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(handle.state()).toMatchObject({ gaveUp: true });
+    const joins = sessions.length;
+    expect(latest().ended).toBe(true);
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(sessions).toHaveLength(joins);
+
+    vi.setSystemTime(90_000);
+    handle.retry();
+    expect(handle.state()).toMatchObject({ lostAt: 90_000, gaveUp: false });
+    expect(sessions).toHaveLength(joins + 1);
+    latest().emit({ type: "first-frame" });
+    expect(handle.state().lostAt).not.toBeNull();
+    latest().emit({ type: "game-started" });
+    expect(handle.state().lostAt).toBeNull();
+  });
+
+  it("stops reconnecting when the server refuses the ticket", async () => {
+    const { handle } = live();
+    latest().emit({ type: "disconnected", failed: true });
+    latest().emit({ type: "denied", reason: "bad-ticket" });
+    const joins = sessions.length;
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(sessions).toHaveLength(joins);
+    expect(handle.state()).toMatchObject({ denied: true, gaveUp: false });
+  });
+
+  it("stops every reconnect timer when stopped", async () => {
+    const { handle } = live();
+    latest().emit({ type: "disconnected", failed: false });
+    handle.stop();
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(sessions).toHaveLength(1);
+    expect(handle.state().gaveUp).toBe(false);
+  });
+
+  it("comes back to a session already playing with no Ignition, live once the game shows", async () => {
+    vi.setSystemTime(10_000);
+    const { handle, fetch } = play(true);
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: 10_000, gaveUp: false, started: true });
+    expect(sessions).toHaveLength(1);
+
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "first-frame" });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: 10_000 });
+    latest().emit({ type: "game-started" });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: null });
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s%201/start", expect.anything());
+  });
+
+  it("joins a resumed session again while no frame shows, and gives up after 15 s", async () => {
+    const { handle } = play(true);
+    await vi.advanceTimersByTimeAsync(RECONNECT_EVERY_MS);
+    expect(sessions).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(handle.state().gaveUp).toBe(true);
+  });
+});
 
 describe("startPlay", () => {
   it("joins the claimed room with its ticket, into the video, and is waking the PC", () => {
