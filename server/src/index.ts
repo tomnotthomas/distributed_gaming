@@ -393,9 +393,7 @@ function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSessio
  */
 function pushLaunch(hostId: string, sessionId: string, appid: number): void {
   const host = rooms.get(hostId)?.host;
-  const certValid = host?.certExp == null || host.certExp * 1000 > Date.now();
-  const mayHost = host?.sessionId === null && host.tier !== null && certValid;
-  if (host && (mayHost || host.sessionId === sessionId)) {
+  if (host && (host.sessionId === null || host.sessionId === sessionId)) {
     send(host, { type: "launch-game", sessionId, appid });
   }
 }
