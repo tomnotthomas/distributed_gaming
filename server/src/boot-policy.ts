@@ -16,7 +16,7 @@
 //       "pcr13": ["<hex SHA-256 PCR 13>"],
 //       "bootApplications": ["<hex Authenticode SHA-256>", ...],
 //       "uki": ["<hex Authenticode SHA-256>"],
-//       "secureBootAuthorities": ["<hex SHA-256 of an EV_EFI_VARIABLE_AUTHORITY event>", ...],
+//       "secureBootAuthorities": ["<hex SHA-256 of a PCR 7 extend>", ...],
 //       "iommu": true
 //     }]
 //   }
@@ -36,20 +36,30 @@
 //                     boot that took any is refused.
 //   bootApplications  Every EFI application the release boots through and
 //                     that the firmware measures into PCR 4: shim, the boot
-//                     loader if any, the UKI. A boot that ran anything else
+//                     loader if any, the UKI. The verifier takes every PCR 4
+//                     extend but a separator and the "Calling EFI Application
+//                     from Boot Option" and "Returning from EFI Application
+//                     from Boot Option" actions for one, whatever event type
+//                     the log claims, so the release lists every other digest
+//                     its boot extends there. A boot that ran anything else
 //                     before or between them is refused, so no other signed
 //                     kernel can extend the golden values into PCR 11 itself.
 //   uki               The release's UKIs, each also in bootApplications. The
 //                     last application measured into PCR 4 must be one of
 //                     them: the boot ended in the release's own UKI.
 //   secureBootAuthorities
-//                     Every Secure Boot authority that may verify an image on
-//                     the way: the digest the firmware (or shim) extends into
-//                     PCR 7 for each certificate it verified with, such as
-//                     Microsoft's UEFI CA 2023 or 2011 in db, and the release's
-//                     shim vendor certificate or MOK. A boot that any other
-//                     authority verified, such as a key the owner enrolled in
-//                     db, is refused outright.
+//                     Every other PCR 7 extend the release's boot may make,
+//                     whatever event type the log claims: all of them but the
+//                     separator, the "DMA Protection Disabled" action, and the
+//                     first SecureBoot, PK, KEK, db and dbx measured before the
+//                     separator. Chiefly the authorities the firmware (or shim)
+//                     extends for each certificate it verified an image with,
+//                     such as Microsoft's UEFI CA 2023 or 2011 in db and the
+//                     release's shim vendor certificate or MOK, but also any
+//                     other extend the same on every boot, such as dbt where the
+//                     firmware measures it. A boot with any other, such as a key
+//                     the owner enrolled in db verifying a driver, is refused
+//                     outright.
 //   iommu             The release refuses to finish booting (reach `ready`)
 //                     without DMA remapping on, so a machine that reached its
 //                     PCR 11 has an IOMMU.

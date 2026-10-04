@@ -513,14 +513,40 @@ function bootEvents({
   return { events, phases: ["enter-initrd", "leave-initrd", "sysinit", "ready"] };
 }
 
-const secureBootAuthorities = (boot) =>
-  bootEvents(boot)
-    .events.filter((e) => e.pcr === 7 && e.type === EV.VARIABLE_AUTHORITY)
-    .map((e) => sha256(e.measured).toString("hex"));
+/** Whether `e` is a separator, or one of `actions`, with the data that was extended. */
+const accounted = (e, actions) =>
+  e.data.equals(e.measured) &&
+  ((e.type === EV.SEPARATOR && e.data.equals(Buffer.alloc(4))) ||
+    (e.type === EV.ACTION && actions.includes(e.data.toString("latin1"))));
 
+/** A release's policy lists every PCR 7 extend but the separator, the known action and the first Secure Boot variables before it. */
+function secureBootAuthorities(boot) {
+  const variables = new Set(["SecureBoot", "PK", "KEK", "db", "dbx"]);
+  let separated = false;
+  const out = [];
+  for (const e of bootEvents(boot).events.filter((e) => e.pcr === 7)) {
+    if (accounted(e, ["DMA Protection Disabled"])) {
+      if (e.type === EV.SEPARATOR) separated = true;
+      continue;
+    }
+    const name = (data) => data.subarray(32, 32 + Number(data.readBigUInt64LE(16)) * 2).toString("utf16le");
+    if (e.type === EV.VARIABLE_DRIVER_CONFIG && !separated && variables.delete(name(e.data))) continue;
+    out.push(sha256(e.measured).toString("hex"));
+  }
+  return out;
+}
+
+/** A release's policy lists every PCR 4 extend but separators and the known actions. */
 const bootApplications = (boot) =>
   bootEvents(boot)
-    .events.filter((e) => e.pcr === 4 && e.type === EV.BOOT_SERVICES_APPLICATION)
+    .events.filter(
+      (e) =>
+        e.pcr === 4 &&
+        !accounted(e, [
+          "Calling EFI Application from Boot Option",
+          "Returning from EFI Application from Boot Option",
+        ]),
+    )
     .map((e) => sha256(e.measured).toString("hex"));
 
 // --- swtpm -------------------------------------------------------------------

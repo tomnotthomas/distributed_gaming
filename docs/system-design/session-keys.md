@@ -298,9 +298,11 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
   `pcr12`, `pcr13`, `uki` or `secureBootAuthorities` is refused. The release pipeline writes the payload (each release's PCR 11 from
   `systemd-measure calculate` at the `ready` phase, its PCRs 12 and 13, all zero unless it takes
   add-ons, credentials or extensions from the ESP, the Authenticode digests of shim, boot
-  loader and UKI, which of them is the UKI, the PCR 7 digests of the Secure Boot authorities that
-  verify them (Microsoft's UEFI CA 2023 or 2011, shim's vendor certificate or MOK), and whether it
-  enforces an IOMMU) and signs it with
+  loader and UKI (every PCR 4 extend but the separator and the known actions), which of them is
+  the UKI, every PCR 7 extend but the separator, the known actions and the first SecureBoot, PK,
+  KEK, db and dbx before the separator (chiefly the Secure Boot authorities that verify the boot
+  chain: Microsoft's UEFI CA 2023 or 2011, shim's vendor certificate or MOK; also, say, dbt where
+  the firmware measures it), and whether it enforces an IOMMU) and signs it with
   `npm run boot-policy -- <payload.json> <private-key.pem>`.
 
 Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
