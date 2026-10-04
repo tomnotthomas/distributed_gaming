@@ -580,7 +580,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setSteamSignInFailed(false);
           setSteamSignedIn(true);
         } else if (msg.state === "failed") {
-          // Never live on a failed sign-in: the hold stays until the renter tries again or leaves.
+          // Never live on a failed sign-in, even one that came after signed-in
+          // (the launch stopped short): the hold is back until the renter tries again or leaves.
+          setSteamSignedIn(false);
           setSteamSignInFailed(true);
         }
       },

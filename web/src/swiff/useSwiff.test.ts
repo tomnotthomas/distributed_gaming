@@ -575,6 +575,32 @@ describe("useSwiff", () => {
       }
     });
 
+    it("holds Ignition again when the PC says the launch failed after signing in", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(signaling).toHaveLength(1));
+        act(() => signaling[0]!.open());
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
+
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.steamSignInFailed).toBe(true);
+        expect(signaling[0]!.closed).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("tries a failed Steam sign-in again on the claimed room, keeping the booking and the machine", async () => {
       const calls = serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("queued")),
