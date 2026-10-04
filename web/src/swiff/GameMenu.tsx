@@ -45,7 +45,7 @@ function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
             ? "A machine is free for you. Starting…"
             : "You're in the queue. Keep this page open: we start the moment a machine is free."}
         </p>
-        <Button variant="secondary" onClick={swiff.leaveQueue}>
+        <Button onClick={swiff.leaveQueue}>
           Leave the queue
         </Button>
       </div>
