@@ -53,13 +53,12 @@ host protocol the desktop app already speaks, with no new messages
 Two open decisions are each one setting in `hostd/src/config.ts`, with provisional
 defaults:
 
-- **D8 `OWNER_TAKEOVER`** (`"when-idle"`). The owner gets the PC back only while no
-  session is live; a request during a session is refused. A request is also refused
-  while the PC resets with a renter who claimed it as the last session ended: that
-  renter is served after the restart, and the owner can ask again once the PC is idle.
-  Until the reset's heartbeat has answered, whether such a renter exists is unknown, so
-  a request is refused then too. The request is not kept across the reboot. Set it to `"always"` to end
-  the session as the owner taking the machine back.
+- **D8 `OWNER_TAKEOVER`** (`"when-idle"`). The owner gets the PC back only while it is
+  idle: offered, or not offered at all (below the hardware floor, or its key refused).
+  It then goes back to Windows at once. During a session the answer is `session-live`;
+  while the agent is starting or resetting it is `busy`, and the owner tries again
+  shortly. A refused request is never kept for later, across a reset or a restart. Set
+  it to `"always"` to end a live session as the owner taking the machine back.
 - **D3 `HARDWARE_FLOOR`.** The agent does not offer the PC unless it has UEFI, Secure
   Boot on, a TPM 2.0 and an IOMMU. The server's verifier, in the attestation stage, judges
   the TPM's EK certificate and the lower trust tier for a discrete TPM.

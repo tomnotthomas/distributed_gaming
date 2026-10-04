@@ -49,7 +49,7 @@ export type Outcome = "reset" | "windows";
 export type AgentStatus = { phase: Phase; sessionId: string | null; unmet: FloorCheck[] };
 
 /** The answer to the owner asking for the PC back. */
-export type ReturnReply = { ok: true } | { ok: false; reason: "session-live" };
+export type ReturnReply = { ok: true } | { ok: false; reason: "session-live" | "busy" };
 
 export type Timing = {
   /** Between heartbeats while serving: the server takes a PC silent for 15 s offline. */
@@ -88,7 +88,7 @@ export type Agent = {
   /** Run this boot to its end: resolves once the machine has been told to restart. */
   run(): Promise<Outcome>;
   status(): AgentStatus;
-  /** The owner asks for the PC back (D8). Carried out as soon as no session is live. */
+  /** The owner asks for the PC back (D8). Carried out at once while idle; refused otherwise. */
   requestReturnToWindows(): ReturnReply;
 };
 
@@ -107,10 +107,8 @@ export function createAgent(deps: AgentDeps): Agent {
   let phase: Phase = "starting";
   let sessionId: string | null = null;
   let unmet: FloorCheck[] = [];
-  /** The owner asked for the PC back, and it goes as soon as no session is live. */
+  /** The owner asked for the PC back while it was idle (or, with takeover "always", serving). */
   let returnWanted = false;
-  /** A renter may have claimed the PC while it resets (unknown until its heartbeat answers): the owner waits. */
-  let claimPending = false;
 
   const inbox = createInbox<Event>();
 
@@ -257,6 +255,7 @@ export function createAgent(deps: AgentDeps): Agent {
   /** Serve one renter session to its end, then reset. */
   async function serve(claim: SessionClaim | { sessionId: string }): Promise<Outcome | "unclaimed"> {
     phase = "serving";
+    returnWanted = false;
     const id = claim.sessionId;
     const appid = "appid" in claim ? claim.appid : null;
     sessionId = id;
@@ -315,19 +314,15 @@ export function createAgent(deps: AgentDeps): Agent {
   /** After a session: off offer at once, end the host session, restart clean. */
   async function reset(endedId: string, toWindows: boolean): Promise<Outcome> {
     phase = "resetting";
-    claimPending = true;
     const view = await beat();
-    const claimed = view?.session && view.session.id !== endedId ? view.session.id : null;
-    claimPending = claimed !== null;
-    if (claimed) {
-      log(`session ${claimed} was claimed as ${endedId} ended; it is served after the reset`);
-    } else if (view && !view.session && !toWindows && !returnWanted && sharing(view)) {
+    if (view?.session && view.session.id !== endedId) {
+      log(`session ${view.session.id} was claimed as ${endedId} ended; it is served after the reset`);
+    } else if (view && !view.session && !toWindows && sharing(view)) {
       await offOfferForReset(view);
     }
     await endHostSession();
     sessionId = null;
-    if (!claimPending && (toWindows || returnWanted || (view && !view.session && !sharing(view))))
-      return returnToWindows();
+    if (toWindows || (view && !view.session && !sharing(view))) return returnToWindows();
     return restart();
   }
 
@@ -346,12 +341,9 @@ export function createAgent(deps: AgentDeps): Agent {
   async function resetAgain(): Promise<Outcome> {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
-    claimPending = true;
     const view = await beatUntilAnswered();
-    claimPending = !!view.session;
-    if (!view.session && sharing(view) && !returnWanted) await offOfferForReset(view);
-    if (!view.session && (returnWanted || (view.status !== "idle" && !sharing(view))))
-      return returnToWindows();
+    if (!view.session && sharing(view)) await offOfferForReset(view);
+    if (!view.session && view.status !== "idle" && !sharing(view)) return returnToWindows();
     return restart();
   }
 
@@ -405,8 +397,8 @@ export function createAgent(deps: AgentDeps): Agent {
     run,
     status: () => ({ phase, sessionId, unmet }),
     requestReturnToWindows: () => {
-      if (claimPending || (phase === "serving" && deps.ownerTakeover === "when-idle"))
-        return { ok: false, reason: "session-live" };
+      if (phase === "starting" || phase === "resetting") return { ok: false, reason: "busy" };
+      if (phase === "serving" && deps.ownerTakeover === "when-idle") return { ok: false, reason: "session-live" };
       returnWanted = true;
       inbox.push({ type: "wake" });
       return { ok: true };
