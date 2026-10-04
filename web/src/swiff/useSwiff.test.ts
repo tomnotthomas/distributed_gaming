@@ -536,6 +536,40 @@ describe("useSwiff", () => {
       }
     });
 
+    it("says a failed Steam sign-in and never goes live on it, until a new code comes", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(signaling).toHaveLength(1));
+        act(() => signaling[0]!.open());
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+        expect(result.current.steamSignInFailed).toBe(false);
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.steamSignInFailed).toBe(true);
+        expect(result.current.phase).toBe("connecting");
+        expect(signaling[0]!.closed).toBe(false);
+
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" }));
+        expect(result.current.steamSignInFailed).toBe(false);
+        expect(result.current.steamLogin).toEqual({
+          type: "steam-login",
+          state: "qr",
+          url: "https://s.team/q/1/43",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),

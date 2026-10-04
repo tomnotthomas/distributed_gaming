@@ -133,6 +133,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [steamLogin, setSteamLogin] = useState<SteamLogin | null>(null);
   // Whether that PC has said the renter is signed in to Steam, for this launch.
   const [steamSignedIn, setSteamSignedIn] = useState(false);
+  // The PC said its Steam sign-in stopped short: Ignition says so and offers to try again.
+  const [steamSignInFailed, setSteamSignInFailed] = useState(false);
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -544,10 +546,16 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         }
         if (msg.type !== "steam-login") return;
         if (msg.state === "qr") {
-          if (isSteamSignInUrl(msg.url)) setSteamLogin(msg);
+          if (!isSteamSignInUrl(msg.url)) return;
+          setSteamLogin(msg);
+          setSteamSignInFailed(false);
         } else if (msg.state === "signed-in") {
           setSteamLogin(null);
+          setSteamSignInFailed(false);
           setSteamSignedIn(true);
+        } else if (msg.state === "failed") {
+          // Never live on a failed sign-in: the hold stays until the renter tries again or leaves.
+          setSteamSignInFailed(true);
         }
       },
     });
@@ -555,6 +563,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       signaling.close();
       setSteamLogin(null);
       setSteamSignedIn(false);
+      setSteamSignInFailed(false);
     };
   }, [phase, claim, endCurrentBooking]);
 
@@ -794,6 +803,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
     /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
     steamLogin,
+    /** The PC's Steam sign-in stopped short: Ignition offers to try again (a fresh launch) or end. */
+    steamSignInFailed,
     elapsedMs,
     ownerDropped,
     week,

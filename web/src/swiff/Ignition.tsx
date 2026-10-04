@@ -4,7 +4,7 @@ import { IGNITION_STEPS } from "./data";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
-import { isSteamSignInUrl, SteamSignIn } from "./SteamSignIn";
+import { isSteamSignInUrl, SteamSignIn, SteamSignInFailed } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
 
 /**
@@ -16,6 +16,8 @@ import type { Swiff } from "./useSwiff";
  *
  * On a rental-mode PC, Steam's sign-in code takes the dial's place until the
  * renter has approved it from the Steam app: the one sign-in step there is.
+ * If the PC says that sign-in stopped short, Ignition says so instead and
+ * offers to try again; it never goes live on it.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionStep } = swiff;
@@ -25,6 +27,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
   const title = game?.title ?? "your game";
   const signIn =
     swiff.steamLogin?.state === "qr" && isSteamSignInUrl(swiff.steamLogin.url) ? swiff.steamLogin.url : null;
+  const signInFailed = swiff.steamSignInFailed;
 
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -89,10 +92,16 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
-          {signIn ? "Sign in to Steam" : ignitionStep}
+          {signInFailed ? "Sign-in didn't work" : signIn ? "Sign in to Steam" : ignitionStep}
         </p>
 
-        {signIn ? <SteamSignIn url={signIn} /> : <IgnitionDial pct={shown} />}
+        {signInFailed ? (
+          <SteamSignInFailed onRetry={swiff.launch} onEnd={swiff.goHome} />
+        ) : signIn ? (
+          <SteamSignIn url={signIn} />
+        ) : (
+          <IgnitionDial pct={shown} />
+        )}
 
         <ol className="ig-legend mono">
           {IGNITION_STEPS.map((step, index) => {

@@ -1512,6 +1512,13 @@ button.band-tab:hover {
   color: var(--on-paper-2);
   font-size: 14px;
 }
+.ig-qr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
 .ig-legend {
   margin: 0;
   padding: 0;

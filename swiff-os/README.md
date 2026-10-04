@@ -240,8 +240,8 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 ### Not yet here
 
-- **The PC-side sender.** The streamer passes `play` to this socket and relays `qr` and
-  `signed-in` to the renter as `steam-login`. It lands with the streamer and
+- **The PC-side sender.** The streamer passes `play` to this socket and relays `qr`,
+  `signed-in` and `failed` to the renter as `steam-login`. It lands with the streamer and
   `swiff-hostd` integration. The page side is here: while Ignition is up on a claim
   marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
   hears there and holds Ignition from the claim until the renter is signed in or leaves,

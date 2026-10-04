@@ -97,10 +97,14 @@ export type SessionClaimedMessage = {
  * code encodes, for the renter's page to draw as a QR code they scan with the
  * Steam app; the PC sends it again whenever Steam shows a new code.
  * `signed-in` says the renter approved it and the game is being launched.
- * The server never reads or logs either.
+ * `failed` says the sign-in or the launch stopped short (Steam's code timed
+ * out, the game never came up): the renter is not signed in and nothing is
+ * starting. The server never reads or logs any of them.
  */
 export type SteamLoginMessage =
-  { type: "steam-login"; state: "qr"; url: string } | { type: "steam-login"; state: "signed-in" };
+  | { type: "steam-login"; state: "qr"; url: string }
+  | { type: "steam-login"; state: "signed-in" }
+  | { type: "steam-login"; state: "failed" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 

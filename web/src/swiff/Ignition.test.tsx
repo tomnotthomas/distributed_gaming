@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GAMES, MACHINES } from "./data";
 import { Ignition } from "./Ignition";
 import type { Swiff } from "./useSwiff";
@@ -119,5 +119,32 @@ describe("Ignition", () => {
     );
     expect(screen.queryByTestId("steam-sign-in")).toBeNull();
     expect(document.querySelector(".ig-dial")).not.toBeNull();
+  });
+
+  it("says a failed Steam sign-in in the code's place, and offers to try again or end", () => {
+    const launch = vi.fn();
+    const goHome = vi.fn();
+    const at = (steamSignInFailed: boolean) =>
+      ({
+        ...swiffAt(0.25, "Syncing your save", { type: "steam-login", state: "qr", url: SIGN_IN }),
+        steamSignInFailed,
+        launch,
+        goHome,
+      }) as unknown as Swiff;
+    // Ignition is up on the code first; the failure comes after.
+    const { rerender } = render(<Ignition swiff={at(false)} />);
+    rerender(<Ignition swiff={at(true)} />);
+
+    const panel = screen.getByRole("region", { name: "Sign-in didn't work" });
+    expect(screen.queryByRole("img", { name: "Steam sign-in QR code" })).toBeNull();
+    expect(document.querySelector(".ig-dial")).toBeNull();
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("Sign-in didn't work");
+    const retry = within(panel).getByRole("button", { name: "Try again" });
+    expect(retry).toHaveFocus();
+
+    fireEvent.click(retry);
+    expect(launch).toHaveBeenCalledOnce();
+    fireEvent.click(within(panel).getByRole("button", { name: "End" }));
+    expect(goHome).toHaveBeenCalledOnce();
   });
 });
