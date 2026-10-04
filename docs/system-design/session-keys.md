@@ -144,7 +144,7 @@ The server also ends the host session whenever the renter's platform session end
 ([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the
 machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. A
 rental-mode PC taking itself off offer with `reset: true` to restart between renters is
-not the owner taking it back: a session claimed the instant before is kept, held through
+not the owner taking it back: a session claimed the instant before, not yet started, is kept, held through
 the restart, and its host session is started again once the PC is back
 ([`host.md`](host.md), the reset hold). The service must treat
 a `session-ended` denial, or a heartbeat whose `session.id` has changed or is missing, as

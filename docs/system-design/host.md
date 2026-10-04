@@ -105,8 +105,8 @@ The app reads what Steam leaves on the PC, never the owner's account (`desktop/s
 Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
 `idle` when the owner takes it back, `offline` when its socket drops or, with no socket,
 it stops sending heartbeats). A rental-mode PC restarting between renters holds a reset
-(`reset_until`, below): a session claimed the instant before stays `in_session` through
-the restart.
+(`reset_until`, below): a session claimed the instant before, not yet started, stays
+`in_session` through the restart.
 
 ---
 
@@ -201,7 +201,9 @@ sends `reset: true` instead, which the server settles in one step
   matched to it but not yet claimed goes back to the front of the queue. Queued renters
   stay queued until a PC is free; this one is again once it offers itself after the
   restart.
-- **A session was claimed**: the session is kept and the answer names it in `session`.
+- **A session was started**: the same as taking it back. The session ends as
+  `owner_kill`, priced up to the reset, and the machine goes `idle`.
+- **A session was claimed, not yet started**: the session is kept and the answer names it in `session`.
   The machine stays `in_session` and holds the reset for up to 3 minutes
   (`RESET_HOLD_MS`, from the call, `resetUntil` in the answer). Meanwhile its silence
   does not end the session as `host_offline`. After the restart its heartbeat names the

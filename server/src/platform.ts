@@ -18,12 +18,12 @@
 //
 // The reset hold: a rental-mode PC restarts between renters, while idle, so the
 // next one gets a clean PC (docs/system-design/host.md). Before it restarts it
-// takes itself off offer with `reset`. That is taking it back, idle, as long as
-// no renter has claimed it: a reservation goes back to the queue, so nobody is
-// matched to a PC that is about to restart. A session claimed in the instant
-// before is kept rather than ended as the owner's (owner_kill), and the machine
-// holds the reset for up to RESET_HOLD_MS: its silence while it restarts does
-// not end that session. The hold ends once the PC is back (it starts the
+// takes itself off offer with `reset`. That is taking it back, idle, unless a
+// renter claimed it and has not started: a reservation goes back to the queue,
+// so nobody is matched to a PC that is about to restart, and a started session
+// ends as owner_kill. A session claimed in the instant before, not yet
+// started, is kept rather than ended, and the machine holds the reset for up
+// to RESET_HOLD_MS: its silence while it restarts does not end that session. The hold ends once the PC is back (it starts the
 // session's host session, or offers the machine again), when the owner takes
 // it back, or when it runs out, after which the usual liveness rule applies. A
 // held session that ends before the PC is back leaves the machine idle, as the
@@ -158,7 +158,8 @@ export type MachineView = {
 export type OffOffer = {
   /**
    * For a rental-mode restart between renters: a session claimed in the instant
-   * before is kept, and held through the restart, rather than ended.
+   * before, and not yet started, is kept, and held through the restart, rather
+   * than ended. A started one ends as taking the machine back does.
    */
   reset?: boolean;
 };
@@ -541,8 +542,8 @@ export class Platform {
   /**
    * Offer the machine (available) or take it back (not), storing whatever the
    * host reported with it. Taking it back ends whatever it was doing, except
-   * a session it is taken off offer from with `reset`: that one is kept, and
-   * held through the restart (the reset hold).
+   * a session not yet started that it is taken off offer from with `reset`:
+   * that one is kept, and held through the restart (the reset hold).
    */
   setAvailability(
     machineId: string,
@@ -563,8 +564,16 @@ export class Platform {
       // Its terms (price, until when) are what renters see, whether or not its status moves.
       this.#offerChanged = true;
 
-      if (!available && reset && machine.status === "in_session") {
-        // Claimed in the instant before the restart: served once the PC is back.
+      const unstarted =
+        !available &&
+        reset &&
+        machine.status === "in_session" &&
+        (await this.#get<{ id: string }>(
+          "SELECT id FROM sessions WHERE machine_id = $1 AND ended_at IS NULL AND started_at IS NULL",
+          machineId,
+        ));
+      if (unstarted) {
+        // Claimed in the instant before the restart, not yet served: served once the PC is back.
         await this.#run("UPDATE machines SET reset_until = $1 WHERE id = $2", now + RESET_HOLD_MS, machineId);
       } else {
         await this.#run("UPDATE machines SET reset_until = NULL WHERE id = $1", machineId);

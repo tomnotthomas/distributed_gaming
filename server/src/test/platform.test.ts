@@ -1178,6 +1178,26 @@ describe("the reset hold", () => {
     assert.equal((await platform.heartbeat("pc-1")).status, "available");
   });
 
+  it("does not hold a session already started: it ends as owner_kill, priced up to the reset", async () => {
+    await offer("pc-1", { price: 120 });
+    const { bookingId } = await platform.book(730, 60);
+    const claim = await platform.claim(bookingId);
+    assert.ok(claim.ok);
+    await platform.startSession("pc-1", claim.sessionId);
+    await beatFor("pc-1", 30 * 60_000);
+
+    const view = await reset();
+    assert.equal(view.status, "idle");
+    assert.equal(view.session, undefined);
+    assert.equal(view.resetUntil, undefined);
+    assert.equal(await platform.sessionEndReason(claim.sessionId), "owner_kill");
+    assert.equal((await platform.booking(bookingId))!.price, 60);
+
+    await advance(RESET_HOLD_MS);
+    assert.equal(await platform.sessionEndReason(claim.sessionId), "owner_kill");
+    assert.equal((await platform.booking(bookingId))!.price, 60);
+  });
+
   it("still lets the owner take the machine back during the hold, ending the session as owner_kill", async () => {
     const { sessionId } = await claimed();
     await reset();
