@@ -19,6 +19,11 @@ export function useRental(): RentalSetup & {
   const [target, setTarget] = useState<string | null>(null);
   const [preview, setPreview] = useState<RentalPlan | null>(null);
   const reads = useRef(0);
+  const plans = useRef(0);
+  const drop = () => {
+    plans.current++;
+    setPreview(null);
+  };
 
   const check = useCallback(() => {
     const host = bridge();
@@ -42,18 +47,22 @@ export function useRental(): RentalSetup & {
     target,
     preview,
     check: () => {
-      setPreview(null);
+      drop();
       check();
     },
     choose: (id) => {
       setTarget(id);
-      setPreview(null);
+      drop();
     },
-    plan: (kind) =>
+    plan: (kind) => {
+      const n = ++plans.current;
       void bridge()
         ?.planRental({ kind, target })
         .catch(() => null)
-        .then(setPreview),
-    close: () => setPreview(null),
+        .then((next) => {
+          if (n === plans.current) setPreview(next);
+        });
+    },
+    close: drop,
   };
 }
