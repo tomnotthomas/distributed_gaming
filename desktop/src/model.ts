@@ -9,6 +9,7 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 
@@ -60,6 +61,21 @@ export function appidIn(text: string): number | null {
   const appid = match ? Number(match[1]) : NaN;
   return Number.isSafeInteger(appid) && appid > 0 && appid < 2 ** 31 ? appid : null;
 }
+
+// --- rental mode on this PC -------------------------------------------------------
+
+/**
+ * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
+ * while `reading`; `read` is null until then, and where the app cannot read
+ * this PC. `target` is the place for Swiff OS the owner chose, by id, null
+ * for the best one. `preview` is the plan on screen: always a dry run.
+ */
+export type RentalSetup = {
+  reading: boolean;
+  read: RentalRead | null;
+  target: string | null;
+  preview: RentalPlan | null;
+};
 
 // --- standing, levels and the rate ---------------------------------------------
 
@@ -228,6 +244,7 @@ export type HostView = {
    */
   games: { installed: Game[]; offered: number[] | null; demand: DemandRow[] | null; near: number | null };
   steam: SteamSetup;
+  rental: RentalSetup;
   standing: Standing | null;
   /** What ending a session early would leave the reliability score at; null where it cannot be done. */
   earlyEnd: { reliability: number } | null;
@@ -265,6 +282,13 @@ export type HostActions = {
   installSteam(): void;
   /** The owner sent a game to Steam to install: follow it until Steam starts. */
   askInstall(appid: number): void;
+  /** Read what rental mode needs from this PC again. */
+  checkRental(): void;
+  /** Where Swiff OS goes, by target id. */
+  chooseRentalTarget(id: string): void;
+  /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
+  previewRental(kind: RentalPlan["kind"]): void;
+  closeRentalPreview(): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };
@@ -313,7 +337,7 @@ export function untilSentence(machine: string, until: number | null): string {
 
 // --- screens --------------------------------------------------------------------
 
-export type Step = "pc" | "steam" | "games" | "live" | "paid" | "settings";
+export type Step = "pc" | "steam" | "games" | "rental" | "live" | "paid" | "settings";
 
 /** Which of the Go live step's screens a live state shows. */
 export type LiveScreen = "golive" | "waiting" | "streaming" | "inuse" | "ending" | "paused" | "offline";

@@ -57,6 +57,14 @@ export function GoLive({ view, actions, go }: ScreenProps) {
   const games = listedGames(view);
   const note = live.kind === "off" ? live.note : null;
   const gpu = view.pc.hardware?.gpu;
+  // With rental mode installed, going live restarts this PC into Swiff OS: shown as a preview for now.
+  const rental = Boolean(view.rental.read?.installed);
+  const fire = rental
+    ? () => {
+        actions.previewRental("start");
+        go("rental");
+      }
+    : actions.goLive;
 
   return (
     <main className="step">
@@ -71,7 +79,10 @@ export function GoLive({ view, actions, go }: ScreenProps) {
             ) : null}
           </p>
           <h1>Ready to share</h1>
-          <p className="ln">Choose until when players can claim {machine}, then hold the button.</p>
+          <p className="ln">
+            Choose until when players can claim {machine}, then hold the button.
+            {rental ? " It restarts into rental mode and stays there while you share." : ""}
+          </p>
           <div className="ctl">
             <p className="mono label" aria-hidden="true">
               Share until
@@ -92,7 +103,7 @@ export function GoLive({ view, actions, go }: ScreenProps) {
           </div>
         </div>
         <Plate className="ret" caption={["Go live", "No account needed yet"]}>
-          <Reticle onFire={actions.goLive} disabled={!ready} starting={live.kind === "starting"} />
+          <Reticle onFire={fire} disabled={!ready} starting={live.kind === "starting"} />
         </Plate>
       </section>
 
