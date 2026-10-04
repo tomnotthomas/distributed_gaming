@@ -148,18 +148,28 @@ function platformFacts(value: unknown): PlatformFacts | null {
 }
 
 /**
- * The development stub: evidence `{ facts: PlatformFacts }` passes, and its
- * facts are believed. It proves nothing — anyone can claim any facts — so it
- * exists only to drive the hosting gate in VMs and tests until a real verifier
- * exists. The server warns at startup whenever it is configured.
+ * The development stub for the machines in `machines`: evidence
+ * `{ machineKey, facts: PlatformFacts }` passes when `machineKey` is that
+ * machine's own key, and its facts are believed. A real verifier proves who is
+ * asking with the TPM's endorsement key registered for the machine; the stub
+ * has no TPM, so the machine key stands in for that proof, and only its holder
+ * can earn a certificate. The facts prove nothing, so it exists only to drive
+ * the hosting gate in VMs and tests until a real verifier exists. The server
+ * warns at startup whenever it is configured.
  */
-export const insecureDevVerifier: AttestationVerifier = {
-  name: "insecure-dev",
-  async verify({ evidence }) {
-    const facts = platformFacts((evidence as { facts?: unknown } | null)?.facts);
-    return facts ? { ok: true, facts } : { ok: false };
-  },
-};
+export function insecureDevVerifier(machines: Map<string, Buffer>): AttestationVerifier {
+  return {
+    name: INSECURE_DEV,
+    async verify({ room, evidence }) {
+      const claim = (evidence ?? {}) as { machineKey?: unknown; facts?: unknown };
+      if (!verifyMachineKey(machines, room, claim.machineKey)) return { ok: false };
+      const facts = platformFacts(claim.facts);
+      return facts ? { ok: true, facts } : { ok: false };
+    },
+  };
+}
+
+const INSECURE_DEV = "insecure-dev";
 
 /** The attestation configuration from the environment, and what is wrong with it. */
 export type AttestationConfig = {
@@ -173,10 +183,13 @@ export type AttestationConfig = {
 
 /**
  * HOSTING_ATTESTATION (`optional`, the default, or `required`) and
- * ATTESTATION_VERIFIER (unset, or `insecure-dev`). An unknown policy is read as
+ * ATTESTATION_VERIFIER (unset, or `insecure-dev` for the machines in `machines`). An unknown policy is read as
  * `required` and an unknown verifier as none: a typo never opens hosting up.
  */
-export function attestationFromEnv(env: NodeJS.ProcessEnv): AttestationConfig {
+export function attestationFromEnv(
+  env: NodeJS.ProcessEnv,
+  machines: Map<string, Buffer> = new Map(),
+): AttestationConfig {
   const warnings: string[] = [];
   const policy = env.HOSTING_ATTESTATION?.trim().toLowerCase() || "optional";
   if (policy !== "optional" && policy !== "required") {
@@ -186,10 +199,10 @@ export function attestationFromEnv(env: NodeJS.ProcessEnv): AttestationConfig {
 
   const name = env.ATTESTATION_VERIFIER?.trim() ?? "";
   let verifier: AttestationVerifier | null = null;
-  if (name === insecureDevVerifier.name) {
-    verifier = insecureDevVerifier;
+  if (name === INSECURE_DEV) {
+    verifier = insecureDevVerifier(machines);
     warnings.push(
-      "ATTESTATION_VERIFIER=insecure-dev believes any evidence — never use it where renters play",
+      "ATTESTATION_VERIFIER=insecure-dev believes any facts from a machine-key holder — never use it where renters play",
     );
   } else if (name) {
     warnings.push(`ATTESTATION_VERIFIER "${name}" is unknown — no machine can attest`);

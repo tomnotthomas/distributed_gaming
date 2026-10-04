@@ -60,6 +60,9 @@ export type HostSessionOptions = IceConfig & {
    * gives one, the PC service's socket registers with it and the session start
    * bears it; otherwise the machine key does both, as before. A refused or
    * expired certificate is reported through onDenied, final as a refused key.
+   * Sent only over `wss:` or to this machine: anyone who sees one can host with
+   * it until it is spent or expires, so starting with it over a plain `ws:`
+   * URL to another host throws.
    */
   hostCert?: () => string | undefined;
   stream: MediaStream;
@@ -105,6 +108,7 @@ export type HostSessionOptions = IceConfig & {
  * tears down the current peer connection.
  */
 export function startHostSession(opts: HostSessionOptions): { stop: () => void } {
+  if (opts.hostCert) requireEncrypted(opts.url);
   let stopped = false;
   const capture = opts.capture ?? DEFAULT_CAPTURE;
   let pc: RTCPeerConnection | null = null;
@@ -303,6 +307,16 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   };
 }
 
+/** Hosts a credential may be sent to unencrypted: this machine only. */
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+
+/** Throws unless `url` is encrypted (`wss:` or `https:`) or on this machine: a host certificate may go there. */
+function requireEncrypted(url: string): void {
+  const { protocol, hostname } = new URL(url);
+  if (protocol === "wss:" || protocol === "https:" || LOOPBACK.includes(hostname)) return;
+  throw new Error("a host certificate is sent only over wss:// or to this machine");
+}
+
 /** What a host registers with: the machine key or a host certificate (the PC service), or a session key (the streamer). */
 type Credential = { key: string } | { hostCert: string } | { sessionKey: string };
 
@@ -367,6 +381,7 @@ export async function requestSessionKey({
   hostCert,
   sessionId,
 }: MachineAuth & { hostCert?: string; sessionId: string }): Promise<string> {
+  if (hostCert) requireEncrypted(url);
   const res = await sessionFetch(sessionRoute(url, hostId), {
     method: "POST",
     headers: { authorization: `Bearer ${hostCert ?? machineKey}`, "content-type": "application/json" },

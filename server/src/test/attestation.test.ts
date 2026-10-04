@@ -39,10 +39,11 @@ const GOOD: PlatformFacts = {
   ekCertificate: true,
   iommu: true,
 };
-const evidence = (facts: PlatformFacts = GOOD) => ({ facts });
+const evidence = (facts: PlatformFacts = GOOD) => ({ machineKey: KEY, facts });
+const devVerifier = insecureDevVerifier(ACCESS.machines);
 
 /** Attestation that hosts only with a host certificate, judged by the dev stub. */
-const required = (verifier: AttestationVerifier | null = insecureDevVerifier) =>
+const required = (verifier: AttestationVerifier | null = devVerifier) =>
   createAttestation({ access: ACCESS, verifier, attestedOnly: true });
 
 /** A challenge for `room` from `attestation`, failing the test if it is refused. */
@@ -91,8 +92,8 @@ describe("attestation config", () => {
   });
 
   it("knows only the insecure dev verifier, and warns whenever it is set", () => {
-    const dev = attestationFromEnv({ ATTESTATION_VERIFIER: "insecure-dev" });
-    assert.equal(dev.verifier, insecureDevVerifier);
+    const dev = attestationFromEnv({ ATTESTATION_VERIFIER: "insecure-dev" }, ACCESS.machines);
+    assert.equal(dev.verifier?.name, "insecure-dev");
     assert.ok(dev.warnings.some((w) => w.includes("insecure-dev")));
     const unknown = attestationFromEnv({ ATTESTATION_VERIFIER: "keylime" });
     assert.equal(unknown.verifier, null);
@@ -199,6 +200,32 @@ describe("attesting", () => {
     assert.equal(discrete.grant.tier, "attested-discrete-tpm");
   });
 
+  it("has the dev stub mint only for the holder of that machine's own key", async () => {
+    const attestation = required();
+    const rejected = {
+      ok: false,
+      status: 403,
+      body: { error: "attestation-refused", reason: "evidence-rejected" },
+    };
+    assert.deepEqual(await attestation.attest("pc-1", nonceFor(attestation), { facts: GOOD }), rejected);
+    assert.deepEqual(
+      await attestation.attest("pc-1", nonceFor(attestation), { machineKey: "not-the-key", facts: GOOD }),
+      rejected,
+    );
+    // pc-2 with a key of its own: pc-1's key earns nothing for it.
+    const OTHER_HASH = createHash("sha256").update("pc-2-key").digest("hex");
+    const access = accessFromEnv({ ROOM_SECRET: SECRET, MACHINE_KEYS: `pc-1:${HASH},pc-2:${OTHER_HASH}` });
+    const other = createAttestation({
+      access,
+      verifier: insecureDevVerifier(access.machines),
+      attestedOnly: true,
+    });
+    const nonce = nonceFor(other, "pc-2");
+    assert.deepEqual(await other.attest("pc-2", nonce, evidence()), rejected);
+    const own = await other.attest("pc-2", nonceFor(other, "pc-2"), { machineKey: "pc-2-key", facts: GOOD });
+    assert.ok(own.ok, "its own key does");
+  });
+
   it("hands the verifier the machine, the nonce and the evidence as sent", async () => {
     const seen: unknown[] = [];
     const attestation = required({
@@ -283,7 +310,7 @@ describe("attesting", () => {
       name: "flaky",
       verify: async (input) => {
         if (down) throw new Error("keylime unreachable");
-        return insecureDevVerifier.verify(input);
+        return devVerifier.verify(input);
       },
     });
     const nonce = nonceFor(attestation);

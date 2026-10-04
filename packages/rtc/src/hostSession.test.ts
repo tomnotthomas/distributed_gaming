@@ -373,6 +373,35 @@ describe("startHostSession with a host certificate", () => {
     session.stop();
   });
 
+  it("never sends a certificate unencrypted to another machine", async () => {
+    const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
+    const start = (url: string) =>
+      startHostSession({
+        url,
+        hostId: "pc-1",
+        machineKey: "test-machine-key",
+        hostCert: () => "cert-1",
+        stream: {} as MediaStream,
+        onPeerHere: () => {},
+        onPeerConnection: () => {},
+      });
+    expect(() => start("ws://signal.test")).toThrow(/wss/);
+    expect(FakeSocket.instances).toHaveLength(0);
+    await expect(
+      requestSessionKey({
+        url: "ws://signal.test",
+        hostId: "pc-1",
+        machineKey: "k",
+        hostCert: "cert-1",
+        sessionId: "s1",
+      }),
+    ).rejects.toThrow(/wss/);
+    expect(fetch).not.toHaveBeenCalled();
+    // This machine, as in development, is fine.
+    start("ws://localhost:8080").stop();
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
   it("falls back to the machine key when no certificate is given", () => {
     const { session, socket } = startAttested();
     expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);

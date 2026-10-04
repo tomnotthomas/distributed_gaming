@@ -85,7 +85,7 @@ const access = accessFromEnv(process.env);
 // Which credential may host (HOSTING_ATTESTATION) and who judges attestation
 // (ATTESTATION_VERIFIER). Unset: the machine key hosts, unattested, and no
 // machine can attest.
-const attestationConfig = attestationFromEnv(process.env);
+const attestationConfig = attestationFromEnv(process.env, access.machines);
 const attestation = createAttestation({ access, ...attestationConfig });
 
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can

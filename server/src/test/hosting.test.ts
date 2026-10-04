@@ -63,7 +63,7 @@ async function attest(room: string, facts: PlatformFacts = FACTS): Promise<HostC
   assert.equal(challenge.status, 200);
   const attested = await call("POST", `/api/machines/${room}/attest`, {
     nonce: challenge.body.nonce,
-    evidence: { facts },
+    evidence: { machineKey: MACHINE_KEY, facts },
   });
   // The status only: the body carries the host certificate.
   assert.equal(attested.status, 200, `attest answered ${attested.status}`);
@@ -225,7 +225,7 @@ describe("hosting requires attestation", () => {
     const challenge = await call("POST", "/api/machines/pc-3/attest-challenge");
     const below = await call("POST", "/api/machines/pc-3/attest", {
       nonce: challenge.body.nonce,
-      evidence: { facts: { ...FACTS, iommu: false } },
+      evidence: { machineKey: MACHINE_KEY, facts: { ...FACTS, iommu: false } },
     });
     assert.deepEqual(below, {
       status: 403,
@@ -233,12 +233,12 @@ describe("hosting requires attestation", () => {
     });
     const again = await call("POST", "/api/machines/pc-3/attest", {
       nonce: challenge.body.nonce,
-      evidence: { facts: FACTS },
+      evidence: { machineKey: MACHINE_KEY, facts: FACTS },
     });
     assert.equal(again.status, 200, "a failed attempt does not use its challenge up");
     const used = await call("POST", "/api/machines/pc-3/attest", {
       nonce: challenge.body.nonce,
-      evidence: { facts: FACTS },
+      evidence: { machineKey: MACHINE_KEY, facts: FACTS },
     });
     assert.deepEqual(used, { status: 401, body: { error: "bad-nonce" } });
     const garbled = await fetch(`${HTTP}/api/machines/pc-3/attest`, { method: "POST", body: "{not json" });

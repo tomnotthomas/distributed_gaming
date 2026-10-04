@@ -224,10 +224,14 @@ key; `503 verifier-unavailable` when the verifier itself fails; `503 not-configu
 
 The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence })`
 returning the platform facts it verified). It is picked with `ATTESTATION_VERIFIER`. The only
-one so far is `insecure-dev`, which believes evidence of the form `{ facts: PlatformFacts }`:
-it is for VMs and tests, and the server warns at startup whenever it is set. The real one
-(Keylime or Swiff's own: EK chain, AK credential activation, event-log replay, golden PCR 11)
-comes in a later stage.
+one so far is `insecure-dev`, which takes evidence of the form
+`{ machineKey, facts: PlatformFacts }`. The machine's own key stands in for the proof of who
+is asking, which a real verifier gets from the TPM's endorsement key registered for the
+machine, so only its holder earns a certificate. The facts are believed as claimed. It is for
+VMs and tests, and the server warns at startup whenever it is set. The real one (Keylime or
+Swiff's own: EK chain, AK credential activation, event-log replay, golden PCR 11) comes in a
+later stage. The attestation routes themselves take no other credential: the evidence is the
+proof.
 
 **Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
 setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
