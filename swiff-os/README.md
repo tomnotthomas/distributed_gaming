@@ -20,7 +20,8 @@ hosting rights: `session-claimed`, session keys and TURN credentials.
 
 `HOSTING_ATTESTATION=required` switches an environment to attested-only hosting. The default,
 `optional`, keeps today's desktop hosts working at an explicit `unattested` tier. The verifier
-is an interface; only the `insecure-dev` stub exists yet. The contract is in
+is an interface: `tpm` (`server/src/tpm-verifier.ts`) for production, and the `insecure-dev`
+stub for VMs and tests. The contract is in
 [`docs/system-design/session-keys.md`](../docs/system-design/session-keys.md), "Control and
 hosting credentials".
 
