@@ -301,12 +301,12 @@ describe("startHostSession", () => {
     session.stop();
   });
 
-  it("answers game-started at once with nothing to launch, and nothing when the launch fails", async () => {
+  it("answers nothing with nothing to launch, nor when the launch fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const bare = start();
     bare.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
     await settle();
-    expect(bare.socket.messages.at(-1)).toEqual({ type: "game-started" });
+    expect(bare.socket.messages.map((m) => m.type)).toEqual(["register"]);
     bare.session.stop();
 
     FakeSocket.instances = [];

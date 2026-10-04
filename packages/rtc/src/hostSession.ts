@@ -113,8 +113,9 @@ export type HostSessionOptions = IceConfig & {
    * from then on. A rejection sends nothing, and the renter's page stays on
    * Ignition and offers another machine.
    * Called again for every start the renter's page makes, so it must be
-   * idempotent. Without it, nothing is launched and the answer is immediate:
-   * the screen being shared is already what the renter came for.
+   * idempotent. Without it, nothing is launched and nothing is answered: the
+   * renter's page stays on Ignition. The desktop app has no launcher until the
+   * PC session's streamer exists, so it never answers until then.
    */
   launchGame?: (appid: number) => Promise<void> | void;
   /**
@@ -361,9 +362,11 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         if (opts.serveClaims && !claim) serve(next);
         break;
       }
-      case "launch-game":
+      case "launch-game": {
+        const { launchGame } = opts;
+        if (!launchGame) break;
         void Promise.resolve()
-          .then(() => opts.launchGame?.(msg.appid))
+          .then(() => launchGame(msg.appid))
           .then(
             () => send({ type: "game-started" }),
             (cause: unknown) =>
@@ -373,6 +376,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
               ),
           );
         break;
+      }
       case "peer-joined":
         // With the machine key, a renter may hold a ticket for a session this
         // machine refused: nothing is offered until the platform has ended it.
