@@ -71,7 +71,11 @@ if [ "$no_build" = 0 ] || [ ! -e "$build/out/swiff-streamer-vmtest.raw" ]; then
 fi
 [ "$build_only" = 1 ] && exit 0
 
-if [ ! -d "$browsers/chromium_headless_shell-"* ] 2>/dev/null; then
+have_chromium=0
+for dir in "$browsers"/chromium_headless_shell-*; do
+    [ -d "$dir" ] && have_chromium=1
+done
+if [ "$have_chromium" = 0 ]; then
     echo "== fetching Playwright's Chromium into $browsers"
     (cd "$repo" && PLAYWRIGHT_BROWSERS_PATH="$browsers" npx playwright install chromium-headless-shell) >/dev/null
 fi
