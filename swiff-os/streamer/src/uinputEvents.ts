@@ -103,8 +103,26 @@ export function encodeRecords(events: Event[]): Buffer {
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const bit = (mask: number, n: number) => (mask >>> n) & 1;
 
-/** An InputSink that writes each call to the helper as one batch of records. */
-export function createUinputSink(write: (records: Buffer) => void): InputSink {
+/** The sink, plus what the helper's pipe tells it. */
+export type UinputSink = InputSink & {
+  /** The helper has taken everything written: catch it up on what changed meanwhile. */
+  drained(): void;
+  /** The helper was started again with fresh devices, on which nothing is pressed. */
+  reset(): void;
+};
+
+/**
+ * An InputSink that writes each call to the helper as one batch of records.
+ *
+ * `write` returns false when the helper's pipe is full (Node's backpressure).
+ * From then until `drained`, nothing more is written: a renter sending faster
+ * than the helper reads must not grow the streamer's memory. The sink keeps
+ * the state the devices should be in instead — keys and buttons held, the
+ * pointer's position, each controller — and on `drained` writes only what
+ * differs, so every release still lands. Relative motion and wheel steps from
+ * that interval are dropped: they are stale by the time the pipe clears.
+ */
+export function createUinputSink(write: (records: Buffer) => boolean): UinputSink {
   // Wheel travel below a whole notch, per axis, carried into the next event so
   // a touchpad's small steps add up to notches for games that count only those.
   let restX = 0;
@@ -114,25 +132,65 @@ export function createUinputSink(write: (records: Buffer) => void): InputSink {
   const held = new Set<string>();
   const dropped = new Set<string>();
 
+  let blocked = false;
+  // [device, code] pairs as "device:code": what should be pressed, and what the helper was told.
+  const wanted = new Set<string>();
+  const written = new Set<string>();
+  let pointer: [number, number] | null = null;
+  const pads = new Map<number, GamepadState>();
+  const padsPending = new Set<number>();
+
   const emit = (device: number, events: [type: number, code: number, value: number][]) => {
     if (!events.length) return;
-    write(encodeRecords([...events, [EV_SYN, SYN_REPORT, 0]].map((e) => [device, ...e] as Event)));
+    const records = encodeRecords([...events, [EV_SYN, SYN_REPORT, 0]].map((e) => [device, ...e] as Event));
+    if (!write(records)) blocked = true;
+  };
+
+  /** A key or button: remembered always, written now unless the pipe is full. */
+  const press = (device: number, code: number, down: boolean) => {
+    const id = `${device}:${code}`;
+    if (down) wanted.add(id);
+    else wanted.delete(id);
+    if (blocked) return;
+    if (down) written.add(id);
+    else written.delete(id);
+    emit(device, [[EV_KEY, code, down ? 1 : 0]]);
+  };
+
+  const catchUp = () => {
+    blocked = false;
+    // A bounded diff (at most every mapped key, five buttons, the pointer and four
+    // controllers), written in full even if the pipe fills again on the way.
+    for (const id of [...written].filter((id) => !wanted.has(id))) {
+      const [device, code] = id.split(":").map(Number) as [number, number];
+      written.delete(id);
+      emit(device, [[EV_KEY, code, 0]]);
+    }
+    for (const id of [...wanted].filter((id) => !written.has(id))) {
+      const [device, code] = id.split(":").map(Number) as [number, number];
+      written.add(id);
+      emit(device, [[EV_KEY, code, 1]]);
+    }
+    if (pointer) emit(DEVICE.pointer, pointerEvents(...pointer));
+    pointer = null;
+    for (const index of padsPending) emit(DEVICE.gamepad0 + index, gamepadEvents(pads.get(index)!));
+    padsPending.clear();
   };
 
   return {
     move(x, y) {
-      emit(DEVICE.pointer, [
-        [EV_ABS, ABS_X, Math.round(clamp(x, 0, 1) * ABS_MAX)],
-        [EV_ABS, ABS_Y, Math.round(clamp(y, 0, 1) * ABS_MAX)],
-      ]);
+      if (blocked) pointer = [x, y];
+      else emit(DEVICE.pointer, pointerEvents(x, y));
     },
     moveBy(dx, dy) {
+      if (blocked) return;
       const events: [number, number, number][] = [];
       if (dx) events.push([EV_REL, REL_X, Math.trunc(dx)]);
       if (dy) events.push([EV_REL, REL_Y, Math.trunc(dy)]);
       emit(DEVICE.mouse, events);
     },
     wheel(dx, dy) {
+      if (blocked) return;
       // The DOM's positive dy is down; Linux's positive wheel is up.
       const events: [number, number, number][] = [];
       if (dy) {
@@ -152,7 +210,7 @@ export function createUinputSink(write: (records: Buffer) => void): InputSink {
       emit(DEVICE.mouse, events);
     },
     button(button, down) {
-      emit(DEVICE.mouse, [[EV_KEY, MOUSE_BUTTONS[button], down ? 1 : 0]]);
+      press(DEVICE.mouse, MOUSE_BUTTONS[button], down);
     },
     key(code, down) {
       const key = linuxKey(code);
@@ -168,13 +226,31 @@ export function createUinputSink(write: (records: Buffer) => void): InputSink {
         if (dropped.delete(code)) return;
         held.delete(code);
       }
-      emit(DEVICE.keyboard, [[EV_KEY, key, down ? 1 : 0]]);
+      press(DEVICE.keyboard, key, down);
     },
     gamepad(index, state) {
       if (!Number.isInteger(index) || index < 0 || index >= MAX_GAMEPADS) return;
-      emit(DEVICE.gamepad0 + index, gamepadEvents(state));
+      pads.set(index, state);
+      if (blocked) padsPending.add(index);
+      else emit(DEVICE.gamepad0 + index, gamepadEvents(state));
+    },
+    drained() {
+      if (blocked) catchUp();
+    },
+    reset() {
+      // Fresh devices: press again what the renter still holds, and restore each controller.
+      written.clear();
+      for (const index of pads.keys()) padsPending.add(index);
+      catchUp();
     },
   };
+}
+
+function pointerEvents(x: number, y: number): [number, number, number][] {
+  return [
+    [EV_ABS, ABS_X, Math.round(clamp(x, 0, 1) * ABS_MAX)],
+    [EV_ABS, ABS_Y, Math.round(clamp(y, 0, 1) * ABS_MAX)],
+  ];
 }
 
 /** The whole controller as events. The kernel drops the ones that did not change. */

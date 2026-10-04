@@ -31,6 +31,13 @@ export function startVirtualInput({
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let delay = RESTART_DELAY_MS;
+  let started = false;
+
+  // Backpressure: a full pipe stops the writes until it drains (see createUinputSink).
+  const sink = createUinputSink((records) => {
+    if (!child?.stdin?.writable) return true; // no helper: dropped, nothing to wait for
+    return child.stdin.write(records);
+  });
 
   const start = () => {
     timer = null;
@@ -40,6 +47,10 @@ export function startVirtualInput({
     });
     child = proc;
     proc.stdin!.on("error", () => {});
+    proc.stdin!.on("drain", () => sink.drained());
+    // A restarted helper has fresh devices: press again whatever the renter still holds.
+    if (started) sink.reset();
+    started = true;
     proc.once("error", (cause) => log(`[swiff-streamer] input helper did not start: ${cause.message}`));
     const startedAt = Date.now();
     proc.once("close", (code) => {
@@ -58,9 +69,7 @@ export function startVirtualInput({
   start();
 
   return {
-    sink: createUinputSink((records) => {
-      if (child?.stdin?.writable) child.stdin.write(records);
-    }),
+    sink,
     async stop() {
       stopped = true;
       if (timer) clearTimeout(timer);

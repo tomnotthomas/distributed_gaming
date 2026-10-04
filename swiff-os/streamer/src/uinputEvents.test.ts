@@ -12,6 +12,8 @@ type Ev = [device: number, type: number, code: number, value: number];
 function recorder() {
   const events: Ev[] = [];
   const batches: Buffer[] = [];
+  // What the helper's pipe answers: false is Node's "buffer full, wait for drain".
+  const pipe = { full: false };
   const sink = createUinputSink((buf) => {
     batches.push(buf);
     for (let at = 0; at < buf.length; at += RECORD_BYTES)
@@ -21,8 +23,9 @@ function recorder() {
         buf.readUInt16LE(at + 3),
         buf.readInt32LE(at + 5),
       ]);
+    return !pipe.full;
   });
-  return { sink, events, batches };
+  return { sink, events, batches, pipe };
 }
 
 const SYN = (device: number): Ev => [device, 0, 0, 0];
@@ -43,6 +46,63 @@ describe("keymap", () => {
     for (const code of ["Power", "Sleep", "WakeUp", "PrintScreen", "Eject", "BrowserHome", "toString"])
       expect(linuxKey(code)).toBeNull();
     for (const key of [116, 142, 143, 99]) expect(KEYBOARD_KEYS).not.toContain(key);
+  });
+});
+
+describe("createUinputSink under backpressure", () => {
+  it("stops writing once the pipe is full, however much the renter sends", () => {
+    const { sink, batches, pipe } = recorder();
+    pipe.full = true;
+    sink.moveBy(1, 1); // this one is buffered by Node and fills the pipe
+    const before = batches.length;
+    for (let i = 0; i < 10_000; i++) {
+      sink.moveBy(3, 4);
+      sink.move(i / 10_000, 0.5);
+      sink.gamepad(0, { ...NEUTRAL_GAMEPAD, axes: [i / 10_000, 0, 0, 0] });
+      sink.key("KeyW", i % 2 === 0);
+    }
+    expect(batches.length).toBe(before);
+  });
+
+  it("catches up on drain with only what changed: every release lands, stale motion does not", () => {
+    const { sink, events, pipe } = recorder();
+    sink.key("KeyA", true); // held before the pipe filled
+    pipe.full = true;
+    sink.key("ShiftLeft", true); // fills the pipe
+    events.length = 0;
+    sink.key("KeyA", false); // released while full
+    sink.key("KeyD", true); // pressed while full
+    sink.key("KeyQ", true); // tapped while full: gone by the time it clears
+    sink.key("KeyQ", false);
+    sink.button(0, true);
+    sink.moveBy(50, 50); // stale
+    sink.move(0.25, 0.75);
+    sink.move(0.5, 0.5); // only the last position matters
+    sink.gamepad(1, { ...NEUTRAL_GAMEPAD, buttons: 1 });
+    expect(events).toEqual([]);
+    pipe.full = false;
+    sink.drained();
+    const kb = DEVICE.keyboard;
+    expect(events.filter(([, type]) => type !== 0)).toEqual([
+      [kb, 1, 30, 0], // KeyA up
+      [kb, 1, 32, 1], // KeyD down
+      [DEVICE.mouse, 1, 0x110, 1], // left button
+      [DEVICE.pointer, 3, 0, 32768],
+      [DEVICE.pointer, 3, 1, 32768],
+      ...events.filter(([d, t]) => d === DEVICE.gamepad0 + 1 && t !== 0),
+    ]);
+    expect(events).toContainEqual([DEVICE.gamepad0 + 1, 1, 0x130, 1]);
+    expect(events.some(([, type]) => type === 2)).toBe(false); // no relative motion replayed
+  });
+
+  it("presses again what is held when the helper restarts with fresh devices", () => {
+    const { sink, events } = recorder();
+    sink.key("KeyW", true);
+    sink.gamepad(0, { ...NEUTRAL_GAMEPAD, buttons: 1 });
+    events.length = 0;
+    sink.reset();
+    expect(events).toContainEqual([DEVICE.keyboard, 1, 17, 1]);
+    expect(events).toContainEqual([DEVICE.gamepad0, 1, 0x130, 1]);
   });
 });
 
