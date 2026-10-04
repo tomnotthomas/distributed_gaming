@@ -12,7 +12,7 @@
 //                                          POST /api/sessions/:id/end          either
 //                                          POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
-//   POST /api/bookings/:id/ticket
+//   POST /api/bookings/:id/rejoin
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
 //   POST /api/sessions/:id/start (ticket)
@@ -41,13 +41,15 @@
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
 // The page never stores that ticket; a renter coming back to their running
-// session gets it again from `ticket`, with the same id, so ending the session
-// still revokes every copy.
+// session gets it again from `rejoin`, with the same id, so joining with it
+// takes their seat back and ending the session still revokes every copy.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
 // The renter's page starts the session on its first frame, reports stream
 // quality, and says it is leaving, with that ticket as its bearer. Starting it
-// is what tells the PC to launch the game.
+// is what tells the PC to launch the game. A renter who dropped has the
+// reconnect grace the PC holds the session for (grace.ts) to rejoin; reading a
+// running booking says until when that grace holds it.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -113,6 +115,11 @@ export type ApiOptions = {
   attestation?: Attestation;
   /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
   onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
+  /**
+   * Until when (Unix ms) `machineId` holds its session for a renter who
+   * dropped out of it (grace.ts); null while nobody has.
+   */
+  heldUntil?: (machineId: string) => number | null;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -353,6 +360,7 @@ export function createApi({
   isFree = storeFreeToPlay(),
   attestation = createAttestation({ access }),
   onRenterStarted,
+  heldUntil = () => null,
 }: ApiOptions) {
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
@@ -552,7 +560,9 @@ export function createApi({
       // Somebody else's booking reads exactly like one that does not exist.
       const booking = await platform.booking(id, requireRenter(req, sessionSecret));
       if (!booking) throw new HttpError(404, "no such booking");
-      reply(res, 200, booking);
+      const running = booking.status === "claimed" || booking.status === "playing";
+      const held = running && booking.machine ? heldUntil(booking.machine.id) : null;
+      reply(res, 200, held === null ? booking : { ...booking, heldUntil: held });
       return true;
     }
 
@@ -593,9 +603,9 @@ export function createApi({
       return true;
     }
 
-    if (resource === "bookings" && id && action === "ticket" && method === "POST") {
+    if (resource === "bookings" && id && action === "rejoin" && method === "POST") {
       // The renter coming back to their running session: its ticket again,
-      // the one recorded at claim, valid only until the session's deadline.
+      // the seat recorded at claim, valid only until the session's deadline.
       const renter = requireRenter(req, sessionSecret);
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
       const session = await platform.runningSession(id, renter);

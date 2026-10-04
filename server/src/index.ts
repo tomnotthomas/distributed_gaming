@@ -60,11 +60,13 @@ import {
   DENIED_CODE,
   isRelayed,
   type DeniedMessage,
+  type PeerLeftMessage,
   type SessionError,
   type SessionGrant,
   type SignalMessage,
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
+import { createRenterGrace, RECONNECT_GRACE_S } from "./grace.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
@@ -106,6 +108,23 @@ const sessionSecret = sessionSecretFromEnv(process.env);
 // the cookie's Secure flag. Without it in production nobody can sign in.
 const publicOrigin = publicOriginFromEnv(process.env, PORT);
 const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
+
+// A renter who drops mid-session has the grace to come back (grace.ts): the
+// session ends as grace_expired only once it runs out. Declared before the
+// platform, whose first settling may already end a session.
+// SWIFF_RECONNECT_GRACE_MS shortens it for tests.
+const GRACE_MS = Number(process.env.SWIFF_RECONNECT_GRACE_MS) || RECONNECT_GRACE_S * 1000;
+const grace = createRenterGrace({
+  graceMs: GRACE_MS,
+  onExpire: (_hostId, ticketId) => {
+    void (async () => {
+      const sessionId = await platform.ticketSession(ticketId);
+      if (sessionId) await platform.leaveSession(sessionId, ticketId, "grace_expired");
+    })().catch((error: unknown) => {
+      console.error("[swiff] grace expiry failed:", error instanceof Error ? error.name : typeof error);
+    });
+  },
+});
 
 // Machines, bookings, reservations and sessions (platform.ts), in the Postgres
 // database at DATABASE_URL, or in memory without one. Opened, its tables made
@@ -155,6 +174,7 @@ const serveApi = createApi({
   events: renterEvents,
   attestation,
   onRenterStarted: pushLaunch,
+  heldUntil: (machineId) => grace.until(machineId),
 });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
@@ -298,6 +318,22 @@ function hostGone(hostId: string, dropped: boolean): void {
   });
 }
 
+// --- reconnect grace --------------------------------------------------------
+
+/**
+ * What the host hears when renter `ws` leaves its seat. A renter on a ticket
+ * not known to be revoked may be dropping out of a running session: its grace
+ * starts now, and the host is told how long it lasts. Decided without the
+ * database, so the host hears it before anything that renter's next join
+ * says; a ticket with no running session (minted by hand, or revoked behind
+ * the server's back) simply expires with nothing to end.
+ */
+function renterLeft(ws: PeerSocket): PeerLeftMessage {
+  if (!ws.hostId || !ws.ticketId || seatRevoked(ws)) return { type: "peer-left" };
+  grace.start(ws.hostId, ws.ticketId);
+  return { type: "peer-left", grace: GRACE_MS / 1000 };
+}
+
 // --- host sessions ----------------------------------------------------------
 
 /**
@@ -315,6 +351,8 @@ async function endHostSession(hostId: string): Promise<void> {
  */
 function sessionEnded(hostId: string, sessionId: string, ticketId: string | null): void {
   if (ticketId !== null) revoke(ticketId);
+  // However it ended, a renter who dropped has nothing left to come back to.
+  grace.cancel(hostId);
   evictStreamer(hostId, sessionId);
   const client = rooms.get(hostId)?.client;
   if (client && seatRevoked(client)) putOut(client);
@@ -733,6 +771,8 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.ticketId = ticket.id;
       confirm(ws, began);
       room.client = ws;
+      // A renter back within the reconnect grace keeps their session.
+      grace.cancel(ticket.room, ticket.id);
       send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
       send(room.host, { type: "peer-joined" });
       return;
@@ -865,7 +905,7 @@ function onClose(ws: PeerSocket): void {
   const wasHost = room.host === ws;
   if (wasHost) room.host = null;
   if (room.client === ws) room.client = null;
-  send(peer, { type: "peer-left" });
+  send(peer, wasHost ? { type: "peer-left" } : renterLeft(ws));
   if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
   // The PC service's own socket going is the PC going: offline now while it
   // is on offer. A streamer's going, or any socket once a renter has claimed
