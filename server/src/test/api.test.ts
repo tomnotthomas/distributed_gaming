@@ -873,8 +873,9 @@ describe("booking and host API", () => {
         ).body;
       const tokened = (body: any) => body.machines.filter((m: any) => m.probe).map((m: any) => m.id);
 
-      // Claiming the top three unreachable takes them off the list, but moves no token down it.
-      const pushed = await read({ "pc-1": null, "pc-2": null, "pc-4": null });
+      // Claiming the top three too far away takes them off the list, but moves no token down it.
+      const far = { rttMs: 81, jitterMs: 1 };
+      const pushed = await read({ "pc-1": far, "pc-2": far, "pc-4": far });
       assert.deepEqual(
         pushed.machines.map((m: any) => m.id),
         ["pc-5"],
@@ -888,7 +889,7 @@ describe("booking and host API", () => {
       assert.deepEqual(tokened(slow), ["pc-2", "pc-4"]);
     });
 
-    it("ranks a probed machine by what the renter measured, and drops one the probe could not reach", async () => {
+    it("ranks a probed machine by what the renter measured, and drops one measured too far away", async () => {
       await offer("pc-1", { available: true, ...REPORT, net: { rttMs: 2, jitterMs: 1, upMbps: 48 } });
       await offer("pc-2", { available: true, ...REPORT, net: { rttMs: 8, jitterMs: 1, upMbps: 48 } });
       await offer("pc-4", { available: true, ...REPORT, net: { rttMs: 12, jitterMs: 1, upMbps: 48 } });
@@ -900,8 +901,8 @@ describe("booking and host API", () => {
           )
         ).body;
 
-      // pc-1 measured slower than its estimate; pc-2 unreachable.
-      const body = await read({ "pc-1": { rttMs: 30, jitterMs: 2 }, "pc-2": null });
+      // pc-1 measured slower than its estimate; pc-2 past 80 ms.
+      const body = await read({ "pc-1": { rttMs: 30, jitterMs: 2 }, "pc-2": { rttMs: 81, jitterMs: 1 } });
       assert.deepEqual(
         body.machines.map((m: any) => [m.id, m.latency.source]),
         [
@@ -937,7 +938,7 @@ describe("booking and host API", () => {
       // The wall counts by the same links.
       const wall = await renter(
         "GET",
-        `/api/availability?appids=730&rtt=1&links=${encodeURIComponent(JSON.stringify({ "pc-2": null }))}`,
+        `/api/availability?appids=730&rtt=1&links=${encodeURIComponent(JSON.stringify({ "pc-2": { rttMs: 81, jitterMs: 1 } }))}`,
       );
       assert.equal(wall.body[0].free, 2);
     });
@@ -951,8 +952,11 @@ describe("booking and host API", () => {
         JSON.stringify({ "pc-1": { rttMs: 1 } }),
         JSON.stringify({ "pc-1": [1, 0] }),
         JSON.stringify({ "pc-1": "fast" }),
-        JSON.stringify({ ["x".repeat(201)]: null }),
-        JSON.stringify(Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`pc-${i}`, null]))),
+        JSON.stringify({ "pc-1": null }),
+        JSON.stringify({ ["x".repeat(201)]: { rttMs: 1, jitterMs: 0 } }),
+        JSON.stringify(
+          Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`pc-${i}`, { rttMs: 1, jitterMs: 0 }])),
+        ),
       ];
       for (const links of bad) {
         const path = `/api/games/730/machines?minutes=60&rtt=0&links=${encodeURIComponent(links)}`;

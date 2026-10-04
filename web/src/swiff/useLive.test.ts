@@ -246,8 +246,7 @@ describe("useLive", () => {
     });
 
     /**
-     * The server: lists `ids` (best estimate first) but those the read's
-     * `links` say are unreachable, hands out a token for each of the first
+     * The server: lists `ids` (best estimate first), hands out a token for each of the first
      * three ids not in `links` with the relay `ice`, and keeps every `links` read.
      */
     function listing(ids: string[], ice: RTCIceServer[] = [{ urls: "turn:turn.test" }]) {
@@ -262,9 +261,7 @@ describe("useLive", () => {
         return json({
           appid: 730,
           minutes: 60,
-          machines: ids
-            .filter((id) => sent?.[id] !== null) // unreachable: not listed (E6)
-            .map((id) => machine(id, tokened.includes(id) ? `token-${id}` : null)),
+          machines: ids.map((id) => machine(id, tokened.includes(id) ? `token-${id}` : null)),
           reason: null,
           busy: [],
           ...(tokened.length ? { iceServers: ice } : {}),

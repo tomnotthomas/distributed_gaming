@@ -9,7 +9,8 @@
 // estimate is an upper bound; it cannot tell a direct path from a relayed one.
 // The page then probes its top three through the TURN relay (probes.ts) and
 // asks again with what it measured (`links`): a measured machine is ranked by
-// its own round trip and jitter, and one sent as null (unreachable) fails E6.
+// its own round trip and jitter. One the probe measured nothing for keeps its
+// estimate.
 // Nothing about where a host is (its address) is ever stored, let alone sent:
 // a renter learns a machine's id, name, hardware, terms and the scores, never
 // its owner. A probe reveals no address either: only relay candidates pass.
@@ -39,10 +40,9 @@ export type RenterAsk = {
   picture: PicturePref;
   /**
    * What the page measured through the relay to machines it probed, by id:
-   * their link, or null for one the probe could not reach. They stand in for
-   * the estimate.
+   * their link. They stand in for the estimate.
    */
-  links?: ReadonlyMap<string, LinkStats | null>;
+  links?: ReadonlyMap<string, LinkStats>;
 };
 
 /**

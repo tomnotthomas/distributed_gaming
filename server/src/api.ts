@@ -296,11 +296,10 @@ const hasTurn = (servers: RTCIceServer[]) =>
 
 /**
  * What the page measured through the relay to the machines it probed
- * (`links`): a JSON object from machine id to `{ rttMs, jitterMs }`, or to
- * null for one the probe could not reach. Absent: nothing was measured. A 400
- * names what is wrong with it.
+ * (`links`): a JSON object from machine id to `{ rttMs, jitterMs }`. Absent:
+ * nothing was measured. A 400 names what is wrong with it.
  */
-function measuredLinks(value: string | null): Map<string, LinkStats | null> | undefined {
+function measuredLinks(value: string | null): Map<string, LinkStats> | undefined {
   if (value === null) return undefined;
   let parsed: unknown;
   try {
@@ -314,11 +313,10 @@ function measuredLinks(value: string | null): Map<string, LinkStats | null> | un
   const entries = Object.entries(parsed);
   if (entries.length > MAX_LINKS) throw new HttpError(400, `links must name at most ${MAX_LINKS} machines`);
   return new Map(
-    entries.map(([id, link]): [string, LinkStats | null] => {
+    entries.map(([id, link]): [string, LinkStats] => {
       if (!id || id.length > MAX_MACHINE_ID_LENGTH) throw new HttpError(400, "links names a bad machine id");
-      if (link === null) return [id, null];
-      if (typeof link !== "object" || Array.isArray(link)) {
-        throw new HttpError(400, `links[${id}] must be null or { rttMs, jitterMs }`);
+      if (typeof link !== "object" || link === null || Array.isArray(link)) {
+        throw new HttpError(400, `links[${id}] must be { rttMs, jitterMs }`);
       }
       const { rttMs, jitterMs } = link as Json;
       return [

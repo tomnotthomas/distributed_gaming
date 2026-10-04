@@ -354,9 +354,8 @@ stored or sent by these reads: a renter sees a machine's id, name, hardware, ter
 scores, never its owner.
 
 `links` replaces the estimate for the machines the page probed (below): a JSON object
-from machine id to `{ rttMs, jitterMs }`, at most 30 of them. The server also takes null
-for a machine that could not be reached, which fails E6, but the page never sends it: a
-probe that measured nothing leaves the estimate standing. A measured machine is ranked
+from machine id to `{ rttMs, jitterMs }`, at most 30 of them; anything else, null
+included, is a 400. A probe that measured nothing leaves the estimate standing. A measured machine is ranked
 by its own round trip, so past 80 ms it fails E6, and its Response bucket drops a step for jitter over 10 ms, as
 `@swiff/rank` scores any link. A probe always goes through the relay, which says nothing
 of the path the session will take, so a measured machine never loses the relay step.
