@@ -202,7 +202,6 @@ describe("installing games", () => {
     expect(appidIn("https://store.steampowered.com/app/570/Dota_2/")).toBe(570);
     expect(appidIn("store.steampowered.com/app/1172470?l=german")).toBe(1172470);
     expect(appidIn("steam://install/440")).toBe(440);
-    expect(appidIn("steam://rungameid/440")).toBe(440);
   });
 
   it("finds none in anything else", () => {
@@ -213,6 +212,8 @@ describe("installing games", () => {
       "-5",
       "https://evil.example/app/570",
       "steam://uninstall/570",
+      "steam://run/570",
+      "steam://rungameid/570",
       "99999999999",
     ])
       expect(appidIn(text)).toBeNull();

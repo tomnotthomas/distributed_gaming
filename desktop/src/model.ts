@@ -56,7 +56,7 @@ export function appidIn(text: string): number | null {
   const match =
     /^(\d{1,10})$/.exec(trimmed) ??
     /^(?:https?:\/\/)?store\.steampowered\.com\/app\/(\d{1,10})(?:[/?#].*)?$/i.exec(trimmed) ??
-    /^steam:\/\/(?:install|run|rungameid)\/(\d{1,10})\/?$/i.exec(trimmed);
+    /^steam:\/\/install\/(\d{1,10})\/?$/i.exec(trimmed);
   const appid = match ? Number(match[1]) : NaN;
   return Number.isSafeInteger(appid) && appid > 0 && appid < 2 ** 31 ? appid : null;
 }
