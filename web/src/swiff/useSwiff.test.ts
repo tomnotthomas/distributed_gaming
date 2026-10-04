@@ -11,8 +11,9 @@ import type { Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
-// Analytics are off in tests; the real module refuses to load without a key in dev.
-vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
+// The real module refuses to load without a key in dev: tests stand in for it and read what the funnel was told.
+const track = vi.hoisted(() => vi.fn());
+vi.mock("../posthog", () => ({ default: { capture: track }, isPostHogEnabled: true }));
 
 /** The renter sessions the page started, each driven by the test: what it joined with, its events, its end. */
 const rtc = vi.hoisted(() => ({
@@ -381,7 +382,7 @@ describe("useSwiff", () => {
       expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a machine");
 
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
-      // Kept as the booking being played, for a reload to rejoin.
+      // Kept as the booking being played, for the later resume step.
       expect(storedPlay()).toEqual({ bookingId: "b-1", claim: TICKET });
       const video = document.createElement("video");
       act(() => result.current.attachVideo(video));
@@ -405,6 +406,53 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("idle");
       expect(session.ended).toBe(true);
       await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("ends a live session the server ended as a session end, not a failed launch", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        "POST /api/bookings/b-1/end": json(409, { status: "ended" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+      track.mockClear();
+
+      act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(false);
+      expect(result.current.claim).toBeNull();
+      expect(track).toHaveBeenCalledWith("session_ended", expect.anything());
+      expect(storedPlay()).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("fails the launch when the ticket is denied during Ignition", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      track.mockClear();
+
+      act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(true);
+      expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
       expect(storedPlay()).toBeNull();
     });
 

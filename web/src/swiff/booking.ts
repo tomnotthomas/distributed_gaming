@@ -100,7 +100,7 @@ export type BookMachineResult =
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
-/** The claimed booking being played, with its room and ticket, for a reload to rejoin. */
+/** The claimed booking being played, with its room and ticket, kept for the later resume step. */
 const PLAY_KEY = "swiff.play";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
 const SLOW_POLL_MS = 5_000;
@@ -224,9 +224,9 @@ async function askToClaim(bookingId: string, options: BookingOptions): Promise<C
  */
 export async function endBooking(bookingId: string, options: BookingOptions = {}): Promise<Booking | null> {
   const { storage = localStorage, fetch: get = fetch } = options;
-  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/end`);
   if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
-  if (storedPlay(storage)?.bookingId === bookingId) storage.removeItem(PLAY_KEY);
+  forgetPlay(bookingId, storage);
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/end`);
   if (response.status === 409 || response.status === 404) return null;
   if (!response.ok) throw new Error(`ending failed: ${response.status}`);
   return (await response.json()) as Booking;
@@ -293,6 +293,7 @@ export function watchBooking(
     if (stopped) return;
     const done = !booking || DONE.includes(booking.status);
     if (done && storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+    if (!booking || booking.status === "ended" || booking.status === "expired") forgetPlay(bookingId, storage);
     onUpdate(booking);
     if (done) stop();
   };
@@ -352,7 +353,7 @@ export function watchBooking(
 /** A claimed booking being played: the booking, and the room and ticket its claim handed out. */
 export type StoredPlay = { bookingId: string; claim: Claim };
 
-/** The claimed booking this browser is playing, kept so a reload can rejoin it; null when there is none. */
+/** The claimed booking this browser is playing, kept for the later resume step; null when there is none. */
 export function storedPlay(storage: Storage = localStorage): StoredPlay | null {
   try {
     const play = JSON.parse(storage.getItem(PLAY_KEY) ?? "null") as StoredPlay | null;
@@ -360,6 +361,11 @@ export function storedPlay(storage: Storage = localStorage): StoredPlay | null {
   } catch {
     return null;
   }
+}
+
+/** Forget `bookingId` as the booking being played: it ended, expired or is gone. */
+function forgetPlay(bookingId: string, storage: Storage) {
+  if (storedPlay(storage)?.bookingId === bookingId) storage.removeItem(PLAY_KEY);
 }
 
 /** The booking this browser made and kept, if any, for a page load to pick up. */

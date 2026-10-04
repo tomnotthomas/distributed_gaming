@@ -73,6 +73,12 @@ export function Session({ swiff }: { swiff: Swiff }) {
   const [hudShown, wake] = useAutoHide();
   const [fullscreen, toggleFullscreen] = useFullscreen(root);
   const [unmuted, setUnmuted] = useState(false);
+  // Behind Ignition the session can be neither seen nor used; once live, its HUD comes up afresh.
+  const behindIgnition = swiff.phase === "connecting";
+  useEffect(() => {
+    root?.toggleAttribute("inert", behindIgnition);
+    if (!behindIgnition) wake();
+  }, [root, behindIgnition, wake]);
   if (!game) return null;
 
   const fallback = machines.find((m) => !m.busy && m.id !== picked?.id);
