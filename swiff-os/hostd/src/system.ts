@@ -19,6 +19,8 @@ export type System = {
   returnToWindows(): Promise<void>;
   /** The checks of the hardware floor this machine fails; empty when it meets it. */
   unmetFloor(): Promise<FloorCheck[]>;
+  /** The kernel's id for this boot: a new one after every restart. */
+  bootId(): Promise<string>;
 };
 
 /** Runs a command and resolves with its stdout. */
@@ -56,6 +58,7 @@ export function linuxSystem(floor: HardwareFloor, root = "/", exec: Run = run): 
       const met = await Promise.all(checks.map((check) => probes[check]()));
       return checks.filter((_, i) => !met[i]);
     },
+    bootId: async () => (await readFile(at("proc/sys/kernel/random/boot_id"), "utf8")).trim(),
   };
 }
 

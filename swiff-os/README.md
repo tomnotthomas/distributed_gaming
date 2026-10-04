@@ -34,13 +34,15 @@ host protocol the desktop app already speaks, with no new messages
   machine-key socket and hears `session-claimed`. It then starts that session's host
   session and the streamer. It sends a heartbeat every 5 s, and learns the session is
   over when the heartbeat stops naming it. A streamer that stops mid-session is started
-  again with a fresh key. After 4 failed starts the agent ends the session.
+  again with a fresh key. After 4 starts in a row that each stop within a minute, the agent
+  ends the session.
 - **Restarts clean after every renter, while nobody waits (D5).** When a session ends,
   the agent first takes the PC off offer (`available: false`, with the owner's share-until
   sent back), so no renter is matched to a PC that is about to restart. It then ends the
   host session and reboots. On the way back up it offers the PC again on the same terms.
   It keeps a small `resume.json` in its state directory to remember that it took the PC
-  off offer itself.
+  off offer itself, and in which boot. If it finds that file from the same boot, the reboot
+  never happened, so it keeps the PC off offer and reboots again.
 - **Goes back to Windows** when the owner asks at the PC, when the owner stops sharing
   from elsewhere, or when the share-until passes. It puts Windows Boot Manager first in
   the firmware boot order and reboots.

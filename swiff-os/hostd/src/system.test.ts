@@ -56,6 +56,15 @@ describe("the hardware floor (D3)", () => {
   });
 });
 
+describe("the boot id", () => {
+  it("is the kernel's, read without its newline", async () => {
+    const root = await machine({
+      "proc/sys/kernel/random/boot_id": "6f1c2a9e-0b7d-4e4b-9d1a-2f3c4b5a6d7e\n",
+    });
+    expect(await linuxSystem(ALL, root).bootId()).toBe("6f1c2a9e-0b7d-4e4b-9d1a-2f3c4b5a6d7e");
+  });
+});
+
 describe("going back to Windows", () => {
   it("puts Windows Boot Manager first and keeps the rest in order", () => {
     expect(windowsFirst(LISTING)).toBe("0000,0003,0001");

@@ -117,7 +117,7 @@ function testStreamers() {
   return { seen, launch };
 }
 
-async function bootAgent(stateDir: string, launch: LaunchStreamer) {
+async function bootAgent(stateDir: string, launch: LaunchStreamer, bootId: string) {
   const system = { reboots: 0, windows: 0 };
   const agent = createAgent({
     api: createHostApi({ serverUrl: SERVER_URL, machineId: MACHINE, machineKey: MACHINE_KEY }),
@@ -128,6 +128,7 @@ async function bootAgent(stateDir: string, launch: LaunchStreamer) {
       reboot: async () => void system.reboots++,
       returnToWindows: async () => void system.windows++,
       unmetFloor: async () => [],
+      bootId: async () => bootId,
     },
     resume: fileResumeStore(stateDir),
     ownerTakeover: "when-idle",
@@ -162,7 +163,7 @@ describe("swiff-hostd against the server", () => {
       expect(offered.body).toMatchObject({ status: "available", until: shareUntil });
 
       const streamers = testStreamers();
-      const first = await bootAgent(stateDir, streamers.launch);
+      const first = await bootAgent(stateDir, streamers.launch, "boot-1");
       await until(() => first.agent.status().phase === "offered", "the offer");
 
       // A renter books and claims the PC.
@@ -197,7 +198,7 @@ describe("swiff-hostd against the server", () => {
       expect(waiting.body).toMatchObject({ status: "queued" });
 
       // Back from the restart: offered again on the same terms, and the waiting renter is matched.
-      const second = await bootAgent(stateDir, streamers.launch);
+      const second = await bootAgent(stateDir, streamers.launch, "boot-2");
       await until(() => second.agent.status().phase === "offered", "the offer after the reset");
       expect(await machine()).toMatchObject({ until: shareUntil });
       await until(

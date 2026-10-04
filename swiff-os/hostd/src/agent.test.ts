@@ -149,6 +149,7 @@ function harness(
       reboot: async () => void system.reboots++,
       returnToWindows: async () => void system.windows++,
       unmetFloor: async () => unmet,
+      bootId: async () => "boot-now",
     },
     resume: {
       save: async (resume) => void (saved = resume),
@@ -221,7 +222,7 @@ describe("offering and serving", () => {
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
     // Off offer for the reset, on the owner's terms, and remembered for the next boot.
     expect(h.server.state).toMatchObject({ status: "idle", until: until2h, hostSession: null });
-    expect(h.saved()).toEqual({ until: until2h });
+    expect(h.saved()).toEqual({ until: until2h, bootId: "boot-now" });
     expect(h.server.calls.slice(-3)).toEqual(["heartbeat", "availability false", "session end"]);
   });
 
@@ -238,14 +239,18 @@ describe("offering and serving", () => {
 
   it("offers again after its own reset, with the share-until it kept", async () => {
     const until2h = Date.now() + 2 * HOUR;
-    const h = harness(fakeServer({ status: "idle", until: until2h }), { saved: { until: until2h } });
+    const h = harness(fakeServer({ status: "idle", until: until2h }), {
+      saved: { until: until2h, bootId: "boot-before" },
+    });
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.state).toMatchObject({ status: "available", until: until2h });
     expect(h.saved()).toBeNull();
   });
 
   it("keeps trying to offer itself again after its reset while the server cannot be reached", async () => {
-    const h = harness(fakeServer({ status: "idle", unreachable: 2 }), { saved: { until: null } });
+    const h = harness(fakeServer({ status: "idle", unreachable: 2 }), {
+      saved: { until: null, bootId: "boot-before" },
+    });
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.calls.filter((c) => c === "availability true")).toHaveLength(3);
     expect(h.system).toEqual({ reboots: 0, windows: 0 });
@@ -258,9 +263,25 @@ describe("offering and serving", () => {
     expect(h.sockets).toHaveLength(0);
   });
 
+  it("stays off offer and restarts again when its reset's reboot never happened", async () => {
+    const until2h = Date.now() + 2 * HOUR;
+    const h = harness(fakeServer({ status: "idle", until: until2h }), {
+      saved: { until: until2h, bootId: "boot-now" },
+    });
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(h.server.calls).not.toContain("availability true");
+    expect(h.server.state.status).toBe("idle");
+    expect(h.sockets).toHaveLength(0);
+    // Kept for the boot that does come back clean.
+    expect(h.saved()).toEqual({ until: until2h, bootId: "boot-now" });
+  });
+
   it("goes back to Windows when the share-until passed during the reset", async () => {
     const past = Date.now() - 1_000;
-    const h = harness(fakeServer({ status: "idle", until: past }), { saved: { until: past } });
+    const h = harness(fakeServer({ status: "idle", until: past }), {
+      saved: { until: past, bootId: "boot-before" },
+    });
     expect(await h.running).toBe("windows");
     expect(h.server.state.status).toBe("idle");
   });
@@ -303,6 +324,30 @@ describe("offering and serving", () => {
     h.streamers[0]!.exit();
     await until(() => h.streamers.length === 2, "the second streamer");
     h.streamers[1]!.exit();
+    expect(await h.running).toBe("reset");
+    expect(h.server.calls).toContain("platform session end");
+  });
+
+  it("keeps a long session whose streamer stops now and then, long after each start", async () => {
+    let clock = 0;
+    const h = harness(fakeServer(), { timing: { ...FAST, maxStreamerStarts: 2 }, now: () => clock });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 180 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    for (let n = 1; n <= 4; n++) {
+      // Its key expired before its socket dropped: routine, and started again.
+      clock += 10 * 60_000;
+      h.streamers[n - 1]!.exit();
+      await until(() => h.streamers.length === n + 1, `streamer ${n + 1}`);
+    }
+    expect(h.server.calls).not.toContain("platform session end");
+    expect(h.agent.status()).toMatchObject({ phase: "serving", sessionId: "s1" });
+
+    // Two quick stops in a row are a broken streamer.
+    h.streamers[4]!.exit();
+    await until(() => h.streamers.length === 6, "streamer 6");
+    h.streamers[5]!.exit();
     expect(await h.running).toBe("reset");
     expect(h.server.calls).toContain("platform session end");
   });

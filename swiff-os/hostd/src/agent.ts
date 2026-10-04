@@ -11,10 +11,11 @@
 // One run is one boot: it ends by handing the machine to a reboot.
 //
 // Boot. End any host session a crash left behind (its keys die), then ask the
-// server where the machine stands. A session still live there is served at
-// once. A machine off offer is one the agent paused before its reset reboot,
-// and is offered again on the owner's terms; otherwise its owner stopped
-// sharing it, and it goes back to Windows.
+// server where the machine stands. A reset saved in this same boot means its
+// reboot never happened: the machine stays off offer and restarts again. A
+// session still live there is served at once. A machine off offer is one the
+// agent paused before its reset reboot, and is offered again on the owner's
+// terms; otherwise its owner stopped sharing it, and it goes back to Windows.
 //
 // Offered. The machine-key socket holds the room and hears `session-claimed`.
 // A heartbeat now and then also learns of a claim the socket missed, and of
@@ -23,7 +24,8 @@
 // Serving. Start the claimed session's host session for its key, start the
 // streamer with it, and beat every 5 s, which is also how the end is learned:
 // the heartbeat no longer names the session. A streamer that exits while the
-// session is still live is started again on a fresh key.
+// session is still live is started again on a fresh key; only one that keeps
+// stopping soon after it starts ends the session.
 //
 // Resetting. Take the machine off offer at once, so no renter is matched to a
 // PC that is about to restart (D5: renters never wait for the reset), end the
@@ -55,8 +57,10 @@ export type Timing = {
   offeredBeatMs: number;
   /** Between heartbeats while offered and the socket is down: the heartbeat is the presence then. */
   offlineBeatMs: number;
-  /** Streamer starts one session may take before the agent ends it as broken. */
+  /** Streamer starts in a row, each stopping within `streamerSettledMs`, before the agent ends the session as broken. */
   maxStreamerStarts: number;
+  /** A streamer that ran this long stopped for a reason of its own (an expired key), not as a failed start. */
+  streamerSettledMs: number;
 };
 
 export const DEFAULT_TIMING: Timing = {
@@ -64,6 +68,7 @@ export const DEFAULT_TIMING: Timing = {
   offeredBeatMs: 30_000,
   offlineBeatMs: 5_000,
   maxStreamerStarts: 4,
+  streamerSettledMs: 60_000,
 };
 
 export type AgentDeps = {
@@ -154,7 +159,7 @@ export function createAgent(deps: AgentDeps): Agent {
   }
 
   /** The first boot step: whom to serve, or whether to offer or go back to Windows. */
-  async function boot(): Promise<SessionClaim | { sessionId: string } | "offer" | "windows"> {
+  async function boot(): Promise<SessionClaim | { sessionId: string } | "offer" | "reset" | "windows"> {
     unmet = await system.unmetFloor();
     if (unmet.length) {
       phase = "unfit";
@@ -166,6 +171,11 @@ export function createAgent(deps: AgentDeps): Agent {
     await endHostSession();
     let view = await beatUntilAnswered();
     const resumed = await resume.take();
+    if (resumed && resumed.bootId === (await system.bootId())) {
+      log("the reset's reboot did not happen; restarting again");
+      await resume.save(resumed);
+      return "reset";
+    }
     if (view.session) return { sessionId: view.session.id };
     if (view.status === "idle") {
       if (!resumed) {
@@ -252,6 +262,7 @@ export function createAgent(deps: AgentDeps): Agent {
     log(`serving session ${id}`);
 
     let starts = 1;
+    let startedAt = now();
     let streamer = await startStreamer(id, appid);
     if (!streamer) {
       // Not claimed any more (or never started): no renter ran here.
@@ -280,6 +291,7 @@ export function createAgent(deps: AgentDeps): Agent {
       const view = await beat();
       if (view && view.session?.id !== id) break;
       if (event?.type === "streamer-exit" || (view && !streamer)) {
+        if (event?.type === "streamer-exit" && now() - startedAt >= timing.streamerSettledMs) starts = 0;
         if (starts >= timing.maxStreamerStarts) {
           log(`the streamer keeps stopping; ending session ${id}`);
           await api.endSession(id).catch((cause) => log(`could not end the session: ${describe(cause)}`));
@@ -288,6 +300,7 @@ export function createAgent(deps: AgentDeps): Agent {
         // A fresh key for a fresh streamer: the old one may have expired.
         starts++;
         await endHostSession();
+        startedAt = now();
         streamer = await startStreamer(id, appid);
       }
     }
@@ -306,7 +319,7 @@ export function createAgent(deps: AgentDeps): Agent {
     } else if (view && !view.session && !toWindows && !returnWanted && sharing(view)) {
       try {
         // Saved first: a machine found off offer at boot with nothing saved goes back to Windows.
-        await resume.save({ until: view.until ?? null });
+        await resume.save({ until: view.until ?? null, bootId: await system.bootId() });
         await api.setAvailability(false, view.until ?? null);
       } catch (cause) {
         log(`could not take the machine off offer for the reset: ${describe(cause)}`);
@@ -315,6 +328,10 @@ export function createAgent(deps: AgentDeps): Agent {
     await endHostSession();
     sessionId = null;
     if (toWindows || returnWanted || (view && !view.session && !sharing(view))) return returnToWindows();
+    return restart();
+  }
+
+  async function restart(): Promise<Outcome> {
     log("restarting for a clean PC");
     await system.reboot();
     return "reset";
@@ -338,9 +355,13 @@ export function createAgent(deps: AgentDeps): Agent {
 
   async function run(): Promise<Outcome> {
     try {
-      let next: SessionClaim | { sessionId: string } | "offer" | "windows" = await boot();
+      let next: SessionClaim | { sessionId: string } | "offer" | "reset" | "windows" = await boot();
       for (;;) {
         if (next === "windows") return await returnToWindows();
+        if (next === "reset") {
+          phase = "resetting";
+          return await restart();
+        }
         if (next === "offer") {
           next = await offer();
           continue;
