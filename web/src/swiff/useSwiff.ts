@@ -6,8 +6,10 @@ import {
   BookingRefused,
   endBooking,
   followBooking,
+  rttsOf,
   storedBookingId,
   type Booking,
+  type BookingAsk,
   type Claim,
   type NextBest,
   type Refusal,
@@ -321,11 +323,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // Which launch is current, so one cancelled while its booking call was in
   // flight hands its machine back rather than claiming it.
   const launchRun = useRef(0);
-  // The renter's measured round trip to the server, which bookings carry so
-  // the server judges each machine's latency from where they are.
-  const rttNow = useRef(live.rttMs);
-  rttNow.current = live.rttMs;
-  const rtts = () => (rttNow.current === null ? {} : { rtts: { server: rttNow.current } });
+  // The renter's measured round trips, to the server and through the relay to
+  // each machine probed, which bookings carry so the server judges each
+  // machine's latency from where they are.
+  const rttNow = useRef({ server: live.rttMs, machines: live.rtts.machines });
+  rttNow.current = { server: live.rttMs, machines: live.rtts.machines };
+  const rtts = (): BookingAsk => {
+    const measured = rttsOf(rttNow.current.server, rttNow.current.machines);
+    return measured ? { rtts: measured } : {};
+  };
   // How the renter plays, which bookings carry so the server ranks machines as their list was.
   const prefsNow = useRef(prefs);
   prefsNow.current = prefs;

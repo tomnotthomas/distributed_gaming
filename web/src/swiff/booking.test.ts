@@ -7,6 +7,7 @@ import {
   endBooking,
   followBooking,
   resumeBooking,
+  rttsOf,
   watchBooking,
   type Booking,
   type BookingStatus,
@@ -37,6 +38,15 @@ function fakeServer(statuses: (BookingStatus | 404 | 401)[]) {
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 30));
+
+describe("rttsOf", () => {
+  it("carries the server's round trip and each machine measured through the relay", () => {
+    expect(rttsOf(20, { "pc-1": 9 })).toEqual({ server: 20, machines: { "pc-1": 9 } });
+    expect(rttsOf(20, {})).toEqual({ server: 20 });
+    expect(rttsOf(null, { "pc-1": 9 })).toEqual({ machines: { "pc-1": 9 } });
+    expect(rttsOf(null, {})).toBeUndefined();
+  });
+});
 
 describe("booking across a closed tab", () => {
   beforeEach(() => localStorage.clear());

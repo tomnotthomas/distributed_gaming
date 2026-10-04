@@ -123,6 +123,8 @@ export function useLive({
   const probeEpoch = useRef(0);
   // A probe round is out: the next waits for it rather than probing the same machines twice.
   const measuringNow = useRef(false);
+  // The latest list read while a round was out, measured once it is over.
+  const pendingList = useRef<GameMachines | null>(null);
   const [measured, setMeasured] = useState(0);
 
   // One key per question, so a new wall or a new session asks again and an
@@ -206,9 +208,16 @@ export function useLive({
    * the last MEASURED_FOR_MS, one round at a time; then read the game again
    * with what was measured. A probe that measured nothing (refused,
    * unanswered, unreachable through the relay) leaves the estimate standing.
+   * A list read while a round is out waits for it: then, if the round measured
+   * nothing to read again with, its machines are probed.
    */
   const measure = (list: GameMachines) => {
-    if (measuringNow.current || !list.iceServers?.length) return;
+    if (measuringNow.current) {
+      pendingList.current = list;
+      return;
+    }
+    pendingList.current = null;
+    if (!list.iceServers?.length) return;
     const now = Date.now();
     const targets = list.machines.flatMap((m) => {
       const last = probed.current.get(m.id);
@@ -226,15 +235,20 @@ export function useLive({
         if (epoch !== probeEpoch.current) return;
         measuringNow.current = false;
         setMeasuring(null);
+        const pending = pendingList.current;
+        pendingList.current = null;
         let learnt = false;
         for (const result of results) {
           if (result.status !== "measured") continue;
           learnt = true;
           probed.current.set(result.hostId, { at: Date.now(), link: result.link });
         }
-        if (!learnt) return;
-        setMeasured((n) => n + 1);
-        readGame();
+        if (learnt) {
+          setMeasured((n) => n + 1);
+          readGame();
+        } else if (pending && pending.appid === latest.current.appid) {
+          measure(pending);
+        }
       });
   };
 
@@ -247,6 +261,7 @@ export function useLive({
       probeEpoch.current += 1;
       probed.current.clear();
       measuringNow.current = false;
+      pendingList.current = null;
       setMeasuring(null);
       return;
     }

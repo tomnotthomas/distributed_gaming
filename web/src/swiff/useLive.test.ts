@@ -319,6 +319,29 @@ describe("useLive", () => {
       expect(result.current.rtts.server).toEqual(expect.any(Number));
     });
 
+    it("probes a list read while a round was out once that round measured nothing", async () => {
+      const ids = ["pc-1"];
+      const api = listing(ids);
+      const probes = prober((hostId) => ({ hostId, status: "unanswered" }));
+      const { stream, fire } = fakeStream();
+      renderHook(() =>
+        useLive(options({ appid: 730, fetch: api.get, probe: probes.probe, eventSource: () => stream })),
+      );
+      await started();
+      expect(probes.rounds.map((r) => r.targets)).toEqual([["pc-1"]]);
+
+      // pc-2 comes on offer while pc-1 is being probed: its list waits for the round.
+      ids.splice(0, 1, "pc-2");
+      fire("availability");
+      await act(async () => vi.advanceTimersByTime(MIN_GAP_MS));
+      await flush();
+      expect(probes.rounds).toHaveLength(1);
+
+      await probes.finish();
+      await flush();
+      expect(probes.rounds.map((r) => r.targets)).toEqual([["pc-1"], ["pc-2"]]);
+    });
+
     it("leaves the estimate standing when a probe learns nothing, and does not ask again at once", async () => {
       const api = listing(["pc-1"]);
       const probes = prober((hostId) => ({ hostId, status: "unanswered", reason: "too-many" }));

@@ -415,7 +415,7 @@ for now every machine is ranked by the estimate; adding one is tracked in
    same with every read of the wall and the game page for 5 minutes. A machine is probed
    at most once in that time. `web/src/swiff/booking.ts`'s `book()` sends the round
    trips with the booking as `rtts`, `{ server, machines: { id: ms } }` (the machines
-   measured), for matching to judge E6 by; the server does not read them yet.
+   measured), and matching judges each machine by them (Matching, below).
 
 Only the game page probes: the wall, its attract loop and its hover trailers never do.
 
