@@ -328,6 +328,58 @@ describe("startHostSession", () => {
   });
 });
 
+describe("startHostSession with a host certificate", () => {
+  /** Serve claims with host certificates handed out in turn, as an attesting caller would. */
+  function startAttested(...certs: string[]) {
+    const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
+    const session = startHostSession({
+      serveClaims: true,
+      url: "wss://signal.test",
+      hostId: "pc-1",
+      machineKey: "test-machine-key",
+      hostCert: () => certs.shift(),
+      stream: {} as MediaStream,
+      onPeerHere: () => {},
+      onPeerConnection: () => {},
+    });
+    const socket = FakeSocket.instances[0]!;
+    socket.accept();
+    return { session, socket, fetch };
+  }
+
+  it("registers and starts the session with a fresh certificate each time, and ends it with the machine key", async () => {
+    const { session, socket, fetch } = startAttested("cert-1", "cert-2", "cert-3");
+    expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", hostCert: "cert-1" }]);
+
+    socket.deliver(CLAIM);
+    await settle();
+    const [, start] = fetch.mock.calls[0]!;
+    expect((start.headers as Record<string, string>).authorization).toBe("Bearer cert-2");
+
+    // The session ends: back to waiting, on the next certificate.
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+    streamer.deliver({ type: "denied", reason: "session-ended" });
+    const waiting = FakeSocket.instances[2]!;
+    waiting.accept();
+    expect(waiting.messages).toEqual([{ type: "register", hostId: "pc-1", hostCert: "cert-3" }]);
+
+    // Kept out by a session this app lost: ended with the machine key, the control credential.
+    waiting.deliver({ type: "denied", reason: "session-active" });
+    await settle();
+    const [, end] = fetch.mock.calls.at(-1)!;
+    expect(end.method).toBe("DELETE");
+    expect((end.headers as Record<string, string>).authorization).toBe("Bearer test-machine-key");
+    session.stop();
+  });
+
+  it("falls back to the machine key when no certificate is given", () => {
+    const { session, socket } = startAttested();
+    expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    session.stop();
+  });
+});
+
 describe("startHostSession connection reports", () => {
   it("reports connecting, then registered once the server confirms the room", () => {
     const { session, socket, connection } = start();
