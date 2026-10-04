@@ -193,13 +193,13 @@ describe("Ignition", () => {
   });
 
   it("says a failed Steam sign-in in the code's place, and offers to try again or end", () => {
-    const launch = vi.fn();
+    const retrySignIn = vi.fn();
     const goHome = vi.fn();
     const at = (steamSignInFailed: boolean) =>
       ({
         ...swiffAt(0.25, "Syncing your save", { type: "steam-login", state: "qr", url: SIGN_IN }),
         steamSignInFailed,
-        launch,
+        retrySignIn,
         goHome,
       }) as unknown as Swiff;
     // Ignition is up on the code first; the failure comes after.
@@ -214,7 +214,7 @@ describe("Ignition", () => {
     expect(retry).toHaveFocus();
 
     fireEvent.click(retry);
-    expect(launch).toHaveBeenCalledOnce();
+    expect(retrySignIn).toHaveBeenCalledOnce();
     fireEvent.click(within(panel).getByRole("button", { name: "End" }));
     expect(goHome).toHaveBeenCalledOnce();
   });
