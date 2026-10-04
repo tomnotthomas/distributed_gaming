@@ -161,6 +161,22 @@ ip -6 route replace 2001:db8:1::/64 dev "$v6dev" proto ra
 check lan-slaac-no-route-in-onlink6 "dev=$v6dev route=${noroute:-none} $v6set" \
 	bash -c "test -n '$v6dev' -a -z '$noroute' && grep -q '2001:db8:1::/64' <<< '$v6set'"
 check lan-slaac-no-route-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked6" <<< "$v6"
+# If an ip command fails, swiff-netguard must stop rather than refill the
+# on-link sets from partial output. Without the on-link route the prefix comes
+# only from the address list; make that ip call fail.
+mkdir -p /run/swiff-selftest-ip
+printf '#!/bin/sh\ncase "$*" in *addr*) exit 1 ;; esac\nexec %s "$@"\n' "$(command -v ip)" > /run/swiff-selftest-ip/ip
+chmod +x /run/swiff-selftest-ip/ip
+ip -6 route del 2001:db8:1::/64 dev "$v6dev"
+PATH=/run/swiff-selftest-ip:$PATH /usr/libexec/swiff/netguard > /dev/null 2>&1
+ngrc=$?
+v6set=$(nft list set inet swiff onlink6 | grep elements)
+v6=$(tcp_connect 2001:db8:1::2 80)
+ip -6 route replace 2001:db8:1::/64 dev "$v6dev" proto ra
+/usr/libexec/swiff/netguard
+check netguard-ip-failure-exits "rc=$ngrc" test "$ngrc" -ne 0
+check netguard-ip-failure-keeps-onlink6 "$v6set" grep -q '2001:db8:1::/64' <<< "$v6set"
+check netguard-ip-failure-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked6" <<< "$v6"
 for target in 192.168.1.1 172.16.0.1 169.254.169.254; do
 	r=$(tcp_connect $target 80)
 	check "lan-$target-blocked" "$r" grep -q "$blocked" <<< "$r"
@@ -169,6 +185,21 @@ addr=$(as_renter getent ahostsv4 snapshot.ubuntu.com | awk 'NR == 1 { print $1 }
 check dns-works "snapshot.ubuntu.com -> ${addr:-nothing}" test -n "$addr"
 inet=$( [ -n "$addr" ] && tcp_connect "$addr" 443)
 check internet-works "$addr:443 -> $inet" test "$inet" = connected
+# A connection opened before swiff-netguard adds a prefix is cut off once it
+# does. Hold an HTTP connection for 3 s, then send a request; during the hold
+# the server's address is added to onlink4, as a refresh would.
+held() { as_renter timeout 15 bash -c "exec 3<>/dev/tcp/$1/80 || exit; sleep 3; printf 'HEAD / HTTP/1.0\r\nHost: snapshot.ubuntu.com\r\n\r\n' >&3; timeout 6 head -n1 <&3 || echo no-answer" 2>&1 | tr -d '\r'; }
+systemctl stop swiff-netguard.timer swiff-netguard.path
+ctl=$( [ -n "$addr" ] && held "$addr")
+held "$addr" > /run/swiff-selftest-held &
+sleep 1.5
+nft add element inet swiff onlink4 "{ $addr }"
+wait $!
+cut=$(cat /run/swiff-selftest-held)
+/usr/libexec/swiff/netguard
+systemctl start swiff-netguard.path swiff-netguard.timer
+check established-control "$addr:80 held, no refresh -> $ctl" grep -q '^HTTP/' <<< "$ctl"
+check established-cut-off "$addr:80 held, added to onlink4 -> $cut" bash -c "test -n '$cut' && ! grep -q '^HTTP/' <<< '$cut'"
 # Control: without the firewall the same LAN service answers, so the block
 # above is the firewall's doing and not a dead endpoint.
 nft delete table inet swiff
