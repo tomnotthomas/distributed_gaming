@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RentalPlan, RentalRead } from "../../rental.cjs";
 import {
+  BIOS_STEPS,
   chosenTarget,
   firmwareChecks,
   gb,
@@ -204,15 +205,15 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           {read.installed ? (
             <>
               <p className="soft">
-                Going live restarts this PC into Swiff OS, first in its boot order while you share. Stopping
-                puts Windows first again.
+                Going live will restart this PC into Swiff OS, first in its boot order while you share.
+                Stopping puts Windows first again.
               </p>
               <div className="acts">
                 <Pill icon="play" onClick={() => actions.previewRental("start")}>
-                  Go live
+                  Preview going live
                 </Pill>
                 <button type="button" className="lnk" onClick={() => actions.previewRental("stop")}>
-                  Back to Windows
+                  Preview back to Windows
                 </button>
               </div>
             </>
@@ -239,6 +240,20 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           )}
         </Zone>
       </div>
+      {read.installed ? null : (
+        <div className="sz one">
+          <Zone title="In the BIOS, if it asks">
+            <ol className="legend">
+              {BIOS_STEPS.map((step) => (
+                <li key={step} className="lg st-next">
+                  <span className="dotst" />
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </Zone>
+        </div>
+      )}
       {preview ? <Preview plan={preview} onClose={actions.closeRentalPreview} /> : null}
       <i className="ruler" aria-hidden="true" />
     </main>

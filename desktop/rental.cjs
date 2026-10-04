@@ -153,7 +153,7 @@ function factsOf(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
   const secureBoot = num(r.secureBoot);
   const fastStartup = num(r.fastStartup);
-  const security = list(r.securityProperties).map(Number);
+  const security = list(r.securityProperties).filter((v) => num(v) !== null);
   return {
     uefi: str(r.firmware) ? str(r.firmware).toUpperCase() === "UEFI" : null,
     secureBoot: secureBoot === null ? null : secureBoot === 1,
