@@ -35,6 +35,9 @@ export function useRental(): RentalSetup & {
       .catch(() => null)
       .then((next) => {
         if (n !== reads.current) return;
+        // A plan asked for during the read was built from the old one: it describes a PC that has moved on.
+        plans.current++;
+        setPreview(null);
         setRead(next);
         setReading(false);
       });

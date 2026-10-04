@@ -32,6 +32,7 @@ async function answer(i: number, p: RentalPlan) {
 describe("useRental", () => {
   it("shows the plan the owner asked for", async () => {
     const { result } = renderHook(() => useRental());
+    await act(async () => {}); // the first read has landed: the screen offers plans only then
     act(() => result.current.plan("install"));
     await answer(0, plan("install", "Shrink C:"));
     expect(result.current.preview?.steps[0]?.title).toBe("Shrink C:");
@@ -59,8 +60,22 @@ describe("useRental", () => {
     expect(result.current.preview).toBeNull();
   });
 
+  it("drops a plan asked for while the PC was being read again, once that read lands", async () => {
+    let land: (read: null) => void = () => {};
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    host.readRental = vi.fn(() => new Promise<null>((done) => (land = done)));
+    act(() => result.current.check());
+    act(() => result.current.plan("install"));
+    await act(async () => land(null));
+    await answer(0, plan("install", "before the read"));
+    expect(result.current.preview).toBeNull();
+  });
+
   it("shows only the latest plan when an earlier one answers last", async () => {
     const { result } = renderHook(() => useRental());
+    await act(async () => {}); // the first read has landed: the screen offers plans only then
     act(() => result.current.plan("start"));
     act(() => result.current.plan("stop"));
     await answer(1, plan("stop", "Windows first"));
