@@ -220,9 +220,10 @@ function freeSpans(disk, partitions) {
  */
 function targetsOf(facts, need = SWIFF_OS_BYTES) {
   const disks = facts.disks.filter((d) => d.gpt && !d.usb);
-  // A system disk always has partitions: none read for it means the read failed, not free space.
-  // A blank data disk with none is real free space.
-  const read = (disk) => !disk.system || facts.partitions.some((p) => p.disk === disk.number);
+  // A system disk always has partitions: none read at all, or none for it, means the read failed,
+  // not free space. A blank data disk with none, beside disks that were read, is real free space.
+  const read = (disk) =>
+    facts.partitions.length > 0 && (!disk.system || facts.partitions.some((p) => p.disk === disk.number));
   const free = disks.filter(read).flatMap((disk) =>
     freeSpans(disk, facts.partitions)
       .filter((span) => span.bytes >= need)

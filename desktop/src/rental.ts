@@ -30,9 +30,13 @@ export const isReady = (state: CheckState): boolean =>
 /** 25,367,150,592 bytes → "24 GB". */
 export const gb = (bytes: number): string => `${Math.round(bytes / 1024 ** 3)} GB`;
 
-/** The target chosen by id, else the best one. */
+/** The target chosen by id, else the best one when none was chosen; null when the chosen one is gone. */
 export const chosenTarget = (read: RentalRead, id: string | null): RentalTarget | null =>
-  read.targets.find((t) => t.id === id) ?? read.targets[0] ?? null;
+  id === null ? (read.targets[0] ?? null) : (read.targets.find((t) => t.id === id) ?? null);
+
+/** The owner chose a place for Swiff OS that this read no longer offers. */
+const choiceGone = (read: RentalRead, id: string | null): boolean =>
+  id !== null && read.targets.length > 0 && !chosenTarget(read, id);
 
 /** Where Swiff OS goes, in words: "24 GB from C:", "24 GB of free space on disk 1". */
 export function targetLine(target: RentalTarget, need: number): string {
@@ -125,7 +129,9 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
       label: "Space",
       ...(target
         ? { value: targetLine(target, need), state: "ok" }
-        : { value: `No drive has ${gb(need)} free`, state: "blocked" }),
+        : choiceGone(read, targetId)
+          ? { value: "The drive you chose is no longer available: choose again", state: "blocked" }
+          : { value: `No drive has ${gb(need)} free`, state: "blocked" }),
     },
     {
       id: "games",
@@ -165,7 +171,11 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
   for (const check of pcChecks(read, targetId)) {
     if (check.state !== "blocked") continue;
     if (check.id === "space")
-      fixes.push(`Free up ${gb(read.need)} on a drive, or add a second drive: Swiff OS needs its own space.`);
+      fixes.push(
+        choiceGone(read, targetId)
+          ? "The drive you chose for Swiff OS is no longer available: choose again where it goes."
+          : `Free up ${gb(read.need)} on a drive, or add a second drive: Swiff OS needs its own space.`,
+      );
     if (check.id === "games")
       fixes.push(
         `Turn off BitLocker on ${read.games?.letter}:, or move your Steam library to a drive without it: Swiff OS cannot read an encrypted drive.`,
