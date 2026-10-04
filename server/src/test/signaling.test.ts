@@ -476,9 +476,13 @@ describe("host sessions", () => {
 
   /**
    * A renter books and claims `room`, the only machine on offer, as the
-   * platform's booking flow does. Returns the claimed platform session's id.
+   * platform's booking flow does. Returns the claimed platform session's id
+   * and the join ticket the claim handed out.
    */
-  async function claimRoom(room: string, minutes = 30): Promise<string> {
+  async function claimRoomWithTicket(
+    room: string,
+    minutes = 30,
+  ): Promise<{ sessionId: string; ticket: string }> {
     const offered = await call(
       "PUT",
       `/api/machines/${room}/availability`,
@@ -491,8 +495,12 @@ describe("host sessions", () => {
     // The status and room only: the body carries the renter's ticket.
     assert.equal(claim.status, 200, `claim answered ${claim.status}`);
     assert.equal(claim.body.roomId, room);
-    return claim.body.sessionId as string;
+    return { sessionId: claim.body.sessionId as string, ticket: claim.body.ticket as string };
   }
+
+  /** As claimRoomWithTicket, returning the claimed platform session's id alone. */
+  const claimRoom = async (room: string, minutes = 30): Promise<string> =>
+    (await claimRoomWithTicket(room, minutes)).sessionId;
 
   /**
    * Start a host session for `room` as the PC service would, with the machine
@@ -816,6 +824,31 @@ describe("host sessions", () => {
     assert.equal(grant.sessionId, sessionId);
     assert.equal(keyFields(grant.sessionKey).session, sessionId);
     bystander.close();
+    await api(room, "DELETE");
+  });
+
+  it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
+    const room = nextRoom();
+    const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    const host = await streamer(room, (await startSession(room, sessionId)).sessionKey);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const launches = () => host.received.filter((m) => m.type === "launch-game");
+    assert.deepEqual(launches(), [], "nothing to launch before the first frame");
+
+    // The renter's page starts the session with its ticket once a frame has arrived.
+    assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
+    for (const end = Date.now() + 10_000; !launches().length && Date.now() < end;) await wait(5);
+    assert.deepEqual(launches(), [{ type: "launch-game", sessionId, appid: 730 }]);
+
+    send(host, { type: "game-started" });
+    await handled(host);
+    for (const end = Date.now() + 10_000; !types(renter).includes("game-started") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("game-started"), "the renter heard the game runs");
+    renter.close();
+    host.close();
     await api(room, "DELETE");
   });
 

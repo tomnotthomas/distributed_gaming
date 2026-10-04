@@ -286,6 +286,23 @@ describe("startRenterSession", () => {
     expect(types().filter((t) => t === "first-frame")).toHaveLength(1);
   });
 
+  it("reports the PC saying the game runs", async () => {
+    const { types } = start();
+    await answered();
+
+    socket().deliver({ type: "game-started" });
+
+    expect(types()).toContain("game-started");
+  });
+
+  it("gathers relay candidates only when asked to force the relay", async () => {
+    start({ forceRelay: true });
+    const pc = await answered({ iceServers: TURN });
+
+    expect(pc.config.iceTransportPolicy).toBe("relay");
+    expect(pc.config.iceServers).toEqual([...DEFAULT_ICE_SERVERS, ...TURN]);
+  });
+
   it("drops a stats sample the browser refuses", async () => {
     const { types } = start();
     const pc = await answered();

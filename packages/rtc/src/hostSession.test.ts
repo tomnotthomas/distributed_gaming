@@ -286,6 +286,39 @@ describe("startHostSession", () => {
     expect(fetch).toHaveBeenCalledTimes(tries);
   });
 
+  it("launches the game it is told to and answers game-started once it runs", async () => {
+    let running: () => void = () => {};
+    const launchGame = vi.fn(() => new Promise<void>((resolve) => (running = resolve)));
+    const { session, socket } = start(false, { launchGame });
+    socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(launchGame).toHaveBeenCalledWith(730);
+    expect(socket.messages.map((m) => m.type)).toEqual(["register"]);
+
+    running();
+    await settle();
+    expect(socket.messages.at(-1)).toEqual({ type: "game-started" });
+    session.stop();
+  });
+
+  it("answers game-started at once with nothing to launch, and nothing when the launch fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bare = start();
+    bare.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(bare.socket.messages.at(-1)).toEqual({ type: "game-started" });
+    bare.session.stop();
+
+    FakeSocket.instances = [];
+    const failing = start(false, { launchGame: () => Promise.reject(new Error("Steam is not running")) });
+    failing.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(failing.socket.messages.map((m) => m.type)).toEqual(["register"]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    failing.session.stop();
+  });
+
   it("only reports a claim unless asked to serve it", async () => {
     const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
     const { session, socket } = start();

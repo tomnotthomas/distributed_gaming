@@ -2,8 +2,8 @@
 // server relays these and the browser sends them, so a change here is a change
 // to both or it is a bug.
 //
-//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
-//   client  join     ──► joined, offer, ice, peer-left
+//   host    register ──► registered, session-claimed, peer-joined, answer, ice, launch-game, peer-left
+//   client  join     ──► joined, offer, ice, game-started, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -91,6 +91,16 @@ export type SessionClaimedMessage = {
   appid: number;
   minutes: number;
 };
+/**
+ * Pushed to the room's host once the renter's first frame has arrived and their
+ * page has started the session (POST /api/sessions/:id/start with the join
+ * ticket): the PC launches `appid`, the game booked, and answers `game-started`
+ * once it runs. Pushed again on every such start, so a host that already
+ * launched the game only answers again.
+ */
+export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid: number };
+/** The host's answer to `launch-game`: the game runs. Relayed to the renter. */
+export type GameStartedMessage = { type: "game-started" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -107,15 +117,17 @@ export type SignalMessage =
   | JoinedMessage
   | DeniedMessage
   | SessionClaimedMessage
+  | LaunchGameMessage
+  | GameStartedMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
   | PongMessage;
 
 /** Messages the server forwards to the other peer without inspecting them. */
-export const RELAYED_TYPES = ["offer", "answer", "ice"] as const;
+export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started"] as const;
 
-export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
+export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | GameStartedMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

@@ -4,6 +4,7 @@
 //
 //   join(ticket) ──► joined ──► offer ──► createAnswer ──► answer ──► ontrack ──► <video>
 //                                                            └──► ondatachannel ×2 ──► input
+//   first frame ──► (the page starts the session) ──► the PC launches the game ──► game-started
 //
 // One peer connection at a time. The PC re-offers whenever it re-registers, so
 // a new offer replaces the old connection rather than adding a second one, and
@@ -61,6 +62,8 @@ export type RenterSessionEvent =
   | { type: "connected" }
   /** The first video frame was decoded on the current connection. */
   | { type: "first-frame" }
+  /** The PC says the game booked runs, after the session was started. */
+  | { type: "game-started" }
   /** A fresh stats snapshot; also readable through `stats()`. */
   | { type: "stats"; stats: RenterStats }
   /** The PC went away. The session stays in the room and answers its next offer. */
@@ -311,6 +314,9 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
           break;
         case "ice":
           if (msg.candidate) inbox?.add(msg.candidate);
+          break;
+        case "game-started":
+          emit({ type: "game-started" });
           break;
         case "peer-left":
           teardown();
