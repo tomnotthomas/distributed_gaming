@@ -55,8 +55,8 @@ export function SteamSignIn({ url }: { url: string }) {
 /**
  * The PC's Steam sign-in stopped short (its code timed out, or the game never
  * came up), in the code's place: the game is not starting. Trying again
- * launches afresh for a new code; ending leaves, as Cancel does. Focus moves to
- * Try again so the way on is one key away.
+ * launches afresh on the claimed machine for a new code; ending leaves, as
+ * Cancel does. Focus moves to Try again so the way on is one key away.
  */
 export function SteamSignInFailed({ onRetry, onEnd }: { onRetry: () => void; onEnd: () => void }) {
   const retry = useRef<HTMLButtonElement>(null);
