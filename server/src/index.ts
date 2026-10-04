@@ -386,8 +386,10 @@ function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSessio
  * The renter's first frame arrived and their page started the session: tell
  * the host serving it to launch the game. The streamer registered for that
  * session hears it, or the PC service's socket registered with a credential
- * that may host and streams itself; never a streamer for another session. A host not in the room misses
- * it, and the renter's page shows the stream once it stops waiting.
+ * that may host and streams itself; never a streamer for another session. A
+ * host not in the room misses it, and the renter's page stays on Launching,
+ * offering another machine past 90 s: the stream is never shown before
+ * `game-started`.
  */
 function pushLaunch(hostId: string, sessionId: string, appid: number): void {
   const host = rooms.get(hostId)?.host;
