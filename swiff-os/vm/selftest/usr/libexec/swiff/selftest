@@ -1,15 +1,14 @@
 #!/bin/bash
-# Swiff OS Stage 1 self-test, run as root inside the VM test build. Every
+# Swiff OS self-test, run as root inside the VM test build. Every
 # result is one line on the serial console:
 #   SWIFF-SELFTEST <PASS|FAIL|INFO> <name> <detail>
-# vm/run-test.sh collects them from both boots and decides; the scratch and
+# vm/run-test.sh collects them from every boot and decides; the scratch and
 # PCR checks that need the host's view are finished there.
 set -u
 
 EFI_GLOBAL=8be4df61-93ca-11d2-aa0d-00e098032b8c
 EFI_LOADER=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
 MARKER=/home/renter/swiff-selftest-marker
-GAMES_MARKER=/srv/games/steamapps/swiff-selftest-marker
 
 # Prints one result line for run-test.sh.
 say() { echo "SWIFF-SELFTEST $*"; }
@@ -31,6 +30,21 @@ tcp_connect() { as_renter timeout 6 bash -c "exec 3<>/dev/tcp/$1/$2 && echo conn
 tcp_read() { as_renter timeout 6 bash -c "exec 3<>/dev/tcp/$1/$2 && head -n1 <&3" 2>&1; }
 
 say INFO boot "$(cat /proc/sys/kernel/random/boot_id)"
+
+# The fixture disk from run-test.sh says which boot this is. The Stage 1
+# checks run in the first two; the games library checks (selftest-games) in all.
+mkdir -p /run/swiff-fixtures
+mount -o ro LABEL=SWIFFFIX /run/swiff-fixtures
+phase=$(cat /run/swiff-fixtures/phase)
+say INFO phase "$phase"
+case $phase in
+bootstrap | update) ;;
+*)
+	/usr/libexec/swiff/selftest-games "$phase"
+	say DONE selftest
+	exit 0
+	;;
+esac
 
 # --- Secure Boot -------------------------------------------------------------
 sb=$(efivar_byte "SecureBoot-$EFI_GLOBAL")
@@ -181,14 +195,6 @@ if [ -e "$MARKER" ]; then say FAIL scratch-fresh "marker from an earlier boot su
 token="swiff-marker-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 as_renter sh -c "echo $token > $MARKER" && say INFO marker "$token"
 
-# --- Games library: read-only lower, scratch-backed overlay ---------------------------
-check games-lower-read-only "$(findmnt -no OPTIONS /srv/games-lower)" bash -c 'findmnt -no OPTIONS /srv/games-lower | grep -qw ro'
-check games-overlay "$(findmnt -no FSTYPE /srv/games)" test "$(findmnt -no FSTYPE /srv/games)" = overlay
-if [ -e "$GAMES_MARKER" ]; then say FAIL games-fresh "overlay write from an earlier boot survived"; else say PASS games-fresh "no overlay write from an earlier boot"; fi
-as_renter sh -c "echo $token > $GAMES_MARKER"
-check games-write-in-overlay "renter write landed in the overlay, not the shared drive" \
-	bash -c "test -e $GAMES_MARKER && ! test -e /srv/games-lower/steamapps/swiff-selftest-marker"
-
 # --- LAN egress ----------------------------------------------------------------------
 # swiff-netguard fills the gateway/DNS sets shortly after DHCP; wait for it.
 for _ in $(seq 30); do nft list set inet swiff gateway4 2> /dev/null | grep -q 'elements' && break; sleep 1; done
@@ -279,5 +285,7 @@ check lan-control-reachable "without the firewall: $open" test "$open" = swiff-l
 check lan-onlink-ipv6-control-reachable "without the firewall: $open6" grep -Eq 'connected|Connection refused' <<< "$open6"
 again=$(tcp_read 10.0.2.100 80)
 check lan-blocked-after-reload "$again" grep -q "$blocked" <<< "$again"
+
+/usr/libexec/swiff/selftest-games "$phase"
 
 say DONE selftest

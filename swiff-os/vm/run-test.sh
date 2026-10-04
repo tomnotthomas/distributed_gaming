@@ -1,31 +1,40 @@
 #!/usr/bin/env bash
-# Swiff OS Stage 1 VM test.
+# Swiff OS VM test.
 #
 # Builds the image's test variant (mkosi --profile=selftest), then boots it
-# twice in QEMU/KVM under OVMF with Secure Boot and a software TPM (swtpm):
+# in QEMU/KVM under OVMF with Secure Boot and a software TPM (swtpm):
 #
 #   boot 1  the firmware starts in setup mode; systemd-boot enrols the test
 #           Secure Boot certificate (PK, KEK, db) and resets, and the signed
 #           UKI then boots with Secure Boot enforcing. The in-image self-test
-#           runs and powers off.
+#           runs and powers off. The owner's games are validated (bootstrap).
 #   boot 2  a cold boot of the same disk, firmware variables and TPM state:
-#           everything written during boot 1 must be gone.
+#           everything written during boot 1 must be gone. The renter's
+#           game updates are sealed or refused.
+#   boot 3  only the update that verified was promoted onto the library.
+#   (firmware only, standing in for the owner's Windows, after the library
+#           was changed: a DLL planted in one game, a file changed in another)
+#   boot 4  a full re-hash blocks both games.
+#   boot 5  the same disk with an ext4 library instead of NTFS.
 #
 # The self-test reports on the serial console; this script collects the
 # results and adds the checks that need the host's view: the scratch
-# partition holds no plaintext, it changes completely across a reboot, and
-# PCR 11 equals the value systemd-measure predicts for the built UKI. It
-# also presses the keys the self-test asks for (Ctrl+Alt+Del, VT switches) on
-# the VM's keyboard, through QEMU's monitor, and checks that none of them
-# rebooted the VM.
+# partition and the games library's session layer hold no plaintext, the
+# scratch changes completely across a reboot, updates reach the library as
+# the owner's Windows sees it, and PCR 11 equals the value systemd-measure
+# predicts for the built UKI. It also presses the keys the self-test asks for
+# (Ctrl+Alt+Del, VT switches) on the VM's keyboard, through QEMU's monitor,
+# and checks that none of them rebooted the VM.
 #
 # Usage: vm/run-test.sh [--no-build]
 #
 # Build output, caches and the VM's files go to $SWIFF_OS_BUILD_DIR
 # (default ~/.cache/swiff-os).
 #
-# Needs: sudo (mkosi 20 builds as root), qemu-system-x86_64, swtpm, OVMF
-# (/usr/share/OVMF), /dev/kvm, bwrap. The VM gets 2 GiB of RAM and 2 vCPUs.
+# Needs: sudo (mkosi 20 builds as root; the NTFS library is filled through
+# ntfs-3g from the build's tools tree), qemu-system-x86_64, swtpm, OVMF
+# (/usr/share/OVMF), /dev/kvm, bwrap, python3 with cryptography (for the test's
+# Steam manifests). The VM gets 2 GiB of RAM and 2 vCPUs.
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # VM's firmware variables are a copy of OVMF's empty template in the run directory.
 set -euo pipefail
@@ -66,6 +75,7 @@ die() {
 for tool in qemu-system-x86_64 swtpm mkosi bwrap sfdisk mkfs.ext4 debugfs; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
+python3 -c 'import cryptography' 2> /dev/null || die "python3 cryptography not found (python3-cryptography)"
 [ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF Secure Boot firmware not found in /usr/share/OVMF"
 # QEMU normally runs as the calling user. Without access to /dev/kvm it is
 # started through sudo and drops to the calling user (-runas) before the VM
@@ -100,22 +110,53 @@ if [ "$build" = 1 ]; then
 fi
 disk_src=$out/swiffos-selftest.raw
 uki=$out/swiffos-selftest.efi
+tools=$out/ubuntu-tools
 [ -e "$disk_src" ] || die "$disk_src not built"
+[ -x "$tools/usr/bin/ntfs-3g" ] || die "ntfs-3g missing from the tools tree $tools (rebuild without --no-build)"
+
+# Runs a command from the build's tools tree.
+in_tools() {
+	bwrap --ro-bind "$tools/usr" /usr \
+		--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+		--bind "$run" "$run" --ro-bind "$here" "$here" --proc /proc --dev /dev --tmpfs /tmp "$@"
+}
 
 # --- Prepare the VM ----------------------------------------------------------
 log "Preparing the VM in $run"
-rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games"
+rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games" "$run/mnt"
 cp --sparse=always "$disk_src" "$run/disk.raw"
 cp "$ovmf_vars" "$run/vars.fd"
 mkdir -p "$run/tpm"
 
-# The shared games library, stubbed: a small read-only ext4 disk labelled
-# SWIFFGAMES with a Steam library the renter (uid 1000) may update.
-mkdir -p "$run/games/steamapps/common/StubGame"
-echo '"AppState" { "appid" "0" "name" "Stub game" "StateFlags" "4" }' > "$run/games/steamapps/appmanifest_0.acf"
-echo stub > "$run/games/steamapps/common/StubGame/game.bin"
-mkfs.ext4 -q -L SWIFFGAMES -E root_owner=0:0 -d "$run/games" "$run/games.img" 64M
-debugfs -w -R "set_inode_field /steamapps uid 1000" "$run/games.img" > /dev/null 2>&1
+# The shared games library (vm/games-fixture.py): the owner's Steam library on
+# NTFS, as their Windows writes it, and the same on ext4 for the last boot.
+python3 "$here/games-fixture.py" "$run/games"
+truncate -s 512M "$run/games-ntfs.img"
+in_tools mkntfs -q -F -f -L SWIFFGAMES "$run/games-ntfs.img" > /dev/null
+mkdir -p "$run/mnt"
+# ntfs-3g needs root to mount; it runs in the foreground (no_detach) so that
+# every write is on the image once it has exited.
+sudo -n bwrap --ro-bind "$tools/usr" /usr \
+	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+	--bind "$run" "$run" --proc /proc --dev-bind /dev /dev --tmpfs /tmp \
+	sh -c 'ntfs-3g -o no_detach "$1/games-ntfs.img" "$1/mnt" & pid=$!
+		for _ in $(seq 100); do mountpoint -q "$1/mnt" && break; sleep 0.1; done
+		cp -r "$1/games/library/." "$1/mnt/" && umount "$1/mnt" && wait $pid' sh "$run" ||
+	die "cannot fill the NTFS games library"
+mkfs.ext4 -q -L SWIFFGAMES -E root_owner=1000:1000 -d "$run/games/library" "$run/games-ext4.img" 512M
+# Owned by the renter's uid (1000) whatever the host user's uid is.
+(cd "$run/games/library" && find . -mindepth 1 -printf 'set_inode_field "/%P" uid 1000\nset_inode_field "/%P" gid 1000\n') |
+	debugfs -w -f - "$run/games-ext4.img" > /dev/null 2>&1
+games_img=$run/games-ntfs.img
+
+# Writes the fixture disk the self-test reads its phase and Steam's part from.
+fixtures() { # phase
+	echo "$1" > "$run/games/fixtures/phase"
+	rm -f "$run/fixtures.img"
+	mkfs.ext4 -q -L SWIFFFIX -d "$run/games/fixtures" "$run/fixtures.img" 32M
+}
+# Prints a file from the NTFS library image.
+ntfs_cat() { in_tools ntfscat "$games_img" "$1" 2> /dev/null; }
 
 # Where the scratch partition sits in the disk image, for the host-side checks.
 read -r scratch_start scratch_sectors < <(sfdisk -J "$run/disk.raw" |
@@ -188,8 +229,10 @@ boot_vm() { # boot number
 		-device tpm-crb,tpmdev=tpm0 \
 		-drive if=none,id=os,format=raw,file="$run/disk.raw" \
 		-device virtio-blk-pci,drive=os,bootindex=1 \
-		-drive if=none,id=games,format=raw,readonly=on,file="$run/games.img" \
+		-drive if=none,id=games,format=raw,file="$games_img" \
 		-device virtio-blk-pci,drive=games \
+		-drive if=none,id=fixtures,format=raw,readonly=on,file="$run/fixtures.img" \
+		-device virtio-blk-pci,drive=fixtures \
 		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
 		-display none -vga none -monitor "pipe:$run/monitor" \
@@ -208,6 +251,35 @@ scratch_digest() {
 	dd if="$run/disk.raw" bs=512 skip="$scratch_start" count=8192 status=none | sha256sum | cut -d' ' -f1
 }
 
+# Boots the firmware alone with the same TPM, as the owner's Windows would
+# between two rental-mode boots: the TPM's resetCount goes up by one.
+foreign_boot() {
+	log "Foreign boot (firmware only)"
+	swtpm socket --tpm2 --terminate \
+		--tpmstate dir="$run/tpm" \
+		--ctrl type=unixio,path="$run/tpm/sock" \
+		--log file="$run/swtpm-foreign.log" &
+	local swtpm_pid=$!
+	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
+	timeout 30 "${qemu[@]}" \
+		-machine q35,smm=on,accel=kvm,kernel-irqchip=split \
+		-cpu host -smp 2 -m 2048 \
+		-global driver=cfi.pflash01,property=secure,value=on \
+		-global ICH9-LPC.disable_s3=1 \
+		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
+		-drive if=pflash,format=raw,unit=1,file="$run/vars.fd" \
+		-chardev socket,id=chrtpm,path="$run/tpm/sock" \
+		-tpmdev emulator,id=tpm0,chardev=chrtpm \
+		-device tpm-crb,tpmdev=tpm0 \
+		-drive if=none,id=games,format=raw,file="$games_img" \
+		-device virtio-blk-pci,drive=games \
+		-nic none -display none -vga none -monitor none \
+		-serial "file:$run/serial-foreign.log" || true
+	kill "$swtpm_pid" 2> /dev/null || true
+	wait "$swtpm_pid" 2> /dev/null || true
+}
+
+fixtures bootstrap
 boot_vm 1
 digest1=$(scratch_digest)
 token=$(sed -n 's/^.*SWIFF-SELFTEST INFO marker \(.*\)$/\1/p' "$run/serial-1.log" | tr -d '\r' | tail -n1)
@@ -218,13 +290,37 @@ if [ -n "$token" ] &&
 	plaintext=found
 fi
 
+games_token=$(sed -n 's/^.*SWIFF-SELFTEST INFO games-marker \(.*\)$/\1/p' "$run/serial-1.log" | tr -d '\r' | tail -n1)
+games_plaintext=absent
+if [ -n "$games_token" ] && grep -aqF "$games_token" "$games_img"; then games_plaintext=found; fi
+table_apps=$(ntfs_cat SwiffOS/verified-games.json | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
+container_left=$(in_tools ntfsls -p /SwiffOS "$games_img" 2> /dev/null | grep -c '^session.img$' || true)
+
+fixtures update
 boot_vm 2
 digest2=$(scratch_digest)
+
+fixtures after-update
+boot_vm 3
+alpha_exe=$(ntfs_cat steamapps/common/Alpha/Alpha.exe | sha256sum | cut -d' ' -f1)
+alpha_v2=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["v2"]["1001"]["Alpha.exe"])' "$run/games/fixtures/expect.json")
+
+# The owner's Windows plants a DLL in Alpha and changes a file of Delta.
+in_tools ntfscp -f "$games_img" "$run/games/tamper/Alpha-version.dll" steamapps/common/Alpha/bin/version.dll > /dev/null
+in_tools ntfscp -f "$games_img" "$run/games/tamper/Delta-d.pak" steamapps/common/Delta/data/d.pak > /dev/null
+foreign_boot
+fixtures tampered
+boot_vm 4
+
+games_img=$run/games-ext4.img
+fixtures ext4
+boot_vm 5
+ext4_apps=$(debugfs -R "cat /SwiffOS/verified-games.json" "$games_img" 2> /dev/null |
+	python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
 # --- Expected PCR 11 -----------------------------------------------------------
 # systemd-measure (from the build's tools tree) predicts PCR 11 for this UKI
 # after the boot phases enter-initrd, leave-initrd, sysinit and ready.
-tools=$out/ubuntu-tools
 expected_pcr11=$(bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
 	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
@@ -240,7 +336,7 @@ result() { # PASS|FAIL name detail
 	[ "$1" = PASS ] || fail=1
 }
 
-for n in 1 2; do
+for n in 1 2 3 4 5; do
 	while read -r status name detail; do
 		result "$status" "boot$n/$name" "$detail"
 	done < <(sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p' "$run/serial-$n.log" | tr -d '\r')
@@ -270,6 +366,26 @@ if [ "$digest1" != "$digest2" ]; then
 	result PASS scratch-rekeyed "first 4 MiB of scratch differ completely after reboot"
 else
 	result FAIL scratch-rekeyed "scratch partition unchanged across reboot"
+fi
+if [ -n "$games_token" ] && [ "$games_plaintext" = absent ]; then
+	result PASS games-session-encrypted "renter's marker not in the NTFS library's raw bytes"
+else
+	result FAIL games-session-encrypted "marker '${games_token:-missing}' $games_plaintext in the raw NTFS library"
+fi
+if [ "$table_apps" = "1001 1002 1003 1004" ] && [ "$container_left" = 0 ]; then
+	result PASS games-bootstrap-on-ntfs "verified table on the NTFS library: $table_apps; session layer removed"
+else
+	result FAIL games-bootstrap-on-ntfs "table apps '${table_apps}', session.img left: $container_left"
+fi
+if [ "$alpha_exe" = "$alpha_v2" ]; then
+	result PASS games-update-on-ntfs "the verified update is on the NTFS library as Windows reads it"
+else
+	result FAIL games-update-on-ntfs "Alpha.exe on the library is $alpha_exe, not $alpha_v2"
+fi
+if [ "$ext4_apps" = "1001 1003" ]; then
+	result PASS games-bootstrap-on-ext4 "verified table on the ext4 library: $ext4_apps"
+else
+	result FAIL games-bootstrap-on-ext4 "table apps '${ext4_apps}'"
 fi
 disk_bytes=$(stat -c %s "$run/disk.raw")
 if [ "$disk_bytes" -le $((24 * 1024 * 1024 * 1024)) ]; then

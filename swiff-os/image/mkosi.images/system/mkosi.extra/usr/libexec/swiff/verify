@@ -1,0 +1,1031 @@
+#!/usr/bin/python3
+"""swiff-verify: the owner's shared games library, made safe for renters.
+
+Report §8. The library is the owner's own Steam library drive, usually NTFS
+and written by the owner's Windows. Rental mode trusts none of it as it is:
+
+  start          (boot) mounts the library volume and checks every game against
+                 the verified table: a full re-hash when the TPM's resetCount
+                 shows that another OS booted since the last rental-mode boot,
+                 otherwise a size and time check. Writes the games report to
+                 /run/swiff/games-report.json and mounts the renter's view at
+                 /srv/games: only files in the table show; everything else on
+                 the library is hidden. Writes land in a session layer that is
+                 erased by the next reboot.
+  view [--bootstrap]
+                 mounts the view again. --bootstrap shows the library as the
+                 owner left it, minus Steam's cached depot manifests, so that
+                 Steam (signed in as the owner) fetches them again while it
+                 validates the games.
+  seal [--bootstrap] APPID...
+                 checks what Steam has just installed against the depot
+                 manifests it fetched during this boot and records the result
+                 for promotion. --bootstrap starts a game's table entry afresh.
+  close-seal     ends sealing for this boot. It runs before anything the
+                 session's user can drive (a game, Steam's own UI) starts:
+                 from then on the session may have run code that writes into
+                 the library view, so nothing it holds can be trusted.
+  stop           (shutdown) promotes every sealed game onto the library whose
+                 files are still byte-identical to what was sealed, records
+                 them in the table and takes everything down.
+  report         prints the games report.
+
+The table lives on the library volume itself (SwiffOS/verified-games.json),
+authenticated with a key only this boot chain can unseal from the TPM.
+"""
+
+import base64
+import contextlib
+import errno
+import hashlib
+import hmac
+import io
+import json
+import os
+import pwd
+import re
+import secrets
+import stat
+import struct
+import subprocess
+import sys
+import time
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+
+LABEL = "SWIFFGAMES"
+STATE = "/run/swiff/games"  # root only
+VOLUME = STATE + "/volume"  # the library volume, read-write for root
+SESSION = STATE + "/session"  # the per-boot encrypted session layer
+VIEW = STATE + "/view"  # the layer that hides what is not verified
+SEALED = STATE + "/sealed"
+SEAL_CLOSED = STATE + "/seal-closed"
+SETUP = STATE + "/setup.json"
+SCRATCH_SESSION = "/home/.swiff/games"  # fallback when the library is read-only
+GAMES = "/srv/games"
+REPORT = "/run/swiff/games-report.json"
+TABLE = "SwiffOS/verified-games.json"
+KEY = "SwiffOS/table-key.cred"
+CONTAINER = "SwiffOS/session.img"
+CRYPT_NAME = "swiff-games-session"
+CRYPTSETUP = "/usr/lib/systemd/systemd-cryptsetup"
+# Where a Steam library sits on a volume, in the order Steam's installers use.
+LIBRARY_DIRS = ("", "SteamLibrary", "Steam", "Program Files (x86)/Steam", "Program Files/Steam")
+CODE_MAGIC = (b"MZ", b"\x7fELF", b"#!")
+CODE_SUFFIXES = (".dll", ".exe", ".so", ".sys", ".asi", ".bat", ".cmd", ".ps1", ".vbs")
+TEMP_SUFFIX = ".swiff-new"
+# Steam's EDepotFileFlag bits. UserConfig files are the game's own settings,
+# which Steam does not restore: one that differs is hidden, not a tamper sign.
+USER_CONFIG = 0x1 | 0x2
+DIRECTORY = 0x40
+SYMLINK = 0x200
+# Steam depot manifest sections.
+PAYLOAD, METADATA, SIGNATURE, END = 0x71F617D0, 0x1F4812BE, 0x1B81B817, 0x32C415AB
+
+
+class Refused(Exception):
+    pass
+
+
+def log(msg):
+    print(f"swiff-verify: {msg}", file=sys.stderr, flush=True)
+
+
+def run(*cmd, **kw):
+    return subprocess.run(cmd, check=True, **kw)
+
+
+def renter():
+    pw = pwd.getpwnam("renter")
+    return pw.pw_uid, pw.pw_gid
+
+
+def write_atomic(path, data, mode=0o644, owner=None):
+    tmp = path + TEMP_SUFFIX
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    if owner:
+        os.chown(tmp, *owner)
+    os.replace(tmp, path)
+
+
+def read_regular(path, limit=64 << 20):
+    """Reads a regular file that is not a symlink, up to a size limit."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            raise OSError(errno.EINVAL, "not a regular file of a sane size", path)
+        return f.read()
+
+
+def is_dir(path):
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def hash_file(path, sha1=False):
+    """Returns size, SHA-256, SHA-1 (if asked) and mtime of a regular file."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb", buffering=0) as f:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", path)
+        h256, h1, size = hashlib.sha256(), hashlib.sha1() if sha1 else None, 0
+        while chunk := f.read(1 << 20):
+            size += len(chunk)
+            h256.update(chunk)
+            if h1:
+                h1.update(chunk)
+    return size, h256.hexdigest(), h1.hexdigest() if h1 else None, st.st_mtime_ns
+
+
+def is_code(path, rel):
+    """True for a file a game or Windows could run: by name or by header."""
+    if rel.lower().endswith(CODE_SUFFIXES):
+        return True
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as f:
+            return f.read(4).startswith(CODE_MAGIC)
+    except OSError:
+        return False
+
+
+# --- Steam formats ------------------------------------------------------------
+
+
+def parse_vdf(text):
+    """Parses Valve's text KeyValues (.acf, .vdf). Keys are lowercased."""
+    tokens, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif text.startswith("//", i):
+            i = text.find("\n", i)
+            i = n if i < 0 else i
+        elif c in "{}":
+            tokens.append(c)
+            i += 1
+        elif c == '"':
+            j, out = i + 1, []
+            while j < n and text[j] != '"':
+                if text[j] == "\\" and j + 1 < n:
+                    out.append({"n": "\n", "t": "\t"}.get(text[j + 1], text[j + 1]))
+                    j += 2
+                else:
+                    out.append(text[j])
+                    j += 1
+            tokens.append(("s", "".join(out)))
+            i = j + 1
+        else:
+            j = i
+            while j < n and not text[j].isspace() and text[j] not in '{}"':
+                j += 1
+            tokens.append(("s", text[i:j]))
+            i = j
+
+    def obj(pos):
+        d = {}
+        while pos < len(tokens) and tokens[pos] != "}":
+            key, value = tokens[pos], tokens[pos + 1]
+            if not isinstance(key, tuple):
+                raise ValueError("malformed KeyValues")
+            if value == "{":
+                d[key[1].lower()], pos = obj(pos + 2)
+                pos += 1
+            elif isinstance(value, tuple):
+                d[key[1].lower()] = value[1]
+                pos += 2
+            else:
+                raise ValueError("malformed KeyValues")
+        return d, pos
+
+    try:
+        return obj(0)[0]
+    except IndexError as e:
+        raise ValueError("truncated KeyValues") from e
+
+
+def protobuf(buf):
+    """Decodes one protobuf message into {field number: [values]}."""
+    fields, i = {}, 0
+
+    def varint():
+        nonlocal i
+        value = shift = 0
+        while True:
+            b = buf[i]
+            i += 1
+            value |= (b & 0x7F) << shift
+            shift += 7
+            if b < 0x80:
+                return value
+
+    try:
+        while i < len(buf):
+            key = varint()
+            wire = key & 7
+            if wire == 0:
+                value = varint()
+            elif wire == 2:
+                length = varint()
+                value = buf[i : i + length]
+                i += length
+            elif wire in (1, 5):
+                width = 8 if wire == 1 else 4
+                value = buf[i : i + width]
+                i += width
+            else:
+                raise ValueError(f"protobuf wire type {wire}")
+            if i > len(buf):
+                raise ValueError("truncated protobuf")
+            fields.setdefault(key >> 3, []).append(value)
+    except IndexError as e:
+        raise ValueError("truncated protobuf") from e
+    return fields
+
+
+def manifest_path(name):
+    """A manifest file name as a safe relative path ('\\' or '/' separated)."""
+    parts = re.split(r"[\\/]", name.rstrip("\0"))
+    if not name or any(p in ("", ".", "..") for p in parts):
+        raise ValueError(f"unsafe path in manifest: {name!r}")
+    return "/".join(parts)
+
+
+def decrypt_name(text, key):
+    """Steam's file name encryption: AES-256, an ECB-encrypted IV, then CBC."""
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    raw = base64.b64decode(text)
+    ecb = Cipher(algorithms.AES(key), modes.ECB()).decryptor()
+    iv = ecb.update(raw[:16]) + ecb.finalize()
+    cbc = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    plain = cbc.update(raw[16:]) + cbc.finalize()
+    pad = plain[-1] if plain else 0
+    if not 1 <= pad <= 16:
+        raise ValueError("bad file name padding (wrong depot key?)")
+    return plain[:-pad].decode()
+
+
+def read_manifest(data, depot_key=None):
+    """Reads a Steam depot manifest (the binary protobuf format of depotcache)."""
+    if data[:4] == b"PK\x03\x04":
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            data = z.read(z.namelist()[0])
+    sections, pos = {}, 0
+    while pos + 4 <= len(data):
+        magic = struct.unpack_from("<I", data, pos)[0]
+        if magic == END:
+            break
+        if magic not in (PAYLOAD, METADATA, SIGNATURE) or pos + 8 > len(data):
+            raise ValueError("not a Steam depot manifest")
+        length = struct.unpack_from("<I", data, pos + 4)[0]
+        sections[magic] = data[pos + 8 : pos + 8 + length]
+        pos += 8 + length
+    if PAYLOAD not in sections or METADATA not in sections:
+        raise ValueError("not a Steam depot manifest")
+    meta = protobuf(sections[METADATA])
+    encrypted = bool(meta.get(4, [0])[0])
+    if encrypted and depot_key is None:
+        raise ValueError("its file names are encrypted and Steam holds no key for the depot")
+    files = {}
+    for mapping in protobuf(sections[PAYLOAD]).get(1, []):
+        f = protobuf(mapping)
+        name = f.get(1, [b""])[0].decode()
+        target = f.get(7, [b""])[0].decode()
+        if encrypted:
+            name = decrypt_name(name, depot_key)
+            target = target and decrypt_name(target, depot_key)
+        files[manifest_path(name)] = {
+            "size": f.get(2, [0])[0],
+            "flags": f.get(3, [0])[0],
+            "sha1": f.get(5, [b""])[0].hex(),
+            "target": target.replace("\\", "/"),
+        }
+    return {"depot": str(meta.get(1, [0])[0]), "gid": str(meta.get(2, [0])[0]), "files": files}
+
+
+def depot_keys():
+    """Depot keys from the signed-in Steam's config, for encrypted manifests."""
+    for root in ("/home/renter/.local/share/Steam", "/home/renter/.steam/steam"):
+        try:
+            config = parse_vdf(read_regular(f"{root}/config/config.vdf", 16 << 20).decode("utf-8", "replace"))
+        except (OSError, ValueError):
+            continue
+        depots = config.get("installconfigstore", {}).get("software", {}).get("valve", {}).get("steam", {}).get("depots", {})
+        keys = {}
+        for depot, info in depots.items():
+            with contextlib.suppress(AttributeError, KeyError, ValueError):
+                keys[depot] = bytes.fromhex(info["decryptionkey"])
+        return keys
+    return {}
+
+
+# --- The verified table -------------------------------------------------------
+
+
+def tpm_reset_count():
+    """The TPM's resetCount (TPM2_ReadClock): one more on every power-up of any OS."""
+    fd = os.open("/dev/tpmrm0", os.O_RDWR)
+    try:
+        os.write(fd, struct.pack(">HII", 0x8001, 10, 0x181))
+        resp = os.read(fd, 4096)
+    finally:
+        os.close(fd)
+    if struct.unpack_from(">I", resp, 6)[0] != 0:
+        raise OSError("TPM2_ReadClock failed")
+    # TPMS_TIME_INFO: time, then TPMS_CLOCK_INFO: clock, resetCount, ...
+    return struct.unpack_from(">QQI", resp, 10)[2]
+
+
+def table_key(create):
+    """The table's HMAC key, sealed to the TPM under the Secure Boot policy (PCR 7)."""
+    path = os.path.join(VOLUME, KEY)
+    if os.path.exists(path):
+        r = subprocess.run(["systemd-creds", "decrypt", "--name=swiff-games-table", path, "-"], capture_output=True)
+        if r.returncode == 0 and len(r.stdout) == 32:
+            return r.stdout
+        log("the table key does not unseal under this TPM and boot chain")
+    if not create:
+        return None
+    key = secrets.token_bytes(32)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    run("systemd-creds", "encrypt", "--with-key=tpm2", "--tpm2-pcrs=7", "--name=swiff-games-table", "-", path + TEMP_SUFFIX, input=key)
+    os.replace(path + TEMP_SUFFIX, path)
+    log("sealed a new table key to this TPM")
+    return key
+
+
+def mac(key, table):
+    return hmac.new(key, json.dumps(table, sort_keys=True, separators=(",", ":")).encode(), hashlib.sha256).hexdigest()
+
+
+def load_table(key):
+    """Returns the table and, when it cannot be used, why."""
+    empty = {"version": 1, "reset_count": None, "apps": {}}
+    if key is None:
+        return empty, "no table key"
+    try:
+        doc = json.loads(read_regular(os.path.join(VOLUME, TABLE), 1 << 30))
+    except FileNotFoundError:
+        return empty, "no verified table yet"
+    except (OSError, ValueError):
+        return empty, "the verified table is unreadable"
+    table = doc.get("table") if isinstance(doc, dict) else None
+    if not isinstance(doc.get("hmac"), str) or not hmac.compare_digest(mac(key, table), doc["hmac"]):
+        return empty, "the verified table failed its integrity check"
+    if table.get("version") != 1:
+        return empty, "the verified table has an unknown version"
+    return table, None
+
+
+def save_table(key, table):
+    doc = {"hmac": mac(key, table), "table": table}
+    write_atomic(os.path.join(VOLUME, TABLE), json.dumps(doc, sort_keys=True).encode())
+
+
+# --- Mounts -------------------------------------------------------------------
+
+
+def mounted(path):
+    return os.path.ismount(path)
+
+
+def umount(path):
+    if mounted(path) and subprocess.run(["umount", path]).returncode != 0:
+        log(f"{path} is busy; detaching it lazily")
+        run("umount", "--lazy", path)
+
+
+def mount_volume():
+    """Mounts the library volume read-write (read-only if that fails) for root only."""
+    dev = f"/dev/disk/by-label/{LABEL}"
+    for _ in range(50):
+        if os.path.exists(dev):
+            break
+        time.sleep(0.1)
+    else:
+        return None
+    fs = subprocess.run(["blkid", "-o", "value", "-s", "TYPE", dev], capture_output=True, text=True).stdout.strip()
+    uid, gid = renter()
+    if fs == "ntfs":
+        # The kernel's ntfs3. Every file shows as the renter's, so that the
+        # renter's Steam can update games through the view; the volume itself
+        # is reachable by root only. No "nocase": overlayfs refuses it.
+        fs, opts = "ntfs3", f"uid={uid},gid={gid},fmask=0022,dmask=0022,windows_names,nosuid,nodev"
+    else:
+        opts = "nosuid,nodev"
+    os.makedirs(VOLUME, exist_ok=True)
+    for mode in ("rw", "ro"):
+        if subprocess.run(["mount", "-t", fs, "-o", f"{mode},{opts}", dev, VOLUME]).returncode == 0:
+            if mode == "ro":
+                log("the library volume mounts read-only (for NTFS: hibernated or Fast Startup on)")
+            return {"fs": fs, "writable": mode == "rw"}
+    log(f"cannot mount the library volume ({fs or 'unknown filesystem'})")
+    return None
+
+
+def find_library():
+    """The Steam library folder on the volume, without following symlinks."""
+    for rel in LIBRARY_DIRS:
+        path = os.path.join(VOLUME, rel) if rel else VOLUME
+        if is_dir(os.path.join(path, "steamapps")) and os.path.realpath(path) == path:
+            return path
+    return VOLUME
+
+
+def open_container():
+    """The session layer: a file on the library volume, opened with
+    plain dm-crypt under a key read from /dev/urandom and never stored, then
+    formatted fresh. A reboot is a cryptographic erase, as for the scratch
+    partition, but the space is the library's: game updates, shader caches
+    and Proton prefixes fit there, not in the small Swiff OS partition (D6).
+    This is also what makes NTFS libraries work: overlayfs cannot keep its
+    writes on NTFS, but on ext4 inside a file on NTFS it can."""
+    img = os.path.join(VOLUME, CONTAINER)
+    os.makedirs(os.path.dirname(img), exist_ok=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(img)
+    vfs = os.statvfs(VOLUME)
+    total, free = vfs.f_blocks * vfs.f_frsize, vfs.f_bavail * vfs.f_frsize
+    # Leave the owner 5% of the volume, at most 8 GiB.
+    size = (free - min(total // 20, 8 << 30)) & ~((1 << 20) - 1)
+    if size < 256 << 20:
+        raise OSError(errno.ENOSPC, "less than 256 MiB free on the library volume")
+    with open(img, "wb") as f:
+        f.truncate(size)
+    loop = run("losetup", "--find", "--show", img, capture_output=True, text=True).stdout.strip()
+    run(CRYPTSETUP, "attach", CRYPT_NAME, loop, "/dev/urandom", "plain,cipher=aes-xts-plain64,size=512,sector-size=4096,discard")
+    run("mkfs.ext4", "-q", "-F", "-E", "nodiscard,lazy_itable_init=1,lazy_journal_init=1", f"/dev/mapper/{CRYPT_NAME}")
+    os.makedirs(SESSION, exist_ok=True)
+    run("mount", "-o", "nosuid,nodev", f"/dev/mapper/{CRYPT_NAME}", SESSION)
+    return SESSION
+
+
+def close_container():
+    umount(SESSION)
+    if os.path.exists(f"/dev/mapper/{CRYPT_NAME}"):
+        subprocess.run([CRYPTSETUP, "detach", CRYPT_NAME])
+    img = os.path.join(VOLUME, CONTAINER)
+    loops = subprocess.run(["losetup", "--noheadings", "--output", "NAME", "--associated", img], capture_output=True, text=True).stdout.split()
+    for loop in loops:
+        subprocess.run(["losetup", "--detach", loop])
+    with contextlib.suppress(OSError):
+        os.unlink(img)
+
+
+def build_view(setup, mode, verified):
+    """Builds the layer above the library that hides everything not verified:
+    a whiteout for each unverified entry, plus Steam's app manifest for each
+    verified game as recorded in the table. --bootstrap mode hides only
+    Steam's cached depot manifests and what is not a game."""
+    umount(VIEW)
+    os.makedirs(VIEW, exist_ok=True)
+    run("mount", "-t", "tmpfs", "-o", "mode=0755,nosuid,nodev,size=64m", "swiff-games-view", VIEW)
+    uid, gid = renter()
+
+    def mkdir(rel):
+        path = VIEW
+        for part in rel.split("/"):
+            path = os.path.join(path, part)
+            if not os.path.exists(path):
+                os.mkdir(path, 0o755)
+                os.chown(path, uid, gid)
+
+    def hide(rel):
+        if "/" in rel:
+            mkdir(rel.rsplit("/", 1)[0])
+        os.mknod(os.path.join(VIEW, rel), stat.S_IFCHR, os.makedev(0, 0))
+
+    mkdir("steamapps/common")
+    mkdir("steamapps/depotcache")
+    lib = setup.get("library")
+    if not lib:
+        return
+    for name in os.listdir(lib):
+        if name != "steamapps":
+            hide(name)
+    apps = os.path.join(lib, "steamapps")
+    if not is_dir(apps):
+        return
+    for name in os.listdir(apps):
+        acf = re.fullmatch(r"appmanifest_(\d+)\.acf", name)
+        if name in ("common", "depotcache") or (acf and (mode == "bootstrap" or acf[1] in verified)):
+            continue
+        hide(f"steamapps/{name}")
+    if mode == "bootstrap":
+        os.setxattr(os.path.join(VIEW, "steamapps/depotcache"), "trusted.overlay.opaque", b"y")
+        return
+    installdirs = {entry["installdir"] for entry, _ in verified.values()}
+    if is_dir(os.path.join(apps, "common")):
+        for name in os.listdir(os.path.join(apps, "common")):
+            if name not in installdirs:
+                hide(f"steamapps/common/{name}")
+    manifests = {}
+    for appid, (entry, hidden) in verified.items():
+        acf = os.path.join(VIEW, f"steamapps/appmanifest_{appid}.acf")
+        write_atomic(acf, entry["acf"].encode(), owner=(uid, gid))
+        for rel in hidden:
+            hide(f"steamapps/common/{entry['installdir']}/{rel}")
+        manifests.update(entry["manifests"])
+    cache = os.path.join(apps, "depotcache")
+    if is_dir(cache):
+        for name in os.listdir(cache):
+            try:
+                ok = name in manifests and hash_file(os.path.join(cache, name))[1] == manifests[name]
+            except OSError:
+                ok = False
+            if not ok:
+                hide(f"steamapps/depotcache/{name}")
+
+
+def mount_view(setup, mode, verified):
+    umount(GAMES)
+    build_view(setup, mode, verified)
+    upper, work = os.path.join(setup["session"], "upper"), os.path.join(setup["session"], "work")
+    for path in (upper, work):
+        os.makedirs(path, exist_ok=True)
+    os.chown(upper, *renter())
+    os.chmod(upper, 0o755)
+    lower = VIEW + (":" + setup["library"] if setup.get("library") else "")
+    # Lower layers may carry overlay xattrs written by another OS: none of
+    # them is followed (no redirects, no metacopy, no index).
+    opts = f"lowerdir={lower},upperdir={upper},workdir={work},redirect_dir=off,metacopy=off,index=off,xino=off,nosuid,nodev"
+    run("mount", "-t", "overlay", "swiff-games", "-o", opts, GAMES)
+
+
+# --- Checking the library -------------------------------------------------------
+
+
+def check_app(lib, entry, full):
+    """Checks one game on the library against its table entry. Returns the
+    problem (None if it passes), the entries to hide and how many files were
+    hashed. Updates the entry's recorded mtimes of files that still match."""
+    base = os.path.join(lib, "steamapps", "common", entry["installdir"])
+    files, dirs, links, extras = entry["files"], entry["dirs"], entry["symlinks"], set(entry["extras"])
+    hidden, seen, problems = [], set(), []
+    if not is_dir(base):
+        return "its install folder is missing", hidden, 0
+
+    def planted(path, rel):
+        if rel not in extras and is_code(path, rel):
+            problems.append(f"an unknown program file appeared: {rel}")
+
+    stack = [""]
+    while stack:
+        top = stack.pop()
+        with os.scandir(os.path.join(base, top)) as it:
+            for e in it:
+                rel = f"{top}/{e.name}" if top else e.name
+                if e.is_dir(follow_symlinks=False):
+                    if rel in dirs:
+                        seen.add(rel)
+                        stack.append(rel)
+                        continue
+                    hidden.append(rel)
+                    for root, _, names in os.walk(e.path):
+                        for name in names:
+                            path = os.path.join(root, name)
+                            planted(path, os.path.relpath(path, base))
+                elif e.is_symlink():
+                    if rel in links and os.readlink(e.path) == links[rel][0]:
+                        seen.add(rel)
+                    else:
+                        hidden.append(rel)
+                elif e.is_file(follow_symlinks=False) and rel in files:
+                    seen.add(rel)
+                else:
+                    # Leftovers of an interrupted promotion are Swiff's own.
+                    hidden.append(rel)
+                    if not (rel.endswith(TEMP_SUFFIX) and rel[: -len(TEMP_SUFFIX)] in files):
+                        planted(e.path, rel)
+    for rel in sorted(set(files) | set(dirs) | set(links)):
+        if rel not in seen and not (rel in files and files[rel][3] & USER_CONFIG):
+            problems.append(f"a verified file is missing: {rel}")
+
+    def stale(rel):
+        st = os.lstat(os.path.join(base, rel))
+        return st.st_size != files[rel][0] or st.st_mtime_ns != files[rel][2]
+
+    def rehash(rel):
+        try:
+            return hash_file(os.path.join(base, rel))
+        except OSError:
+            return None, None, None, None
+
+    todo = [rel for rel in files if rel in seen and (full or stale(rel))]
+    with ThreadPoolExecutor(4) as pool:
+        for rel, (size, sha, _, mtime) in zip(todo, pool.map(rehash, todo)):
+            if size == files[rel][0] and sha == files[rel][1]:
+                files[rel][2] = mtime
+            elif files[rel][3] & USER_CONFIG:
+                hidden.append(rel)
+            else:
+                problems.append(f"a verified file changed: {rel}")
+    return (problems[0] if problems else None), hidden, len(todo)
+
+
+def survey(setup, table, full):
+    """Checks every game in the table and lists the library's other games."""
+    games, verified, hashed = {}, {}, 0
+    lib = setup.get("library")
+    for appid, entry in sorted(table["apps"].items()):
+        problem, hidden, n = check_app(lib, entry, full or entry.get("promoting")) if lib else ("no library", [], 0)
+        hashed += n
+        games[appid] = {"name": entry["name"], "buildid": entry["buildid"], "state": "blocked" if problem else "verified"}
+        if problem:
+            games[appid]["reason"] = problem
+            log(f"app {appid} ({entry['name']}) is blocked: {problem}")
+        else:
+            entry.pop("promoting", None)
+            verified[appid] = (entry, hidden)
+    apps = os.path.join(lib, "steamapps") if lib else None
+    if apps and is_dir(apps):
+        for name in sorted(os.listdir(apps)):
+            m = re.fullmatch(r"appmanifest_(\d+)\.acf", name)
+            if m and m[1] not in games:
+                try:
+                    app = parse_vdf(read_regular(os.path.join(apps, name), 1 << 20).decode("utf-8", "replace"))["appstate"]
+                    title = str(app.get("name", ""))
+                except (OSError, ValueError, KeyError, AttributeError):
+                    title = ""
+                games[m[1]] = {"name": title, "state": "not-bootstrapped"}
+    return games, verified, hashed
+
+
+def write_report(report):
+    os.makedirs(os.path.dirname(REPORT), exist_ok=True)
+    write_atomic(REPORT, (json.dumps(report, indent=1, sort_keys=True) + "\n").encode())
+
+
+def load_setup():
+    with open(SETUP) as f:
+        return json.load(f)
+
+
+def cmd_start(_):
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    os.chmod(STATE, 0o700)
+    setup = {"fs": None, "writable": False, "library": None, "session": None}
+    volume = mount_volume()
+    if volume:
+        setup.update(volume, library=find_library())
+    key = table_key(create=setup["writable"]) if volume else None
+    table, table_problem = load_table(key)
+    try:
+        reset = tpm_reset_count()
+    except OSError as e:
+        log(f"cannot read the TPM's resetCount: {e}")
+        reset = None
+    previous = table["reset_count"]
+    # Each power-up adds one to resetCount. Anything but one more than at the
+    # last rental-mode boot (or the same boot) means another OS may have run.
+    gap = reset is None or previous is None or reset not in (previous, previous + 1)
+    games, verified, hashed = survey(setup, table, gap)
+    table["reset_count"] = reset
+    if setup["writable"] and key:
+        save_table(key, table)
+    write_report({
+        "library": {k: setup[k] for k in ("fs", "writable")},
+        "table": table_problem or "ok",
+        "reset_count": reset,
+        "previous_reset_count": previous,
+        "rehash": "full" if gap else "quick",
+        "hashed_files": hashed,
+        "games": games,
+    })
+    log(f"{len(verified)} of {len(games)} games verified ({'full' if gap else 'quick'} check, {hashed} files hashed)")
+    if setup["writable"]:
+        try:
+            setup["session"] = open_container()
+        except (OSError, subprocess.CalledProcessError) as e:
+            log(f"no session layer on the library ({e}); using the scratch partition")
+            close_container()
+    if not setup["session"]:
+        os.makedirs(SCRATCH_SESSION, exist_ok=True)
+        setup["session"] = SCRATCH_SESSION
+    with open(SETUP, "w") as f:
+        json.dump(setup, f)
+    mount_view(setup, "normal", verified)
+
+
+def cmd_view(args):
+    setup = load_setup()
+    if args == ["--bootstrap"]:
+        mount_view(setup, "bootstrap", {})
+        return
+    table, _ = load_table(table_key(create=False))
+    mount_view(setup, "normal", survey(setup, table, False)[1])
+
+
+def seal_app(appid, bootstrap, setup, table, keys, report):
+    old = table["apps"].get(appid)
+    if not bootstrap and report["games"].get(appid, {}).get("state") != "verified":
+        raise Refused("it is not a verified game (the owner bootstraps new games)")
+    app = parse_vdf(read_regular(f"{GAMES}/steamapps/appmanifest_{appid}.acf", 1 << 20).decode("utf-8", "replace")).get("appstate", {})
+    if app.get("stateflags") != "4":
+        raise Refused("Steam does not report it fully installed and up to date")
+    installdir = app.get("installdir", "")
+    if not installdir or "/" in installdir or installdir in (".", ".."):
+        raise Refused("its install folder name is unsafe")
+    depots = app.get("installeddepots")
+    if not isinstance(depots, dict) or not depots:
+        raise Refused("Steam lists no installed depots")
+
+    files, dirs, links, manifests = {}, {}, {}, {}
+    fresh = os.path.join(setup["session"], "upper", "steamapps", "depotcache")
+    for depot, info in depots.items():
+        gid = info.get("manifest", "") if isinstance(info, dict) else ""
+        name = f"{depot}_{gid}.manifest"
+        path = os.path.join(fresh, name)
+        if os.path.isfile(path) and not os.path.islink(path):
+            # Fetched from Valve by this boot's Steam, before anything else ran.
+            data = read_regular(path)
+            try:
+                m = read_manifest(data, keys.get(depot))
+            except ValueError as e:
+                raise Refused(f"the manifest of depot {depot} is unusable: {e}") from e
+            if (m["depot"], m["gid"]) != (depot, gid):
+                raise Refused(f"the manifest of depot {depot} is not manifest {gid}")
+            manifests[name] = hashlib.sha256(data).hexdigest()
+            for rel, f in m["files"].items():
+                if f["flags"] & DIRECTORY:
+                    dirs[rel] = depot
+                elif f["flags"] & SYMLINK or f["target"]:
+                    links[rel] = [f["target"], depot]
+                else:
+                    files[rel] = ["sha1", f["size"], f["sha1"], f["flags"], depot]
+        elif not bootstrap and old and old["depots"].get(depot) == gid:
+            # An unchanged depot: the table's own record of it.
+            manifests.update({n: s for n, s in old["manifests"].items() if n == name})
+            dirs.update({r: d for r, d in old["dirs"].items() if d == depot})
+            links.update({r: v for r, v in old["symlinks"].items() if v[1] == depot})
+            files.update({r: ["sha256", v[0], v[1], v[3], v[4]] for r, v in old["files"].items() if v[4] == depot})
+        else:
+            raise Refused(f"Steam did not fetch the manifest of depot {depot} during this boot")
+    for rel in list(files) + list(links):
+        parts = rel.split("/")[:-1]
+        for i in range(len(parts)):
+            dirs.setdefault("/".join(parts[: i + 1]), files.get(rel, links.get(rel))[-1])
+
+    base = f"{GAMES}/steamapps/common/{installdir}"
+    if not is_dir(base) or os.path.realpath(base) != base:
+        raise Refused("its install folder is missing")
+    for rel in sorted(dirs):
+        if not is_dir(os.path.join(base, rel)):
+            raise Refused(f"{rel} is not a folder")
+    for rel, (target, _) in links.items():
+        path = os.path.join(base, rel)
+        inside = os.path.normpath(os.path.join(os.path.dirname(rel), target))
+        if not os.path.islink(path) or os.readlink(path) != target or target.startswith("/") or inside.startswith(".."):
+            raise Refused(f"{rel} is not the symlink its manifest lists")
+
+    def check(rel):
+        kind, size, digest, flags, depot = files[rel]
+        try:
+            got_size, sha256, sha1, _ = hash_file(os.path.join(base, rel), sha1=True)
+        except FileNotFoundError:
+            got_size = sha256 = sha1 = None
+        if kind == "sha1":
+            ok = got_size == size and (sha1 == digest or (size == 0 and digest.strip("0") == ""))
+        else:
+            ok = got_size == size and sha256 == digest
+        return rel, ok, [size, sha256, 0, flags, depot]
+
+    entry_files, extras = {}, []
+    with ThreadPoolExecutor(4) as pool:
+        for rel, ok, record in pool.map(check, sorted(files)):
+            if ok:
+                entry_files[rel] = record
+            elif files[rel][3] & USER_CONFIG:
+                extras.append(rel)
+            else:
+                raise Refused(f"{rel} does not match its manifest")
+
+    lib_acf = os.path.join(setup["library"], "steamapps", f"appmanifest_{appid}.acf")
+    try:
+        owner = parse_vdf(read_regular(lib_acf, 1 << 20).decode("utf-8", "replace"))["appstate"].get("lastowner", "0")
+    except (OSError, ValueError, KeyError, AttributeError):
+        owner = "0"
+    # The library's app manifest must not carry the renter's SteamID.
+    acf = re.sub(r'("LastOwner"\s+")\d*(")', lambda m: m[1] + owner + m[2], read_regular(f"{GAMES}/steamapps/appmanifest_{appid}.acf").decode("utf-8", "replace"), flags=re.I)
+
+    if bootstrap:
+        # Whatever else is in the owner's install folder stays hidden.
+        lib_base = os.path.join(setup["library"], "steamapps", "common", installdir)
+        for root, subdirs, names in os.walk(lib_base):
+            for name in subdirs + names:
+                rel = os.path.relpath(os.path.join(root, name), lib_base)
+                if rel not in entry_files and rel not in dirs and rel not in links:
+                    extras.append(rel)
+    else:
+        extras += old["extras"] + [r for r in list(old["files"]) + list(old["dirs"]) + list(old["symlinks"]) if r not in entry_files and r not in dirs and r not in links]
+    return {
+        "name": str(app.get("name", "")),
+        "buildid": str(app.get("buildid", "")),
+        "installdir": installdir,
+        "depots": {d: (i.get("manifest", "") if isinstance(i, dict) else "") for d, i in depots.items()},
+        "files": entry_files,
+        "dirs": dirs,
+        "symlinks": links,
+        "extras": sorted(set(extras)),
+        "manifests": manifests,
+        "acf": acf,
+    }
+
+
+def cmd_seal(args):
+    bootstrap = "--bootstrap" in args
+    appids = [a for a in args if a != "--bootstrap"]
+    if not appids or not all(a.isdigit() for a in appids):
+        raise Refused("usage: seal [--bootstrap] APPID...")
+    if os.path.exists(SEAL_CLOSED):
+        raise Refused("sealing is closed for this boot: the session may have run code since, so nothing it installed can be trusted")
+    setup = load_setup()
+    if not setup["writable"]:
+        raise Refused("the library volume is read-only, so nothing can be promoted")
+    table, _ = load_table(table_key(create=False))
+    with open(REPORT) as f:
+        report = json.load(f)
+    keys, rc = depot_keys(), 0
+    os.makedirs(SEALED, mode=0o700, exist_ok=True)
+    for appid in appids:
+        try:
+            entry = seal_app(appid, bootstrap, setup, table, keys, report)
+        except (Refused, OSError, ValueError) as e:
+            log(f"app {appid} not sealed: {e}")
+            rc = 1
+            continue
+        write_atomic(os.path.join(SEALED, f"{appid}.json"), json.dumps({"bootstrap": bootstrap, "entry": entry}).encode(), mode=0o600)
+        log(f"app {appid} ({entry['name']}) sealed: {len(entry['files'])} files match its manifests")
+    return rc
+
+
+def cmd_close_seal(_):
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    open(SEAL_CLOSED, "a").close()
+
+
+def copy_verified(src, dst, owner):
+    """Copies src to dst, returning the SHA-256 of what was copied."""
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(dst)
+    h = hashlib.sha256()
+    sfd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(sfd, "rb", buffering=0) as s, open(dst, "xb") as d:
+        if not stat.S_ISREG(os.fstat(sfd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", src)
+        while chunk := s.read(1 << 20):
+            h.update(chunk)
+            d.write(chunk)
+        d.flush()
+        os.fsync(d.fileno())
+    # Owned like the game's folder (ntfs3 has one fixed owner and refuses).
+    with contextlib.suppress(OSError):
+        os.chown(dst, *owner)
+    return h.hexdigest()
+
+
+def session_copy(path):
+    """The session layer's own copy of a file: its path, None when there is
+    none, or "deleted" when the session deleted it (a whiteout)."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISCHR(st.st_mode) and st.st_rdev == 0:
+        return "deleted"
+    if not stat.S_ISREG(st.st_mode):
+        raise Refused(f"{path} is no longer a file")
+    return path
+
+
+def promote_app(appid, entry, setup, table, key, verified_at_boot):
+    upper = os.path.join(setup["session"], "upper", "steamapps")
+    apps = os.path.join(setup["library"], "steamapps")
+    base = os.path.join(apps, "common", entry["installdir"])
+    base_up = os.path.join(upper, "common", entry["installdir"])
+    # Only an entry this boot verified describes what the library holds now.
+    old = table["apps"].get(appid) if verified_at_boot else None
+    for path in (apps, os.path.join(apps, "common"), os.path.join(apps, "depotcache"), base):
+        if not os.path.lexists(path):
+            os.mkdir(path)
+        elif not is_dir(path):
+            raise Refused(f"{path} is not a folder")
+    for rel in sorted(entry["dirs"]):
+        path = os.path.join(base, rel)
+        if not os.path.lexists(path):
+            os.mkdir(path)
+        elif not is_dir(path):
+            raise Refused(f"{rel} is not a folder on the library")
+    st = os.lstat(base)
+    owner = (st.st_uid, st.st_gid)
+    staged = []  # (temporary, final) paths on the library
+    try:
+        for rel, record in sorted(entry["files"].items()):
+            final = os.path.join(base, rel)
+            src = session_copy(os.path.join(base_up, rel))
+            if old and old["files"].get(rel, [None, None])[1] == record[1]:
+                continue  # the library holds this content, verified at boot
+            if src is None:
+                # Sealed from the library's own copy, which no boot changes.
+                if not os.path.isfile(final) or os.path.islink(final):
+                    raise Refused(f"{rel} is gone from the session")
+                continue
+            if src == "deleted":
+                # Deleted in the session since: the library's copy must match.
+                try:
+                    if hash_file(final)[1] == record[1]:
+                        continue
+                except OSError:
+                    pass
+                raise Refused(f"{rel} is gone from the session")
+            if copy_verified(src, final + TEMP_SUFFIX, owner) != record[1]:
+                staged.append((final + TEMP_SUFFIX, final))
+                raise Refused(f"{rel} changed after it was verified")
+            staged.append((final + TEMP_SUFFIX, final))
+        for name, digest in entry["manifests"].items():
+            src = session_copy(os.path.join(upper, "depotcache", name))
+            final = os.path.join(apps, "depotcache", name)
+            if src and src != "deleted":
+                staged.append((final + TEMP_SUFFIX, final))
+                if copy_verified(src, final + TEMP_SUFFIX, owner) != digest:
+                    raise Refused(f"manifest {name} changed after it was verified")
+        for rel, (target, _) in entry["symlinks"].items():
+            final = os.path.join(base, rel)
+            if not (os.path.islink(final) and os.readlink(final) == target):
+                staged.append((final + TEMP_SUFFIX, final))
+                os.symlink(target, final + TEMP_SUFFIX)
+    except BaseException:
+        for tmp, _ in staged:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+        raise
+    # Marked as promoting first: if this is cut short, the next boot re-hashes
+    # the game against the new entry and blocks it unless every file matches.
+    entry = dict(entry, promoting=True)
+    table["apps"][appid] = entry
+    save_table(key, table)
+    for tmp, final in staged:
+        os.replace(tmp, final)
+    write_atomic(os.path.join(apps, f"appmanifest_{appid}.acf"), entry["acf"].encode())
+    for rel, record in entry["files"].items():
+        record[2] = os.lstat(os.path.join(base, rel)).st_mtime_ns
+    del entry["promoting"]
+    save_table(key, table)
+    return len(staged)
+
+
+def cmd_stop(_):
+    try:
+        setup = load_setup()
+    except FileNotFoundError:
+        return
+    umount(GAMES)
+    umount(VIEW)
+    sealed = sorted(os.listdir(SEALED)) if os.path.isdir(SEALED) else []
+    key = table_key(create=False) if sealed and setup["writable"] else None
+    if key:
+        table, problem = load_table(key)
+        with open(REPORT) as f:
+            games = json.load(f)["games"]
+        for name in sealed:
+            with open(os.path.join(SEALED, name)) as f:
+                cand = json.load(f)
+            appid = name.removesuffix(".json")
+            if problem and not cand["bootstrap"]:
+                log(f"app {appid} not promoted: {problem}")
+                continue
+            try:
+                n = promote_app(appid, cand["entry"], setup, table, key, games.get(appid, {}).get("state") == "verified")
+                log(f"app {appid} ({cand['entry']['name']}) promoted: {n} files written to the library")
+            except (Refused, OSError) as e:
+                log(f"app {appid} not promoted: {e}")
+    if setup["session"] == SESSION:
+        close_container()
+    umount(VOLUME)
+
+
+def cmd_report(_):
+    with open(REPORT) as f:
+        sys.stdout.write(f.read())
+
+
+COMMANDS = {"start": cmd_start, "stop": cmd_stop, "view": cmd_view, "seal": cmd_seal, "close-seal": cmd_close_seal, "report": cmd_report}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        sys.exit(f"usage: {sys.argv[0]} {'|'.join(COMMANDS)} [args]")
+    try:
+        sys.exit(COMMANDS[sys.argv[1]](sys.argv[2:]) or 0)
+    except Refused as e:
+        log(str(e))
+        sys.exit(1)

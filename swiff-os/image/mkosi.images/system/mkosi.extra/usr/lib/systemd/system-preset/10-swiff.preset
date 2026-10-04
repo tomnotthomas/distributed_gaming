@@ -1,5 +1,5 @@
 enable swiff-session.service
-enable swiff-games-overlay.service
+enable swiff-games.service
 enable swiff-netguard.path
 enable swiff-netguard.timer
 enable nftables.service
