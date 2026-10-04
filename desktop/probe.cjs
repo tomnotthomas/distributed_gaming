@@ -25,7 +25,9 @@ const PROBE_TIMEOUT_MS = 30_000;
 // DXGI: CreateDXGIFactory1, then IDXGIFactory1::EnumAdapters1 (vtable slot 12)
 // and IDXGIAdapter1::GetDesc1 (slot 10), skipping the software adapter (flag 2).
 // Media Foundation: MFTEnumEx over hardware video encoders (flag 0x4, sorted
-// and filtered 0x40) for each codec's output type.
+// and filtered 0x40) for each codec's output type. When Media Foundation does
+// not start, or a codec cannot be listed, the encoders stay unread: none found
+// is not the same as none there.
 const PROBE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -75,23 +77,24 @@ public static class SwiffProbe {
   public static int Encoders(string subtype) {
     var output = new TypeInfo { Major = new Guid("73646976-0000-0010-8000-00AA00389B71"), Sub = new Guid(subtype) };
     IntPtr list; uint count;
-    if (MFTEnumEx(new Guid("f79eac7d-e545-4387-bdee-d647d7bde42a"), 0x44, IntPtr.Zero, ref output, out list, out count) != 0) return 0;
+    if (MFTEnumEx(new Guid("f79eac7d-e545-4387-bdee-d647d7bde42a"), 0x44, IntPtr.Zero, ref output, out list, out count) != 0) return -1;
     for (int i = 0; i < count; i++) Marshal.Release(Marshal.ReadIntPtr(list, i * IntPtr.Size));
     Marshal.FreeCoTaskMem(list);
     return (int)count;
   }
-  public static void Start() { MFStartup(0x20070, 0); }
+  public static int Start() { return MFStartup(0x20070, 0); }
   public static void Stop() { MFShutdown(); }
 }
 '@
   $out.adapters = @([SwiffProbe]::Adapters() | ForEach-Object { @{ name = $_[0]; vram = $_[1] } })
-  [SwiffProbe]::Start()
-  $out.encoders = [ordered]@{
+  if ([SwiffProbe]::Start() -ge 0) {
+    $out.encoders = [ordered]@{
 ${Object.entries(CODECS)
-  .map(([codec, subtype]) => `    ${codec} = [SwiffProbe]::Encoders('${subtype}')`)
+  .map(([codec, subtype]) => `      ${codec} = [SwiffProbe]::Encoders('${subtype}')`)
   .join("\n")}
+    }
+    [SwiffProbe]::Stop()
   }
-  [SwiffProbe]::Stop()
 } catch {}
 try { $out.ram = @(Get-CimInstance Win32_PhysicalMemory | ForEach-Object { [double]$_.Capacity }) } catch {}
 try { $out.cpus = @(Get-CimInstance Win32_Processor | ForEach-Object { @{ name = $_.Name; cores = $_.NumberOfCores } }) } catch {}
@@ -135,7 +138,13 @@ function parseProbe(stdout) {
   const ram = list(raw.ram).map(Number);
   const cpus = list(raw.cpus);
   const cores = cpus.reduce((sum, c) => sum + (count(c?.cores) ?? 0), 0);
-  const encoders = raw.encoders && typeof raw.encoders === "object" ? raw.encoders : null;
+  // A codec that could not be listed (-1) leaves the whole set unread.
+  const encoders =
+    raw.encoders &&
+    typeof raw.encoders === "object" &&
+    Object.keys(CODECS).every((codec) => Number(raw.encoders[codec]) >= 0)
+      ? raw.encoders
+      : null;
 
   return {
     gpu: card ? card.name.trim() : null,

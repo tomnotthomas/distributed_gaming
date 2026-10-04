@@ -100,6 +100,7 @@ export function hostReport({
   return report;
 }
 
+/** `n` to one decimal place. */
 const tenth = (n: number) => Math.round(n * 10) / 10;
 
 /** The network section from the latest round trips and upload speed; null until both are known. */
@@ -175,6 +176,11 @@ export type ReporterOptions = {
   clock?: () => number;
 };
 
+/**
+ * The reporter for `machine`: offers the PC with `report`, then beats every
+ * 5 s with what changed, until withdrawn. Network failures are retried on the
+ * next beat; nothing it does throws.
+ */
 export function createHostReporter(
   machine: Machine,
   {
@@ -185,6 +191,7 @@ export function createHostReporter(
     clock = () => performance.now(),
   }: ReporterOptions,
 ): HostReporter {
+  /** The Host API route for `action` on this machine. */
   const route = (action: string) =>
     `${httpOrigin(machine.url)}/api/machines/${encodeURIComponent(machine.machineId)}/${action}`;
   const headers = { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" };
@@ -208,6 +215,7 @@ export function createHostReporter(
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
+  /** Time one upload test; a failed one is tried again a minute later. */
   const uploadTest = async () => {
     uploading = true;
     try {
@@ -231,6 +239,7 @@ export function createHostReporter(
     }
   };
 
+  /** One beat: the offer until the platform has it, then what changed. One at a time. */
   const beat = async () => {
     if (beating || stopped) return;
     beating = true;
@@ -313,6 +322,8 @@ export function createHostReporter(
         headers,
         body: JSON.stringify({ available: false }),
         keepalive,
+        // The next reporter's offer waits on this: a hung call must not hold it.
+        signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
       }).catch(() => {});
     },
   };

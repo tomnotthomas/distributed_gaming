@@ -35,6 +35,7 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
+/** The app page's query string: `extra`, plus demo=1 in demo mode. */
 const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
 
 // The machine key, encrypted by the OS for the logged-in Windows user. Never
@@ -89,10 +90,18 @@ ipcMain.handle("steam:install", (event) => {
 // Games installed or removed while the app runs go to the app window as the
 // whole list, so the platform hears of them without a restart.
 let stopWatchingGames = null;
+/** Start watching Steam's libraries, once; the list goes to the app window as it changes. */
 async function watchGames() {
   const steamPath = await steamPathOnce();
   if (stopWatchingGames) return;
-  stopWatchingGames = watchSteamGames((games) => win?.webContents.send("pc:games", games), { steamPath });
+  stopWatchingGames = watchSteamGames(
+    (games) => {
+      // A closed window has no one to tell: its next load reads the games afresh.
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed())
+        win.webContents.send("pc:games", games);
+    },
+    { steamPath },
+  );
 }
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
@@ -144,6 +153,7 @@ function guardNavigation(contents) {
 let win = null;
 let quitting = false;
 
+/** Open the app window; closing it hides it to the tray. */
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -169,6 +179,7 @@ function createWindow() {
   return win;
 }
 
+/** Bring the app window up, opening it again if it was destroyed. */
 function showWindow() {
   if (!win) createWindow();
   win.show();
@@ -216,6 +227,7 @@ function placeGlance() {
   glance.setPosition(x, Math.round(Math.max(workArea.y, y)));
 }
 
+/** Show the tray glance by the tray icon, or hide it when it is showing. */
 function toggleGlance() {
   if (glance?.isVisible()) return glance.hide();
   if (!glance) {
@@ -242,6 +254,7 @@ function toggleGlance() {
   glance.focus();
 }
 
+/** The tray icon: a click toggles the glance, its menu opens or quits Swiff. */
 function createTray() {
   tray = new Tray(trayIcon());
   tray.setToolTip("Swiff Host");

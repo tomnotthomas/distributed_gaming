@@ -135,6 +135,7 @@ export type SignalMessage =
 /** Messages the server forwards to the other peer without inspecting them. */
 export const RELAYED_TYPES = ["offer", "answer", "ice"] as const;
 
+/** Whether `msg` is one the server forwards untouched. */
 export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }

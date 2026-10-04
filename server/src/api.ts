@@ -190,6 +190,7 @@ function positiveInt(value: unknown, field: string, max = Number.MAX_SAFE_INTEGE
   return value as number;
 }
 
+/** 0, or a positive whole number, or a 400 naming the field. */
 const positiveIntOrZero = (value: unknown, field: string) => (value === 0 ? 0 : positiveInt(value, field));
 
 /** A finite number from 0 to `max`, or a 400 naming the field. */

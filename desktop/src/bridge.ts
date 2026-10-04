@@ -26,6 +26,8 @@ export type TrayBridge = {
   trayAction(action: TrayAction | "open"): void;
 };
 
+/** The app window's preload calls, or undefined outside Electron. */
 export const bridge = (): HostBridge | undefined => (window as { swiffHost?: HostBridge }).swiffHost;
 
+/** The tray glance's preload calls, or undefined outside its window. */
 export const trayBridge = (): TrayBridge | undefined => (window as { swiffTray?: TrayBridge }).swiffTray;

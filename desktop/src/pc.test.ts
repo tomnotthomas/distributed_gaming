@@ -307,6 +307,42 @@ describe("watching the Steam library", () => {
     stop();
     expect(closed.sort()).toEqual([`${root}/steamapps`, "/mnt/games/steamapps"]);
   });
+
+  it("passes on a list that failed to go with the next change, and keeps watching", () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = "/home/kai/.local/share/Steam";
+    const tree: Record<string, string> = {
+      [`${root}/steamapps/libraryfolders.vdf`]: `"libraryfolders" { "0" { "path" "${root}" } }`,
+    };
+    let listener: () => void = () => {};
+    const watch = (_dir: string, l: () => void) => {
+      listener = l;
+      return { close: () => {} };
+    };
+    const files = {
+      readFileSync: (file: string) => fakeFiles(tree).readFileSync(file),
+      readdirSync: (dir: string) => fakeFiles(tree).readdirSync(dir),
+    };
+    const changes = vi.fn().mockImplementationOnce(() => {
+      throw new Error("window gone");
+    });
+    const stop = watchSteamGames(changes, { platform: "linux", env: {}, home: "/home/kai", files, watch });
+
+    tree[`${root}/steamapps/appmanifest_730.acf`] = manifest(730, "Counter-Strike 2");
+    listener();
+    expect(() => vi.advanceTimersByTime(2_000)).not.toThrow();
+    expect(changes).toHaveBeenCalledTimes(1);
+
+    tree[`${root}/steamapps/appmanifest_570.acf`] = manifest(570, "Dota 2");
+    listener();
+    vi.advanceTimersByTime(2_000);
+    expect(changes).toHaveBeenLastCalledWith([
+      { appid: 730, name: "Counter-Strike 2" },
+      { appid: 570, name: "Dota 2" },
+    ]);
+    stop();
+  });
 });
 
 describe("the Windows probe", () => {
@@ -357,8 +393,15 @@ describe("the Windows probe", () => {
       vramMb: 128,
       encoders: ["h264"],
     });
+    // A codec Media Foundation could not list: unread, not "no encoder".
+    expect(parseProbe('{"encoders":{"h264":1,"hevc":-1,"av1":0}}')?.encoders).toBeNull();
     expect(parseProbe("")).toBeNull();
     expect(parseProbe("Add-Type : compiler error")).toBeNull();
+  });
+
+  it("lists the encoders only once Media Foundation has started", () => {
+    expect(PROBE_SCRIPT).toContain("public static int Start() { return MFStartup(0x20070, 0); }");
+    expect(PROBE_SCRIPT).toMatch(/if \(\[SwiffProbe\]::Start\(\) -ge 0\) \{\s+\$out\.encoders = /);
   });
 
   it("runs Windows PowerShell hidden, with the script encoded, and only on Windows", async () => {

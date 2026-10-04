@@ -308,11 +308,20 @@ function watchSteamGames(onChange, options = {}) {
     if (stopped) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      rewatch();
-      const games = read();
-      if (sameGames(games, last)) return;
-      last = games;
-      onChange(games);
+      // A throw here would be uncaught in main. The list is kept as sent only
+      // once onChange took it, so one that failed goes again with the next change.
+      try {
+        rewatch();
+        const games = read();
+        if (sameGames(games, last)) return;
+        onChange(games);
+        last = games;
+      } catch (error) {
+        console.warn(
+          "[swiff] could not pass on the installed games:",
+          error instanceof Error ? error.name : error,
+        );
+      }
     }, SETTLE_MS);
   }
 

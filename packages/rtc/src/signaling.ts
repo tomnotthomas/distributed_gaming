@@ -51,6 +51,11 @@ export type Signaling = {
   close: () => void;
 };
 
+/**
+ * Open the signaling socket at `url` and keep it open: it reconnects with
+ * backoff until closed or denied, and pings the server so a half-open socket is
+ * noticed (and, with `onRtt`, each round trip timed).
+ */
 export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: SignalingOptions): Signaling {
   let socket: WebSocket | null = null;
   let pingTimer: number | undefined;
@@ -62,10 +67,12 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
   let closedByUs = false;
   let denied = false;
 
+  /** Send `msg` on the open socket; dropped while it is not open. */
   const send = (msg: SignalMessage) => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
   };
 
+  /** Ping the server, timing the round trip when none is awaited. */
   const ping = () => {
     if (onRtt && pingAt === null) pingAt = performance.now();
     send({ type: "ping" });
@@ -79,6 +86,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
     pingAt = null;
   };
 
+  /** Open a socket and wire its events; its close goes to `closed`. */
   const open = () => {
     onStatus?.("connecting");
     socket = new WebSocket(url);

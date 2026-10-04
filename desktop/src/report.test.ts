@@ -322,4 +322,34 @@ describe("createHostReporter", () => {
     });
     void next.withdraw();
   });
+
+  it("gives up a hung withdraw, so the next offer still goes out", async () => {
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    const answering = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+      if (body?.available !== false) return answering(url, init);
+      calls.push({ method: init.method!, action: "availability", body, keepalive: false });
+      return new Promise<Response>((_, reject) =>
+        init.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+      );
+    });
+    const r = reporter();
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    const withdrawn = r.withdraw();
+    const next = reporter({}, { after: withdrawn });
+    next.offer(null);
+    const count = calls.length;
+
+    await vi.advanceTimersByTimeAsync(BEAT_TIMEOUT_MS);
+    await expect(withdrawn).resolves.toBeUndefined();
+    expect(calls[count]).toMatchObject({ method: "PUT", body: { available: true } });
+    next.withdraw().catch(() => {});
+    await vi.advanceTimersByTimeAsync(BEAT_TIMEOUT_MS);
+  });
 });

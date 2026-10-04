@@ -131,6 +131,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   // TURN from the server's `registered`, which always precedes `peer-joined`.
   let serverIce: RTCIceServer[] = [];
 
+  /** Close the renter's peer connection, if any. */
   const teardown = () => {
     pc?.close();
     pc = null;
@@ -138,6 +139,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     opts.onPeerConnection(null);
   };
 
+  /** A fresh peer connection with the screen's tracks, offered to the renter through `send`. */
   const offerTo = async (send: (m: SignalMessage) => void) => {
     teardown();
     pc = createPeerConnection({
