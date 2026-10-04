@@ -22,7 +22,9 @@ describe("readConfig", () => {
   });
 
   it("accepts and ignores whatever SWIFF_APPID hostd sends", () => {
-    expect(readConfig({ ...ENV, SWIFF_APPID: "abc" }, [], "/helpers")).toEqual(readConfig(ENV, [], "/helpers"));
+    expect(readConfig({ ...ENV, SWIFF_APPID: "abc" }, [], "/helpers")).toEqual(
+      readConfig(ENV, [], "/helpers"),
+    );
   });
 
   it("reads the image's arguments", () => {
