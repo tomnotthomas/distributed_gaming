@@ -599,7 +599,7 @@ host session ends and the machine goes back to its owner. Only End (POST
 server's liveness sweep, up to 50 s, and the 2 minutes start then. The clocks live in
 memory; a server restart forgets them, and the session runs to its booked end as before.
 
-The page (`web/src/swiff/play.ts`, `useSwiff.ts`, `Reconnect.tsx`) shows three screens:
+The page (`web/src/swiff/play.ts`, `useSwiff.ts`, `Reconnect.tsx`) shows three screens, each drawn in Ignition's layout (the game's art with the machine it is on, and the paper with one big number, its way back in under it and its way out where Ignition's Cancel is):
 
 | Screen           | When                                                                                    | What it says and does                                                                                                                                                                                                                                                                                       |
 | ---------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
