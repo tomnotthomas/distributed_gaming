@@ -6,7 +6,7 @@
 // session grant and to report what it saw. The grant is made only when the
 // agent asks, as swiff-hostd gets it at claim time, so the 5-minute key is fresh.
 //
-//   node harness.mjs --server-port <p> --harness-port <h> --out <results.json>
+//   SWIFF_HARNESS_TOKEN=<token> node harness.mjs --server-port <p> --harness-port <h> --out <results.json>
 //
 // Exits 0 when every expected check passed. Needs the server and web app built,
 // and Playwright's Chromium (PLAYWRIGHT_BROWSERS_PATH, as run-test.sh sets it).
