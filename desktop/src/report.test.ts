@@ -370,6 +370,7 @@ describe("createHostReporter", () => {
     expect(calls[count]).toMatchObject({ method: "PUT", body: { available: true } });
     next.withdraw().catch(() => {});
     await vi.advanceTimersByTimeAsync(BEAT_TIMEOUT_MS);
+    fetch.mockImplementation(answering);
   });
 
   it("sends the withdraw only after an offer still under way has settled", async () => {
@@ -398,5 +399,36 @@ describe("createHostReporter", () => {
     release();
     await withdrawn;
     expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: false } });
+  });
+
+  it("sends a keepalive withdraw at once, even with an offer still under way", async () => {
+    const answering = fetch.getMockImplementation()!;
+    let release!: () => void;
+    const r = reporter();
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    fetch.mockImplementationOnce(async (_url: string, init: RequestInit) => {
+      calls.push({
+        method: init.method!,
+        action: "availability",
+        body: JSON.parse(init.body as string),
+        keepalive: false,
+      });
+      await new Promise<void>((resolve) => (release = resolve));
+      return new Response("{}", { status: 200 });
+    });
+    r.setUntil(Date.UTC(2026, 9, 3, 23));
+    const withdrawn = r.withdraw({ keepalive: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.at(-1)).toEqual({
+      method: "PUT",
+      action: "availability",
+      keepalive: true,
+      body: { available: false },
+    });
+    await withdrawn;
+
+    fetch.mockImplementation(answering);
+    release();
   });
 });

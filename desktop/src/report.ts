@@ -324,7 +324,9 @@ export function createHostReporter(
       clearInterval(timer);
       // Separate requests can land in any order: an offer still under way must
       // not reach the platform after the withdraw. Its timeout bounds the wait.
-      await pending;
+      // A closing window cannot wait: it goes at once, and the closing socket
+      // takes the PC offline anyway.
+      if (!keepalive) await pending;
       await fetch(route("availability"), {
         method: "PUT",
         headers,
