@@ -318,9 +318,11 @@ export function createAttestation({
         );
         return release(refuse(503, { error: "verifier-unavailable" }));
       }
-      if (!verdict.ok) return release(refuse(403, { error: "attestation-refused", reason: "evidence-rejected" }));
+      if (!verdict.ok)
+        return release(refuse(403, { error: "attestation-refused", reason: "evidence-rejected" }));
       const tier = tierFor(verdict.facts, floor);
-      if (!tier) return release(refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" }));
+      if (!tier)
+        return release(refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" }));
       return {
         ok: true,
         grant: {
