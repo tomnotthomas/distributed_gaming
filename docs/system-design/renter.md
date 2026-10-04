@@ -540,4 +540,7 @@ and whether the stream goes direct or through the relay. It hides 3 s after the 
 last moved over the stream (movement while the stream holds the pointer is the game's) and
 comes back when it moves. Full screen puts the session on the whole screen; End ends the
 booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
-session every key, Escape and a controller's B included, goes to the game.
+session every key, Escape and a controller's B included, goes to the game. A session the
+server ends (the booked time runs out, or the PC ends it) refuses the ticket (`denied`),
+and the page ends it there as End does; a refusal during Ignition is a failed launch
+instead.
