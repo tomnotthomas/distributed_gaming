@@ -125,46 +125,6 @@ describe("startHostSession", () => {
     session.stop();
   });
 
-  it("answers a latency probe without touching the seat", async () => {
-    const made: { closed: boolean }[] = [];
-    vi.stubGlobal(
-      "RTCPeerConnection",
-      class extends EventTarget {
-        iceGatheringState = "complete";
-        localDescription: { toJSON(): RTCSessionDescriptionInit } | null = null;
-        closed = false;
-        constructor() {
-          super();
-          made.push(this);
-        }
-        async setRemoteDescription() {}
-        async createAnswer() {
-          return { type: "answer", sdp: "v=0 answer" };
-        }
-        async setLocalDescription(sdp: RTCSessionDescriptionInit) {
-          this.localDescription = { toJSON: () => sdp };
-        }
-        close() {
-          this.closed = true;
-        }
-      },
-    );
-    const peerHere = vi.fn();
-    const { session, socket } = start(true, { onPeerHere: peerHere });
-    socket.deliver({ type: "registered", hostId: "pc-1" });
-    socket.deliver({ type: "probe-offer", probeId: "p1", sdp: { type: "offer", sdp: "v=0 offer" } });
-    await settle();
-
-    expect(socket.messages.at(-1)).toEqual({
-      type: "probe-answer",
-      probeId: "p1",
-      sdp: { type: "answer", sdp: "v=0 answer" },
-    });
-    expect(peerHere).not.toHaveBeenCalled();
-    session.stop();
-    expect(made.map((p) => p.closed)).toEqual([true]);
-  });
-
   it("only reports a claim unless asked to serve it", async () => {
     const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
     const { session, socket } = start();

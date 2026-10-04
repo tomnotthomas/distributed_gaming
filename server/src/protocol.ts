@@ -2,8 +2,7 @@
 // server relays these and the browser sends them, so a change here is a change
 // to both or it is a bug.
 //
-//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left,
-//                        probe-offer (answered with probe-answer)
+//   host    register ──► registered, session-claimed, peer-joined, answer, ice, peer-left
 //   client  join     ──► joined, offer, ice, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
@@ -92,22 +91,6 @@ export type SessionClaimedMessage = {
   appid: number;
   minutes: number;
 };
-/**
- * A latency probe: a data channel straight to a PC, which never takes the seat.
- *
- *   renter  probe        ──► server  asks to probe `hostId`
- *   server  probe-offer  ──► PC      the renter's offer, under the server's `probeId`
- *   PC      probe-answer ──► server  the PC's answer, relayed to the renter
- *
- * Neither side trickles: each description carries all of its candidates. The PC
- * echoes every message on the renter's channel and closes the probe when it
- * closes, or after 15 s. The PC side is in @swiff/rtc (probe.ts); the
- * server relay and the renter side are still to come.
- */
-export type ProbeMessage = { type: "probe"; hostId: string };
-export type ProbeOfferMessage = { type: "probe-offer"; probeId: string; sdp: RTCSessionDescriptionInit };
-export type ProbeAnswerMessage = { type: "probe-answer"; probeId: string; sdp: RTCSessionDescriptionInit };
-
 export type PeerJoinedMessage = { type: "peer-joined" };
 export type PeerLeftMessage = { type: "peer-left" };
 
@@ -124,9 +107,6 @@ export type SignalMessage =
   | JoinedMessage
   | DeniedMessage
   | SessionClaimedMessage
-  | ProbeMessage
-  | ProbeOfferMessage
-  | ProbeAnswerMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
@@ -135,7 +115,6 @@ export type SignalMessage =
 /** Messages the server forwards to the other peer without inspecting them. */
 export const RELAYED_TYPES = ["offer", "answer", "ice"] as const;
 
-/** Whether `msg` is one the server forwards untouched. */
 export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }

@@ -267,14 +267,7 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 | `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
 | `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
-| `probe-offer`              | server → PC | A renter's latency probe: `{ probeId, sdp }`, an offer for one data channel with all its candidates.                                      |
-| `probe-answer`             | PC → server | The PC's answer, `{ probeId, sdp }`, with all its candidates. The PC echoes what comes on the channel, and never gives up the seat.       |
 | `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
-
-A latency probe (`probe` from the renter, then `probe-offer` and `probe-answer`) is a
-separate peer connection with one data channel and no media: the PC answers up to 4 at
-once, echoes at most 64 messages of up to 256 bytes on each, and closes each after 15 s
-(`packages/rtc/src/probe.ts`). The server relay and the renter's side are still to come.
 
 The open socket is the PC's presence. The machine stays offered for as long as it is
 open, and goes `offline` the moment the service's socket closes while the PC is on offer

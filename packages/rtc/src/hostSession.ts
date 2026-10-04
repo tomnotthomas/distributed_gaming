@@ -19,14 +19,11 @@
 // credential of docs/system-design/session-keys.md. Ending a session stays with
 // the machine key, which keeps that right. This client never attests; whoever
 // passes `hostCert` does.
-//
-// It also answers renters' latency probes (probe.ts), whichever key holds the room.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
 import { INPUT_CHANNELS, type InputLane } from "./input";
 import { DEFAULT_AUDIO_BITRATE, setLocalWithStereoOpus } from "./opus";
 import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
-import { createProbeResponder } from "./probe";
 import { connectSignaling, type Signaling, type SignalMessage } from "./signaling";
 
 export type CaptureSettings = {
@@ -193,10 +190,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
 
   const machine = { url: opts.url, hostId: opts.hostId, machineKey: opts.machineKey };
 
-  const probes = createProbeResponder({
-    iceServers: () => opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
-  });
-
   /** End a claimed session this machine will not serve. A failed call is left: the claim is pushed again on the next register. */
   const refuse = (claim: SessionClaim) => {
     opts.onClaimRefused?.(claim);
@@ -329,9 +322,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         opts.onPeerHere(false);
         teardown();
         break;
-      case "probe-offer":
-        probes.answer(msg, send);
-        break;
     }
   };
 
@@ -342,7 +332,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
       stopped = true;
       leave();
       teardown();
-      probes.closeAll();
     },
   };
 }
