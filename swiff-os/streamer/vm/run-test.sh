@@ -81,9 +81,19 @@ wait_for_room
 server_port=$((20000 + $(od -An -N2 -tu2 /dev/urandom) % 20000))
 harness_port=$((server_port + 1))
 results="$build/results.json"
+# The VM's key to the harness. It reaches the VM as a systemd credential that
+# QEMU reads from a file (SMBIOS type 11, path=), and the harness through its
+# environment, so it is never on a command line other users can read.
+token_file="$build/harness-token"
+token_cred="$build/harness-token.smbios"
+(
+    umask 077
+    od -An -N32 -tx1 /dev/urandom | tr -d ' \n' >"$token_file"
+    printf 'io.systemd.credential:swifftest.token=%s' "$(cat "$token_file")" >"$token_cred"
+)
 
 echo "== starting the platform and the renter (harness)"
-PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
+SWIFF_HARNESS_TOKEN=$(cat "$token_file") PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
     --server-port "$server_port" --harness-port "$harness_port" --out "$results" &
 harness=$!
 # The harness runs the server; neither may outlive an early exit of this script.
@@ -105,6 +115,7 @@ timeout 600 $kvm_sudo qemu-system-x86_64 \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     -device virtio-rng-pci \
     -smbios type=11,value=io.systemd.credential:swifftest.harness="$harness_port" \
+    -smbios type=11,path="$token_cred" \
     -display none -serial file:"$build/console.log" -monitor none
 qemu=$?
 set -e

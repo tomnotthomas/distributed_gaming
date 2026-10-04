@@ -12,7 +12,7 @@
 // and Playwright's Chromium (PLAYWRIGHT_BROWSERS_PATH, as run-test.sh sets it).
 
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
@@ -31,6 +31,15 @@ const SERVER_PORT = Number(values["server-port"]);
 const HARNESS_PORT = Number(values["harness-port"]);
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const HTTP = `http://127.0.0.1:${SERVER_PORT}`;
+// Only the VM may talk to the harness: /grant hands out a live session key. run-test.sh
+// makes the token and gives it to the VM as a credential, never on a command line.
+const TOKEN = process.env.SWIFF_HARNESS_TOKEN ?? "";
+if (TOKEN.length < 32) throw new Error("SWIFF_HARNESS_TOKEN is not set (run-test.sh makes one)");
+const authorized = (header) => {
+  const given = Buffer.from(header ?? "");
+  const expected = Buffer.from(`Bearer ${TOKEN}`);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+};
 // What the VM dials: QEMU's user network maps 10.0.2.2 to the host's loopback.
 const VM_SERVER_URL = `ws://10.0.2.2:${SERVER_PORT}`;
 
@@ -287,6 +296,10 @@ async function renter() {
 
 let renterDone = null;
 const harness = createServer(async (req, res) => {
+  if (!authorized(req.headers.authorization)) {
+    res.writeHead(401);
+    return res.end();
+  }
   let body = "";
   for await (const chunk of req) body += chunk;
   const data = body ? JSON.parse(body) : null;
