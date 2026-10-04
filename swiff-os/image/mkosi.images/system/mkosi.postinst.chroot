@@ -1,0 +1,26 @@
+#!/bin/sh
+# Installs the Steam client. It needs the i386 architecture, which mkosi 20's
+# own package install cannot enable, so it is done here with the image's apt
+# against the same pinned snapshot mirror.
+set -eu
+
+dpkg --add-architecture i386
+apt-get update
+
+# Accept the Steam licence non-interactively (the renter accepts Valve's terms
+# when they sign in with their own account).
+for owner in steam steam-installer; do
+	echo "$owner steam/question select I AGREE" | debconf-set-selections
+	echo "$owner steam/license note ''" | debconf-set-selections
+done
+
+DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+	steam-installer \
+	steam-libs-i386:i386 \
+	mesa-vulkan-drivers:i386 \
+	libgl1-mesa-dri:i386
+
+apt-get clean
+
+# Mount points on the read-only root.
+mkdir -p /srv/games /srv/games-lower

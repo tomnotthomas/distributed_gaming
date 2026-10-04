@@ -1,0 +1,159 @@
+#!/bin/bash
+# Swiff OS Stage 1 self-test, run as root inside the VM test build. Every
+# result is one line on the serial console:
+#   SWIFF-SELFTEST <PASS|FAIL|INFO> <name> <detail>
+# vm/run-test.sh collects them from both boots and decides; the scratch and
+# PCR checks that need the host's view are finished there.
+set -u
+
+EFI_GLOBAL=8be4df61-93ca-11d2-aa0d-00e098032b8c
+EFI_LOADER=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+MARKER=/home/renter/swiff-selftest-marker
+GAMES_MARKER=/srv/games/steamapps/swiff-selftest-marker
+
+say() { echo "SWIFF-SELFTEST $*"; }
+check() { # name detail command...
+	local name=$1 detail=$2
+	shift 2
+	if "$@" > /dev/null 2>&1; then say PASS "$name" "$detail"; else say FAIL "$name" "$detail"; fi
+}
+as_renter() { setpriv --reuid=renter --regid=renter --init-groups --no-new-privs -- "$@"; }
+efivar_byte() { od -An -t u1 "/sys/firmware/efi/efivars/$1" 2> /dev/null | awk '{ print $NF }'; }
+pcr() { cat "/sys/class/tpm/tpm0/pcr-sha256/$1" 2> /dev/null; }
+# TCP connect as the renter. Prints "connected", or bash's error text.
+tcp_connect() { as_renter timeout 6 bash -c "exec 3<>/dev/tcp/$1/$2 && echo connected" 2>&1; }
+# TCP connect as the renter and print the first line the peer sends.
+tcp_read() { as_renter timeout 6 bash -c "exec 3<>/dev/tcp/$1/$2 && head -n1 <&3" 2>&1; }
+
+say INFO boot "$(cat /proc/sys/kernel/random/boot_id)"
+
+# --- Secure Boot -------------------------------------------------------------
+sb=$(efivar_byte "SecureBoot-$EFI_GLOBAL")
+setup=$(efivar_byte "SetupMode-$EFI_GLOBAL")
+check secure-boot "SecureBoot=$sb SetupMode=$setup" test "$sb" = 1 -a "$setup" = 0
+check lockdown "$(cat /sys/kernel/security/lockdown)" grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
+check module-signatures "sig_enforce=$(cat /sys/module/module/parameters/sig_enforce)" \
+	grep -qx Y /sys/module/module/parameters/sig_enforce
+check iommu-on "$(ls /sys/class/iommu | paste -sd' ' -)" test -n "$(ls /sys/class/iommu)"
+check hardware-floor "$(paste -sd' ' /run/swiff/hardware-floor 2> /dev/null)" grep -qx floor=pass /run/swiff/hardware-floor
+
+# --- Measured boot -----------------------------------------------------------
+# systemd-stub sets StubPcrKernelImage once it has measured the UKI's sections
+# into PCR 11. The exact PCR 11 value is compared on the host against the one
+# systemd-measure predicts for the built UKI.
+# The variable holds the PCR number as a UTF-16 string after 4 attribute bytes.
+stub_pcr=$(tail -c +5 "/sys/firmware/efi/efivars/StubPcrKernelImage-$EFI_LOADER" 2> /dev/null | tr -d '\0')
+zero=0000000000000000000000000000000000000000000000000000000000000000
+check uki-measured "StubPcrKernelImage=$stub_pcr" test "$stub_pcr" = 11
+check pcr11-extended "$(pcr 11)" test -n "$(pcr 11)" -a "$(pcr 11)" != "$zero"
+check pcr4-extended "$(pcr 4)" test -n "$(pcr 4)" -a "$(pcr 4)" != "$zero"
+for n in 4 7 11 12; do say INFO "pcr$n" "$(pcr $n)"; done
+
+# --- Verity root -------------------------------------------------------------
+roothash=$(sed -n 's/.*\broothash=\([0-9a-f]*\).*/\1/p' /proc/cmdline)
+table=$(dmsetup table root 2> /dev/null)
+dm_hash=$(awk '$3 == "verity" { print $12 }' <<< "$table")
+data_dev=$(awk '$3 == "verity" { print $5 }' <<< "$table")
+check verity-target "root hash on the UKI command line is the one dm-verity enforces" \
+	test -n "$roothash" -a "$roothash" = "$dm_hash"
+check root-is-verity "$(findmnt -no SOURCE,FSTYPE,OPTIONS /)" \
+	test "$(findmnt -no SOURCE /)" = /dev/mapper/root
+check root-read-only "$(blockdev --getro /dev/mapper/root)" \
+	bash -c 'findmnt -no OPTIONS / | grep -qw ro && test "$(blockdev --getro /dev/mapper/root)" = 1'
+check root-write-refused "touch / and remount rw both fail" \
+	bash -c '! touch /swiff-write-test 2>/dev/null && ! mount -o remount,rw / 2>/dev/null'
+check var-is-tmpfs "$(findmnt -no FSTYPE /var)" test "$(findmnt -no FSTYPE /var)" = tmpfs
+
+# --- A/B slots ---------------------------------------------------------------
+# The booted root partition's UUID is the first half of the root hash; the
+# other root slot and its hash partition are empty, labelled _empty.
+data_part=$(lsblk -rno NAME,MAJ:MIN | awk -v d="$data_dev" '$2 == d { print $1 }')
+partuuid=$(lsblk -drno PARTUUID "/dev/$data_part" 2> /dev/null | tr -d '-')
+say INFO slot-a "dev=/dev/$data_part partuuid=$partuuid label=$(lsblk -drno PARTLABEL "/dev/$data_part")"
+check slot-a-bound-to-uki "partuuid=$partuuid roothash=${roothash:0:32}" test -n "$partuuid" -a "$partuuid" = "${roothash:0:32}"
+empty=$(lsblk -rno PARTLABEL | grep -cx _empty)
+check slot-b-present "$empty partitions labelled _empty (root + verity)" test "$empty" = 2
+disk=$(lsblk -drno PKNAME "/dev/$data_part")
+disk_bytes=$(lsblk -bdno SIZE "/dev/$disk")
+say INFO disk-size "$disk_bytes"
+say INFO root-used "$(df -B1 --output=used / | tail -n1)"
+lsblk -bno NAME,SIZE,PARTLABEL,PARTTYPENAME "/dev/$disk" | while read -r line; do say INFO partition "$line"; done
+
+# --- Renter user ---------------------------------------------------------------
+IFS=: read -r _ _ uid gid _ home shell <<< "$(getent passwd renter)"
+check renter-unprivileged "uid=$uid gid=$gid groups=$(id -nG renter)" \
+	test "$uid" -ge 1000 -a "$(id -nG renter)" = renter
+check renter-no-shell "$shell" test "$shell" = /usr/sbin/nologin
+# The password field from shadow, or from passwd when there is no shadow entry.
+password_field() { getent shadow "$1" | cut -d: -f2 | grep . || getent passwd "$1" | cut -d: -f2; }
+locked() { case $(password_field "$1") in '!'* | '*'* | x) return 0 ;; *) return 1 ;; esac }
+check renter-no-password "$(password_field renter)" locked renter
+check root-locked "$(password_field root)" locked root
+check no-sudo "no sudo or su to escalate with" bash -c '! command -v sudo && ! command -v sudo-rs'
+suid=$(find / -xdev -type f -perm /6000 2> /dev/null | head -n5 | paste -sd' ' -)
+check no-setuid-binaries "${suid:-none}" test -z "$suid"
+check renter-cannot-read-shadow "" bash -c '! setpriv --reuid=renter --regid=renter --init-groups cat /etc/shadow'
+check ptrace-scope "$(cat /proc/sys/kernel/yama/ptrace_scope)" grep -qx 3 /proc/sys/kernel/yama/ptrace_scope
+
+# --- Session: gamescope + Steam, nothing else ------------------------------------
+check default-target "$(systemctl get-default)" test "$(systemctl get-default)" = graphical.target
+check session-enabled "$(systemctl is-enabled swiff-session.service)" systemctl -q is-enabled swiff-session.service
+check session-as-renter "$(systemctl show -P User swiff-session.service) NoNewPrivileges=$(systemctl show -P NoNewPrivileges swiff-session.service)" \
+	test "$(systemctl show -P User swiff-session.service)" = renter -a "$(systemctl show -P NoNewPrivileges swiff-session.service)" = yes
+check session-runs-gamescope-steam "$(cat /usr/libexec/swiff/session | grep '^exec')" grep -q '^exec gamescope .*steam' /usr/libexec/swiff/session
+check steam-installed /usr/games/steam test -x /usr/games/steam
+check gamescope-installed /usr/games/gamescope test -x /usr/games/gamescope
+logins=$(systemctl list-units --all --plain --no-legend 'getty@*' 'serial-getty@*' 'autovt@*' 'console-getty*' 'ssh*' 'display-manager*' | awk '$3 == "active"' | paste -sd' ' -)
+check no-logins "getty/ssh/display manager active: ${logins:-none}" test -z "$logins"
+check getty-masked "$(systemctl is-enabled getty@tty1.service 2>&1)" test "$(systemctl is-enabled getty@tty1.service 2>&1)" = masked
+check no-sshd "" bash -c '! command -v sshd'
+say INFO session-state "$(systemctl show -P ActiveState swiff-session.service) restarts=$(systemctl show -P NRestarts swiff-session.service) (no GPU in the VM)"
+
+# --- Ephemeral scratch -------------------------------------------------------------
+check scratch-random-key "$(dmsetup table swiff-scratch 2> /dev/null | awk '{ print $3, $4 }')" \
+	bash -c 'dmsetup table swiff-scratch | grep -q " crypt aes-xts-plain64 "'
+check home-on-scratch "$(findmnt -no SOURCE /home)" test "$(findmnt -no SOURCE /home)" = /dev/mapper/swiff-scratch
+if [ -e "$MARKER" ]; then say FAIL scratch-fresh "marker from an earlier boot survived: $(cat "$MARKER")"; else say PASS scratch-fresh "no marker from an earlier boot"; fi
+token="swiff-marker-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+as_renter sh -c "echo $token > $MARKER" && say INFO marker "$token"
+
+# --- Games library: read-only lower, scratch-backed overlay ---------------------------
+check games-lower-read-only "$(findmnt -no OPTIONS /srv/games-lower)" bash -c 'findmnt -no OPTIONS /srv/games-lower | grep -qw ro'
+check games-overlay "$(findmnt -no FSTYPE /srv/games)" test "$(findmnt -no FSTYPE /srv/games)" = overlay
+if [ -e "$GAMES_MARKER" ]; then say FAIL games-fresh "overlay write from an earlier boot survived"; else say PASS games-fresh "no overlay write from an earlier boot"; fi
+as_renter sh -c "echo $token > $GAMES_MARKER"
+check games-write-in-overlay "renter write landed in the overlay, not the shared drive" \
+	bash -c "test -e $GAMES_MARKER && ! test -e /srv/games-lower/steamapps/swiff-selftest-marker"
+
+# --- LAN egress ----------------------------------------------------------------------
+# swiff-netguard fills the gateway/DNS sets shortly after DHCP; wait for it.
+for _ in $(seq 30); do nft list set inet swiff gateway4 2> /dev/null | grep -q 'elements' && break; sleep 1; done
+say INFO netguard "$(nft list set inet swiff gateway4 | grep elements) / $(nft list set inet swiff dns4 | grep elements)"
+# QEMU's user network: 10.0.2.2 is the gateway (and the host), 10.0.2.3 DNS,
+# and 10.0.2.100:80 a LAN service run-test.sh forwards to the host. The
+# firewall refuses with ICMP admin-prohibited, which connect() reports as
+# "No route to host"; an unblocked 10.0.2.2:80 would answer "Connection
+# refused" (nothing listens there) and 10.0.2.100:80 would answer.
+blocked='No route to host'
+lan=$(tcp_read 10.0.2.100 80)
+check lan-host-blocked "10.0.2.100:80 -> $lan" grep -q "$blocked" <<< "$lan"
+gw=$(tcp_connect 10.0.2.2 80)
+check gateway-admin-blocked "10.0.2.2:80 -> $gw" grep -q "$blocked" <<< "$gw"
+for target in 192.168.1.1 172.16.0.1 169.254.169.254; do
+	r=$(tcp_connect $target 80)
+	check "lan-$target-blocked" "$r" grep -q "$blocked" <<< "$r"
+done
+addr=$(as_renter getent ahostsv4 snapshot.ubuntu.com | awk 'NR == 1 { print $1 }')
+check dns-works "snapshot.ubuntu.com -> ${addr:-nothing}" test -n "$addr"
+inet=$( [ -n "$addr" ] && tcp_connect "$addr" 443)
+check internet-works "$addr:443 -> $inet" test "$inet" = connected
+# Control: without the firewall the same LAN service answers, so the block
+# above is the firewall's doing and not a dead endpoint.
+nft delete table inet swiff
+open=$(tcp_read 10.0.2.100 80)
+nft -f /etc/nftables.conf && /usr/libexec/swiff/netguard
+check lan-control-reachable "without the firewall: $open" test "$open" = swiff-lan-reachable
+again=$(tcp_read 10.0.2.100 80)
+check lan-blocked-after-reload "$again" grep -q "$blocked" <<< "$again"
+
+say DONE selftest

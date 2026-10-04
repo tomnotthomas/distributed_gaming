@@ -1,0 +1,6 @@
+# Build output, caches and the local test Secure Boot keys (`mkosi genkey`).
+mkosi.output/
+mkosi.cache/
+mkosi.tools/
+mkosi.key
+mkosi.crt

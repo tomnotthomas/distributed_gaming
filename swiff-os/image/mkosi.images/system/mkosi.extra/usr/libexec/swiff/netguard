@@ -1,0 +1,22 @@
+#!/bin/sh
+# Points the LAN exceptions in /etc/nftables.conf at the current default
+# gateways and DNS servers. Run by swiff-netguard.path/.timer whenever the
+# network configuration may have changed. Flushing and refilling happens in
+# one nft transaction, so there is no window with stale or missing entries.
+set -eu
+
+gw4=$(ip -4 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
+gw6=$(ip -6 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
+dns=$(awk '$1 == "nameserver" { print $2 }' /run/systemd/resolve/resolv.conf 2>/dev/null | sort -u || true)
+dns4=$(printf '%s\n' "$dns" | grep -v ':' | paste -sd, - || true)
+dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
+
+{
+	for set in gateway4 dns4 gateway6 dns6; do
+		echo "flush set inet swiff $set"
+	done
+	[ -z "$gw4" ] || echo "add element inet swiff gateway4 { $gw4 }"
+	[ -z "$dns4" ] || echo "add element inet swiff dns4 { $dns4 }"
+	[ -z "$gw6" ] || echo "add element inet swiff gateway6 { $gw6 }"
+	[ -z "$dns6" ] || echo "add element inet swiff dns6 { $dns6 }"
+} | nft -f -

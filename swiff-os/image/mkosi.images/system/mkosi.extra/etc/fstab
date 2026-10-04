@@ -1,0 +1,7 @@
+# The root is the read-only verity image; /var is a tmpfs (systemd.volatile=state).
+# Everything a renter can write lands on the per-boot scratch.
+/dev/mapper/swiff-scratch  /home             ext4  nosuid,nodev                                      0 0
+# The owner's shared games library, read-only. Swiff OS never writes to it;
+# swiff-games-overlay.service puts a scratch-backed overlay on top at /srv/games.
+# The VM stubs it with a small ext4 disk labelled SWIFFGAMES.
+LABEL=SWIFFGAMES           /srv/games-lower  auto  ro,nosuid,nodev,nofail,x-systemd.device-timeout=5s  0 0
