@@ -1591,6 +1591,31 @@ button.band-tab:hover {
 .session[data-hud="hidden"] {
   cursor: none;
 }
+/* Reconnecting (Reconnect.tsx): over the stream, which shows nothing new meanwhile. */
+.reconnecting {
+  cursor: auto;
+  text-align: center;
+}
+.reconnecting-kicker {
+  color: var(--color-neutral-400);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.reconnecting-title {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: var(--text-22);
+}
+.reconnecting-time {
+  font-size: var(--text-22);
+  color: var(--color-neutral-300);
+  font-variant-numeric: tabular-nums;
+}
+.reconnecting-actions {
+  display: flex;
+  gap: var(--space-3);
+}
 
 /* — profile — */
 .profile {

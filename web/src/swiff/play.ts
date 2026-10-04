@@ -14,6 +14,20 @@
 // Steam, which the renter never sees. Reserving a machine comes before all of
 // this, while the booking is made: it is the page's, not the stream's.
 //
+// A connection that drops once the game is on screen is not a new launch: the
+// game keeps running on the PC, which holds the session for two minutes
+// (server/src/grace.ts), and the page joins again with the same ticket, so
+// the server hands the seat back and the PC sends a new offer. No Ignition:
+// the session shows Reconnecting with how long it has been, retries by itself
+// for RECONNECT_AUTO_MS, then leaves the next try to the renter. It is back
+// when the same connection comes back by itself, or when a new one has a
+// frame and a fresh game-started, as any new connection must. A page coming
+// back to a session already playing (resume) starts the same way.
+//
+//   live ──► disconnected ──► (RECONNECT_WAIT_MS) join again, every RECONNECT_EVERY_MS
+//                 │                       │
+//                 └──────── back ◄────────┘   ── RECONNECT_AUTO_MS ──► gave up: retry()
+//
 // The stream itself is @swiff/rtc's renter session, the same one /rtc plays;
 // this only turns its events into Ignition's steps and the HUD's numbers.
 
@@ -32,6 +46,14 @@ export const NEGOTIATE_TIMEOUT_MS = 20_000;
 export const LAUNCH_TIMEOUT_MS = 90_000;
 /** How long a session start lost on the network or the server waits before it is tried again. */
 export const START_RETRY_MS = 2_000;
+/** How long a dropped connection has to come back by itself before the room is joined again. */
+export const RECONNECT_WAIT_MS = 2_000;
+/** How often the room is joined again while the connection stays down. */
+export const RECONNECT_EVERY_MS = 4_000;
+/** How long the page reconnects by itself before it leaves the next try to the renter. */
+export const RECONNECT_AUTO_MS = 15_000;
+/** How long the PC holds the session for a renter who dropped (server/src/grace.ts). */
+export const RECONNECT_GRACE_MS = 120_000;
 
 /** Ignition's legend: each step as the renter reads it, for this host and game. */
 export function ignitionLabels(host: string | null | undefined, game: string | null | undefined): string[] {
@@ -69,6 +91,13 @@ export type PlayState = {
   denied: boolean;
   /** The server took the session start: its clock runs, so leaving ends a session. */
   started: boolean;
+  /**
+   * When the connection to the PC dropped while live, Unix ms; null while the
+   * stream plays. A resumed play starts dropped, until it is back.
+   */
+  lostAt: number | null;
+  /** Reconnecting by itself ran out (RECONNECT_AUTO_MS): the next try is the renter's (retry). */
+  gaveUp: boolean;
 };
 
 export type PlayOptions = {
@@ -79,6 +108,11 @@ export type PlayOptions = {
   onChange: (state: PlayState) => void;
   /** The first frame arrived, once per play: the funnel's session_started. */
   onFirstFrame?: () => void;
+  /**
+   * The session already plays (a page coming back to it): no Ignition, the
+   * game runs on the PC already, and the play starts as a dropped connection does.
+   */
+  resume?: boolean;
   /** Stand-ins for tests. */
   start?: typeof startRenterSession;
   fetch?: typeof fetch;
@@ -88,6 +122,8 @@ export type PlayOptions = {
 export type Play = {
   /** The state as it stands. */
   state: () => PlayState;
+  /** After reconnecting gave up, or to try again at once: join the room again and reconnect for RECONNECT_AUTO_MS more. */
+  retry: () => void;
   /** Hang up and stop every timer. Idempotent. Ending the booking is the caller's. */
   stop: () => void;
 };
@@ -100,20 +136,22 @@ export type Play = {
  * LAUNCH_TIMEOUT_MS stays on Ignition and is slow.
  */
 export function startPlay(opts: PlayOptions): Play {
-  const { claim, video, onChange, onFirstFrame } = opts;
+  const { claim, video, onChange, onFirstFrame, resume = false } = opts;
   const start = opts.start ?? startRenterSession;
   const get = opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const now = opts.now ?? Date.now;
 
   let state: PlayState = {
-    step: "waking",
+    step: resume ? "live" : "waking",
     since: now(),
     slow: false,
     relayed: false,
     stats: null,
     muted: false,
     denied: false,
-    started: false,
+    started: resume,
+    lostAt: resume ? now() : null,
+    gaveUp: false,
   };
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -123,6 +161,9 @@ export function startPlay(opts: PlayOptions): Play {
   let counted = false;
   let connection = 0;
   let startRetry: ReturnType<typeof setTimeout> | undefined;
+  // Joining again while the connection is down, and giving that up.
+  let rejoinTimer: ReturnType<typeof setTimeout> | undefined;
+  let giveUpTimer: ReturnType<typeof setTimeout> | undefined;
 
   const set = (next: Partial<PlayState>) => {
     state = { ...state, ...next };
@@ -150,9 +191,51 @@ export function startPlay(opts: PlayOptions): Play {
     }, NEGOTIATE_TIMEOUT_MS);
   };
 
-  /** The stream is shown once it has a frame and the PC says the game runs, and not before. */
+  /**
+   * The stream is shown once it has a frame and the PC says the game runs, and
+   * not before; a connection dropped while live is back then too.
+   */
   const maybeLive = () => {
-    if (framed && gameStarted && state.step !== "live") enter("live");
+    if (!framed || !gameStarted) return;
+    if (state.step !== "live") enter("live");
+    else recovered();
+  };
+
+  /**
+   * The connection dropped while live: say so, and join the room again after
+   * RECONNECT_WAIT_MS (at once when it `failed` and cannot come back by
+   * itself), then every RECONNECT_EVERY_MS, until RECONNECT_AUTO_MS from the
+   * drop. A drop while already reconnecting changes nothing.
+   */
+  const lost = (failed: boolean) => {
+    if (state.lostAt !== null) return;
+    set({ lostAt: now(), gaveUp: false, stats: null });
+    reconnect(failed ? 0 : RECONNECT_WAIT_MS);
+  };
+
+  /** Join again after `waitMs`, then on the beat, until reconnecting by itself runs out. */
+  const reconnect = (waitMs: number) => {
+    clearTimeout(rejoinTimer);
+    clearTimeout(giveUpTimer);
+    const again = () => {
+      join(state.relayed);
+      rejoinTimer = setTimeout(again, RECONNECT_EVERY_MS);
+    };
+    rejoinTimer = setTimeout(again, waitMs);
+    giveUpTimer = setTimeout(() => {
+      clearTimeout(rejoinTimer);
+      session?.end();
+      session = null;
+      set({ gaveUp: true });
+    }, RECONNECT_AUTO_MS);
+  };
+
+  /** The stream is back. */
+  const recovered = () => {
+    if (state.lostAt === null) return;
+    clearTimeout(rejoinTimer);
+    clearTimeout(giveUpTimer);
+    set({ lostAt: null, gaveUp: false });
   };
 
   /**
@@ -204,6 +287,11 @@ export function startPlay(opts: PlayOptions): Play {
           break;
         case "connected":
           if (state.step === "waking" || state.step === "negotiating") enter("launching");
+          // The same connection, back by itself: it had its frame and game-started.
+          maybeLive();
+          break;
+        case "disconnected":
+          if (state.step === "live") lost(event.failed);
           break;
         case "first-frame":
           framed = true;
@@ -229,7 +317,8 @@ export function startPlay(opts: PlayOptions): Play {
           gameStarted = false;
           connection += 1;
           clearTimeout(startRetry);
-          enter("waking");
+          // While reconnecting, the PC leaving is the old connection going; the next joins anew.
+          if (state.lostAt === null) enter("waking");
           break;
         case "stats":
           set({ stats: event.stats });
@@ -239,6 +328,8 @@ export function startPlay(opts: PlayOptions): Play {
           break;
         case "denied":
           clearTimeout(timer);
+          clearTimeout(rejoinTimer);
+          clearTimeout(giveUpTimer);
           set({ denied: true });
           break;
       }
@@ -246,15 +337,24 @@ export function startPlay(opts: PlayOptions): Play {
   };
 
   join(false);
-  enter("waking");
+  if (resume) reconnect(RECONNECT_EVERY_MS);
+  else enter("waking");
 
   return {
     state: () => state,
+    retry() {
+      if (stopped || state.denied || state.step !== "live") return;
+      set({ lostAt: now(), gaveUp: false });
+      join(state.relayed);
+      reconnect(RECONNECT_EVERY_MS);
+    },
     stop() {
       if (stopped) return;
       stopped = true;
       clearTimeout(timer);
       clearTimeout(startRetry);
+      clearTimeout(rejoinTimer);
+      clearTimeout(giveUpTimer);
       session?.end();
       session = null;
     },

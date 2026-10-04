@@ -893,4 +893,123 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
   });
+
+  describe("coming back to a game", () => {
+    const AGAIN = { ...TICKET, ticket: "t-again" };
+    const keepPlaying = () =>
+      localStorage.setItem(
+        "swiff.play",
+        JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+      );
+    const playing = (heldUntil?: number) => ({
+      ...booked("playing"),
+      machine: { id: "h1", name: "Glasshouse", gpu: null, cpu: null, price: 0 },
+      sessionId: "s-1",
+      ...(heldUntil === undefined ? {} : { heldUntil }),
+    });
+
+    it("offers the session the page left, held by its PC, and goes straight back to the game", async () => {
+      keepPlaying();
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing(Date.now() + 100_000)),
+        "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+      expect(result.current.away!.heldUntil).toBeGreaterThan(Date.now());
+
+      act(() => result.current.reconnect());
+      await waitFor(() => expect(result.current.claim).toEqual(AGAIN));
+      expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/rejoin");
+      expect(result.current.away).toBeNull();
+      expect(result.current.phase).toBe("live");
+      expect(result.current.game?.appid).toBe(cs2.appid);
+      // The ticket stays in memory only.
+      expect(localStorage.getItem("swiff.play")).not.toContain("t-again");
+
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      expect(session.options).toMatchObject({ ticket: "t-again" });
+      expect(result.current.play?.lostAt).not.toBeNull();
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.play?.lostAt).toBeNull();
+      expect(result.current.phase).toBe("live");
+    });
+
+    it("lets the left session go when the renter ends it from there", async () => {
+      keepPlaying();
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing()),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away?.heldUntil).toBeNull());
+      act(() => result.current.endAway());
+      expect(result.current.away).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("forgets a session that is over by the time the page is back, and offers nothing", async () => {
+      keepPlaying();
+      const calls = serve(unnamed, LIVE, { "GET /api/bookings/b-1": json(200, booked("ended")) });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("GET /api/bookings/b-1"));
+      await waitFor(() => expect(storedPlay()).toBeNull());
+      expect(result.current.away).toBeNull();
+    });
+
+    it("says the queue kept the renter's place, and claims a match by itself all the same", async () => {
+      localStorage.setItem("swiff.booking", "b-1");
+      localStorage.setItem("swiff.booking.seen", String(Date.now() - 48_000));
+      serve(unnamed, LIVE, { "POST /api/bookings/b-1/claim": json(200, TICKET) });
+      const opened = streams();
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.queueBack).not.toBeNull());
+      expect(result.current.queueBack!.leftMs).toBeGreaterThan(70_000);
+      expect(result.current.queueBack!.leftMs).toBeLessThanOrEqual(72_000);
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("queued")));
+      expect(result.current.queueBack).not.toBeNull();
+      act(() => stream.push(booked("matched", 1_000)));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      expect(result.current.queueBack).toBeNull();
+    });
+
+    it("puts the reconnect up when the connection drops mid-session, and retries on the renter's word", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+        act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+
+        act(() => rtc.sessions[0]!.emit({ type: "disconnected", failed: false }));
+        expect(result.current.play?.lostAt).not.toBeNull();
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        expect(result.current.play?.gaveUp).toBe(true);
+        const joins = rtc.sessions.length;
+        act(() => result.current.retryConnection());
+        expect(rtc.sessions).toHaveLength(joins + 1);
+        expect(result.current.play?.gaveUp).toBe(false);
+        expect(result.current.phase).toBe("live");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

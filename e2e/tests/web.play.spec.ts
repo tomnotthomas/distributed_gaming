@@ -139,6 +139,51 @@ test.describe("real Play", () => {
     expect(renterErrors).toEqual([]);
   });
 
+  test("comes back to the same PC after a reload, straight to the game, with no Ignition", async ({
+    browser,
+    baseURL,
+    request,
+  }) => {
+    const { renter, launch } = await readyToLaunch(browser, baseURL!, request);
+    await hold(renter, launch);
+    const host = await wake(browser);
+    const video = renter.getByTestId("session-video");
+    const framed = () =>
+      expect
+        .poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), {
+          timeout: 45_000,
+          message: "the stream never showed a frame in Swiff",
+        })
+        .toBeGreaterThan(0);
+    await expect(renter.getByTestId("ignition")).toHaveCount(0, { timeout: 45_000 });
+    await framed();
+    const booking = await played(renter);
+    expect(booking?.status).toBe("playing");
+
+    // The page goes away mid-session: the PC holds the session for the renter.
+    await renter.reload();
+    const away = renter.getByTestId("away");
+    await expect(away).toContainText("is still yours", { timeout: 15_000 });
+    await expect(away).toContainText(/held \d:\d\d/);
+
+    // Reconnect goes straight back to the game on the same PC.
+    const renterErrors = failOnPageError(renter, "renter");
+    await away.getByRole("button", { name: "Reconnect" }).click();
+    await expect(away).toHaveCount(0);
+    await expect(renter.getByTestId("ignition")).toHaveCount(0);
+    await framed();
+    await expect(renter.getByTestId("reconnecting")).toHaveCount(0, { timeout: 15_000 });
+    expect((await played(renter))?.bookingId).toBe(booking!.bookingId);
+    expect((await played(renter))?.status).toBe("playing");
+    await expect(host.getByText("A renter is connected.")).toBeVisible();
+
+    await renter.mouse.move(400, 300);
+    await renter.mouse.move(420, 320);
+    await renter.getByRole("button", { name: "End session" }).click();
+    await expect(renter.getByTestId("session")).toHaveCount(0);
+    expect(renterErrors).toEqual([]);
+  });
+
   test("cancels a launch from Ignition, ending its booking", async ({ browser, baseURL, request }) => {
     const { renter, launch } = await readyToLaunch(browser, baseURL!, request);
 
