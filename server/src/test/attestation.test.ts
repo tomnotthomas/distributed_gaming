@@ -167,6 +167,15 @@ describe("spending a host certificate", () => {
     assert.equal(attestation.spend(other), true, "another certificate is its own");
   });
 
+  it("refuses to spend a certificate that expired after it was checked", () => {
+    const now = Date.now();
+    const attestation = required();
+    const cert = mintHostCert(SECRET, "pc-1", "attested", 60, now);
+    const checked = attestation.credential("pc-1", cert, now)!;
+    assert.equal(attestation.spend(checked, now + 60_000), false);
+    assert.equal(attestation.spend(checked, now + 59_000), true, "still good just before");
+  });
+
   it("never spends the machine key", () => {
     const attestation = createAttestation({ access: ACCESS });
     const key = attestation.credential("pc-1", KEY)!;

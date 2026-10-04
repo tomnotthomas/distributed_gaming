@@ -254,7 +254,8 @@ export type Attestation = {
   credential(room: string, token: unknown, now?: number): Credential | null;
   /**
    * Spend a host certificate on the host session it is starting. False, when
-   * it was already spent: one certificate, one session start. `now` is Unix ms.
+   * it was already spent (one certificate, one session start) or has expired
+   * since it was checked. `now` is Unix ms.
    */
   spend(credential: Credential, now?: number): boolean;
 };
@@ -368,6 +369,8 @@ export function createAttestation({
     spend(credential, now = Date.now()) {
       if (credential.kind !== "host-cert") return true;
       forgetExpired(spentCerts, now);
+      // Checked again here: it may have expired while the request was read.
+      if (credential.exp * 1000 <= now) return false;
       if (spentCerts.has(credential.id)) return false;
       spentCerts.set(credential.id, credential.exp * 1000);
       return true;
