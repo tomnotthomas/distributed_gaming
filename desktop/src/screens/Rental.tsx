@@ -123,12 +123,19 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
         <section className="hz">
           <div className="cp">
             <p className="mono ctx">Rental mode</p>
-            <h1>{reading ? "Checking this PC" : "Rental mode needs Windows"}</h1>
+            <h1>{reading ? "Checking this PC" : "This PC was not read"}</h1>
             <p className="ln">
               {reading
                 ? "What Swiff OS needs: UEFI, Secure Boot, a TPM, an IOMMU, 24 GB of space and a readable games drive."
-                : "Swiff reads what rental mode needs from Windows, and this PC could not be read."}
+                : "Swiff reads what rental mode needs from Windows, and the read did not finish. Check again."}
             </p>
+            {reading ? null : (
+              <div className="acts">
+                <Pill icon="refresh" onClick={actions.checkRental}>
+                  Check again
+                </Pill>
+              </div>
+            )}
           </div>
           <Plate caption={["Rental mode", reading ? "Reading" : "Not read"]}>
             <Dial progress={0} big="…" small="ready" />

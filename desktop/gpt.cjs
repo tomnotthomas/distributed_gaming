@@ -97,6 +97,12 @@ function readGpt(read, { diskBytes, sectorSize = 512 }) {
   const count = header.readUInt32LE(80);
   const entrySize = header.readUInt32LE(84);
   if (entrySize !== ENTRY_SIZE || count < 1 || count > 1024) throw new GptError("The GPT has odd entries.");
+  // Both entry arrays are written back where this header puts them: neither may reach a partition.
+  const sectors = Math.ceil((count * entrySize) / sectorSize);
+  const firstUsable = Number(header.readBigUInt64LE(40));
+  const lastUsable = Number(header.readBigUInt64LE(48));
+  if (entriesLba < 2 || entriesLba + sectors > firstUsable || lastUsable >= lastLba - sectors)
+    throw new GptError("The GPT's entries overlap its usable area.");
   const table = read(entriesLba * sectorSize, count * entrySize);
   if (crc32(table) !== header.readUInt32LE(88)) throw new GptError("The GPT entries fail their checksum.");
   const entries = [];
@@ -108,8 +114,8 @@ function readGpt(read, { diskBytes, sectorSize = 512 }) {
     sectorSize,
     diskBytes,
     diskId: guidText(header.subarray(56, 72)),
-    firstUsable: Number(header.readBigUInt64LE(40)),
-    lastUsable: Number(header.readBigUInt64LE(48)),
+    firstUsable,
+    lastUsable,
     entriesLba,
     count,
     entries,

@@ -164,6 +164,19 @@ describe("the GPT writer", () => {
     expect(() => readGpt(disk.read, { diskBytes: DISK })).toThrow(/overlap/);
   });
 
+  it("refuses a header whose entry array would be written back over a partition", () => {
+    const disk = memoryDisk(DISK);
+    const writes = gptWrites(windowsLike(), { mbr: true });
+    // Point the primary header's entry array at the ESP's first sector, with every checksum valid.
+    const header = writes.find((w) => w.offset === 512)!.bytes;
+    const table = writes.find((w) => w.offset === 1024)!.bytes;
+    header.writeBigUInt64LE(BigInt(2048), 72);
+    header.writeUInt32LE(0, 16);
+    header.writeUInt32LE(crc32(header.subarray(0, 92)), 16);
+    disk.write([...writes, { offset: 2048 * 512, bytes: table }]);
+    expect(() => readGpt(disk.read, { diskBytes: DISK })).toThrow(/entries overlap its usable area/);
+  });
+
   it("refuses a table whose backup is not at the end of the disk, as on a disk that has since grown", () => {
     const disk = memoryDisk(DISK);
     disk.write(gptWrites(windowsLike(), { mbr: true }));

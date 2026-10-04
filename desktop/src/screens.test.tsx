@@ -587,6 +587,13 @@ describe("rental mode", () => {
       ],
     }));
 
+  it("offers to check again when this PC could not be read", () => {
+    const acts = renderReal("rental", off, rental({ reading: false, read: null }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC was not read");
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+  });
+
   it("checks this PC first, without changing anything", () => {
     renderReal("rental", off, rental({ reading: true, read: null }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Checking this PC");
