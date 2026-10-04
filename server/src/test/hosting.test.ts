@@ -221,6 +221,26 @@ describe("hosting requires attestation", () => {
     );
   });
 
+  it("refuses a register with no credential, or more than one, and registers nothing", async () => {
+    const cert = mintHostCert(SECRET, "pc-3", "attested", 600);
+    const cases: [Record<string, unknown>, string][] = [
+      [{}, "bad-machine-key"],
+      [{ key: 42 }, "bad-machine-key"],
+      [{ key: MACHINE_KEY, hostCert: cert }, "bad-host-cert"],
+      [{ hostCert: cert, sessionKey: "x" }, "bad-host-cert"],
+      [{ key: MACHINE_KEY, sessionKey: "x" }, "bad-session-key"],
+    ];
+    for (const [credential, reason] of cases) {
+      const { received, closed } = await host("pc-3", credential as Record<string, string>);
+      assert.equal(await closed, 4003);
+      assert.deepEqual(received, [{ type: "denied", reason }], JSON.stringify(Object.keys(credential)));
+    }
+    // The same certificate on its own still registers: nothing above spent or seated it.
+    const alone = await host("pc-3", { hostCert: cert });
+    assert.equal(alone.received[0]?.type, "registered");
+    alone.ws.close();
+  });
+
   it("answers attestation refusals with their reasons", async () => {
     const challenge = await call("POST", "/api/machines/pc-3/attest-challenge");
     const below = await call("POST", "/api/machines/pc-3/attest", {

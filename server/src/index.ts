@@ -586,6 +586,14 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
 
     case "register": {
       if (ws.role) return; // one room per socket, decided once
+      // Exactly one credential, a string, as protocol.ts says; the frame is
+      // only asserted to be a RegisterMessage. Anything else is refused for
+      // the credential it names, and never registered.
+      const given = [msg.key, msg.hostCert, msg.sessionKey].filter((c) => c !== undefined);
+      if (given.length !== 1 || typeof given[0] !== "string") {
+        if (msg.hostCert !== undefined) return deny(ws, "bad-host-cert");
+        return deny(ws, msg.sessionKey !== undefined ? "bad-session-key" : "bad-machine-key");
+      }
       let sessionId: string | null = null;
       let tier: HostingTier | null = null;
       let certExp: number | null = null;

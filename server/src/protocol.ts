@@ -24,6 +24,10 @@
  *   sessionKey  A session key for this room's live session. The streamer in
  *               the renter's Windows account, which must never hold the
  *               machine key. Replaces any host socket already in the room.
+ *
+ * A register with none of them, more than one, or one that is not a string is
+ * refused: `bad-host-cert` if it names `hostCert`, else `bad-session-key` if it
+ * names `sessionKey`, else `bad-machine-key`.
  */
 export type RegisterMessage =
   | { type: "register"; hostId: string; key: string; hostCert?: never; sessionKey?: never }
