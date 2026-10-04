@@ -511,6 +511,27 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
+    it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      act(() => signaling[0]!.open());
+
+      act(() => signaling[0]!.deliver({ type: "denied", reason: "bad-ticket" }));
+
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(true);
+      expect(result.current.claim).toBeNull();
+      expect(signaling[0]!.closed).toBe(true);
+      await waitFor(() => expect(fetched()).toContain("/api/bookings/b-1/end"));
+    });
+
     it("never joins the room of a PC not in rental mode, and goes live on Ignition's timer", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),

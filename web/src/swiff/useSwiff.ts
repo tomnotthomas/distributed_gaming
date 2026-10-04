@@ -535,6 +535,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       url: claim.signalingUrl,
       onOpen: (send) => send({ type: "join", ticket: claim.ticket }),
       onMessage: (msg) => {
+        if (msg.type === "denied") {
+          setBookingFailed(true);
+          endCurrentBooking();
+          setPhase("idle");
+          setBeat(0);
+          return;
+        }
         if (msg.type !== "steam-login") return;
         if (msg.state === "qr") {
           if (isSteamSignInUrl(msg.url)) setSteamLogin(msg);
@@ -549,7 +556,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setSteamLogin(null);
       setSteamSignedIn(false);
     };
-  }, [phase, claim]);
+  }, [phase, claim, endCurrentBooking]);
 
   useEffect(() => {
     if (phase !== "connecting" || beat < IGNITION_BEATS || signingIn) return;
