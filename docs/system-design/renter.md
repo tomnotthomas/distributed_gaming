@@ -76,7 +76,7 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | --------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
 | **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                     |
-| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `expires_at`                                                                        |
+| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `matched_at`, `expires_at`                                                          |
 | **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `end_reason`, `price`, `ticket_id`, `qos`                 |
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
