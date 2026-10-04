@@ -188,18 +188,23 @@ check internet-works "$addr:443 -> $inet" test "$inet" = connected
 # A connection opened before swiff-netguard adds a prefix is cut off once it
 # does. Hold an HTTP connection for 3 s, then send a request; during the hold
 # the server's address is added to onlink4, as a refresh would.
-held() { as_renter timeout 15 bash -c "exec 3<>/dev/tcp/$1/80 || exit; sleep 3; printf 'HEAD / HTTP/1.0\r\nHost: snapshot.ubuntu.com\r\n\r\n' >&3; timeout 6 head -n1 <&3 || echo no-answer" 2>&1 | tr -d '\r'; }
+# Prints "opened" once the connection is up, then the server's first line.
+held() { as_renter timeout 15 bash -c "exec 3<>/dev/tcp/$1/80 || exit; echo opened; sleep 3; printf 'HEAD / HTTP/1.0\r\nHost: snapshot.ubuntu.com\r\n\r\n' >&3; timeout 6 head -n1 <&3 || echo no-answer" 2>&1 | tr -d '\r'; }
+# The held connection was opened, and got (or did not get) an HTTP answer.
+held_answered() { grep -qx opened <<< "$1" && grep -q '^HTTP/' <<< "$1"; }
+held_cut_off() { grep -qx opened <<< "$1" && ! grep -q '^HTTP/' <<< "$1"; }
 systemctl stop swiff-netguard.timer swiff-netguard.path
 ctl=$( [ -n "$addr" ] && held "$addr")
 held "$addr" > /run/swiff-selftest-held &
-sleep 1.5
+# Add the prefix only once the connection is established.
+for _ in $(seq 50); do grep -qx opened /run/swiff-selftest-held && break; sleep 0.1; done
 nft add element inet swiff onlink4 "{ $addr }"
 wait $!
 cut=$(cat /run/swiff-selftest-held)
 /usr/libexec/swiff/netguard
 systemctl start swiff-netguard.path swiff-netguard.timer
-check established-control "$addr:80 held, no refresh -> $ctl" grep -q '^HTTP/' <<< "$ctl"
-check established-cut-off "$addr:80 held, added to onlink4 -> $cut" bash -c "test -n '$cut' && ! grep -q '^HTTP/' <<< '$cut'"
+check established-control "$addr:80 held, no refresh -> $(paste -sd' ' <<< "$ctl")" held_answered "$ctl"
+check established-cut-off "$addr:80 held, added to onlink4 -> $(paste -sd' ' <<< "$cut")" held_cut_off "$cut"
 # Control: without the firewall the same LAN service answers, so the block
 # above is the firewall's doing and not a dead endpoint.
 nft delete table inet swiff
