@@ -208,7 +208,7 @@ describe("swiff-hostd against the server", () => {
       );
 
       // The owner asks for the PC back while no session is live: off offer, into Windows.
-      expect(second.agent.requestReturnToWindows()).toEqual({ ok: true });
+      expect(await second.agent.requestReturnToWindows()).toEqual({ ok: true });
       expect(await second.running).toBe<Outcome>("windows");
       expect(second.system).toEqual({ reboots: 0, windows: 1 });
       expect(await machine()).toMatchObject({ status: "idle" });

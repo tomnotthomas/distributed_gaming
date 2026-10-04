@@ -88,8 +88,8 @@ export type Agent = {
   /** Run this boot to its end: resolves once the machine has been told to restart. */
   run(): Promise<Outcome>;
   status(): AgentStatus;
-  /** The owner asks for the PC back (D8). Carried out at once while idle; refused otherwise. */
-  requestReturnToWindows(): ReturnReply;
+  /** The owner asks for the PC back (D8). Carried out at once while idle and no session shows; refused otherwise. */
+  requestReturnToWindows(): Promise<ReturnReply>;
 };
 
 type Event =
@@ -107,8 +107,13 @@ export function createAgent(deps: AgentDeps): Agent {
   let phase: Phase = "starting";
   let sessionId: string | null = null;
   let unmet: FloorCheck[] = [];
-  /** The owner asked for the PC back while it was idle (or, with takeover "always", serving). */
-  let returnWanted = false;
+  /** The owner's request in hand, answered by the loop that holds the machine now. */
+  let asked: ((reply: ReturnReply) => void) | null = null;
+  const answer = (reply: ReturnReply) => {
+    const pending = asked;
+    asked = null;
+    pending?.(reply);
+  };
 
   const inbox = createInbox<Event>();
 
@@ -165,7 +170,7 @@ export function createAgent(deps: AgentDeps): Agent {
     if (unmet.length) {
       phase = "unfit";
       log(`not offered: below the hardware floor (${unmet.join(", ")})`);
-      while (!returnWanted) await inbox.next(null);
+      while (!asked) await inbox.next(null);
       return "windows";
     }
     // A host session a crash left behind holds keys this boot never handed out.
@@ -214,7 +219,11 @@ export function createAgent(deps: AgentDeps): Agent {
           } else throw new Refused(`the server refused the machine key (${e.reason})`);
           continue;
         }
-        if (returnWanted) return "windows";
+        if (asked) {
+          const outcome = await takeBack();
+          if (outcome) return outcome;
+          continue;
+        }
         if (event) continue;
         const view = await beat();
         if (view?.session) return { sessionId: view.session.id };
@@ -226,6 +235,29 @@ export function createAgent(deps: AgentDeps): Agent {
     } finally {
       socket.close();
     }
+  }
+
+  /**
+   * The owner's request while offered: back to Windows when the server shows no
+   * session, the PC then off offer; a session there is served. Null: ask again.
+   */
+  async function takeBack(): Promise<{ sessionId: string } | "windows" | null> {
+    const view = await beat();
+    if (view?.session) {
+      answer({ ok: false, reason: "session-live" });
+      return { sessionId: view.session.id };
+    }
+    if (view) {
+      try {
+        await api.setAvailability(false, view.until ?? null);
+        return "windows";
+      } catch (cause) {
+        if (refusal(cause)) throw new Refused("the server refused the machine key");
+        log(`could not take the machine off offer: ${describe(cause)}`);
+      }
+    }
+    answer({ ok: false, reason: "busy" });
+    return null;
   }
 
   /**
@@ -255,7 +287,6 @@ export function createAgent(deps: AgentDeps): Agent {
   /** Serve one renter session to its end, then reset. */
   async function serve(claim: SessionClaim | { sessionId: string }): Promise<Outcome | "unclaimed"> {
     phase = "serving";
-    returnWanted = false;
     const id = claim.sessionId;
     const appid = "appid" in claim ? claim.appid : null;
     sessionId = id;
@@ -277,7 +308,8 @@ export function createAgent(deps: AgentDeps): Agent {
 
     for (;;) {
       const event = await inbox.next(timing.sessionBeatMs);
-      if (returnWanted && deps.ownerTakeover === "always") {
+      if (asked && deps.ownerTakeover !== "always") answer({ ok: false, reason: "session-live" });
+      if (asked) {
         // D8 "always": the owner takes it back, which ends the session as theirs.
         const view = await beat();
         await api.setAvailability(false, view?.until ?? null).catch((cause) => {
@@ -314,6 +346,7 @@ export function createAgent(deps: AgentDeps): Agent {
   /** After a session: off offer at once, end the host session, restart clean. */
   async function reset(endedId: string, toWindows: boolean): Promise<Outcome> {
     phase = "resetting";
+    if (!toWindows) answer({ ok: false, reason: "busy" });
     const view = await beat();
     if (view?.session && view.session.id !== endedId) {
       log(`session ${view.session.id} was claimed as ${endedId} ended; it is served after the reset`);
@@ -356,6 +389,7 @@ export function createAgent(deps: AgentDeps): Agent {
   /** Off offer, Windows first, restart. */
   async function returnToWindows(): Promise<Outcome> {
     phase = "returning";
+    answer({ ok: true });
     // Whatever a reset saved is not for the next time the owner shares.
     await resume.take();
     const view = await beat().catch(() => null);
@@ -388,7 +422,7 @@ export function createAgent(deps: AgentDeps): Agent {
       phase = "refused";
       sessionId = null;
       log(`${cause.message}; not offered`);
-      while (!returnWanted) await inbox.next(null);
+      while (!asked) await inbox.next(null);
       return returnToWindows();
     }
   }
@@ -396,12 +430,13 @@ export function createAgent(deps: AgentDeps): Agent {
   return {
     run,
     status: () => ({ phase, sessionId, unmet }),
-    requestReturnToWindows: () => {
-      if (phase === "starting" || phase === "resetting") return { ok: false, reason: "busy" };
+    requestReturnToWindows: async () => {
+      if (phase === "returning") return { ok: true };
+      if (phase === "starting" || phase === "resetting" || asked) return { ok: false, reason: "busy" };
       if (phase === "serving" && deps.ownerTakeover === "when-idle") return { ok: false, reason: "session-live" };
-      returnWanted = true;
+      const reply = new Promise<ReturnReply>((resolve) => (asked = resolve));
       inbox.push({ type: "wake" });
-      return { ok: true };
+      return reply;
     },
   };
 }

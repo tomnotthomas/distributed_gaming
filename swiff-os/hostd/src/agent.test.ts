@@ -4,7 +4,7 @@
 // integration.test.ts runs the same lifecycle against the real server.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { createAgent, type Agent, type AgentDeps, type Outcome } from "./agent.ts";
+import { createAgent, type Agent, type AgentDeps, type Outcome, type ReturnReply } from "./agent.ts";
 import { HostApiError, type HostApi, type MachineView } from "./api.ts";
 import type { Resume } from "./resume.ts";
 import type { SocketEvent } from "./socket.ts";
@@ -203,7 +203,7 @@ const started: { agent: Agent; server: ReturnType<typeof fakeServer>; running: P
 afterEach(async () => {
   for (const { agent, server, running } of started.splice(0)) {
     server.endSession();
-    agent.requestReturnToWindows();
+    void agent.requestReturnToWindows();
     await running.catch(() => {});
   }
 });
@@ -303,7 +303,7 @@ describe("offering and serving", () => {
 
   it("refuses the owner as busy while it starts, and carries nothing into its restart", async () => {
     const h = harness(fakeServer(), { served: "boot-now" });
-    expect(h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "busy" });
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "busy" });
     expect(await h.running).toBe("reset");
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
     expect(h.sockets).toHaveLength(0);
@@ -469,15 +469,15 @@ describe("offering and serving", () => {
 
 /** Ask for the PC back on every heartbeat and off-offer call made while resetting, and keep the answers. */
 function askWhileResetting(api: HostApi, agent: Agent) {
-  const answers: ReturnType<Agent["requestReturnToWindows"]>[] = [];
+  const answers: ReturnReply[] = [];
   const heartbeat = api.heartbeat;
   api.heartbeat = async () => {
-    if (phase(agent) === "resetting") answers.push(agent.requestReturnToWindows());
+    if (phase(agent) === "resetting") answers.push(await agent.requestReturnToWindows());
     return heartbeat();
   };
   const setAvailability = api.setAvailability;
   api.setAvailability = async (available, until) => {
-    if (phase(agent) === "resetting") answers.push(agent.requestReturnToWindows());
+    if (phase(agent) === "resetting") answers.push(await agent.requestReturnToWindows());
     return setAvailability(available, until);
   };
   return answers;
@@ -487,10 +487,40 @@ describe("the owner taking the PC back (D8)", () => {
   it("goes back to Windows at once while no session is live", async () => {
     const h = harness();
     await until(() => phase(h.agent) === "offered", "the offer");
-    expect(h.agent.requestReturnToWindows()).toEqual({ ok: true });
-    expect(await h.running).toBe("windows");
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(h.server.calls).toContain("availability false");
     expect(h.server.state.status).toBe("idle");
+    expect(await h.running).toBe("windows");
+    expect(h.system).toEqual({ reboots: 0, windows: 1 });
     expect(h.socket().closed).toBe(true);
+  });
+
+  it("refuses while offered when the server shows a session the socket has not told of, and serves it", async () => {
+    const h = harness();
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "session-live" });
+    expect(h.server.calls).not.toContain("availability false");
+    await until(() => h.streamers.length === 1, "the streamer");
+    expect(h.agent.status()).toMatchObject({ phase: "serving", sessionId: "s1" });
+    h.server.endSession();
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+  });
+
+  it("serves no claim once the owner's request has taken it off offer", async () => {
+    const h = harness();
+    await until(() => phase(h.agent) === "offered", "the offer");
+    const setAvailability = h.server.api.setAvailability;
+    h.server.api.setAvailability = async (available, until) => {
+      const view = await setAvailability(available, until);
+      h.socket().emit({ type: "claimed", claim: { sessionId: "late", appid: 730, minutes: 30 } });
+      return view;
+    };
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.running).toBe("windows");
+    expect(h.streamers).toHaveLength(0);
+    expect(h.server.calls).not.toContain("session start");
   });
 
   it("refuses while a renter's session is live, and resets as usual after it", async () => {
@@ -499,11 +529,12 @@ describe("the owner taking the PC back (D8)", () => {
     h.server.claim("s1");
     h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
     await until(() => h.streamers.length === 1, "the streamer");
-    expect(h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "session-live" });
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "session-live" });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(h.server.state.sessionId).toBe("s1");
     h.server.endSession();
     expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
   });
 
   it("refuses as busy while it resets, and serves the renter claimed as the last one left after it", async () => {
@@ -565,7 +596,7 @@ describe("the owner taking the PC back (D8)", () => {
     h.server.claim("s1");
     h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
     await until(() => h.streamers.length === 1, "the streamer");
-    expect(h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
     expect(await h.running).toBe("windows");
     expect(h.server.state).toMatchObject({ status: "idle", sessionId: null });
     expect(h.streamers[0]!.stopped).toBe(true);
@@ -592,7 +623,7 @@ describe("a machine that cannot be offered", () => {
     await until(() => phase(h.agent) === "unfit", "unfit");
     expect(h.agent.status().unmet).toEqual(["secureBoot", "iommu"]);
     expect(h.server.calls).toEqual([]);
-    expect(h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
     expect(await h.running).toBe("windows");
   });
 

@@ -18,7 +18,7 @@ describe("the control socket", () => {
     let reply: ReturnReply = { ok: false, reason: "session-live" };
     const server = await serveControl(path, {
       status: () => ({ phase: "serving", sessionId: "s1", unmet: [] }),
-      requestReturnToWindows: () => reply,
+      requestReturnToWindows: async () => reply,
     });
     try {
       expect((await stat(path)).mode & 0o777).toBe(0o600);
@@ -37,7 +37,7 @@ describe("the control socket", () => {
     await writeFile(path, "");
     const server = await serveControl(path, {
       status: () => ({ phase: "offered", sessionId: null, unmet: [] }),
-      requestReturnToWindows: () => ({ ok: true }),
+      requestReturnToWindows: async () => ({ ok: true }),
     });
     server.close();
   });

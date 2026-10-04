@@ -55,10 +55,12 @@ defaults:
 
 - **D8 `OWNER_TAKEOVER`** (`"when-idle"`). The owner gets the PC back only while it is
   idle: offered, or not offered at all (below the hardware floor, or its key refused).
-  It then goes back to Windows at once. During a session the answer is `session-live`;
-  while the agent is starting or resetting it is `busy`, and the owner tries again
-  shortly. A refused request is never kept for later, across a reset or a restart. Set
-  it to `"always"` to end a live session as the owner taking the machine back.
+  While offered, the agent first checks with a heartbeat: if the server shows a session,
+  the answer is `session-live` and that renter is served; otherwise it takes the PC off
+  offer itself, answers `ok` and goes back to Windows. During a session the answer is
+  `session-live`; while the agent is starting or resetting it is `busy`, and the owner
+  tries again shortly. A refused request is never kept for later. Set it to `"always"`
+  to end a live session as the owner taking the machine back.
 - **D3 `HARDWARE_FLOOR`.** The agent does not offer the PC unless it has UEFI, Secure
   Boot on, a TPM 2.0 and an IOMMU. The server's verifier, in the attestation stage, judges
   the TPM's EK certificate and the lower trust tier for a discrete TPM.
@@ -82,8 +84,9 @@ over its control socket, which only root can use.
 - Re-attesting before each session.
 - A host certificate in place of the machine key.
 - Holding the PC back until its games are verified.
-- A server-side hold that keeps a resetting PC from being matched. Today a renter who
-  claims the PC in the instant its last session ends, before the agent's heartbeat
-  check, is served after the restart, about 30 s later. A claim that lands in the narrow
-  window between that heartbeat check and the off-offer PUT is ended instead, as the
-  owner taking the PC back, until that hold exists.
+- A server-side hold, or an off-offer that refuses while a session exists
+  (`swiff-reset-hold`). Today a renter who claims the PC in the instant its last session
+  ends, before the agent's heartbeat check, is served after the restart, about 30 s
+  later. A claim that lands in the narrow window between a heartbeat check and the
+  off-offer PUT, in the reset or in the owner's return to Windows, is ended instead, as
+  the owner taking the PC back, until that exists.

@@ -27,7 +27,7 @@ export async function serveControl(
     let answered = false;
     conn.setEncoding("utf8");
     conn.on("error", () => {});
-    conn.on("data", (chunk: string) => {
+    conn.on("data", async (chunk: string) => {
       if (answered) return;
       text += chunk;
       const end = text.indexOf("\n");
@@ -38,7 +38,7 @@ export async function serveControl(
         command === "status"
           ? agent.status()
           : command === "return-to-windows"
-            ? agent.requestReturnToWindows()
+            ? await agent.requestReturnToWindows()
             : { error: "unknown-command" };
       conn.end(`${JSON.stringify(reply)}\n`);
     });
