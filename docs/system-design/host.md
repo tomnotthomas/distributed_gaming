@@ -254,7 +254,7 @@ A claim for a game the owner does not offer (the owner stopped offering it as th
 came in) is turned down: the app ends that session at once (`POST /sessions/:id/end`)
 instead of serving it, and until the platform confirms that end it offers the screen to no
 renter who joins (a session the platform does not know, `404`, counts as ended). An end
-that fails on the network or the server is tried again, from 5 s apart up to a minute, for
+that fails on the network or the server, or gets no answer within 15 s, is tried again, from 5 s apart up to a minute, for
 as long as the app runs; any other refusal keeps the screen closed until the claim is pushed
 again on the next register.
 
