@@ -2,7 +2,7 @@
 // BIOS (Swiff cannot), and the steps that install it and switch to it. The
 // steps show as a preview: nothing on the PC is changed from this screen yet.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RentalPlan, RentalRead } from "../../rental.cjs";
 import {
   chosenTarget,
@@ -42,8 +42,14 @@ const PREVIEW_TITLE: Record<RentalPlan["kind"], string> = {
 /** The steps of a plan, in order, with the exact commands under each when asked. */
 function Preview({ plan, onClose }: { plan: RentalPlan; onClose: () => void }) {
   const [commands, setCommands] = useState(false);
+  // The preview opens under the fold: bring it up, so the button visibly did something.
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    box.current?.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
+  }, [plan]);
   return (
-    <div className="sz one">
+    <div className="sz one" ref={box}>
       <Zone
         title={`Preview: ${PREVIEW_TITLE[plan.kind]}`}
         action={
@@ -68,8 +74,8 @@ function Preview({ plan, onClose }: { plan: RentalPlan; onClose: () => void }) {
           ))}
         </ol>
         <Notice icon="lock">
-          A preview: nothing on this PC has been changed. Rental mode is installed for the first time with
-          Swiff beside you.
+          A preview: nothing on this PC has been changed. Installing for real comes in a later Swiff Host
+          update.
         </Notice>
       </Zone>
     </div>
@@ -133,6 +139,7 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
 
   const status = rentalStatus(read, target);
   const where = chosenTarget(read, target);
+  const todo = status.bios.length ? status.bios : status.fixes;
 
   return (
     <main className="step">
@@ -141,9 +148,9 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           <p className="mono ctx">Rental mode</p>
           <h1>{status.title}</h1>
           <p className="ln">{status.line}</p>
-          {status.bios.length || status.fixes.length ? (
+          {todo.length ? (
             <ol className="legend rfix">
-              {[...status.bios, ...status.fixes].map((fix, i) => (
+              {todo.map((fix, i) => (
                 <li key={fix} className={i === 0 ? "lg st-now" : "lg st-next"}>
                   <span className="dotst" />
                   <span>{fix}</span>
@@ -152,11 +159,18 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
             </ol>
           ) : (
             <p className="ln soft">
-              While you share, this PC runs Swiff OS: a locked system where nobody at the PC can reach the
-              player&rsquo;s Steam account. To use the PC yourself, stop sharing from your phone; it comes
-              back to Windows once no player is on it.
+              To use the PC yourself, stop sharing from your phone. It returns to Windows once no player is on
+              it.
             </p>
           )}
+          {/* The headline counts BIOS changes: what else blocks rental mode is said apart from them. */}
+          {status.bios.length
+            ? status.fixes.map((fix) => (
+                <Notice key={fix} icon="warning">
+                  {fix}
+                </Notice>
+              ))
+            : null}
           {status.bios.length || status.fixes.length ? (
             <div className="acts">
               <Pill icon="refresh" onClick={actions.checkRental} disabled={reading}>

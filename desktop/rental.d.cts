@@ -74,7 +74,14 @@ export type PlanOp =
   | {
       op: "gpt-add";
       disk: number;
-      partitions: { type: string; id: string | null; name: string | null; offset: number; bytes: number }[];
+      partitions: {
+        type: string;
+        id: string | null;
+        name: string | null;
+        attrs: string;
+        offset: number;
+        bytes: number;
+      }[];
     }
   | { op: "write"; disk: number; offset: number; bytes: number; source: string }
   | { op: "boot-entry"; disk: number; offset: number; path: string; title: string }
@@ -99,6 +106,8 @@ export type LayoutPartition = {
   type: string;
   bytes: number;
   split: string | null;
+  /** GPT attribute bits, as hex: "0x1000000000000000" is read-only. */
+  attrs: string;
   id: string | null;
   name: string | null;
 };
