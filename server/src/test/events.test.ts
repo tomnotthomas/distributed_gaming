@@ -206,19 +206,34 @@ describe("renter event stream", () => {
     s.close();
   });
 
-  it("holds a match made while the laptop slept, and starts its claim clock when the stream reopens", async () => {
+  it("gives a renter whose stream is open at a match the host made 60 s from it, however often the page beats", async () => {
     const { bookingId } = await platform.book(730, 30, RENTER);
     const s = await stream(`?booking=${bookingId}`);
     await platform.hostConnected("pc-1");
-    now += 1_000; // the lid closes: the page stops beating
+    now += 10_000; // between two beats of the page
     await platform.setAvailability("pc-1", true, REPORT);
     await until(() => s.events.length > 1);
     assert.deepEqual(statuses(s), ["queued", "matched"]);
     const matchedAt = now;
-    assert.equal(s.events[1]!.data.claimBy, matchedAt + MAX_HOLD_MS, "held for them meanwhile");
-    s.close();
+    assert.equal(s.events[1]!.data.claimBy, matchedAt + RESERVATION_MS);
 
-    now += 50_000; // the lid opens and the stream reopens, 10 s before a clock from the match would end
+    now += 5_000;
+    assert.equal(await seen(bookingId), 204);
+    assert.equal((await platform.viewBooking(bookingId))!.claimBy, matchedAt + RESERVATION_MS);
+    s.close();
+  });
+
+  it("holds a match made while the tab was closed, and starts its claim clock when the stream reopens", async () => {
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    await platform.hostConnected("pc-1");
+    now += 1_000; // the tab is closed: no stream, no beat
+    await platform.setAvailability("pc-1", true, REPORT);
+    const matchedAt = now;
+    const held = (await platform.viewBooking(bookingId))!;
+    assert.equal(held.status, "matched");
+    assert.equal(held.claimBy, matchedAt + MAX_HOLD_MS, "held for them meanwhile");
+
+    now += 50_000; // the tab reopens and so does the stream, 10 s before a clock from the match would end
     const back = await stream(`?booking=${bookingId}`);
     assert.deepEqual(statuses(back), ["matched"]);
     assert.equal(back.events[0]!.data.claimBy, now + RESERVATION_MS);

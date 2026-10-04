@@ -8,7 +8,8 @@
 //
 // The claim clock: a matched renter has RESERVATION_MS to claim from their
 // first contact since the match, which is the match itself when they were
-// there for it. One who was away (tab closed, laptop asleep) has the machine
+// there for it (their own call made it, or their event stream on the booking
+// was open). One who was away (tab closed, laptop asleep) has the machine
 // held for them until they are back, so the clock starts when their page
 // speaks again, but never past MAX_HOLD_MS from the match.
 //
@@ -411,6 +412,8 @@ export class Platform {
   #offerChanged = false;
   /** Machines whose PC holds a socket open to the server. */
   readonly #present = new Set<string>();
+  /** Open renter event streams per booking: a renter with one open is there for a match. */
+  readonly #watched = new Map<string, number>();
   /** The one timer, armed for the next deadline. */
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
@@ -879,6 +882,19 @@ export class Platform {
   }
 
   /**
+   * A renter event stream opened on the booking: while one is, its renter is
+   * there for a match. Call the function returned once it closes.
+   */
+  watchBooking(bookingId: string): () => void {
+    this.#watched.set(bookingId, (this.#watched.get(bookingId) ?? 0) + 1);
+    return () => {
+      const left = (this.#watched.get(bookingId) ?? 1) - 1;
+      if (left > 0) this.#watched.set(bookingId, left);
+      else this.#watched.delete(bookingId);
+    };
+  }
+
+  /**
    * The booking as it stands, or null when there is none or it is not
    * `renterId`'s. It counts as the renter's contact: a check on it, an event
    * stream opening on it, or the page's heartbeat. That contact is what keeps
@@ -1293,11 +1309,16 @@ export class Platform {
 
   /**
    * Hold the machine for the booking: matched, waiting to be claimed. A renter
-   * in contact at the match (the call that matched it was theirs) has
-   * RESERVATION_MS from now; for one who was not, the clock waits for their
-   * next contact (booking()) and the machine is held up to MAX_HOLD_MS.
+   * there at the match (the call that matched it was theirs, or their event
+   * stream on it is open) has RESERVATION_MS from now; for one who was not,
+   * the clock waits for their next contact (booking()) and the machine is held
+   * up to MAX_HOLD_MS.
    */
   async #reserve(bookingId: string, machineId: string, now: number): Promise<void> {
+    // An open stream at the match is the renter's contact then.
+    if (this.#watched.has(bookingId)) {
+      await this.#run("UPDATE bookings SET last_seen_at = $1 WHERE id = $2", now, bookingId);
+    }
     await this.#run(
       `INSERT INTO reservations (id, booking_id, machine_id, matched_at, expires_at)
          SELECT $1, id, $2, $3::bigint, $3::bigint + CASE WHEN last_seen_at >= $3 THEN $4::bigint ELSE $5::bigint END

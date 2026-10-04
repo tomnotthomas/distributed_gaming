@@ -266,8 +266,9 @@ GET  /events?booking=:id
   status changes, as `event: booking` with the same body as GET /bookings/:id; `claimBy`
   is the claim countdown. A `: keep-alive` comment every 25 s keeps an idle stream open
   through Cloudflare. Opening the stream counts as checking on the booking; from then on
-  only the page's heartbeat does, since a sleeping laptop's stream can stay open long
-  after its page stopped running. The stream ends once the booking is claimed, playing,
+  only the page's heartbeat keeps a queued booking in the queue, since a sleeping laptop's
+  stream can stay open long after its page stopped running. A renter whose stream is open
+  at the match is there for it: their 60 s to claim run from the match. The stream ends once the booking is claimed, playing,
   ended or expired, after sending that status, and when the renter's sign-in session
   runs out; the page then treats the booking as gone from view, as it does a 401 on its
   heartbeat or poll. A booking takes at most 3 streams at a time, a signed-in renter 10
@@ -378,8 +379,10 @@ machine whose entry names no owner can be matched to anyone, and the server warn
 it at startup. A newly configured owner counts at once: a reservation they already hold
 on their own machine goes back to the queue, and `claim` refuses it. A matched renter has
 60 s to claim, counted from their first check on the booking since the match: the match
-itself when it was made in their own call (a picked machine, or a booking matched as it
-was made or checked on). A renter away at the match (tab closed, laptop asleep) has the
+itself when they were there for it, which is when their event stream on the booking is
+open at the match, whoever made it, or the match was made in their own call (a picked
+machine, or a booking matched as it was made or checked on). A renter away at the match
+(stream closed: tab closed, laptop asleep) has the
 machine held for them, and their 60 s start when their page speaks again (the event
 stream reopening, a check or a heartbeat), but no reservation outlasts 2 minutes from
 the match, so a renter who never comes back holds a machine for 2 minutes at most.
