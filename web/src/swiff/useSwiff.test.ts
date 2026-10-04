@@ -107,6 +107,7 @@ function sockets() {
     closed: boolean;
     open: () => void;
     deliver: (msg: unknown) => void;
+    drop: () => void;
   }[] = [];
   vi.stubGlobal(
     "WebSocket",
@@ -126,6 +127,10 @@ function sockets() {
             this.onopen?.();
           },
           deliver: (msg: unknown) => this.onmessage?.({ data: JSON.stringify(msg) }),
+          drop: () => {
+            this.readyState = 3;
+            this.onclose?.();
+          },
         };
         this.send = (data: string) => socket.sent.push(JSON.parse(data));
         this.close = () => {
@@ -583,6 +588,7 @@ describe("useSwiff", () => {
       act(() => opened.find((o) => o.url === "/api/events?booking=b-1")!.push(booked("matched", 1_000)));
       await waitFor(() => expect(signaling).toHaveLength(1));
       act(() => signaling[0]!.open());
+      act(() => signaling[0]!.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
       act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
       act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
       expect(result.current.steamSignInFailed).toBe(true);
@@ -602,6 +608,36 @@ describe("useSwiff", () => {
 
       act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" }));
       expect(result.current.steamLogin).toEqual({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" });
+    });
+
+    it("holds a Steam sign-in retry while the room is reconnecting, and sends it once joined again", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      act(() => signaling[0]!.open());
+      act(() => signaling[0]!.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
+      act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
+      act(() => signaling[0]!.drop());
+
+      act(() => result.current.retrySignIn());
+
+      expect(result.current.steamSignInFailed).toBe(false);
+      expect(result.current.phase).toBe("connecting");
+      await waitFor(() => expect(signaling).toHaveLength(2));
+      const again = signaling[1]!;
+      act(() => again.open());
+      expect(again.sent).not.toContainEqual({ type: "steam-login", state: "retry" });
+      act(() => again.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
+      expect(again.sent).toContainEqual({ type: "steam-login", state: "retry" });
+
+      act(() => again.deliver({ type: "steam-login", state: "failed" }));
+      expect(result.current.steamSignInFailed).toBe(true);
+      expect(again.sent.filter((m) => JSON.stringify(m).includes("retry"))).toHaveLength(1);
     });
 
     it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {

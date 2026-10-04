@@ -531,13 +531,29 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // code. It is shown until the renter approves it, and dropped with the
   // launch once it goes live or is left. Other PCs' rooms are not joined here:
   // their host would take the page for a renter and offer it a stream.
+  // A retry the renter asked for is sent while they are joined with the PC
+  // in the room, again on each join, until the PC answers it.
   const steamRoom = useRef<Signaling | null>(null);
+  const pcHere = useRef(false);
+  const retryWanted = useRef(false);
   useEffect(() => {
     if (phase !== "connecting" || !claim?.rentalMode) return;
     const signaling = connectSignaling({
       url: claim.signalingUrl,
       onOpen: (send) => send({ type: "join", ticket: claim.ticket }),
-      onMessage: (msg) => {
+      onStatus: (status) => {
+        if (status !== "open") pcHere.current = false;
+      },
+      onMessage: (msg, send) => {
+        if (msg.type === "joined") {
+          pcHere.current = msg.hostOnline;
+          if (pcHere.current && retryWanted.current) send({ type: "steam-login", state: "retry" });
+          return;
+        }
+        if (msg.type === "peer-left") {
+          pcHere.current = false;
+          return;
+        }
         if (msg.type === "denied") {
           setBookingFailed(true);
           endCurrentBooking();
@@ -546,6 +562,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           return;
         }
         if (msg.type !== "steam-login") return;
+        if (msg.state !== "retry") retryWanted.current = false;
         if (msg.state === "qr") {
           if (!isSteamSignInUrl(msg.url)) return;
           setSteamLogin(msg);
@@ -563,6 +580,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     steamRoom.current = signaling;
     return () => {
       steamRoom.current = null;
+      pcHere.current = false;
+      retryWanted.current = false;
       signaling.close();
       setSteamLogin(null);
       setSteamSignedIn(false);
@@ -673,7 +692,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const retrySignIn = useCallback(() => {
     if (!steamRoom.current) return;
     track("steam_sign_in_retried", { game: gameId, machine: claim?.roomId });
-    steamRoom.current.send({ type: "steam-login", state: "retry" });
+    retryWanted.current = true;
+    if (pcHere.current) steamRoom.current.send({ type: "steam-login", state: "retry" });
     setSteamLogin(null);
     setSteamSignInFailed(false);
   }, [claim, gameId]);
