@@ -24,7 +24,7 @@ import {
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
-import { firmwareChecks, pcChecks, rentalStatus } from "./rental";
+import { firmwareChecks, isReady, pcChecks, rentalStatus } from "./rental";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -88,6 +88,12 @@ describe("reading the PC", () => {
       volumes: [],
     });
     expect(factsOf("garbage").secureBoot).toBeNull();
+  });
+
+  it("leaves the IOMMU unread when the Device Guard read failed and came back as [null]", () => {
+    expect(factsOf({ securityProperties: [null] }).iommu).toBeNull();
+    expect(factsOf({ securityProperties: [1, 2] }).iommu).toBe(false);
+    expect(factsOf({ securityProperties: [1, 2, 3] }).iommu).toBe(true);
   });
 
   it("is installed only with its boot entry recorded and its root partition on a disk", () => {
@@ -382,6 +388,24 @@ describe("what the screen says", () => {
     expect(s.title).toBe("3 things to change first");
     expect(s.fixes).toHaveLength(3);
     expect(s.canInstall).toBe(false);
+  });
+
+  it("never counts the Secure Boot db or the TPM certificate as ready: they are not checked yet", () => {
+    const keys = firmwareChecks(pc()).filter((c) => c.id === "db" || c.id === "ek");
+    expect(keys).toEqual([
+      expect.objectContaining({ value: "Not checked yet", state: "unchecked" }),
+      expect.objectContaining({ value: "Not checked yet", state: "unchecked" }),
+    ]);
+    expect(keys.some((c) => isReady(c.state))).toBe(false);
+    expect(status(pc())).toMatchObject({ ready: 8, of: 10, canInstall: true });
+  });
+
+  it("says BitLocker was not read when it was not, rather than off", () => {
+    const read = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })) }));
+    expect(pcChecks(read, null).find((c) => c.id === "games")).toMatchObject({
+      value: "C:, BitLocker not read",
+      state: "unread",
+    });
   });
 
   it("rates a TPM on its own chip lower, but lets it through (D3, still open)", () => {

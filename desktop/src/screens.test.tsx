@@ -594,7 +594,16 @@ describe("rental mode", () => {
   it("shows a ready PC's checks, and previews the install from one button", () => {
     const acts = renderReal("rental", off, rental());
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
-    expect(screen.getByText("9 of 9")).toBeInTheDocument();
+    expect(screen.getByText("8 of 10")).toBeInTheDocument();
+    expect(screen.getByText("Microsoft UEFI CA 2023").closest(".krow")).toHaveTextContent("Not checked yet");
+    expect(screen.getByText("TPM certificate").closest(".krow")).toHaveTextContent("Not checked yet");
+    for (const step of [
+      /Setup Mode/,
+      /Allow Microsoft 3rd-party UEFI CA/,
+      /lacks the Microsoft UEFI CA 2023/,
+      /\(MOK\)/,
+    ])
+      expect(screen.getByText(step)).toBeInTheDocument();
     expect(screen.getByText("2.0, in the processor (AMD fTPM)")).toBeInTheDocument();
     expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
     expect(screen.getByText("On: Swiff turns it off")).toBeInTheDocument();
@@ -614,6 +623,24 @@ describe("rental mode", () => {
     expect(screen.getByText(/Resize-Partition -DiskNumber 0 -PartitionNumber 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
+  });
+
+  it("shows an unread IOMMU and BitLocker state as not read, never as off", () => {
+    renderReal(
+      "rental",
+      off,
+      rental({
+        read: read((raw) => ({
+          ...raw,
+          securityProperties: [null],
+          volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })),
+        })),
+      }),
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
+    expect(screen.getByText("IOMMU").closest(".krow")).toHaveTextContent("Not read");
+    expect(screen.getByText("C:, BitLocker not read")).toBeInTheDocument();
+    expect(screen.queryByText(/Turn on the IOMMU/)).not.toBeInTheDocument();
   });
 
   it("lists the BIOS changes Swiff cannot make, and checks again when asked", () => {
@@ -650,9 +677,9 @@ describe("rental mode", () => {
   it("switches, once installed: going live and back to Windows, as previews", () => {
     const acts = renderReal("rental", off, rental({ read: installed() }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
-    fireEvent.click(screen.getByRole("button", { name: "Go live" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview going live" }));
     expect(acts.previewRental).toHaveBeenCalledWith("start");
-    fireEvent.click(screen.getByRole("button", { name: "Back to Windows" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview back to Windows" }));
     expect(acts.previewRental).toHaveBeenCalledWith("stop");
   });
 
@@ -664,15 +691,14 @@ describe("rental mode", () => {
       vi.useRealTimers();
     });
 
-    it("restarts into rental mode once installed, shown as a preview", () => {
+    it("still goes live once rental mode is installed: the switch is only a preview on its own screen", () => {
       const host: Host = { view: realView(off, rental({ read: installed() })), actions: actions() };
       const go = vi.fn();
       render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} />);
-      expect(screen.getByText(/restarts into rental mode/)).toBeInTheDocument();
       hold(screen.getByRole("button", { name: "Hold to go live" }));
-      expect(host.actions.previewRental).toHaveBeenCalledWith("start");
-      expect(host.actions.goLive).not.toHaveBeenCalled();
-      expect(go).toHaveBeenCalledWith("rental");
+      expect(host.actions.goLive).toHaveBeenCalledOnce();
+      expect(host.actions.previewRental).not.toHaveBeenCalled();
+      expect(go).not.toHaveBeenCalledWith("rental");
     });
   });
 });

@@ -14,18 +14,18 @@ import { shortGpu } from "./format";
 /**
  *   ok       ready
  *   swiff    not ready, and the install changes it
- *   install  checked by the install itself, as administrator
+ *   unchecked  needs administrator rights to read: not checked yet, and not ready
  *   bios     the owner changes it in the BIOS setup
  *   blocked  rental mode cannot run until the owner changes it in Windows
  *   unread   could not be read; not held against the PC
  */
-export type CheckState = "ok" | "swiff" | "install" | "bios" | "blocked" | "unread";
+export type CheckState = "ok" | "swiff" | "unchecked" | "bios" | "blocked" | "unread";
 
 export type RentalCheck = { id: string; label: string; value: string; state: CheckState; bios?: string };
 
 /** Ready, or ready once installing has done its part. */
 export const isReady = (state: CheckState): boolean =>
-  state === "ok" || state === "swiff" || state === "install" || state === "unread";
+  state === "ok" || state === "swiff" || state === "unread";
 
 /** 25,367,150,592 bytes → "24 GB". */
 export const gb = (bytes: number): string => `${Math.round(bytes / 1024 ** 3)} GB`;
@@ -97,9 +97,21 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
             }),
     },
     // The Secure Boot db and the TPM's endorsement certificate need administrator rights to read.
-    { id: "keys", label: "Keys and certificate", value: "Checked at install", state: "install" },
+    { id: "db", label: "Microsoft UEFI CA 2023", value: "Not checked yet", state: "unchecked" },
+    { id: "ek", label: "TPM certificate", value: "Not checked yet", state: "unchecked" },
   ] as RentalCheck[];
 }
+
+/**
+ * The BIOS steps Swiff cannot see from Windows without administrator rights,
+ * so the owner is told about each one up front.
+ */
+export const BIOS_STEPS: readonly string[] = [
+  "If Secure Boot is in Setup Mode, leave it: restore the factory keys, then turn Secure Boot on.",
+  "On a Secured-core PC, turn on Allow Microsoft 3rd-party UEFI CA in the Secure Boot settings.",
+  "If the firmware lacks the Microsoft UEFI CA 2023, update the BIOS, or let Windows Update add it to the Secure Boot db.",
+  "On the first start of Swiff OS, confirm its key once at the screen (MOK), with the PC's keyboard.",
+];
 
 /** The Windows-side checks: space, the games drive, the graphics card, Fast Startup. */
 export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck[] {
@@ -122,7 +134,9 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
         ? { value: "No Steam library yet", state: "unread" }
         : games.bitlocker === "on"
           ? { value: `${games.letter}:, BitLocker on`, state: "blocked" }
-          : { value: `${games.letter}:, BitLocker off`, state: games.bitlocker ? "ok" : "unread" }),
+          : games.bitlocker === "off"
+            ? { value: `${games.letter}:, BitLocker off`, state: "ok" }
+            : { value: `${games.letter}:, BitLocker not read`, state: "unread" }),
     },
     {
       id: "gpu",
@@ -182,7 +196,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
   if (read.installed)
     return {
       title: "Rental mode is installed",
-      line: "Going live restarts this PC into Swiff OS. Stop sharing and it comes back to Windows.",
+      line: "Switching into Swiff OS when you go live is a preview for now: Go live still shares from Windows.",
       ready,
       of: checks.length,
       bios,
