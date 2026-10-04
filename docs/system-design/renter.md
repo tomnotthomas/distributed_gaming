@@ -399,7 +399,9 @@ The page claims by itself (`followBooking` in the same helper, wired into the ga
 by `web/src/swiff/useSwiff.ts`): a picked machine right after its 202, with no click, and
 a queued booking the moment the match arrives, with a chime when the tab is out of sight.
 An open page is the renter being there, so the match is claimed whether the event stream
-pushes it or the slow poll that stands in while the stream is down finds it. While the
+pushes it or the slow poll that stands in while the stream is down finds it. A claim of
+that match lost to the network is tried again, waiting longer each time, until the
+reservation lapses (`claimBy`); one the server refuses is left. While the
 page is closed they are away, and nothing is claimed until they come back, within those 2
 minutes. The page books the server's
 own machines, from the ranked list it reads, and sends its round trip to the server (as

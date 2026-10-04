@@ -466,6 +466,39 @@ describe("useSwiff", () => {
       expect(result.current.bookingFailed).toBe(false);
     });
 
+    it("shows the failure note once a queued match's claim is lost for good", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("queued")),
+        "POST /api/bookings/b-1/claim": () => {
+          throw new TypeError("network down");
+        },
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("matched", Date.now() + 500)));
+      await waitFor(() => expect(result.current.bookingFailed).toBe(true));
+      render(createElement(GameMenu, { swiff: result.current }));
+      expect(screen.getByRole("alert").textContent).toBe("That didn't go through. Try again.");
+      expect(screen.queryByText(/A machine is free for you/)).toBeNull();
+    });
+
+    it("books the queue once for a double click", async () => {
+      const calls = serve(unnamed, LIVE, { "POST /api/bookings": json(202, booked("queued")) });
+      streams();
+      const result = await openLive();
+
+      act(() => {
+        result.current.joinQueue();
+        result.current.joinQueue();
+      });
+      await waitFor(() => expect(result.current.booking?.status).toBe("queued"));
+      expect(calls.filter((c) => c.call === "POST /api/bookings")).toHaveLength(1);
+    });
+
     it("tells the server when the renter leaves the queue", async () => {
       const calls = serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("queued")),

@@ -304,6 +304,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   gamesNow.current = games;
   // The booking being followed to its claim (booking.ts), and stopping that.
   const following = useRef<(() => void) | null>(null);
+  // A queue request on its way, so a second click books nothing more.
+  const queueing = useRef(false);
   const bookingNow = useRef(booking);
   bookingNow.current = booking;
   // Which launch is current, so one cancelled while its booking call was in
@@ -417,18 +419,23 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /** Queue for the open game: the server matches it, and the page claims the match by itself. */
   const joinQueue = useCallback(() => {
     // The demo's machines are invented: there is no queue to join for them.
-    if (demo || !game || !signedIn || following.current) return;
+    if (demo || !game || !signedIn || following.current || queueing.current) return;
+    queueing.current = true;
     track("queue_joined", { game: game.id });
     setTaken(null);
     setBookingFailed(false);
     const { controls, picture } = askOf(0, prefsNow.current);
-    book(game.appid, sessionMinutes(session), { ...rtts(), controls, picture }).then(
-      (queued) => {
-        setBooking(queued);
-        follow(queued);
-      },
-      () => setBookingFailed(true),
-    );
+    book(game.appid, sessionMinutes(session), { ...rtts(), controls, picture })
+      .then(
+        (queued) => {
+          setBooking(queued);
+          follow(queued);
+        },
+        () => setBookingFailed(true),
+      )
+      .finally(() => {
+        queueing.current = false;
+      });
   }, [demo, game, signedIn, session, follow]);
 
   /** Leave the queue, or hand back a machine matched and not yet claimed. */

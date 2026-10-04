@@ -447,6 +447,70 @@ describe("following a booking to its claim", () => {
     expect(failed).toHaveBeenCalledTimes(2);
   });
 
+  it("tries a match's claim again when the network loses it, and claims it", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("network down");
+        return new Response(JSON.stringify(TICKET), { status: 200 });
+      },
+    });
+    const failed = vi.fn();
+    const claimed: Claim[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: (c) => claimed.push(c), onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    expect(answers).toBe(2);
+    expect(claimed).toEqual([TICKET]);
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a lost claim once its reservation lapses, and says so", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        throw new TypeError("network down");
+      },
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60);
+    await new Promise((r) => setTimeout(r, 150));
+    const tries = server.made().filter((c) => c.endsWith("/claim")).length;
+    expect(tries).toBeGreaterThan(1);
+    expect(failed).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(tries);
+  });
+
+  it("stops trying a lost claim once the booking leaves its match", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        throw new TypeError("network down");
+      },
+    });
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {} },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 20 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await new Promise((r) => setTimeout(r, 5));
+    stream.push("expired");
+    await new Promise((r) => setTimeout(r, 80));
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
+  });
+
   it("leaves a reservation it could not claim, and claims the next match", async () => {
     let answers = 0;
     const server = routes({

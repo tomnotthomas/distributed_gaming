@@ -150,12 +150,13 @@ export async function bookMachine(
 
 /**
  * Claim the matched machine: the room and its join ticket, or null when the
- * booking cannot be claimed (409: its reservation lapsed, or it is over).
+ * server refuses it (4xx: its reservation lapsed, it is over, or it is not the
+ * renter's).
  */
 export async function claim(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
   const { fetch: get = fetch } = options;
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
-  if (response.status === 409) return null;
+  if (response.status >= 400 && response.status < 500) return null;
   if (!response.ok) throw new Error(`claim failed: ${response.status}`);
   return (await response.json()) as Claim;
 }
@@ -311,7 +312,7 @@ export type FollowHandlers = {
   onUpdate: (booking: Booking | null) => void;
   /** The machine was claimed: the room to join and its ticket. */
   onClaimed: (claim: Claim, booking: Booking) => void;
-  /** A claim the server failed to answer, or refused (409); the booking is still followed. */
+  /** A claim the server failed to answer by its deadline, or refused (4xx); the booking is still followed. */
   onClaimFailed?: () => void;
 };
 
@@ -320,7 +321,13 @@ export type FollowOptions = BookingOptions & {
   chime?: () => void;
   /** Whether the tab is out of sight. */
   hidden?: () => boolean;
+  /** The first wait before trying a claim the network lost again; it doubles each time. */
+  retryMs?: number;
 };
+
+/** The first wait before a lost claim is tried again, and the longest. */
+const CLAIM_RETRY_MS = 1_000;
+const CLAIM_RETRY_MAX_MS = 8_000;
 
 const tabHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
@@ -329,7 +336,10 @@ const tabHidden = () => typeof document !== "undefined" && document.visibilitySt
  * a booking already matched (a picked machine, just booked), and otherwise the
  * moment the match arrives, pushed down the stream or found by the slow poll,
  * chiming first when the tab is out of sight. Each reservation is claimed once;
- * one that cannot be claimed any more (409) is left, and following goes on.
+ * a match heard of while following whose claim the network loses is tried
+ * again, waiting longer each time, until its reservation lapses (claimBy) or
+ * the booking moves on. One the server refuses (4xx) is left, and following
+ * goes on.
  * Once claimed, the booking is forgotten and following stops. Returns stop().
  */
 export function followBooking(
@@ -337,21 +347,34 @@ export function followBooking(
   handlers: FollowHandlers,
   options: FollowOptions = {},
 ): () => void {
-  const { chime = defaultChime, hidden = tabHidden, storage = localStorage } = options;
+  const {
+    chime = defaultChime,
+    hidden = tabHidden,
+    storage = localStorage,
+    retryMs = CLAIM_RETRY_MS,
+  } = options;
   const bookingId = typeof first === "string" ? first : first.bookingId;
   let stopped = false;
   /** The reservation (by its claim deadline) claimed or being claimed. */
   let claiming: number | undefined;
+  /** The reservation the booking stands matched to now, if it does. */
+  let matchedTo: number | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
 
-  const tryClaim = async (booking: Booking) => {
-    if (claiming === booking.claimBy) return;
+  /** Claim `booking`'s reservation; a lost claim is tried again after `waitMs`, while there is time. */
+  const tryClaim = async (booking: Booking, waitMs: number | null) => {
     claiming = booking.claimBy;
     let claimed: Claim | null;
     try {
       claimed = await claim(bookingId, options);
     } catch {
+      if (stopped || claiming !== booking.claimBy) return;
+      if (waitMs !== null && matchedTo === booking.claimBy && Date.now() + waitMs < (matchedTo ?? 0)) {
+        retry = setTimeout(() => void tryClaim(booking, Math.min(waitMs * 2, CLAIM_RETRY_MAX_MS)), waitMs);
+        return;
+      }
       claiming = undefined;
-      if (!stopped) handlers.onClaimFailed?.();
+      handlers.onClaimFailed?.();
       return;
     }
     if (stopped) return;
@@ -369,16 +392,24 @@ export function followBooking(
     (booking) => {
       if (stopped) return;
       handlers.onUpdate(booking);
-      if (booking?.status !== "matched" || claiming === booking.claimBy) return;
+      if (booking?.status !== "matched") {
+        matchedTo = undefined;
+        clearTimeout(retry);
+        return;
+      }
+      matchedTo = booking.claimBy;
+      if (claiming === matchedTo) return;
+      clearTimeout(retry);
       if (hidden()) chime();
-      void tryClaim(booking);
+      void tryClaim(booking, retryMs);
     },
     options,
   );
   const stop = () => {
     stopped = true;
+    clearTimeout(retry);
     unwatch();
   };
-  if (typeof first !== "string" && first.status === "matched") void tryClaim(first);
+  if (typeof first !== "string" && first.status === "matched") void tryClaim(first, null);
   return stop;
 }

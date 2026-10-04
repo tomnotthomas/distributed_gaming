@@ -34,7 +34,9 @@ function ledgerCount(live: Machine[]): string {
 function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
   const { booking, taken, bookingFailed, phase } = swiff;
   const waiting =
-    booking && (booking.status === "queued" || booking.status === "matched") && phase === "idle";
+    booking &&
+    (booking.status === "queued" || (booking.status === "matched" && !bookingFailed)) &&
+    phase === "idle";
   if (waiting) {
     return (
       <div className="ledger-note" role="status">
