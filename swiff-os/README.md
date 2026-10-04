@@ -1,12 +1,15 @@
 # Swiff OS (rental mode)
 
-Rental mode is a separate, locked Linux system a host PC boots into while its owner
+Rental mode will be a separate, locked Linux system a host PC boots into while its owner
 shares it. Renters play there, never on the owner's Windows, and the PC restarts clean
 between renters. Steam runs with Proton in a gamescope session as an unprivileged
-renter user. The system runs from a dm-verity root, boots from a Swiff-signed Unified
-Kernel Image, and is measured into the TPM, so the server can check it before it sends
-a renter. The owner's Windows host app stays the control centre: "Start sharing" reboots
-the PC into rental mode, and it stays there while it is shared.
+renter user. The owner's Windows host app stays the control centre: "Start sharing"
+reboots the PC into rental mode, and it stays there while it is shared.
+
+The design is planned, not yet built: the system will run from a dm-verity root and boot
+from a Swiff-signed Unified Kernel Image, and TPM attestation is meant to let the server
+check the host before it sends a renter. Until those stages land, nothing here proves to
+the server that a PC is untouched.
 
 It is built in stages, each a small PR. This directory holds what is built so far:
 
