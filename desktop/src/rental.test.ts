@@ -120,6 +120,24 @@ describe("reading the PC", () => {
     const ok = await readRental({ platform: "win32", run: async () => JSON.stringify(FACTS), libraries: [] });
     expect(ok?.facts.secureBoot).toBe(true);
   });
+
+  it("finds the games drive from where Steam says it is installed, outside Program Files", async () => {
+    const files = {
+      readFileSync: (file: string) => {
+        if (!file.toLowerCase().startsWith("d:\\steam")) throw new Error("ENOENT");
+        return '"libraryfolders" { "0" { "path" "D:\\\\Steam" } }';
+      },
+      readdirSync: (dir: string) => (dir.startsWith("d:\\steam") ? ["appmanifest_730.acf"] : []),
+    };
+    const read = await readRental({
+      platform: "win32",
+      run: async () => JSON.stringify(FACTS),
+      steamPath: async () => "d:\\steam",
+      env: { "ProgramFiles(x86)": "C:\\Program Files (x86)", ProgramFiles: "C:\\Program Files" },
+      files,
+    });
+    expect(read?.games).toMatchObject({ letter: "D", games: 1 });
+  });
 });
 
 describe("where Swiff OS goes", () => {
@@ -209,6 +227,20 @@ describe("where Swiff OS goes", () => {
       { letter: "D", games: 2 },
     ]);
   });
+
+  it("counts Steam's own folder once when the registry and the library list spell it differently", () => {
+    const files = {
+      readFileSync: () =>
+        '"libraryfolders" { "0" { "path" "C:\\\\Program Files (x86)\\\\Steam" } "1" { "path" "D:\\\\SteamLibrary" } }',
+      readdirSync: (dir: string) =>
+        dir.startsWith("D:") ? ["appmanifest_730.acf", "appmanifest_570.acf"] : ["appmanifest_10.acf"],
+    };
+    const steamPath = "c:\\program files (x86)\\steam";
+    expect(libraryDrives({ platform: "win32", steamPath, env: {}, files })).toEqual([
+      { letter: "C", games: 1 },
+      { letter: "D", games: 2 },
+    ]);
+  });
 });
 
 describe("the install plan", () => {
@@ -293,6 +325,29 @@ describe("the install plan", () => {
       "partitions",
       "write",
       "boot-entry",
+    ]);
+  });
+
+  it("takes SWIFFGAMES off an old games drive before naming the new one, so only one volume has it", () => {
+    const d = {
+      letter: "D",
+      fs: "NTFS",
+      label: "SWIFFGAMES",
+      size: 500 * GiB,
+      free: 100 * GiB,
+      fixed: true,
+      bitlocker: 2,
+    };
+    const e = { ...d, letter: "E", label: "Games" };
+    const plan = installPlan(
+      pc((raw) => ({ ...raw, volumes: [...raw.volumes, d, e] }), [{ letter: "E", games: 9 }]),
+    );
+    expect(plan.steps.map((s) => s.id).slice(-2)).toEqual(["games-clear", "games"]);
+    const clear = plan.steps.find((s) => s.id === "games-clear")!;
+    expect(clear.ops).toEqual([{ op: "label", letter: "D", label: "" }]);
+    expect(clear.commands).toEqual(["Set-Volume -DriveLetter D -NewFileSystemLabel ''"]);
+    expect(plan.steps.find((s) => s.id === "games")!.ops).toEqual([
+      { op: "label", letter: "E", label: "SWIFFGAMES" },
     ]);
   });
 

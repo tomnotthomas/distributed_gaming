@@ -142,7 +142,11 @@ export function rentalOf(raw: unknown, libraries?: { letter: string; games: numb
 export function readRental(options?: {
   platform?: string;
   run?: (script: string) => Promise<string>;
+  steamPath?: () => Promise<string | null>;
   libraries?: { letter: string; games: number }[];
+  env?: Record<string, string | undefined>;
+  home?: string;
+  files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };
 }): Promise<RentalRead | null>;
 export function imageLayout(gpt: Gpt): LayoutPartition[];
 export function splitFile(split: string, version?: string): string;

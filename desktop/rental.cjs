@@ -20,7 +20,7 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { promisify } = require("node:util");
-const { findSteamRoot, libraryPaths } = require("./pc.cjs");
+const { findSteamRoot, libraryPaths, steamPathOnce } = require("./pc.cjs");
 
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -275,7 +275,11 @@ function libraryDrives({ steamPath = null, files = fs, ...options } = {}) {
     // No list: only Steam's own folder.
   }
   const drives = new Map();
-  for (const library of new Set([root, ...libraryPaths(vdf)])) {
+  const seen = new Set();
+  for (const library of [root, ...libraryPaths(vdf)]) {
+    const key = path.win32.normalize(library).replace(/\\+$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     const letter = /^([A-Z]):/i.exec(library)?.[1]?.toUpperCase();
     if (!letter) continue;
     let games = 0;
@@ -322,10 +326,20 @@ function rentalOf(raw, libraries = []) {
 }
 
 /** What rental mode needs from this PC, read fresh; null where it cannot be read (off Windows). */
-async function readRental({ platform = process.platform, run = powershell, libraries } = {}) {
+async function readRental({
+  platform = process.platform,
+  run = powershell,
+  steamPath = steamPathOnce,
+  libraries,
+  ...options
+} = {}) {
   if (platform !== "win32") return null;
   try {
-    return rentalOf(JSON.parse(await run(SCRIPT)), libraries ?? libraryDrives({ platform }));
+    const facts = JSON.parse(await run(SCRIPT));
+    return rentalOf(
+      facts,
+      libraries ?? libraryDrives({ platform, steamPath: await steamPath(), ...options }),
+    );
   } catch {
     return null;
   }
@@ -481,6 +495,17 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {})
       `New-Item -ItemType Directory -Force (Split-Path ${BOOT_ENTRY_FILE}) | Out-Null; Set-Content ${BOOT_ENTRY_FILE} $entry`,
     ],
   });
+  const stale = games
+    ? facts.volumes.filter((v) => v.label === GAMES_LABEL && v.letter !== games.letter)
+    : [];
+  if (stale.length) {
+    steps.push({
+      id: "games-clear",
+      title: `Take the name ${GAMES_LABEL} off ${stale.map((v) => `${v.letter}:`).join(", ")}, so only your games drive has it`,
+      ops: stale.map((v) => ({ op: "label", letter: v.letter, label: "" })),
+      commands: stale.map((v) => `Set-Volume -DriveLetter ${v.letter} -NewFileSystemLabel ''`),
+    });
+  }
   if (games && games.label !== GAMES_LABEL) {
     steps.push({
       id: "games",
