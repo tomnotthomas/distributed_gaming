@@ -11,6 +11,7 @@ import {
   QOS_GRACE_MS,
   QUEUE_TIMEOUT_MS,
   RESERVATION_MS,
+  RESET_HOLD_MS,
   RETRY_MS,
   TIME_UP_GRACE_MS,
   type BookingView,
@@ -1090,6 +1091,108 @@ describe("session end reasons", () => {
 
   it("is null while the session runs", async () => {
     assert.equal(await platform.sessionEndReason(await session()), null);
+  });
+});
+
+describe("the reset hold", () => {
+  /** A renter's claim on pc-1, made after its host last looked: the instant before its reset. */
+  const claimed = async () => {
+    await offer("pc-1");
+    const booking = await platform.book(730, 30);
+    const claim = await platform.claim(booking.bookingId);
+    assert.ok(claim.ok);
+    await platform.recordTicket(claim.sessionId, "ticket-1");
+    return { bookingId: booking.bookingId, sessionId: claim.sessionId };
+  };
+  const reset = (machineId = "pc-1") => platform.setAvailability(machineId, false, {}, { reset: true });
+
+  it("keeps a session claimed in the instant before the reset, and serves it once the PC is back", async () => {
+    const { bookingId, sessionId } = await claimed();
+
+    const view = await reset();
+    assert.equal(view.status, "in_session");
+    assert.deepEqual(view.session, { id: sessionId });
+    assert.equal(view.resetUntil, now + RESET_HOLD_MS);
+
+    // The PC restarts: silent, its socket gone, for most of the hold.
+    await platform.hostDisconnected("pc-1", true);
+    await advance(RESET_HOLD_MS - 1_000);
+    assert.equal(await platform.sessionEndReason(sessionId), null);
+    assert.equal((await platform.booking(bookingId))?.status, "claimed");
+    assert.equal(await platform.ticketRevoked("ticket-1"), false);
+
+    // Back: the heartbeat names the session, and serving it ends the hold.
+    const back = await platform.heartbeat("pc-1");
+    assert.deepEqual(back.session, { id: sessionId });
+    assert.ok(await platform.keySessions.add("pc-1", { sessionId, grantId: "g1" }));
+    assert.equal((await platform.heartbeat("pc-1")).resetUntil, undefined);
+    assert.ok(await platform.startSession("pc-1", sessionId));
+    assert.equal((await platform.booking(bookingId))?.status, "playing");
+
+    // Held no more: silence is the usual drop again.
+    await advance(LIVENESS_MS);
+    assert.equal(await platform.sessionEndReason(sessionId), "host_offline");
+  });
+
+  it("takes a machine nobody claimed off offer as taking it back, its match back to the queue", async () => {
+    await offer("pc-1");
+    const booking = await platform.book(730, 30);
+    assert.equal((await platform.booking(booking.bookingId))?.status, "matched");
+
+    const view = await reset();
+    assert.equal(view.status, "idle");
+    assert.equal(view.session, undefined);
+    assert.equal(view.resetUntil, undefined);
+    assert.equal((await platform.booking(booking.bookingId))?.status, "queued");
+
+    // Nothing is matched to it while it restarts; once offered again, it is.
+    await advance(30_000);
+    assert.equal((await platform.booking(booking.bookingId))?.status, "queued");
+    await offer("pc-1");
+    assert.equal((await platform.booking(booking.bookingId))?.status, "matched");
+  });
+
+  it("leaves the machine off offer when the held session ends before the PC is back", async () => {
+    const { sessionId } = await claimed();
+    await reset();
+    assert.equal(await platform.leaveSession(sessionId, "ticket-1"), "ok");
+    const next = await platform.book(730, 30);
+
+    // Nobody is matched to a PC still restarting.
+    assert.equal((await platform.heartbeat("pc-1")).status, "idle");
+    assert.equal((await platform.booking(next.bookingId))?.status, "queued");
+    await offer("pc-1");
+    assert.equal((await platform.booking(next.bookingId))?.status, "matched");
+  });
+
+  it("ends the held session as host_offline once the hold runs out on a PC that never came back", async () => {
+    const { sessionId } = await claimed();
+    await reset();
+    assert.equal(await platform.nextDeadline(), now + RESET_HOLD_MS);
+
+    await advance(RESET_HOLD_MS - 1);
+    assert.equal(await platform.sessionEndReason(sessionId), null);
+    await advance(1);
+    assert.equal(await platform.sessionEndReason(sessionId), "host_offline");
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+  });
+
+  it("still lets the owner take the machine back during the hold, ending the session as owner_kill", async () => {
+    const { sessionId } = await claimed();
+    await reset();
+    const view = await platform.setAvailability("pc-1", false);
+    assert.equal(view.status, "idle");
+    assert.equal(await platform.sessionEndReason(sessionId), "owner_kill");
+  });
+
+  it("is not held without reset: taking the machine back ends a claimed session as before", async () => {
+    const { sessionId } = await claimed();
+    const view = await platform.setAvailability("pc-1", false);
+    assert.equal(view.status, "idle");
+    assert.equal(view.resetUntil, undefined);
+    assert.equal(await platform.sessionEndReason(sessionId), "owner_kill");
+    assert.equal(await platform.ticketRevoked("ticket-1"), true);
   });
 });
 

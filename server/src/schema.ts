@@ -170,6 +170,12 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       updated_at            BIGINT NOT NULL
     )`,
   ],
+  [
+    // A rental-mode PC restarting between renters with a session claimed in
+    // the instant before (platform.ts, the reset hold): until when its silence
+    // does not end that session. Null when no reset is held.
+    `ALTER TABLE machines ADD COLUMN reset_until BIGINT`,
+  ],
 ];
 
 /**
