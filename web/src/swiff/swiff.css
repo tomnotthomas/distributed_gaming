@@ -1499,19 +1499,26 @@ button.band-tab:hover {
   fill: var(--on-paper-2);
   font: 400 11px var(--mono);
 }
-/* Steam's sign-in code, in the dial's place until the renter approves it */
+/* Steam's sign-in code, in the dial's place until the renter approves it. It
+   never shrinks under its copy (that would run it into the legend); the code
+   scales with the screen's height instead, and a hairline ring sets it in the
+   paper like the dial's. */
 .ig-qr {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 40px;
   margin: 24px 0;
 }
 .ig-qr-code {
   flex: none;
-  width: clamp(180px, 16vw, 260px);
+  width: clamp(160px, min(18vw, 34vh), 280px);
   height: auto;
+  outline: 1px solid var(--pline-2);
+  outline-offset: 8px;
+}
+.ig-qr-copy {
+  max-width: 36ch;
 }
 .ig-qr-copy h2 {
   margin: 0 0 10px;
@@ -2580,7 +2587,8 @@ button.band-tab:hover {
 
   .ignition {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 34vh minmax(0, 1fr);
+    /* the paper grows to its content (the sign-in code runs taller than the dial) */
+    grid-template-rows: 34vh minmax(min-content, 1fr);
     overflow-y: auto;
   }
   .ig-wm {
@@ -2614,7 +2622,7 @@ button.band-tab:hover {
   .ig-qr {
     flex-direction: column;
     align-items: flex-start;
-    gap: 20px;
+    gap: 28px;
   }
   .ig-dial {
     min-height: 260px;
