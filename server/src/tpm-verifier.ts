@@ -56,7 +56,9 @@
 //                                  the same new values have been seen for
 //                                  FIRMWARE_COOLDOWN_SECONDS, and then becomes the
 //                                  machine's. After the EK is registered again,
-//                                  even unchanged firmware waits out the cooldown
+//                                  even unchanged firmware waits out the cooldown.
+//                                  A boot with Secure Boot off never moves this
+//                                  trust: no first use, no cooldown
 //  15. counter-rollback / replayed-quote
 //                                  the TPM's resetCount, restartCount and clock
 //                                  never go back from the last accepted quote
@@ -243,6 +245,7 @@ export type SecurityEvent =
       machine: string;
       baseline: Record<string, string> | null;
       presented: Record<string, string>;
+      secureBoot: boolean;
     }
   | {
       event: "firmware-accepted";
@@ -515,17 +518,20 @@ export function tpmVerifier({
         }
 
         // 14. The firmware it first attested with, or a change that has cooled
-        // down; after the EK was registered again, any firmware cools down.
+        // down; after the EK was registered again, any firmware cools down. A
+        // boot with Secure Boot off is held to the baseline and changes nothing.
         const firmware = Object.fromEntries(
           FIRMWARE_PCRS.map((pcr) => [pcr, pcrs.get(pcr)!.toString("hex")]),
         );
         const sameFirmware = (other: Record<string, string>) =>
           FIRMWARE_PCRS.every((pcr) => other[pcr] === firmware[pcr]);
+        const trusted = boot.uefi && boot.secureBoot;
         const next: MachineRecord = { ...record!, pendingFirmware: null, reenrolledAt: null };
         let cooledDown = false;
         if (!record!.reenrolledAt && (!record!.firmware || sameFirmware(record!.firmware))) {
-          next.firmware = firmware;
+          if (trusted) next.firmware = firmware;
         } else if (
+          trusted &&
           record!.pendingFirmware &&
           sameFirmware(record!.pendingFirmware.pcrs) &&
           now - Math.max(record!.pendingFirmware.since, record!.reenrolledAt ?? 0) >=
@@ -534,7 +540,7 @@ export function tpmVerifier({
           next.firmware = firmware;
           cooledDown = true;
         } else {
-          if (!record!.pendingFirmware || !sameFirmware(record!.pendingFirmware.pcrs)) {
+          if (trusted && (!record!.pendingFirmware || !sameFirmware(record!.pendingFirmware.pcrs))) {
             await store.put(room, { ...record!, pendingFirmware: { pcrs: firmware, since: now } });
           }
           securityLog({
@@ -542,6 +548,7 @@ export function tpmVerifier({
             machine: room,
             baseline: record!.firmware,
             presented: firmware,
+            secureBoot: trusted,
           });
           return refuse("firmware-changed");
         }
@@ -572,7 +579,7 @@ export function tpmVerifier({
           ok: true,
           facts: {
             uefi: boot.uefi,
-            secureBoot: boot.uefi && boot.secureBoot,
+            secureBoot: trusted,
             tpm: ek.kind,
             ekCertificate: true,
             iommu: release.iommu && !boot.dmaProtectionDisabled,

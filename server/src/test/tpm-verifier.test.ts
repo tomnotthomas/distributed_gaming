@@ -106,33 +106,50 @@ function flip(base64: string, at: number): string {
   return bytes.toString("base64");
 }
 
+type LoggedEvent = { pcr: number; type: number; sha256: Buffer; data: Buffer };
+
 /**
- * The event log `base64` written again with `type` claimed for every event
- * `match` picks: the digests stay, so it still replays to the quoted PCRs.
- * Fixture logs carry SHA-1 and SHA-256 digests.
+ * The event log `base64` written again with the one event `match` picks given
+ * the type and data `edit` returns: the digests stay, so it still replays to the
+ * quoted PCRs. Fixture logs carry SHA-1 and SHA-256 digests.
  */
-function relabel(
+function rewrite(
   base64: string,
-  match: (event: { pcr: number; type: number; sha256: Buffer; data: Buffer }) => boolean,
-  type: number,
+  match: (event: LoggedEvent) => boolean,
+  edit: (event: LoggedEvent) => { type: number; data: Buffer },
 ): string {
   const log = Buffer.from(base64, "base64");
+  const parts: Buffer[] = [];
   let at = 32 + log.readUInt32LE(28);
-  let relabelled = 0;
+  parts.push(log.subarray(0, at));
+  let rewritten = 0;
   while (at < log.length) {
-    const pcr = log.readUInt32LE(at);
-    const sha256 = log.subarray(at + 12 + 2 + 20 + 2, at + 12 + 2 + 20 + 2 + 32);
-    const size = log.readUInt32LE(at + 12 + 2 + 20 + 2 + 32);
-    const data = log.subarray(at + 12 + 2 + 20 + 2 + 32 + 4, at + 12 + 2 + 20 + 2 + 32 + 4 + size);
-    if (match({ pcr, type: log.readUInt32LE(at + 4), sha256, data })) {
-      log.writeUInt32LE(type, at + 4);
-      relabelled++;
+    const head = Buffer.from(log.subarray(at, at + 12 + 2 + 20 + 2 + 32));
+    const size = log.readUInt32LE(at + head.length);
+    const event = {
+      pcr: head.readUInt32LE(0),
+      type: head.readUInt32LE(4),
+      sha256: head.subarray(12 + 2 + 20 + 2),
+      data: log.subarray(at + head.length + 4, at + head.length + 4 + size),
+    };
+    let { type, data }: { type: number; data: Buffer } = event;
+    if (match(event)) {
+      ({ type, data } = edit(event));
+      rewritten++;
     }
-    at += 12 + 2 + 20 + 2 + 32 + 4 + size;
+    head.writeUInt32LE(type, 4);
+    const length = Buffer.alloc(4);
+    length.writeUInt32LE(data.length);
+    parts.push(head, length, data);
+    at += head.length + 4 + size;
   }
-  assert.equal(relabelled, 1, "relabels one event");
-  return log.toString("base64");
+  assert.equal(rewritten, 1, "rewrites one event");
+  return Buffer.concat(parts).toString("base64");
 }
+
+/** The event log `base64` with `type` claimed for the one event `match` picks. */
+const relabel = (base64: string, match: (event: LoggedEvent) => boolean, type: number) =>
+  rewrite(base64, match, ({ data }) => ({ type, data }));
 const EV_POST_CODE = 0x00000001;
 const EV_EFI_ACTION = 0x80000007;
 const EV_EFI_VARIABLE_DRIVER_CONFIG = 0x80000001;
@@ -516,6 +533,31 @@ describe("Secure Boot in PCR 7", () => {
     ]);
   });
 
+  it("refuses an empty platform key the log re-wraps as the value of a PK whose value is its digest's", async () => {
+    const events: SecurityEvent[] = [];
+    const verifier = await verifierFor("pc-rsa", { securityLog: (event) => events.push(event) });
+    const { eventLog } = recorded("pc-rsa", "setup-mode").evidence;
+    const pk = Buffer.from("PK", "utf16le");
+    const emptyPk = (event: LoggedEvent) =>
+      event.pcr === 7 &&
+      event.type === EV_EFI_VARIABLE_DRIVER_CONFIG &&
+      event.data.length === 32 + pk.length &&
+      event.data.subarray(32).equals(pk);
+    const lie = rewrite(eventLog, emptyPk, ({ type, data }) => {
+      const sizes = Buffer.alloc(16);
+      sizes.writeBigUInt64LE(BigInt(pk.length / 2), 0);
+      sizes.writeBigUInt64LE(BigInt(data.length), 8);
+      return { type, data: Buffer.concat([data.subarray(0, 16), sizes, pk, data]) };
+    });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "setup-mode", { evidence: { eventLog: lie } }), {
+      ok: false,
+      reason: "secure-boot-untrusted",
+    });
+    assert.deepEqual(events, [
+      { event: "secure-boot-untrusted", machine: "pc-rsa", configured: false, unknownAuthorities: [] },
+    ]);
+  });
+
   it("takes only the authorities the release lists: shim's vendor certificate among them", async () => {
     const [microsoft] = fixture.release.secureBootAuthorities;
     const verifier = await verifierFor("pc-rsa", {
@@ -556,7 +598,7 @@ describe("firmware trust on first use", () => {
     assert.ok(cooled.ok);
     const presented = (await store.get("pc-rsa"))!.firmware!;
     assert.notDeepEqual(presented, baseline);
-    const changed = { event: "firmware-changed", machine: "pc-rsa", baseline, presented };
+    const changed = { event: "firmware-changed", machine: "pc-rsa", baseline, presented, secureBoot: true };
     assert.deepEqual(events, [
       changed,
       changed,
@@ -577,6 +619,37 @@ describe("firmware trust on first use", () => {
     // The machine's own firmware again clears nothing it has not earned.
     assert.ok((await judge(verifier, "pc-rsa", "secure-boot-off")).ok);
     assert.equal((await store.get("pc-rsa"))?.pendingFirmware, null);
+  });
+
+  it("never takes firmware from a boot with Secure Boot off, first or changed, however long it waits", async () => {
+    const events: SecurityEvent[] = [];
+    const store = memoryStore();
+    const verifier = await verifierFor("pc-rsa", { store, securityLog: (event) => events.push(event) });
+    const off = await judge(verifier, "pc-rsa", "secure-boot-off");
+    assert.ok(off.ok);
+    assert.equal(off.facts.secureBoot, false);
+    assert.equal((await store.get("pc-rsa"))?.firmware, null);
+
+    const other = memoryStore();
+    const held = await verifierFor("pc-rsa", { store: other, securityLog: (event) => events.push(event) });
+    assert.ok((await judge(held, "pc-rsa", "firmware-v2")).ok);
+    const baseline = (await other.get("pc-rsa"))!.firmware!;
+    const changed = { reason: "firmware-changed", ok: false };
+    assert.deepEqual(await judge(held, "pc-rsa", "secure-boot-off"), changed);
+    const muchLater = { now: NOW + 2 * FIRMWARE_COOLDOWN_SECONDS * 1000 };
+    assert.deepEqual(await judge(held, "pc-rsa", "secure-boot-off", muchLater), changed);
+    const record = await other.get("pc-rsa");
+    assert.deepEqual(record?.firmware, baseline);
+    assert.equal(record?.pendingFirmware, null);
+    assert.deepEqual(
+      events.map((event) =>
+        event.event === "firmware-changed" ? [event.baseline, event.secureBoot] : event,
+      ),
+      [
+        [baseline, false],
+        [baseline, false],
+      ],
+    );
   });
 
   const enroll = (verifier: Awaited<ReturnType<typeof verifierFor>>, room: Room, now = NOW) =>

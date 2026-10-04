@@ -131,8 +131,9 @@ export type BootFacts = {
   secureBoot: boolean;
   /**
    * PCR 7 measured SecureBoot, PK, KEK, db and dbx, each once, before its
-   * separator and with data its digest binds, and a platform key: the firmware
-   * was not in setup mode, where anyone may enroll keys.
+   * separator and with data its digest binds, and a platform key whose whole
+   * UEFI_VARIABLE_DATA its digest binds: the firmware was not in setup mode,
+   * where anyone may enroll keys.
    */
   secureBootConfigured: boolean;
   /**
@@ -182,7 +183,8 @@ export function bootFacts(log: EventLog): BootFacts {
     const variable =
       event.type === EV.EFI_VARIABLE_DRIVER_CONFIG && !separated ? readVariable(event.data) : null;
     // The profile hashes the whole UEFI_VARIABLE_DATA; some firmware hashes
-    // only the value. Either binds the data to what was extended.
+    // only the value. Either binds the value, but only the whole binds an empty
+    // PK's length, so a platform key needs it.
     if (
       variable &&
       SECURE_BOOT_VARIABLES.get(variable.name)?.equals(variable.guid) &&
@@ -191,7 +193,7 @@ export function bootFacts(log: EventLog): BootFacts {
     ) {
       measured.add(variable.name);
       if (variable.name === "SecureBoot") secureBoot = variable.value.length === 1 && variable.value[0] === 1;
-      if (variable.name === "PK") platformKey = variable.value.length > 0;
+      if (variable.name === "PK") platformKey = bound && variable.value.length > 0;
       continue;
     }
     secureBootAuthorities.push(event.sha256);
