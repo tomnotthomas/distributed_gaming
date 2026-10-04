@@ -12,6 +12,7 @@
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
+//   POST /api/sessions/:id/start (ticket)
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
@@ -35,8 +36,9 @@
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
-// The renter's page reports stream quality, and says it is leaving, with that
-// ticket as its bearer.
+// The renter's page starts the session on its first frame, reports stream
+// quality, and says it is leaving, with that ticket as its bearer. Starting it
+// is what tells the PC to launch the game.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -93,6 +95,8 @@ export type ApiOptions = {
   discovery?: RequestBudget;
   /** Whether a game is free to play, so anyone may book it. Defaults to Steam's store data (licence.ts). */
   isFree?: FreeToPlay;
+  /** The renter's page started session `sessionId` on `machineId`: the PC launches `gameId`. */
+  onRenterStarted?: (machineId: string, sessionId: string, gameId: number) => void;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -189,9 +193,14 @@ function qosReport(body: Json): QosReport {
  * it is at join: 401 when missing, forged or expired.
  */
 function requireTicket(req: IncomingMessage, access: Access) {
-  const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
+  const ticket = ticketOf(req, access);
   if (!ticket) throw new HttpError(401, "bad ticket");
   return ticket;
+}
+
+/** The join ticket the request carries as its bearer, or null when it carries none that verifies. */
+function ticketOf(req: IncomingMessage, access: Access) {
+  return access.secret ? verifyTicket(access.secret, bearer(req)) : null;
 }
 
 /** The HTTP answer for a renter call the platform refused. */
@@ -304,6 +313,7 @@ export function createApi({
   events,
   discovery = new RequestBudget(),
   isFree = storeFreeToPlay(),
+  onRenterStarted,
 }: ApiOptions) {
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
@@ -590,6 +600,18 @@ export function createApi({
         },
         HOST_CORS,
       );
+      return true;
+    }
+
+    // The renter's first frame: started with the join ticket rather than the
+    // machine key, and the PC launches the game.
+    const ticket =
+      resource === "sessions" && action === "start" && method === "POST" && ticketOf(req, access);
+    if (ticket && id) {
+      const started = await platform.renterStarted(id, ticket.id);
+      if (typeof started === "string") throw renterRefusal(started);
+      onRenterStarted?.(started.machineId, id, started.gameId);
+      reply(res, 200, { sessionId: id, roomId: started.machineId });
       return true;
     }
 

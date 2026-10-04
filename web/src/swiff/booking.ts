@@ -27,6 +27,9 @@
 // to play (server/src/licence.ts). It refuses anything else with 403 and a
 // code, which reaches the page as a Refusal: BookingRefused from a booking
 // call, and onClaimFailed's argument from a claim.
+//
+// A claimed booking is kept as the one being played, with its room and ticket,
+// for the later resume step until it is ended.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
@@ -97,6 +100,8 @@ export type BookMachineResult =
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
+/** The claimed booking being played, with its room and ticket, for a reload to rejoin. */
+const PLAY_KEY = "swiff.play";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
 const SLOW_POLL_MS = 5_000;
 /** The heartbeat while the stream is open: well inside the two minutes. */
@@ -221,6 +226,7 @@ export async function endBooking(bookingId: string, options: BookingOptions = {}
   const { storage = localStorage, fetch: get = fetch } = options;
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/end`);
   if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+  if (storedPlay(storage)?.bookingId === bookingId) storage.removeItem(PLAY_KEY);
   if (response.status === 409 || response.status === 404) return null;
   if (!response.ok) throw new Error(`ending failed: ${response.status}`);
   return (await response.json()) as Booking;
@@ -343,6 +349,19 @@ export function watchBooking(
   return stop;
 }
 
+/** A claimed booking being played: the booking, and the room and ticket its claim handed out. */
+export type StoredPlay = { bookingId: string; claim: Claim };
+
+/** The claimed booking this browser is playing, kept so a reload can rejoin it; null when there is none. */
+export function storedPlay(storage: Storage = localStorage): StoredPlay | null {
+  try {
+    const play = JSON.parse(storage.getItem(PLAY_KEY) ?? "null") as StoredPlay | null;
+    return typeof play?.bookingId === "string" && typeof play.claim?.ticket === "string" ? play : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The booking this browser made and kept, if any, for a page load to pick up. */
 export function storedBookingId(storage: Storage = localStorage): string | null {
   return storage.getItem(KEY);
@@ -398,7 +417,8 @@ const tabHidden = () => typeof document !== "undefined" && document.visibilitySt
  * `claimed`, or the stream reporting it claimed) holds the machine with no
  * ticket to join it: that booking is ended, handing the machine back, and
  * following stops.
- * Once claimed, the booking is forgotten and following stops. Returns stop().
+ * Once claimed, the booking is forgotten as a booking to follow, kept as the
+ * one being played (storedPlay), and following stops. Returns stop().
  */
 export function followBooking(
   first: Booking | string,
@@ -466,6 +486,7 @@ export function followBooking(
     const claimed = answer.claim;
     stop();
     if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+    storage.setItem(PLAY_KEY, JSON.stringify({ bookingId, claim: claimed } satisfies StoredPlay));
     handlers.onClaimed(claimed, { ...booking, status: "claimed", sessionId: claimed.sessionId });
   };
 
