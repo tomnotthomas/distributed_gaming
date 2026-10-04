@@ -136,15 +136,17 @@ say INFO netguard "$(nft list set inet swiff gateway4 | grep elements) / $(nft l
 # 10.0.2.100:80 a LAN service run-test.sh forwards to the host, and
 # 2001:db8:1::2 the host's address in the on-link global IPv6 prefix. The
 # firewall refuses with ICMP admin-prohibited, which connect() reports as
-# "No route to host"; an unblocked 10.0.2.2:80 would answer "Connection
-# refused" (nothing listens there) and 10.0.2.100:80 would answer.
+# "No route to host" (ICMPv6 admin-prohibited: "Permission denied"); an
+# unblocked 10.0.2.2:80 would answer "Connection refused" (nothing listens
+# there) and 10.0.2.100:80 would answer.
 blocked='No route to host'
+blocked6='Permission denied'
 lan=$(tcp_read 10.0.2.100 80)
 check lan-host-blocked "10.0.2.100:80 -> $lan" grep -q "$blocked" <<< "$lan"
 gw=$(tcp_connect 10.0.2.2 80)
 check gateway-admin-blocked "10.0.2.2:80 -> $gw" grep -q "$blocked" <<< "$gw"
 v6=$(tcp_connect 2001:db8:1::2 80)
-check lan-onlink-ipv6-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked" <<< "$v6"
+check lan-onlink-ipv6-blocked "[2001:db8:1::2]:80 -> $v6" grep -q "$blocked6" <<< "$v6"
 for target in 192.168.1.1 172.16.0.1 169.254.169.254; do
 	r=$(tcp_connect $target 80)
 	check "lan-$target-blocked" "$r" grep -q "$blocked" <<< "$r"
