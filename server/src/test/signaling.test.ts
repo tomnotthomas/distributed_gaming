@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
@@ -444,6 +444,12 @@ describe("host sessions", () => {
       ws.once("close", (code) => resolve(code));
     });
 
+  // The platform matches the oldest queued booking first, whatever room it was
+  // made for: one a failed claim left queued would take the next test's
+  // machine, and fail that test's claim too. Let it go, so a failure stays the
+  // test's own.
+  afterEach(() => database.exec("UPDATE bookings SET status = 'expired' WHERE status = 'queued'"));
+
   /** One JSON call to the server as the signed-in renter, with the machine key as bearer when given one. */
   async function call(method: string, path: string, body?: unknown, key?: string) {
     const res = await fetch(`${HTTP}${path}`, {
@@ -791,14 +797,27 @@ describe("host sessions", () => {
   it("pushes the claim again when the machine key registers with no host session live", async () => {
     const room = nextRoom();
     const claimsOf = (ws: RecordingSocket) => ws.received.filter((m) => m.type === "session-claimed");
+    // A renter waits in the room throughout: the server tells it peer-left as
+    // it handles a seated PC socket's close, which is when it tells the
+    // platform the PC is gone.
+    const renter = await open();
+    send(renter, join(room));
+    await handled(renter);
+    const departures = () => types(renter).filter((type) => type === "peer-left").length;
     const machine = async () => {
       const ws = await open();
       send(ws, register(room));
       await handled(ws);
-      // Gone before the test goes on: a close the server hears late takes the next offer offline.
-      const gone = closed(ws);
+      const seated = types(ws).includes("registered");
+      const left = departures() + 1;
       ws.close();
-      await gone;
+      // Gone before the test goes on: a close the server handles late takes the
+      // next offer offline. This side seeing the socket closed is not enough, as
+      // the server may still take a request sent after that first.
+      if (seated) {
+        for (const end = Date.now() + 10_000; departures() < left && Date.now() < end;) await wait(5);
+        assert.equal(departures(), left, "the server handled the PC's close");
+      }
       return ws;
     };
 
@@ -815,6 +834,7 @@ describe("host sessions", () => {
 
     await api(room, "DELETE");
     assert.deepEqual(claimsOf(await machine()), claimed, "the host session was ended, the claim runs on");
+    renter.close();
   });
 
   it("starts a session only for the machine's own claimed session", async () => {
