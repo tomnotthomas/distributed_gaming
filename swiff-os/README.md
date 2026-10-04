@@ -298,7 +298,3 @@ PipeWire to the encoder), gamescope's headless or virtual-output mode taking uin
 devices, the time from Play to first frame, Steam Input taking the virtual controllers,
 controller rumble (force feedback back to the renter), and werift's CPU cost at 10–20
 Mbit/s.
-
-**Follow-up (image).** Harden below the streamer too: mask `ctrl-alt-del.target` and keep
-the virtual consoles off, so no key combination reaches them even if one gets past the
-sink.
