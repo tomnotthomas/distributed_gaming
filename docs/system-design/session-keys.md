@@ -174,16 +174,29 @@ two credentials (`server/src/attestation.ts`):
   an explicit `unattested` tier, so the desktop host app works exactly as described above.
 - `required`: only a host certificate hosts. A machine-key `register` is refused with
   `denied attestation-required`, and a hosting call made with it answers
-  `403 attestation-required`. Its control rights are unchanged. An unrecognised value counts
-  as `required`.
+  `403 attestation-required`. Its control rights are unchanged. A free machine is offered
+  and matched only while a socket that may host it is open: the machine key's availability
+  and heartbeats keep its terms and its liveness, but never put it on the market alone. An
+  unrecognised value counts as `required`.
 
 A host certificate is a token the server signs with `ROOM_SECRET` under its own domain,
-naming one room, its tier and an expiry ten minutes away. Like a session key, it is checked
-when a socket registers and when a session starts, not while a socket stays open. So
-`swiff-hostd` attests again before every session start. It is the PC service's credential,
-exactly where the machine key was: refused with `session-active` while a session is live,
-and never handed to the streamer. A certificate for a machine no longer in `MACHINE_KEYS`
-hosts nothing.
+naming one room, its tier, an id of its own and an expiry ten minutes away. It is the PC
+service's credential, exactly where the machine key was: refused with `session-active` while
+a session is live, and never handed to the streamer. A certificate for a machine no longer
+in `MACHINE_KEYS` hosts nothing. Two rules make `swiff-hostd` attest again:
+
+- **One session start per certificate.** Starting a host session spends it. A spent
+  certificate is refused for another start (`401 bad-host-cert`) and for `register`
+  (`denied bad-host-cert`); it may still report that session's renter in, heartbeat and end
+  it. So the machine attests again after every session, before it can be offered again.
+- **Expiry puts the socket out.** A socket registered with a certificate is put out with
+  `denied bad-host-cert` when the certificate expires, so it never hears a claim on an
+  expired one; `swiff-hostd` attests again and registers anew, at least every ten minutes
+  while it waits for a renter.
+
+Spent certificates are kept in memory until they expire. A server restart forgets them, so a
+certificate spent just before a restart could start one more session within what is left of
+its ten minutes.
 
 ### Attestation
 
@@ -215,17 +228,15 @@ setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an 
 firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-discrete-tpm`
 tier. The tier is carried in the certificate, for matching to use later.
 
-Not yet: revoking a certificate before it expires, the disk-key share
-(`POST /machines/:id/state-key`), and keeping a machine off the market while it has no
-attested socket. With `required`, a machine-key heartbeat still keeps a machine offered,
-though nothing can serve its claims.
+Not yet: revoking a certificate before it expires, and the disk-key share
+(`POST /machines/:id/state-key`).
 
 ## Lifetimes
 
 | Thing            | Lifetime                                                                                                                                               |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session key      | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
-| Host certificate | 10 minutes from attestation (`HOST_CERT_TTL_SECONDS`). Checked when registering and when starting a session.                                           |
+| Host certificate | 10 minutes from attestation (`HOST_CERT_TTL_SECONDS`), and one session start. A socket registered with it is put out when it expires.                  |
 | Session          | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
 | Everything       | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
 

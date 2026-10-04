@@ -1533,6 +1533,44 @@ describe("presence", () => {
   });
 });
 
+describe("offered only while present (hosting requires attestation)", () => {
+  beforeEach(() => openPlatform({ offeredOnlyWhilePresent: true }));
+
+  it("offers and matches a machine only while a socket that may host it is open", async () => {
+    // The owner's machine key offers it and keeps it answering: not enough.
+    await offer("pc-1");
+    await platform.heartbeat("pc-1");
+    const offered = async () => (await platform.offeredMachines()).machines.map((m) => m.host.id);
+    assert.deepEqual(await offered(), []);
+    const booking = await platform.book(730, 30, "steam:1");
+    assert.equal(booking.status, "queued");
+    assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:2"), null);
+
+    // The attested socket registers: on offer, and the waiting booking matches.
+    await platform.hostConnected("pc-1");
+    assert.equal((await platform.booking(booking.bookingId, "steam:1"))!.status, "matched");
+    assert.deepEqual(await offered(), ["pc-1"]);
+  });
+
+  it("takes a free machine off the market when its socket goes, whatever its heartbeats say", async () => {
+    const changes = mock.fn();
+    await openPlatform({ offeredOnlyWhilePresent: true, onAvailabilityChanged: changes });
+    await offer("pc-1");
+    const before = changes.mock.callCount();
+    await platform.hostConnected("pc-1");
+    assert.equal(changes.mock.callCount(), before + 1, "renters hear it come on offer");
+    assert.deepEqual(
+      (await platform.offeredMachines()).machines.map((m) => m.host.id),
+      ["pc-1"],
+    );
+    await platform.hostDisconnected("pc-1", false);
+    await platform.heartbeat("pc-1");
+    assert.deepEqual((await platform.offeredMachines()).machines, []);
+    assert.equal((await platform.book(730, 30, "steam:1")).status, "queued");
+    assert.ok(changes.mock.callCount() >= before + 2, "renters hear it go");
+  });
+});
+
 describe("presence and uptime", () => {
   const uptime = async () => {
     const { stats } = await platform.stability("pc-1");

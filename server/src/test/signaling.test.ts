@@ -659,7 +659,8 @@ describe("host sessions", () => {
 
     const early = await open();
     const refused = closed(early);
-    send(early, { type: "register", hostId: room, hostCert });
+    // A fresh certificate: the one that started the session is spent.
+    send(early, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 600) });
     assert.equal(await refused, 4003);
     assert.deepEqual(denial(early), { type: "denied", reason: "session-active" });
     assert.equal((await api(room, "DELETE")).status, 204, "the machine key still ends it");

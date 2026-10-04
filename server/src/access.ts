@@ -235,6 +235,8 @@ export type HostCert = {
   room: string;
   /** What attestation found the machine to be. Never "unattested": that is the machine key's tier. */
   tier: Exclude<HostingTier, "unattested">;
+  /** Unique per certificate. Starting a host session spends it (attestation.ts). */
+  id: string;
   /** Unix seconds after which the certificate hosts nothing. */
   exp: number;
 };
@@ -242,7 +244,7 @@ export type HostCert = {
 const ATTESTED_TIERS: readonly string[] = ["attested", "attested-discrete-tpm"];
 
 /**
- * Mint a signed host certificate for `room` at `tier`.
+ * Mint a signed host certificate for `room` at `tier`, with a random id.
  * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
  */
 export function mintHostCert(
@@ -252,7 +254,12 @@ export function mintHostCert(
   ttlSeconds: number,
   now = Date.now(),
 ): string {
-  const cert: HostCert = { room, tier, exp: Math.floor(now / 1000) + ttlSeconds };
+  const cert: HostCert = {
+    room,
+    tier,
+    id: b64url(randomBytes(16)),
+    exp: Math.floor(now / 1000) + ttlSeconds,
+  };
   return seal(secret, cert, "host");
 }
 
@@ -266,8 +273,9 @@ export function verifyHostCert(secret: string, token: unknown, now = Date.now())
   if (!cert) return null;
   if (typeof cert.room !== "string" || !cert.room) return null;
   if (typeof cert.tier !== "string" || !ATTESTED_TIERS.includes(cert.tier)) return null;
+  if (typeof cert.id !== "string" || !cert.id) return null;
   if (typeof cert.exp !== "number" || cert.exp * 1000 <= now) return null;
-  return { room: cert.room, tier: cert.tier as HostCert["tier"], exp: cert.exp };
+  return { room: cert.room, tier: cert.tier as HostCert["tier"], id: cert.id, exp: cert.exp };
 }
 
 export type AttestChallenge = {

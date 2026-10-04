@@ -110,6 +110,9 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 const platform = await Platform.open({
   database: openDatabase(process.env.DATABASE_URL),
   owners: access.owners,
+  // Attested-only: a machine is on the market only while a socket that may
+  // host it is open, never on its machine key's heartbeat alone.
+  offeredOnlyWhilePresent: attestationConfig.attestedOnly,
   onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
@@ -186,6 +189,10 @@ type PeerSocket = WebSocket & {
   sessionId: string | null;
   /** How far the PC service's socket may be trusted to host; null for a streamer or a renter. */
   tier: HostingTier | null;
+  /** When the host certificate it registered with expires (Unix s); null for any other credential. */
+  certExp: number | null;
+  /** Puts the socket out when its host certificate expires. */
+  certTimer: ReturnType<typeof setTimeout> | null;
   missedBeats: number;
   /** This socket's frames and its close, handled one at a time in the order they came. */
   turn: Promise<void>;
@@ -358,7 +365,8 @@ function evictStreamer(hostId: string, sessionId: string): void {
  */
 function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
   const host = rooms.get(hostId)?.host;
-  if (host?.sessionId === null && host.tier !== null) {
+  const certValid = host?.certExp == null || host.certExp * 1000 > Date.now();
+  if (host?.sessionId === null && host.tier !== null && certValid) {
     send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
   }
 }
@@ -460,6 +468,11 @@ async function answerSession(
     json(res, 403, { error: "attestation-required" });
     return;
   }
+  // A host certificate starts one session: the machine attests again for the next.
+  if (credential.kind === "host-cert" && credential.spent) {
+    json(res, 401, { error: "bad-host-cert" });
+    return;
+  }
   let sessionId: unknown;
   try {
     ({ sessionId } = await readJson(req));
@@ -477,6 +490,11 @@ async function answerSession(
   // The platform's store refuses it too should the session end before it is added.
   if ((await platform.claimedSession(hostId))?.sessionId !== sessionId) {
     json(res, 409, { error: "not-claimed" });
+    return;
+  }
+  // Spent before the start, so two starts racing on one certificate get one session.
+  if (!attestation.spend(credential)) {
+    json(res, 401, { error: "bad-host-cert" });
     return;
   }
   const grant = await sessions.start(hostId, sessionId);
@@ -570,6 +588,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       if (ws.role) return; // one room per socket, decided once
       let sessionId: string | null = null;
       let tier: HostingTier | null = null;
+      let certExp: number | null = null;
       if (msg.sessionKey !== undefined) {
         // The streamer: the key must name this room and its session be live.
         const key = sessions ? await sessions.verify(msg.sessionKey) : null;
@@ -583,8 +602,11 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         if (credential?.kind !== (hostCert ? "host-cert" : "machine-key")) {
           return deny(ws, hostCert ? "bad-host-cert" : "bad-machine-key");
         }
+        // A certificate that has started a session registers nothing more.
+        if (credential.kind === "host-cert" && credential.spent) return deny(ws, "bad-host-cert");
         if (credential.hosting === null) return deny(ws, "attestation-required");
         tier = credential.hosting;
+        if (credential.kind === "host-cert") certExp = credential.exp;
         // The service never displaces a renter's session, live streamer or
         // not: the room is the session's until the service ends it.
         if (await sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
@@ -597,7 +619,17 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.role = "host";
       ws.sessionId = sessionId;
       ws.tier = tier;
+      ws.certExp = certExp;
       room.host = ws;
+      // An expired certificate hosts nothing: the socket is put out, so it
+      // never hears a claim, and the machine attests again to come back.
+      if (certExp !== null) {
+        const expired = () => {
+          if (rooms.get(msg.hostId)?.host === ws) evictHost(msg.hostId, "bad-host-cert");
+        };
+        ws.certTimer = setTimeout(() => inTurn(ws, expired), certExp * 1000 - Date.now());
+        ws.certTimer.unref?.();
+      }
       // The PC is there for as long as this socket stays open.
       await platform.hostConnected(msg.hostId);
       // A newer host took the seat meanwhile: this one is being hung up on.
@@ -794,6 +826,8 @@ wss.on("connection", (socket) => {
   ws.confirmedAt = 0;
   ws.sessionId = null;
   ws.tier = null;
+  ws.certExp = null;
+  ws.certTimer = null;
   ws.missedBeats = 0;
   ws.turn = Promise.resolve();
   ws.queued = 0;
@@ -833,7 +867,10 @@ wss.on("connection", (socket) => {
       }
     });
   });
-  ws.on("close", () => inTurn(ws, () => onClose(ws)));
+  ws.on("close", () => {
+    if (ws.certTimer) clearTimeout(ws.certTimer);
+    inTurn(ws, () => onClose(ws));
+  });
 });
 
 /**

@@ -117,10 +117,14 @@ describe("credentials", () => {
 
   it("lets a host certificate host its own room at its tier, under either policy", () => {
     const cert = mintHostCert(SECRET, "pc-1", "attested-discrete-tpm", 600);
+    const { id, exp } = verifyHostCert(SECRET, cert)!;
     for (const attestation of [required(), createAttestation({ access: ACCESS })]) {
       assert.deepEqual(attestation.credential("pc-1", cert), {
         kind: "host-cert",
         hosting: "attested-discrete-tpm",
+        id,
+        exp,
+        spent: false,
       });
       assert.equal(attestation.credential("pc-2", cert), null, "another room");
     }
@@ -150,6 +154,26 @@ describe("credentials", () => {
   });
 });
 
+describe("spending a host certificate", () => {
+  it("starts one host session per certificate", () => {
+    const attestation = required();
+    const cert = mintHostCert(SECRET, "pc-1", "attested", 600);
+    const fresh = attestation.credential("pc-1", cert)!;
+    assert.equal(attestation.spend(fresh), true);
+    assert.equal(attestation.spend(fresh), false, "a second start on it");
+    assert.deepEqual(attestation.credential("pc-1", cert), { ...fresh, spent: true });
+    const other = attestation.credential("pc-1", mintHostCert(SECRET, "pc-1", "attested", 600))!;
+    assert.equal(attestation.spend(other), true, "another certificate is its own");
+  });
+
+  it("never spends the machine key", () => {
+    const attestation = createAttestation({ access: ACCESS });
+    const key = attestation.credential("pc-1", KEY)!;
+    assert.equal(attestation.spend(key), true);
+    assert.equal(attestation.spend(key), true);
+  });
+});
+
 describe("attesting", () => {
   it("mints a host certificate for evidence that passes, at the floor's tier", async () => {
     const now = Date.now();
@@ -162,11 +186,9 @@ describe("attesting", () => {
     assert.ok(attested.ok);
     assert.equal(attested.grant.tier, "attested");
     assert.equal(attested.grant.expiresAt, Math.floor(now / 1000) + HOST_CERT_TTL_SECONDS);
-    assert.deepEqual(verifyHostCert(SECRET, attested.grant.hostCert, now), {
-      room: "pc-1",
-      tier: "attested",
-      exp: attested.grant.expiresAt,
-    });
+    const cert = verifyHostCert(SECRET, attested.grant.hostCert, now);
+    assert.deepEqual(cert, { room: "pc-1", tier: "attested", id: cert?.id, exp: attested.grant.expiresAt });
+    assert.ok(cert?.id, "every certificate has an id of its own");
 
     const discrete = await attestation.attest(
       "pc-1",

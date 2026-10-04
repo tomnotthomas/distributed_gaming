@@ -47,9 +47,10 @@ import {
 import type { AttestChallengeGrant, AttestRefusal, HostCertGrant } from "./protocol.js";
 
 /**
- * How long a host certificate admits anything. It is checked when a socket
- * registers and when a host session starts, not while a socket stays open, so
- * a machine attests again at least once per renter: before every session start.
+ * How long a host certificate admits anything. A socket registered with one is
+ * put out when it expires, and a certificate starts one host session at most:
+ * so a machine attests again before every session start, and at least every
+ * this often while it waits for a renter.
  */
 export const HOST_CERT_TTL_SECONDS = 10 * 60;
 
@@ -204,8 +205,12 @@ export function attestationFromEnv(env: NodeJS.ProcessEnv): AttestationConfig {
 export type Credential =
   /** The control credential. `hosting` is null when hosting requires attestation. */
   | { kind: "machine-key"; hosting: "unattested" | null }
-  /** The hosting credential, at the tier attestation found. */
-  | { kind: "host-cert"; hosting: HostCert["tier"] };
+  /**
+   * The hosting credential, at the tier attestation found. `spent`: it has
+   * started a host session, so it may no longer register or start another;
+   * it may still report that session's renter in, heartbeat and end it.
+   */
+  | { kind: "host-cert"; hosting: HostCert["tier"]; id: string; exp: number; spent: boolean };
 
 /** A refused challenge or attestation, with the HTTP status to answer it with. */
 export type Refusal = { ok: false; status: number; body: AttestRefusal };
@@ -232,12 +237,18 @@ export type Attestation = {
   ): Promise<{ ok: true; grant: HostCertGrant } | Refusal>;
   /** What `token` is for machine `room`: its machine key, a host certificate for it, or null. */
   credential(room: string, token: unknown, now?: number): Credential | null;
+  /**
+   * Spend a host certificate on the host session it is starting. False, when
+   * it was already spent: one certificate, one session start. `now` is Unix ms.
+   */
+  spend(credential: Credential, now?: number): boolean;
 };
 
 /**
  * Attestation for the machines in `access`, signed with its secret, judged by
- * `verifier` against `floor`. Spent challenges are kept in memory until they
- * expire: a restart forgets them, and they had at most a minute left.
+ * `verifier` against `floor`. Spent challenges and certificates are kept in
+ * memory until they expire: a restart forgets them, so a certificate spent just
+ * before one could start one more session within what is left of its ten minutes.
  */
 export function createAttestation({
   access,
@@ -254,6 +265,11 @@ export function createAttestation({
 }): Attestation {
   /** Challenge id → when it expires (Unix ms). */
   const spent = new Map<string, number>();
+  /** Host certificate id → when it expires (Unix ms), once it has started a session. */
+  const spentCerts = new Map<string, number>();
+  const forgetExpired = (ids: Map<string, number>, now: number) => {
+    for (const [id, until] of ids) if (until <= now) ids.delete(id);
+  };
   const refuse = (status: number, body: AttestRefusal): Refusal => ({ ok: false, status, body });
 
   return {
@@ -275,7 +291,7 @@ export function createAttestation({
       if (!access.secret || !verifier) return refuse(503, { error: "not-configured" });
       if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
       if (typeof nonce !== "string" || evidence === undefined) return refuse(400, { error: "bad-request" });
-      for (const [id, until] of spent) if (until <= now) spent.delete(id);
+      forgetExpired(spent, now);
       const challenge = verifyChallenge(access.secret, nonce, now);
       if (!challenge || challenge.room !== room || spent.has(challenge.id)) {
         return refuse(401, { error: "bad-nonce" });
@@ -303,9 +319,24 @@ export function createAttestation({
       }
       const cert = access.secret ? verifyHostCert(access.secret, token, now) : null;
       // A machine whose key was taken out of MACHINE_KEYS hosts no more, certificate or not.
-      if (cert && cert.room === room && access.machines.has(room))
-        return { kind: "host-cert", hosting: cert.tier };
+      if (cert && cert.room === room && access.machines.has(room)) {
+        return {
+          kind: "host-cert",
+          hosting: cert.tier,
+          id: cert.id,
+          exp: cert.exp,
+          spent: spentCerts.has(cert.id),
+        };
+      }
       return null;
+    },
+
+    spend(credential, now = Date.now()) {
+      if (credential.kind !== "host-cert") return true;
+      forgetExpired(spentCerts, now);
+      if (spentCerts.has(credential.id)) return false;
+      spentCerts.set(credential.id, credential.exp * 1000);
+      return true;
     },
   };
 }

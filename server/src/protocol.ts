@@ -53,7 +53,8 @@ export type JoinedMessage = {
  * The server closes the socket after it.
  *
  *   bad-machine-key  wrong machine key, or no such machine
- *   bad-host-cert    host certificate forged, expired or for another room
+ *   bad-host-cert    host certificate forged, expired, spent on a session start, or for
+ *                    another room; also sent to a registered socket when its certificate expires
  *   attestation-required  a machine-key register while hosting requires attestation
  *   bad-session-key  forged, expired, for another room, or its session ended
  *   session-active   a machine-key or host-certificate register while the room is in a session
@@ -191,11 +192,11 @@ export type AttestRequest = { nonce: string; evidence: unknown };
 
 /** What attest returns: the hosting credential. */
 export type HostCertGrant = {
-  /** Bearer for the hosting calls, and `hostCert` in `register`. */
+  /** Bearer for the hosting calls, and `hostCert` in `register`. Starts one host session at most. */
   hostCert: string;
   /** How far attestation trusts this machine (D3: a discrete TPM is a lower tier). */
   tier: "attested" | "attested-discrete-tpm";
-  /** Unix seconds. Checked at register and at session start; attest again for a fresh one. */
+  /** Unix seconds. A socket registered with it is put out then; attest again for a fresh one. */
   expiresAt: number;
 };
 

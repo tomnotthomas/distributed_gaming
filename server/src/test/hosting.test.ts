@@ -26,7 +26,7 @@ const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
-const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4"];
+const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4", "pc-5", "pc-6"];
 const TURN = "turn:turn.example.test:3478";
 /** What the dev verifier is told about a machine that meets the hardware floor. */
 const FACTS: PlatformFacts = {
@@ -190,6 +190,17 @@ describe("hosting requires attestation", () => {
     assert.equal((await call("DELETE", sessionPath(room), undefined, MACHINE_KEY)).status, 204);
     assert.equal(await streamer.closed, 4003);
     assert.deepEqual(streamer.received.at(-1), { type: "denied", reason: "session-ended" });
+
+    // That certificate started its session: the next start, and a register, need a fresh one.
+    assert.deepEqual(await call("POST", sessionPath(room), { sessionId }, grant.hostCert), {
+      status: 401,
+      body: { error: "bad-host-cert" },
+    });
+    const spent = await host(room, { hostCert: grant.hostCert });
+    assert.equal(await spent.closed, 4003);
+    assert.deepEqual(spent.received, [{ type: "denied", reason: "bad-host-cert" }]);
+    const again = await call("POST", sessionPath(room), { sessionId }, (await attest(room)).hostCert);
+    assert.equal(again.status, 201, `start answered ${again.status}`);
     await call("POST", `/api/sessions/${sessionId}/end`, {}, MACHINE_KEY);
   });
 
@@ -230,5 +241,35 @@ describe("hosting requires attestation", () => {
       body: { error: "not-found" },
     });
     assert.equal((await attest("pc-3", { ...FACTS, tpm: "discrete" })).tier, "attested-discrete-tpm");
+  });
+
+  it("keeps a machine the machine key offers off the market until an attested socket is open", async () => {
+    const room = "pc-5";
+    const offered = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(offered.status, 200);
+    assert.equal((await call("POST", `/api/machines/${room}/heartbeat`, {}, MACHINE_KEY)).status, 200);
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    assert.equal(booking.body.status, "queued", "nothing can serve it, so nothing is matched");
+
+    const service = await host(room, { hostCert: (await attest(room)).hostCert });
+    assert.equal(service.received[0]?.type, "registered");
+    const matched = await call("GET", `/api/bookings/${booking.body.bookingId}`);
+    assert.equal(matched.body.status, "matched");
+    assert.equal(matched.body.machine?.id, room);
+    assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+    service.ws.close();
+  });
+
+  it("puts out a socket whose host certificate expires, so it hears no claim", async () => {
+    const room = "pc-6";
+    const service = await host(room, { hostCert: mintHostCert(SECRET, room, "attested", 2) });
+    assert.equal(service.received[0]?.type, "registered");
+    assert.equal(await service.closed, 4003);
+    assert.deepEqual(service.received.at(-1), { type: "denied", reason: "bad-host-cert" });
   });
 });
