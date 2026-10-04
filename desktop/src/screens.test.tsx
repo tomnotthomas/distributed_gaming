@@ -630,7 +630,9 @@ describe("rental mode", () => {
     renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0, gpus: [nvidia] })) }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
     expect(screen.getByText("Turn on Secure Boot.").closest("li")).toBeInTheDocument();
-    expect(screen.getByText("NVIDIA graphics cards come in a later Swiff OS update.").closest(".hnote")).toBeInTheDocument();
+    expect(
+      screen.getByText("NVIDIA graphics cards come in a later Swiff OS update.").closest(".hnote"),
+    ).toBeInTheDocument();
   });
 
   it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {
