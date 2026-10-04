@@ -3,12 +3,14 @@ import posthog, { isPostHogEnabled } from "../posthog";
 import {
   bookMachine,
   book,
+  BookingRefused,
   endBooking,
   followBooking,
   storedBookingId,
   type Booking,
   type Claim,
   type NextBest,
+  type Refusal,
 } from "./booking";
 import { chime } from "./chime";
 import {
@@ -118,11 +120,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [ownerDropped, setOwnerDropped] = useState(false);
 
   // The renter's booking on the server, the room and ticket its claim handed
-  // out, a picked machine that was taken first, and a booking call that failed.
+  // out, a picked machine that was taken first, and a booking call that failed,
+  // with why when the server refused the game (not the renter's to play).
   const [booking, setBooking] = useState<Booking | null>(null);
   const [claim, setClaim] = useState<Claim | null>(null);
   const [taken, setTaken] = useState<Taken | null>(null);
   const [bookingFailed, setBookingFailed] = useState(false);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -348,14 +352,17 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setBooking(next);
           setClaim(claimed);
           setBookingFailed(false);
+          setRefusal(null);
           const claimedGame = gamesNow.current.find((g) => g.appid === next.gameId);
           if (claimedGame) setGameId(claimedGame.id);
           setScreen("game");
           setPhase((current) => (current === "idle" ? "connecting" : current));
         },
-        onClaimFailed: () => {
+        onClaimFailed: (refused) => {
           setBookingFailed(true);
-          if (!launched) return;
+          setRefusal(refused ?? null);
+          // A refused game is never going to be claimed: its machine goes back at once.
+          if (!launched && !refused) return;
           stopFollowing();
           void endBooking(bookingId).catch(() => {});
           setBooking(null);
@@ -389,6 +396,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       const run = ++launchRun.current;
       setTaken(null);
       setBookingFailed(false);
+      setRefusal(null);
       setPhase("connecting");
       setBeat(0);
       const { controls, picture } = askOf(0, prefsNow.current);
@@ -409,9 +417,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setBooking(result.booking);
           follow(result.booking, true);
         },
-        () => {
+        (error: unknown) => {
           if (run !== launchRun.current) return;
           setBookingFailed(true);
+          setRefusal(error instanceof BookingRefused ? error.refusal : null);
           setPhase("idle");
           setBeat(0);
         },
@@ -428,6 +437,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     track("queue_joined", { game: game.id });
     setTaken(null);
     setBookingFailed(false);
+    setRefusal(null);
     const { controls, picture } = askOf(0, prefsNow.current);
     book(game.appid, sessionMinutes(session), { ...rtts(), controls, picture })
       .then(
@@ -435,7 +445,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setBooking(queued);
           follow(queued);
         },
-        () => setBookingFailed(true),
+        (error: unknown) => {
+          setBookingFailed(true);
+          setRefusal(error instanceof BookingRefused ? error.refusal : null);
+        },
       )
       .finally(() => {
         queueing.current = false;
@@ -564,6 +577,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setMachineId(demo ? (machinesFor(next, pool, session, prefs).find((m) => !m.busy)?.id ?? null) : null);
       setTaken(null);
       setBookingFailed(false);
+      setRefusal(null);
       setScreen("game");
       setPhase("idle");
       setBeat(0);
@@ -706,6 +720,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     claim,
     taken,
     bookingFailed,
+    refusal,
     games,
     game,
     machines,

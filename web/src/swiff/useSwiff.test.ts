@@ -486,6 +486,46 @@ describe("useSwiff", () => {
       expect(screen.queryByText(/A machine is free for you/)).toBeNull();
     });
 
+    it("says in plain words when the server refuses a game the renter does not own", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(403, { error: "not in your library", code: "not-owned" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+
+      await waitFor(() => expect(result.current.refusal).toBe("not-owned"));
+      expect(result.current.bookingFailed).toBe(true);
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.booking).toBeNull();
+      render(createElement(GameMenu, { swiff: result.current }));
+      expect(screen.getByRole("alert").textContent).toMatch(/You don't own this game on Steam/);
+
+      // Opening a game again starts with a clean note.
+      act(() => result.current.openGame(result.current.game!));
+      expect(result.current.refusal).toBeNull();
+    });
+
+    it("hands a queued match back when the server refuses its claim, and says why", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("queued")),
+        "POST /api/bookings/b-1/claim": json(403, { error: "cannot read", code: "library-unreadable" }),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.joinQueue());
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("matched", 1_000)));
+      await waitFor(() => expect(result.current.refusal).toBe("library-unreadable"));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(result.current.booking).toBeNull();
+      render(createElement(GameMenu, { swiff: result.current }));
+      expect(screen.getByRole("alert").textContent).toMatch(/We can't see your Steam library/);
+    });
+
     it("books the queue once for a double click", async () => {
       const calls = serve(unnamed, LIVE, { "POST /api/bookings": json(202, booked("queued")) });
       streams();

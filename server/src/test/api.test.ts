@@ -73,6 +73,10 @@ describe("booking and host API", () => {
   let renter: ReturnType<typeof client>;
   let as: (cookie: string) => ReturnType<typeof client>;
   let discovery: RequestBudget;
+  // Each renter's Steam library, where Steam shows it; a renter with none listed
+  // has their library hidden. Renters in `unreachable` cannot be read at all.
+  let libraries: Map<string, number[]>;
+  let unreachable: Set<string>;
 
   before(async () => {
     access = {
@@ -82,11 +86,18 @@ describe("booking and host API", () => {
     };
     const games = async () => [{ id: 730, name: "Counter-Strike 2", image: null }];
     // A fresh read is the one a renter asks for after making their library public.
-    const profile = async (steamId: string, { fresh = false } = {}) => ({
-      ...emptyProfile(steamId),
-      persona: "kai_nx",
-      lib: fresh,
-    });
+    const profile = async (steamId: string, { fresh = false } = {}) => {
+      if (unreachable.has(steamId)) throw new Error("steam is down");
+      const library = libraries.get(steamId);
+      return {
+        ...emptyProfile(steamId),
+        persona: "kai_nx",
+        lib: fresh || library !== undefined,
+        library: Uint32Array.from(library ?? []).sort(),
+      };
+    };
+    // Counter-Strike 2 and Dota 2 are free to play; every other game is paid.
+    const isFree = async (appid: number) => appid === 730 || appid === 570;
     server = createServer(async (req, res) => {
       // Built per request so each test's fresh platform is the one served.
       const api = createApi({
@@ -98,6 +109,7 @@ describe("booking and host API", () => {
         games,
         profile,
         discovery,
+        isFree,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -116,6 +128,8 @@ describe("booking and host API", () => {
     platform = await Platform.open({ database: await testDatabase(), now: () => now, owners: access.owners });
     discovery = new RequestBudget({ now: () => now });
     access.secret = SECRET;
+    libraries = new Map();
+    unreachable = new Set();
   });
 
   afterEach(() => platform.close());
@@ -375,6 +389,115 @@ describe("booking and host API", () => {
     const again = await renter("POST", end);
     assert.equal(again.status, 409);
     assert.equal(again.body.status, "ended");
+  });
+
+  describe("bring your own games", () => {
+    /** A paid game: Elden Ring, installed on pc-1 alongside the free ones. */
+    const PAID = 1245620;
+    const offerPaid = () => offer("pc-1", { available: true, ...REPORT, games: [...REPORT.games, PAID] });
+
+    it("books and claims a paid game in the renter's Steam library", async () => {
+      libraries.set(RENTER, [440, PAID]);
+      await offerPaid();
+      const booked = await renter("POST", "/api/bookings", { gameId: PAID, minutes: 30 });
+      assert.equal(booked.status, 202);
+      assert.equal(booked.body.status, "matched");
+      const claim = await renter("POST", `/api/bookings/${booked.body.bookingId}/claim`);
+      assert.equal(claim.status, 200);
+      assert.equal(claim.body.roomId, "pc-1");
+    });
+
+    it("books a free-to-play game the renter does not own, library read or not", async () => {
+      libraries.set(RENTER, [PAID]);
+      await offer();
+      const owned = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" });
+      assert.equal(owned.status, 202);
+      assert.equal((await renter("POST", `/api/bookings/${owned.body.bookingId}/claim`)).status, 200);
+
+      // OTHER's library is hidden: free to play is still theirs to play.
+      await offer("pc-2");
+      const hidden = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      assert.equal(hidden.status, 202);
+    });
+
+    it("refuses a paid game that is not in the renter's library, queued or picked, and books nothing", async () => {
+      libraries.set(RENTER, [440]);
+      await offerPaid();
+      for (const ask of [
+        { gameId: PAID, minutes: 30 },
+        { gameId: PAID, minutes: 30, machineId: "pc-1" },
+      ]) {
+        const refused = await renter("POST", "/api/bookings", ask);
+        assert.equal(refused.status, 403);
+        assert.equal(refused.body.code, "not-owned");
+        assert.match(refused.body.error, /not in your Steam library/);
+        assert.equal(refused.body.bookingId, undefined);
+      }
+      // pc-1 is still free for somebody who owns the game.
+      libraries.set(OTHER, [PAID]);
+      const other = await as(signedIn(OTHER))("POST", "/api/bookings", {
+        gameId: PAID,
+        minutes: 30,
+        machineId: "pc-1",
+      });
+      assert.equal(other.status, 202);
+    });
+
+    it("refuses a paid game when the renter's library cannot be read, hidden or Steam down", async () => {
+      await offerPaid();
+      const hidden = await renter("POST", "/api/bookings", { gameId: PAID, minutes: 30 });
+      assert.equal(hidden.status, 403);
+      assert.equal(hidden.body.code, "library-unreadable");
+
+      unreachable.add(OTHER);
+      const down = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: PAID, minutes: 30 });
+      assert.equal(down.status, 403);
+      assert.equal(down.body.code, "library-unreadable");
+      assert.equal(
+        (await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: 730, minutes: 30 })).status,
+        202,
+      );
+    });
+
+    it("refuses the claim of a game gone from the renter's library, leaving the reservation unspent", async () => {
+      libraries.set(RENTER, [PAID]);
+      await offerPaid();
+      const { body } = await renter("POST", "/api/bookings", {
+        gameId: PAID,
+        minutes: 30,
+        machineId: "pc-1",
+      });
+
+      libraries.set(RENTER, []);
+      const refused = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+      assert.equal(refused.status, 403);
+      assert.equal(refused.body.code, "not-owned");
+      assert.equal(refused.body.ticket, undefined);
+      assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
+
+      libraries.delete(RENTER);
+      const unread = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+      assert.equal(unread.status, 403);
+      assert.equal(unread.body.code, "library-unreadable");
+
+      libraries.set(RENTER, [PAID]);
+      assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
+    });
+
+    it("answers 404, not a refusal, to a claim of somebody else's booking", async () => {
+      libraries.set(OTHER, [PAID]);
+      await offerPaid();
+      const { body } = await as(signedIn(OTHER))("POST", "/api/bookings", { gameId: PAID, minutes: 30 });
+      assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 404);
+    });
+
+    it("never sends the page the full library", async () => {
+      libraries.set(RENTER, [PAID]);
+      const me = await renter("GET", "/api/me");
+      assert.equal(me.body.profile.lib, true);
+      assert.equal(me.body.profile.library, undefined);
+      assert.equal((await renter("POST", "/api/me/refresh")).body.profile.library, undefined);
+    });
   });
 
   it("tells the page who is signed in, and signs them out", async () => {

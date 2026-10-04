@@ -22,6 +22,11 @@
 // claimed until they come back: the server holds a machine matched meanwhile
 // for up to two minutes from the match, and starts the claim's 60 s when the
 // page reopens its stream, so the page claims it then with the time restored.
+//
+// The server books and claims only games in the renter's Steam library or free
+// to play (server/src/licence.ts). It refuses anything else with 403 and a
+// code, which reaches the page as a Refusal: BookingRefused from a booking
+// call, and onClaimFailed's argument from a claim.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
@@ -55,6 +60,34 @@ export type NextBest = {
   price: number;
   latency: { rttMs: number };
 };
+
+/** Why the server refused a game: not in the renter's Steam library, or their library cannot be read. */
+export type Refusal = "not-owned" | "library-unreadable";
+
+const REFUSALS: readonly Refusal[] = ["not-owned", "library-unreadable"];
+
+/** A booking the server refused because the renter may not play the game (403). */
+export class BookingRefused extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(`booking refused: ${refusal}`);
+  }
+}
+
+/** The Refusal a 403 answer names, or undefined for any other answer. */
+async function refusalOf(response: Response): Promise<Refusal | undefined> {
+  if (response.status !== 403) return undefined;
+  const { code } = (await response
+    .clone()
+    .json()
+    .catch(() => ({}))) as { code?: unknown };
+  return REFUSALS.find((r) => r === code);
+}
+
+/** Throw for a booking call that failed: BookingRefused when the game is refused. */
+async function bookingFailed(response: Response): Promise<never> {
+  const refusal = await refusalOf(response);
+  throw refusal ? new BookingRefused(refusal) : new Error(`booking failed: ${response.status}`);
+}
 
 /** A picked machine booked (matched, to claim), or taken already, with what to offer instead. */
 export type BookMachineResult =
@@ -120,7 +153,7 @@ export async function book(
 ): Promise<Booking> {
   const { storage = localStorage, fetch: get = fetch } = options;
   const response = await post(get, "/api/bookings", { gameId, minutes, ...askBody(options) });
-  if (!response.ok) throw new Error(`booking failed: ${response.status}`);
+  if (!response.ok) await bookingFailed(response);
   const booking = (await response.json()) as Booking;
   storage.setItem(KEY, booking.bookingId);
   return booking;
@@ -144,7 +177,7 @@ export async function bookMachine(
     const { nextBest = null } = (await response.json()) as { nextBest?: NextBest | null };
     return { kind: "taken", nextBest };
   }
-  if (!response.ok) throw new Error(`booking failed: ${response.status}`);
+  if (!response.ok) await bookingFailed(response);
   const booking = (await response.json()) as Booking;
   storage.setItem(KEY, booking.bookingId);
   return { kind: "booked", booking };
@@ -160,13 +193,18 @@ export async function claim(bookingId: string, options: BookingOptions = {}): Pr
   return "claim" in answer ? answer.claim : null;
 }
 
-/** A claim's answer: the room and ticket, or the status the server gave when it refused (4xx). */
-type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined };
+/**
+ * A claim's answer: the room and ticket, or the status the server gave when it
+ * refused (4xx), with the Refusal when it refused the game.
+ */
+type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined; refusal?: Refusal };
 
 async function askToClaim(bookingId: string, options: BookingOptions): Promise<ClaimAnswer> {
   const { fetch: get = fetch } = options;
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
   if (response.status >= 400 && response.status < 500) {
+    const refusal = await refusalOf(response);
+    if (refusal) return { refused: undefined, refusal };
     const { status } = (await response.json().catch(() => ({}))) as { status?: BookingStatus };
     return { refused: status };
   }
@@ -326,10 +364,11 @@ export type FollowHandlers = {
   /** The machine was claimed: the room to join and its ticket. */
   onClaimed: (claim: Claim, booking: Booking) => void;
   /**
-   * A claim the server failed to answer by its deadline, or refused (4xx); the
-   * booking is still followed, unless a lost claim went through after all.
+   * A claim the server failed to answer by its deadline, or refused (4xx), with
+   * the Refusal when it refused the game; the booking is still followed, unless
+   * a lost claim went through after all.
    */
-  onClaimFailed?: () => void;
+  onClaimFailed?: (refusal?: Refusal) => void;
 };
 
 export type FollowOptions = BookingOptions & {
@@ -421,7 +460,7 @@ export function followBooking(
     if (stopped) return;
     if (!("claim" in answer)) {
       if (answer.refused === "claimed" && lostFor === booking.claimBy) release();
-      else handlers.onClaimFailed?.();
+      else handlers.onClaimFailed?.(answer.refusal);
       return;
     }
     const claimed = answer.claim;

@@ -150,5 +150,25 @@ describe("GameMenu", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { machines: [], picked: null })} />);
       expect(screen.getByText("No machine can play it right now.")).toBeInTheDocument();
     });
+
+    it("says in plain words when the server refuses a game the renter does not own", () => {
+      render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-owned" })} />);
+      expect(screen.getByRole("alert")).toHaveTextContent(/You don't own this game on Steam/);
+      expect(screen.getByRole("alert")).toHaveTextContent(/free-to-play games can start/);
+      expect(screen.queryByText(/Try again/)).toBeNull();
+    });
+
+    it("tells a renter whose library cannot be read how to make it public", () => {
+      render(
+        <GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "library-unreadable" })} />,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent(/We can't see your Steam library/);
+      expect(screen.getByRole("alert")).toHaveTextContent(/Game details to Public/);
+    });
+
+    it("keeps the plain retry for a booking call that failed for any other reason", () => {
+      render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: null })} />);
+      expect(screen.getByRole("alert")).toHaveTextContent("That didn't go through. Try again.");
+    });
   });
 });

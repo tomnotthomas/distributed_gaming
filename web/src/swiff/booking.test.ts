@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   book,
   bookMachine,
+  BookingRefused,
   claim,
   endBooking,
   followBooking,
@@ -325,6 +326,31 @@ describe("booking a picked machine", () => {
     const server = routes({ "POST /api/bookings": json(500, { error: "internal error" }) });
     await expect(bookMachine("pc-1", 730, 30, { fetch: server.fetch })).rejects.toThrow("500");
   });
+
+  it("names the refusal when the server will not let the renter play the game, picked or queued", async () => {
+    const server = routes({
+      "POST /api/bookings": json(403, { error: "not in your library", code: "not-owned" }),
+    });
+    const picked = bookMachine("pc-1", 1245620, 30, { fetch: server.fetch });
+    await expect(picked).rejects.toBeInstanceOf(BookingRefused);
+    await expect(picked).rejects.toMatchObject({ refusal: "not-owned" });
+    await expect(book(1245620, 30, { fetch: server.fetch })).rejects.toMatchObject({ refusal: "not-owned" });
+
+    const unread = routes({
+      "POST /api/bookings": json(403, { error: "cannot read", code: "library-unreadable" }),
+    });
+    await expect(book(1245620, 30, { fetch: unread.fetch })).rejects.toMatchObject({
+      refusal: "library-unreadable",
+    });
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
+  it("reads a 403 with no known code as an ordinary failure", async () => {
+    const server = routes({ "POST /api/bookings": json(403, { error: "forbidden" }) });
+    const result = book(730, 30, { fetch: server.fetch });
+    await expect(result).rejects.not.toBeInstanceOf(BookingRefused);
+    await expect(result).rejects.toThrow("403");
+  });
 });
 
 describe("claiming and ending", () => {
@@ -445,6 +471,21 @@ describe("following a booking to its claim", () => {
     stream.push("matched", 1_000);
     await settle();
     expect(failed).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes on the refusal when the server will not let the renter play the claimed game", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": json(403, { error: "not in your library", code: "not-owned" }),
+    });
+    const failed = vi.fn();
+    const { open } = fakeStream();
+    followBooking(
+      booking("matched", 1_000),
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000 },
+    );
+    await settle();
+    expect(failed).toHaveBeenCalledExactlyOnceWith("not-owned");
   });
 
   it("tries a match's claim again when the network loses it, and claims it", async () => {

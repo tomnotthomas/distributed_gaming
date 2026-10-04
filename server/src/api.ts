@@ -30,6 +30,8 @@
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
+// A renter books and claims only games in their own Steam library or free to
+// play (licence.ts); anything else answers 403 with a `code` the page explains.
 // The renter's page reports stream quality, and says it is leaving, with that
 // ticket as its bearer.
 
@@ -40,12 +42,13 @@ import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
 import type { RenterEvents } from "./events.js";
+import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
-import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./steam.js";
+import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
@@ -81,7 +84,15 @@ export type ApiOptions = {
   profile?: ProfileReader;
   /** Each renter's budget of availability and machine-list reads. Defaults to one for this API alone. */
   discovery?: RequestBudget;
+  /** Whether a game is free to play, so anyone may book it. Defaults to Steam's store data (licence.ts). */
+  isFree?: FreeToPlay;
 };
+
+/** What a 403 for a game the renter may not play says, by its `code`. */
+const UNLICENSED_MESSAGE = {
+  "not-owned": "the game is not in your Steam library and is not free to play",
+  "library-unreadable": "your Steam library cannot be read, so only free-to-play games can be played",
+} as const;
 
 /** Answer with a JSON body that no cache keeps. */
 function reply(res: ServerResponse, status: number, body: unknown): void {
@@ -271,7 +282,21 @@ export function createApi({
   profile = (steamId) => readProfile(undefined, steamId),
   events,
   discovery = new RequestBudget(),
+  isFree = storeFreeToPlay(),
 }: ApiOptions) {
+  /**
+   * Answer 403 and true when the renter may not play `gameId`: not in their
+   * library and not free to play. A profile Steam fails to give reads as a
+   * library that cannot be read.
+   */
+  async function refuseUnlicensed(res: ServerResponse, steamId: string, gameId: number): Promise<boolean> {
+    const read = await profile(steamId).catch(() => emptyProfile(steamId));
+    const code = await unlicensed(read, gameId, isFree);
+    if (!code) return false;
+    reply(res, 403, { error: UNLICENSED_MESSAGE[code], code });
+    return true;
+  }
+
   /** The signed-in renter, once they are within their budget of discovery reads; 429 past it. */
   function requireDiscovery(req: IncomingMessage, res: ServerResponse): string | null {
     const steamId = requireRenter(req, sessionSecret);
@@ -369,7 +394,8 @@ export function createApi({
     if (resource === "me" && !id && method === "GET") {
       const steamId = requireRenter(req, sessionSecret);
       // A Steam outage must not read as signed out: the session stands.
-      reply(res, 200, { steamId, profile: await profile(steamId).catch(() => emptyProfile(steamId)) });
+      const read = await profile(steamId).catch(() => emptyProfile(steamId));
+      reply(res, 200, { steamId, profile: pageProfile(read) });
       return true;
     }
 
@@ -378,7 +404,7 @@ export function createApi({
     if (resource === "me" && id === "refresh" && !action && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const fresh = await profile(steamId, { fresh: true }).catch(() => emptyProfile(steamId));
-      reply(res, 200, { steamId, profile: fresh });
+      reply(res, 200, { steamId, profile: pageProfile(fresh) });
       return true;
     }
 
@@ -400,6 +426,7 @@ export function createApi({
       const machineId = optionalMachineId(body.machineId);
       const rtts = bookingRtts(body.rtts);
       const prefs = bookingPrefs(body);
+      if (await refuseUnlicensed(res, renter, gameId)) return true;
       if (machineId === undefined) {
         reply(res, 202, await platform.book(gameId, minutes, renter, rtts, prefs));
         return true;
@@ -447,6 +474,11 @@ export function createApi({
       // Checked before the reservation is spent: a claim that cannot hand out
       // a ticket must not use up the renter's machine.
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      // Checked again at claim, as the library may have changed since the
+      // booking; a refusal leaves the reservation unspent, as above.
+      const booked = await platform.booking(id, renter);
+      if (!booked) throw new HttpError(404, "no such booking");
+      if (await refuseUnlicensed(res, renter, booked.gameId)) return true;
       const claim = await platform.claim(id, renter);
       if (!claim.ok) {
         if (claim.reason === "not-found") throw new HttpError(404, "no such booking");

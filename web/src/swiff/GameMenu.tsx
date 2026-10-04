@@ -4,6 +4,7 @@ import { feel, fmtLeft, leftAt, meters } from "./derive";
 import { LensDial } from "./instruments";
 import { Reticle } from "./Reticle";
 import { SignInWithSteam } from "./SignIn";
+import type { Refusal } from "./booking";
 import { gameArt, gameArtFallbacks } from "./steam";
 import type { Swiff } from "./useSwiff";
 
@@ -25,14 +26,22 @@ function ledgerCount(live: Machine[]): string {
   return owners ? `${machines} from ${owners} ${owners === 1 ? "player" : "players"}` : machines;
 }
 
+/** What the page says when the server refuses a game the renter may not play (server/src/licence.ts). */
+export const REFUSAL_COPY: Record<Refusal, string> = {
+  "not-owned":
+    "You don't own this game on Steam. You play with your own Steam licence, so only games in your Steam library and free-to-play games can start.",
+  "library-unreadable":
+    "We can't see your Steam library, so only free-to-play games can start. In Steam, set Profile → Privacy → Game details to Public, then try again.",
+};
+
 /**
  * What became of the renter's booking, under the Reticle: waiting in the
  * queue, a picked machine taken first with the next best to launch on instead,
- * or a call that failed. With no machine free on the server's list and no
- * booking, the way into the queue.
+ * a game the server refused, or a call that failed. With no machine free on
+ * the server's list and no booking, the way into the queue.
  */
 function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
-  const { booking, taken, bookingFailed, phase } = swiff;
+  const { booking, taken, bookingFailed, refusal, phase } = swiff;
   const waiting =
     booking &&
     (booking.status === "queued" || (booking.status === "matched" && !bookingFailed)) &&
@@ -69,7 +78,7 @@ function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
   if (bookingFailed) {
     return (
       <p className="ledger-note" role="alert">
-        That didn't go through. Try again.
+        {refusal ? REFUSAL_COPY[refusal] : "That didn't go through. Try again."}
       </p>
     );
   }
