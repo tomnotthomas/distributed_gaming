@@ -1,0 +1,308 @@
+// The streamer VM test, on the host: the platform and the renter.
+//
+// Runs the real Swiff server (in memory) and a real renter: a headless Chromium
+// on the real /rtc page. The VM's agent (mkosi.extra/usr/libexec/swiff/streamer-vmtest)
+// reaches this harness at 10.0.2.2, QEMU's address for the host, to fetch the
+// session grant and to report what it saw. The grant is made only when the
+// agent asks, as swiff-hostd gets it at claim time, so the 5-minute key is fresh.
+//
+//   node harness.mjs --server-port <p> --harness-port <h> --out <results.json>
+//
+// Exits 0 when every expected check passed. Needs the server and web app built,
+// and Playwright's Chromium (PLAYWRIGHT_BROWSERS_PATH, as run-test.sh sets it).
+
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { chromium } from "@playwright/test";
+
+const { values } = parseArgs({
+  options: {
+    "server-port": { type: "string" },
+    "harness-port": { type: "string" },
+    out: { type: "string" },
+  },
+});
+const SERVER_PORT = Number(values["server-port"]);
+const HARNESS_PORT = Number(values["harness-port"]);
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const HTTP = `http://127.0.0.1:${SERVER_PORT}`;
+// What the VM dials: QEMU's user network maps 10.0.2.2 to the host's loopback.
+const VM_SERVER_URL = `ws://10.0.2.2:${SERVER_PORT}`;
+
+const MACHINE = "vm-host-1";
+const MACHINE_KEY = "streamer-vmtest-machine-key";
+const ROOM_SECRET = "streamer-vmtest-room-secret-long-enough";
+const SESSION_SECRET = "streamer-vmtest-session-secret-long-enough";
+const HOST = { authorization: `Bearer ${MACHINE_KEY}` };
+
+// Every check the run must pass, from the VM and from the renter's browser.
+const EXPECTED = [
+  "renter's PipeWire is up",
+  "synthetic gamescope node is in the renter's PipeWire",
+  "swiff-pipewire-grant gave the streamer the renter's socket",
+  "renter cannot open /dev/uinput",
+  "streamer can open /dev/uinput with its primary group alone",
+  "streamer cannot read the renter's home",
+  "streamer: encoding with x264",
+  "streamer: registered; waiting for the renter",
+  "streamer: video capture is flowing",
+  "streamer: audio capture is flowing",
+  "streamer: the renter joined",
+  "udev marks Swiff virtual keyboard as the streamer's",
+  "udev marks Swiff virtual mouse as the streamer's",
+  "udev marks Swiff virtual pointer as the streamer's",
+  "renter decodes the picture at 1280x720",
+  "renter's video plays",
+  "renter receives a sound track",
+  "renter's key W reaches the virtual keyboard, down and up",
+  "renter's left click reaches the virtual mouse, down and up",
+  "renter's pointer moves the virtual pointer",
+  "streamer exits 0 when the session ends",
+];
+
+const results = new Map();
+const inputs = [];
+const logs = [];
+let session = null;
+let finished = false;
+
+function record(name, ok, detail = "") {
+  results.set(name, { ok, detail });
+  console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+}
+
+async function call(method, path, headers, body) {
+  const res = await fetch(`${HTTP}${path}`, {
+    method,
+    headers: { ...headers, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+async function until(check, what, ms = 30_000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await check();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+// --- The platform ------------------------------------------------------------
+
+const { mintRenterSession } = await import(resolve(REPO, "server/dist/access.js"));
+const { SESSION_COOKIE } = await import(resolve(REPO, "server/dist/signin.js"));
+const { REPORT } = await import(resolve(REPO, "server/dist/test/report.js"));
+const RENTER = {
+  cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`,
+};
+
+const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], {
+  cwd: resolve(REPO, "server"),
+  env: {
+    ...process.env,
+    PORT: String(SERVER_PORT),
+    ROOM_SECRET,
+    SESSION_SECRET,
+    MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`,
+    DATABASE_URL: "",
+  },
+  stdio: "ignore",
+});
+await until(
+  () =>
+    fetch(`${HTTP}/api/ping`).then(
+      (r) => r.ok,
+      () => false,
+    ),
+  "the server",
+  90_000,
+);
+console.log(`server on ${HTTP}`);
+
+/** swiff-hostd's part up to the streamer: offered, claimed by a renter, host session started. */
+async function makeSession() {
+  const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+    available: true,
+    ...REPORT,
+  });
+  if (offered.status !== 200) throw new Error(`offer answered ${offered.status}`);
+  const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
+  const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`, RENTER);
+  if (claim.status !== 200) throw new Error(`claim answered ${claim.status}`);
+  const grant = await call("POST", `/api/machines/${MACHINE}/session`, HOST, {
+    sessionId: claim.body.sessionId,
+  });
+  if (grant.status !== 201) throw new Error(`session start answered ${grant.status}`);
+  return { claim: claim.body, grant: grant.body };
+}
+
+// --- The renter ----------------------------------------------------------------
+
+async function renter() {
+  const browser = await chromium.launch({
+    args: ["--autoplay-policy=no-user-gesture-required", "--disable-features=WebRtcHideLocalIpsWithMdns"],
+  });
+  try {
+    const page = await browser.newPage();
+    page.on("pageerror", (err) => console.log(`renter page error: ${err.message}`));
+    await page.goto(`${HTTP}/rtc#ticket=${session.claim.ticket}`);
+    const connectAt = Date.now();
+    await page.getByRole("button", { name: "Connect" }).click();
+    const stage = page.getByTestId("stage-video");
+
+    const size = await until(
+      () =>
+        stage.evaluate((v) => (v.videoWidth ? `${v.videoWidth}x${v.videoHeight}` : null)).catch(() => null),
+      "a decoded frame",
+      60_000,
+    );
+    record(
+      "renter decodes the picture at 1280x720",
+      size === "1280x720",
+      `${size}, ${Date.now() - connectAt} ms after Connect`,
+    );
+    const playing = await until(
+      () => stage.evaluate((v) => v.currentTime > 1).catch(() => false),
+      "playback",
+      30_000,
+    );
+    record("renter's video plays", playing);
+    const tracks = await stage.evaluate((v) => v.srcObject.getAudioTracks().length);
+    record("renter receives a sound track", tracks === 1, `${tracks} audio track(s)`);
+    const status = await page.locator(".status").textContent();
+    console.log(`renter status: ${status}`);
+
+    // Input: an absolute move over the picture, a click, a key.
+    const box = await stage.boundingBox();
+    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.5);
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.5, { steps: 5 });
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.keyboard.down("w");
+    await new Promise((r) => setTimeout(r, 200));
+    await page.keyboard.up("w");
+
+    const saw = (device, type, code, value) =>
+      inputs.some(
+        (e) =>
+          e.device === device &&
+          e.type === type &&
+          e.code === code &&
+          (value === undefined || e.value === value),
+      );
+    const waitInput = (check, what) =>
+      until(() => check(), what, 15_000).then(
+        () => true,
+        () => false,
+      );
+    record(
+      "renter's key W reaches the virtual keyboard, down and up",
+      await waitInput(
+        () => saw("Swiff virtual keyboard", 1, 17, 1) && saw("Swiff virtual keyboard", 1, 17, 0),
+        "KEY_W",
+      ),
+    );
+    record(
+      "renter's left click reaches the virtual mouse, down and up",
+      await waitInput(
+        () => saw("Swiff virtual mouse", 1, 0x110, 1) && saw("Swiff virtual mouse", 1, 0x110, 0),
+        "BTN_LEFT",
+      ),
+    );
+    record(
+      "renter's pointer moves the virtual pointer",
+      await waitInput(() => saw("Swiff virtual pointer", 3, 0), "ABS_X"),
+    );
+
+    // The renter leaves: the server ends the session and puts the streamer out.
+    const left = await call("POST", `/api/sessions/${session.claim.sessionId}/leave`, {
+      authorization: `Bearer ${session.claim.ticket}`,
+    });
+    console.log(`renter left: ${left.status}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+// --- What the VM talks to ----------------------------------------------------
+
+let renterDone = null;
+const harness = createServer(async (req, res) => {
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  const data = body ? JSON.parse(body) : null;
+  const reply = (value) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(value === undefined ? "" : JSON.stringify(value));
+  };
+  try {
+    switch (req.url) {
+      case "/ping":
+        return reply({ ok: true });
+      case "/grant":
+        session = await makeSession();
+        renterDone = renter().catch((e) => record("renter", false, e.message));
+        return reply({
+          serverUrl: VM_SERVER_URL,
+          hostId: MACHINE,
+          sessionKey: session.grant.sessionKey,
+          expiresAt: session.grant.expiresAt,
+        });
+      case "/result":
+        record(data.name, data.ok, data.detail);
+        return reply();
+      case "/input":
+        inputs.push(data);
+        return reply();
+      case "/log":
+        logs.push(data);
+        console.log(`  vm +${data.at}s ${data.line}`);
+        return reply();
+      case "/finished":
+        finished = true;
+        return reply();
+      default:
+        res.writeHead(404);
+        return res.end();
+    }
+  } catch (e) {
+    console.log(`harness error on ${req.url}: ${e.message}`);
+    res.writeHead(500);
+    res.end();
+  }
+});
+harness.listen(HARNESS_PORT, "127.0.0.1");
+console.log(`harness on 127.0.0.1:${HARNESS_PORT}`);
+
+const stopAll = (code) => {
+  const missing = EXPECTED.filter((name) => !results.has(name));
+  const failed = [...results].filter(([, r]) => !r.ok).map(([name]) => name);
+  if (values.out)
+    writeFileSync(
+      values.out,
+      JSON.stringify({ results: Object.fromEntries(results), missing, logs }, null, 2),
+    );
+  for (const name of missing) console.log(`MISSING ${name}`);
+  console.log(
+    `${EXPECTED.length - missing.length - failed.filter((f) => EXPECTED.includes(f)).length}/${EXPECTED.length} expected checks passed`,
+  );
+  server.kill();
+  harness.close();
+  process.exit(code ?? (missing.length || failed.length ? 1 : 0));
+};
+process.on("SIGTERM", () => stopAll(1));
+process.on("SIGINT", () => stopAll(1));
+
+// The VM reports /finished once the streamer has exited; give the whole run a ceiling.
+const deadline = Date.now() + 9 * 60_000;
+while (!finished && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
+await renterDone;
+stopAll();

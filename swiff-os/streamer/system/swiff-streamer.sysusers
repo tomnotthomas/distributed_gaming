@@ -1,0 +1,4 @@
+# The streamer runs as its own user: it holds the session key, which the
+# renter must never be able to read. 961 is hostd's `streamer.uid`/`gid`.
+g swiff-stream 961
+u swiff-stream 961:961 "Swiff streamer" /var/lib/swiff-stream /usr/sbin/nologin

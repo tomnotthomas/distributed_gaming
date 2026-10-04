@@ -1,0 +1,25 @@
+#!/bin/sh
+# Lets the streamer capture the renter's session, and nothing more: the
+# streamer's user may connect to the renter's PipeWire socket (gamescope's
+# picture and the session's sound), and may only pass through the renter's
+# runtime directory to reach it. Runs as the renter, who owns both.
+#
+# The other way round stays shut: the renter cannot reach the streamer, which
+# holds the session key.
+set -eu
+dir="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}"
+socket="$dir/pipewire-0"
+
+# pipewire.socket makes it at the start of the user's manager; wait a little in case.
+tries=0
+while [ ! -S "$socket" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 50 ]; then
+        echo "swiff-pipewire-grant: no PipeWire socket at $socket" >&2
+        exit 1
+    fi
+    sleep 0.2
+done
+
+setfacl -m u:swiff-stream:--x "$dir"
+setfacl -m u:swiff-stream:rw- "$socket"

@@ -58,11 +58,12 @@ export type Signaling = {
  */
 export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: SignalingOptions): Signaling {
   let socket: WebSocket | null = null;
-  let pingTimer: number | undefined;
-  let burstTimers: number[] = [];
+  // Bare timers, not window's: the Swiff OS streamer runs this in Node.
+  let pingTimer: ReturnType<typeof setInterval> | undefined;
+  let burstTimers: ReturnType<typeof setTimeout>[] = [];
   /** When the ping awaiting its pong went out. One is timed at a time, so each pong is matched. */
   let pingAt: number | null = null;
-  let retryTimer: number | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let backoff = BACKOFF_MIN_MS;
   let closedByUs = false;
   let denied = false;
@@ -80,8 +81,8 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
 
   /** Stop pinging the socket that was open. */
   const stopPinging = () => {
-    window.clearInterval(pingTimer);
-    burstTimers.forEach((timer) => window.clearTimeout(timer));
+    clearInterval(pingTimer);
+    burstTimers.forEach((timer) => clearTimeout(timer));
     burstTimers = [];
     pingAt = null;
   };
@@ -97,12 +98,12 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
       heardAt = Date.now();
       onStatus?.("open");
       onOpen(send);
-      pingTimer = window.setInterval(() => {
+      pingTimer = setInterval(() => {
         if (Date.now() - heardAt > SILENT_MS) return drop();
         ping();
       }, PING_MS);
       if (onRtt) {
-        for (let i = 1; i <= RTT_BURST; i++) burstTimers.push(window.setTimeout(ping, i * 1_000));
+        for (let i = 1; i <= RTT_BURST; i++) burstTimers.push(setTimeout(ping, i * 1_000));
       }
     };
 
@@ -131,7 +132,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
     stopPinging();
     onStatus?.("closed");
     if (closedByUs || denied) return;
-    retryTimer = window.setTimeout(open, backoff);
+    retryTimer = setTimeout(open, backoff);
     backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
   };
 
@@ -151,7 +152,7 @@ export function connectSignaling({ url, onOpen, onMessage, onStatus, onRtt }: Si
     close: () => {
       closedByUs = true;
       stopPinging();
-      window.clearTimeout(retryTimer);
+      clearTimeout(retryTimer);
       socket?.close();
     },
   };

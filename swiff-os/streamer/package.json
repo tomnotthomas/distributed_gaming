@@ -1,0 +1,22 @@
+{
+  "name": "@swiff/os-streamer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Swiff OS streamer: gamescope capture over the Swiff WebRTC protocol, input through uinput.",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --outfile=dist/swiff-streamer.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "werift": "^0.24.4"
+  },
+  "devDependencies": {
+    "@swiff/rtc": "*",
+    "@types/node": "^22.20.4",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
+  }
+}

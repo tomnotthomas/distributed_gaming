@@ -1,0 +1,15 @@
+# Stands in for gamescope: a moving test picture published under gamescope's
+# PipeWire node name, owned by the renter.
+[Unit]
+Description=Synthetic gamescope PipeWire node (VM test)
+ConditionUser=renter
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+ExecStart=/usr/bin/gst-launch-1.0 -q videotestsrc is-live=true pattern=ball ! video/x-raw,format=BGRx,width=1280,height=720,framerate=30/1 ! pipewiresink mode=provide stream-properties="props,node.name=gamescope,media.class=Video/Source"
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target
