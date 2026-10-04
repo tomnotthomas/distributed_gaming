@@ -546,6 +546,24 @@ describe("useSwiff", () => {
         await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
       });
 
+      it("leaves Escape and a controller's B to the game: only End ends it", async () => {
+        const pad = { axes: [0], buttons: Array.from({ length: 16 }, () => ({ pressed: false })) };
+        Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [pad] });
+        try {
+          const { result, calls } = await dropped();
+
+          act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+          pad.buttons[1]!.pressed = true;
+          await act(() => vi.advanceTimersByTimeAsync(500));
+          expect(result.current.phase).toBe("connecting");
+          expect(result.current.claim).toEqual(TICKET);
+          expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+          expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+        } finally {
+          delete (navigator as { getGamepads?: unknown }).getGamepads;
+        }
+      });
+
       it("ends it as a session before trying another machine, whose clock starts afresh", async () => {
         const { result, calls } = await dropped();
         await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));

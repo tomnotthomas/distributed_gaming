@@ -551,7 +551,9 @@ and whether the stream goes direct or through the relay. It hides 3 s after the 
 last moved over the stream (movement while the stream holds the pointer is the game's) and
 comes back when it moves. Full screen puts the session on the whole screen; End ends the
 booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
-session every key, Escape and a controller's B included, goes to the game. A session the
+session every key, Escape and a controller's B included, goes to the game, and so it does
+behind Ignition once the session has started (the PC left mid-session): only End ends it
+there. A session the
 server ends (the booked time runs out, or the PC ends it) refuses the ticket (`denied`),
 and the page ends it there as End does, counted as `session_ended`. This holds behind
 Ignition too once the session has started, after the PC left mid-session. A ticket

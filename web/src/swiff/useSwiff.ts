@@ -759,8 +759,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // In a session, every key is the game's: End is the way out.
-      if (covered.current.phase === "live") return;
+      // In a session, every key is the game's, behind Ignition too after the
+      // PC dropped: End is the way out.
+      if (covered.current.started) return;
       if (event.key === "Escape") {
         // An open sheet closes first; the next Escape goes home.
         if (estimateOpen) setEstimateOpen(false);
@@ -791,8 +792,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       };
       if (now.left && !previous.left) moveSelection.current(-1);
       if (now.right && !previous.right) moveSelection.current(1);
-      // In a session, B is the game's.
-      if (now.back && !previous.back && covered.current.phase !== "live") goHome();
+      // In a session, B is the game's, behind Ignition too.
+      if (now.back && !previous.back && !covered.current.started) goHome();
       previous = now;
     }, 90);
     return () => window.clearInterval(timer);
