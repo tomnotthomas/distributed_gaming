@@ -3,7 +3,10 @@
 // never touches the seat: a probe is not a join, adds no track and takes no
 // input, and the renter in the room (if any) never hears of it.
 //
-//   probe-offer ──► answer with every candidate ──► probe-answer ──► echo each message
+//   probe-offer ──► answer with its first relay candidate ──► probe-answer ──► echo each message
+//
+// It gathers relay candidates only: the server passes on nothing else, so
+// there is nothing to wait for past the first.
 //
 // The renter opens the channel and times its messages coming back. A probe
 // is small and short: a few open at once, a few messages each, closed after
@@ -22,7 +25,7 @@ export const MAX_OPEN_PROBES = 4;
 export const MAX_PROBE_MESSAGES = 64;
 /** The largest message echoed. A timestamp and a sequence number fit many times over. */
 export const MAX_PROBE_MESSAGE_BYTES = 256;
-/** How long the answer waits for its candidates before it is sent with those it has. */
+/** How long the answer waits for a relay candidate before it is sent with none. */
 const GATHER_MS = 3_000;
 /** The largest offer answered. A data-channel offer with every candidate is a few KB. */
 const MAX_OFFER_CHARS = 16 * 1024;
@@ -54,20 +57,22 @@ function wellFormed(offer: ProbeOffer): boolean {
   );
 }
 
-/** Resolve once `pc` has gathered its candidates, or after `ms`, whichever is first. */
+/** Resolve once `pc` has gathered a candidate or finished gathering, or after `ms`, whichever is first. */
 function gathered(pc: RTCPeerConnection, ms: number): Promise<void> {
   if (pc.iceGatheringState === "complete") return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);
       pc.removeEventListener("icegatheringstatechange", check);
+      pc.removeEventListener("icecandidate", check);
       resolve();
     };
-    const check = () => {
-      if (pc.iceGatheringState === "complete") done();
+    const check = (event: Event) => {
+      if (pc.iceGatheringState === "complete" || (event as RTCPeerConnectionIceEvent).candidate) done();
     };
     const timer = setTimeout(done, ms);
     pc.addEventListener("icegatheringstatechange", check);
+    pc.addEventListener("icecandidate", check);
   });
 }
 
@@ -85,7 +90,7 @@ const sizeOf = (data: unknown): number =>
 
 export function createProbeResponder({
   iceServers,
-  createPeer = (servers) => createPeerConnection({ iceServers: servers }),
+  createPeer = (servers) => createPeerConnection({ iceServers: servers, forceRelay: true }),
   maxMs = PROBE_MAX_MS,
 }: ProbeResponderOptions): ProbeResponder {
   const open = new Set<() => void>();

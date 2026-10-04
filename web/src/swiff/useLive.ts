@@ -16,9 +16,10 @@
 // probe token for are measured through its TURN relay (@swiff/rtc
 // probeLatency, a second or two: the game page's "measuring" moment), and the
 // machines are read again with what was measured, so the list is ranked by it.
-// Without the relay the server hands out no token and the estimate stands. A machine is
-// probed at most once every MEASURED_FOR_MS; what was measured goes with every
-// read until then. Only the game page probes: the wall, its attract loop and
+// Without the relay the server hands out no token and the estimate stands, as
+// it does for a machine whose probe measured nothing. A machine is probed at
+// most once every MEASURED_FOR_MS; what was measured goes with every read until
+// then. Only the game page probes: the wall, its attract loop and
 // its hover trailers never do.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -89,14 +90,14 @@ export type Live = {
   measuring: { appid: number; ids: string[] } | null;
   /**
    * The renter's round trips in ms: to this server, and through the relay to
-   * each machine measured (unreachable ones left out), for a booking to be
+   * each machine measured, for a booking to be
    * matched by.
    */
   rtts: { server?: number; machines: Record<string, number> };
 };
 
-/** One machine's probe: when it was started, and what it found; undefined while nothing is known. */
-type Probed = { at: number; link: MeasuredLink | null | undefined };
+/** One machine's probe: when it was started, and what it measured; undefined while nothing is. */
+type Probed = { at: number; link: MeasuredLink | undefined };
 
 /** The session length and settings a read asks about, as one comparable string. */
 export const questionOf = (minutes: number, prefs: Prefs) =>
@@ -203,8 +204,8 @@ export function useLive({
   /**
    * Probe the machines the server handed a token for that were not probed in
    * the last MEASURED_FOR_MS, one round at a time; then read the game again
-   * with what was found. A probe that learnt nothing (refused, unanswered)
-   * leaves the estimate standing.
+   * with what was measured. A probe that measured nothing (refused,
+   * unanswered, unreachable through the relay) leaves the estimate standing.
    */
   const measure = (list: GameMachines) => {
     if (measuringNow.current || !list.iceServers?.length) return;
@@ -227,12 +228,9 @@ export function useLive({
         setMeasuring(null);
         let learnt = false;
         for (const result of results) {
-          if (result.status === "unanswered") continue;
+          if (result.status !== "measured") continue;
           learnt = true;
-          probed.current.set(result.hostId, {
-            at: Date.now(),
-            link: result.status === "measured" ? result.link : null,
-          });
+          probed.current.set(result.hostId, { at: Date.now(), link: result.link });
         }
         if (!learnt) return;
         setMeasured((n) => n + 1);
@@ -336,7 +334,7 @@ export function useLive({
 
   const rtts = useMemo<Live["rtts"]>(() => {
     const machines: Record<string, number> = {};
-    for (const [id, link] of Object.entries(linksNow())) if (link) machines[id] = link.rttMs;
+    for (const [id, link] of Object.entries(linksNow())) machines[id] = link.rttMs;
     return { ...(rtt === null ? {} : { server: rtt }), machines };
     // `measured` moves whenever a probe round has recorded what it found.
     // eslint-disable-next-line react-hooks/exhaustive-deps

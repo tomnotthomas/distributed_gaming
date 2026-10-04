@@ -46,8 +46,9 @@ export type Booking = {
 };
 
 /**
- * The renter's round trips in ms: to the server, and straight to any machine
- * probed, by id. The server matches the booking by them.
+ * The renter's round trips in ms: to the server, and through the relay to each
+ * machine their probes measured, by id (useLive's `rtts`). The server matches
+ * the booking by them.
  */
 export type Rtts = { server?: number; machines?: Record<string, number> };
 
