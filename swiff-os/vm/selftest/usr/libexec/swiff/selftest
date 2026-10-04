@@ -87,8 +87,10 @@ check renter-no-shell "$shell" test "$shell" = /usr/sbin/nologin
 # The password field from shadow, or from passwd when there is no shadow entry.
 password_field() { getent shadow "$1" | cut -d: -f2 | grep . || getent passwd "$1" | cut -d: -f2; }
 locked() { case $(password_field "$1") in '!'* | '*'* | x) return 0 ;; *) return 1 ;; esac }
-check renter-no-password "$(password_field renter)" locked renter
-check root-locked "$(password_field root)" locked root
+# The detail says only whether the account is locked: the password field
+# itself (a hash on other systems) never goes to the console log.
+check renter-no-password "password field not logged" locked renter
+check root-locked "password field not logged" locked root
 check no-sudo "no sudo or su to escalate with" bash -c '! command -v sudo && ! command -v sudo-rs'
 suid=$(find / -xdev -type f -perm /6000 2> /dev/null | head -n5 | paste -sd' ' -)
 check no-setuid-binaries "${suid:-none}" test -z "$suid"
