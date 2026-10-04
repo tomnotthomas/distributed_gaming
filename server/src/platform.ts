@@ -1669,12 +1669,12 @@ export class Platform {
     return (await this.#get<MachineRow>("SELECT * FROM machines WHERE id = $1", machineId)) ?? null;
   }
 
-  /** The machines holding a socket open. */
   /** Whether a free machine may be offered: always, or only while present (offeredOnlyWhilePresent). */
   #offerable(machineId: string): boolean {
     return !this.#offeredOnlyWhilePresent || this.#present.has(machineId);
   }
 
+  /** The machines holding a socket open. */
   #presentIds(): string[] {
     return [...this.#present];
   }

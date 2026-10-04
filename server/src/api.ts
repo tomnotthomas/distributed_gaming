@@ -625,7 +625,15 @@ export function createApi({
     }
 
     if (resource === "machines" && id && action === "attest" && method === "POST") {
-      const body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      } catch (error) {
+        // Not JSON, not an object, or too large: the documented refusal, not prose.
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
       const attested = await attestation.attest(id, body.nonce, body.evidence);
       reply(res, attested.ok ? 200 : attested.status, attested.ok ? attested.grant : attested.body);
       return true;

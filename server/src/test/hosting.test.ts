@@ -236,6 +236,14 @@ describe("hosting requires attestation", () => {
       evidence: { facts: FACTS },
     });
     assert.deepEqual(again, { status: 401, body: { error: "bad-nonce" } });
+    const garbled = await fetch(`${HTTP}/api/machines/pc-3/attest`, { method: "POST", body: "{not json" });
+    assert.deepEqual(
+      { status: garbled.status, body: await garbled.json() },
+      {
+        status: 400,
+        body: { error: "bad-request" },
+      },
+    );
     assert.deepEqual(await call("POST", "/api/machines/pc-9/attest-challenge"), {
       status: 404,
       body: { error: "not-found" },

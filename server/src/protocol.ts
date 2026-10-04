@@ -174,7 +174,9 @@ export type SessionError = {
 //
 //   POST /api/machines/:id/attest-challenge  → 200 AttestChallengeGrant
 //   POST /api/machines/:id/attest  AttestRequest → 200 HostCertGrant
-//                                  | 400 bad-request | 401 bad-nonce | 403 attestation-refused
+//                                  | 400 bad-request (413 when too large) | 401 bad-nonce
+//                                  | 403 attestation-refused | 429 too-many-attempts
+//                                  | 503 verifier-unavailable
 //
 // Either answers 404 not-found for a machine with no key configured, and 503
 // not-configured when the server has no ROOM_SECRET or no verifier.
@@ -201,7 +203,14 @@ export type HostCertGrant = {
 };
 
 export type AttestRefusal = {
-  error: "bad-request" | "bad-nonce" | "attestation-refused" | "not-found" | "not-configured";
+  error:
+    | "bad-request"
+    | "bad-nonce"
+    | "attestation-refused"
+    | "too-many-attempts"
+    | "verifier-unavailable"
+    | "not-found"
+    | "not-configured";
   /** Why attestation-refused: the verifier rejected the evidence, or the hardware is below the floor. */
   reason?: "evidence-rejected" | "below-hardware-floor";
 };

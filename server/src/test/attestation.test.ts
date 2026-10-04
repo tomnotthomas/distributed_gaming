@@ -21,6 +21,7 @@ import {
   HARDWARE_FLOOR,
   HOST_CERT_TTL_SECONDS,
   insecureDevVerifier,
+  MAX_ATTEMPTS_PER_MINUTE,
   tierFor,
   type AttestationVerifier,
   type PlatformFacts,
@@ -256,6 +257,42 @@ describe("attesting", () => {
     );
     assert.deepEqual(await attestation.attest("pc-1", nonceFor(attestation, "pc-2"), evidence()), badNonce);
     assert.deepEqual(await attestation.attest("pc-1", mintTicket(SECRET, "pc-1", 60), evidence()), badNonce);
+  });
+
+  it("answers a verifier that fails with a documented refusal, the challenge spent", async () => {
+    const attestation = required({
+      name: "down",
+      verify: async () => {
+        throw new Error("keylime unreachable");
+      },
+    });
+    const nonce = nonceFor(attestation);
+    assert.deepEqual(await attestation.attest("pc-1", nonce, evidence()), {
+      ok: false,
+      status: 503,
+      body: { error: "verifier-unavailable" },
+    });
+    assert.equal((await attestation.attest("pc-1", nonce, evidence())).ok, false, "spent");
+  });
+
+  it("keeps at most MAX_ATTEMPTS_PER_MINUTE live spent challenges per machine", async () => {
+    const now = Date.now();
+    const attestation = required();
+    for (let i = 0; i < MAX_ATTEMPTS_PER_MINUTE; i++) {
+      assert.equal((await attestation.attest("pc-1", nonceFor(attestation, "pc-1", now), {}, now)).ok, false);
+    }
+    assert.deepEqual(await attestation.attest("pc-1", nonceFor(attestation, "pc-1", now), evidence(), now), {
+      ok: false,
+      status: 429,
+      body: { error: "too-many-attempts" },
+    });
+    assert.ok(
+      (await attestation.attest("pc-2", nonceFor(attestation, "pc-2", now), evidence(), now)).ok,
+      "another machine",
+    );
+    // Once the spent ones expire, the machine attests again.
+    const later = now + CHALLENGE_TTL_SECONDS * 1000;
+    assert.ok((await attestation.attest("pc-1", nonceFor(attestation, "pc-1", later), evidence(), later)).ok);
   });
 
   it("answers a malformed request, an unknown machine and a server with no verifier", async () => {

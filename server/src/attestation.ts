@@ -57,6 +57,14 @@ export const HOST_CERT_TTL_SECONDS = 10 * 60;
 /** How long a challenge may be quoted over: enough for one TPM quote and the round trip. */
 export const CHALLENGE_TTL_SECONDS = 60;
 
+/**
+ * The most attempts one machine may have spent challenges for that have not
+ * yet expired. Asking for a challenge and attesting need no credential, so
+ * this bounds what anyone can make the server keep: past it, attempts for that
+ * machine are refused until the oldest expire, at most a minute.
+ */
+export const MAX_ATTEMPTS_PER_MINUTE = 32;
+
 /** What attestation established about the machine that quoted. */
 export type PlatformFacts = {
   /** Booted by UEFI firmware, not a legacy BIOS (CSM off). */
@@ -227,7 +235,9 @@ export type Attestation = {
   /**
    * Judge `evidence` quoted over `nonce` by machine `room`, and mint a host
    * certificate when it passes and the machine meets the hardware floor. The
-   * challenge is spent whatever the outcome. Rejects when the verifier fails.
+   * challenge is spent whatever the outcome; a verifier that fails answers
+   * 503 verifier-unavailable, and past MAX_ATTEMPTS_PER_MINUTE live spent
+   * challenges for the machine, 429 too-many-attempts.
    */
   attest(
     room: string,
@@ -263,8 +273,8 @@ export function createAttestation({
   floor?: HardwareFloor;
   ttlSeconds?: number;
 }): Attestation {
-  /** Challenge id → when it expires (Unix ms). */
-  const spent = new Map<string, number>();
+  /** Per machine, spent challenge id → when it expires (Unix ms). */
+  const spent = new Map<string, Map<string, number>>();
   /** Host certificate id → when it expires (Unix ms), once it has started a session. */
   const spentCerts = new Map<string, number>();
   const forgetExpired = (ids: Map<string, number>, now: number) => {
@@ -291,15 +301,29 @@ export function createAttestation({
       if (!access.secret || !verifier) return refuse(503, { error: "not-configured" });
       if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
       if (typeof nonce !== "string" || evidence === undefined) return refuse(400, { error: "bad-request" });
-      forgetExpired(spent, now);
+      const roomSpent = spent.get(room) ?? new Map<string, number>();
+      spent.set(room, roomSpent);
+      forgetExpired(roomSpent, now);
       const challenge = verifyChallenge(access.secret, nonce, now);
-      if (!challenge || challenge.room !== room || spent.has(challenge.id)) {
+      if (!challenge || challenge.room !== room || roomSpent.has(challenge.id)) {
         return refuse(401, { error: "bad-nonce" });
       }
+      // Never by forgetting a live challenge: that would let it be used twice.
+      if (roomSpent.size >= MAX_ATTEMPTS_PER_MINUTE) return refuse(429, { error: "too-many-attempts" });
       // Spent before the verifier runs: one challenge, one attempt, however it ends.
-      spent.set(challenge.id, challenge.exp * 1000);
+      roomSpent.set(challenge.id, challenge.exp * 1000);
 
-      const verdict = await verifier.verify({ room, nonce, evidence });
+      let verdict: Verdict;
+      try {
+        verdict = await verifier.verify({ room, nonce, evidence });
+      } catch (error) {
+        // Only the kind of failure: the evidence is the machine's.
+        console.error(
+          "[swiff] attestation verifier failed:",
+          error instanceof Error ? error.name : typeof error,
+        );
+        return refuse(503, { error: "verifier-unavailable" });
+      }
       if (!verdict.ok) return refuse(403, { error: "attestation-refused", reason: "evidence-rejected" });
       const tier = tierFor(verdict.facts, floor);
       if (!tier) return refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" });

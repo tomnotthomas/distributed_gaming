@@ -211,11 +211,15 @@ POST /api/machines/:id/attest            ──────► verifier judges t
                                          ◄────── 200 { hostCert, tier, expiresAt }
 ```
 
-Refusals: `400 bad-request`; `401 bad-nonce` (forged, expired, another machine's, or already
-used, whatever the earlier attempt's outcome); `403 attestation-refused` with `reason`
-`evidence-rejected` or `below-hardware-floor`; `404 not-found` for a machine with no key;
-`503 not-configured` with no `ROOM_SECRET` or no verifier. Bodies are JSON with
-`cache-control: no-store`; the types are in `protocol.ts`.
+Refusals: `400 bad-request` (`413` with the same body when it is too large); `401 bad-nonce`
+(forged, expired, another machine's, or already used, whatever the earlier attempt's
+outcome); `403 attestation-refused` with `reason` `evidence-rejected` or
+`below-hardware-floor`; `404 not-found` for a machine with no key; `429 too-many-attempts`
+once a machine has 32 spent challenges that have not expired (the routes need no
+credential, so this bounds what anyone can make the server keep, and it can hold one
+machine's attestation back for at most a minute); `503 verifier-unavailable` when the
+verifier itself fails; `503 not-configured` with no `ROOM_SECRET` or no verifier. Bodies are
+JSON with `cache-control: no-store`; the types are in `protocol.ts`.
 
 The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence })`
 returning the platform facts it verified). It is picked with `ATTESTATION_VERIFIER`. The only
@@ -229,8 +233,9 @@ setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an 
 firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-discrete-tpm`
 tier. The tier is carried in the certificate, for matching to use later.
 
-Not yet: revoking a certificate before it expires, and the disk-key share
-(`POST /machines/:id/state-key`).
+Not yet: revoking a certificate before it expires, the disk-key share
+(`POST /machines/:id/state-key`), and rate-limiting the attestation routes per client, so
+that a flood for one machine cannot hold its attestation back.
 
 ## Lifetimes
 
