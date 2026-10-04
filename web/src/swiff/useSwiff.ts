@@ -564,14 +564,6 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setElapsedMs(0);
   }, [phase, play?.step]);
 
-  // Refused at the door, the ticket opens nothing: the launch is over.
-  useEffect(() => {
-    if (!play?.denied) return;
-    endCurrentBooking();
-    setBookingFailed(true);
-    setPhase("idle");
-  }, [play?.denied, endCurrentBooking]);
-
   useEffect(() => {
     if (demo || phase !== "connecting") return;
     const timer = window.setInterval(() => setIgnitionNow(Date.now()), IGNITION_TICK_MS);
@@ -687,15 +679,28 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setBeat(0);
   }, [machines, machineId, signedIn, endCurrentBooking, launchOn]);
 
+  const elapsedNow = useRef(elapsedMs);
+  elapsedNow.current = elapsedMs;
   const endSession = useCallback(() => {
-    track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
+    track("session_ended", { seconds: Math.round(elapsedNow.current / 1000) });
     if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
     // The server hears it: the session ends as the renter's, and the PC is told.
     endCurrentBooking();
     setPhase("idle");
     setBeat(0);
     setOwnerDropped(false);
-  }, [elapsedMs, endCurrentBooking]);
+  }, [endCurrentBooking]);
+
+  // Refused at the door, the ticket opens nothing. During Ignition the launch
+  // failed; while live, the server ended the session (its time ran out, or the
+  // PC ended it), which is a session end like End.
+  useEffect(() => {
+    if (!play?.denied) return;
+    if (covered.current.phase === "live") return endSession();
+    endCurrentBooking();
+    setBookingFailed(true);
+    setPhase("idle");
+  }, [play?.denied, endCurrentBooking, endSession]);
 
   /**
    * The owner took their machine back mid-session. Nothing drives this yet: the

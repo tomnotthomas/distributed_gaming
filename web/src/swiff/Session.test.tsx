@@ -77,6 +77,21 @@ describe("Session", () => {
     expect(session.dataset.hud).toBe("shown");
   });
 
+  it("stays inert behind Ignition, and puts the HUD up afresh once live", () => {
+    const { rerender } = render(<Session swiff={swiffWith({ phase: "connecting" })} />);
+    const session = screen.getByTestId("session");
+    expect(session).toHaveAttribute("inert");
+
+    act(() => vi.advanceTimersByTime(HUD_IDLE_MS * 2));
+    expect(session.dataset.hud).toBe("hidden");
+
+    rerender(<Session swiff={swiffWith({ phase: "live" })} />);
+    expect(session).not.toHaveAttribute("inert");
+    expect(session.dataset.hud).toBe("shown");
+    act(() => vi.advanceTimersByTime(HUD_IDLE_MS));
+    expect(session.dataset.hud).toBe("hidden");
+  });
+
   it("ends the session with End", () => {
     const swiff = swiffWith();
     render(<Session swiff={swiff} />);
