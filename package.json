@@ -7,6 +7,7 @@
     "web",
     "desktop",
     "swiff-os/hostd",
+    "swiff-os/steam",
     "swiff-os/streamer"
   ],
   "scripts": {

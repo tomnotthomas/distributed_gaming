@@ -5,6 +5,7 @@
 //   join(ticket) ──► joined ──► offer ──► createAnswer ──► answer ──► ontrack ──► <video>
 //                                                            └──► ondatachannel ×2 ──► input
 //   first frame ──► (the page starts the session) ──► the PC launches the game ──► game-started
+//   steam-login (rental mode: the PC's Steam sign-in code, then signed-in) ──► the page shows it
 //
 // One peer connection at a time. The PC re-offers whenever it re-registers, so
 // a new offer replaces the old connection rather than adding a second one, and
@@ -24,6 +25,7 @@ import {
 import { connectSignaling, type SignalMessage } from "./signaling";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
+export type SteamLogin = Extract<SignalMessage, { type: "steam-login" }>;
 
 /** How often the stats snapshot is refreshed unless the caller says otherwise. */
 export const DEFAULT_STATS_INTERVAL_MS = 1000;
@@ -71,6 +73,8 @@ export type RenterSessionEvent =
   | { type: "game-started" }
   /** A fresh stats snapshot; also readable through `stats()`. */
   | { type: "stats"; stats: RenterStats }
+  /** Rental mode's Steam sign-in: a code to show as a QR code, or the renter approved it. */
+  | SteamLogin
   /** The PC went away. The session stays in the room and answers its next offer. */
   | { type: "peer-left" }
   /** The server refused the ticket. Final: an `ended` follows. */
@@ -326,6 +330,9 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
           break;
         case "game-started":
           emit({ type: "game-started" });
+          break;
+        case "steam-login":
+          emit(msg);
           break;
         case "peer-left":
           teardown();

@@ -1,0 +1,86 @@
+// The agent's local socket: how the streamer, which carries the renter's
+// signaling, asks for a Play and hears how it goes. One command per
+// connection:
+//
+//   status        → { "steam": "starting" | "sign-in" | "signed-in" }, then closed
+//   play <appid>  → one PlayEvent per line (login.ts) until game-on-screen or failed, then closed
+//
+// A `qr` event carries a live sign-in code: whoever reads this socket passes it
+// to the renter's page and nowhere else, and never logs it. Hanging up stops
+// the play. One play runs at a time; a second gets { "event": "failed", "reason": "busy" },
+// and a play the agent itself fails at ends with { "event": "failed", "reason": "error" }.
+
+import { chmod, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:net";
+import { play, type PlayOptions } from "./login.ts";
+import { isSignInUrl } from "./steam.ts";
+
+const MAX_COMMAND_BYTES = 64;
+
+export type SteamState = "starting" | "sign-in" | "signed-in";
+
+/** Where Steam stands: signed in, showing its sign-in code (ready for a renter), or neither yet. */
+export async function steamState(opts: Pick<PlayOptions, "steam" | "display">): Promise<SteamState> {
+  if (await opts.steam.signedIn()) return "signed-in";
+  return (await opts.display.qrCodes()).some(isSignInUrl) ? "sign-in" : "starting";
+}
+
+/**
+ * Listen at `path`. The socket is for the agent's user and its group (mode
+ * 660); the group is the streamer's, set on the directory it is made in.
+ */
+export async function serveLogin(path: string, opts: Omit<PlayOptions, "emit" | "signal">): Promise<Server> {
+  await rm(path, { force: true });
+  let playing = false;
+  const server = createServer((conn) => {
+    let text = "";
+    let answered = false;
+    const hangUp = new AbortController();
+    conn.setEncoding("utf8");
+    conn.on("error", () => {});
+    conn.on("close", () => hangUp.abort());
+    conn.on("data", async (chunk: string) => {
+      if (answered) return;
+      text += chunk;
+      const end = text.indexOf("\n");
+      if (end === -1 && text.length <= MAX_COMMAND_BYTES) return;
+      answered = true;
+      const [command, arg] = text
+        .slice(0, end === -1 ? undefined : end)
+        .trim()
+        .split(/\s+/);
+      const write = (reply: object) => {
+        if (!conn.destroyed) conn.write(`${JSON.stringify(reply)}\n`);
+      };
+
+      if (command === "status") {
+        write({ steam: await steamState(opts).catch(() => "starting") });
+      } else if (command === "play" && arg !== undefined && /^[1-9][0-9]{0,9}$/.test(arg)) {
+        if (playing) {
+          write({ event: "failed", reason: "busy", atMs: 0 });
+        } else {
+          playing = true;
+          try {
+            await play(Number(arg), { ...opts, emit: write, signal: hangUp.signal });
+          } catch (cause) {
+            console.error(
+              `[swiff-steam-login] play failed: ${cause instanceof Error ? cause.message : cause}`,
+            );
+            write({ event: "failed", reason: "error", atMs: 0 });
+          } finally {
+            playing = false;
+          }
+        }
+      } else {
+        write({ error: "unknown-command" });
+      }
+      conn.end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(path, () => resolve());
+  });
+  await chmod(path, 0o660);
+  return server;
+}

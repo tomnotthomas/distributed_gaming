@@ -1499,6 +1499,32 @@ button.band-tab:hover {
   fill: var(--on-paper-2);
   font: 400 11px var(--mono);
 }
+/* Steam's sign-in code, in the dial's place until the renter approves it */
+.ig-qr {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  margin: 24px 0;
+}
+.ig-qr-code {
+  flex: none;
+  width: clamp(180px, 16vw, 260px);
+  height: auto;
+}
+.ig-qr-copy h2 {
+  margin: 0 0 10px;
+  font: 400 22px/1.2 var(--wide);
+  text-transform: uppercase;
+}
+.ig-qr-copy p {
+  margin: 0 0 10px;
+}
+.ig-qr-note {
+  color: var(--on-paper-2);
+  font-size: 14px;
+}
 .ig-legend {
   margin: 0;
   padding: 0;
@@ -2584,6 +2610,11 @@ button.band-tab:hover {
   }
   .ig-cancel {
     top: 30px;
+  }
+  .ig-qr {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
   }
   .ig-dial {
     min-height: 260px;

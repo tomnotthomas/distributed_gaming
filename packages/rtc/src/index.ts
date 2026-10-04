@@ -8,7 +8,13 @@ export type { SignalMessage, Signaling, SignalingOptions } from "./signaling";
 export { startHostSession, requestSessionKey, httpOrigin, DEFAULT_CAPTURE } from "./hostSession";
 export type { CaptureSettings, HostConnection, HostSessionOptions, SessionClaim } from "./hostSession";
 export { startRenterSession, DEFAULT_STATS_INTERVAL_MS } from "./renterSession";
-export type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "./renterSession";
+export type {
+  RenterSession,
+  RenterSessionEvent,
+  RenterSessionOptions,
+  RenterStats,
+  SteamLogin,
+} from "./renterSession";
 export {
   encodeInput,
   decodeInput,

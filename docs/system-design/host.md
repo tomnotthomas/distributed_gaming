@@ -336,6 +336,7 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 | `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
 | `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                          |
+| `steam-login`              | PC → renter | Rental mode: Steam's sign-in link, `{ state: "qr", url }`, again when it changes; then `{ state: "signed-in" }`. Never from the renter.   |
 | `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                   |
 
 The open socket is the PC's presence. The machine stays offered for as long as it is

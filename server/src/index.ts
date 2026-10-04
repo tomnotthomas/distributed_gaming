@@ -903,6 +903,8 @@ function ticketReadAfter(ticketId: string, arrived: number): TicketRead {
  * until it can, or either side leaves the room. Never rejects.
  */
 async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
+  // Steam sign-in codes go from the PC to its renter only; one from a renter is dropped.
+  if (msg.type === "steam-login" && ws.role !== "host") return;
   const peer = peerOf(ws);
   if (!peer) return;
   const renter = ws.role === "client" ? ws : peer;

@@ -3,7 +3,7 @@
 // to both or it is a bug.
 //
 //   host    register ──► registered, session-claimed, peer-joined, answer, ice, launch-game, peer-left
-//   client  join     ──► joined, offer, ice, game-started, peer-left
+//   client  join     ──► joined, offer, ice, game-started, steam-login, peer-left
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
 //
@@ -110,6 +110,16 @@ export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid:
  * captured, never the desktop or Steam.
  */
 export type GameStartedMessage = { type: "game-started"; sessionId: string };
+/**
+ * Rental mode's Steam sign-in, sent by the PC to its renter and relayed like
+ * the handshake, never the other way. `qr` is the link Steam's own sign-in QR
+ * code encodes, for the renter's page to draw as a QR code they scan with the
+ * Steam app; the PC sends it again whenever Steam shows a new code.
+ * `signed-in` says the renter approved it and the game is being launched.
+ * The server never reads or logs either.
+ */
+export type SteamLoginMessage =
+  { type: "steam-login"; state: "qr"; url: string } | { type: "steam-login"; state: "signed-in" };
 export type PeerJoinedMessage = { type: "peer-joined" };
 /**
  * The other side left the room. To the host, `grace` (seconds) says the renter
@@ -134,15 +144,18 @@ export type SignalMessage =
   | SessionClaimedMessage
   | LaunchGameMessage
   | GameStartedMessage
+  | SteamLoginMessage
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
   | PongMessage;
 
 /** Messages the server forwards to the other peer without inspecting them. */
-export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started"] as const;
+export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started", "steam-login"] as const;
 
-export function isRelayed(msg: SignalMessage): msg is SdpMessage | IceMessage | GameStartedMessage {
+export function isRelayed(
+  msg: SignalMessage,
+): msg is SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

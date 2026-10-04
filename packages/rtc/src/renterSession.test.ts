@@ -194,6 +194,19 @@ describe("startRenterSession", () => {
     expect(events).toEqual([{ type: "joined", hostId: "room-1", hostOnline: false }]);
   });
 
+  it("passes on the PC's Steam sign-in code and the sign-in, before any stream", () => {
+    const { events } = start();
+    socket().deliver({ type: "joined", hostId: "room-1", hostOnline: true });
+
+    socket().deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" });
+    socket().deliver({ type: "steam-login", state: "signed-in" });
+
+    expect(events.slice(1)).toEqual([
+      { type: "steam-login", state: "qr", url: "https://s.team/q/1/42" },
+      { type: "steam-login", state: "signed-in" },
+    ]);
+  });
+
   it("answers the PC's offer with the server's TURN added to the default STUN", async () => {
     const { events } = start();
 

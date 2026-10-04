@@ -3,6 +3,7 @@ import { Backdrop } from "@swiff/ui";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
+import { isSteamSignInUrl, SteamSignIn } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
 
 /**
@@ -16,6 +17,9 @@ import type { Swiff } from "./useSwiff";
  * inert, and focus moves to Cancel while it is up and back to where it was
  * when it closes. A session carried on from a lost machine starts here too,
  * saying which machine it moved from.
+ *
+ * On a rental-mode PC, Steam's sign-in code takes the dial's place until the
+ * renter has approved it from the Steam app: the one sign-in step there is.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow, lost } = swiff;
@@ -25,6 +29,8 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
   const pct = Math.round(shown);
   const ignitionStep = ignitionSteps[now]!;
   const title = game?.title ?? "your game";
+  const signIn =
+    swiff.steamLogin?.state === "qr" && isSteamSignInUrl(swiff.steamLogin.url) ? swiff.steamLogin.url : null;
 
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -93,7 +99,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
-          {slow ? `${ignitionStep}: taking longer than usual` : ignitionStep}
+          {signIn ? "Sign in to Steam" : slow ? `${ignitionStep}: taking longer than usual` : ignitionStep}
         </p>
 
         {slow ? (
@@ -108,7 +114,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
           </div>
         ) : null}
 
-        <IgnitionDial pct={shown} />
+        {signIn ? <SteamSignIn url={signIn} /> : <IgnitionDial pct={shown} />}
 
         <ol className="ig-legend mono">
           {ignitionSteps.map((step, index) => {

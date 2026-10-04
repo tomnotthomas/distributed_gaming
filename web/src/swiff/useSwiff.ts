@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SteamLogin } from "@swiff/rtc";
 import posthog, { isPostHogEnabled } from "../posthog";
 import {
   bookMachine,
@@ -1208,6 +1209,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     devices,
     showAll,
     ...ignition,
+    /**
+     * A rental-mode PC's Steam sign-in, for Ignition to show: the stream's
+     * steam-login events. Null until Play feeds them in here.
+     */
+    steamLogin: null as SteamLogin | null,
     elapsedMs,
     lost,
     week,
