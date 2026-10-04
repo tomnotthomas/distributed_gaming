@@ -1,0 +1,23 @@
+{
+  // swiff-hostd runs as TypeScript source on Node (type stripping, Node 22.18 or
+  // later), so every import names its .ts file and only erasable syntax is used.
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM is here only for the RTC payload types in server/src/protocol.ts,
+    // which the agent never reads.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "vitest.config.ts"]
+}

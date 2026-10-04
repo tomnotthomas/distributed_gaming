@@ -53,6 +53,10 @@ npm run desktop:pack   # build desktop/release/SwiffHost-<version>.exe
 
 Code: `desktop/`, `packages/`.
 
+## Rental mode (Swiff OS)
+
+The locked Linux system a shared PC boots into, built in stages: [`swiff-os/`](swiff-os/README.md).
+
 ## Checks
 
 ```bash

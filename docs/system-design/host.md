@@ -118,13 +118,15 @@ session runs on.
 ```
 PUT  /machines/:id/availability
   { available: true, until?, price?, ...report }
-  → 200 { id, status, gpu, cpu, price, session? }
+  → 200 { id, status, gpu, cpu, price, until?, session? }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
-  `until` is an ISO date; `price` is cents per hour. `report` is below.
+  `until` is an ISO date or Unix ms; `price` is cents per hour. `report` is below. Every
+  call replaces `until`, so one that leaves it out clears it; the answer's `until` (Unix ms,
+  when set) is what to send back to offer the PC again on the same terms.
 
 POST /machines/:id/heartbeat
   { ...report }
-  → 200 { id, status, gpu, cpu, price, session? }
+  → 200 { id, status, gpu, cpu, price, until?, session? }
   Sent when part of the report changes. Liveness is the PC's socket (below), not this
   call: while the socket is open the machine needs no heartbeat. Without one (the
   service was handed over to the streamer, or cannot connect) the service sends this

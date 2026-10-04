@@ -130,6 +130,12 @@ export type MachineView = {
   gpu: string | null;
   cpu: string | null;
   price: number;
+  /**
+   * Unix ms after which it is no longer offered, when the owner set one. A host
+   * that takes the machine off offer for a while (rental mode, while it resets
+   * between renters) sends it back when it offers the machine again.
+   */
+  until?: number;
   /** The session running on it, when there is one: the host starts and ends it by this id. */
   session?: { id: string };
 };
@@ -1695,6 +1701,7 @@ export class Platform {
       gpu: m.gpu_model,
       cpu: m.cpu_model,
       price: m.price,
+      ...(m.available_until !== null ? { until: m.available_until } : {}),
       ...(m.session_id ? { session: { id: m.session_id } } : {}),
     };
   }
