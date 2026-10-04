@@ -162,7 +162,9 @@ def main():
     grant = call("/grant")
     say("got the session grant from the harness")
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "SWIFF_SERVER_URL": grant["serverUrl"],
-           "SWIFF_HOST_ID": grant["hostId"]}
+           "SWIFF_HOST_ID": grant["hostId"],
+           # hostd sends the game's app id; the streamer must take any value and ignore it.
+           "SWIFF_APPID": "steam:not-a-number"}
     args = ["node", STREAMER, "--pipewire-remote", PIPEWIRE, "--size", "1280x720", "--fps", "30",
             "--bitrate", "3000000"]
     started = time.time()
