@@ -49,8 +49,9 @@ DELETE /api/machines/:id/session ─► 204; every key of the session is dead
 
 ## Learning of a claim: `session-claimed`
 
-The service keeps its own WebSocket registered with the **machine key** while the PC is
-offered (the phase-1 `register`, see `protocol.ts`). The moment a renter claims the
+The service keeps its own WebSocket registered with the **machine key** (in Swiff OS, a
+host certificate: see Control and hosting credentials) while the PC is offered (the
+phase-1 `register`, see `protocol.ts`). The moment a renter claims the
 machine, the server pushes to that socket, and to no other machine's:
 
 ```json
@@ -86,7 +87,7 @@ again to hear the next claim.
 ## Endpoints
 
 Both are called by the **PC service only**, over HTTPS to the signaling server, with
-`Authorization: Bearer <machine key>`. `:id` is the machine id (the room). Start has a JSON
+`Authorization: Bearer <machine key or host certificate>`. `:id` is the machine id (the room). Start has a JSON
 body (`SessionStart` in `protocol.ts`); end has none. Responses are JSON with
 `cache-control: no-store`.
 
