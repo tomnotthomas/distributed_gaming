@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { storedPlay } from "./booking";
 import { GAMES } from "./data";
 import { WAKE_TIMEOUT_MS } from "./play";
@@ -488,6 +488,84 @@ describe("useSwiff", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    describe("after the PC drops a started session", () => {
+      /** A session live on h1 for 10 s, then back behind Ignition because its PC left. */
+      async function dropped(extra: Record<string, Response> = {}) {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 600_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+          ...extra,
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        await waitFor(() => expect(result.current.play?.started).toBe(true));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(10_000));
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        track.mockClear();
+        return { result, calls, session };
+      }
+
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("ends a session the server ended behind Ignition as a session end, not a failed launch", async () => {
+        const { result, calls, session } = await dropped();
+
+        act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.bookingFailed).toBe(false);
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        expect(
+          track.mock.calls.find(([name]) => name === "session_ended")![1].seconds,
+        ).toBeGreaterThanOrEqual(9);
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("ends it as a session with End on Ignition", async () => {
+        const { result, calls } = await dropped();
+
+        act(() => result.current.goHome());
+        expect(result.current.phase).toBe("idle");
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("ends it as a session before trying another machine, whose clock starts afresh", async () => {
+        const { result, calls } = await dropped();
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+
+        act(() => result.current.tryAnother());
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        await waitFor(() => expect(rtc.sessions).toHaveLength(2));
+        const next = rtc.sessions[1]!;
+        act(() => next.emit({ type: "first-frame" }));
+        act(() => next.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        expect(result.current.elapsedMs).toBeLessThan(2_000);
+      });
     });
 
     it("cancels a launch by ending its booking and hanging up", async () => {

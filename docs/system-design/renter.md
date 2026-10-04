@@ -532,11 +532,12 @@ The claim's room and ticket are kept in `localStorage` as the booking being play
 it ends, for the reconnect step to come. Reloading the page does not rejoin the stream
 yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
-/sessions/:id/start, tried again every 2 s while it is lost; one refused ends the
-launch), and it is counted then as `session_started`. Try another machine ends the
+/sessions/:id/start, on every new connection's first frame, tried again every 2 s
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
 booking and launches on the best other free machine on the list, or goes back to
-the list when there is none. Cancel ends the booking; once the session has started it
-reads End. From Play until the game is on screen the renter sees Ignition and nothing
+the list when there is none; a session already started there ends first as End ends
+it, and the next machine's clock starts afresh. Cancel ends the booking; once the
+session has started it reads End, and ends it as End does. From Play until the game is on screen the renter sees Ignition and nothing
 else: the frames the PC sends before `game-started` are its desktop or Steam, and they
 stay behind Ignition however long the launch takes, their sound muted until the game is
 on screen (then "Turn sound on" if the browser refuses it). If the PC leaves mid-session
@@ -552,7 +553,8 @@ comes back when it moves. Full screen puts the session on the whole screen; End 
 booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
 session every key, Escape and a controller's B included, goes to the game. A session the
 server ends (the booked time runs out, or the PC ends it) refuses the ticket (`denied`),
-and the page ends it there as End does, counted as `session_ended`. A ticket refused
-during Ignition, or a session start the server refuses there (the session is already
-over, or the ticket is not its own), is a failed launch instead: the booking is ended and
+and the page ends it there as End does, counted as `session_ended`. This holds behind
+Ignition too once the session has started, after the PC left mid-session. A ticket
+refused before the session started, or a session start the server refuses then (the
+session is already over, or the ticket is not its own), is a failed launch instead: the booking is ended and
 the page says the launch did not go through.

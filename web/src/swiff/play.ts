@@ -121,6 +121,7 @@ export function startPlay(opts: PlayOptions): Play {
   let framed = false;
   let gameStarted = false;
   let counted = false;
+  let connection = 0;
   let startRetry: ReturnType<typeof setTimeout> | undefined;
 
   const set = (next: Partial<PlayState>) => {
@@ -157,13 +158,15 @@ export function startPlay(opts: PlayOptions): Play {
   /**
    * Start the session with the join ticket: the clock starts, and the PC
    * launches the game. One lost on the network or the server is tried again
-   * every START_RETRY_MS; one refused (the session is over, or the ticket is
-   * not its own) ends the launch as a refused ticket does.
+   * every START_RETRY_MS while its connection lasts; one refused (the session
+   * is over, or the ticket is not its own) ends the launch as a refused ticket
+   * does.
    */
   const startSession = () => {
     clearTimeout(startRetry);
+    const at = connection;
     const retry = () => {
-      if (!stopped && !state.started) startRetry = setTimeout(startSession, START_RETRY_MS);
+      if (!stopped && at === connection) startRetry = setTimeout(startSession, START_RETRY_MS);
     };
     void get(`/api/sessions/${encodeURIComponent(claim.sessionId)}/start`, {
       method: "POST",
@@ -187,6 +190,8 @@ export function startPlay(opts: PlayOptions): Play {
     // A new connection earns the stream again: a frame and a fresh game-started.
     framed = false;
     gameStarted = false;
+    connection += 1;
+    clearTimeout(startRetry);
     session?.end();
     const current = start({ url: claim.signalingUrl, ticket: claim.ticket, video, forceRelay: relay });
     session = current;
@@ -222,6 +227,8 @@ export function startPlay(opts: PlayOptions): Play {
           // game-started.
           framed = false;
           gameStarted = false;
+          connection += 1;
+          clearTimeout(startRetry);
           enter("waking");
           break;
         case "stats":

@@ -386,9 +386,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     [stopFollowing],
   );
 
+  // When the session first went live, for its clock; forgotten once it is over.
+  const liveSince = useRef<number | null>(null);
+
   /** End the renter's booking, whatever it has come to, and stop following it. */
   const endCurrentBooking = useCallback(() => {
     launchRun.current += 1;
+    liveSince.current = null;
+    setElapsedMs(0);
     stopFollowing();
     const current = bookingNow.current;
     if (current && current.status !== "ended" && current.status !== "expired") {
@@ -573,8 +578,6 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, [demo, phase]);
 
-  // When the session first went live, for its clock; forgotten once it is over.
-  const liveSince = useRef<number | null>(null);
   useEffect(() => {
     if (phase === "idle") liveSince.current = null;
   }, [phase]);
@@ -598,8 +601,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // While Ignition or a session covers the page, Back and Forward leave the
   // screen behind it alone and put its address back.
-  const covered = useRef({ screen, phase });
-  covered.current = { screen, phase };
+  // Once the server took the session start, or it went live, leaving ends a session.
+  const covered = useRef({ screen, phase, started: false });
+  covered.current = { screen, phase, started: Boolean(play?.started) || phase === "live" };
   useEffect(() => {
     const onPop = () => {
       const { screen, phase } = covered.current;
@@ -616,13 +620,26 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setScreen("share");
   }, []);
 
+  const elapsedNow = useRef(elapsedMs);
+  elapsedNow.current = elapsedMs;
+  const endSession = useCallback(() => {
+    track("session_ended", { seconds: Math.round(elapsedNow.current / 1000) });
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    // The server hears it: the session ends as the renter's, and the PC is told.
+    endCurrentBooking();
+    setPhase("idle");
+    setBeat(0);
+    setOwnerDropped(false);
+  }, [endCurrentBooking]);
+
   const goHome = useCallback(() => {
     // Leaving a launch or a session ends its booking; a queued one waits on.
-    if (covered.current.phase !== "idle") endCurrentBooking();
+    if (covered.current.started) endSession();
+    else if (covered.current.phase !== "idle") endCurrentBooking();
     setScreen("home");
     setPhase("idle");
     setBeat(0);
-  }, [endCurrentBooking]);
+  }, [endSession, endCurrentBooking]);
 
   const openGame = useCallback(
     (next: Game) => {
@@ -674,11 +691,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /**
    * Ignition is taking longer than usual: give this machine back and launch on
    * the best other one free, or, with none, go back to the game's machines.
+   * A session already started on it ends as End ends it.
    */
   const tryAnother = useCallback(() => {
     const next = machines.find((m) => !m.busy && m.id !== machineId);
     track("machine_switched", { machine: next?.id ?? null, slow: true });
-    endCurrentBooking();
+    if (covered.current.started) endSession();
+    else endCurrentBooking();
     if (next && signedIn) {
       setMachineId(next.id);
       launchOn(next.id);
@@ -686,26 +705,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     }
     setPhase("idle");
     setBeat(0);
-  }, [machines, machineId, signedIn, endCurrentBooking, launchOn]);
+  }, [machines, machineId, signedIn, endSession, endCurrentBooking, launchOn]);
 
-  const elapsedNow = useRef(elapsedMs);
-  elapsedNow.current = elapsedMs;
-  const endSession = useCallback(() => {
-    track("session_ended", { seconds: Math.round(elapsedNow.current / 1000) });
-    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
-    // The server hears it: the session ends as the renter's, and the PC is told.
-    endCurrentBooking();
-    setPhase("idle");
-    setBeat(0);
-    setOwnerDropped(false);
-  }, [endCurrentBooking]);
-
-  // Refused at the door, the ticket opens nothing. During Ignition the launch
-  // failed; while live, the server ended the session (its time ran out, or the
-  // PC ended it), which is a session end like End.
+  // Refused at the door, the ticket opens nothing. Before the session started
+  // the launch failed; once it has, even behind Ignition after the PC dropped,
+  // the server ended the session (its time ran out, or the PC ended it), which
+  // is a session end like End.
   useEffect(() => {
     if (!play?.denied) return;
-    if (covered.current.phase === "live") return endSession();
+    if (covered.current.started) return endSession();
     endCurrentBooking();
     setBookingFailed(true);
     setPhase("idle");

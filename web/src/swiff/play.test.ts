@@ -250,6 +250,39 @@ describe("startPlay", () => {
     expect(handle.state().started).toBe(true);
   });
 
+  it("tries a reconnect's lost start again, so the PC still hears to launch the game", async () => {
+    const answers = [200, 0, 500, 200];
+    const fetch = vi.fn(async () => {
+      const status = answers.shift() ?? 200;
+      if (!status) throw new TypeError("offline");
+      return new Response("{}", { status });
+    });
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "first-frame" });
+    latest().emit({ type: "game-started" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handle.state()).toMatchObject({ step: "live", started: true });
+
+    latest().emit({ type: "peer-left" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 2);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("drops a lost start's retry once its connection is gone", async () => {
+    const fetch = vi.fn(async () => new Response("{}", { status: 503 }));
+    startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    latest().emit({ type: "peer-left" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("goes back to waking when the PC hands the room over before the game is on screen", () => {
     const { step } = play();
     latest().emit({ type: "peer-connection", pc: PC });
