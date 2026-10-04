@@ -109,6 +109,8 @@ export function createAgent(deps: AgentDeps): Agent {
   let unmet: FloorCheck[] = [];
   /** The owner asked for the PC back, and it goes as soon as no session is live. */
   let returnWanted = false;
+  /** A renter claimed the PC while it resets: they are served after the restart, so the owner waits. */
+  let claimPending = false;
 
   const inbox = createInbox<Event>();
 
@@ -314,14 +316,17 @@ export function createAgent(deps: AgentDeps): Agent {
   async function reset(endedId: string, toWindows: boolean): Promise<Outcome> {
     phase = "resetting";
     const view = await beat();
-    if (view?.session && view.session.id !== endedId) {
-      log(`session ${view.session.id} was claimed as ${endedId} ended; it is served after the reset`);
+    const claimed = view?.session && view.session.id !== endedId ? view.session.id : null;
+    claimPending = claimed !== null;
+    if (claimed) {
+      log(`session ${claimed} was claimed as ${endedId} ended; it is served after the reset`);
     } else if (view && !view.session && !toWindows && !returnWanted && sharing(view)) {
       await offOfferForReset(view);
     }
     await endHostSession();
     sessionId = null;
-    if (toWindows || returnWanted || (view && !view.session && !sharing(view))) return returnToWindows();
+    if (!claimPending && (toWindows || returnWanted || (view && !view.session && !sharing(view))))
+      return returnToWindows();
     return restart();
   }
 
@@ -341,6 +346,7 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
     const view = await beatUntilAnswered();
+    claimPending = !!view.session;
     if (!view.session && sharing(view) && !returnWanted) await offOfferForReset(view);
     if (!view.session && (returnWanted || (view.status !== "idle" && !sharing(view))))
       return returnToWindows();
@@ -397,7 +403,7 @@ export function createAgent(deps: AgentDeps): Agent {
     run,
     status: () => ({ phase, sessionId, unmet }),
     requestReturnToWindows: () => {
-      if (phase === "serving" && deps.ownerTakeover === "when-idle")
+      if (claimPending || (phase === "serving" && deps.ownerTakeover === "when-idle"))
         return { ok: false, reason: "session-live" };
       returnWanted = true;
       inbox.push({ type: "wake" });

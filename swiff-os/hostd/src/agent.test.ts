@@ -468,6 +468,16 @@ describe("offering and serving", () => {
   });
 });
 
+/** Ask for the PC back the moment the agent is about to restart, and keep its answer. */
+function askWhenRestarting() {
+  const answers: ReturnType<Agent["requestReturnToWindows"]>[] = [];
+  const ref: { agent?: Agent } = {};
+  const log = (message: string) => {
+    if (message === "restarting for a clean PC" && ref.agent) answers.push(ref.agent.requestReturnToWindows());
+  };
+  return { answers, ref, log };
+}
+
 describe("the owner taking the PC back (D8)", () => {
   it("goes back to Windows at once while no session is live", async () => {
     const h = harness();
@@ -489,6 +499,35 @@ describe("the owner taking the PC back (D8)", () => {
     expect(h.server.state.sessionId).toBe("s1");
     h.server.endSession();
     expect(await h.running).toBe("reset");
+  });
+
+  it("refuses while a renter claimed as the last one left waits for the reset, and serves them after it", async () => {
+    const ask = askWhenRestarting();
+    const h = harness(fakeServer(), { log: ask.log });
+    ask.ref.agent = h.agent;
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    h.server.endSession();
+    h.server.claim("s2");
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("reset");
+    expect(ask.answers).toEqual([{ ok: false, reason: "session-live" }]);
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(h.server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
+  });
+
+  it("refuses while a claimed renter waits for a reset again whose reboot never happened", async () => {
+    const ask = askWhenRestarting();
+    const server = fakeServer();
+    server.claim("s2");
+    const h = harness(server, { served: "boot-now", log: ask.log });
+    ask.ref.agent = h.agent;
+    expect(await h.running).toBe("reset");
+    expect(ask.answers).toEqual([{ ok: false, reason: "session-live" }]);
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
   });
 
   it("with takeover set to always, ends the live session as the owner's and goes back to Windows", async () => {

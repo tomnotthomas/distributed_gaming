@@ -54,7 +54,10 @@ Two open decisions are each one setting in `hostd/src/config.ts`, with provision
 defaults:
 
 - **D8 `OWNER_TAKEOVER`** (`"when-idle"`). The owner gets the PC back only while no
-  session is live; a request during a session is refused. Set it to `"always"` to end
+  session is live; a request during a session is refused. A request is also refused
+  while the PC resets with a renter who claimed it as the last session ended: that
+  renter is served after the restart, and the owner can ask again once the PC is idle.
+  The request is not kept across the reboot. Set it to `"always"` to end
   the session as the owner taking the machine back.
 - **D3 `HARDWARE_FLOOR`.** The agent does not offer the PC unless it has UEFI, Secure
   Boot on, a TPM 2.0 and an IOMMU. The server's verifier, in the attestation stage, judges
@@ -80,5 +83,7 @@ over its control socket, which only root can use.
 - A host certificate in place of the machine key.
 - Holding the PC back until its games are verified.
 - A server-side hold that keeps a resetting PC from being matched. Today a renter who
-  claims the PC in the instant its last session ends is served after the restart, about
-  30 s later.
+  claims the PC in the instant its last session ends, before the agent's heartbeat
+  check, is served after the restart, about 30 s later. A claim that lands in the narrow
+  window between that heartbeat check and the off-offer PUT is ended instead, as the
+  owner taking the PC back, until that hold exists.
