@@ -58,8 +58,13 @@ export type RenterSessionEvent =
   | { type: "track"; track: MediaStreamTrack; stream: MediaStream }
   /** The browser refused audible playback, so the video was muted to keep the picture. */
   | { type: "autoplay-muted" }
-  /** ICE and DTLS are up on the current connection. */
+  /** ICE and DTLS are up on the current connection, at first or again after a drop. */
   | { type: "connected" }
+  /**
+   * The current connection to the PC dropped (ICE disconnected or failed). A
+   * `connected` follows if it comes back by itself; a failed one never does.
+   */
+  | { type: "disconnected"; failed: boolean }
   /** The first video frame was decoded on the current connection. */
   | { type: "first-frame" }
   /** The PC says the game booked runs, after the session was started. */
@@ -213,7 +218,11 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
     connection.addEventListener(
       "connectionstatechange",
       () => {
-        if (connection.connectionState === "connected") emit({ type: "connected" });
+        const state = connection.connectionState;
+        if (state === "connected") emit({ type: "connected" });
+        if (state === "disconnected" || state === "failed") {
+          emit({ type: "disconnected", failed: state === "failed" });
+        }
       },
       { signal },
     );
