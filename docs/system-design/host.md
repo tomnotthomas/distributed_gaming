@@ -329,15 +329,15 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 
 ### Connection setup (WebSocket)
 
-| Message                    | Direction   | Meaning                                                                                                                                                                             |
-| -------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key (a host certificate in Swiff OS, [`session-keys.md`](session-keys.md)).                                              |
-| `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once.                                                        |
-| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)).                                           |
-| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                                                                   |
-| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                                                                    |
+| Message                    | Direction   | Meaning                                                                                                                                                                                                                 |
+| -------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key (a host certificate in Swiff OS, [`session-keys.md`](session-keys.md)).                                                                                  |
+| `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once.                                                                                            |
+| `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)).                                                                               |
+| `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                                                                                                       |
+| `offer` / `answer` / `ice` | either way  | Relayed to the renter untouched.                                                                                                                                                                                        |
 | `steam-login`              | PC ↔ renter | Rental mode: Steam's sign-in link, `{ state: "qr", url }`, again when it changes; then `{ state: "signed-in" }`, or `{ state: "failed" }` if it stops short. From the renter only `{ state: "retry" }`, for a new code. |
-| `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                                                             |
+| `ping`                     | every 25 s  | Keeps the socket alive.                                                                                                                                                                                                 |
 
 The open socket is the PC's presence. The machine stays offered for as long as it is
 open, and goes `offline` the moment the service's socket closes while the PC is on offer
