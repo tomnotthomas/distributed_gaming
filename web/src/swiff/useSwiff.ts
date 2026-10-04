@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SteamLogin } from "@swiff/rtc";
+import { connectSignaling, type SteamLogin } from "@swiff/rtc";
 import posthog, { isPostHogEnabled } from "../posthog";
 import {
   bookMachine,
@@ -128,6 +128,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [taken, setTaken] = useState<Taken | null>(null);
   const [bookingFailed, setBookingFailed] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
+  // A rental-mode PC's Steam sign-in code, while the renter has yet to approve it.
+  const [steamLogin, setSteamLogin] = useState<SteamLogin | null>(null);
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -517,6 +519,24 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, [phase]);
 
+  // While Ignition is up, the claimed room's signaling carries a rental-mode
+  // PC's Steam sign-in code. It is shown until the renter approves it, and
+  // dropped with the launch, once it goes live or is left.
+  useEffect(() => {
+    if (phase !== "connecting" || !claim) return;
+    const signaling = connectSignaling({
+      url: claim.signalingUrl,
+      onOpen: (send) => send({ type: "join", ticket: claim.ticket }),
+      onMessage: (msg) => {
+        if (msg.type === "steam-login") setSteamLogin(msg.state === "qr" ? msg : null);
+      },
+    });
+    return () => {
+      signaling.close();
+      setSteamLogin(null);
+    };
+  }, [phase, claim]);
+
   useEffect(() => {
     if (phase !== "connecting" || beat < IGNITION_BEATS) return;
     track("session_started", { game: gameId, machine: machineId });
@@ -751,11 +771,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     /** 0 to 1 through the ignition sequence. */
     progress: Math.min(1, beat / IGNITION_BEATS),
     ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
-    /**
-     * A rental-mode PC's Steam sign-in, for Ignition to show: the stream's
-     * steam-login events. Null until Play runs the real stream here.
-     */
-    steamLogin: null as SteamLogin | null,
+    /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
+    steamLogin,
     elapsedMs,
     ownerDropped,
     week,

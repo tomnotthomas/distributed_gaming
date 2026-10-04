@@ -1,6 +1,6 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GAMES } from "./data";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
@@ -97,6 +97,48 @@ function streams() {
   return opened;
 }
 
+/** The signaling sockets the page opens, through a stand-in for WebSocket that each test drives. */
+function sockets() {
+  const opened: {
+    url: string;
+    sent: unknown[];
+    closed: boolean;
+    open: () => void;
+    deliver: (msg: unknown) => void;
+  }[] = [];
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor(url: string) {
+        const socket = {
+          url,
+          sent: [] as unknown[],
+          closed: false,
+          open: () => {
+            this.readyState = 1;
+            this.onopen?.();
+          },
+          deliver: (msg: unknown) => this.onmessage?.({ data: JSON.stringify(msg) }),
+        };
+        this.send = (data: string) => socket.sent.push(JSON.parse(data));
+        this.close = () => {
+          socket.closed = true;
+          this.readyState = 3;
+        };
+        opened.push(socket);
+      }
+      send: (data: string) => void;
+      close: () => void;
+    },
+  );
+  return opened;
+}
+
 const NOTHING = { free: 0, ready: 0, best: null, busy: 0, backAt: null, backName: null };
 const NO_MACHINES = { minutes: 180, machines: [], reason: null, busy: [] };
 
@@ -185,6 +227,10 @@ describe("useSwiff", () => {
 
   describe("on the real hosts", () => {
     // jsdom has no EventSource, so the hook falls back to its slow poll here.
+    let signaling: ReturnType<typeof sockets>;
+    beforeEach(() => {
+      signaling = sockets();
+    });
 
     it("never asks a signed-out visitor's availability, and lists no invented machine", async () => {
       serve(null);
@@ -332,6 +378,81 @@ describe("useSwiff", () => {
       expect(body).toMatchObject({ gameId: cs2.appid, minutes: 180, machineId: "h1" });
       expect(body.rtts).toEqual({ server: expect.any(Number) });
       expect(result.current.phase).toBe("connecting");
+    });
+
+    it("shows a rental-mode PC's Steam sign-in code from the claimed room until the renter approves it", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+
+      const socket = signaling[0]!;
+      expect(socket.url).toBe(TICKET.signalingUrl);
+      act(() => socket.open());
+      expect(socket.sent).toContainEqual({ type: "join", ticket: TICKET.ticket });
+      expect(result.current.steamLogin).toBeNull();
+
+      act(() => socket.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+      expect(result.current.steamLogin).toEqual({
+        type: "steam-login",
+        state: "qr",
+        url: "https://s.team/q/1/42",
+      });
+
+      act(() => socket.deliver({ type: "steam-login", state: "signed-in" }));
+      expect(result.current.steamLogin).toBeNull();
+      expect(result.current.phase).toBe("connecting");
+      expect(socket.closed).toBe(false);
+    });
+
+    it("drops the Steam sign-in code and leaves the room when the launch is left", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(signaling).toHaveLength(1));
+      act(() => signaling[0]!.open());
+      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+      expect(result.current.steamLogin).not.toBeNull();
+
+      act(() => result.current.goHome());
+
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.steamLogin).toBeNull();
+      expect(signaling[0]!.closed).toBe(true);
+    });
+
+    it("drops the Steam sign-in code and leaves the room once the launch goes live", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+      });
+      streams();
+      const result = await openLive();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => result.current.launch());
+        await waitFor(() => expect(signaling).toHaveLength(1));
+        act(() => signaling[0]!.open());
+        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
+        expect(result.current.steamLogin).not.toBeNull();
+
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+        expect(result.current.phase).toBe("live");
+        expect(result.current.steamLogin).toBeNull();
+        expect(signaling[0]!.closed).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("books with how the renter plays, as their list was read", async () => {
