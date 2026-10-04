@@ -21,9 +21,9 @@
 //       |                          |                            |
 //       |======== WebRTC, peer to peer, not through here =======|
 //
-// A room is one gaming PC. Only that machine, holding its machine key, may
-// register it; only a renter holding a ticket for it may join, and only one
-// renter at a time. See access.ts.
+// A room is one gaming PC. Only that machine, holding its machine key or a host
+// certificate, may register it; only a renter holding a ticket for it may join,
+// and only one renter at a time. See access.ts.
 //
 // The host's open socket is also how the platform knows the PC is there: it
 // stays offered while the socket is open and goes offline the moment it
@@ -32,11 +32,16 @@
 // renter is there while their page speaks: opening the event stream
 // (events.ts), then its heartbeat.
 //
-// When a renter claims the machine, its machine-key socket is told at once
-// (session-claimed), and the PC service starts the host session for that
+// When a renter claims the machine, its PC service's socket is told at once
+// (session-claimed), and the service starts the host session for that
 // platform session. While it runs, the room is registered by the streamer in
 // the renter's Windows account with a short-lived session key instead, and the
-// machine key cannot register it at all. See sessions.ts.
+// service's credential cannot register it at all. See sessions.ts.
+//
+// Only a credential that may host serves a renter: the service's socket, which
+// hears session-claimed and gets TURN, and starting a host session, which mints
+// session keys. That is a host certificate from attestation, or the machine
+// key while hosting does not require attestation. See attestation.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -44,7 +49,8 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
-import { accessFromEnv, verifyMachineKey, verifyTicket } from "./access.js";
+import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
+import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
 import {
   DENIED_CODE,
   isRelayed,
@@ -76,6 +82,12 @@ const iceServers = () => {
 
 const access = accessFromEnv(process.env);
 
+// Which credential may host (HOSTING_ATTESTATION) and who judges attestation
+// (ATTESTATION_VERIFIER). Unset: the machine key hosts, unattested, and no
+// machine can attest.
+const attestationConfig = attestationFromEnv(process.env, access.machines);
+const attestation = createAttestation({ access, ...attestationConfig });
+
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can
 // sign in, so nobody can book.
 const sessionSecret = sessionSecretFromEnv(process.env);
@@ -98,6 +110,9 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 const platform = await Platform.open({
   database: openDatabase(process.env.DATABASE_URL),
   owners: access.owners,
+  // Attested-only: a machine is on the market only while a socket that may
+  // host it is open, never on its machine key's heartbeat alone.
+  offeredOnlyWhilePresent: attestationConfig.attestedOnly,
   onSessionEnded: sessionEnded,
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
@@ -128,6 +143,7 @@ const serveApi = createApi({
   fallbackOrigin: `http://localhost:${PORT}`,
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
+  attestation,
 });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
@@ -169,8 +185,14 @@ type PeerSocket = WebSocket & {
    * (performance.now() ms): at join, before a relayed frame, and each reconcile.
    */
   confirmedAt: number;
-  /** The session a host registered under with a session key; null for a machine key. */
+  /** The session a host registered under with a session key; null for the PC service's own socket. */
   sessionId: string | null;
+  /** How far the PC service's socket may be trusted to host; null for a streamer or a renter. */
+  tier: HostingTier | null;
+  /** When the host certificate it registered with expires (Unix s); null for any other credential. */
+  certExp: number | null;
+  /** Puts the socket out when its host certificate expires. */
+  certTimer: ReturnType<typeof setTimeout> | null;
   missedBeats: number;
   /** This socket's frames and its close, handled one at a time in the order they came. */
   turn: Promise<void>;
@@ -336,14 +358,17 @@ function evictStreamer(hostId: string, sessionId: string): void {
 }
 
 /**
- * Tell the claimed PC now rather than at its next heartbeat. Only a host
- * registered with the machine key hears it: that is the PC service, never a
- * streamer in a renter's account. A PC that is not connected hears it when it
+ * Tell the claimed PC now rather than at its next heartbeat. Only the PC
+ * service's socket hears it, registered with a credential that may host, never
+ * a streamer in a renter's account. A PC that is not connected hears it when it
  * registers, or learns from its heartbeat.
  */
 function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
   const host = rooms.get(hostId)?.host;
-  if (host?.sessionId === null) send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
+  const certValid = host?.certExp == null || host.certExp * 1000 > Date.now();
+  if (host?.sessionId === null && host.tier !== null && certValid) {
+    send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
+  }
 }
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
@@ -360,8 +385,8 @@ function json(res: ServerResponse, status: number, body?: SessionGrant | Session
 }
 
 // The desktop host app calls the session API from its own origin, not this
-// server's. Any origin may, because the only credential is the machine key in
-// the Authorization header: no cookie or other ambient credential rides along,
+// server's. Any origin may, because the only credential is the machine key or
+// host certificate in the Authorization header: no cookie or other ambient credential rides along,
 // so a page cannot act with a key it does not already hold.
 const SESSION_CORS = { "access-control-allow-origin": "*" };
 const SESSION_PREFLIGHT = {
@@ -373,11 +398,12 @@ const SESSION_PREFLIGHT = {
 
 /**
  * Start and end a renter's session on one gaming PC. Called by the PC's
- * background service with its machine key; see protocol.ts for the routes.
+ * background service with its machine key or host certificate; see protocol.ts
+ * for the routes.
  * Resolves false without responding if `urlPath` does not match, otherwise true
  * after responding, including refusals. `urlPath` is the encoded URL pathname.
- * Starting requires the machine's claimed platform session id and closes any
- * machine-key host; ending revokes the session's keys and closes its registered
+ * Starting requires a credential that may host and the machine's claimed
+ * platform session id, and closes the PC service's socket; ending revokes the session's keys and closes its registered
  * host. Ending an absent session still succeeds.
  */
 async function serveSessions(req: IncomingMessage, res: ServerResponse, urlPath: string): Promise<boolean> {
@@ -423,17 +449,30 @@ async function answerSession(
   hostId: string,
   sessions: HostSessions,
 ): Promise<void> {
-  if (!verifyMachineKey(access.machines, hostId, bearer(req))) {
-    json(res, 401, { error: "bad-machine-key" });
+  const token = bearer(req);
+  const credential = attestation.credential(hostId, token);
+  if (!credential) {
+    json(res, 401, { error: looksLikeHostCert(token) ? "bad-host-cert" : "bad-machine-key" });
     return;
   }
 
+  // Ending is control as well as hosting: the owner's confirmed end-early.
   if (req.method === "DELETE") {
     await endHostSession(hostId);
     json(res, 204);
     return;
   }
 
+  // Starting mints the session keys a streamer serves the renter with: hosting.
+  if (credential.hosting === null) {
+    json(res, 403, { error: "attestation-required" });
+    return;
+  }
+  // A host certificate starts one session: the machine attests again for the next.
+  if (credential.kind === "host-cert" && credential.spent) {
+    json(res, 401, { error: "bad-host-cert" });
+    return;
+  }
   let sessionId: unknown;
   try {
     ({ sessionId } = await readJson(req));
@@ -453,14 +492,18 @@ async function answerSession(
     json(res, 409, { error: "not-claimed" });
     return;
   }
+  // Spent before the start, so two starts racing on one certificate get one session.
+  if (!attestation.spend(credential)) {
+    json(res, 401, { error: "bad-host-cert" });
+    return;
+  }
   const grant = await sessions.start(hostId, sessionId);
   if (!grant) {
     json(res, 409, { error: "session-active" });
     return;
   }
-  // From here the room belongs to the session. A host registered with the
-  // machine key is put out now rather than left serving until the streamer
-  // arrives.
+  // From here the room belongs to the session. The PC service's socket is put
+  // out now rather than left serving until the streamer arrives.
   if (rooms.get(hostId)?.host?.sessionId === null) evictHost(hostId, "session-active");
   json(res, 201, grant);
 }
@@ -543,16 +586,37 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
 
     case "register": {
       if (ws.role) return; // one room per socket, decided once
+      // Exactly one credential, a string, as protocol.ts says; the frame is
+      // only asserted to be a RegisterMessage. Anything else is refused for
+      // the credential it names, and never registered.
+      const given = [msg.key, msg.hostCert, msg.sessionKey].filter((c) => c !== undefined);
+      if (given.length !== 1 || typeof given[0] !== "string") {
+        if (msg.hostCert !== undefined) return deny(ws, "bad-host-cert");
+        return deny(ws, msg.sessionKey !== undefined ? "bad-session-key" : "bad-machine-key");
+      }
       let sessionId: string | null = null;
-      if ("sessionKey" in msg) {
+      let tier: HostingTier | null = null;
+      let certExp: number | null = null;
+      if (msg.sessionKey !== undefined) {
         // The streamer: the key must name this room and its session be live.
         const key = sessions ? await sessions.verify(msg.sessionKey) : null;
         if (!key || key.room !== msg.hostId) return deny(ws, "bad-session-key");
         sessionId = key.session;
       } else {
-        if (!verifyMachineKey(access.machines, msg.hostId, msg.key)) return deny(ws, "bad-machine-key");
-        // The machine key never displaces a renter's session, live streamer
-        // or not: the room is the session's until the service ends it.
+        // The PC service, with the machine key or a host certificate. Its socket
+        // hears claims and gets TURN, so it must be a credential that may host.
+        const hostCert = msg.hostCert !== undefined;
+        const credential = attestation.credential(msg.hostId, hostCert ? msg.hostCert : msg.key);
+        if (credential?.kind !== (hostCert ? "host-cert" : "machine-key")) {
+          return deny(ws, hostCert ? "bad-host-cert" : "bad-machine-key");
+        }
+        // A certificate that has started a session registers nothing more.
+        if (credential.kind === "host-cert" && credential.spent) return deny(ws, "bad-host-cert");
+        if (credential.hosting === null) return deny(ws, "attestation-required");
+        tier = credential.hosting;
+        if (credential.kind === "host-cert") certExp = credential.exp;
+        // The service never displaces a renter's session, live streamer or
+        // not: the room is the session's until the service ends it.
         if (await sessions?.isLive(msg.hostId)) return deny(ws, "session-active");
       }
       const room = roomFor(msg.hostId);
@@ -562,7 +626,18 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.hostId = msg.hostId;
       ws.role = "host";
       ws.sessionId = sessionId;
+      ws.tier = tier;
+      ws.certExp = certExp;
       room.host = ws;
+      // An expired certificate hosts nothing: the socket is put out, so it
+      // never hears a claim, and the machine attests again to come back.
+      if (certExp !== null) {
+        const expired = () => {
+          if (rooms.get(msg.hostId)?.host === ws) evictHost(msg.hostId, "bad-host-cert");
+        };
+        ws.certTimer = setTimeout(() => inTurn(ws, expired), certExp * 1000 - Date.now());
+        ws.certTimer.unref?.();
+      }
       // The PC is there for as long as this socket stays open.
       await platform.hostConnected(msg.hostId);
       // A newer host took the seat meanwhile: this one is being hung up on.
@@ -575,7 +650,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         send(ws, { type: "peer-joined" });
       }
       // A PC that missed its claim, or lost it before starting the session,
-      // hears it again: the machine key only registers with no session live.
+      // hears it again: the service only registers with no session live.
       if (sessionId === null) {
         const claimed = await platform.claimedSession(msg.hostId);
         if (claimed && room.host === ws) pushClaim(msg.hostId, claimed);
@@ -758,6 +833,9 @@ wss.on("connection", (socket) => {
   ws.ticketId = null;
   ws.confirmedAt = 0;
   ws.sessionId = null;
+  ws.tier = null;
+  ws.certExp = null;
+  ws.certTimer = null;
   ws.missedBeats = 0;
   ws.turn = Promise.resolve();
   ws.queued = 0;
@@ -797,7 +875,10 @@ wss.on("connection", (socket) => {
       }
     });
   });
-  ws.on("close", () => inTurn(ws, () => onClose(ws)));
+  ws.on("close", () => {
+    if (ws.certTimer) clearTimeout(ws.certTimer);
+    inTurn(ws, () => onClose(ws));
+  });
 });
 
 /**
@@ -887,6 +968,7 @@ server.listen(PORT, () => {
     console.warn("[swiff] DATABASE_URL not set — the platform's data is kept in memory and lost on restart");
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
+  for (const warning of attestationConfig.warnings) console.warn(`[swiff] ${warning}`);
   if (!sessionSecret)
     console.warn("[swiff] SESSION_SECRET missing, too short or equal to ROOM_SECRET — no renter can sign in");
   if (!publicOrigin)

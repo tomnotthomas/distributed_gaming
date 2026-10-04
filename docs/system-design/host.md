@@ -113,7 +113,8 @@ it stops sending heartbeats).
 
 Served under `/api` (`server/src/api.ts`). Every call carries the machine key as
 `Authorization: Bearer <machine key>`; a session call needs the key of the machine the
-session runs on.
+session runs on. In Swiff OS the hosting calls bear a host certificate instead
+([`session-keys.md`](session-keys.md), Control and hosting credentials).
 
 ```
 PUT  /machines/:id/availability
@@ -241,7 +242,7 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 
 | Message                    | Direction   | Meaning                                                                                                                                   |
 | -------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.                                                                           |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key (a host certificate in Swiff OS, [`session-keys.md`](session-keys.md)).    |
 | `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once.              |
 | `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |

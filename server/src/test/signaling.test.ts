@@ -11,7 +11,7 @@ import { after, afterEach, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { mintHostCert, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
@@ -639,6 +639,31 @@ describe("host sessions", () => {
     await handled(host);
     assert.ok(types(host).includes("registered"), "the phase-1 machine-key register works again");
     host.close();
+  });
+
+  it("lets a host certificate serve as the PC service too, kept out while a session is live", async () => {
+    const room = nextRoom();
+    const hostCert = mintHostCert(SECRET, room, "attested", 600);
+    const service = await open();
+    send(service, { type: "register", hostId: room, hostCert });
+    await handled(service);
+    assert.ok(types(service).includes("registered"));
+
+    const sessionId = await claimRoom(room);
+    await wait(100);
+    assert.ok(types(service).includes("session-claimed"), "the claim reached the attested socket");
+    const code = closed(service);
+    const started = await api(room, "POST", "", hostCert, { sessionId });
+    assert.equal(started.status, 201, `start answered ${started.status}`);
+    assert.equal(await code, 4003);
+
+    const early = await open();
+    const refused = closed(early);
+    // A fresh certificate: the one that started the session is spent.
+    send(early, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 600) });
+    assert.equal(await refused, 4003);
+    assert.deepEqual(denial(early), { type: "denied", reason: "session-active" });
+    assert.equal((await api(room, "DELETE")).status, 204, "the machine key still ends it");
   });
 
   it("puts out a machine-key host when a session starts", async () => {

@@ -49,8 +49,9 @@ DELETE /api/machines/:id/session ─► 204; every key of the session is dead
 
 ## Learning of a claim: `session-claimed`
 
-The service keeps its own WebSocket registered with the **machine key** while the PC is
-offered (the phase-1 `register`, see `protocol.ts`). The moment a renter claims the
+The service keeps its own WebSocket registered with the **machine key** (in Swiff OS, a
+host certificate: see Control and hosting credentials) while the PC is offered (the
+phase-1 `register`, see `protocol.ts`). The moment a renter claims the
 machine, the server pushes to that socket, and to no other machine's:
 
 ```json
@@ -69,10 +70,15 @@ live; the heartbeat (`POST /api/machines/:id/heartbeat`) also carries the same i
 Until the Windows service exists, the host app (the desktop app and the web host page)
 stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
 starting that session, registers again with the session key, and goes back to the machine
-key once the session is over. A session key refused with `bad-session-key` is replaced as
-the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
-A start or end that fails on the network or with a `5xx` is tried up to three times; a
-`4xx` refusal goes back to the machine key at once. A machine key refused with
+key once the session is over. Given `hostCert`, a getter for host certificates from
+attestation, it registers and starts each session with a fresh certificate instead of the
+machine key, and still ends sessions with the machine key; it never attests itself. It
+sends a certificate only over `wss:`/`https:` or to this machine, and refuses to start
+otherwise. A
+session key refused with `bad-session-key` is replaced as the table under Failure behaviour
+says: `DELETE`, then start the same `sessionId` again. A start or end that fails on the
+network or with a `5xx` is tried up to three times; a `4xx` refusal goes back to waiting
+for the next claim at once. A machine key refused with
 `session-active` (the app reloaded mid-session) ends that session with `DELETE` and
 registers again, and the claim is pushed to it again; a `DELETE` that still fails on the
 network or with a `5xx` registers again and retries, and only a `4xx` refusal of that
@@ -86,14 +92,18 @@ again to hear the next claim.
 ## Endpoints
 
 Both are called by the **PC service only**, over HTTPS to the signaling server, with
-`Authorization: Bearer <machine key>`. `:id` is the machine id (the room). Start has a JSON
+`Authorization: Bearer <machine key or host certificate>`. `:id` is the machine id (the room). Start has a JSON
 body (`SessionStart` in `protocol.ts`); end has none. Responses are JSON with
 `cache-control: no-store`.
 
-| Call                                             | Success                                    | Refusals                                                                                                                      |
-| ------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured`, `500 internal-error` |
-| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `503 not-configured`, `500 internal-error`                                                             |
+| Call                                             | Success                                    | Refusals                                                                                                                                                                       |
+| ------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `401 bad-host-cert`, `403 attestation-required`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured`, `500 internal-error` |
+| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `401 bad-host-cert`, `503 not-configured`, `500 internal-error`                                                                                         |
+
+The bearer is the machine key or a host certificate (see Control and hosting credentials
+below). Starting is hosting: `403 attestation-required` answers the machine key when hosting
+requires attestation. Ending is control too, so the machine key always may.
 
 - A refusal body is `{ "error": "<code>" }` (`SessionError` in `protocol.ts`). A wrong
   method answers `405`.
@@ -119,8 +129,8 @@ The same socket, heartbeat and relay as the phase-1 host (see `protocol.ts` and
 { "type": "register", "hostId": "<machine id>", "sessionKey": "<from the service>" }
 ```
 
-Exactly one of `key` (machine key) or `sessionKey`. The server answers `registered`, or
-`denied` and closes with code `4003`:
+Exactly one of `key` (machine key), `hostCert` (host certificate, the PC service in Swiff OS)
+or `sessionKey`. The server answers `registered`, or `denied` and closes with code `4003`:
 
 | `denied.reason`   | When                                                        | Streamer should           |
 | ----------------- | ----------------------------------------------------------- | ------------------------- |
@@ -153,13 +163,96 @@ streamer when it ends — the host leaves the room at once and the renter gets `
 before any new host can register. A socket that has been put out or replaced relays nothing
 more while it closes.
 
+## Control and hosting credentials
+
+The machine key opens the room for good, and in Swiff OS rental mode it stays in the owner's
+Windows, which does not run during a rental. So the server splits a machine's rights between
+two credentials (`server/src/attestation.ts`):
+
+| Credential                     | Held by                                      | Rights                                                                                                                                                                                                                                           |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Machine key** (control)      | the owner's host app                         | set availability, price and share-until; heartbeat; end a session (`DELETE .../session`, `POST /api/sessions/:id/end`), the owner's confirmed end-early                                                                                          |
+| **Host certificate** (hosting) | `swiff-hostd` in Swiff OS, after attestation | `register` the PC service's socket, which hears `session-claimed` and gets TURN credentials in `registered`; start a host session, which mints the session keys; report the renter in (`POST /api/sessions/:id/start`); heartbeat; end a session |
+
+`HOSTING_ATTESTATION` picks the policy per environment:
+
+- `optional` (the default, for development): the machine key also has the hosting rights, at
+  an explicit `unattested` tier, so the desktop host app works exactly as described above.
+- `required`: only a host certificate hosts. A machine-key `register` is refused with
+  `denied attestation-required`, and a hosting call made with it answers
+  `403 attestation-required`. Its control rights are unchanged. A free machine is offered
+  and matched only while a socket that may host it is open: the machine key's availability
+  and heartbeats keep its terms and its liveness, but never put it on the market alone. An
+  unrecognised value counts as `required`.
+
+A host certificate is a token the server signs with `ROOM_SECRET` under its own domain,
+naming one room, its tier, an id of its own and an expiry ten minutes away. It is the PC
+service's credential, exactly where the machine key was: refused with `session-active` while
+a session is live, and never handed to the streamer. A certificate for a machine no longer
+in `MACHINE_KEYS` hosts nothing. Two rules make `swiff-hostd` attest again:
+
+- **One session start per certificate.** Starting a host session spends it. A spent
+  certificate is refused for another start (`401 bad-host-cert`) and for `register`
+  (`denied bad-host-cert`); it may still report that session's renter in, heartbeat and end
+  it. So the machine attests again after every session, before it can be offered again.
+- **Expiry puts the socket out.** A socket registered with a certificate is put out with
+  `denied bad-host-cert` when the certificate expires, so it never hears a claim on an
+  expired one; `swiff-hostd` attests again and registers anew, at least every ten minutes
+  while it waits for a renter.
+
+Spent certificates are kept in memory until they expire. A server restart forgets them, so a
+certificate spent just before a restart could start one more session within what is left of
+its ten minutes.
+
+### Attestation
+
+```
+swiff-hostd                                      server
+POST /api/machines/:id/attest-challenge  ──────► 200 { nonce, expiresAt }       60 s, one certificate
+TPM quote with qualifying data SHA-256(nonce),
+event log, EK certificate, AK proof
+POST /api/machines/:id/attest            ──────► verifier judges the evidence, the hardware
+  { nonce, evidence }                            floor picks the tier
+                                         ◄────── 200 { hostCert, tier, expiresAt }
+```
+
+Refusals: `400 bad-request` (`413` with the same body when it is too large); `401 bad-nonce`
+(forged, expired, another machine's, already used up by the attempt that earned a
+certificate, or being judged in another attempt right now); `403 attestation-refused` with
+`reason` `evidence-rejected` or `below-hardware-floor`; `404 not-found` for a machine with no
+key; `503 verifier-unavailable` when the verifier itself fails; `503 not-configured` with no
+`ROOM_SECRET` or no verifier. Bodies are JSON with `cache-control: no-store`; the types are in
+`protocol.ts`.
+
+The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence })`
+returning the platform facts it verified). It is picked with `ATTESTATION_VERIFIER`. The only
+one so far is `insecure-dev`, which takes evidence of the form
+`{ machineKey, facts: PlatformFacts }`. The machine's own key stands in for the proof of who
+is asking, which a real verifier gets from the TPM's endorsement key registered for the
+machine, so only its holder earns a certificate. The facts are believed as claimed. It is for
+VMs and tests, and the server warns at startup whenever it is set. The real one (Keylime or
+Swiff's own: EK chain, AK credential activation, event-log replay, golden PCR 11) comes in a
+later stage. The attestation routes themselves take no other credential: the evidence is the
+proof.
+
+**Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
+setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
+firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-discrete-tpm`
+tier. The tier is carried in the certificate, for matching to use later.
+
+Not yet: revoking a certificate before it expires, the disk-key share
+(`POST /machines/:id/state-key`), and rate-limiting the attestation routes per client, as
+protection against load. A failed attempt does not use its challenge up (evidence that failed
+fails again), so a flood of junk attempts cannot hold a machine's attestation back.
+
 ## Lifetimes
 
-| Thing       | Lifetime                                                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session key | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
-| Session     | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
-| Everything  | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
+| Thing            | Lifetime                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session key      | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
+| Host certificate | 10 minutes from attestation (`HOST_CERT_TTL_SECONDS`), and one session start. A socket registered with it is put out when it expires.                  |
+| Session          | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
+| Everything       | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
 
 ## Failure behaviour
 

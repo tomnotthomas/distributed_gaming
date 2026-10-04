@@ -390,6 +390,13 @@ export type PlatformOptions = {
   database: Database;
   now?: () => number;
   owners?: ReadonlyMap<string, string>;
+  /**
+   * Offer and match a free machine only while its PC holds a socket open to
+   * the server (hostConnected), never on heartbeats alone. Set when hosting
+   * requires attestation: only an attested socket may host, so a machine with
+   * none could be booked but never served.
+   */
+  offeredOnlyWhilePresent?: boolean;
   onSessionEnded?: (machineId: string, sessionId: string, ticketId: string | null) => void;
   onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   onBookingChanged?: (bookingId: string) => void;
@@ -406,6 +413,7 @@ export class Platform {
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #onAvailabilityChanged: () => void;
   readonly #owners: ReadonlyMap<string, string>;
+  readonly #offeredOnlyWhilePresent: boolean;
   /** The transaction of the call running now: every statement goes through it. */
   #tx: Queryable | null = null;
   /** The last call queued: the next one runs once it has finished. */
@@ -431,6 +439,7 @@ export class Platform {
     database,
     now = Date.now,
     owners = new Map(),
+    offeredOnlyWhilePresent = false,
     onSessionEnded = () => {},
     onSessionClaimed = () => {},
     onBookingChanged = () => {},
@@ -439,6 +448,7 @@ export class Platform {
     this.#db = database;
     this.#now = now;
     this.#owners = owners;
+    this.#offeredOnlyWhilePresent = offeredOnlyWhilePresent;
     this.#onSessionEnded = onSessionEnded;
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
@@ -554,6 +564,7 @@ export class Platform {
       const now = this.#now();
       const machine = await this.#machineRow(machineId);
       if (machine) await this.#touch(machineId, now);
+      if (this.#offeredOnlyWhilePresent && !this.#present.has(machineId)) this.#offerChanged = true;
       this.#present.add(machineId);
       if (!machine) return;
       if (machine.status === "offline") await this.#setStatus(machineId, "available");
@@ -575,6 +586,7 @@ export class Platform {
         const now = this.#now();
         // Touched while still present: its offered time up to now counts as seen.
         const machine = (await this.#machineRow(machineId)) && (await this.#touch(machineId, now));
+        if (this.#offeredOnlyWhilePresent && this.#present.has(machineId)) this.#offerChanged = true;
         this.#present.delete(machineId);
         if (!machine) return;
         if (dropped && (machine.status === "available" || machine.status === "reserved")) {
@@ -627,7 +639,8 @@ export class Platform {
    * Every machine on offer that is not offline (available, reserved or in
    * session) and whose offer has not run out, for the renter-facing reads of
    * what can be played where. A machine whose socket is open counts as seen
-   * now. A busy machine is free again when its session runs out, or, while
+   * now; with offeredOnlyWhilePresent, a free one without a socket open is not
+   * on offer at all. A busy machine is free again when its session runs out, or, while
    * reserved, when a claim at the last moment would run out. Read only:
    * nothing is settled or matched. `at` is the time they were read at, for
    * judging them. The same few statements however many machines are on offer:
@@ -636,11 +649,13 @@ export class Platform {
   offeredMachines(): Promise<OfferedSnapshot> {
     return this.#read(async () => {
       const now = this.#now();
-      const rows = await this.#all<MachineRow>(
-        `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
+      const rows = (
+        await this.#all<MachineRow>(
+          `SELECT * FROM machines WHERE status IN ('available', 'reserved', 'in_session')
            AND (available_until IS NULL OR available_until > $1) ORDER BY id COLLATE "C"`,
-        now,
-      );
+          now,
+        )
+      ).filter((m) => m.status !== "available" || this.#offerable(m.id));
       const installed = new Map<string, number[]>();
       const games = await this.#all<{ machine_id: string; appid: number }>(
         `SELECT g.machine_id, g.appid FROM machine_games g JOIN machines m ON m.id = g.machine_id
@@ -1266,12 +1281,13 @@ export class Platform {
   }
 
   /**
-   * The machines on offer, answering and free now, with what is installed on
-   * each and its seven days for rank(), from four statements however many
-   * there are. `ids` narrows them to those machines.
+   * The machines on offer, answering and free now (with offeredOnlyWhilePresent,
+   * only those with a socket open), with what is installed on each and its
+   * seven days for rank(), from four statements however many there are. `ids`
+   * narrows them to those machines.
    */
   async #freeMachines(now: number, ids?: string[]): Promise<FreeMachine[]> {
-    const rows = await this.#all<MachineRow>(
+    const answering = await this.#all<MachineRow>(
       `SELECT * FROM machines WHERE status = 'available' AND last_seen_at > $1
          AND (available_until IS NULL OR available_until > $2)
          AND ($3::text[] IS NULL OR id = ANY ($3::text[]))
@@ -1280,6 +1296,7 @@ export class Platform {
       now,
       ids ?? null,
     );
+    const rows = answering.filter((m) => this.#offerable(m.id));
     if (!rows.length) return [];
     const installed = new Map<string, number[]>();
     const games = await this.#all<{ machine_id: string; appid: number }>(
@@ -1650,6 +1667,11 @@ export class Platform {
   /** The machine row, or null when it has never been heard from. */
   async #machineRow(machineId: string): Promise<MachineRow | null> {
     return (await this.#get<MachineRow>("SELECT * FROM machines WHERE id = $1", machineId)) ?? null;
+  }
+
+  /** Whether a free machine may be offered: always, or only while present (offeredOnlyWhilePresent). */
+  #offerable(machineId: string): boolean {
+    return !this.#offeredOnlyWhilePresent || this.#present.has(machineId);
   }
 
   /** The machines holding a socket open. */
