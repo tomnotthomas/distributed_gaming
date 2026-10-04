@@ -317,7 +317,7 @@ GET  /events?booking=:id
   cap is full.
 
 POST /bookings/:id/claim
-  → 200 { sessionId, roomId, signalingUrl, ticket }
+  → 200 { sessionId, roomId, signalingUrl, ticket, rentalMode }
   Take the matched machine before the reservation expires (`claimBy`). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
@@ -330,7 +330,7 @@ POST /bookings/:id/claim
   → 404 for a booking another renter made.
 
 POST /bookings/:id/rejoin
-  → 200 { sessionId, roomId, signalingUrl, ticket }
+  → 200 { sessionId, roomId, signalingUrl, ticket, rentalMode }
   Come back to the booking's running session (claimed or playing), for a page that no
   longer holds its ticket: the page never stores it (see "Playing" below). The ticket
   carries the id recorded at claim, the same seat, so joining with it takes the seat
@@ -580,16 +580,17 @@ in `web/src/swiff/crewCopy.ts` for marketing's texts.
 
 The wire format lives in `server/src/protocol.ts`.
 
-| Message                    | Direction        | Meaning                                                                                                                        |
-| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                              |
-| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                    |
-| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                       |
-| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                           |
-| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                    |
-| `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started. |
-| `peer-left`                | server → either  | The other side left the room. To the PC, `grace` (seconds) says the renter dropped and may come back.                          |
-| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                 |
+| Message                    | Direction        | Meaning                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server      | The machine opens its room, with its machine key. `rental: true` from Swiff OS makes its claims say `rentalMode`.                                                                                                                                                                                                                   |
+| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                                                                                                                                                                                                                         |
+| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                                                                                                                                                                                                                            |
+| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                                                                                                                                                                                                                                |
+| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                                                                                                                                                                                                                         |
+| `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started.                                                                                                                                                                                                      |
+| `peer-left`                | server → either  | The other side left the room. To the PC, `grace` (seconds) says the renter dropped and may come back.                                                                                                                                                                                                                               |
+| `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code before the stream connects, then `signed-in` or `failed`, with an optional `reason` (`sign-in-timeout` or `launch-timeout`) ([`host.md`](host.md)); the renter's `retry` asks for a new one on the same claim. Ignition shows the code; the PC's `game-started` comes once the game is on screen. |
+| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                                                                                                                                                                                      |
 
 ### Room access
 
@@ -669,7 +670,7 @@ open page still plays, and a page whose seat another took anyway (`replaced`) le
 session to it without ending it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
-while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC (the claim's `rentalMode`: its hosting socket registered with `rental: true`, as swiff-hostd does, or with an attested host certificate) or one that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. Try another machine ends the
 booking and launches on the best other free machine on the list, or goes back to
 the list when there is none; a session already started there ends first as End ends
 it, and the next machine's clock starts afresh. Cancel ends the booking; once the
