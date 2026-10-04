@@ -129,11 +129,11 @@ export function startPlay(opts: PlayOptions): Play {
   /** Move to `step`, with its own timeout armed. */
   const enter = (step: PlayState["step"]) => {
     clearTimeout(timer);
+    launchTimedOut = false;
     set({ step, since: now(), slow: false });
     if (step === "waking") timer = setTimeout(() => set({ slow: true }), WAKE_TIMEOUT_MS);
     if (step === "negotiating") armNegotiate();
     if (step === "launching") {
-      launchTimedOut = false;
       // Shown anyway once the session has started; until then the launch is slow.
       timer = setTimeout(() => {
         launchTimedOut = true;
@@ -183,8 +183,7 @@ export function startPlay(opts: PlayOptions): Play {
       if (stopped) return;
       if (response.ok) {
         started = true;
-        if (state.step === "launching" && maybeLive()) return;
-        if (launchTimedOut) set({ slow: false });
+        if (state.step === "launching") maybeLive();
         return;
       }
       if (response.status >= 400 && response.status < 500) {
