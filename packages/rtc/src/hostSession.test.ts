@@ -236,6 +236,43 @@ describe("startHostSession", () => {
     session.stop();
   });
 
+  it("gives up on a refused-claim end that hangs, tries again, and opens the screen once it has", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const peerHere = vi.fn();
+    const { offered, stream } = fakePeer();
+    // The first end never answers; it settles only when aborted. The next one is answered.
+    let calls = 0;
+    const fetch = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const signal = init.signal!;
+          if (signal.aborted) return reject(signal.reason);
+          if (calls++ > 0) return resolve(new Response("{}", { status: 200 }));
+          signal.addEventListener("abort", () => reject(signal.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const acceptClaim = () => false;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    // Past the deadline the hung end fails, and the end is tried again after the backoff.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settleRetries();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toBe(2);
+
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
   it("stops trying to end a refused claim on stop", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetch = fakeFetch(500);

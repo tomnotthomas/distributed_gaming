@@ -432,6 +432,8 @@ const RETRY_DELAYS_MS = [500, 1_000];
 /** The first wait before ending a refused claim again, doubling up to the second. */
 const REFUSE_RETRY_MS = 5_000;
 const REFUSE_RETRY_MAX_MS = 60_000;
+/** How long ending a refused claim may take, tries included, before it counts as failed. */
+const REFUSE_END_DEADLINE_MS = 15_000;
 
 /**
  * `fetch`, tried again after a network error or a 5xx answer, up to three tries
@@ -453,17 +455,28 @@ async function sessionFetch(url: string, init: RequestInit): Promise<Response> {
 /**
  * End claimed platform session `sessionId` on this machine, before it was ever
  * served (POST /api/sessions/:id/end). A session already over (409) is ended.
+ * Throws when it takes longer than REFUSE_END_DEADLINE_MS.
  */
 async function endClaimed({
   url,
   machineKey,
   sessionId,
 }: MachineAuth & { sessionId: string }): Promise<void> {
-  const res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
-    body: "{}",
-  });
+  // A request that hangs would hold the screen closed for good: past the
+  // deadline it fails, and the refused claim's end is tried again.
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(new Error("timed out")), REFUSE_END_DEADLINE_MS);
+  let res: Response;
+  try {
+    res = await sessionFetch(`${httpOrigin(url)}/api/sessions/${encodeURIComponent(sessionId)}/end`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${machineKey}`, "content-type": "application/json" },
+      body: "{}",
+      signal: deadline.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status !== 200 && res.status !== 409) throw new SessionRefused("end", res.status);
 }
 
