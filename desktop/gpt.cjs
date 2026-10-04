@@ -76,9 +76,10 @@ function parseEntry(bytes, index) {
 
 /**
  * The primary GPT of a disk of `diskBytes` bytes, read through `read(offset,
- * length)`. Refuses a table whose header or entries fail their CRC, or whose
- * backup is not at the disk's last sector: a table this module writes back
- * must be one it fully understood.
+ * length)`. Refuses a table whose header or entries fail their CRC, whose
+ * backup is not at the disk's last sector, or whose partitions overlap or
+ * leave the usable area: a table this module writes back must be one it
+ * fully understood.
  */
 function readGpt(read, { diskBytes, sectorSize = 512 }) {
   const header = read(sectorSize, sectorSize);
@@ -103,7 +104,7 @@ function readGpt(read, { diskBytes, sectorSize = 512 }) {
     const entry = parseEntry(table.subarray(i * entrySize, (i + 1) * entrySize), i);
     if (entry) entries.push(entry);
   }
-  return {
+  return checkEntries({
     sectorSize,
     diskBytes,
     diskId: guidText(header.subarray(56, 72)),
@@ -112,7 +113,7 @@ function readGpt(read, { diskBytes, sectorSize = 512 }) {
     entriesLba,
     count,
     entries,
-  };
+  });
 }
 
 // --- changing -------------------------------------------------------------------

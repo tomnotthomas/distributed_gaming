@@ -220,7 +220,10 @@ function freeSpans(disk, partitions) {
  */
 function targetsOf(facts, need = SWIFF_OS_BYTES) {
   const disks = facts.disks.filter((d) => d.gpt && !d.usb);
-  const free = disks.flatMap((disk) =>
+  // A system disk always has partitions: none read for it means the read failed, not free space.
+  // A blank data disk with none is real free space.
+  const read = (disk) => !disk.system || facts.partitions.some((p) => p.disk === disk.number);
+  const free = disks.filter(read).flatMap((disk) =>
     freeSpans(disk, facts.partitions)
       .filter((span) => span.bytes >= need)
       .map((span) => ({
@@ -377,7 +380,9 @@ function placed(layout, start) {
  */
 function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {}) {
   const { facts, games } = rental;
-  const target = rental.targets.find((t) => t.id === targetId) ?? rental.targets[0];
+  // A target the owner chose that is no longer there is refused, never swapped for another drive.
+  const target = targetId ? rental.targets.find((t) => t.id === targetId) : rental.targets[0];
+  if (targetId && !target) throw new Error("The drive you chose for Swiff OS is no longer available.");
   if (!target) throw new Error(`This PC has no drive with ${gb(SWIFF_OS_BYTES)} to spare.`);
   const disk = target.disk;
   const parts = placed(layout, target.start);
