@@ -433,7 +433,8 @@ export function createAgent(deps: AgentDeps): Agent {
     requestReturnToWindows: async () => {
       if (phase === "returning") return { ok: true };
       if (phase === "starting" || phase === "resetting" || asked) return { ok: false, reason: "busy" };
-      if (phase === "serving" && deps.ownerTakeover === "when-idle") return { ok: false, reason: "session-live" };
+      if (phase === "serving" && deps.ownerTakeover === "when-idle")
+        return { ok: false, reason: "session-live" };
       const reply = new Promise<ReturnReply>((resolve) => (asked = resolve));
       inbox.push({ type: "wake" });
       return reply;
