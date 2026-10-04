@@ -558,11 +558,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     };
   }, [demo, claim, video]);
 
+  // Live once the game is on screen; back behind Ignition when the PC leaves
+  // mid-session, until its new connection shows the game again. The session
+  // clock runs from the first time it went live.
   useEffect(() => {
-    if (phase !== "connecting" || play?.step !== "live") return;
-    setPhase("live");
-    setElapsedMs(0);
-  }, [phase, play?.step]);
+    if (!play) return;
+    if (phase === "connecting" && play.step === "live") setPhase("live");
+    if (phase === "live" && play.step !== "live") setPhase("connecting");
+  }, [phase, play]);
 
   useEffect(() => {
     if (demo || phase !== "connecting") return;
@@ -570,9 +573,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, [demo, phase]);
 
+  // When the session first went live, for its clock; forgotten once it is over.
+  const liveSince = useRef<number | null>(null);
+  useEffect(() => {
+    if (phase === "idle") liveSince.current = null;
+  }, [phase]);
   useEffect(() => {
     if (phase !== "live") return;
-    const started = Date.now();
+    const started = (liveSince.current ??= Date.now());
+    setElapsedMs(Date.now() - started);
     const timer = window.setInterval(() => setElapsedMs(Date.now() - started), 1000);
     return () => window.clearInterval(timer);
   }, [phase]);

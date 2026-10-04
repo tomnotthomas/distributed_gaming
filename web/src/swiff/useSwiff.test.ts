@@ -456,6 +456,40 @@ describe("useSwiff", () => {
       expect(storedPlay()).toBeNull();
     });
 
+    it("goes back behind Ignition when the PC leaves mid-session, keeping the session clock", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(4_000);
+
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Waking Basement rig");
+
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(5_000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("cancels a launch by ending its booking and hanging up", async () => {
       const calls = serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),

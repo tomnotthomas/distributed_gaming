@@ -1478,6 +1478,7 @@ button.band-tab:hover {
   padding: 12px 0;
   border-top: 1px solid var(--pline);
   color: var(--on-paper);
+  animation: swiff-rise 0.5s ease both;
 }
 .ig-dial {
   flex: 1 1 auto;
@@ -2130,7 +2131,8 @@ button.band-tab:hover {
     transform: none;
   }
   .profile,
-  .estimate-sheet {
+  .estimate-sheet,
+  .ig-slow {
     animation: none;
   }
   .tier {

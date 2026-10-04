@@ -427,6 +427,30 @@ describe("following a booking to its claim", () => {
     expect(storedPlay()).toBeNull();
   });
 
+  it("still hands over a claim when storage refuses to keep it for resume", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const full = Object.assign(Object.create(localStorage) as Storage, {
+      getItem: (key: string) => localStorage.getItem(key),
+      removeItem: (key: string) => localStorage.removeItem(key),
+      setItem: () => {
+        throw new DOMException("quota exceeded", "QuotaExceededError");
+      },
+    });
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { open } = fakeStream();
+    const claimed: Claim[] = [];
+    followBooking(
+      booking("matched", 1_000),
+      { onUpdate: () => {}, onClaimed: (c) => claimed.push(c) },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, storage: full },
+    );
+    await settle();
+
+    expect(claimed).toEqual([TICKET]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("forgets the play once its booking is seen ended or expired, and keeps it while it plays", () => {
     const play = (bookingId: string) =>
       localStorage.setItem("swiff.play", JSON.stringify({ bookingId, claim: TICKET }));

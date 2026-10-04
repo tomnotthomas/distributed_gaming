@@ -261,13 +261,35 @@ describe("startPlay", () => {
     expect(step()).toBe("negotiating");
   });
 
-  it("stays live when the PC goes away mid-session", () => {
-    const { step } = play();
+  it("goes back behind Ignition when the PC leaves mid-session, until a new frame and a fresh game-started", async () => {
+    const { handle, step, fetch } = play();
     latest().emit({ type: "first-frame" });
     latest().emit({ type: "game-started" });
+    expect(step()).toBe("live");
 
     latest().emit({ type: "peer-left" });
+    expect(handle.state()).toMatchObject({ step: "waking", slow: false });
+
+    // The old game-started does not count for the new connection.
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(step()).toBe("launching");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    latest().emit({ type: "game-started" });
     expect(step()).toBe("live");
+  });
+
+  it("keeps the 60 s wake timeout after a mid-session drop", async () => {
+    const { handle } = play();
+    latest().emit({ type: "first-frame" });
+    latest().emit({ type: "game-started" });
+    latest().emit({ type: "peer-left" });
+
+    await vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "waking", slow: true });
   });
 
   it("keeps the HUD's numbers, says when sound was refused, and when the ticket was", () => {

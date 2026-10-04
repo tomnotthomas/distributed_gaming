@@ -184,6 +184,9 @@ export function startPlay(opts: PlayOptions): Play {
 
   /** Join the room, through TURN alone when `relay`; a session already in the room makes way. */
   const join = (relay: boolean) => {
+    // A new connection earns the stream again: a frame and a fresh game-started.
+    framed = false;
+    gameStarted = false;
     session?.end();
     const current = start({ url: claim.signalingUrl, ticket: claim.ticket, video, forceRelay: relay });
     session = current;
@@ -213,9 +216,13 @@ export function startPlay(opts: PlayOptions): Play {
           break;
         case "peer-left":
           // The PC is handing the room over (to the session's streamer) or
-          // went away: wait for its next offer.
+          // went away: wait for its next offer. A live session goes back
+          // behind Ignition too, since a new connection's first frames may be
+          // the desktop: it is shown again only on a new frame and a fresh
+          // game-started.
           framed = false;
-          if (state.step !== "live") enter("waking");
+          gameStarted = false;
+          enter("waking");
           break;
         case "stats":
           set({ stats: event.stats });

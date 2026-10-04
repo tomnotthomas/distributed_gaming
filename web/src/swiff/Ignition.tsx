@@ -92,7 +92,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {slow ? (
           <div className="ig-slow" data-testid="ignition-slow">
-            <span>Taking longer than usual</span>
+            <span className="mono">Taking longer than usual</span>
             <button type="button" className="lpill lpill-sm" onClick={swiff.tryAnother}>
               Try another machine
               <span className="lpill-c">

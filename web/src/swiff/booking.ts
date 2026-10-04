@@ -493,7 +493,13 @@ export function followBooking(
     const claimed = answer.claim;
     stop();
     if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
-    storage.setItem(PLAY_KEY, JSON.stringify({ bookingId, claim: claimed } satisfies StoredPlay));
+    // Kept for the resume step only: storage that refuses it (full, or switched
+    // off) must not keep the renter from the machine they just claimed.
+    try {
+      storage.setItem(PLAY_KEY, JSON.stringify({ bookingId, claim: claimed } satisfies StoredPlay));
+    } catch {
+      console.warn("[swiff] could not keep the claimed booking for resume");
+    }
     handlers.onClaimed(claimed, { ...booking, status: "claimed", sessionId: claimed.sessionId });
   };
 
