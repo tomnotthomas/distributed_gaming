@@ -18,7 +18,9 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
 1. The renter can browse the games that can be played.
 2. The renter can sign in with Steam. Starting a session requires it; signed-out visitors
    can only browse and never see machine availability.
-3. The renter can book a game for a number of minutes.
+3. The renter can book a game for a number of minutes, when it is in their own Steam
+   library or free to play: the renter always plays with their own Steam licence, and a
+   host's copy only means the files are installed (`server/src/licence.ts`).
 4. The renter is matched to a free gaming PC that can run the game. The renter's own PC is
    never listed, recommended or matched (gate E5 in `packages/rank`).
 5. The renter can play the game in the browser on the remote gaming PC, with Steam
@@ -194,6 +196,8 @@ GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
 GET  /me
   → 200 { steamId, profile }
   Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
+  The full list of owned appids stays on the server, for the licence check on
+  `POST /bookings` and its claim; the page gets the capped library only.
   A profile read is kept in memory for 5 minutes per renter, so reloads do not spend the
   Web API quota; a read Steam fails or takes over 3 s to answer is not kept. For 10 s
   after a failed read Steam is not asked again for that renter: they get their last
@@ -232,6 +236,11 @@ POST /bookings
   `picture`, free for the whole booking, in the same shape
   as `/games/:appid/machines` lists it, or null when there is none. Working it out spends
   one of the renter's discovery reads (below); past their budget it is null.
+  → 403 { error, code } when the game is neither in the renter's Steam library nor free
+  to play (`code` "not-owned"), or their library cannot be read (game details private,
+  no `STEAM_API_KEY`, Steam down) and the game is not free to play
+  ("library-unreadable"); no booking is made. Free to play is Steam's store data, or the
+  wall's curated free-to-play titles when the store does not answer within 3 s.
 
 GET  /bookings/:id
   → 200 { bookingId, status, machine?, claimBy?, price? }
@@ -284,6 +293,10 @@ POST /bookings/:id/claim
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
   is matched to the renter's own machine (the booking goes back to the queue).
+  → 403 { error, code } as `POST /bookings`, checked again since the library may have
+  changed; the reservation is left unspent.
+  → 503 when Steam does not give the renter's library and the game is not free to play:
+  the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
 
 POST /bookings/:id/end

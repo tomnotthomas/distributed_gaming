@@ -9,9 +9,12 @@
  * library size, which of the wall's appids the player owns, and their
  * most-played games with names so the wall can render real titles. The library
  * is capped: a 4000-game account must not make every page load ship it all.
+ * Every appid the player owns is kept beside it, for the server alone: a
+ * booking and a claim check the game against it (licence.ts), and the page is
+ * never sent it (pageProfile).
  *
  * Nothing about the profile is written down. It is read from Steam when asked
- * for and discarded once answered.
+ * for, kept in memory for a few minutes (cachedProfiles), and then discarded.
  */
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
@@ -45,7 +48,27 @@ export type SteamProfile = {
   owned: OwnedEntry[];
   games: LibraryEntry[];
   lib: boolean;
+  /** Every appid the player owns, ascending; empty when the library cannot be read. Never sent to the page. */
+  library: Uint32Array;
 };
+
+/** The profile as the page is sent it: everything but the full library. */
+export const pageProfile = ({ library: _library, ...shown }: SteamProfile): Omit<SteamProfile, "library"> =>
+  shown;
+
+/** Whether the player's library, as last read, holds `appid`. */
+export function ownsApp(profile: SteamProfile, appid: number): boolean {
+  const { library } = profile;
+  let lo = 0;
+  let hi = library.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (library[mid] === appid) return true;
+    if (library[mid]! < appid) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return false;
+}
 
 /** The profile of a player Steam vouched for but whose details cannot be read. */
 export const emptyProfile = (steamid: string): SteamProfile => ({
@@ -57,6 +80,7 @@ export const emptyProfile = (steamid: string): SteamProfile => ({
   owned: [],
   games: [],
   lib: false,
+  library: new Uint32Array(),
 });
 
 /**
@@ -193,6 +217,10 @@ export async function readProfile(
   const wall = new Set(WALL_APPIDS);
   out.lib = true;
   out.size = list.length;
+  // Four bytes a game, so a 4000-game account costs 16 KB while it is remembered.
+  out.library = Uint32Array.from(
+    list.map((g: any) => Number(g.appid)).filter((id: number) => Number.isInteger(id) && id > 0),
+  ).sort();
   out.hours = Math.round(list.reduce((sum: number, g: any) => sum + (g.playtime_forever ?? 0), 0) / 60);
   // The curated nine keep their hand-written copy, so they only need hours.
   out.owned = list.filter((g: any) => wall.has(g.appid)).map((g: any): OwnedEntry => [g.appid, hours(g)]);

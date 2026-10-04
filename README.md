@@ -18,7 +18,7 @@ cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
 # NODE_ENV=production; without it every sign-in is refused. Elsewhere it defaults to
 # http://localhost:$PORT.
 # Set STEAM_API_KEY (https://steamcommunity.com/dev/apikey) too, or a signed-in renter's
-# Steam name and game library stay empty and the wall offers only free-to-play games.
+# Steam name and game library stay empty and only free-to-play games can be booked.
 npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
 ```
 
