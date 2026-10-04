@@ -470,6 +470,37 @@ describe("following a booking to its claim", () => {
     expect(failed).not.toHaveBeenCalled();
   });
 
+  it("claims, for a renter back after a match made while away, on the reopened stream through the restored window", async () => {
+    // The page reloads on the booking it kept; the server started the claim's
+    // 60 s as its stream reopened, so the match arrives with all of them left.
+    localStorage.setItem("swiff.booking", "b-1");
+    const lost = 2;
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers <= lost) throw new TypeError("network down");
+        return new Response(JSON.stringify(TICKET), { status: 200 });
+      },
+    });
+    const failed = vi.fn();
+    const claimed: Claim[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: (c) => claimed.push(c), onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 30 },
+    );
+    expect(stream.url).toBe("/api/events?booking=b-1");
+    const back = Date.now();
+    stream.push("matched", back + 60_000);
+    await vi.waitFor(() => expect(claimed).toEqual([TICKET]), { timeout: 2_000 });
+    // Past the few seconds a clock run from the match would have left (here 40 ms).
+    expect(Date.now() - back).toBeGreaterThan(40);
+    expect(answers).toBe(lost + 1);
+    expect(failed).not.toHaveBeenCalled();
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
   it("gives up on a lost claim once its reservation lapses, and says so", async () => {
     const server = routes({
       "POST /api/bookings/b-1/claim": () => {

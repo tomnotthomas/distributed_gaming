@@ -3,10 +3,14 @@
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
 //    bookMachine ───────────────┘ (the machine picked, while it is free)
-//                     │  ▲      │
-//                     │  └──────┤ (lapses unclaimed, renter away since the match: back in its place)
-//                     │         └──────────► expired (lapses unclaimed, renter saw the match)
+//                     │         └──────────► expired (lapses unclaimed)
 //                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
+//
+// The claim clock: a matched renter has RESERVATION_MS to claim from their
+// first contact since the match, which is the match itself when they were
+// there for it. One who was away (tab closed, laptop asleep) has the machine
+// held for them until they are back, so the clock starts when their page
+// speaks again, but never past MAX_HOLD_MS from the match.
 //
 //   machine idle ─► available ─► reserved ─► in_session ─► available
 //                 (socket dropped, or silent for LIVENESS_MS: offline; taken back: idle)
@@ -88,8 +92,16 @@ import {
  * longer offered. A host without its socket beats every 5 s.
  */
 export const LIVENESS_MS = 15_000;
-/** How long a matched renter has to claim the machine. A renter who checked in since the match and let it lapse loses the booking. */
+/**
+ * How long a matched renter has to claim the machine, from their first contact
+ * since the match: the match itself when they were there for it.
+ */
 export const RESERVATION_MS = 60_000;
+/**
+ * The longest a machine is held for a match, however late its renter comes
+ * back: one away at the match never holds it longer than this.
+ */
+export const MAX_HOLD_MS = 2 * 60_000;
 /** A queued booking the renter has not checked on for this long is dropped. */
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 /** The longest booking accepted. */
@@ -155,7 +167,11 @@ export type BookingView = {
   minutes: number;
   /** The machine it was matched to, once there is one. */
   machine?: { id: string; gpu: string | null; cpu: string | null; price: number };
-  /** Unix ms by which a matched booking must be claimed. */
+  /**
+   * Unix ms by which a matched booking must be claimed: RESERVATION_MS from the
+   * renter's first contact since the match, or, until they are back, the end
+   * of MAX_HOLD_MS from the match.
+   */
   claimBy?: number;
   sessionId?: string;
   /** Cents charged for the time played, once the session has ended. */
@@ -227,7 +243,13 @@ type BookingRow = {
 };
 /** A machine free to be matched now: its row, the games installed on it and its seven days. */
 type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
-type ReservationRow = { id: string; booking_id: string; machine_id: string; expires_at: number };
+type ReservationRow = {
+  id: string;
+  booking_id: string;
+  machine_id: string;
+  matched_at: number;
+  expires_at: number;
+};
 type SessionRow = {
   id: string;
   booking_id: string;
@@ -860,13 +882,24 @@ export class Platform {
    * The booking as it stands, or null when there is none or it is not
    * `renterId`'s. It counts as the renter's contact: a check on it, an event
    * stream opening on it, or the page's heartbeat. That contact is what keeps
-   * a queued booking in the queue.
+   * a queued booking in the queue, and the first since a match made while the
+   * renter was away starts its claim clock.
    */
   booking(bookingId: string, renterId: string | null = null): Promise<BookingView | null> {
     return this.#transaction(async () => {
       const now = this.#now();
       await this.#tick(now);
-      if (!(await this.#bookingRow(bookingId, renterId))) return null;
+      const booking = await this.#bookingRow(bookingId, renterId);
+      if (!booking) return null;
+      await this.#run(
+        `UPDATE reservations SET expires_at = LEAST($1::bigint + $2::bigint, matched_at + $3::bigint)
+           WHERE booking_id = $4 AND matched_at > $5`,
+        now,
+        RESERVATION_MS,
+        MAX_HOLD_MS,
+        bookingId,
+        booking.last_seen_at,
+      );
       await this.#run("UPDATE bookings SET last_seen_at = $1 WHERE id = $2", now, bookingId);
       return this.#bookingView(bookingId);
     });
@@ -1117,16 +1150,13 @@ export class Platform {
           );
     for (const machine of silent) await this.#goOffline(machine, now);
 
-    // An unclaimed reservation: a renter who checked in since the match saw it
-    // and let it go, so the booking expires. One who has not been heard from
-    // since was away; the booking goes back to the queue in its old place, and
-    // the queue timeout decides whether they are coming back.
+    // An unclaimed reservation: its renter had their RESERVATION_MS from the
+    // first contact since the match and let it go, or was away for all of
+    // MAX_HOLD_MS. Either way the booking expires and the machine goes back.
     const lapsed = await this.#all<ReservationRow>("SELECT * FROM reservations WHERE expires_at <= $1", now);
     for (const reservation of lapsed) {
-      const { last_seen_at } = (await this.#bookingRow(reservation.booking_id))!;
-      const matchedAt = reservation.expires_at - RESERVATION_MS;
       await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
-      await this.#setBookingStatus(reservation.booking_id, last_seen_at >= matchedAt ? "expired" : "queued");
+      await this.#setBookingStatus(reservation.booking_id, "expired");
       await this.#setStatus(reservation.machine_id, "available");
     }
 
@@ -1261,14 +1291,23 @@ export class Platform {
     return ranked.hosts[0]?.host.id ?? null;
   }
 
-  /** Hold the machine for the booking for RESERVATION_MS: matched, waiting to be claimed. */
+  /**
+   * Hold the machine for the booking: matched, waiting to be claimed. A renter
+   * in contact at the match (the call that matched it was theirs) has
+   * RESERVATION_MS from now; for one who was not, the clock waits for their
+   * next contact (booking()) and the machine is held up to MAX_HOLD_MS.
+   */
   async #reserve(bookingId: string, machineId: string, now: number): Promise<void> {
     await this.#run(
-      "INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES ($1, $2, $3, $4)",
+      `INSERT INTO reservations (id, booking_id, machine_id, matched_at, expires_at)
+         SELECT $1, id, $2, $3::bigint, $3::bigint + CASE WHEN last_seen_at >= $3 THEN $4::bigint ELSE $5::bigint END
+           FROM bookings WHERE id = $6`,
       newId(),
-      bookingId,
       machineId,
-      now + RESERVATION_MS,
+      now,
+      RESERVATION_MS,
+      MAX_HOLD_MS,
+      bookingId,
     );
     await this.#setBookingStatus(bookingId, "matched");
     await this.#setStatus(machineId, "reserved");

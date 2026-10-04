@@ -13,7 +13,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { mintRenterSession } from "../access.js";
 import { createApi } from "../api.js";
 import { createRenterEvents, MAX_STREAMS_PER_BOOKING, type RenterEvents } from "../events.js";
-import { Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS } from "../platform.js";
+import { MAX_HOLD_MS, Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { testDatabase } from "./db.js";
 import { REPORT } from "./report.js";
@@ -206,23 +206,26 @@ describe("renter event stream", () => {
     s.close();
   });
 
-  it("puts a match that lapsed while the laptop slept back in the queue in its old place", async () => {
-    const first = (await platform.book(730, 30, RENTER)).bookingId;
-    const s = await stream(`?booking=${first}`);
-    const second = (await platform.book(730, 30, RENTER)).bookingId;
+  it("holds a match made while the laptop slept, and starts its claim clock when the stream reopens", async () => {
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    const s = await stream(`?booking=${bookingId}`);
     await platform.hostConnected("pc-1");
-    now += 1_000; // the lid closes: the stream stays open, the page stops beating
+    now += 1_000; // the lid closes: the page stops beating
     await platform.setAvailability("pc-1", true, REPORT);
     await until(() => s.events.length > 1);
     assert.deepEqual(statuses(s), ["queued", "matched"]);
-
-    now += RESERVATION_MS;
-    await platform.tick();
-    const again = (await platform.viewBooking(first))!;
-    assert.equal(again.status, "matched", "back in the queue, still first, so matched again");
-    assert.equal(again.claimBy, now + RESERVATION_MS);
-    assert.equal((await platform.viewBooking(second))!.status, "queued");
+    const matchedAt = now;
+    assert.equal(s.events[1]!.data.claimBy, matchedAt + MAX_HOLD_MS, "held for them meanwhile");
     s.close();
+
+    now += 50_000; // the lid opens and the stream reopens, 10 s before a clock from the match would end
+    const back = await stream(`?booking=${bookingId}`);
+    assert.deepEqual(statuses(back), ["matched"]);
+    assert.equal(back.events[0]!.data.claimBy, now + RESERVATION_MS);
+    now += RESERVATION_MS - 1;
+    await platform.tick();
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    back.close();
   });
 
   it("answers the heartbeat with 204, and 404 for an unknown booking", async () => {

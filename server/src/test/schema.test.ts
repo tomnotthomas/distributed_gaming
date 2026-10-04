@@ -93,6 +93,33 @@ describe("migrations", () => {
     });
   });
 
+  it("dates a reservation kept from before its match was recorded to a claim clock started at the match", async () => {
+    await withSchema(async (open) => {
+      const db = open();
+      // A database the release before matched_at left behind, holding a live reservation.
+      await db.query(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at BIGINT NOT NULL)",
+      );
+      for (const [i, statements] of MIGRATIONS.slice(0, 2).entries()) {
+        for (const statement of statements) await db.query(statement);
+        await db.query("INSERT INTO schema_migrations (version, applied_at) VALUES ($1, 0)", [i + 1]);
+      }
+      await db.query("INSERT INTO machines (id, status, last_seen_at) VALUES ('pc-1', 'reserved', 1)");
+      await db.query(
+        `INSERT INTO bookings (id, game_id, minutes, status, created_at, last_seen_at)
+           VALUES ('b-1', 730, 30, 'matched', 1, 1)`,
+      );
+      await db.query(
+        "INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES ('r-1', 'b-1', 'pc-1', 70000)",
+      );
+
+      assert.equal(await migrate(db), LATEST);
+      const { rows } = await db.query("SELECT matched_at, expires_at FROM reservations");
+      assert.deepEqual(rows, [{ matched_at: 10_000, expires_at: 70_000 }]);
+      await db.close();
+    });
+  });
+
   it("leaves alone a database a newer release migrated further", async () => {
     await withSchema(async (open) => {
       const db = open();

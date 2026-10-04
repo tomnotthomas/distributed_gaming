@@ -83,11 +83,10 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
-becomes `expired` when its reservation lapses unclaimed after the renter has checked on
-it since the match, or when it is queued and the renter has not checked on it for 2
-minutes. Opening the event stream on the booking (below) and the page's heartbeat while
-it is open count as checking on it; a stream merely left open does not. A reservation that lapses while the renter has not been heard from since the
-match puts the booking back in the queue in its old place.
+becomes `expired` when its reservation lapses unclaimed, or when it is queued and the
+renter has not checked on it for 2 minutes. Opening the event stream on the booking
+(below) and the page's heartbeat while it is open count as checking on it; a stream
+merely left open does not.
 
 Machines, bookings, reservations and sessions are one Postgres table each
 (`server/src/platform.ts`), in the database at `DATABASE_URL` (Neon in production). The
@@ -226,7 +225,7 @@ POST /bookings
   and `status` is "matched" already when a machine was free.
   With `machineId`, the machine the renter picked from their list, it is reserved for
   them at once when it is still free for the whole booking and passes the same gates
-  matching does: `status` is "matched", to be claimed within `claimBy` (60 s).
+  matching does: `status` is "matched", to be claimed by `claimBy`, 60 s from now.
   → 409 { error, nextBest } when the picked machine was taken since the list was read (or
   is gone, or is not one they could have), and no booking is made. `nextBest` is the
   machine their list would now put first, ranked by their `rtts.server`, `controls` and
@@ -279,7 +278,7 @@ GET  /events?booking=:id
 
 POST /bookings/:id/claim
   → 200 { sessionId, roomId, signalingUrl, ticket }
-  Take the matched machine before the reservation expires (60 s). Returns the room to
+  Take the matched machine before the reservation expires (`claimBy`). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
@@ -377,18 +376,22 @@ waiting booking it fits is matched to it first. A machine's owner is the
 Steam id on its `MACHINE_KEYS` entry, recorded on the machine each time it checks in; a
 machine whose entry names no owner can be matched to anyone, and the server warns about
 it at startup. A newly configured owner counts at once: a reservation they already hold
-on their own machine goes back to the queue, and `claim` refuses it. A reservation lasts
-60 s. When it lapses unclaimed, a renter who checked
-on the booking since the match saw it and let it go, so the booking expires and the
-machine goes to the next in line; a renter who has not been heard from since the match
-was away, so the booking goes back to the queue in its old place. A machine that goes
-silent also hands its reserved booking back to the queue.
+on their own machine goes back to the queue, and `claim` refuses it. A matched renter has
+60 s to claim, counted from their first check on the booking since the match: the match
+itself when it was made in their own call (a picked machine, or a booking matched as it
+was made or checked on). A renter away at the match (tab closed, laptop asleep) has the
+machine held for them, and their 60 s start when their page speaks again (the event
+stream reopening, a check or a heartbeat), but no reservation outlasts 2 minutes from
+the match, so a renter who never comes back holds a machine for 2 minutes at most.
+`claimBy` is the deadline as it stands: until the renter is back, the end of those 2
+minutes. When a reservation lapses unclaimed the booking expires and the machine goes
+to the next in line. A machine that goes silent hands its reserved booking back to the
+queue.
 
 A queued booking expires 2 minutes after the renter last checked on it, so a renter who
 closed the tab does not hold a machine when one frees up. Until then the server keeps it
 resumable: a renter who comes back within those 2 minutes (browser reopened, laptop woke
-up) and checks on the same booking id keeps their place, even if a machine was reserved
-for them and lapsed while they were away. The web helper
+up) and checks on the same booking id keeps their place. The web helper
 `web/src/swiff/booking.ts` stores the booking id in `localStorage` when it books and, on
 page load, resumes watching the stored booking over the event stream, forgetting it once
 the booking is claimed, ended or expired. While the stream is open it sends the heartbeat
@@ -405,8 +408,9 @@ reservation lapses (`claimBy`); one the server refuses is left. A lost claim tha
 through after all (a later try refused as `claimed`, or the stream reporting it claimed)
 holds the machine with no ticket to join it, so the page ends that booking and the machine
 goes back. While the
-page is closed they are away, and nothing is claimed until they come back, within those 2
-minutes. The page books the server's
+page is closed they are away, and nothing is claimed until they come back: a machine
+matched meanwhile is held for them up to 2 minutes from the match, and their 60 s to
+claim it start when the page reopens its stream. The page books the server's
 own machines, from the ranked list it reads, and sends its round trip to the server (as
 timed against GET /ping) as `rtts.server`, with the renter's controls and Picture setting,
 whether it books a picked machine or queues. A picked machine taken first is answered with
@@ -414,13 +418,6 @@ the next best from that list, which the page offers to launch on instead; with n
 free on the list the page offers the queue. The demo (`/?demo=1`) books nothing: its
 machines are invented. Leaving the queue, cancelling a launch and ending
 a session all end the booking (POST /bookings/:id/end).
-
-**Known gap:** keeping their place does not give a returning renter a fresh claim window.
-If a machine is reserved for them when they come back, their first check counts as having
-seen the match, so they get only what is left of that 60 s reservation, which may be a few
-seconds. The page claims it the moment it hears of it again, so they lose it only when
-less than that is left; tracked in
-[#35](https://github.com/tomnotthomas/distributed_gaming/issues/35).
 
 ### Connection setup (WebSocket)
 
