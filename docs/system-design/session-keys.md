@@ -207,33 +207,84 @@ its ten minutes.
 ### Attestation
 
 ```
+owner's Windows, once (machine key)
+PUT  /api/machines/:id/ek  { certificate } ────► EK certificate must chain to a TPM vendor   (tpm verifier)
+                                         ◄────── 204
+
 swiff-hostd                                      server
 POST /api/machines/:id/attest-challenge  ──────► 200 { nonce, expiresAt }       60 s, one certificate
-TPM quote with qualifying data SHA-256(nonce),
-event log, EK certificate, AK proof
+POST /api/machines/:id/attest-activation ──────► TPM2_MakeCredential to the        (tpm verifier)
+  { nonce, akPublic }                            registered EK for this AK
+                                         ◄────── 200 { credentialBlob, encryptedSecret }
+TPM2_ActivateCredential (AK, EK); TPM quote by
+the AK with qualifying data SHA-256(nonce)
+over PCRs 0-7 and 11; the firmware event log
 POST /api/machines/:id/attest            ──────► verifier judges the evidence, the hardware
   { nonce, evidence }                            floor picks the tier
-                                         ◄────── 200 { hostCert, tier, expiresAt }
+                                         ◄────── 200 { hostCert, tier, expiresAt, continuity? }
 ```
 
 Refusals: `400 bad-request` (`413` with the same body when it is too large); `401 bad-nonce`
 (forged, expired, another machine's, already used up by the attempt that earned a
 certificate, or being judged in another attempt right now); `403 attestation-refused` with
-`reason` `evidence-rejected` or `below-hardware-floor`; `404 not-found` for a machine with no
-key; `503 verifier-unavailable` when the verifier itself fails; `503 not-configured` with no
-`ROOM_SECRET` or no verifier. Bodies are JSON with `cache-control: no-store`; the types are in
-`protocol.ts`.
+`reason` `evidence-rejected` or `below-hardware-floor`, and with `evidence-rejected` the
+verifier's `detail` when it gives one; `404 not-found` for a machine with no key; `503
+verifier-unavailable` when the verifier itself fails; `503 not-configured` with no
+`ROOM_SECRET` or no verifier (for `attest-activation` and `ek`, also a verifier that has no use
+for them). Bodies are JSON with `cache-control: no-store`; the types are in `protocol.ts`.
 
-The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence })`
-returning the platform facts it verified). It is picked with `ATTESTATION_VERIFIER`. The only
-one so far is `insecure-dev`, which takes evidence of the form
-`{ machineKey, facts: PlatformFacts }`. The machine's own key stands in for the proof of who
-is asking, which a real verifier gets from the TPM's endorsement key registered for the
-machine, so only its holder earns a certificate. The facts are believed as claimed. It is for
-VMs and tests, and the server warns at startup whenever it is set. The real one (Keylime or
-Swiff's own: EK chain, AK credential activation, event-log replay, golden PCR 11) comes in a
-later stage. The attestation routes themselves take no other credential: the evidence is the
-proof.
+The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence, now })`
+returning the platform facts it verified, or why not). It is picked with `ATTESTATION_VERIFIER`.
+The attestation routes themselves take no other credential: the evidence is the proof.
+
+**`tpm`, the production verifier** (`tpm-verifier.ts`). The owner's Windows registers the
+TPM's EK certificate once, with the machine key; it must chain to a TPM vendor root. In Swiff
+OS, `swiff-hostd` makes an AK under the EK, has the server make an activation credential for
+it (TPM2_MakeCredential to the registered EK, keyed to this nonce, this AK and this EK, so the
+server keeps no state between the calls), recovers it with TPM2_ActivateCredential, and quotes.
+The evidence (`TpmEvidence` in `protocol.ts`) is judged in order, and the first failure is the
+refusal's `detail`:
+
+| Check                                                                                                                                                               | `detail` when it fails                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| An EK is registered, its certificate still chains to a vendor root (the root's directory says firmware or discrete TPM), and its key is an RSA 2048 or ECC P-256 EK | `unknown-ek`, `ek-untrusted`, `ek-unsupported`   |
+| The AK is a restricted signing key that never leaves its TPM                                                                                                        | `ak-unsuitable`                                  |
+| The AK signed the quote, over SHA-256 of this nonce                                                                                                                 | `bad-signature`, `wrong-nonce`                   |
+| The AK was activated by the registered EK's TPM, and is a child of the EK (so the quote's counters are not obfuscated)                                              | `ak-not-activated`, `ak-not-under-ek`            |
+| The quote covers SHA-256 PCRs 0-7 and 11, and the PCR values sent are the quoted ones                                                                               | `pcrs-not-quoted`, `pcr-digest-mismatch`         |
+| The firmware event log replays to PCRs 0-7                                                                                                                          | `event-log-mismatch`                             |
+| PCR 11 is a released Swiff OS's, from the signed boot policy, and everything measured into PCR 4 is that release's boot chain                                       | `unknown-boot-image`, `unknown-boot-application` |
+| PCRs 0-3 (firmware) are the ones the machine first attested with; a change is refused until the same new values have been seen for 24 hours                         | `firmware-changed`                               |
+| The TPM's resetCount, restartCount and clock only go forward from the last accepted quote                                                                           | `counter-rollback`, `replayed-quote`             |
+
+What passes gives the platform facts: UEFI, Secure Boot and pre-boot DMA protection from the
+replayed log, IOMMU from the release (a release declares it will not finish booting without
+DMA remapping), and the TPM's kind from its EK root. The grant's `continuity` says how this boot
+follows the last accepted quote: `first`, `same-boot`, `next-boot`, or `gap` when the TPM was
+reset more than once or restarted in between, so something else may have run and the games drive
+must be verified again. Swiff OS must never suspend or hibernate: a TPM restart is always a gap.
+Per machine the server keeps the registered EK, the firmware baseline, a pending firmware change
+and the last accepted counters, in the `machine_attestation` table, so a restart never makes
+changed firmware look like a first use.
+
+It needs `ROOM_SECRET` (it keys the activation credentials) and:
+
+- `ATTESTATION_TPM_ROOTS`: a directory of TPM vendor certificates, roots and intermediates, as
+  PEM or DER, in `firmware/` (Intel PTT, AMD fTPM, Microsoft Pluton…) and `discrete/`
+  (Infineon, STMicro, Nuvoton…). Microsoft's TrustedTpm.cab is one source of them.
+- `ATTESTATION_POLICY` and `ATTESTATION_POLICY_KEY`: the signed boot policy file and the PEM
+  public key that signs it. The release pipeline writes the payload (each release's PCR 11 from
+  `systemd-measure calculate` at the `ready` phase, the Authenticode digests of shim, boot
+  loader and UKI, and whether it enforces an IOMMU) and signs it with
+  `npm run boot-policy -- <payload.json> <private-key.pem>`.
+
+Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
+replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.
+
+**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts }`. The
+machine's own key stands in for the proof of who is asking, which the TPM verifier gets from the
+machine's registered EK, so only its holder earns a certificate. The facts are believed as
+claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
 
 **Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
 setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
@@ -241,7 +292,9 @@ firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-disc
 tier. The tier is carried in the certificate, for matching to use later.
 
 Not yet: revoking a certificate before it expires, the disk-key share
-(`POST /machines/:id/state-key`), and rate-limiting the attestation routes per client, as
+(`POST /machines/:id/state-key`), binding the host certificate to a key inside the attested
+system (a machine that relays challenges to another, untouched one is not caught), attestation
+failures as a stability input, and rate-limiting the attestation routes per client, as
 protection against load. A failed attempt does not use its challenge up (evidence that failed
 fails again), so a flood of junk attempts cannot hold a machine's attestation back.
 

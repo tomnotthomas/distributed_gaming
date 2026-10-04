@@ -29,11 +29,20 @@
 //     { nonce, evidence }                         HARDWARE_FLOOR picks the tier
 //                                            ◄─── { hostCert, tier, expiresAt }   ten minutes
 //
-// The verifier sits behind an interface. The only one built so far is
-// `insecure-dev`, which believes the facts claimed by the holder of the
-// machine's own key: for VMs and tests, never for a server renters reach.
-// The real one (Keylime, or Swiff's own:
-// EK chain, AK activation, event-log replay, golden PCR 11) is a later stage.
+// The verifier sits behind an interface, picked with ATTESTATION_VERIFIER:
+//
+//   tpm           the production verifier (tpm-verifier.ts): the EK certificate
+//                 the owner registered chains to a TPM vendor, the AK is
+//                 activated against it, the quote is over this nonce, the event
+//                 log replays to the quoted PCRs, PCR 11 is a signed Swiff OS
+//                 release's, the firmware is the machine's own and its TPM
+//                 counters only go forward. It adds two calls of its own:
+//                   PUT  /api/machines/:id/ek  (machine key) registers the EK
+//                   POST /api/machines/:id/attest-activation  between challenge
+//                        and attest, TPM2_MakeCredential for the AK
+//   insecure-dev  believes the facts claimed by the holder of the machine's own
+//                 key: for VMs and tests, never for a server renters reach.
+//
 // See docs/system-design/session-keys.md, "Control and hosting credentials".
 
 import {
@@ -45,7 +54,20 @@ import {
   type Access,
   type HostCert,
 } from "./access.js";
-import type { AttestChallengeGrant, AttestRefusal, HostCertGrant } from "./protocol.js";
+import { readFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
+import type {
+  AttestActivationGrant,
+  AttestChallengeGrant,
+  AttestRefusal,
+  AttestRefusalDetail,
+  BootContinuity,
+  HostCertGrant,
+} from "./protocol.js";
+import type { Queryable } from "./db.js";
+import { loadTrustStore } from "./ek.js";
+import { readBootPolicy } from "./boot-policy.js";
+import { databaseStore, memoryStore, tpmVerifier, type TpmVerifier } from "./tpm-verifier.js";
 
 /**
  * How long a host certificate admits anything. A socket registered with one is
@@ -114,8 +136,14 @@ export function tierFor(
   return "attested";
 }
 
-/** A verifier's judgement: what it verified about the machine, or that it could not. */
-export type Verdict = { ok: true; facts: PlatformFacts } | { ok: false };
+/**
+ * A verifier's judgement: what it verified about the machine and, when it
+ * tracks the TPM's counters, how this boot follows the last one it accepted;
+ * or that it could not, and why when it can say.
+ */
+export type Verdict =
+  | { ok: true; facts: PlatformFacts; continuity?: BootContinuity }
+  | { ok: false; reason?: AttestRefusalDetail };
 
 /** Judges a machine's attestation evidence. Keylime, Swiff's own, or the insecure dev stub. */
 export type AttestationVerifier = {
@@ -125,10 +153,30 @@ export type AttestationVerifier = {
    * Whether `evidence` proves machine `room` booted an untouched Swiff OS just
    * now, and what it proves about its hardware. `nonce` is the challenge this
    * server issued; a real verifier requires the quote's qualifying data to be
-   * its SHA-256. Rejects only when the verifier itself fails.
+   * its SHA-256. `now` is Unix ms. Rejects only when the verifier itself fails.
    */
-  verify(input: { room: string; nonce: string; evidence: unknown }): Promise<Verdict>;
+  verify(input: { room: string; nonce: string; evidence: unknown; now?: number }): Promise<Verdict>;
+  /** Register the machine's EK certificate, when the verifier works from one (tpm-verifier.ts). */
+  enroll?: Enroll;
+  /** Make the AK activation credential for a challenge, when the verifier activates AKs. */
+  activate?: Activate;
 };
+
+/** Register machine `room`'s EK certificate (base64 DER), refusing one no vendor root vouches for. */
+export type Enroll = (input: {
+  room: string;
+  certificate: unknown;
+  intermediates?: unknown;
+  now?: number;
+}) => Promise<{ ok: true } | { ok: false; reason: AttestRefusalDetail }>;
+
+/** TPM2_MakeCredential to `room`'s registered EK, for the AK `akPublic` and the challenge `nonce`. */
+export type Activate = (input: {
+  room: string;
+  nonce: string;
+  akPublic: unknown;
+  now?: number;
+}) => Promise<{ ok: true; activation: AttestActivationGrant } | { ok: false; reason: AttestRefusalDetail }>;
 
 const TPM_KINDS: readonly unknown[] = ["firmware", "discrete", null];
 
@@ -184,12 +232,22 @@ export type AttestationConfig = {
 
 /**
  * HOSTING_ATTESTATION (`optional`, the default, or `required`) and
- * ATTESTATION_VERIFIER (unset, or `insecure-dev` for the machines in `machines`). An unknown policy is read as
- * `required` and an unknown verifier as none: a typo never opens hosting up.
+ * ATTESTATION_VERIFIER (unset, `tpm`, or `insecure-dev` for the machines in
+ * `machines`). An unknown policy is read as `required` and an unknown verifier
+ * as none: a typo never opens hosting up. `tpm` keeps each machine's EK,
+ * firmware baseline and TPM counters in `database`, and needs:
+ *
+ *   ATTESTATION_TPM_ROOTS   directory of TPM vendor roots, in firmware/ and discrete/ (ek.ts)
+ *   ATTESTATION_POLICY      the signed boot policy file (boot-policy.ts)
+ *   ATTESTATION_POLICY_KEY  the PEM public key that signs it
+ *   ROOM_SECRET             keys the AK activation credentials
+ *
+ * Any of them missing or unreadable leaves no verifier, with a warning saying which.
  */
 export function attestationFromEnv(
   env: NodeJS.ProcessEnv,
   machines: Map<string, Buffer> = new Map(),
+  database?: Queryable,
 ): AttestationConfig {
   const warnings: string[] = [];
   const policy = env.HOSTING_ATTESTATION?.trim().toLowerCase() || "optional";
@@ -205,6 +263,19 @@ export function attestationFromEnv(
     warnings.push(
       "ATTESTATION_VERIFIER=insecure-dev believes any facts from a machine-key holder — never use it where renters play",
     );
+  } else if (name === "tpm") {
+    try {
+      verifier = tpmVerifierFromEnv(env, database);
+    } catch (error) {
+      warnings.push(
+        `ATTESTATION_VERIFIER=tpm is not configured — no machine can attest: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (verifier && !database) {
+      warnings.push(
+        "ATTESTATION_VERIFIER=tpm keeps its machines in memory — a restart forgets firmware baselines",
+      );
+    }
   } else if (name) {
     warnings.push(`ATTESTATION_VERIFIER "${name}" is unknown — no machine can attest`);
   }
@@ -213,6 +284,28 @@ export function attestationFromEnv(
   if (!attestedOnly)
     warnings.push("HOSTING_ATTESTATION=optional — machine keys host unattested (development only)");
   return { attestedOnly, verifier, warnings };
+}
+
+/** The TPM verifier from the environment; throws naming what is missing or unreadable. */
+function tpmVerifierFromEnv(env: NodeJS.ProcessEnv, database?: Queryable): TpmVerifier {
+  const setting = (key: string) => {
+    const value = env[key]?.trim();
+    if (!value) throw new Error(`${key} is not set`);
+    return value;
+  };
+  const secret = setting("ROOM_SECRET");
+  const roots = loadTrustStore(setting("ATTESTATION_TPM_ROOTS"));
+  if (!roots.roots.length) throw new Error("ATTESTATION_TPM_ROOTS has no root certificates");
+  const policy = readBootPolicy(
+    readFileSync(setting("ATTESTATION_POLICY"), "utf8"),
+    readFileSync(setting("ATTESTATION_POLICY_KEY"), "utf8"),
+  );
+  return tpmVerifier({
+    store: database ? databaseStore(database) : memoryStore(),
+    roots,
+    policy,
+    activationKey: createHmac("sha256", secret).update("swiff-ak-activation-key").digest(),
+  });
 }
 
 /** A credential a gaming PC presented, and whether it may host. */
@@ -238,6 +331,29 @@ export type Attestation = {
    * `now` is Unix milliseconds.
    */
   challenge(room: string, now?: number): { ok: true; grant: AttestChallengeGrant } | Refusal;
+  /**
+   * The AK activation for challenge `nonce` of machine `room`: TPM2_MakeCredential
+   * to its registered EK for the AK `akPublic`. 401 bad-nonce for a challenge
+   * that is not live, 403 attestation-refused (with `detail`) for an EK or AK
+   * the verifier refuses, 503 not-configured when the verifier activates no AKs.
+   */
+  activate(
+    room: string,
+    nonce: unknown,
+    akPublic: unknown,
+    now?: number,
+  ): Promise<{ ok: true; grant: AttestActivationGrant } | Refusal>;
+  /**
+   * Register machine `room`'s EK certificate (`certificate`, base64 DER, and
+   * optional `intermediates`), called with its machine key. 403
+   * attestation-refused (`ek-untrusted`) when no TPM vendor root vouches for
+   * it, 503 not-configured when the verifier registers no EKs.
+   */
+  enroll(
+    room: string,
+    body: { certificate?: unknown; intermediates?: unknown },
+    now?: number,
+  ): Promise<{ ok: true } | Refusal>;
   /**
    * Judge `evidence` quoted over `nonce` by machine `room`, and mint a host
    * certificate when it passes and the machine meets the hardware floor. The
@@ -287,6 +403,13 @@ export function createAttestation({
     for (const [id, until] of ids) if (until <= now) ids.delete(id);
   };
   const refuse = (status: number, body: AttestRefusal): Refusal => ({ ok: false, status, body });
+  const rejected = (detail: AttestRefusalDetail | undefined) =>
+    refuse(403, { error: "attestation-refused", reason: "evidence-rejected", ...(detail ? { detail } : {}) });
+  /** A verifier failing is the server's fault, never the machine's: logged by kind only. */
+  const failed = (error: unknown) => {
+    console.error("[swiff] attestation verifier failed:", error instanceof Error ? error.name : typeof error);
+    return refuse(503, { error: "verifier-unavailable" });
+  };
 
   return {
     attestedOnly,
@@ -301,6 +424,43 @@ export function createAttestation({
           expiresAt: Math.floor(now / 1000) + CHALLENGE_TTL_SECONDS,
         },
       };
+    },
+
+    async activate(room, nonce, akPublic, now = Date.now()) {
+      if (!access.secret || !verifier?.activate) return refuse(503, { error: "not-configured" });
+      if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
+      if (typeof nonce !== "string") return refuse(400, { error: "bad-request" });
+      const challenge = verifyChallenge(access.secret, nonce, now);
+      const roomSpent = spent.get(room);
+      if (roomSpent) forgetExpired(roomSpent, now);
+      if (!challenge || challenge.room !== room || roomSpent?.has(challenge.id)) {
+        return refuse(401, { error: "bad-nonce" });
+      }
+      try {
+        const made = await verifier.activate({ room, nonce, akPublic, now });
+        return made.ok ? { ok: true, grant: made.activation } : rejected(made.reason);
+      } catch (error) {
+        return failed(error);
+      }
+    },
+
+    async enroll(room, body, now = Date.now()) {
+      if (!verifier?.enroll) return refuse(503, { error: "not-configured" });
+      if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
+      try {
+        const enrolled = await verifier.enroll({
+          room,
+          certificate: body.certificate,
+          intermediates: body.intermediates ?? [],
+          now,
+        });
+        if (enrolled.ok) return { ok: true };
+        return enrolled.reason === "malformed-evidence"
+          ? refuse(400, { error: "bad-request" })
+          : rejected(enrolled.reason);
+      } catch (error) {
+        return failed(error);
+      }
     },
 
     async attest(room, nonce, evidence, now = Date.now()) {
@@ -324,17 +484,12 @@ export function createAttestation({
 
       let verdict: Verdict;
       try {
-        verdict = await verifier.verify({ room, nonce, evidence });
+        verdict = await verifier.verify({ room, nonce, evidence, now });
       } catch (error) {
         // Only the kind of failure: the evidence is the machine's.
-        console.error(
-          "[swiff] attestation verifier failed:",
-          error instanceof Error ? error.name : typeof error,
-        );
-        return release(refuse(503, { error: "verifier-unavailable" }));
+        return release(failed(error));
       }
-      if (!verdict.ok)
-        return release(refuse(403, { error: "attestation-refused", reason: "evidence-rejected" }));
+      if (!verdict.ok) return release(rejected(verdict.reason));
       const tier = tierFor(verdict.facts, floor);
       if (!tier)
         return release(refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" }));
@@ -344,6 +499,7 @@ export function createAttestation({
           hostCert: mintHostCert(access.secret, room, tier, ttlSeconds, now),
           tier,
           expiresAt: Math.floor(now / 1000) + ttlSeconds,
+          ...(verdict.continuity ? { continuity: verdict.continuity } : {}),
         },
       };
     },

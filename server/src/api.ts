@@ -5,10 +5,12 @@
 //   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat     either
 //   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand     control
 //   GET  /api/me                           POST /api/machines/:id/attest-challenge
-//   POST /api/me/refresh                   POST /api/machines/:id/attest  (attestation)
-//   POST /api/signout        (signed out)  POST /api/sessions/:id/start        hosting
-//   POST /api/bookings                     POST /api/sessions/:id/end          either
-//   GET  /api/bookings/:id                 POST /api/machines/:id/upload-test   control
+//   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
+//   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
+//   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
+//                                          POST /api/sessions/:id/end          either
+//                                          POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
@@ -641,6 +643,41 @@ export function createApi({
     if (resource === "machines" && id && action === "attest-challenge" && method === "POST") {
       const challenge = attestation.challenge(id);
       reply(res, challenge.ok ? 200 : challenge.status, challenge.ok ? challenge.grant : challenge.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "attest-activation" && method === "POST") {
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_HOST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const made = await attestation.activate(id, body.nonce, body.akPublic);
+      reply(res, made.ok ? 200 : made.status, made.ok ? made.grant : made.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "ek" && method === "PUT") {
+      // The owner's Windows registers the TPM's EK certificate, with the machine key.
+      requireMachine(req, access, id);
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const enrolled = await attestation.enroll(id, body);
+      if (enrolled.ok) {
+        res.writeHead(204, { "cache-control": "no-store" });
+        res.end();
+      } else {
+        reply(res, enrolled.status, enrolled.body);
+      }
       return true;
     }
 

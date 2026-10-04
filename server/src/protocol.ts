@@ -177,12 +177,21 @@ export type SessionError = {
 // credential. See attestation.ts.
 //
 //   POST /api/machines/:id/attest-challenge  → 200 AttestChallengeGrant
+//   POST /api/machines/:id/attest-activation  AttestActivationRequest → 200 AttestActivationGrant
+//                                  | 400 bad-request | 401 bad-nonce | 403 attestation-refused
+//                                  | 503 verifier-unavailable
 //   POST /api/machines/:id/attest  AttestRequest → 200 HostCertGrant
 //                                  | 400 bad-request (413 when too large) | 401 bad-nonce
 //                                  | 403 attestation-refused | 503 verifier-unavailable
 //
-// Either answers 404 not-found for a machine with no key configured, and 503
-// not-configured when the server has no ROOM_SECRET or no verifier.
+// Each answers 404 not-found for a machine with no key configured, and 503
+// not-configured when the server has no ROOM_SECRET or no verifier, or (for
+// attest-activation) a verifier that activates no AKs. The TPM verifier also
+// takes the owner's registration of the machine's EK, with the machine key:
+//
+//   PUT /api/machines/:id/ek  EkRegistration → 204
+//                             | 400 bad-request | 401 bad-machine-key
+//                             | 403 attestation-refused (detail ek-untrusted) | 503 not-configured
 
 /** A challenge to quote over. */
 export type AttestChallengeGrant = {
@@ -192,8 +201,59 @@ export type AttestChallengeGrant = {
   expiresAt: number;
 };
 
+/** What attest-activation is sent: the challenge, and the AK that will quote over it. */
+export type AttestActivationRequest = {
+  nonce: string;
+  /** Base64 TPM2B_PUBLIC of the AK, made under the EK. */
+  akPublic: string;
+};
+
+/** TPM2_MakeCredential's outputs, base64, as TPM2_ActivateCredential (AK, EK) takes them. */
+export type AttestActivationGrant = {
+  /** TPM2B_ID_OBJECT. */
+  credentialBlob: string;
+  /** TPM2B_ENCRYPTED_SECRET. */
+  encryptedSecret: string;
+};
+
 /** What attest is sent. `evidence` is the verifier's to read: quote, event log, EK certificate, AK proof. */
 export type AttestRequest = { nonce: string; evidence: unknown };
+
+/** The TPM verifier's `evidence`. Binary fields are base64. */
+export type TpmEvidence = {
+  /** TPM2B_PUBLIC of the AK, as sent to attest-activation. */
+  akPublic: string;
+  /** The credential TPM2_ActivateCredential recovered (TPM2B_DIGEST's buffer, without its size). */
+  activation: string;
+  /** TPMS_ATTEST from TPM2_Quote by the AK, qualifying data SHA-256(nonce), SHA-256 PCRs 0-7 and 11. */
+  quote: string;
+  /** TPMT_SIGNATURE over `quote`. */
+  signature: string;
+  /** Every quoted SHA-256 PCR's value, hex, by PCR number ("0" ... "11"). */
+  pcrs: Record<string, string>;
+  /** The firmware's TCG event log: /sys/kernel/security/tpm0/binary_bios_measurements. */
+  eventLog: string;
+};
+
+/** The owner's registration of the machine's EK certificate, read from the TPM by its Windows. */
+export type EkRegistration = {
+  /** Base64 DER. */
+  certificate: string;
+  /** Base64 DER intermediates the TPM or its vendor supplied, if any. */
+  intermediates?: string[];
+};
+
+/**
+ * How this boot follows the last attestation the server accepted from the
+ * machine, by the TPM's resetCount and restartCount:
+ *   first      no earlier one
+ *   same-boot  the same boot, later
+ *   next-boot  one reset since, and no restart: the machine rebooted once,
+ *              into this system
+ *   gap        more than one reset, or a restart: something else may have run
+ *              in between, so the games drive must be verified again
+ */
+export type BootContinuity = "first" | "same-boot" | "next-boot" | "gap";
 
 /** What attest returns: the hosting credential. */
 export type HostCertGrant = {
@@ -203,7 +263,48 @@ export type HostCertGrant = {
   tier: "attested" | "attested-discrete-tpm";
   /** Unix seconds. A socket registered with it is put out then; attest again for a fresh one. */
   expiresAt: number;
+  /** From a verifier that tracks the TPM's counters (the TPM verifier). */
+  continuity?: BootContinuity;
 };
+
+/**
+ * Why the TPM verifier refused evidence, in the order it checks (tpm-verifier.ts):
+ *   malformed-evidence        not the TpmEvidence shape, or a structure that does not parse
+ *   unknown-ek                no EK registered for the machine
+ *   ek-untrusted              the EK certificate does not chain to a TPM vendor root
+ *   ek-unsupported            the EK is not one of the TCG default templates' (RSA 2048, ECC P-256)
+ *   ak-unsuitable             the AK is not a restricted signing key fixed to its TPM
+ *   bad-signature             the quote is not the AK's
+ *   wrong-nonce               the quote is not over this challenge
+ *   ak-not-activated          the AK was not activated by the registered EK's TPM
+ *   ak-not-under-ek           the AK is not a child of the EK
+ *   pcrs-not-quoted           the quote does not cover SHA-256 PCRs 0-7 and 11
+ *   pcr-digest-mismatch       the PCR values sent are not the ones quoted
+ *   event-log-mismatch        the event log does not replay to PCRs 0-7
+ *   unknown-boot-image        PCR 11 is no signed Swiff OS release's
+ *   unknown-boot-application  something but the release's own boot chain ran (PCR 4)
+ *   firmware-changed          firmware PCRs 0-3 changed, and the change has not cooled down
+ *   counter-rollback          the TPM's reset or restart count went back
+ *   replayed-quote            the TPM's clock did not move on since the last accepted quote
+ */
+export type AttestRefusalDetail =
+  | "malformed-evidence"
+  | "unknown-ek"
+  | "ek-untrusted"
+  | "ek-unsupported"
+  | "ak-unsuitable"
+  | "bad-signature"
+  | "wrong-nonce"
+  | "ak-not-activated"
+  | "ak-not-under-ek"
+  | "pcrs-not-quoted"
+  | "pcr-digest-mismatch"
+  | "event-log-mismatch"
+  | "unknown-boot-image"
+  | "unknown-boot-application"
+  | "firmware-changed"
+  | "counter-rollback"
+  | "replayed-quote";
 
 export type AttestRefusal = {
   error:
@@ -215,6 +316,8 @@ export type AttestRefusal = {
     | "not-configured";
   /** Why attestation-refused: the verifier rejected the evidence, or the hardware is below the floor. */
   reason?: "evidence-rejected" | "below-hardware-floor";
+  /** What the verifier rejected, when it says (the TPM verifier always does). */
+  detail?: AttestRefusalDetail;
 };
 
 /**
