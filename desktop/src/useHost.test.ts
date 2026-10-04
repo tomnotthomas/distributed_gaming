@@ -3,8 +3,11 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SteamRead } from "../steam.cjs";
 import type { HostBridge } from "./bridge";
+import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
+import { BUSY_MS, IDLE_MS } from "./useSteam";
 import type { ShareEvents } from "./useScreenShare";
 
 type Share = {
@@ -35,6 +38,14 @@ const { useHost } = await import("./useHost");
 const { trayDo } = await import("./App");
 
 const STREAM = {} as MediaStream;
+const STEAM_READY: SteamRead = {
+  installed: true,
+  path: "C:\\Program Files (x86)\\Steam",
+  running: true,
+  signedIn: true,
+  installs: [],
+};
+const DOTA = { appid: 570, name: "Dota 2", phase: "downloading" as const, done: 1, total: 4 };
 const NOW = new Date(2026, 8, 24, 21, 0).getTime();
 
 function resetShare() {
@@ -69,6 +80,8 @@ function fakeBridge(idle = 600): HostBridge {
         { appid: 1245620, name: "ELDEN RING" },
       ],
     })),
+    readSteam: vi.fn(async (): Promise<SteamRead> => STEAM_READY),
+    installSteam: vi.fn(async () => null),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),
@@ -82,9 +95,15 @@ beforeEach(() => {
   localStorage.setItem("swiff.signalingUrl", "signal.example");
   resetShare();
   (window as { swiffHost?: HostBridge }).swiffHost = fakeBridge();
+  // No platform to ask in a test: each test that wants demand answers for it.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Promise.reject(new TypeError("no network in tests"))),
+  );
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   delete (window as { swiffHost?: HostBridge }).swiffHost;
 });
@@ -114,13 +133,83 @@ describe("useHost", () => {
     expect(view.games.offered).toBeNull();
     expect(result.current.actions.toggleOffer).toBeNull();
     // Nothing the platform does not report.
-    expect([view.rate, view.standing, view.earnings, view.games.demand, view.earlyEnd]).toEqual([
-      null,
-      null,
-      null,
-      null,
-      null,
+    expect([view.rate, view.standing, view.earnings, view.earlyEnd]).toEqual([null, null, null, null]);
+  });
+
+  it("shows what renters ask for, read with the machine key, named from this PC where the platform cannot", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ windowMinutes: 60, games: [{ appid: 730, name: null, looking: 2, waiting: 1 }] }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { result } = await host();
+    expect(fetch).toHaveBeenCalledWith("https://signal.example/api/machines/gaming-pc-1/demand", {
+      headers: { authorization: "Bearer test-machine-key" },
+    });
+    expect(result.current.view.games.demand).toEqual([
+      { appid: 730, name: "Counter-Strike 2", looking: 2, waiting: 1 },
     ]);
+
+    // A read that fails keeps the last one; the next good one replaces it.
+    fetch.mockRejectedValueOnce(new TypeError("offline"));
+    await act(async () => void vi.advanceTimersByTime(DEMAND_EVERY_MS));
+    await settle();
+    expect(result.current.view.games.demand).toHaveLength(1);
+    fetch.mockResolvedValueOnce(Response.json({ windowMinutes: 60, games: [] }));
+    await act(async () => void vi.advanceTimersByTime(DEMAND_EVERY_MS));
+    await settle();
+    expect(result.current.view.games.demand).toEqual([]);
+  });
+
+  it("reads Steam, and this PC's games again once Steam finishes installing one", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+    vi.mocked(bridge.readSteam)
+      .mockResolvedValueOnce({ ...STEAM_READY, installs: [DOTA] })
+      .mockResolvedValue(STEAM_READY);
+    const { result } = await host();
+    expect(result.current.view.steam.status).toEqual({ installed: true, running: true, signedIn: true });
+    expect(result.current.view.steam.installs).toEqual([DOTA]);
+    expect(bridge.readPc).toHaveBeenCalledTimes(1);
+
+    await act(async () => void vi.advanceTimersByTime(BUSY_MS));
+    await settle();
+    expect(result.current.view.steam.installs).toEqual([]);
+    expect(bridge.readPc).toHaveBeenCalledTimes(2);
+  });
+
+  it("follows a game sent to Steam until Steam starts installing it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+    const { result } = await host();
+    act(() => result.current.actions.askInstall(570));
+    expect(result.current.view.steam.asked).toEqual([570]);
+
+    // Nothing was under way at the last read: the next comes at the idle pace.
+    vi.mocked(bridge.readSteam).mockResolvedValue({ ...STEAM_READY, installs: [DOTA] });
+    await act(async () => void vi.advanceTimersByTime(IDLE_MS));
+    await settle();
+    expect(result.current.view.steam.asked).toEqual([]);
+    expect(result.current.view.steam.installs).toEqual([DOTA]);
+  });
+
+  it("opens Valve's installer when asked, and says why when it cannot", async () => {
+    const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+    vi.mocked(bridge.readSteam).mockResolvedValue({ ...STEAM_READY, installed: false, path: null });
+    const { result } = await host();
+    expect(result.current.view.steam.status?.installed).toBe(false);
+
+    vi.mocked(bridge.installSteam).mockResolvedValueOnce("Steam's installer could not be opened. Try again.");
+    await act(async () => result.current.actions.installSteam());
+    await settle();
+    expect(result.current.view.steam.installer).toEqual({
+      kind: "failed",
+      error: "Steam's installer could not be opened. Try again.",
+    });
+
+    await act(async () => result.current.actions.installSteam());
+    await settle();
+    expect(result.current.view.steam.installer).toEqual({ kind: "opened" });
+    expect(bridge.installSteam).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the default end time the ~4 hours choice from now until the owner picks one", async () => {

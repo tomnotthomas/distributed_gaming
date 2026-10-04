@@ -33,6 +33,11 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 7. The owner gets the PC back, unchanged, when the session ends.
 8. The renter keeps their game progress: saves from one session are there in the next,
    on any machine.
+9. The owner can get the PC ready to host from the app: install Steam with Valve's own
+   installer, sign in to their own Steam account in Steam, see which games renters ask for,
+   and install any game their account owns (or that is free to play), following its
+   progress. Renters always play with their own Steam licence: a game the host installs
+   only puts its files on the PC.
 
 ---
 
@@ -55,7 +60,7 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ![Host workflow](../diagrams/host-workflow.png)
 
-1. The owner installs the host app.
+1. The owner installs the host app, and gets Steam ready in it (below).
 2. The owner makes the PC available.
 3. A renter picks it, or the queue matches a renter to it.
 4. The background service gets a session key and starts the streamer and Steam in the
@@ -64,6 +69,26 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 6. The session ends and the PC goes back to the owner.
 
 Source: [`../diagrams/host-workflow.mmd`](../diagrams/host-workflow.mmd).
+
+### Getting Steam ready
+
+The app reads what Steam leaves on the PC, never the owner's account (`desktop/steam.cjs`):
+
+- **Installed**: the registry's `HKCU\Software\Valve\Steam\SteamPath` holds `steam.exe`.
+  Where it does not, the app downloads Valve's installer from the link on
+  store.steampowered.com/about, over HTTPS with no redirects, keeps it only when Windows
+  confirms Valve signed it, and opens it. The owner clicks through it; nothing is
+  installed silently.
+- **Signed in**: `HKCU\Software\Valve\Steam\ActiveProcess` holds Steam's `pid` while it
+  runs and the signed-in account's id as `ActiveUser`, 0 when nobody is. The owner signs in
+  in Steam's own window (`steam://open/main`); the app never asks for a password.
+- **Installing**: a game is installed with Steam's `steam://install/<appid>`, from the
+  games renters ask for or from a store link or appid the owner pastes; Steam itself
+  decides whether the account may install it. Each library's `appmanifest_<appid>.acf`
+  without the fully installed bit (4) in `StateFlags` is an install under way: its
+  `BytesDownloaded` of `BytesToDownload`, or `BytesStaged` of `BytesToStage` while Steam
+  stages or commits it. The app reads these every 2 s while something is under way, every
+  8 s otherwise, and reads the PC's games again once an install leaves the list.
 
 ---
 
@@ -108,6 +133,14 @@ POST /machines/:id/heartbeat
   next heartbeat, or its socket registering again, offers it again. `session.id` names
   the session a renter has claimed; the PC normally hears of it sooner, pushed as
   `session-claimed` (below).
+
+GET  /machines/:id/demand
+  → 200 { windowMinutes: 60, games: [{ appid, name, looking, waiting }] }
+  What renters ask for, for the owner choosing what to install: per game, busiest first
+  and at most 24, the renters who booked it in the last hour or still wait for it
+  (`looking`), and its bookings in the queue now (`waiting`). Counts only, never who
+  asked. `name` is the catalogue's, null where it has none. The host app calls it from
+  its own origin, so it answers any origin (CORS): the machine key is its only credential.
 
 POST /machines/:id/session
   { sessionId }

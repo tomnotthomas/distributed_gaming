@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { DEMO_STANDING, evening } from "./demo";
 import { euros, inLabel, mmss, shortGpu, span } from "./format";
 import {
+  appidIn,
+  installShare,
   buildRate,
   glanceOf,
   levelAt,
@@ -27,6 +29,7 @@ function realView(live: Live): HostView {
     machine: "gaming-pc-1",
     pc: { reading: false, hardware: null, hardwareRate: null },
     games: { installed: [], offered: [], demand: null, near: null },
+    steam: { status: null, installer: { kind: "idle" }, installs: [], asked: [] },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -190,5 +193,35 @@ describe("format", () => {
     expect(shortGpu("NVIDIA GeForce RTX 4080")).toBe("RTX 4080");
     expect(shortGpu("AMD Radeon RX 7900 XTX")).toBe("Radeon RX 7900 XTX");
     expect(shortGpu("Apple M2")).toBe("Apple M2");
+  });
+});
+
+describe("installing games", () => {
+  it("finds the appid in what the owner pastes", () => {
+    expect(appidIn(" 570 ")).toBe(570);
+    expect(appidIn("https://store.steampowered.com/app/570/Dota_2/")).toBe(570);
+    expect(appidIn("store.steampowered.com/app/1172470?l=german")).toBe(1172470);
+    expect(appidIn("steam://install/440")).toBe(440);
+  });
+
+  it("finds none in anything else", () => {
+    for (const text of [
+      "",
+      "dota",
+      "0",
+      "-5",
+      "https://evil.example/app/570",
+      "steam://uninstall/570",
+      "steam://run/570",
+      "steam://rungameid/570",
+      "99999999999",
+    ])
+      expect(appidIn(text)).toBeNull();
+  });
+
+  it("knows how far an install is once Steam knows its size", () => {
+    const install = { appid: 570, name: "Dota 2", phase: "downloading" as const };
+    expect(installShare({ ...install, done: 25, total: 100 })).toBe(0.25);
+    expect(installShare({ ...install, done: 0, total: 0 })).toBeNull();
   });
 });

@@ -9,6 +9,7 @@ import {
   DEMO_MACHINE,
   DEMO_NEAR,
   DEMO_OFFERED,
+  DEMO_STEAM,
   demoState,
   type DemoScreen,
   type DemoState,
@@ -31,6 +32,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [tick, setTick] = useState(() => Date.now());
   const [offered, setOffered] = useState(DEMO_OFFERED);
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
+  const [asked, setAsked] = useState<number[]>([]);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -54,6 +56,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     machine: DEMO_MACHINE,
     pc: { reading: false, hardware: DEMO_HARDWARE, hardwareRate: DEMO_HARDWARE_RATE },
     games: { installed: DEMO_INSTALLED, offered, demand: DEMO_DEMAND, near: DEMO_NEAR },
+    steam: { ...DEMO_STEAM, asked },
     standing: state.standing,
     earlyEnd: { reliability: DEMO_EARLY_END_RELIABILITY },
     rate,
@@ -121,6 +124,9 @@ export function useDemoHost(screen: DemoScreen): Host & {
       setOffered((list) => (list.includes(appid) ? list.filter((id) => id !== appid) : [...list, appid])),
     saveConnection: async () => setLive(waiting(plan)),
     savePayout: () => setState((s) => ({ ...s, payoutSaved: true })),
+    // Steam is installed in the demo, and nothing is sent to it.
+    installSteam: () => {},
+    askInstall: (appid: number) => setAsked((list) => (list.includes(appid) ? list : [...list, appid])),
   };
 
   return {

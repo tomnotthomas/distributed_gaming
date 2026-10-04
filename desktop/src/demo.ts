@@ -3,7 +3,7 @@
 // app is opened with --demo (?demo=1), always under a "Demo data" label, and is
 // never mixed with this PC's own data.
 
-import type { DemandRow, Earnings, Game, Hardware, Live, Standing, Step } from "./model";
+import type { DemandRow, Earnings, Game, Hardware, Live, Standing, Step, SteamSetup } from "./model";
 import { MINUTE } from "./format";
 import { localArt, type ArtSource } from "./ui/art";
 import art730 from "./demo-art/730.jpg";
@@ -52,6 +52,22 @@ export const DEMO_DEMAND: DemandRow[] = [
   { appid: 1716740, name: "Starfield", looking: 3 },
 ];
 
+/** Steam on Nova-01: signed in, with Baldur's Gate 3 downloading. */
+export const DEMO_STEAM: SteamSetup = {
+  status: { installed: true, running: true, signedIn: true },
+  installer: { kind: "idle" },
+  installs: [
+    {
+      appid: 1086940,
+      name: "Baldur's Gate 3",
+      phase: "downloading",
+      done: 63_000_000_000,
+      total: 150_000_000_000,
+    },
+  ],
+  asked: [],
+};
+
 /** The demo games' key art, bundled with the app (from prototypes/assets). */
 const DEMO_ART: Record<number, string> = {
   730: art730,
@@ -94,9 +110,10 @@ export const DEMO_EARNINGS: Earnings = {
   today: 0.42,
 };
 
-/** The design's thirteen screens, in its order. */
+/** The design's screens, in its order. */
 export const DEMO_SCREENS = [
   { id: "pc", name: "Read this PC" },
+  { id: "steam", name: "Set up Steam" },
   { id: "games", name: "Choose your games" },
   { id: "golive", name: "Go live" },
   { id: "waiting", name: "Live, waiting" },
@@ -156,6 +173,8 @@ export function demoState(screen: DemoScreen): DemoState {
   switch (screen) {
     case "pc":
       return { ...base, setupDone: false, step: "pc", live: off, clockAt: evening(20, 52) };
+    case "steam":
+      return { ...base, setupDone: false, step: "steam", live: off, clockAt: evening(20, 53) };
     case "games":
       return { ...base, setupDone: false, step: "games", live: off, clockAt: evening(20, 55) };
     case "golive":

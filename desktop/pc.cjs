@@ -247,9 +247,13 @@ async function readSteamArt(url, root, files = fs) {
   return null;
 }
 
-/** Where Steam says it is installed, asked once per launch. */
+/** Where Steam says it is installed, asked once per launch, or until it is found: the owner may install Steam meanwhile. */
 let steamPathAsked = null;
-const steamPathOnce = () => (steamPathAsked ??= registrySteamPath());
+const steamPathOnce = () =>
+  (steamPathAsked ??= registrySteamPath().then((found) => {
+    if (!found) steamPathAsked = null;
+    return found;
+  }));
 
 /** Steam's install folder on this PC, for game art; null where Steam is not installed. */
 const steamRootOnce = async () => findSteamRoot({ steamPath: await steamPathOnce() });

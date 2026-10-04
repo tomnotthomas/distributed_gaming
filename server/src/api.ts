@@ -3,7 +3,7 @@
 //   Booking API (renter, signed in)        Host API (gaming PC, machine key)
 //   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
 //   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat
-//   GET  /api/games/:appid/machines?minutes=
+//   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand
 //   GET  /api/me
 //   POST /api/me/refresh
 //   POST /api/signout        (signed out)  POST /api/sessions/:id/start
@@ -26,7 +26,10 @@
 // same budget: past it, the 409 names none.
 //
 // The host authenticates with `Authorization: Bearer <machine key>`, the same
-// key it registers its room with (access.ts). The renter authenticates with the
+// key it registers its room with (access.ts). The owner's host app reads what
+// renters ask for from the demand route, from its own origin: it answers any
+// origin, as the session routes do (index.ts), since the machine key in the
+// Authorization header is its only credential. The renter authenticates with the
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
@@ -51,6 +54,10 @@ import { emptyProfile, originFrom, readProfile, type ProfileReader } from "./ste
 const MAX_HOST_BODY_BYTES = 32 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
+/** Demand counts the bookings made in this window, and the queue now. */
+export const DEMAND_WINDOW_MS = 60 * 60_000;
+/** The most games the demand route names. */
+export const DEMAND_LIMIT = 24;
 /** The most games one availability call may ask about: a wall's worth. */
 const MAX_AVAILABILITY_APPIDS = 100;
 /** The slowest round trip to the server a renter may report, in ms. */
@@ -84,10 +91,24 @@ export type ApiOptions = {
 };
 
 /** Answer with a JSON body that no cache keeps. */
-function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+function reply(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
+  res.writeHead(status, { ...headers, "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }
+
+/** The host app calls the demand route from its own origin; the machine key is its only credential. */
+const HOST_CORS = { "access-control-allow-origin": "*" };
+const HOST_PREFLIGHT = {
+  ...HOST_CORS,
+  "access-control-allow-methods": "GET",
+  "access-control-allow-headers": "authorization",
+  "access-control-max-age": "600",
+};
 
 /** The signed-in renter's session; 401 when the request carries no live one. */
 function requireRenterSession(req: IncomingMessage, sessionSecret: string | null): RenterSession {
@@ -498,6 +519,33 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       reply(res, 200, await platform.heartbeat(id, hostReport(body)));
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "demand" && method === "OPTIONS") {
+      res.writeHead(204, HOST_PREFLIGHT);
+      res.end();
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "demand" && method === "GET") {
+      // What renters ask for, for the owner deciding what to install: counts
+      // per game, never who asked. A game the catalogue cannot name has a null name.
+      requireMachine(req, access, id);
+      const [demand, catalogue] = await Promise.all([
+        platform.demand(DEMAND_WINDOW_MS, DEMAND_LIMIT),
+        games().catch(() => []),
+      ]);
+      const names = new Map(catalogue.map((g) => [g.id, g.name]));
+      reply(
+        res,
+        200,
+        {
+          windowMinutes: DEMAND_WINDOW_MS / 60_000,
+          games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
+        },
+        HOST_CORS,
+      );
       return true;
     }
 
