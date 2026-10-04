@@ -1,7 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { book, resumeBooking, watchBooking, type Booking, type BookingStatus } from "./booking";
+import {
+  book,
+  bookMachine,
+  claim,
+  endBooking,
+  followBooking,
+  resumeBooking,
+  watchBooking,
+  type Booking,
+  type BookingStatus,
+  type Claim,
+} from "./booking";
 
-const booking = (status: BookingStatus): Booking => ({ bookingId: "b-1", status, gameId: 730, minutes: 30 });
+const booking = (status: BookingStatus, claimBy?: number): Booking => ({
+  bookingId: "b-1",
+  status,
+  gameId: 730,
+  minutes: 30,
+  ...(claimBy === undefined ? {} : { claimBy }),
+});
 
 /** A server that answers GET /api/bookings/b-1 with each status in turn, and POST with a queued booking. */
 function fakeServer(statuses: (BookingStatus | 404 | 401)[]) {
@@ -80,8 +97,8 @@ function fakeStream() {
       stream.closed = true;
     },
     emit: (type: string, event: Event = new Event(type)) => listeners.get(type)?.forEach((l) => l(event)),
-    push: (status: BookingStatus) =>
-      stream.emit("booking", new MessageEvent("booking", { data: JSON.stringify(booking(status)) })),
+    push: (status: BookingStatus, claimBy?: number) =>
+      stream.emit("booking", new MessageEvent("booking", { data: JSON.stringify(booking(status, claimBy)) })),
   };
   const open = (url: string) => {
     stream.url = url;
@@ -253,5 +270,352 @@ describe("watching a booking over the event stream", () => {
     expect(updates).toEqual([null]);
     expect(stream.closed).toBe(true);
     expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+});
+
+const TICKET: Claim = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+
+/** A server for the booking calls: each answers what `routes` says for "METHOD path", 404 otherwise. */
+function routes(answers: Record<string, () => Response>) {
+  const calls: { call: string; body: unknown }[] = [];
+  const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const call = `${init?.method ?? "GET"} ${String(url)}`;
+    calls.push({ call, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return answers[call]?.() ?? new Response("{}", { status: 404 });
+  }) as unknown as typeof globalThis.fetch;
+  return { fetch, calls, made: () => calls.map((c) => c.call) };
+}
+
+const json = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status });
+
+describe("booking a picked machine", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("books it with the renter's round trips and remembers the booking", async () => {
+    const server = routes({ "POST /api/bookings": json(202, booking("matched", 1_000)) });
+    const result = await bookMachine("pc-1", 730, 30, { fetch: server.fetch, rtts: { server: 8 } });
+    expect(result).toEqual({ kind: "booked", booking: booking("matched", 1_000) });
+    expect(server.calls[0]!.body).toEqual({
+      gameId: 730,
+      minutes: 30,
+      machineId: "pc-1",
+      rtts: { server: 8 },
+    });
+    expect(localStorage.getItem("swiff.booking")).toBe("b-1");
+  });
+
+  it("carries how the renter plays, picked or queued, for the server to rank by", async () => {
+    const server = routes({ "POST /api/bookings": json(202, booking("matched", 1_000)) });
+    await bookMachine("pc-1", 730, 30, { fetch: server.fetch, controls: ["kb", "pad"], picture: "4k" });
+    await book(730, 30, { fetch: server.fetch, controls: ["kb", "pad"], picture: "4k" });
+    expect(server.calls.map((c) => c.body)).toEqual([
+      { gameId: 730, minutes: 30, machineId: "pc-1", controls: ["kb", "pad"], picture: "4k" },
+      { gameId: 730, minutes: 30, controls: ["kb", "pad"], picture: "4k" },
+    ]);
+  });
+
+  it("says it was taken, with the next best, and remembers nothing", async () => {
+    const nextBest = { id: "pc-2", name: "Nova", gpu: "RTX 4070", price: 300, latency: { rttMs: 20 } };
+    const server = routes({ "POST /api/bookings": json(409, { error: "the machine is taken", nextBest }) });
+    expect(await bookMachine("pc-1", 730, 30, { fetch: server.fetch })).toEqual({ kind: "taken", nextBest });
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
+  it("throws on any other failure", async () => {
+    const server = routes({ "POST /api/bookings": json(500, { error: "internal error" }) });
+    await expect(bookMachine("pc-1", 730, 30, { fetch: server.fetch })).rejects.toThrow("500");
+  });
+});
+
+describe("claiming and ending", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("claims a matched booking, and reads a 409 as not claimable", async () => {
+    const ok = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    expect(await claim("b-1", { fetch: ok.fetch })).toEqual(TICKET);
+    const lapsed = routes({ "POST /api/bookings/b-1/claim": json(409, { status: "queued" }) });
+    expect(await claim("b-1", { fetch: lapsed.fetch })).toBeNull();
+  });
+
+  it("ends the booking and forgets it, over already or not", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
+    const server = routes({ "POST /api/bookings/b-1/end": json(200, booking("ended")) });
+    expect((await endBooking("b-1", { fetch: server.fetch }))?.status).toBe("ended");
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+
+    localStorage.setItem("swiff.booking", "b-1");
+    const over = routes({ "POST /api/bookings/b-1/end": json(409, { status: "ended" }) });
+    expect(await endBooking("b-1", { fetch: over.fetch })).toBeNull();
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+});
+
+describe("following a booking to its claim", () => {
+  beforeEach(() => localStorage.clear());
+
+  /** Follow b-1 against `server`, recording what is reported. */
+  function follow(first: Booking | string, server: ReturnType<typeof routes>, hidden = false) {
+    const { stream, open } = fakeStream();
+    const chime = vi.fn();
+    const claimed: Claim[] = [];
+    const updates: (BookingStatus | null)[] = [];
+    const stop = followBooking(
+      first,
+      { onUpdate: (b) => updates.push(b?.status ?? null), onClaimed: (c) => claimed.push(c) },
+      {
+        fetch: server.fetch,
+        eventSource: open,
+        intervalMs: 5,
+        heartbeatMs: 1_000,
+        chime,
+        hidden: () => hidden,
+      },
+    );
+    return { stream, chime, claimed, updates, stop };
+  }
+
+  it("claims a picked machine the moment it is booked, with no click", async () => {
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { claimed, chime, stream } = follow(booking("matched", 1_000), server);
+    stream.push("matched", 1_000);
+    await settle();
+    expect(claimed).toEqual([TICKET]);
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
+    expect(chime).not.toHaveBeenCalled();
+    expect(stream.closed).toBe(true);
+  });
+
+  it("claims a queued booking when the open stream pushes its match", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { claimed, stream, updates } = follow("b-1", server);
+    stream.push("queued");
+    await settle();
+    expect(claimed).toEqual([]);
+
+    stream.push("matched", 1_000);
+    await settle();
+    expect(updates).toEqual(["queued", "matched"]);
+    expect(claimed).toEqual([TICKET]);
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
+  it("chimes for a match that arrives while the tab is out of sight", async () => {
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { chime, stream, claimed } = follow("b-1", server, true);
+    stream.push("matched", 1_000);
+    await settle();
+    expect(chime).toHaveBeenCalledTimes(1);
+    expect(claimed).toEqual([TICKET]);
+  });
+
+  it("claims a match the poll finds while the stream is down, once, chiming out of sight", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
+    const server = routes({
+      "GET /api/bookings/b-1": json(200, booking("matched", 1_000)),
+      "POST /api/bookings/b-1/claim": json(200, TICKET),
+    });
+    const { stream, claimed, updates, chime } = follow("b-1", server, true);
+    stream.emit("error");
+    await settle();
+    expect(updates).toContain("matched");
+    expect(claimed).toEqual([TICKET]);
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
+    expect(chime).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+  });
+
+  it("says so when a claim is refused or fails, and follows on", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("network down");
+        return new Response(JSON.stringify({ status: "expired" }), { status: 409 });
+      },
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      booking("matched", 1_000),
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000 },
+    );
+    await settle();
+    expect(failed).toHaveBeenCalledTimes(1);
+    stream.push("matched", 1_000);
+    await settle();
+    expect(failed).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries a match's claim again when the network loses it, and claims it", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("network down");
+        return new Response(JSON.stringify(TICKET), { status: 200 });
+      },
+    });
+    const failed = vi.fn();
+    const claimed: Claim[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: (c) => claimed.push(c), onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    expect(answers).toBe(2);
+    expect(claimed).toEqual([TICKET]);
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a lost claim once its reservation lapses, and says so", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        throw new TypeError("network down");
+      },
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60);
+    await new Promise((r) => setTimeout(r, 150));
+    const tries = server.made().filter((c) => c.endsWith("/claim")).length;
+    expect(tries).toBeGreaterThan(1);
+    expect(failed).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(tries);
+  });
+
+  it("stops trying a lost claim once the booking leaves its match", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        throw new TypeError("network down");
+      },
+    });
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {} },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 20 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await new Promise((r) => setTimeout(r, 5));
+    stream.push("expired");
+    await new Promise((r) => setTimeout(r, 80));
+    expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
+  });
+
+  it("hands the machine back when a lost claim went through and the retry is refused as claimed", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        if (++answers === 1) throw new TypeError("response lost");
+        return new Response(JSON.stringify({ status: "claimed" }), { status: 409 });
+      },
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const updates: (BookingStatus | null)[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: (b) => updates.push(b?.status ?? null), onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 5 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    expect(server.made()).toEqual([
+      "POST /api/bookings/b-1/claim",
+      "POST /api/bookings/b-1/claim",
+      "POST /api/bookings/b-1/end",
+    ]);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual(["matched", "ended"]);
+    expect(stream.closed).toBe(true);
+  });
+
+  it("hands the machine back when the stream reports claimed a claim whose answer was lost", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () => {
+        answers += 1;
+        throw new TypeError("response lost");
+      },
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const updates: (BookingStatus | null)[] = [];
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: (b) => updates.push(b?.status ?? null), onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, retryMs: 1_000 },
+    );
+    stream.push("matched", Date.now() + 60_000);
+    await settle();
+    stream.push("claimed");
+    await settle();
+    expect(answers).toBe(1);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/claim", "POST /api/bookings/b-1/end"]);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual(["matched", "claimed", "ended"]);
+  });
+
+  it("ends nothing when a claim is refused as claimed with no answer lost", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/claim": json(409, { status: "claimed" }),
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    const failed = vi.fn();
+    const { stream, open } = fakeStream();
+    followBooking(
+      "b-1",
+      { onUpdate: () => {}, onClaimed: () => {}, onClaimFailed: failed },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000 },
+    );
+    stream.push("matched", 1_000);
+    await settle();
+    stream.push("claimed");
+    await settle();
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/claim"]);
+  });
+
+  it("leaves a reservation it could not claim, and claims the next match", async () => {
+    let answers = 0;
+    const server = routes({
+      "POST /api/bookings/b-1/claim": () =>
+        ++answers === 1
+          ? new Response(JSON.stringify({ status: "queued" }), { status: 409 })
+          : new Response(JSON.stringify(TICKET), { status: 200 }),
+    });
+    const { stream, claimed } = follow("b-1", server);
+    stream.push("matched", 1_000);
+    await settle();
+    stream.push("matched", 1_000);
+    await settle();
+    expect(claimed).toEqual([]);
+    expect(answers).toBe(1);
+
+    stream.push("queued");
+    stream.push("matched", 2_000);
+    await settle();
+    expect(claimed).toEqual([TICKET]);
+  });
+
+  it("claims nothing once stopped", async () => {
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { stream, claimed, stop } = follow("b-1", server);
+    stop();
+    stream.push("matched", 1_000);
+    await settle();
+    expect(claimed).toEqual([]);
+    expect(server.made()).toEqual([]);
   });
 });

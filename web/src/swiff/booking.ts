@@ -12,6 +12,17 @@
 // Every call needs the renter signed in: the session cookie goes with each
 // same-origin fetch and with the event stream, and a booking is only ever shown
 // to the renter who made it.
+//
+// The page claims by itself (followBooking): a machine the renter picked is
+// claimed the moment it is booked (202, matched), with no click; a queued
+// booking is claimed the moment its match arrives, with a chime when the tab is
+// out of sight. An open page is the renter being there, so a match is claimed
+// whether the stream pushes it or the slow poll that stands in while the stream
+// is down finds it. A renter whose page is closed is away, and nothing is
+// claimed until they come back, within the server's two minutes.
+
+import type { Control, PicturePref } from "@swiff/rank";
+import { chime as defaultChime } from "./chime";
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
 
@@ -22,7 +33,33 @@ export type Booking = {
   minutes: number;
   machine?: { id: string; gpu: string | null; cpu: string | null; price: number };
   claimBy?: number;
+  sessionId?: string;
+  /** Cents charged for the time played, once the session has ended. */
+  price?: number;
 };
+
+/**
+ * The renter's round trips in ms: to the server, and straight to any machine
+ * probed, by id. The server matches the booking by them.
+ */
+export type Rtts = { server?: number; machines?: Record<string, number> };
+
+/** The machine the server offers instead of one that was taken: the next on the renter's list. */
+export type NextBest = {
+  id: string;
+  name: string | null;
+  gpu: string;
+  /** Cents per hour. */
+  price: number;
+  latency: { rttMs: number };
+};
+
+/** A picked machine booked (matched, to claim), or taken already, with what to offer instead. */
+export type BookMachineResult =
+  { kind: "booked"; booking: Booking } | { kind: "taken"; nextBest: NextBest | null };
+
+/** What a claim hands back: the room to join, where, and the ticket that opens it. */
+export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
@@ -46,22 +83,107 @@ export type BookingOptions = {
   eventSource?: ((url: string) => EventStream) | null;
 };
 
-/** The browser's EventSource, or null where there is none (and the helper polls only). */
-const browserEventSource =
+/** The browser's EventSource as it is now, or null where there is none (and the helper polls only). */
+const browserEventSource = () =>
   typeof EventSource === "undefined" ? null : (url: string): EventStream => new EventSource(url);
 
-/** Book a game and remember the booking, so a reload can resume it. */
-export async function book(gameId: number, minutes: number, options: BookingOptions = {}): Promise<Booking> {
-  const { storage = localStorage, fetch: get = fetch } = options;
-  const response = await get("/api/bookings", {
+/** POST `body` as JSON to `path`. */
+const post = (get: typeof fetch, path: string, body?: unknown) =>
+  get(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ gameId, minutes }),
+    ...(body === undefined
+      ? {}
+      : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   });
+
+/** How the renter asks: their round trips, the controls they turned on and their Picture setting. */
+export type BookingAsk = { rtts?: Rtts; controls?: Control[]; picture?: PicturePref };
+
+/** The parts of `ask` the renter gave, for a booking body. */
+const askBody = ({ rtts, controls, picture }: BookingAsk) => ({
+  ...(rtts ? { rtts } : {}),
+  ...(controls ? { controls } : {}),
+  ...(picture ? { picture } : {}),
+});
+
+/**
+ * Queue for a game: the server matches the booking to the best machine free
+ * for it, judged by the renter's round trips and ranked by how they play.
+ * Remembers the booking, so a reload can resume it.
+ */
+export async function book(
+  gameId: number,
+  minutes: number,
+  options: BookingOptions & BookingAsk = {},
+): Promise<Booking> {
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, "/api/bookings", { gameId, minutes, ...askBody(options) });
   if (!response.ok) throw new Error(`booking failed: ${response.status}`);
   const booking = (await response.json()) as Booking;
   storage.setItem(KEY, booking.bookingId);
   return booking;
+}
+
+/**
+ * Book the machine the renter picked: reserved for them at once (202,
+ * matched), and remembered as book() does, or taken since their list was read
+ * (409), with the next best to offer instead, ranked by the renter's controls
+ * and Picture setting as their list was.
+ */
+export async function bookMachine(
+  machineId: string,
+  gameId: number,
+  minutes: number,
+  options: BookingOptions & BookingAsk = {},
+): Promise<BookMachineResult> {
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, "/api/bookings", { gameId, minutes, machineId, ...askBody(options) });
+  if (response.status === 409) {
+    const { nextBest = null } = (await response.json()) as { nextBest?: NextBest | null };
+    return { kind: "taken", nextBest };
+  }
+  if (!response.ok) throw new Error(`booking failed: ${response.status}`);
+  const booking = (await response.json()) as Booking;
+  storage.setItem(KEY, booking.bookingId);
+  return { kind: "booked", booking };
+}
+
+/**
+ * Claim the matched machine: the room and its join ticket, or null when the
+ * server refuses it (4xx: its reservation lapsed, it is over, or it is not the
+ * renter's).
+ */
+export async function claim(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
+  const answer = await askToClaim(bookingId, options);
+  return "claim" in answer ? answer.claim : null;
+}
+
+/** A claim's answer: the room and ticket, or the status the server gave when it refused (4xx). */
+type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined };
+
+async function askToClaim(bookingId: string, options: BookingOptions): Promise<ClaimAnswer> {
+  const { fetch: get = fetch } = options;
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
+  if (response.status >= 400 && response.status < 500) {
+    const { status } = (await response.json().catch(() => ({}))) as { status?: BookingStatus };
+    return { refused: status };
+  }
+  if (!response.ok) throw new Error(`claim failed: ${response.status}`);
+  return { claim: (await response.json()) as Claim };
+}
+
+/**
+ * End the booking, whatever it has come to: out of the queue, its machine
+ * handed back, or its session over. The booking as it ended, or null when it
+ * was over already or is not the renter's. Forgets it either way.
+ */
+export async function endBooking(bookingId: string, options: BookingOptions = {}): Promise<Booking | null> {
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/end`);
+  if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+  if (response.status === 409 || response.status === 404) return null;
+  if (!response.ok) throw new Error(`ending failed: ${response.status}`);
+  return (await response.json()) as Booking;
 }
 
 /**
@@ -81,7 +203,7 @@ export function watchBooking(
     fetch: get = fetch,
     intervalMs = SLOW_POLL_MS,
     heartbeatMs = HEARTBEAT_MS,
-    eventSource = browserEventSource,
+    eventSource = browserEventSource(),
   } = options;
   let stopped = false;
   let polling = false;
@@ -181,11 +303,160 @@ export function watchBooking(
   return stop;
 }
 
+/** The booking this browser made and kept, if any, for a page load to pick up. */
+export function storedBookingId(storage: Storage = localStorage): string | null {
+  return storage.getItem(KEY);
+}
+
 /** On page load: resume watching the booking this browser made, if it kept one. Null when there is none. */
 export function resumeBooking(
   onUpdate: (booking: Booking | null) => void,
   options: BookingOptions = {},
 ): (() => void) | null {
-  const bookingId = (options.storage ?? localStorage).getItem(KEY);
+  const bookingId = storedBookingId(options.storage);
   return bookingId ? watchBooking(bookingId, onUpdate, options) : null;
+}
+
+/** What following a booking reports. */
+export type FollowHandlers = {
+  /** Each state the booking reaches; null once it is gone from view. */
+  onUpdate: (booking: Booking | null) => void;
+  /** The machine was claimed: the room to join and its ticket. */
+  onClaimed: (claim: Claim, booking: Booking) => void;
+  /**
+   * A claim the server failed to answer by its deadline, or refused (4xx); the
+   * booking is still followed, unless a lost claim went through after all.
+   */
+  onClaimFailed?: () => void;
+};
+
+export type FollowOptions = BookingOptions & {
+  /** Played when a match arrives while the tab is out of sight. */
+  chime?: () => void;
+  /** Whether the tab is out of sight. */
+  hidden?: () => boolean;
+  /** The first wait before trying a claim the network lost again; it doubles each time. */
+  retryMs?: number;
+};
+
+/** The first wait before a lost claim is tried again, and the longest. */
+const CLAIM_RETRY_MS = 1_000;
+const CLAIM_RETRY_MAX_MS = 8_000;
+
+const tabHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+
+/**
+ * Follow the booking and claim its machine by itself: at once when `first` is
+ * a booking already matched (a picked machine, just booked), and otherwise the
+ * moment the match arrives, pushed down the stream or found by the slow poll,
+ * chiming first when the tab is out of sight. Each reservation is claimed once;
+ * a match heard of while following whose claim the network loses is tried
+ * again, waiting longer each time, until its reservation lapses (claimBy) or
+ * the booking moves on. One the server refuses (4xx) is left, and following
+ * goes on. A lost claim that went through after all (a later try refused as
+ * `claimed`, or the stream reporting it claimed) holds the machine with no
+ * ticket to join it: that booking is ended, handing the machine back, and
+ * following stops.
+ * Once claimed, the booking is forgotten and following stops. Returns stop().
+ */
+export function followBooking(
+  first: Booking | string,
+  handlers: FollowHandlers,
+  options: FollowOptions = {},
+): () => void {
+  const {
+    chime = defaultChime,
+    hidden = tabHidden,
+    storage = localStorage,
+    retryMs = CLAIM_RETRY_MS,
+  } = options;
+  const bookingId = typeof first === "string" ? first : first.bookingId;
+  let stopped = false;
+  /** The reservation (by its claim deadline) claimed or being claimed. */
+  let claiming: number | undefined;
+  /** The reservation the booking stands matched to now, if it does. */
+  let matchedTo: number | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  /** The reservation a claim's answer was lost for: that claim may have gone through. */
+  let lostFor: number | undefined;
+  /** A claim waiting on its answer. */
+  let asking = false;
+  /** The booking was seen claimed while a claim of it waited on its answer. */
+  let seenClaimed = false;
+
+  /** A lost claim went through with no ticket to show for it: end the booking, handing the machine back. */
+  const release = () => {
+    stop();
+    handlers.onClaimFailed?.();
+    void endBooking(bookingId, options).then(
+      (ended) => handlers.onUpdate(ended),
+      () => handlers.onUpdate(null),
+    );
+  };
+
+  /** Claim `booking`'s reservation; a lost claim is tried again after `waitMs`, while there is time. */
+  const tryClaim = async (booking: Booking, waitMs: number | null) => {
+    claiming = booking.claimBy;
+    asking = true;
+    let answer: ClaimAnswer;
+    try {
+      answer = await askToClaim(bookingId, options);
+    } catch {
+      asking = false;
+      if (stopped) return;
+      lostFor = booking.claimBy;
+      if (seenClaimed) return release();
+      if (claiming !== booking.claimBy) return;
+      if (waitMs !== null && matchedTo === booking.claimBy && Date.now() + waitMs < (matchedTo ?? 0)) {
+        retry = setTimeout(() => void tryClaim(booking, Math.min(waitMs * 2, CLAIM_RETRY_MAX_MS)), waitMs);
+        return;
+      }
+      claiming = undefined;
+      handlers.onClaimFailed?.();
+      return;
+    }
+    asking = false;
+    if (stopped) return;
+    if (!("claim" in answer)) {
+      if (answer.refused === "claimed" && lostFor === booking.claimBy) release();
+      else handlers.onClaimFailed?.();
+      return;
+    }
+    const claimed = answer.claim;
+    stop();
+    if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+    handlers.onClaimed(claimed, { ...booking, status: "claimed", sessionId: claimed.sessionId });
+  };
+
+  const unwatch = watchBooking(
+    bookingId,
+    (booking) => {
+      if (stopped) return;
+      handlers.onUpdate(booking);
+      // Claimed with no ticket here: a claim whose answer was lost went through.
+      // One still waiting on its answer decides once it has it.
+      if (booking?.status === "claimed") {
+        if (asking) seenClaimed = true;
+        else if (lostFor !== undefined) return release();
+      }
+      if (booking?.status !== "matched") {
+        matchedTo = undefined;
+        clearTimeout(retry);
+        return;
+      }
+      matchedTo = booking.claimBy;
+      if (claiming === matchedTo) return;
+      clearTimeout(retry);
+      if (hidden()) chime();
+      void tryClaim(booking, retryMs);
+    },
+    options,
+  );
+  const stop = () => {
+    stopped = true;
+    clearTimeout(retry);
+    unwatch();
+  };
+  if (typeof first !== "string" && first.status === "matched") void tryClaim(first, null);
+  return stop;
 }

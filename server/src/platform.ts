@@ -2,6 +2,7 @@
 // Postgres table each, and the rules that move a booking through them.
 //
 //   renter  book ─► queued ─► matched ─► claimed ─► playing ─► ended
+//    bookMachine ───────────────┘ (the machine picked, while it is free)
 //                     │  ▲      │
 //                     │  └──────┤ (lapses unclaimed, renter away since the match: back in its place)
 //                     │         └──────────► expired (lapses unclaimed, renter saw the match)
@@ -22,9 +23,12 @@
 // Matching runs in tick(): every call that can free a machine or add a booking
 // runs it straight away, and one timer is armed for the next deadline (a
 // machine's liveness, a reservation or queued booking lapsing, a session
-// running out), so nothing polls. A booking is matched only to a machine with
-// its game installed and the hardware the game asks for, judged by
-// @swiff/rank's gates against the requirements table.
+// running out), so nothing polls. A booking is matched by @swiff/rank's rank(),
+// the order the renter's own list of machines is in: only to a machine that
+// passes its gates (the game installed, the hardware the game asks for against
+// the requirements table, not the renter's own, close enough), and to the best
+// of those, not merely the cheapest. A renter who picked a machine from that
+// list books it straight away instead, when it is still free (bookMachine).
 //
 // Presence: a machine whose PC holds its socket open to the server is there
 // for as long as it stays open, with no check-in needed. That is kept in
@@ -50,13 +54,14 @@
 
 import { randomBytes } from "node:crypto";
 import {
-  failedGates,
   gpuScore,
+  rank,
+  type Candidate,
   type Control,
   type Encoder,
-  type GameRequirements,
-  type GateId,
   type HostProfile,
+  type LinkStats,
+  type PicturePref,
   type RenterPrefs,
   type StabilityStats,
 } from "@swiff/rank";
@@ -164,6 +169,22 @@ export type ClaimResult =
   | ({ ok: true; roomId: string } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
+/**
+ * The renter's round trips in ms, as their page measured them: to the server,
+ * and straight to any machine it probed, by machine id. Matching judges a
+ * machine's latency by them (gate E6 and the sort).
+ */
+export type Rtts = { server?: number; machines?: Record<string, number> };
+
+/** How the renter plays: the controls they turned on and their Picture setting. None and best when left out. */
+export type PlayPrefs = { controls?: Control[]; picture?: PicturePref };
+
+/** What became of the renter ending their booking: its view once ended, or why not. */
+export type EndResult =
+  | { ok: true; booking: BookingView }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "over"; status: BookingStatus };
+
 /** What became of a renter's ticket-authenticated call (a QoS report or leaving): done, or why not. */
 export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
@@ -198,7 +219,14 @@ type BookingRow = {
   minutes: number;
   status: BookingStatus;
   last_seen_at: number;
+  /** JSON Rtts, null when the renter sent none. */
+  rtts: string | null;
+  /** JSON Control[], null when the renter sent none. */
+  controls: string | null;
+  picture: PicturePref | null;
 };
+/** A machine free to be matched now: its row, the games installed on it and its seven days. */
+type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
 type ReservationRow = { id: string; booking_id: string; machine_id: string; expires_at: number };
 type SessionRow = {
   id: string;
@@ -214,28 +242,12 @@ type SessionRow = {
   qos: string | null;
 };
 
-/**
- * The gates a match must pass. E4 needs the renter's controls and E6 a probe
- * from the renter; a booking carries neither yet.
- */
-const MATCH_GATES: GateId[] = ["E1", "E2", "E3", "E5"];
-
 const MB_PER_GB = 1024;
 
 /** A JSON column read back, or `fallback` when it is empty. */
 function fromJson<T>(value: string | null, fallback: T): T {
   return value === null ? fallback : (JSON.parse(value) as T);
 }
-
-/** rank() wants a history with every candidate; the match gates never read it. */
-const NO_HISTORY: StabilityStats = {
-  heartbeatCoverage: 0,
-  dropsPerHour: 0,
-  sessionCompletion: 0,
-  packetLoss: 0,
-  sessions: 0,
-  offeredHours: 0,
-};
 
 /**
  * The machine as rank() reads it. `installed` lists the games to judge it on;
@@ -293,28 +305,39 @@ function profileOf(m: MachineRow, games: number[]): MachineProfile {
 }
 
 /**
- * Whether the machine passes MATCH_GATES for this booking's game. `installed`
- * need only say whether the booking's game is there.
+ * The stage-1 estimate of the path from a renter to a host: both legs through
+ * the server added up. Null when the host never reported its network, which
+ * fails gate E6: a machine whose latency is unknown is not offered.
  */
-function passesMatchGates(
-  machine: MachineRow,
-  installed: number[],
-  booking: BookingRow,
-  game: GameRequirements,
-  now: number,
-): boolean {
-  const host = hostProfileOf(machine, installed, "available", machine.last_seen_at);
-  const renter: RenterPrefs = {
+export function estimateLink(renterRttMs: number, net: Net | null): LinkStats | null {
+  if (!net) return null;
+  return { rttMs: renterRttMs + net.rttMs, jitterP95Ms: net.jitterMs, relayed: false };
+}
+
+/**
+ * The path from the renter who made a booking to a machine: the round trip
+ * they measured straight to it, when they did, else the estimate through the
+ * server from theirs to the server. A renter who sent no round trips counts
+ * their own leg as nothing, so only the host's leg is judged.
+ */
+function bookingLink(rtts: Rtts, machine: MachineRow): LinkStats | null {
+  const net = profileOf(machine, []).net;
+  if (rtts.machines && Object.hasOwn(rtts.machines, machine.id)) {
+    return { rttMs: rtts.machines[machine.id]!, jitterP95Ms: net?.jitterMs ?? 0, relayed: false };
+  }
+  return estimateLink(rtts.server ?? 0, net);
+}
+
+/** The renter who made the booking, as rank() reads them: by default no controls asked for, the best picture. */
+function bookingRenter(
+  booking: Pick<BookingRow, "id" | "renter_id" | "minutes" | "controls" | "picture">,
+): RenterPrefs {
+  return {
     id: booking.renter_id ?? `booking:${booking.id}`,
-    controls: [],
-    picture: "best",
+    controls: fromJson<Control[]>(booking.controls, []),
+    picture: booking.picture ?? "best",
     sessionMinutes: booking.minutes,
   };
-  const failed = failedGates({ host, link: null, history: NO_HISTORY }, game, renter, {
-    now,
-    heartbeatMaxAgeMs: LIVENESS_MS,
-  });
-  return !failed.some((gate) => MATCH_GATES.includes(gate));
 }
 
 /** Unguessable, so one id cannot be guessed from another. */
@@ -739,22 +762,97 @@ export class Platform {
 
   // --- renter ----------------------------------------------------------------
 
-  /** Queue a booking for `renterId` (a Steam id; null only in tests) and match at once. */
-  book(gameId: number, minutes: number, renterId: string | null = null): Promise<BookingView> {
+  /**
+   * Queue a booking for `renterId` (a Steam id; null only in tests) and match
+   * at once. `rtts` are the renter's round trips, which matching judges each
+   * machine's latency by, and `prefs` how they play, which it ranks by, for as
+   * long as the booking waits.
+   */
+  book(
+    gameId: number,
+    minutes: number,
+    renterId: string | null = null,
+    rtts: Rtts = {},
+    prefs: PlayPrefs = {},
+  ): Promise<BookingView> {
     return this.#transaction(async () => {
       const now = this.#now();
-      const id = newId();
-      await this.#run(
-        `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at)
-           VALUES ($1, $2, $3, $4, 'queued', $5, $5)`,
-        id,
-        renterId,
-        gameId,
-        minutes,
-        now,
-      );
+      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
       await this.#tick(now);
       return (await this.#bookingView(id))!;
+    });
+  }
+
+  /**
+   * Book the machine the renter picked from their list, reserved for them at
+   * once (matched, to be claimed within RESERVATION_MS), when it is still free
+   * for the whole booking and passes the same gates matching does. Null, with
+   * no booking made, when it is not: taken a moment ago, gone, or never one
+   * they could have.
+   */
+  bookMachine(
+    machineId: string,
+    gameId: number,
+    minutes: number,
+    renterId: string | null = null,
+    rtts: Rtts = {},
+    prefs: PlayPrefs = {},
+  ): Promise<BookingView | null> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      // The queue goes first: a machine a waiting booking fits is matched to it here.
+      await this.#tick(now);
+      const free = await this.#freeMachines(now, [machineId]);
+      const ask = {
+        id: "",
+        renter_id: renterId,
+        game_id: gameId,
+        minutes,
+        rtts: JSON.stringify(rtts),
+        controls: JSON.stringify(prefs.controls ?? []),
+        picture: prefs.picture ?? null,
+      };
+      if (!(await this.#best(ask, free, now))) return null;
+      const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
+      await this.#reserve(id, machineId, now);
+      return (await this.#bookingView(id))!;
+    });
+  }
+
+  /**
+   * The renter ends their booking, whatever it has come to: a queued one leaves
+   * the queue, a matched one gives its machine back, and a claimed or playing
+   * one ends its session as `renter`, as leaving with the join ticket does.
+   * Ended either way, and the machine goes to whoever waits next. Only
+   * `renterId`'s own booking; anyone else's reads as not found.
+   */
+  endBooking(bookingId: string, renterId: string | null = null): Promise<EndResult> {
+    return this.#transaction(async (): Promise<EndResult> => {
+      const now = this.#now();
+      await this.#tick(now);
+      const booking = await this.#bookingRow(bookingId, renterId);
+      if (!booking) return { ok: false, reason: "not-found" };
+      if (booking.status === "ended" || booking.status === "expired") {
+        return { ok: false, reason: "over", status: booking.status };
+      }
+      if (booking.status === "matched") {
+        const reservation = (await this.#get<ReservationRow>(
+          "DELETE FROM reservations WHERE booking_id = $1 RETURNING *",
+          bookingId,
+        ))!;
+        await this.#setStatus(reservation.machine_id, "available");
+      }
+      if (booking.status === "claimed" || booking.status === "playing") {
+        const session = (await this.#get<SessionRow>(
+          "SELECT * FROM sessions WHERE booking_id = $1",
+          bookingId,
+        ))!;
+        await this.#renterEnds(session, now);
+      } else {
+        await this.#setBookingStatus(bookingId, "ended");
+      }
+      await this.#tick(now);
+      return { ok: true, booking: (await this.#bookingView(bookingId))! };
     });
   }
 
@@ -846,12 +944,7 @@ export class Platform {
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
-      const machine = (await this.#get<{ status: MachineStatus }>(
-        "SELECT status FROM machines WHERE id = $1",
-        session.machine_id,
-      ))!;
-      if (machine.status === "in_session") await this.#setStatus(session.machine_id, "available");
+      await this.#renterEnds(session, now);
       await this.#tick(now);
       return "ok";
     });
@@ -1085,47 +1178,135 @@ export class Platform {
   }
 
   /**
-   * Oldest booking first, each to the cheapest live machine free for the whole
-   * booking that has the game installed and meets its minimum (MATCH_GATES).
+   * Oldest booking first, each to the machine rank() puts first for it among
+   * the live ones free for the whole booking (#best).
    */
   async #match(now: number): Promise<void> {
     const queued = await this.#all<BookingRow>(
       "SELECT * FROM bookings WHERE status = 'queued' ORDER BY created_at, seq",
     );
+    if (!queued.length) return;
+    let free = await this.#freeMachines(now);
     for (const booking of queued) {
-      const game = await this.#requirements.lookup(booking.game_id);
-      const machines = await this.#all<MachineRow & { has_game: boolean }>(
-        `SELECT m.*, EXISTS (SELECT 1 FROM machine_games g WHERE g.machine_id = m.id AND g.appid = $1) AS has_game
-           FROM machines m
-           WHERE status = 'available' AND last_seen_at > $2
-             AND (available_until IS NULL OR available_until >= $3)
-           ORDER BY price, id COLLATE "C"`,
-        booking.game_id,
-        now - LIVENESS_MS,
-        now + booking.minutes * 60_000,
-      );
+      const machineId = await this.#best(booking, free, now);
+      if (!machineId) continue; // a booking behind this one may still fit
+      await this.#reserve(booking.id, machineId, now);
+      free = free.filter((m) => m.row.id !== machineId);
+    }
+  }
+
+  /**
+   * The machines on offer, answering and free now, with what is installed on
+   * each and its seven days for rank(), from four statements however many
+   * there are. `ids` narrows them to those machines.
+   */
+  async #freeMachines(now: number, ids?: string[]): Promise<FreeMachine[]> {
+    const rows = await this.#all<MachineRow>(
+      `SELECT * FROM machines WHERE status = 'available' AND last_seen_at > $1
+         AND (available_until IS NULL OR available_until > $2)
+         AND ($3::text[] IS NULL OR id = ANY ($3::text[]))
+         ORDER BY id COLLATE "C"`,
+      now - LIVENESS_MS,
+      now,
+      ids ?? null,
+    );
+    if (!rows.length) return [];
+    const installed = new Map<string, number[]>();
+    const games = await this.#all<{ machine_id: string; appid: number }>(
+      "SELECT machine_id, appid FROM machine_games WHERE machine_id = ANY ($1::text[]) ORDER BY appid",
+      rows.map((m) => m.id),
+    );
+    for (const { machine_id, appid } of games) {
+      const list = installed.get(machine_id) ?? [];
+      list.push(appid);
+      installed.set(machine_id, list);
+    }
+    const histories = await this.#stabilities(rows, now);
+    return rows.map((row) => ({
+      row,
+      installed: installed.get(row.id) ?? [],
+      history: histories.get(row.id)!.stats,
+    }));
+  }
+
+  /**
+   * The machine rank() puts first for the booking among `free`, or null when
+   * none passes its gates: the game installed (E2), the hardware the game asks
+   * for (E3), every control the booking asked for (E4), not the renter's own
+   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes is
+   * considered. The order is the renter's own list's: free all session, most
+   * reliable, best response, then picture, lowest latency, lowest price.
+   */
+  async #best(
+    booking: Pick<BookingRow, "id" | "renter_id" | "game_id" | "minutes" | "rtts" | "controls" | "picture">,
+    free: FreeMachine[],
+    now: number,
+  ): Promise<string | null> {
+    const until = now + booking.minutes * 60_000;
+    const fits = free.filter((m) => m.row.available_until === null || m.row.available_until >= until);
+    if (!fits.length) return null;
+    const game = await this.#requirements.lookup(booking.game_id);
+    const rtts = fromJson<Rtts>(booking.rtts, {});
+    const candidates = fits.map(({ row, installed, history }): Candidate => {
       // The configured owner counts at once, before the machine next checks in
       // and #touch records it, so a restart never matches an owner to their PC.
-      const machine = machines.find((m) =>
-        passesMatchGates(
-          { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id },
-          m.has_game ? [booking.game_id] : [],
-          booking,
-          game,
-          now,
-        ),
-      );
-      if (!machine) continue; // a booking behind this one may still fit
-      await this.#run(
-        "INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES ($1, $2, $3, $4)",
-        newId(),
-        booking.id,
-        machine.id,
-        now + RESERVATION_MS,
-      );
-      await this.#setBookingStatus(booking.id, "matched");
-      await this.#setStatus(machine.id, "reserved");
-    }
+      const owned = { ...row, owner_id: this.#owners.get(row.id) ?? row.owner_id };
+      return {
+        host: hostProfileOf(owned, installed, "available", row.last_seen_at),
+        link: bookingLink(rtts, row),
+        history,
+      };
+    });
+    const ranked = rank(game, bookingRenter(booking), candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
+    return ranked.hosts[0]?.host.id ?? null;
+  }
+
+  /** Hold the machine for the booking for RESERVATION_MS: matched, waiting to be claimed. */
+  async #reserve(bookingId: string, machineId: string, now: number): Promise<void> {
+    await this.#run(
+      "INSERT INTO reservations (id, booking_id, machine_id, expires_at) VALUES ($1, $2, $3, $4)",
+      newId(),
+      bookingId,
+      machineId,
+      now + RESERVATION_MS,
+    );
+    await this.#setBookingStatus(bookingId, "matched");
+    await this.#setStatus(machineId, "reserved");
+  }
+
+  /** Add a queued booking; its id. */
+  async #insertBooking(
+    gameId: number,
+    minutes: number,
+    renterId: string | null,
+    rtts: Rtts,
+    prefs: PlayPrefs,
+    now: number,
+  ): Promise<string> {
+    const id = newId();
+    await this.#run(
+      `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at, rtts, controls, picture)
+         VALUES ($1, $2, $3, $4, 'queued', $5, $5, $6, $7, $8)`,
+      id,
+      renterId,
+      gameId,
+      minutes,
+      now,
+      JSON.stringify(rtts),
+      JSON.stringify(prefs.controls ?? []),
+      prefs.picture ?? null,
+    );
+    return id;
+  }
+
+  /** The renter ended the session: closed as `renter`, its machine free again. */
+  async #renterEnds(session: SessionRow, now: number): Promise<void> {
+    await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+    const machine = (await this.#get<{ status: MachineStatus }>(
+      "SELECT status FROM machines WHERE id = $1",
+      session.machine_id,
+    ))!;
+    if (machine.status === "in_session") await this.#setStatus(session.machine_id, "available");
   }
 
   /**

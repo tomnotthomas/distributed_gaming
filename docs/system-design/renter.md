@@ -63,7 +63,8 @@ one session per machine.
    the PC.
 6. The renter plays.
 
-Step 3 is the design; today the Booking API matches every booking through the queue.
+Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
+booking the moment it hears of the match, over its event stream or its fallback poll.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
@@ -212,10 +213,26 @@ POST /signout
   Clear the sign-in cookie. Works signed out.
 
 POST /bookings
-  { gameId, minutes }
-  → 202 { bookingId, status }
-  Request a game for N minutes (at most 720), as the signed-in renter. Matching happens
-  in the background; `status` is "matched" already when a machine was free.
+  { gameId, minutes, machineId?, rtts?, controls?, picture? }
+  → 202 { bookingId, status, machine?, claimBy? }
+  Request a game for N minutes (at most 720), as the signed-in renter. `rtts` are the
+  renter's round trips in ms as the page measured them: `server`, to this server, and
+  `machines`, straight to each machine it probed (at most 50), by id; matching judges each
+  machine's latency by them (see "Matching"). Each may be left out. `controls` and
+  `picture` are how the renter plays, as `/games/:appid/machines` takes them (a list of
+  kb, mouse, pad; best, 4k or 120fps; none and best when left out), → 400 otherwise;
+  matching, the picked machine's gates and `nextBest` all rank by them.
+  Without `machineId` the booking joins the queue: matching happens in the background,
+  and `status` is "matched" already when a machine was free.
+  With `machineId`, the machine the renter picked from their list, it is reserved for
+  them at once when it is still free for the whole booking and passes the same gates
+  matching does: `status` is "matched", to be claimed within `claimBy` (60 s).
+  → 409 { error, nextBest } when the picked machine was taken since the list was read (or
+  is gone, or is not one they could have), and no booking is made. `nextBest` is the
+  machine their list would now put first, ranked by their `rtts.server`, `controls` and
+  `picture`, free for the whole booking, in the same shape
+  as `/games/:appid/machines` lists it, or null when there is none. Working it out spends
+  one of the renter's discovery reads (below); past their budget it is null.
 
 GET  /bookings/:id
   → 200 { bookingId, status, machine?, claimBy?, price? }
@@ -269,6 +286,15 @@ POST /bookings/:id/claim
   is matched to the renter's own machine (the booking goes back to the queue).
   → 404 for a booking another renter made.
 
+POST /bookings/:id/end
+  → 200 { bookingId, status: "ended", sessionId?, price? }
+  The renter ends their booking, whatever it has come to: a queued one leaves the queue,
+  a matched one hands its machine back to whoever waits next, and a claimed or playing
+  one ends its session as `renter`, as leaving with the ticket does: the ticket is
+  revoked, the PC's host session ends and the time played is priced.
+  → 409 { error, status } once the booking is over (ended or expired).
+  → 404 for an unknown booking or another renter's.
+
 POST /sessions/:id/qos
   { fps, bitrate, rttMs, packetLoss }
   Report stream quality during the session, with the join ticket as bearer, and once
@@ -279,8 +305,9 @@ POST /sessions/:id/qos
 
 POST /sessions/:id/leave
   The renter is leaving: ends the session as `renter`, with the join ticket as bearer.
-  → 403 for another session's ticket, → 409 once the session is over. The only way a
-  session is recorded as the renter's own choice to end it. A renter who just closes the
+  → 403 for another session's ticket, → 409 once the session is over. With
+  POST /bookings/:id/end, the only ways a session is recorded as the renter's own choice
+  to end it. A renter who just closes the
   page leaves the host to end the session, which is recorded as `host_end` (or `time_up`
   within 10 s of its expiry) and counts neither for nor against the machine's completion.
 ```
@@ -331,10 +358,22 @@ and then the least recently active are forgotten, and start again from a full bu
 
 Matching runs in the server process on every change, with one timer armed for the next
 deadline (a reservation lapsing, a machine's liveness, a queued booking timing out, a
-session running out) instead of a sweep: the oldest
-queued booking gets the cheapest live machine that is free for all of its minutes, has
-the game installed and meets the game's minimum hardware (ranking gates E2 and E3), and
-is not the renter's own (E5); the machine is reserved for it. A machine's owner is the
+session running out) instead of a sweep: the oldest queued booking gets the machine
+`@swiff/rank`'s `rank()` puts first for it, among the live machines free for all of its
+minutes, and the machine is reserved for it. That is the order of the renter's own list
+(see "What can be played where"), not merely the cheapest: a machine must have the game
+installed and meet the game's minimum hardware (gates E2 and E3), take every control the
+renter turned on (E4), not be the renter's own (E5) and be within 80 ms of the renter
+(E6), and the best of those is the one free all session, then not Shaky, then with the
+best response, then picture, then the lowest latency, then the lowest price. The controls
+and Picture setting are the ones the booking was made with; a booking made without them
+asks for no controls and the best picture.
+Latency is judged by the round trips the booking was made with: one the renter measured
+straight to a machine, else the estimate through the server (their `rtts.server` plus
+the PC's own round trip); a booking with no round trips counts the renter's leg as
+nothing. A machine that never reported its network is never matched. A booking for a
+picked machine skips the queue only for that machine, and only while it is free: a
+waiting booking it fits is matched to it first. A machine's owner is the
 Steam id on its `MACHINE_KEYS` entry, recorded on the machine each time it checks in; a
 machine whose entry names no owner can be matched to anyone, and the server warns about
 it at startup. A newly configured owner counts at once: a reservation they already hold
@@ -355,13 +394,32 @@ page load, resumes watching the stored booking over the event stream, forgetting
 the booking is claimed, ended or expired. While the stream is open it sends the heartbeat
 POST /bookings/:id/seen every 15 s. `EventSource` reconnects a dropped stream by itself;
 until it does, the helper checks on the booking with a slow poll (every 5 s) instead.
-**Not wired in yet:** no booking page calls the helper; the booking UI will.
+
+The page claims by itself (`followBooking` in the same helper, wired into the game page
+by `web/src/swiff/useSwiff.ts`): a picked machine right after its 202, with no click, and
+a queued booking the moment the match arrives, with a chime when the tab is out of sight.
+An open page is the renter being there, so the match is claimed whether the event stream
+pushes it or the slow poll that stands in while the stream is down finds it. A claim of
+that match lost to the network is tried again, waiting longer each time, until the
+reservation lapses (`claimBy`); one the server refuses is left. A lost claim that went
+through after all (a later try refused as `claimed`, or the stream reporting it claimed)
+holds the machine with no ticket to join it, so the page ends that booking and the machine
+goes back. While the
+page is closed they are away, and nothing is claimed until they come back, within those 2
+minutes. The page books the server's
+own machines, from the ranked list it reads, and sends its round trip to the server (as
+timed against GET /ping) as `rtts.server`, with the renter's controls and Picture setting,
+whether it books a picked machine or queues. A picked machine taken first is answered with
+the next best from that list, which the page offers to launch on instead; with nothing
+free on the list the page offers the queue. The demo (`/?demo=1`) books nothing: its
+machines are invented. Leaving the queue, cancelling a launch and ending
+a session all end the booking (POST /bookings/:id/end).
 
 **Known gap:** keeping their place does not give a returning renter a fresh claim window.
 If a machine is reserved for them when they come back, their first check counts as having
 seen the match, so they get only what is left of that 60 s reservation, which may be a few
-seconds. Without a page that claims the machine automatically they can lose the booking
-this way. The renter page will claim automatically (Swiff v7); tracked in
+seconds. The page claims it the moment it hears of it again, so they lose it only when
+less than that is left; tracked in
 [#35](https://github.com/tomnotthomas/distributed_gaming/issues/35).
 
 ### Connection setup (WebSocket)

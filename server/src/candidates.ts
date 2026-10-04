@@ -18,14 +18,12 @@ import {
   type Candidate,
   type Control,
   type Encoder,
-  type LinkStats,
   type PicturePref,
   type Reason,
   type RenterPrefs,
   type Stability,
 } from "@swiff/rank";
-import { LIVENESS_MS, type OfferedMachine } from "./platform.js";
-import type { Net } from "./profile.js";
+import { estimateLink, LIVENESS_MS, type OfferedMachine } from "./platform.js";
 import type { Requirements } from "./requirements.js";
 
 /** Who is asking: their Steam id, their round trip to the server, and their settings. */
@@ -109,16 +107,6 @@ export type GameAvailability = {
   /** That machine's name; null when there is none or it has no name. */
   backName: string | null;
 };
-
-/**
- * The stage-1 estimate of the path from this renter to a host: both legs
- * through the server added up. Null when the host never reported its network,
- * which fails E6: a machine whose latency is unknown is not offered.
- */
-export function estimateLink(renterRttMs: number, net: Net | null): LinkStats | null {
-  if (!net) return null;
-  return { rttMs: renterRttMs + net.rttMs, jitterP95Ms: net.jitterMs, relayed: false };
-}
 
 /** Every machine with its estimated link from this renter. */
 function candidatesFor(machines: OfferedMachine[], renter: RenterAsk): Candidate[] {
