@@ -301,6 +301,15 @@ describe("offering and serving", () => {
     expect(h.served()).toBe("boot-now");
   });
 
+  it("goes back to Windows instead when the owner asks while it restarts again", async () => {
+    const h = harness(fakeServer(), { served: "boot-now" });
+    expect(h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.running).toBe("windows");
+    expect(h.system).toEqual({ reboots: 0, windows: 1 });
+    expect(h.server.state.status).toBe("idle");
+    expect(h.sockets).toHaveLength(0);
+  });
+
   it("never serves the renter claimed as the last one left when the reboot never happened", async () => {
     const server = fakeServer();
     const h = harness(server, { rebootFails: true });

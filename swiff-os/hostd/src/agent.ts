@@ -341,10 +341,9 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
     const view = await beatUntilAnswered();
-    if (!view.session && view.status !== "idle") {
-      if (!sharing(view)) return returnToWindows();
-      await offOfferForReset(view);
-    }
+    if (!view.session && sharing(view) && !returnWanted) await offOfferForReset(view);
+    if (!view.session && (returnWanted || (view.status !== "idle" && !sharing(view))))
+      return returnToWindows();
     return restart();
   }
 
