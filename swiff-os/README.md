@@ -245,8 +245,9 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
   `swiff-hostd` integration. The page side is here: while Ignition is up on a claim
   marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
   hears there and holds Ignition from the claim until the renter is signed in or leaves,
-  or the room refuses the ticket (`denied` ends the claim). Nothing marks a claim
-  `rentalMode` yet; the server does once Swiff OS PCs register as such.
+  or the room refuses the ticket (`denied` ends the claim). On `failed` it offers Try
+  again, a fresh launch on the claimed machine for a new code, or End. Nothing marks a
+  claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
 - **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
   event-driven one; whichever of the two lands second reconciles the sign-in hold with
   it.
