@@ -508,18 +508,19 @@ session, the one `/rtc` plays too). Launch is a held press of 600 ms. From then 
 game is on screen, Ignition names each step and moves on what actually happened, not on a
 clock, each step with a timeout of its own:
 
-| Step                 | Done when                                | Timeout                                                                                 |
-| -------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| Reserving a machine  | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                      |
-| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another machine                               |
-| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above |
-| Launching _the game_ | the first frame and `game-started`, both | 90 s: the stream is shown anyway                                                        |
+| Step                 | Done when                                | Timeout                                                                                          |
+| -------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Reserving a machine  | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                               |
+| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another machine                                        |
+| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above          |
+| Launching _the game_ | the first frame and `game-started`, both | 90 s: the stream is shown anyway, once the server took the start; until then Try another machine |
 
 The claim's room and ticket are kept in `localStorage` as the booking being played until
 it ends. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
-/sessions/:id/start), and it is counted then as `session_started`. Try another machine
-ends the booking and launches on the best other free machine on the list, or goes back to
+/sessions/:id/start, tried again every 2 s while it is lost; one refused ends the
+launch), and it is counted then as `session_started`. Try another machine ends the
+booking and launches on the best other free machine on the list, or goes back to
 the list when there is none. Cancel ends the booking.
 
 The session's HUD reads `getStats` once a second: frames per second, round trip, bitrate,

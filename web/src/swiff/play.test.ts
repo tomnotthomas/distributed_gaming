@@ -6,6 +6,7 @@ import {
   ignitionProgress,
   LAUNCH_TIMEOUT_MS,
   NEGOTIATE_TIMEOUT_MS,
+  START_RETRY_MS,
   startPlay,
   WAKE_TIMEOUT_MS,
   type PlayState,
@@ -183,6 +184,56 @@ describe("startPlay", () => {
     expect(step()).toBe("launching");
     await vi.advanceTimersByTimeAsync(1);
     expect(step()).toBe("live");
+  });
+
+  it("never shows a stream whose session start the server refused, and says the ticket was refused", async () => {
+    const fetch = vi.fn(
+      async () => new Response(JSON.stringify({ error: "the session is over" }), { status: 409 }),
+    );
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handle.state().denied).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state().step).toBe("launching");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("tries a lost start again, and shows the stream at 90 s only once the server has taken it", async () => {
+    let up = false;
+    const fetch = vi.fn(async () => {
+      if (!up) throw new TypeError("offline");
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
+    expect(fetch.mock.calls.length).toBeGreaterThan(1);
+
+    up = true;
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS);
+    expect(handle.state()).toMatchObject({ step: "live", slow: false });
+    const calls = fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
+    expect(fetch).toHaveBeenCalledTimes(calls);
+  });
+
+  it("tries a start the server failed again", async () => {
+    const answers = [500, 200];
+    const fetch = vi.fn(async () => new Response("{}", { status: answers.shift() ?? 200 }));
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, fetch });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state().step).toBe("live");
   });
 
   it("goes back to waking when the PC hands the room over before the game is on screen", () => {

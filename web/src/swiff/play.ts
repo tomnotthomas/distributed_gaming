@@ -9,7 +9,8 @@
 // clock, and each has a timeout of its own: the PC that never offers is slow
 // (60 s: the renter is offered another machine), a connection that does not
 // come up is retried through TURN (20 s, then it is slow too), and a game that
-// never says it runs is shown anyway (90 s). Reserving a machine comes before
+// never says it runs is shown anyway (90 s), once the server has taken the
+// session start. Reserving a machine comes before
 // all of this, while the booking is made: it is the page's, not the stream's.
 //
 // The stream itself is @swiff/rtc's renter session, the same one /rtc plays;
@@ -26,8 +27,10 @@ export type IgnitionStep = (typeof IGNITION_STEPS)[number];
 export const WAKE_TIMEOUT_MS = 60_000;
 /** How long a connection has to come up before it is tried again through TURN, and then called slow. */
 export const NEGOTIATE_TIMEOUT_MS = 20_000;
-/** How long the game has to say it runs before the stream is shown anyway. */
+/** How long the game has to say it runs before the stream is shown anyway, once the session has started. */
 export const LAUNCH_TIMEOUT_MS = 90_000;
+/** How long a session start lost on the network or the server waits before it is tried again. */
+export const START_RETRY_MS = 2_000;
 
 /** Ignition's legend: each step as the renter reads it, for this host and game. */
 export function ignitionLabels(host: string | null | undefined, game: string | null | undefined): string[] {
@@ -113,6 +116,10 @@ export function startPlay(opts: PlayOptions): Play {
   let framed = false;
   let gameStarted = false;
   let counted = false;
+  // The server took the session start: the clock runs and the PC was told to launch.
+  let started = false;
+  let launchTimedOut = false;
+  let startRetry: ReturnType<typeof setTimeout> | undefined;
 
   const set = (next: Partial<PlayState>) => {
     state = { ...state, ...next };
@@ -125,7 +132,14 @@ export function startPlay(opts: PlayOptions): Play {
     set({ step, since: now(), slow: false });
     if (step === "waking") timer = setTimeout(() => set({ slow: true }), WAKE_TIMEOUT_MS);
     if (step === "negotiating") armNegotiate();
-    if (step === "launching") timer = setTimeout(() => enter("live"), LAUNCH_TIMEOUT_MS);
+    if (step === "launching") {
+      launchTimedOut = false;
+      // Shown anyway once the session has started; until then the launch is slow.
+      timer = setTimeout(() => {
+        launchTimedOut = true;
+        if (!maybeLive()) set({ slow: true });
+      }, LAUNCH_TIMEOUT_MS);
+    }
   };
 
   /** A connection that does not come up is tried once more through TURN, then called slow. */
@@ -139,20 +153,46 @@ export function startPlay(opts: PlayOptions): Play {
     }, NEGOTIATE_TIMEOUT_MS);
   };
 
-  /** The first frame and the game running: the stream is shown. */
+  /**
+   * The stream is shown on the first frame with the game running, or, past
+   * LAUNCH_TIMEOUT_MS, once the server has taken the session start: a start it
+   * never took counts no time and launches no game, so it is never live.
+   */
   const maybeLive = () => {
-    if (framed && gameStarted && state.step !== "live") enter("live");
+    if (state.step === "live") return true;
+    if (!(framed && gameStarted) && !(launchTimedOut && started)) return false;
+    enter("live");
+    return true;
   };
 
-  /** Start the session with the join ticket: the clock starts, and the PC launches the game. */
+  /**
+   * Start the session with the join ticket: the clock starts, and the PC
+   * launches the game. One lost on the network or the server is tried again
+   * every START_RETRY_MS; one refused (the session is over, or the ticket is
+   * not its own) ends the launch as a refused ticket does.
+   */
   const startSession = () => {
+    clearTimeout(startRetry);
+    const retry = () => {
+      if (!stopped && !started) startRetry = setTimeout(startSession, START_RETRY_MS);
+    };
     void get(`/api/sessions/${encodeURIComponent(claim.sessionId)}/start`, {
       method: "POST",
       headers: { authorization: `Bearer ${claim.ticket}` },
-    }).catch(() => {
-      // Lost on the network: the next first frame tries again, and the stream
-      // is shown at LAUNCH_TIMEOUT_MS regardless.
-    });
+    }).then((response) => {
+      if (stopped) return;
+      if (response.ok) {
+        started = true;
+        if (state.step === "launching" && maybeLive()) return;
+        if (launchTimedOut) set({ slow: false });
+        return;
+      }
+      if (response.status >= 400 && response.status < 500) {
+        clearTimeout(timer);
+        return set({ denied: true });
+      }
+      retry();
+    }, retry);
   };
 
   /** Join the room, through TURN alone when `relay`; a session already in the room makes way. */
@@ -213,6 +253,7 @@ export function startPlay(opts: PlayOptions): Play {
       if (stopped) return;
       stopped = true;
       clearTimeout(timer);
+      clearTimeout(startRetry);
       session?.end();
       session = null;
     },
