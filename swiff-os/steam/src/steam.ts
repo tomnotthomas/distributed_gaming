@@ -32,7 +32,7 @@ export function lastLoginState(log: string): string | null {
 export type SteamClient = {
   /** Whether an account is signed in to the running client. */
   signedIn(): Promise<boolean>;
-  /** Have the running client launch `appid`. */
+  /** Have the running client launch `appid`. Rejects when `steam` cannot be run at all. */
   launch(appid: number): Promise<void>;
 };
 
@@ -47,10 +47,10 @@ export function steamClient(home = homedir()): SteamClient {
       }
     },
     launch: (appid) =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         // The second `steam` hands its arguments to the running client and exits.
         const child = spawn("steam", ["-applaunch", String(appid)], { stdio: "ignore" });
-        child.once("error", () => resolve());
+        child.once("error", reject);
         child.once("exit", () => resolve());
       }),
   };

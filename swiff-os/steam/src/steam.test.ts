@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -57,5 +57,33 @@ describe("steamClient.signedIn", () => {
     expect(await steam.signedIn()).toBe(false);
     await logAs(SIGNED_IN);
     expect(await steam.signedIn()).toBe(true);
+  });
+});
+
+describe("steamClient.launch", () => {
+  let bin: string;
+  let path: string | undefined;
+  beforeEach(async () => {
+    bin = await mkdtemp(join(tmpdir(), "swiff-steam-bin-"));
+    path = process.env.PATH;
+    process.env.PATH = bin;
+  });
+  afterEach(async () => {
+    process.env.PATH = path;
+    await rm(bin, { recursive: true, force: true });
+  });
+
+  it("hands the running client the game and resolves once that steam exits", async () => {
+    const args = join(bin, "args");
+    await writeFile(join(bin, "steam"), `#!/bin/sh\necho "$@" > ${args}\n`);
+    await chmod(join(bin, "steam"), 0o755);
+
+    await steamClient(bin).launch(570);
+
+    expect((await readFile(args, "utf8")).trim()).toBe("-applaunch 570");
+  });
+
+  it("rejects when steam cannot be run at all, rather than waiting out the launch", async () => {
+    await expect(steamClient(bin).launch(570)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

@@ -80,6 +80,21 @@ describe("serveLogin", () => {
     expect(lines[0]).toMatchObject({ url: QR });
   });
 
+  it("ends a play whose launch fails with failed: error, at once", async () => {
+    const path = join(dir, "login.sock");
+    const at = steamAt();
+    at.signIn();
+    at.steam.launch = async () => {
+      throw Object.assign(new Error("spawn steam ENOENT"), { code: "ENOENT" });
+    };
+    server = await serveLogin(path, { ...at, ...fast });
+
+    expect(await ask(path, "play 570")).toEqual([
+      { event: "signed-in", atMs: expect.any(Number) },
+      { event: "failed", reason: "error", atMs: 0 },
+    ]);
+  });
+
   it("is for its user and group only", async () => {
     const path = join(dir, "login.sock");
     server = await serveLogin(path, { ...steamAt(), ...fast });
