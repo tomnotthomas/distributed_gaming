@@ -23,6 +23,7 @@ import os
 import signal
 import struct
 import sys
+import time
 
 # linux/uinput.h and linux/input.h, for 64-bit and 32-bit alike.
 UI_DEV_CREATE = 0x5501
@@ -48,6 +49,9 @@ MOUSE_BUTTONS = [0x110, 0x111, 0x112, 0x113, 0x114]  # BTN_LEFT .. BTN_EXTRA
 REL_AXES = [0, 1, 6, 8, 11, 12]  # X, Y, HWHEEL, WHEEL, WHEEL_HI_RES, HWHEEL_HI_RES
 PAD_BUTTONS = [0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13A, 0x13B, 0x13C, 0x13D, 0x13E]
 MAX_GAMEPADS = 4
+# A controller that could not be created is tried again this long after, not on
+# every record: a pad's state is ~20 records, sent many times a second.
+GAMEPAD_RETRY_SECONDS = 5
 
 
 def spec_keyboard(keys):
@@ -160,6 +164,7 @@ def main():
     # SIGTERM from the streamer's own shutdown: remove the devices on the way out.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     pending = b""
+    retry_at = {}  # controller index -> when creating it may be tried again
     stdin = sys.stdin.buffer.raw
     try:
         while True:
@@ -171,12 +176,14 @@ def main():
             for device, type_, code, value in RECORD.iter_unpack(pending[:whole]):
                 if device not in devices:
                     index = device - 3
-                    if not 0 <= index < MAX_GAMEPADS:
+                    if not 0 <= index < MAX_GAMEPADS or time.monotonic() < retry_at.get(index, 0):
                         continue
                     try:
                         devices[device] = Device(spec_gamepad(index), args.dry_run, out)
                     except OSError as e:
-                        sys.stderr.write(f"[swiff-uinput] cannot create controller {index}: {e.strerror}\n")
+                        retry_at[index] = time.monotonic() + GAMEPAD_RETRY_SECONDS
+                        sys.stderr.write(f"[swiff-uinput] cannot create controller {index}: {e.strerror}; "
+                                         f"trying again in {GAMEPAD_RETRY_SECONDS} s\n")
                         continue
                 devices[device].write(type_, code, value)
             pending = pending[whole:]
