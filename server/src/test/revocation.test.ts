@@ -32,17 +32,29 @@ const databases: ServerDatabase[] = [];
 
 // Each test's server and database go when the test ends, not with the file: a
 // PGlite in this process holds a few hundred MB, and a dozen at once is gigabytes.
-afterEach(async () => {
-  await Promise.all(
-    servers.splice(0).map((server) => {
-      if (server.exitCode !== null || server.signalCode !== null) return;
-      const exited = new Promise((resolve) => server.once("exit", resolve));
-      server.kill();
-      return exited;
-    }),
-  );
-  for (const database of databases.splice(0)) await database.close();
-});
+// Every wait here is bounded, so a stuck child or database cannot hang the run.
+afterEach(
+  async () => {
+    await Promise.all(servers.splice(0).map(stopServer));
+    for (const database of databases.splice(0)) {
+      await Promise.race([database.close().catch(() => {}), wait(10_000)]);
+    }
+  },
+  { timeout: 30_000 },
+);
+
+/** Stop a child server: SIGTERM, then SIGKILL if it has not gone within 5 s. */
+async function stopServer(server: ChildProcess): Promise<void> {
+  if (server.exitCode !== null || server.signalCode !== null || server.pid === undefined) return;
+  const gone = new Promise<boolean>((resolve) => {
+    server.once("exit", () => resolve(true));
+    server.once("error", () => resolve(true));
+  });
+  server.kill("SIGTERM");
+  if (await Promise.race([gone, wait(5_000).then(() => false)])) return;
+  server.kill("SIGKILL");
+  await Promise.race([gone, wait(5_000)]);
+}
 
 /** Ports already given to a server here: each child server gets its own. */
 const usedPorts = new Set<number>();
