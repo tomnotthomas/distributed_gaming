@@ -55,9 +55,9 @@ type ComeBackProps = {
   kicker: string;
   /** Under the title: where, as Ignition's "on Glasshouse". */
   where?: ReactNode;
-  /** What the paper's number is, and the number. */
+  /** What the paper's number is, and the number; a screen with no number to show leaves it out. */
   reading: string;
-  time: ReactNode;
+  time?: ReactNode;
   timeTestId: string;
   line: ReactNode;
   primary?: Action;
@@ -113,9 +113,11 @@ function ComeBack(props: ComeBackProps) {
 
       <div className="ig-paper cb-paper">
         <div className="mono ig-step">{props.reading}</div>
-        <div className="ig-pct cb-time" data-testid={props.timeTestId} aria-live="off">
-          {props.time}
-        </div>
+        {props.time === undefined ? null : (
+          <div className="ig-pct cb-time" data-testid={props.timeTestId} aria-live="off">
+            {props.time}
+          </div>
+        )}
         <p className="cb-line">{props.line}</p>
         {primary ? (
           <div className="cb-actions">
@@ -271,7 +273,7 @@ export function MachineLost({ swiff }: { swiff: Swiff }) {
       }
       reading={failed ? "Couldn't move you" : waiting ? "Waiting for a machine" : "Finding another machine"}
       timeTestId="machine-lost-time"
-      time={failed ? "\u2013" : away}
+      time={failed ? undefined : away}
       line={
         failed
           ? `No other machine could carry ${title} on. Choose one yourself, or stop for now.`

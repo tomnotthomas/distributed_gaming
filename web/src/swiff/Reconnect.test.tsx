@@ -244,7 +244,7 @@ describe("D: a machine lost mid-session", () => {
     const swiff = swiffWith({ lost: lostOn({ failed: true }) });
     render(<MachineLost swiff={swiff} />);
     expect(screen.getByRole("dialog")).toHaveTextContent("Couldn't move you");
-    expect(screen.getByTestId("machine-lost-time")).toHaveTextContent("–");
+    expect(screen.queryByTestId("machine-lost-time")).toBeNull();
     expect(screen.getByRole("button", { name: "Choose a machine" })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Choose a machine" }));
     expect(swiff.chooseMachine).toHaveBeenCalledTimes(1);
