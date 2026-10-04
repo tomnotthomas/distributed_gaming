@@ -1,0 +1,19 @@
+# Puts a scratch-backed overlay on the read-only games library: whatever the
+# renter's Steam writes there (updates, shader caches) lands on the per-boot
+# scratch and is gone after a reboot. Promoting verified updates back onto the
+# shared drive is report stage 4.
+[Unit]
+Description=Swiff games library overlay
+After=home.mount srv-games\x2dlower.mount systemd-tmpfiles-setup.service
+Requires=home.mount
+ConditionPathIsMountPoint=/srv/games-lower
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/mkdir -p /home/.swiff/games/upper /home/.swiff/games/work
+ExecStart=/usr/bin/mount -t overlay overlay -o lowerdir=/srv/games-lower,upperdir=/home/.swiff/games/upper,workdir=/home/.swiff/games/work,nosuid,nodev /srv/games
+ExecStop=/usr/bin/umount /srv/games
+
+[Install]
+WantedBy=multi-user.target

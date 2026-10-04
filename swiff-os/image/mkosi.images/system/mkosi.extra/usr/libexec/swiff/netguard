@@ -1,0 +1,77 @@
+#!/bin/sh
+# Points the LAN exceptions in /etc/nftables.conf at the current default
+# gateways and DNS servers, and fills the on-link sets with the home network:
+# the prefixes the kernel reaches directly (no gateway) and the prefix of each
+# of the host's own global addresses (a SLAAC prefix advertised without the
+# on-link flag has no route), whatever their address range. Run by
+# swiff-netguard.path/.timer whenever the network configuration may have
+# changed. Flushing and refilling happens in one nft transaction, so there is
+# no window with stale or missing entries.
+set -eu
+
+gw4=$(ip -4 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
+gw6=$(ip -6 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
+# On-link routes are the ones whose second field is "dev": no "via", not
+# default, and not a typed route such as unreachable or multicast. Global
+# addresses exclude loopback (scope host).
+# The ip commands run on their own first: a failure must stop the script
+# rather than leave a pipeline that refills a set with partial results (the
+# on-link sets fail open when empty).
+onlink() { # family
+	routes=$(ip "-$1" route show) || return 1
+	addrs=$(ip -o "-$1" addr show scope global) || return 1
+	{
+		printf '%s\n' "$routes" | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }'
+		printf '%s\n' "$addrs" | awk '{ print $4 }'
+	} | awk -F/ '
+	# Parses a hex group of an IPv6 address.
+	function hex(s,   i, v) {
+		v = 0
+		for (i = 1; i <= length(s); i++) v = v * 16 + index("0123456789abcdef", substr(tolower(s), i, 1)) - 1
+		return v
+	}
+	# Keeps the first len bits of a width-bit group.
+	function mask(v, len, width) {
+		if (len >= width) return v
+		if (len <= 0) return 0
+		return v - v % 2 ^ (width - len)
+	}
+	/\./ && !/:/ {
+		len = $2 == "" ? 32 : $2 + 0
+		split($1, o, ".")
+		out = ""
+		for (i = 1; i <= 4; i++) out = out (i > 1 ? "." : "") mask(o[i], len - 8 * (i - 1), 8)
+		print out "/" len
+		next
+	}
+	/:/ {
+		len = $2 == "" ? 128 : $2 + 0
+		n = index($1, "::")
+		if (n) { head = substr($1, 1, n - 1); tail = substr($1, n + 2) } else { head = $1; tail = "" }
+		nh = head == "" ? 0 : split(head, h, ":")
+		nt = tail == "" ? 0 : split(tail, t, ":")
+		for (i = 1; i <= 8; i++) w[i] = 0
+		for (i = 1; i <= nh; i++) w[i] = hex(h[i])
+		for (i = 1; i <= nt; i++) w[8 - nt + i] = hex(t[i])
+		out = ""
+		for (i = 1; i <= 8; i++) out = out (i > 1 ? ":" : "") sprintf("%x", mask(w[i], len - 16 * (i - 1), 16))
+		print out "/" len
+	}' | sort -u | paste -sd, -
+}
+onlink4=$(onlink 4) || exit 1
+onlink6=$(onlink 6) || exit 1
+dns=$(awk '$1 == "nameserver" { print $2 }' /run/systemd/resolve/resolv.conf 2>/dev/null | sort -u || true)
+dns4=$(printf '%s\n' "$dns" | grep -v ':' | paste -sd, - || true)
+dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
+
+{
+	for set in gateway4 dns4 gateway6 dns6 onlink4 onlink6; do
+		echo "flush set inet swiff $set"
+	done
+	[ -z "$gw4" ] || echo "add element inet swiff gateway4 { $gw4 }"
+	[ -z "$dns4" ] || echo "add element inet swiff dns4 { $dns4 }"
+	[ -z "$gw6" ] || echo "add element inet swiff gateway6 { $gw6 }"
+	[ -z "$dns6" ] || echo "add element inet swiff dns6 { $dns6 }"
+	[ -z "$onlink4" ] || echo "add element inet swiff onlink4 { $onlink4 }"
+	[ -z "$onlink6" ] || echo "add element inet swiff onlink6 { $onlink6 }"
+} | nft -f -

@@ -1,0 +1,11 @@
+[Unit]
+Description=Swiff rental-mode hardware floor check (decision D3)
+After=systemd-modules-load.service tpm2.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/hwcheck
+
+[Install]
+WantedBy=multi-user.target
