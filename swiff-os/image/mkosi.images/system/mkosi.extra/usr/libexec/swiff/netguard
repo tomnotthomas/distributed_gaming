@@ -14,10 +14,15 @@ gw6=$(ip -6 route show default | awk '$2 == "via" { print $3 }' | sort -u | past
 # On-link routes are the ones whose second field is "dev": no "via", not
 # default, and not a typed route such as unreachable or multicast. Global
 # addresses exclude loopback (scope host).
+# The ip commands run on their own first: a failure must stop the script
+# rather than leave a pipeline that refills a set with partial results (the
+# on-link sets fail open when empty).
 onlink() { # family
+	routes=$(ip "-$1" route show) || return 1
+	addrs=$(ip -o "-$1" addr show scope global) || return 1
 	{
-		ip "-$1" route show | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }'
-		ip -o "-$1" addr show scope global | awk '{ print $4 }'
+		printf '%s\n' "$routes" | awk '$1 != "default" && $2 == "dev" && $3 != "lo" { print $1 }'
+		printf '%s\n' "$addrs" | awk '{ print $4 }'
 	} | awk -F/ '
 	function hex(s,   i, v) {
 		v = 0
@@ -52,8 +57,8 @@ onlink() { # family
 		print out "/" len
 	}' | sort -u | paste -sd, -
 }
-onlink4=$(onlink 4)
-onlink6=$(onlink 6)
+onlink4=$(onlink 4) || exit 1
+onlink6=$(onlink 6) || exit 1
 dns=$(awk '$1 == "nameserver" { print $2 }' /run/systemd/resolve/resolv.conf 2>/dev/null | sort -u || true)
 dns4=$(printf '%s\n' "$dns" | grep -v ':' | paste -sd, - || true)
 dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
