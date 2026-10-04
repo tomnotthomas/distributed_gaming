@@ -517,8 +517,9 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
   `signed-in` to the renter as `steam-login`. It lands with the streamer and
   `swiff-hostd` integration. The page side is here: while Ignition is up on a claim
   marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
-  hears there and holds Ignition on it until the renter approves it or leaves. Nothing
-  marks a claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
+  hears there and holds Ignition from the claim until the renter is signed in or leaves.
+  Nothing marks a claim `rentalMode` yet; the server does once Swiff OS PCs register as
+  such.
 - **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
   event-driven one; whichever of the two lands second reconciles the sign-in hold with
   it.
