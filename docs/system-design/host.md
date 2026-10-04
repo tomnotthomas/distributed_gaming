@@ -174,8 +174,9 @@ POST /sessions/:id/end
   neither for nor against completion), `owner_kill` when the owner takes the machine
   back mid-session, `renter` only when the renter leaves with their own ticket
   (renter.md), and from its own deadlines `time_up` or `grace_expired` (the renter never
-  arrived) when the join ticket runs out and `host_offline` when the machine goes
-  silent or its socket drops. The reason feeds the machine's stability (below).
+  arrived) when the join ticket runs out, `grace_expired` too when a renter who dropped
+  mid-session does not come back within 2 minutes (the reconnect grace, renter.md
+  "Coming back"), and `host_offline` when the machine goes silent or its socket drops. The reason feeds the machine's stability (below).
 
 POST /machines/:id/upload-test
   <up to 8 MB, any bytes>
