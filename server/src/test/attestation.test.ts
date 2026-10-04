@@ -21,7 +21,6 @@ import {
   HARDWARE_FLOOR,
   HOST_CERT_TTL_SECONDS,
   insecureDevVerifier,
-  MAX_ATTEMPTS_PER_MINUTE,
   tierFor,
   type AttestationVerifier,
   type PlatformFacts,
@@ -231,15 +230,34 @@ describe("attesting", () => {
     );
   });
 
-  it("takes each challenge once, whatever the first attempt's outcome", async () => {
+  it("lets a challenge whose attempt failed be tried again, until it earns a certificate", async () => {
     const attestation = required();
     const nonce = nonceFor(attestation);
     assert.equal((await attestation.attest("pc-1", nonce, { quote: "bad" })).ok, false);
+    assert.equal((await attestation.attest("pc-1", nonce, evidence({ ...GOOD, iommu: false }))).ok, false);
+    assert.ok((await attestation.attest("pc-1", nonce, evidence())).ok);
     assert.deepEqual(await attestation.attest("pc-1", nonce, evidence()), {
       ok: false,
       status: 401,
       body: { error: "bad-nonce" },
     });
+  });
+
+  it("refuses a second attempt with a challenge while the first is being judged", async () => {
+    let pass!: () => void;
+    const attestation = required({
+      name: "slow",
+      verify: () => new Promise((resolve) => (pass = () => resolve({ ok: true, facts: GOOD }))),
+    });
+    const nonce = nonceFor(attestation);
+    const first = attestation.attest("pc-1", nonce, evidence());
+    assert.deepEqual(await attestation.attest("pc-1", nonce, evidence()), {
+      ok: false,
+      status: 401,
+      body: { error: "bad-nonce" },
+    });
+    pass();
+    assert.ok((await first).ok);
   });
 
   it("refuses a challenge that is expired, forged, or another machine's", async () => {
@@ -259,11 +277,13 @@ describe("attesting", () => {
     assert.deepEqual(await attestation.attest("pc-1", mintTicket(SECRET, "pc-1", 60), evidence()), badNonce);
   });
 
-  it("answers a verifier that fails with a documented refusal, the challenge spent", async () => {
+  it("answers a verifier that fails with a documented refusal, the challenge still good", async () => {
+    let down = true;
     const attestation = required({
-      name: "down",
-      verify: async () => {
-        throw new Error("keylime unreachable");
+      name: "flaky",
+      verify: async (input) => {
+        if (down) throw new Error("keylime unreachable");
+        return insecureDevVerifier.verify(input);
       },
     });
     const nonce = nonceFor(attestation);
@@ -272,27 +292,19 @@ describe("attesting", () => {
       status: 503,
       body: { error: "verifier-unavailable" },
     });
-    assert.equal((await attestation.attest("pc-1", nonce, evidence())).ok, false, "spent");
+    down = false;
+    assert.ok((await attestation.attest("pc-1", nonce, evidence())).ok, "tried again once it is back");
   });
 
-  it("keeps at most MAX_ATTEMPTS_PER_MINUTE live spent challenges per machine", async () => {
+  it("lets no number of junk attempts for a machine stop a real attestation", async () => {
     const now = Date.now();
     const attestation = required();
-    for (let i = 0; i < MAX_ATTEMPTS_PER_MINUTE; i++) {
+    const junk = nonceFor(attestation, "pc-1", now);
+    for (let i = 0; i < 1000; i++) {
       assert.equal((await attestation.attest("pc-1", nonceFor(attestation, "pc-1", now), {}, now)).ok, false);
+      assert.equal((await attestation.attest("pc-1", junk, {}, now)).ok, false);
     }
-    assert.deepEqual(await attestation.attest("pc-1", nonceFor(attestation, "pc-1", now), evidence(), now), {
-      ok: false,
-      status: 429,
-      body: { error: "too-many-attempts" },
-    });
-    assert.ok(
-      (await attestation.attest("pc-2", nonceFor(attestation, "pc-2", now), evidence(), now)).ok,
-      "another machine",
-    );
-    // Once the spent ones expire, the machine attests again.
-    const later = now + CHALLENGE_TTL_SECONDS * 1000;
-    assert.ok((await attestation.attest("pc-1", nonceFor(attestation, "pc-1", later), evidence(), later)).ok);
+    assert.ok((await attestation.attest("pc-1", nonceFor(attestation, "pc-1", now), evidence(), now)).ok);
   });
 
   it("answers a malformed request, an unknown machine and a server with no verifier", async () => {

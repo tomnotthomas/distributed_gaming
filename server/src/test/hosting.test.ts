@@ -235,7 +235,12 @@ describe("hosting requires attestation", () => {
       nonce: challenge.body.nonce,
       evidence: { facts: FACTS },
     });
-    assert.deepEqual(again, { status: 401, body: { error: "bad-nonce" } });
+    assert.equal(again.status, 200, "a failed attempt does not use its challenge up");
+    const used = await call("POST", "/api/machines/pc-3/attest", {
+      nonce: challenge.body.nonce,
+      evidence: { facts: FACTS },
+    });
+    assert.deepEqual(used, { status: 401, body: { error: "bad-nonce" } });
     const garbled = await fetch(`${HTTP}/api/machines/pc-3/attest`, { method: "POST", body: "{not json" });
     assert.deepEqual(
       { status: garbled.status, body: await garbled.json() },

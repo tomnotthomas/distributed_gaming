@@ -175,8 +175,7 @@ export type SessionError = {
 //   POST /api/machines/:id/attest-challenge  → 200 AttestChallengeGrant
 //   POST /api/machines/:id/attest  AttestRequest → 200 HostCertGrant
 //                                  | 400 bad-request (413 when too large) | 401 bad-nonce
-//                                  | 403 attestation-refused | 429 too-many-attempts
-//                                  | 503 verifier-unavailable
+//                                  | 403 attestation-refused | 503 verifier-unavailable
 //
 // Either answers 404 not-found for a machine with no key configured, and 503
 // not-configured when the server has no ROOM_SECRET or no verifier.
@@ -185,7 +184,7 @@ export type SessionError = {
 export type AttestChallengeGrant = {
   /** Opaque. The TPM quote's qualifying data is its SHA-256; send it back as is. */
   nonce: string;
-  /** Unix seconds. Attest before this; each nonce is good for one attempt. */
+  /** Unix seconds. Attest before this; each nonce earns one certificate at most. */
   expiresAt: number;
 };
 
@@ -207,7 +206,6 @@ export type AttestRefusal = {
     | "bad-request"
     | "bad-nonce"
     | "attestation-refused"
-    | "too-many-attempts"
     | "verifier-unavailable"
     | "not-found"
     | "not-configured";

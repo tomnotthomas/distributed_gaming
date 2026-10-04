@@ -22,7 +22,7 @@
 // A machine earns a host certificate by attestation (protocol.ts has the wire types):
 //
 //   swiff-hostd                                  this server
-//   POST /api/machines/:id/attest-challenge ───► { nonce, expiresAt }       one minute, one use
+//   POST /api/machines/:id/attest-challenge ───► { nonce, expiresAt }       one minute
 //   TPM quote over SHA-256(nonce), event log,
 //   EK certificate and AK proof
 //   POST /api/machines/:id/attest            ───► AttestationVerifier judges the evidence,
@@ -56,14 +56,6 @@ export const HOST_CERT_TTL_SECONDS = 10 * 60;
 
 /** How long a challenge may be quoted over: enough for one TPM quote and the round trip. */
 export const CHALLENGE_TTL_SECONDS = 60;
-
-/**
- * The most attempts one machine may have spent challenges for that have not
- * yet expired. Asking for a challenge and attesting need no credential, so
- * this bounds what anyone can make the server keep: past it, attempts for that
- * machine are refused until the oldest expire, at most a minute.
- */
-export const MAX_ATTEMPTS_PER_MINUTE = 32;
 
 /** What attestation established about the machine that quoted. */
 export type PlatformFacts = {
@@ -235,9 +227,8 @@ export type Attestation = {
   /**
    * Judge `evidence` quoted over `nonce` by machine `room`, and mint a host
    * certificate when it passes and the machine meets the hardware floor. The
-   * challenge is spent whatever the outcome; a verifier that fails answers
-   * 503 verifier-unavailable, and past MAX_ATTEMPTS_PER_MINUTE live spent
-   * challenges for the machine, 429 too-many-attempts.
+   * challenge is held while its attempt is judged and spent only when it earns
+   * a certificate; a verifier that fails answers 503 verifier-unavailable.
    */
   attest(
     room: string,
@@ -273,7 +264,7 @@ export function createAttestation({
   floor?: HardwareFloor;
   ttlSeconds?: number;
 }): Attestation {
-  /** Per machine, spent challenge id → when it expires (Unix ms). */
+  /** Per machine, challenge id being judged or spent → when it expires (Unix ms). */
   const spent = new Map<string, Map<string, number>>();
   /** Host certificate id → when it expires (Unix ms), once it has started a session. */
   const spentCerts = new Map<string, number>();
@@ -308,10 +299,13 @@ export function createAttestation({
       if (!challenge || challenge.room !== room || roomSpent.has(challenge.id)) {
         return refuse(401, { error: "bad-nonce" });
       }
-      // Never by forgetting a live challenge: that would let it be used twice.
-      if (roomSpent.size >= MAX_ATTEMPTS_PER_MINUTE) return refuse(429, { error: "too-many-attempts" });
-      // Spent before the verifier runs: one challenge, one attempt, however it ends.
+      // Held while judged, kept only once it earns a certificate: evidence that
+      // failed fails again, so a failed attempt never uses the challenge up.
       roomSpent.set(challenge.id, challenge.exp * 1000);
+      const release = (refusal: Refusal) => {
+        roomSpent.delete(challenge.id);
+        return refusal;
+      };
 
       let verdict: Verdict;
       try {
@@ -322,11 +316,11 @@ export function createAttestation({
           "[swiff] attestation verifier failed:",
           error instanceof Error ? error.name : typeof error,
         );
-        return refuse(503, { error: "verifier-unavailable" });
+        return release(refuse(503, { error: "verifier-unavailable" }));
       }
-      if (!verdict.ok) return refuse(403, { error: "attestation-refused", reason: "evidence-rejected" });
+      if (!verdict.ok) return release(refuse(403, { error: "attestation-refused", reason: "evidence-rejected" }));
       const tier = tierFor(verdict.facts, floor);
-      if (!tier) return refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" });
+      if (!tier) return release(refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" }));
       return {
         ok: true,
         grant: {
