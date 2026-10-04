@@ -35,7 +35,8 @@
 //                 the owner registered chains to a TPM vendor, the AK is
 //                 activated against it, the quote is over this nonce, the event
 //                 log replays to the quoted PCRs, PCRs 11-13 are a signed Swiff
-//                 OS release's, the firmware is the machine's own and its TPM
+//                 OS release's, PCR 7 shows only its Secure Boot authorities,
+//                 the firmware is the machine's own and its TPM
 //                 counters only go forward. It adds two calls of its own:
 //                   PUT  /api/machines/:id/ek  (machine key) registers the EK
 //                   POST /api/machines/:id/attest-activation  between challenge

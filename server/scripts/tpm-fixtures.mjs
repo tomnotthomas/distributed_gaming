@@ -20,7 +20,9 @@
 // TPM2_ActivateCredential, TPM2_Quote over SHA-256(nonce) of PCRs 0-7 and 11-13.
 // Variant boots change one thing each: firmware, Secure Boot, the UKI, an extra
 // boot application, no boot application at all, DMA protection, a credential
-// (PCR 12) or a system extension (PCR 13) systemd-stub took from the ESP.
+// (PCR 12) or a system extension (PCR 13) systemd-stub took from the ESP, the
+// firmware in setup mode (no PK), and a key the owner enrolled in db verifying
+// a DXE driver of theirs (PCRs 2 and 7).
 //
 // Every nonce is minted at one instant, `now` in the file, with ROOM_SECRET
 // below, so tests replay them at that instant. Private keys stay in a
@@ -390,12 +392,14 @@ const EV = {
   VARIABLE_DRIVER_CONFIG: 0x80000001,
   VARIABLE_BOOT: 0x80000002,
   BOOT_SERVICES_APPLICATION: 0x80000003,
+  BOOT_SERVICES_DRIVER: 0x80000004,
   ACTION: 0x80000007,
   PLATFORM_FIRMWARE_BLOB: 0x80000008,
   VARIABLE_AUTHORITY: 0x800000e0,
 };
 const GLOBAL = Buffer.from("61dfe48bca93d211aa0d00e098032b8c", "hex");
 const IMAGE_SECURITY = Buffer.from("cbb219d73a3d9645a3bcdad00e67656f", "hex");
+const SHIM_LOCK = Buffer.from("50ab5d6046e00043abb63dd810dd8b23", "hex");
 
 function variable(guid, name, value) {
   const unicode = Buffer.from(name, "utf16le");
@@ -438,8 +442,8 @@ function event2(pcr, type, data, measured = data) {
 
 /**
  * The events of one boot. `boot` changes the firmware, Secure Boot, the boot
- * applications, the UKI, DMA protection, and what systemd-stub takes from the
- * ESP. Returns the log entries, each with the SHA-256 digest to extend, and the
+ * applications, the UKI, DMA protection, what systemd-stub takes from the
+ * ESP, setup mode, and an owner's db key. Returns the log entries, each with the SHA-256 digest to extend, and the
  * PCR 11 boot phases (extended, not logged).
  */
 function bootEvents({
@@ -451,6 +455,8 @@ function bootEvents({
   dmaOff = false,
   credential = false,
   sysext = false,
+  setupMode = false,
+  ownerDbKey = false,
 }) {
   const events = [];
   const add = (pcr, type, data, measured = data) => events.push({ pcr, type, data, measured });
@@ -463,18 +469,30 @@ function bootEvents({
   );
   add(1, EV.VARIABLE_BOOT, variable(GLOBAL, "BootOrder", Buffer.from([1, 0, 0, 0])));
   add(2, EV.POST_CODE, Buffer.from("Option ROM"), Buffer.from("gpu-option-rom"));
-  add(7, EV.VARIABLE_DRIVER_CONFIG, variable(GLOBAL, "SecureBoot", Buffer.from([secureBoot])));
-  add(7, EV.VARIABLE_DRIVER_CONFIG, variable(GLOBAL, "PK", Buffer.from("platform-key")));
+  const db = ownerDbKey ? "microsoft-uefi-ca-2023,owner-db-key" : "microsoft-uefi-ca-2023";
+  add(
+    7,
+    EV.VARIABLE_DRIVER_CONFIG,
+    variable(GLOBAL, "SecureBoot", Buffer.from([setupMode ? 0 : secureBoot])),
+  );
+  add(7, EV.VARIABLE_DRIVER_CONFIG, variable(GLOBAL, "PK", Buffer.from(setupMode ? "" : "platform-key")));
   add(7, EV.VARIABLE_DRIVER_CONFIG, variable(GLOBAL, "KEK", Buffer.from("key-exchange-keys")));
-  add(7, EV.VARIABLE_DRIVER_CONFIG, variable(IMAGE_SECURITY, "db", Buffer.from("microsoft-uefi-ca-2023")));
+  add(7, EV.VARIABLE_DRIVER_CONFIG, variable(IMAGE_SECURITY, "db", Buffer.from(db)));
   add(7, EV.VARIABLE_DRIVER_CONFIG, variable(IMAGE_SECURITY, "dbx", Buffer.from("revocations-2026")));
   if (dmaOff) add(7, EV.ACTION, Buffer.from("DMA Protection Disabled", "latin1"));
+  if (ownerDbKey) {
+    // A Driver#### load option: the driver is measured into PCR 2, the key that verified it into PCR 7.
+    add(2, EV.BOOT_SERVICES_DRIVER, Buffer.from("\\EFI\\owner\\patch.efi"), Buffer.from("owner-dxe-patch"));
+    add(7, EV.VARIABLE_AUTHORITY, variable(IMAGE_SECURITY, "db", Buffer.from("owner-db-key")));
+  }
   for (let pcr = 0; pcr <= 7; pcr++) add(pcr, EV.SEPARATOR, Buffer.alloc(4));
   add(4, EV.ACTION, Buffer.from("Calling EFI Application from Boot Option", "latin1"));
   if (extraApp) add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\loader.efi"), Buffer.from(extraApp));
   if (apps)
     add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\BOOT\\BOOTX64.EFI"), Buffer.from("shim-15.8"));
   add(7, EV.VARIABLE_AUTHORITY, variable(IMAGE_SECURITY, "db", Buffer.from("microsoft-uefi-ca-2023")));
+  // shim: the vendor certificate it verified the UKI with.
+  add(7, EV.VARIABLE_AUTHORITY, variable(SHIM_LOCK, "Shim", Buffer.from("swiff-vendor-cert")));
   if (apps)
     add(4, EV.BOOT_SERVICES_APPLICATION, Buffer.from("\\EFI\\Linux\\swiff.efi"), Buffer.from(`uki:${uki}`));
   // systemd-stub: every UKI section's name, then its contents, into PCR 11.
@@ -494,6 +512,11 @@ function bootEvents({
   if (sysext) add(13, EV.IPL, Buffer.from("owner-tools.sysext.raw\0", "latin1"), Buffer.from("owner-tools"));
   return { events, phases: ["enter-initrd", "leave-initrd", "sysinit", "ready"] };
 }
+
+const secureBootAuthorities = (boot) =>
+  bootEvents(boot)
+    .events.filter((e) => e.pcr === 7 && e.type === EV.VARIABLE_AUTHORITY)
+    .map((e) => sha256(e.measured).toString("hex"));
 
 const bootApplications = (boot) =>
   bootEvents(boot)
@@ -704,6 +727,8 @@ try {
       { boot: { apps: false }, labels: ["no-boot-apps"] },
       { boot: { credential: true }, labels: ["esp-credential"] },
       { boot: { sysext: true }, labels: ["esp-sysext"] },
+      { boot: { setupMode: true }, labels: ["setup-mode"] },
+      { boot: { ownerDbKey: true }, labels: ["owner-db-key"] },
       { boot: { secureBoot: 0 }, labels: ["secure-boot-off"] },
       { boot: { dmaOff: true }, labels: ["dma-off"] },
       { boot: { firmware: "firmware-v2" }, labels: ["firmware-v2", "firmware-v2-again"] },
@@ -785,6 +810,7 @@ try {
       pcr13: rsa.quotes.first.evidence.pcrs[13],
       bootApplications: bootApplications(GOLDEN),
       uki: bootApplications(GOLDEN).slice(-1),
+      secureBootAuthorities: secureBootAuthorities(GOLDEN),
     },
     tamperedPcr11: rsa.pcr11["tampered-uki"],
     p384EkCertificate: p384.toString("base64"),

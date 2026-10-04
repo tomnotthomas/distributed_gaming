@@ -25,6 +25,7 @@ import {
   memoryStore,
   tpmVerifier,
   type AttestationStore,
+  type SecurityEvent,
 } from "../tpm-verifier.js";
 import type { TpmEvidence } from "../protocol.js";
 import fixture from "./fixtures/tpm-attestation.json" with { type: "json" };
@@ -42,6 +43,7 @@ const RELEASE = {
   pcr13: [fixture.release.pcr13],
   bootApplications: fixture.release.bootApplications,
   uki: fixture.release.uki,
+  secureBootAuthorities: fixture.release.secureBootAuthorities,
   iommu: true,
 };
 const POLICY: BootPolicy = { releases: [RELEASE] };
@@ -65,9 +67,16 @@ async function verifierFor(
     enrolled = true,
     store = memoryStore() as AttestationStore,
     policy = POLICY,
+    securityLog = (() => {}) as (event: SecurityEvent) => void,
   } = {},
 ) {
-  const verifier = tpmVerifier({ store, roots: vendor(kind), policy, activationKey: ACTIVATION_KEY });
+  const verifier = tpmVerifier({
+    store,
+    roots: vendor(kind),
+    policy,
+    activationKey: ACTIVATION_KEY,
+    securityLog,
+  });
   if (enrolled) {
     const result = await verifier.enroll({
       room,
@@ -388,15 +397,67 @@ describe("the TPM verifier refuses", () => {
   });
 });
 
+describe("Secure Boot in PCR 7", () => {
+  it("refuses a key the owner enrolled in db outright: no cooldown ever trusts it", async () => {
+    const events: SecurityEvent[] = [];
+    const store = memoryStore();
+    const verifier = await verifierFor("pc-rsa", { store, securityLog: (event) => events.push(event) });
+    assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
+    const refused = { ok: false, reason: "secure-boot-untrusted" };
+    assert.deepEqual(await judge(verifier, "pc-rsa", "owner-db-key"), refused);
+    const muchLater = { now: NOW + 2 * FIRMWARE_COOLDOWN_SECONDS * 1000 };
+    assert.deepEqual(await judge(verifier, "pc-rsa", "owner-db-key", muchLater), refused);
+    assert.equal((await store.get("pc-rsa"))?.pendingFirmware, null);
+    // Both refusals logged, each naming the one authority the release does not list.
+    assert.deepEqual(
+      events.map((event) =>
+        event.event === "secure-boot-untrusted"
+          ? [event.machine, event.configured, event.unknownAuthorities.length]
+          : event.event,
+      ),
+      [
+        ["pc-rsa", true, 1],
+        ["pc-rsa", true, 1],
+      ],
+    );
+  });
+
+  it("refuses firmware in setup mode, with no platform key enrolled", async () => {
+    const events: SecurityEvent[] = [];
+    const verifier = await verifierFor("pc-rsa", { securityLog: (event) => events.push(event) });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "setup-mode"), {
+      ok: false,
+      reason: "secure-boot-untrusted",
+    });
+    assert.deepEqual(events, [
+      { event: "secure-boot-untrusted", machine: "pc-rsa", configured: false, unknownAuthorities: [] },
+    ]);
+  });
+
+  it("takes only the authorities the release lists: shim's vendor certificate among them", async () => {
+    const [microsoft] = fixture.release.secureBootAuthorities;
+    const verifier = await verifierFor("pc-rsa", {
+      policy: { releases: [{ ...RELEASE, secureBootAuthorities: [microsoft!] }] },
+    });
+    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), {
+      ok: false,
+      reason: "secure-boot-untrusted",
+    });
+  });
+});
+
 describe("firmware trust on first use", () => {
   it("takes the first firmware it sees as the machine's", async () => {
     const verifier = await verifierFor("pc-rsa");
     assert.ok((await judge(verifier, "pc-rsa", "firmware-v2")).ok);
   });
 
-  it("refuses changed firmware until the same new values have cooled down", async () => {
-    const verifier = await verifierFor("pc-rsa");
+  it("refuses changed firmware until the same new values have cooled down, and logs both", async () => {
+    const events: SecurityEvent[] = [];
+    const store = memoryStore();
+    const verifier = await verifierFor("pc-rsa", { store, securityLog: (event) => events.push(event) });
     assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
+    const baseline = (await store.get("pc-rsa"))!.firmware!;
     const later = (seconds: number) => ({ now: NOW + seconds * 1000 });
     assert.deepEqual(await judge(verifier, "pc-rsa", "firmware-v2"), {
       ok: false,
@@ -411,6 +472,14 @@ describe("firmware trust on first use", () => {
     );
     const cooled = await judge(verifier, "pc-rsa", "firmware-v2-again", later(FIRMWARE_COOLDOWN_SECONDS));
     assert.ok(cooled.ok);
+    const presented = (await store.get("pc-rsa"))!.firmware!;
+    assert.notDeepEqual(presented, baseline);
+    const changed = { event: "firmware-changed", machine: "pc-rsa", baseline, presented };
+    assert.deepEqual(events, [
+      changed,
+      changed,
+      { event: "firmware-accepted", machine: "pc-rsa", previous: baseline, accepted: presented },
+    ]);
   });
 
   it("starts the cool-down again when the firmware changes once more", async () => {
@@ -475,6 +544,20 @@ describe("firmware trust on first use", () => {
     });
     assert.ok((await judge(verifier, "pc-rsa", "gap", later(FIRMWARE_COOLDOWN_SECONDS + 1))).ok);
     assert.equal((await store.get("pc-rsa"))?.reenrolledAt, null);
+  });
+
+  it("logs an EK registered again over a firmware baseline", async () => {
+    const events: SecurityEvent[] = [];
+    const verifier = await verifierFor("pc-rsa", { securityLog: (event) => events.push(event) });
+    assert.deepEqual(await enroll(verifier, "pc-rsa"), { ok: true });
+    assert.deepEqual(events, []);
+    assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
+    await enroll(verifier, "pc-rsa");
+    await enroll(verifier, "pc-ecc");
+    assert.deepEqual(events, [
+      { event: "ek-registered-again", machine: "pc-rsa", sameEk: true },
+      { event: "ek-registered-again", machine: "pc-rsa", sameEk: false },
+    ]);
   });
 
   it("starts a machine that never attested from first use, whatever EK it registers", async () => {
@@ -736,6 +819,7 @@ describe("the boot policy", () => {
       { version: 1, releases: [{ ...RELEASE, pcr12: undefined }] },
       { version: 1, releases: [{ ...RELEASE, pcr13: [] }] },
       { version: 1, releases: [{ ...RELEASE, uki: ["0".repeat(64)] }] },
+      { version: 1, releases: [{ ...RELEASE, secureBootAuthorities: undefined }] },
     ]) {
       assert.throws(() => signBootPolicy(bad, privateKey), BootPolicyError, JSON.stringify(bad));
     }

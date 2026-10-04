@@ -43,14 +43,19 @@
 //                                  from outside the UKI the release does not expect
 //  12. unknown-boot-application    PCR 4 measured at least one application, all of
 //                                  them the release's, the last one its UKI
-//  13. firmware-changed            PCRs 0-3 (firmware and its settings) are the
+//  13. secure-boot-untrusted       PCR 7 measured SecureBoot, PK, KEK, db and dbx
+//                                  with a platform key enrolled (not setup mode),
+//                                  and every Secure Boot authority it measured is
+//                                  one the release lists. Refused outright: no
+//                                  cooldown ever trusts another authority
+//  14. firmware-changed            PCRs 0-3 (firmware and its settings) are the
 //                                  ones this machine first attested with. A
 //                                  change, such as a BIOS update, is refused until
 //                                  the same new values have been seen for
 //                                  FIRMWARE_COOLDOWN_SECONDS, and then becomes the
 //                                  machine's. After the EK is registered again,
 //                                  even unchanged firmware waits out the cooldown
-//  14. counter-rollback / replayed-quote
+//  15. counter-rollback / replayed-quote
 //                                  the TPM's resetCount, restartCount and clock
 //                                  never go back from the last accepted quote
 //
@@ -64,6 +69,10 @@
 // the machine's, not its EK's: registering an EK again (the same one after the
 // owner cleared the TPM, which sets its counters back to zero, or another one)
 // keeps it, forgets the counters, and holds the firmware for the cooldown.
+//
+// Every refusal of secure-boot-untrusted or firmware-changed, every firmware
+// change accepted after its cooldown, and every EK registered again over a
+// baseline is a SecurityEvent, logged as one JSON line for review and alerts.
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { Queryable } from "./db.js";
@@ -224,6 +233,26 @@ export function databaseStore(db: Queryable): AttestationStore {
   };
 }
 
+/** What the verifier reports for review: the machine and PCR values, never keys or evidence. */
+export type SecurityEvent =
+  | { event: "secure-boot-untrusted"; machine: string; configured: boolean; unknownAuthorities: string[] }
+  | {
+      event: "firmware-changed";
+      machine: string;
+      baseline: Record<string, string> | null;
+      presented: Record<string, string>;
+    }
+  | {
+      event: "firmware-accepted";
+      machine: string;
+      previous: Record<string, string> | null;
+      accepted: Record<string, string>;
+    }
+  | { event: "ek-registered-again"; machine: string; sameEk: boolean };
+
+const logSecurityEvent = (event: SecurityEvent) =>
+  console.warn(`[swiff] security event ${JSON.stringify(event)}`);
+
 export type TpmVerifierOptions = {
   store: AttestationStore;
   /** TPM vendor roots (ek.ts). */
@@ -233,6 +262,8 @@ export type TpmVerifierOptions = {
   /** Keys the AK activation credentials, so a challenge needs no state: at least 32 bytes. */
   activationKey: Buffer;
   firmwareCooldownSeconds?: number;
+  /** Where security events go: a JSON line on stderr unless given. */
+  securityLog?: (event: SecurityEvent) => void;
 };
 
 /** A refusal the verifier explains, as the attest refusal's `detail`. */
@@ -291,6 +322,7 @@ export function tpmVerifier({
   policy,
   activationKey,
   firmwareCooldownSeconds = FIRMWARE_COOLDOWN_SECONDS,
+  securityLog = logSecurityEvent,
 }: TpmVerifierOptions): TpmVerifier {
   if (activationKey.length < 32) throw new Error("the activation key must be at least 32 bytes");
   const inTurn = perRoom();
@@ -345,10 +377,11 @@ export function tpmVerifier({
           reenrolledAt: firmware ? now : null,
         });
         if (firmware) {
-          const which = record?.ek?.certificate.equals(der) ? "its EK again" : "another EK";
-          console.warn(
-            `[swiff] machine ${room} registered ${which}: TPM counters reset, firmware held for the cooldown`,
-          );
+          securityLog({
+            event: "ek-registered-again",
+            machine: room,
+            sameEk: Boolean(record?.ek?.certificate.equals(der)),
+          });
         }
         return { ok: true } as const;
       }),
@@ -465,7 +498,21 @@ export function tpmVerifier({
           return refuse("unknown-boot-application");
         }
 
-        // 13. The firmware it first attested with, or a change that has cooled
+        // 13. Secure Boot keys enrolled, and only the release's authorities verified anything.
+        const unknownAuthorities = boot.secureBootAuthorities
+          .map((authority) => authority.toString("hex"))
+          .filter((authority) => !release.secureBootAuthorities.includes(authority));
+        if (!boot.secureBootConfigured || unknownAuthorities.length) {
+          securityLog({
+            event: "secure-boot-untrusted",
+            machine: room,
+            configured: boot.secureBootConfigured,
+            unknownAuthorities,
+          });
+          return refuse("secure-boot-untrusted");
+        }
+
+        // 14. The firmware it first attested with, or a change that has cooled
         // down; after the EK was registered again, any firmware cools down.
         const firmware = Object.fromEntries(
           FIRMWARE_PCRS.map((pcr) => [pcr, pcrs.get(pcr)!.toString("hex")]),
@@ -473,6 +520,7 @@ export function tpmVerifier({
         const sameFirmware = (other: Record<string, string>) =>
           FIRMWARE_PCRS.every((pcr) => other[pcr] === firmware[pcr]);
         const next: MachineRecord = { ...record!, pendingFirmware: null, reenrolledAt: null };
+        let cooledDown = false;
         if (!record!.reenrolledAt && (!record!.firmware || sameFirmware(record!.firmware))) {
           next.firmware = firmware;
         } else if (
@@ -482,14 +530,21 @@ export function tpmVerifier({
             firmwareCooldownSeconds * 1000
         ) {
           next.firmware = firmware;
+          cooledDown = true;
         } else {
           if (!record!.pendingFirmware || !sameFirmware(record!.pendingFirmware.pcrs)) {
             await store.put(room, { ...record!, pendingFirmware: { pcrs: firmware, since: now } });
           }
+          securityLog({
+            event: "firmware-changed",
+            machine: room,
+            baseline: record!.firmware,
+            presented: firmware,
+          });
           return refuse("firmware-changed");
         }
 
-        // 14. The TPM's counters only go forward.
+        // 15. The TPM's counters only go forward.
         const { resetCount, restartCount, clock } = quote.clock;
         const last = record!.counters;
         if (last) {
@@ -502,6 +557,14 @@ export function tpmVerifier({
         }
         next.counters = { resetCount, restartCount, clock: clock.toString() };
         await store.put(room, next);
+        if (cooledDown) {
+          securityLog({
+            event: "firmware-accepted",
+            machine: room,
+            previous: record!.firmware,
+            accepted: firmware,
+          });
+        }
 
         return {
           ok: true,

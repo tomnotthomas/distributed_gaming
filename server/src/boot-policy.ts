@@ -16,6 +16,7 @@
 //       "pcr13": ["<hex SHA-256 PCR 13>"],
 //       "bootApplications": ["<hex Authenticode SHA-256>", ...],
 //       "uki": ["<hex Authenticode SHA-256>"],
+//       "secureBootAuthorities": ["<hex SHA-256 of an EV_EFI_VARIABLE_AUTHORITY event>", ...],
 //       "iommu": true
 //     }]
 //   }
@@ -41,6 +42,14 @@
 //   uki               The release's UKIs, each also in bootApplications. The
 //                     last application measured into PCR 4 must be one of
 //                     them: the boot ended in the release's own UKI.
+//   secureBootAuthorities
+//                     Every Secure Boot authority that may verify an image on
+//                     the way: the digest the firmware (or shim) extends into
+//                     PCR 7 for each certificate it verified with, such as
+//                     Microsoft's UEFI CA 2023 or 2011 in db, and the release's
+//                     shim vendor certificate or MOK. A boot that any other
+//                     authority verified, such as a key the owner enrolled in
+//                     db, is refused outright.
 //   iommu             The release refuses to finish booting (reach `ready`)
 //                     without DMA remapping on, so a machine that reached its
 //                     PCR 11 has an IOMMU.
@@ -56,6 +65,7 @@ export type Release = {
   pcr13: string[];
   bootApplications: string[];
   uki: string[];
+  secureBootAuthorities: string[];
   iommu: boolean;
 };
 
@@ -97,6 +107,7 @@ function readPayload(payload: unknown): BootPolicy {
         pcr13: digests(r.pcr13, `${r.name}: pcr13`),
         bootApplications,
         uki,
+        secureBootAuthorities: digests(r.secureBootAuthorities, `${r.name}: secureBootAuthorities`),
         iommu: r.iommu,
       };
     }),

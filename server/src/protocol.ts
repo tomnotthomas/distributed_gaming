@@ -272,6 +272,8 @@ export type HostCertGrant = {
  *                             credential or extension from outside the UKI
  *   unknown-boot-application  something but the release's own boot chain ran, or it did not end
  *                             in the release's UKI (PCR 4)
+ *   secure-boot-untrusted     PCR 7 shows Secure Boot keys not enrolled (setup mode), or an authority
+ *                             the release does not list verified an image
  *   firmware-changed          firmware PCRs 0-3 changed, or the EK was registered again, and the
  *                             cooldown has not passed
  *   counter-rollback          the TPM's reset or restart count went back
@@ -293,6 +295,7 @@ export type AttestRefusalDetail =
   | "unknown-boot-image"
   | "unknown-boot-extras"
   | "unknown-boot-application"
+  | "secure-boot-untrusted"
   | "firmware-changed"
   | "counter-rollback"
   | "replayed-quote";

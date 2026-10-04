@@ -24,6 +24,7 @@ export const EV = {
   EFI_VARIABLE_DRIVER_CONFIG: 0x80000001,
   EFI_BOOT_SERVICES_APPLICATION: 0x80000003,
   EFI_ACTION: 0x80000007,
+  EFI_VARIABLE_AUTHORITY: 0x800000e0,
 } as const;
 
 /** One extend: which PCR, what kind of event, its SHA-256 digest, and the data the firmware logged. */
@@ -34,6 +35,16 @@ export type EventLog = { events: Event[]; startupLocality: number };
 
 /** EFI_GLOBAL_VARIABLE, as it is laid out in memory (the first three fields little-endian). */
 const EFI_GLOBAL_VARIABLE = Buffer.from("61dfe48bca93d211aa0d00e098032b8c", "hex");
+/** EFI_IMAGE_SECURITY_DATABASE_GUID, laid out the same way: db and dbx. */
+const EFI_IMAGE_SECURITY_DATABASE = Buffer.from("cbb219d73a3d9645a3bcdad00e67656f", "hex");
+/** The Secure Boot variables the firmware measures into PCR 7, and their vendor GUIDs. */
+const SECURE_BOOT_VARIABLES = new Map([
+  ["SecureBoot", EFI_GLOBAL_VARIABLE],
+  ["PK", EFI_GLOBAL_VARIABLE],
+  ["KEK", EFI_GLOBAL_VARIABLE],
+  ["db", EFI_IMAGE_SECURITY_DATABASE],
+  ["dbx", EFI_IMAGE_SECURITY_DATABASE],
+]);
 const SPEC_ID = Buffer.from("Spec ID Event03\0", "latin1");
 const STARTUP_LOCALITY = Buffer.from("StartupLocality\0", "latin1");
 
@@ -114,6 +125,14 @@ export type BootFacts = {
   uefi: boolean;
   /** The SecureBoot variable, as measured into PCR 7, was 1. */
   secureBoot: boolean;
+  /**
+   * PCR 7 measured SecureBoot, PK, KEK, db and dbx, each with data its digest
+   * binds, and a platform key: the firmware was not in setup mode, where
+   * anyone may enroll keys.
+   */
+  secureBootConfigured: boolean;
+  /** The SHA-256 digests of every Secure Boot authority (EV_EFI_VARIABLE_AUTHORITY) measured into PCR 7. */
+  secureBootAuthorities: Buffer[];
   /** The firmware logged that it booted with pre-boot DMA protection off. */
   dmaProtectionDisabled: boolean;
   /** The Authenticode digests of every boot application measured into PCR 4, in order. */
@@ -123,23 +142,29 @@ export type BootFacts = {
 export function bootFacts(log: EventLog): BootFacts {
   let secureBoot = false;
   let dmaProtectionDisabled = false;
+  let platformKey = false;
+  const measured = new Set<string>();
+  const secureBootAuthorities: Buffer[] = [];
   const bootApplications: Buffer[] = [];
   for (const event of log.events) {
     if (event.pcr === 4 && event.type === EV.EFI_BOOT_SERVICES_APPLICATION) {
       bootApplications.push(event.sha256);
     }
     if (event.pcr !== 7) continue;
+    if (event.type === EV.EFI_VARIABLE_AUTHORITY) secureBootAuthorities.push(event.sha256);
     if (event.type === EV.EFI_VARIABLE_DRIVER_CONFIG) {
       const variable = readVariable(event.data);
       // The profile hashes the whole UEFI_VARIABLE_DATA; some firmware hashes
       // only the value. Either binds the data to what was extended.
       if (
         variable &&
-        variable.guid.equals(EFI_GLOBAL_VARIABLE) &&
-        variable.name === "SecureBoot" &&
+        SECURE_BOOT_VARIABLES.get(variable.name)?.equals(variable.guid) &&
         (event.sha256.equals(sha256(event.data)) || event.sha256.equals(sha256(variable.value)))
       ) {
-        secureBoot = variable.value.length === 1 && variable.value[0] === 1;
+        measured.add(variable.name);
+        if (variable.name === "SecureBoot")
+          secureBoot = variable.value.length === 1 && variable.value[0] === 1;
+        if (variable.name === "PK") platformKey = variable.value.length > 0;
       }
     }
     if (
@@ -153,6 +178,8 @@ export function bootFacts(log: EventLog): BootFacts {
   return {
     uefi: log.events.some((event) => event.type >= 0x80000000),
     secureBoot,
+    secureBootConfigured: platformKey && measured.size === SECURE_BOOT_VARIABLES.size,
+    secureBootAuthorities,
     dmaProtectionDisabled,
     bootApplications,
   };
