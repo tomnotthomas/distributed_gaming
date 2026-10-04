@@ -564,7 +564,8 @@ time it went live.
 The session's HUD reads `getStats` once a second: frames per second, round trip, bitrate,
 and whether the stream goes direct or through the relay. It hides 3 s after the pointer
 last moved over the stream (movement while the stream holds the pointer is the game's) and
-comes back when it moves. Full screen puts the session on the whole screen; End ends the
+comes back when it moves. Full screen puts the session on the whole screen, and is left when the stream drops back
+behind Ignition, which it would otherwise cover; End ends the
 booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
 session every key, Escape and a controller's B included, goes to the game, and so it does
 behind Ignition once the session has started (the PC left mid-session): only End ends it

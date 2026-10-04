@@ -82,6 +82,10 @@ export function Session({ swiff }: { swiff: Swiff }) {
     root?.toggleAttribute("inert", behindIgnition);
     const video = root?.querySelector("video");
     if (behindIgnition) {
+      // Full screen puts the session above Ignition: leave it, so a stream
+      // that reconnects is never seen before its game is on screen again.
+      const full = document.fullscreenElement;
+      if (full && root?.contains(full)) void document.exitFullscreen?.().catch(() => {});
       if (video) {
         video.muted = true;
         hushed.current = true;

@@ -123,6 +123,22 @@ describe("Session", () => {
     }
   });
 
+  it("leaves full screen when the stream drops back behind Ignition", () => {
+    const { rerender } = render(<Session swiff={swiffWith({ phase: "live" })} />);
+    const session = screen.getByTestId("session");
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => session });
+    document.exitFullscreen = vi.fn(async () => {});
+    try {
+      rerender(<Session swiff={swiffWith({ phase: "live" })} />);
+      expect(document.exitFullscreen).not.toHaveBeenCalled();
+      rerender(<Session swiff={swiffWith({ phase: "connecting" })} />);
+      expect(document.exitFullscreen).toHaveBeenCalledTimes(1);
+      expect(session).toHaveAttribute("inert");
+    } finally {
+      delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+    }
+  });
+
   it("offers sound when the browser refused it, and turns it on", () => {
     render(<Session swiff={swiffWith({ play: playing({ muted: true }) })} />);
     const video = screen.getByTestId<HTMLVideoElement>("session-video");
