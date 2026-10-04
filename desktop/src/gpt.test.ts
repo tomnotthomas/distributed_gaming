@@ -149,6 +149,21 @@ describe("the GPT writer", () => {
     expect(() => readGpt(disk.read, { diskBytes: DISK })).toThrow(/entries fail their checksum/);
   });
 
+  it("refuses a table whose checksums hold but whose partitions overlap", () => {
+    const disk = memoryDisk(DISK);
+    const writes = gptWrites(windowsLike(), { mbr: true });
+    // Move C: (slot 1) to start inside the ESP, then make every checksum match again.
+    const table = writes.find((w) => w.offset === 1024)!.bytes;
+    table.writeBigUInt64LE(BigInt(4096), 128 + 32);
+    for (const w of writes.filter((w) => w.bytes.subarray(0, 8).toString("latin1") === "EFI PART")) {
+      w.bytes.writeUInt32LE(crc32(table.subarray(0, 128 * 128)), 88);
+      w.bytes.writeUInt32LE(0, 16);
+      w.bytes.writeUInt32LE(crc32(w.bytes.subarray(0, 92)), 16);
+    }
+    disk.write(writes);
+    expect(() => readGpt(disk.read, { diskBytes: DISK })).toThrow(/overlap/);
+  });
+
   it("refuses a table whose backup is not at the end of the disk, as on a disk that has since grown", () => {
     const disk = memoryDisk(DISK);
     disk.write(gptWrites(windowsLike(), { mbr: true }));

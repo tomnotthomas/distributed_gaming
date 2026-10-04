@@ -152,6 +152,11 @@ describe("where Swiff OS goes", () => {
     expect(targets.map((t) => t.id)).toEqual([`free:1:${MiB}`, "shrink:C"]);
   });
 
+  it("never offers the system disk as free space when its partitions could not be read", () => {
+    const { targets } = pc((raw) => ({ ...raw, partitions: [] }));
+    expect(targets.some((t) => t.kind === "free")).toBe(false);
+  });
+
   it("finds the gaps between partitions, MiB-aligned, leaving the end for the backup table", () => {
     const disk = { number: 0, gpt: true, size: 100 * GiB, sector: 512, usb: false, system: true };
     const parts = [
@@ -291,6 +296,11 @@ describe("the install plan", () => {
     const plan = installPlan(rental, { target: `free:1:${MiB}` });
     expect(plan.steps.map((s) => s.id)).not.toContain("room");
     expect(plan.target?.disk).toBe(1);
+  });
+
+  it("refuses a chosen drive that is no longer there, rather than picking another", () => {
+    expect(() => installPlan(pc(), { target: "shrink:D" })).toThrow(/no longer available/);
+    expect(installPlan(pc(), { target: null }).target?.id).toBe("shrink:C");
   });
 
   it("refuses a PC with nowhere to put Swiff OS", () => {
