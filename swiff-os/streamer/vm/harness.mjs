@@ -62,6 +62,9 @@ const EXPECTED = [
   "renter's key W reaches the virtual keyboard, down and up",
   "renter's left click reaches the virtual mouse, down and up",
   "renter's pointer moves the virtual pointer",
+  "renter's plain F2 reaches the virtual keyboard, down and up",
+  "renter's Ctrl+Alt+Delete, Ctrl+Alt+F3 and Alt+F4 never reach the virtual keyboard",
+  "renter's Delete, Ctrl and Alt alone reach the virtual keyboard, down and up",
   "streamer exits 0 when the session ends",
 ];
 
@@ -220,6 +223,54 @@ async function renter() {
     record(
       "renter's pointer moves the virtual pointer",
       await waitInput(() => saw("Swiff virtual pointer", 3, 0), "ABS_X"),
+    );
+
+    // Keys that act on the PC: the sink drops the reboot and console-switch
+    // combinations but still sends their modifiers, while a plain F2 (sent
+    // last, as a marker) still arrives. Then Delete, Ctrl and Alt alone.
+    const keyboard = () => inputs.filter((e) => e.device === "Swiff virtual keyboard" && e.type === 1);
+    const before = keyboard().length;
+    for (const combo of ["Control+Alt+Delete", "Control+Alt+F3", "Alt+F4", "F2"]) {
+      await page.keyboard.press(combo, { delay: 100 });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    record(
+      "renter's plain F2 reaches the virtual keyboard, down and up",
+      await waitInput(
+        () => saw("Swiff virtual keyboard", 1, 60, 1) && saw("Swiff virtual keyboard", 1, 60, 0),
+        "KEY_F2",
+      ),
+    );
+    const combos = keyboard().slice(before);
+    const values = (code) =>
+      combos
+        .filter((e) => e.code === code)
+        .map((e) => e.value)
+        .join("");
+    const leaked = [111, 61, 62].filter((code) => values(code) !== "");
+    record(
+      "renter's Ctrl+Alt+Delete, Ctrl+Alt+F3 and Alt+F4 never reach the virtual keyboard",
+      leaked.length === 0 && values(29) === "1010" && values(56) === "101010",
+      `leaked codes: [${leaked.join(",")}]; LEFTCTRL values ${values(29)}, LEFTALT values ${values(56)}`,
+    );
+    const alone = keyboard().length;
+    for (const key of ["Delete", "Control", "Alt"]) {
+      await page.keyboard.press(key, { delay: 100 });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const aloneValues = (code) =>
+      keyboard()
+        .slice(alone)
+        .filter((e) => e.code === code)
+        .map((e) => e.value)
+        .join("");
+    record(
+      "renter's Delete, Ctrl and Alt alone reach the virtual keyboard, down and up",
+      await waitInput(
+        () => aloneValues(111) === "10" && aloneValues(29) === "10" && aloneValues(56) === "10",
+        "KEY_DELETE, KEY_LEFTCTRL, KEY_LEFTALT",
+      ),
+      `DELETE ${aloneValues(111)}, LEFTCTRL ${aloneValues(29)}, LEFTALT ${aloneValues(56)}`,
     );
 
     // The renter leaves: the server ends the session and puts the streamer out.
