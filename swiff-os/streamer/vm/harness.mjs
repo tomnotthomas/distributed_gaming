@@ -83,9 +83,24 @@ const logs = [];
 let session = null;
 let finished = false;
 
+/**
+ * Text with the session's credentials taken out: the join ticket and the session
+ * key, by value, and anything that looks like a ticket in a URL. Everything this
+ * harness prints or writes to the results file goes through it, because a
+ * Playwright error quotes the URL it was opening, and that URL carries the ticket.
+ */
+function redact(text) {
+  let out = String(text);
+  for (const secret of [session?.claim?.ticket, session?.grant?.sessionKey]) {
+    if (secret) out = out.split(secret).join("<redacted>");
+  }
+  return out.replace(/ticket=[^\s&"')]+/g, "ticket=<redacted>");
+}
+
 function record(name, ok, detail = "") {
-  results.set(name, { ok, detail });
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+  const safe = redact(detail);
+  results.set(name, { ok, detail: safe });
+  console.log(`${ok ? "ok  " : "FAIL"} ${name}${safe ? ` (${safe})` : ""}`);
 }
 
 async function call(method, path, headers, body) {
@@ -164,7 +179,7 @@ async function renter() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err) => console.log(`renter page error: ${err.message}`));
+    page.on("pageerror", (err) => console.log(`renter page error: ${redact(err.message)}`));
     await page.goto(`${HTTP}/rtc#ticket=${session.claim.ticket}`);
     const connectAt = Date.now();
     await page.getByRole("button", { name: "Connect" }).click();
@@ -327,8 +342,8 @@ const harness = createServer(async (req, res) => {
         inputs.push(data);
         return reply();
       case "/log":
-        logs.push(data);
-        console.log(`  vm +${data.at}s ${data.line}`);
+        logs.push({ ...data, line: redact(data.line) });
+        console.log(`  vm +${data.at}s ${redact(data.line)}`);
         return reply();
       case "/finished":
         finished = true;
@@ -338,7 +353,7 @@ const harness = createServer(async (req, res) => {
         return res.end();
     }
   } catch (e) {
-    console.log(`harness error on ${req.url}: ${e.message}`);
+    console.log(`harness error on ${req.url}: ${redact(e.message)}`);
     res.writeHead(500);
     res.end();
   }
