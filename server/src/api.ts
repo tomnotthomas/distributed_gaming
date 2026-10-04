@@ -12,6 +12,7 @@
 //   POST /api/bookings/:id/claim
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
+//   POST /api/sessions/:id/start (ticket)
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
@@ -30,8 +31,9 @@
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
-// The renter's page reports stream quality, and says it is leaving, with that
-// ticket as its bearer.
+// The renter's page starts the session on its first frame, reports stream
+// quality, and says it is leaving, with that ticket as its bearer. Starting it
+// is what tells the PC to launch the game.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -81,6 +83,8 @@ export type ApiOptions = {
   profile?: ProfileReader;
   /** Each renter's budget of availability and machine-list reads. Defaults to one for this API alone. */
   discovery?: RequestBudget;
+  /** The renter's page started session `sessionId` on `machineId`: the PC launches `gameId`. */
+  onRenterStarted?: (machineId: string, sessionId: string, gameId: number) => void;
 };
 
 /** Answer with a JSON body that no cache keeps. */
@@ -157,9 +161,14 @@ function qosReport(body: Json): QosReport {
  * it is at join: 401 when missing, forged or expired.
  */
 function requireTicket(req: IncomingMessage, access: Access) {
-  const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
+  const ticket = ticketOf(req, access);
   if (!ticket) throw new HttpError(401, "bad ticket");
   return ticket;
+}
+
+/** The join ticket the request carries as its bearer, or null when it carries none that verifies. */
+function ticketOf(req: IncomingMessage, access: Access) {
+  return access.secret ? verifyTicket(access.secret, bearer(req)) : null;
 }
 
 /** The HTTP answer for a renter call the platform refused. */
@@ -271,6 +280,7 @@ export function createApi({
   profile = (steamId) => readProfile(undefined, steamId),
   events,
   discovery = new RequestBudget(),
+  onRenterStarted,
 }: ApiOptions) {
   /** The signed-in renter, once they are within their budget of discovery reads; 429 past it. */
   function requireDiscovery(req: IncomingMessage, res: ServerResponse): string | null {
@@ -498,6 +508,18 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       reply(res, 200, await platform.heartbeat(id, hostReport(body)));
+      return true;
+    }
+
+    // The renter's first frame: started with the join ticket rather than the
+    // machine key, and the PC launches the game.
+    const ticket =
+      resource === "sessions" && action === "start" && method === "POST" && ticketOf(req, access);
+    if (ticket && id) {
+      const started = await platform.renterStarted(id, ticket.id);
+      if (typeof started === "string") throw renterRefusal(started);
+      onRenterStarted?.(started.machineId, id, started.gameId);
+      reply(res, 200, { sessionId: id, roomId: started.machineId });
       return true;
     }
 

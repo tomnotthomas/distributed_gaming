@@ -73,6 +73,8 @@ describe("booking and host API", () => {
   let renter: ReturnType<typeof client>;
   let as: (cookie: string) => ReturnType<typeof client>;
   let discovery: RequestBudget;
+  /** Each launch the API asked for: machine, session, game. */
+  let launches: [string, string, number][];
 
   before(async () => {
     access = {
@@ -98,6 +100,7 @@ describe("booking and host API", () => {
         games,
         profile,
         discovery,
+        onRenterStarted: (...launch) => launches.push(launch),
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -116,6 +119,7 @@ describe("booking and host API", () => {
     platform = await Platform.open({ database: await testDatabase(), now: () => now, owners: access.owners });
     discovery = new RequestBudget({ now: () => now });
     access.secret = SECRET;
+    launches = [];
   });
 
   afterEach(() => platform.close());
@@ -486,6 +490,41 @@ describe("booking and host API", () => {
     assert.equal((await call("POST", leave, undefined, mine.body.ticket)).status, 409);
   });
 
+  it("starts a session on the renter's first frame with its own ticket, and has the PC launch the game", async () => {
+    await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
+    await offer("pc-2");
+    const first = await renter("POST", "/api/bookings", { gameId: 730, minutes: 120, machineId: "pc-1" });
+    const second = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const mine = await renter("POST", `/api/bookings/${first.body.bookingId}/claim`);
+    const theirs = await renter("POST", `/api/bookings/${second.body.bookingId}/claim`);
+    const start = `/api/sessions/${mine.body.sessionId}/start`;
+
+    assert.equal((await call("POST", start, undefined, theirs.body.ticket)).status, 403);
+    assert.equal((await call("POST", "/api/sessions/nope/start", undefined, mine.body.ticket)).status, 404);
+    assert.equal((await renter("GET", `/api/bookings/${first.body.bookingId}`)).body.status, "claimed");
+    assert.deepEqual(launches, []);
+
+    now += 5_000;
+    const started = await call("POST", start, undefined, mine.body.ticket);
+    assert.equal(started.status, 200);
+    assert.deepEqual(started.body, { sessionId: mine.body.sessionId, roomId: "pc-1" });
+    assert.equal((await renter("GET", `/api/bookings/${first.body.bookingId}`)).body.status, "playing");
+    assert.deepEqual(launches, [["pc-1", mine.body.sessionId, 730]]);
+
+    // A first frame again (a new connection) launches again, and the clock runs from the first.
+    for (let beat = 0; beat < 6; beat++) {
+      now += 10_000;
+      await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
+    }
+    assert.equal((await call("POST", start, undefined, mine.body.ticket)).status, 200);
+    assert.equal(launches.length, 2);
+    const ended = await renter("POST", `/api/bookings/${first.body.bookingId}/end`);
+    assert.equal(ended.body.price, 100, "a minute at 60.00 an hour");
+
+    assert.equal((await call("POST", start, undefined, mine.body.ticket)).status, 409);
+    assert.equal(launches.length, 2);
+  });
+
   describe("renter QoS", () => {
     const QOS = { fps: 59.8, bitrate: 18_500_000, rttMs: 14.2, packetLoss: 0.004 };
 
@@ -574,7 +613,7 @@ describe("booking and host API", () => {
     });
 
     it("ranks the machines for a game with the latency estimated through the server", async () => {
-      await offer("pc-1", { available: true, ...REPORT, price: 300 });
+      await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
       await offer("pc-2", {
         available: true,
         ...REPORT,
@@ -664,7 +703,7 @@ describe("booking and host API", () => {
     });
 
     it("says which machines are ready for the minutes asked for, and offers the best of those", async () => {
-      await offer("pc-1", { available: true, ...REPORT, price: 300 });
+      await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
       await offer("pc-2", {
         available: true,
         ...REPORT,

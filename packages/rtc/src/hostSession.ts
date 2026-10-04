@@ -3,6 +3,7 @@
 // code, the browser shows a picker); everything from here down is identical.
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► input channels ──► offer ──► answer
+//   launch-game (the renter's first frame) ──► launchGame(appid) ──► game-started
 //
 // With `serveClaims`, it also stands in for the PC service of
 // docs/system-design/session-keys.md: on `session-claimed` it starts that
@@ -76,6 +77,15 @@ export type HostSessionOptions = IceConfig & {
    * nothing, and neither does a refused credential: onDenied says that.
    */
   onConnection?: (state: HostConnection) => void;
+  /**
+   * Launch Steam game `appid`: the renter's first frame arrived and the session
+   * started. Answered with `game-started` once it resolves; a rejection sends
+   * nothing, and the renter's page shows the stream once it stops waiting.
+   * Called again for every start the renter's page makes, so it must be
+   * idempotent. Without it, nothing is launched and the answer is immediate:
+   * the screen being shared is already what the renter came for.
+   */
+  launchGame?: (appid: number) => Promise<void> | void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -254,6 +264,18 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         if (opts.serveClaims && !claim) serve(next);
         break;
       }
+      case "launch-game":
+        void Promise.resolve()
+          .then(() => opts.launchGame?.(msg.appid))
+          .then(
+            () => send({ type: "game-started" }),
+            (cause: unknown) =>
+              console.warn(
+                "[swiff] could not launch the game:",
+                cause instanceof Error ? cause.message : cause,
+              ),
+          );
+        break;
       case "peer-joined":
         opts.onPeerHere(true);
         void offerTo(send);

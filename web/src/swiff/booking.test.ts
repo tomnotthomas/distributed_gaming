@@ -6,6 +6,7 @@ import {
   endBooking,
   followBooking,
   resumeBooking,
+  storedPlay,
   watchBooking,
   type Booking,
   type BookingStatus,
@@ -383,6 +384,28 @@ describe("following a booking to its claim", () => {
     expect(server.made().filter((c) => c.endsWith("/claim"))).toHaveLength(1);
     expect(chime).not.toHaveBeenCalled();
     expect(stream.closed).toBe(true);
+  });
+
+  it("keeps the claimed booking as the one being played, with its room and ticket, until it is ended", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
+    const server = routes({
+      "POST /api/bookings/b-1/claim": json(200, TICKET),
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    follow(booking("matched", 1_000), server);
+    await settle();
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+    expect(storedPlay()).toEqual({ bookingId: "b-1", claim: TICKET });
+
+    await endBooking("b-1", { fetch: server.fetch });
+    expect(storedPlay()).toBeNull();
+  });
+
+  it("reads no play from what is not one", () => {
+    localStorage.setItem("swiff.play", "{not json");
+    expect(storedPlay()).toBeNull();
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1" }));
+    expect(storedPlay()).toBeNull();
   });
 
   it("claims a queued booking when the open stream pushes its match", async () => {

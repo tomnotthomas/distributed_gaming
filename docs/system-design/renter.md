@@ -61,10 +61,13 @@ one session per machine.
 4. The page claims the reserved PC (booking `claimed`).
 5. The gaming PC starts the streamer and Steam in the separate Windows account and locks
    the PC.
-6. The renter plays.
+6. The page joins the PC's room and plays its stream; on the first frame it starts the
+   session (booking `playing`) and the PC launches the game.
+7. The renter plays, and ends the session with End.
 
 Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
 booking the moment it hears of the match, over its event stream or its fallback poll.
+Steps 4 to 6 are Ignition on the page; see "Playing" below.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
@@ -295,6 +298,15 @@ POST /bookings/:id/end
   → 409 { error, status } once the booking is over (ended or expired).
   → 404 for an unknown booking or another renter's.
 
+POST /sessions/:id/start
+  → 200 { sessionId, roomId }
+  The renter's first frame arrived: starts the session, with the join ticket as bearer,
+  if it has not started yet (booking `playing`; the time played is counted from here),
+  and tells the PC serving it to launch the game booked (`launch-game`, below). Sent
+  again on each new connection's first frame, which tells the PC again. The PC's own
+  start (host.md) takes the machine key instead. → 403 for another session's ticket,
+  → 409 once the session is over.
+
 POST /sessions/:id/qos
   { fps, bitrate, rttMs, packetLoss }
   Report stream quality during the session, with the join ticket as bearer, and once
@@ -432,6 +444,8 @@ The wire format lives in `server/src/protocol.ts`.
 | `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                              |
 | `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry. |
 | `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                     |
+| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).              |
+| `game-started`             | PC → renter      | The PC's answer to `launch-game`: the game runs. Relayed like `offer`.                                   |
 | `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                           |
 
 ### Room access
@@ -486,3 +500,31 @@ credentials it mints itself (`server/src/ice.ts`).
 | Video track   | PC → renter | The screen, 1080p60               |
 | Audio track   | PC → renter | The machine's sound, Opus stereo  |
 | Data channels | renter → PC | Mouse, keyboard and gamepad input |
+
+### Playing
+
+The stream plays inside Swiff (`web/src/swiff/play.ts` over `@swiff/rtc`'s renter
+session, the one `/rtc` plays too). Launch is a held press of 600 ms. From then until the
+game is on screen, Ignition names each step and moves on what actually happened, not on a
+clock, each step with a timeout of its own:
+
+| Step                 | Done when                                | Timeout                                                                                 |
+| -------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| Reserving a machine  | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                      |
+| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another machine                               |
+| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above |
+| Launching _the game_ | the first frame and `game-started`, both | 90 s: the stream is shown anyway                                                        |
+
+The claim's room and ticket are kept in `localStorage` as the booking being played until
+it ends. The stream's video is on the page, under Ignition, from the claim on, so its
+first frame can arrive while Ignition is up; that frame starts the session (POST
+/sessions/:id/start), and it is counted then as `session_started`. Try another machine
+ends the booking and launches on the best other free machine on the list, or goes back to
+the list when there is none. Cancel ends the booking.
+
+The session's HUD reads `getStats` once a second: frames per second, round trip, bitrate,
+and whether the stream goes direct or through the relay. It hides 3 s after the pointer
+last moved over the stream (movement while the stream holds the pointer is the game's) and
+comes back when it moves. Full screen puts the session on the whole screen; End ends the
+booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
+session every key, Escape and a controller's B included, goes to the game.

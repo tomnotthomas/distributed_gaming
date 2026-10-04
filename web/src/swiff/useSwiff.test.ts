@@ -1,7 +1,10 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { storedPlay } from "./booking";
 import { GAMES } from "./data";
+import { WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
@@ -10,6 +13,36 @@ import { isDemo, useSwiff } from "./useSwiff";
 
 // Analytics are off in tests; the real module refuses to load without a key in dev.
 vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
+
+/** The renter sessions the page started, each driven by the test: what it joined with, its events, its end. */
+const rtc = vi.hoisted(() => ({
+  sessions: [] as {
+    options: RenterSessionOptions;
+    emit: (event: RenterSessionEvent) => void;
+    ended: boolean;
+  }[],
+}));
+vi.mock("@swiff/rtc", () => ({
+  startRenterSession: (options: RenterSessionOptions) => {
+    const listeners = new Set<(event: RenterSessionEvent) => void>();
+    const session = {
+      options,
+      ended: false,
+      emit: (event: RenterSessionEvent) => listeners.forEach((fn) => fn(event)),
+    };
+    rtc.sessions.push(session);
+    return {
+      on: (listener: (event: RenterSessionEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      stats: () => null,
+      end: () => {
+        session.ended = true;
+      },
+    };
+  },
+}));
 
 /** What /api/me answers without a Steam Web API key: the session's Steam id, an empty profile. */
 const unnamed: Renter = {
@@ -138,6 +171,7 @@ describe("useSwiff", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    rtc.sessions = [];
   });
 
   it("is the demo only at ?demo=1", () => {
@@ -332,6 +366,98 @@ describe("useSwiff", () => {
       expect(body).toMatchObject({ gameId: cs2.appid, minutes: 180, machineId: "h1" });
       expect(body.rtts).toEqual({ server: expect.any(Number) });
       expect(result.current.phase).toBe("connecting");
+    });
+
+    it("plays the claimed stream behind Ignition, step by step, and ends the session with End", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a machine");
+
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      // Kept as the booking being played, for a reload to rejoin.
+      expect(storedPlay()).toEqual({ bookingId: "b-1", claim: TICKET });
+      const video = document.createElement("video");
+      act(() => result.current.attachVideo(video));
+      expect(rtc.sessions).toHaveLength(1);
+      const session = rtc.sessions[0]!;
+      expect(session.options).toMatchObject({ url: "ws://localhost", ticket: "t", video });
+      const step = () => result.current.ignitionSteps[result.current.ignitionIndex];
+      expect(step()).toBe("Waking Basement rig");
+
+      act(() => session.emit({ type: "peer-connection", pc: {} as RTCPeerConnection }));
+      expect(step()).toBe("Negotiating stream");
+      act(() => session.emit({ type: "connected" }));
+      expect(step()).toBe("Launching Counter-Strike 2");
+      act(() => session.emit({ type: "first-frame" }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/sessions/s-1/start"));
+      expect(result.current.phase).toBe("connecting");
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+
+      act(() => result.current.endSession());
+      expect(result.current.phase).toBe("idle");
+      expect(session.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("cancels a launch by ending its booking and hanging up", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+
+      act(() => result.current.goHome());
+      expect(result.current.phase).toBe("idle");
+      expect(rtc.sessions[0]!.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("offers another machine when the PC takes too long to wake, and launches on it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        expect(result.current.slow).toBe(false);
+
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+        expect(result.current.phase).toBe("connecting");
+
+        act(() => result.current.tryAnother());
+        expect(rtc.sessions[0]!.ended).toBe(true);
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        expect(result.current.picked?.id).toBe("h2");
+        expect(result.current.phase).toBe("connecting");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("books with how the renter plays, as their list was read", async () => {

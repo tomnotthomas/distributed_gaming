@@ -20,6 +20,11 @@
 //       |         ice  <-------- relayed both ways -------->  ice
 //       |                          |                            |
 //       |======== WebRTC, peer to peer, not through here =======|
+//       |                          |   first frame: POST        |
+//       |      launch-game         |   /api/sessions/:id/start  |
+//       |<-------------------------|<---------------------------|
+//       |      game-started        |        game-started        |
+//       |------------------------->|--------------------------->|
 //
 // A room is one gaming PC. Only that machine, holding its machine key, may
 // register it; only a renter holding a ticket for it may join, and only one
@@ -128,6 +133,7 @@ const serveApi = createApi({
   fallbackOrigin: `http://localhost:${PORT}`,
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
+  onRenterStarted: pushLaunch,
 });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
@@ -344,6 +350,20 @@ function evictStreamer(hostId: string, sessionId: string): void {
 function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
   const host = rooms.get(hostId)?.host;
   if (host?.sessionId === null) send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
+}
+
+/**
+ * The renter's first frame arrived and their page started the session: tell
+ * the host serving it to launch the game. The streamer registered for that
+ * session hears it, or a host registered with the machine key that streams
+ * itself; never a streamer for another session. A host not in the room misses
+ * it, and the renter's page shows the stream once it stops waiting.
+ */
+function pushLaunch(hostId: string, sessionId: string, appid: number): void {
+  const host = rooms.get(hostId)?.host;
+  if (host && (host.sessionId === null || host.sessionId === sessionId)) {
+    send(host, { type: "launch-game", sessionId, appid });
+  }
 }
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
