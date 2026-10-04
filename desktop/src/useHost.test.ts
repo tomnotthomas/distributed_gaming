@@ -104,6 +104,8 @@ function fakeBridge(idle = 600): HostBridge {
     }),
     readSteam: vi.fn(async (): Promise<SteamRead> => STEAM_READY),
     installSteam: vi.fn(async () => null),
+    readRental: vi.fn(async () => null),
+    planRental: vi.fn(async () => null),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),

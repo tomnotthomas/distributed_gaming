@@ -45,6 +45,8 @@
       "pc.cjs",
       "steam.cjs",
       "probe.cjs",
+      "rental.cjs",
+      "gpt.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
       "dist/**"

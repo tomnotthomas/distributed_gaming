@@ -20,6 +20,7 @@ import {
   saveUrl,
   toSocketUrl,
 } from "./settings";
+import { useRental } from "./useRental";
 import { useScreenShare } from "./useScreenShare";
 import { useSteam } from "./useSteam";
 
@@ -85,6 +86,7 @@ export function useHost(): Host {
     onChanged: () => setReads((n) => n + 1),
   });
   const demand = useDemand({ url, machineId, machineKey });
+  const rental = useRental();
 
   // --- the games offered: every installed game the owner has not turned off
   const [notOffered, setNotOffered] = useState(loadNotOffered);
@@ -276,6 +278,7 @@ export function useHost(): Host {
     pc: { reading, hardware: pc ? { ...pc.hardware, upMbps } : null, hardwareRate: null },
     games: { installed, offered, demand: demand && demandRows(demand, installed), near: null },
     steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
+    rental: { reading: rental.reading, read: rental.read, target: rental.target, preview: rental.preview },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -343,6 +346,10 @@ export function useHost(): Host {
       savePayout: () => {},
       installSteam: steam.installSteam,
       askInstall: steam.askInstall,
+      checkRental: rental.check,
+      chooseRentalTarget: rental.choose,
+      previewRental: rental.plan,
+      closeRentalPreview: rental.close,
     },
   };
 }

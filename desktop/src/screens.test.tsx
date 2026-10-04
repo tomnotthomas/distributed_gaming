@@ -4,6 +4,8 @@ import { DemoApp, Shell } from "./App";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
 import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
 import { HOLD_MS } from "./ui/hold";
+import { installPlan, rentalOf, TYPE } from "../rental.cjs";
+import FACTS from "./test/rental-facts.json";
 
 const FAKE = [
   "setTimeout",
@@ -59,6 +61,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       installs: [],
       asked: [],
     },
+    rental: { reading: false, read: null, target: null, preview: null },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -96,6 +99,10 @@ function actions(): HostActions {
     savePayout: vi.fn(),
     installSteam: vi.fn(),
     askInstall: vi.fn(),
+    checkRental: vi.fn(),
+    chooseRentalTarget: vi.fn(),
+    previewRental: vi.fn(),
+    closeRentalPreview: vi.fn(),
   };
 }
 
@@ -131,6 +138,7 @@ describe("demo", () => {
     pc: "Reading this PC",
     steam: "Steam is ready",
     games: "Choose the games you offer",
+    rental: "One change in the BIOS",
     golive: "Ready to share",
     waiting: "Waiting for a player",
     streaming: "Elden Ring",
@@ -556,6 +564,106 @@ describe("getting Steam ready", () => {
     expect(screen.queryByLabelText("Install any game you own")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Install Steam first" })[0]!);
     expect(go).toHaveBeenCalledWith("steam");
+  });
+});
+
+describe("rental mode", () => {
+  const GiB = 1024 ** 3;
+  /** The fixture PC's rental read, with `change` applied to its raw facts. */
+  const read = (change: (raw: typeof FACTS) => object = (raw) => raw) =>
+    rentalOf(change(structuredClone(FACTS)), [{ letter: "C", games: 2 }]);
+  const rental = (more: Partial<HostView["rental"]> = {}): Partial<HostView> => ({
+    rental: { reading: false, read: read(), target: null, preview: null, ...more },
+  });
+  const installed = () =>
+    read((raw) => ({
+      ...raw,
+      bootEntry: "{6a1f3c2e-0d4b-4e8a-9f7c-2b1d3e4f5a60}",
+      partitions: [
+        ...raw.partitions,
+        { disk: 0, number: 6, letter: "", type: TYPE.root, offset: 0, size: 8 * GiB },
+      ],
+    }));
+
+  it("checks this PC first, without changing anything", () => {
+    renderReal("rental", off, rental({ reading: true, read: null }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Checking this PC");
+    expect(screen.queryByRole("button", { name: /Review the install/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a ready PC's checks, and previews the install from one button", () => {
+    const acts = renderReal("rental", off, rental());
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
+    expect(screen.getByText("10 of 10")).toBeInTheDocument();
+    expect(screen.getByText("2.0, in the processor (AMD fTPM)")).toBeInTheDocument();
+    expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
+    expect(screen.getByText("On: Swiff turns it off")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rental mode Ready to install" })).toBeInTheDocument();
+    expectNoDemoData();
+    fireEvent.click(screen.getByRole("button", { name: /Review the install/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("install");
+  });
+
+  it("shows the install as a preview, with its exact commands when asked", () => {
+    const acts = renderReal("rental", off, rental({ preview: installPlan(read()) }));
+    expect(screen.getByText("Shrink C: by 24 GB")).toBeInTheDocument();
+    expect(screen.getByText("Add Swiff OS to the PC's boot menu, after Windows")).toBeInTheDocument();
+    expect(screen.getByText(/nothing on this PC has been changed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Resize-Partition/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show the commands" }));
+    expect(screen.getByText(/Resize-Partition -DiskNumber 0 -PartitionNumber 3/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
+  });
+
+  it("lists the BIOS changes Swiff cannot make, and checks again when asked", () => {
+    const acts = renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0 })) }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
+    expect(screen.getByText("Turn on Secure Boot.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+  });
+
+  it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {
+    const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: read((raw) => ({ ...raw, disks: [...raw.disks, second] })) }),
+    );
+    expect(screen.getByRole("radio", { name: /Disk 1/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
+    expect(acts.chooseRentalTarget).toHaveBeenCalledWith("shrink:C");
+  });
+
+  it("switches, once installed: going live and back to Windows, as previews", () => {
+    const acts = renderReal("rental", off, rental({ read: installed() }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
+    fireEvent.click(screen.getByRole("button", { name: "Go live" }));
+    expect(acts.previewRental).toHaveBeenCalledWith("start");
+    fireEvent.click(screen.getByRole("button", { name: "Back to Windows" }));
+    expect(acts.previewRental).toHaveBeenCalledWith("stop");
+  });
+
+  describe("from Go live", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: [...FAKE] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("restarts into rental mode once installed, shown as a preview", () => {
+      const host: Host = { view: realView(off, rental({ read: installed() })), actions: actions() };
+      const go = vi.fn();
+      render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} />);
+      expect(screen.getByText(/restarts into rental mode/)).toBeInTheDocument();
+      hold(screen.getByRole("button", { name: "Hold to go live" }));
+      expect(host.actions.previewRental).toHaveBeenCalledWith("start");
+      expect(host.actions.goLive).not.toHaveBeenCalled();
+      expect(go).toHaveBeenCalledWith("rental");
+    });
   });
 });
 
