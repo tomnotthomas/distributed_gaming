@@ -530,6 +530,80 @@ describe("the owner taking the PC back (D8)", () => {
     expect(server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
   });
 
+  it("refuses before the reset's heartbeat shows whether a renter claimed it, and serves the one who did", async () => {
+    const h = harness();
+    const answers: ReturnType<Agent["requestReturnToWindows"]>[] = [];
+    const heartbeat = h.server.api.heartbeat;
+    h.server.api.heartbeat = async () => {
+      if (phase(h.agent) === "resetting") answers.push(h.agent.requestReturnToWindows());
+      return heartbeat();
+    };
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    h.server.endSession();
+    h.server.claim("s2");
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("reset");
+    expect(answers).toEqual([{ ok: false, reason: "session-live" }]);
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(h.server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
+  });
+
+  it("refuses before the reset's heartbeat answers, and goes back to Windows when asked once it shows no claim", async () => {
+    const h = harness();
+    const answers: ReturnType<Agent["requestReturnToWindows"]>[] = [];
+    const heartbeat = h.server.api.heartbeat;
+    h.server.api.heartbeat = async () => {
+      if (phase(h.agent) === "resetting") answers.push(h.agent.requestReturnToWindows());
+      return heartbeat();
+    };
+    const setAvailability = h.server.api.setAvailability;
+    h.server.api.setAvailability = async (available, until) => {
+      if (phase(h.agent) === "resetting") answers.push(h.agent.requestReturnToWindows());
+      return setAvailability(available, until);
+    };
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    h.server.endSession();
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("windows");
+    expect(answers).toEqual([{ ok: false, reason: "session-live" }, { ok: true }]);
+    expect(h.system).toEqual({ reboots: 0, windows: 1 });
+  });
+
+  it("refuses while its reset again cannot reach the server, and goes back to Windows when asked once it shows no claim", async () => {
+    const server = fakeServer();
+    const answers: ReturnType<Agent["requestReturnToWindows"]>[] = [];
+    let offline = 3;
+    const heartbeat = server.api.heartbeat;
+    const h = harness(server, { served: "boot-now" });
+    server.api.heartbeat = async () => {
+      if (phase(h.agent) === "resetting" && offline > 0) {
+        offline--;
+        answers.push(h.agent.requestReturnToWindows());
+        throw new TypeError("fetch failed");
+      }
+      return heartbeat();
+    };
+    const setAvailability = server.api.setAvailability;
+    server.api.setAvailability = async (available, until) => {
+      if (phase(h.agent) === "resetting") answers.push(h.agent.requestReturnToWindows());
+      return setAvailability(available, until);
+    };
+    expect(await h.running).toBe("windows");
+    expect(answers).toEqual([
+      { ok: false, reason: "session-live" },
+      { ok: false, reason: "session-live" },
+      { ok: false, reason: "session-live" },
+      { ok: true },
+    ]);
+    expect(h.system).toEqual({ reboots: 0, windows: 1 });
+  });
+
   it("with takeover set to always, ends the live session as the owner's and goes back to Windows", async () => {
     const h = harness(fakeServer(), { ownerTakeover: "always" });
     await until(() => phase(h.agent) === "offered", "the offer");

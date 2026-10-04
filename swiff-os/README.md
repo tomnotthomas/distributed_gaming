@@ -57,7 +57,8 @@ defaults:
   session is live; a request during a session is refused. A request is also refused
   while the PC resets with a renter who claimed it as the last session ended: that
   renter is served after the restart, and the owner can ask again once the PC is idle.
-  The request is not kept across the reboot. Set it to `"always"` to end
+  Until the reset's heartbeat has answered, whether such a renter exists is unknown, so
+  a request is refused then too. The request is not kept across the reboot. Set it to `"always"` to end
   the session as the owner taking the machine back.
 - **D3 `HARDWARE_FLOOR`.** The agent does not offer the PC unless it has UEFI, Secure
   Boot on, a TPM 2.0 and an IOMMU. The server's verifier, in the attestation stage, judges

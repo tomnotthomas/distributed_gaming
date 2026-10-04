@@ -109,7 +109,7 @@ export function createAgent(deps: AgentDeps): Agent {
   let unmet: FloorCheck[] = [];
   /** The owner asked for the PC back, and it goes as soon as no session is live. */
   let returnWanted = false;
-  /** A renter claimed the PC while it resets: they are served after the restart, so the owner waits. */
+  /** A renter may have claimed the PC while it resets (unknown until its heartbeat answers): the owner waits. */
   let claimPending = false;
 
   const inbox = createInbox<Event>();
@@ -315,6 +315,7 @@ export function createAgent(deps: AgentDeps): Agent {
   /** After a session: off offer at once, end the host session, restart clean. */
   async function reset(endedId: string, toWindows: boolean): Promise<Outcome> {
     phase = "resetting";
+    claimPending = true;
     const view = await beat();
     const claimed = view?.session && view.session.id !== endedId ? view.session.id : null;
     claimPending = claimed !== null;
@@ -345,6 +346,7 @@ export function createAgent(deps: AgentDeps): Agent {
   async function resetAgain(): Promise<Outcome> {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
+    claimPending = true;
     const view = await beatUntilAnswered();
     claimPending = !!view.session;
     if (!view.session && sharing(view) && !returnWanted) await offOfferForReset(view);
