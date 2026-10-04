@@ -11,7 +11,8 @@ import type { Swiff } from "./useSwiff";
  * the game. Each step ends on what actually happened on the connection
  * (play.ts); the dial, the percentage and the legend follow it, eased between
  * steps. A step that takes too long says so and offers another machine.
- * Cancel ends the booking. It is modal: Swiff.tsx makes the page behind it
+ * Cancel ends the booking; once the session has started it reads End. Nothing
+ * of the stream shows until the PC says the game runs. It is modal: Swiff.tsx makes the page behind it
  * inert, and focus moves to Cancel while it is up and back to where it was
  * when it closes.
  */
@@ -77,7 +78,8 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
           </div>
         </div>
         <button type="button" className="lpill ig-cancel" onClick={swiff.goHome} ref={cancel}>
-          Cancel
+          {/* Once the session's clock runs, leaving ends a session rather than a launch. */}
+          {swiff.play?.started ? "End" : "Cancel"}
           <span className="lpill-c">
             <Glyph name="close" size={18} />
           </span>

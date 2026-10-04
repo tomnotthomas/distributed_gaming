@@ -9,9 +9,10 @@
 // clock, and each has a timeout of its own: the PC that never offers is slow
 // (60 s: the renter is offered another machine), a connection that does not
 // come up is retried through TURN (20 s, then it is slow too), and a game that
-// never says it runs is shown anyway (90 s), once the server has taken the
-// session start. Reserving a machine comes before
-// all of this, while the booking is made: it is the page's, not the stream's.
+// has not said it runs in 90 s is slow too. Nothing but Ignition shows until
+// the PC says the game runs: the frames before it are the PC's desktop or
+// Steam, which the renter never sees. Reserving a machine comes before all of
+// this, while the booking is made: it is the page's, not the stream's.
 //
 // The stream itself is @swiff/rtc's renter session, the same one /rtc plays;
 // this only turns its events into Ignition's steps and the HUD's numbers.
@@ -27,7 +28,7 @@ export type IgnitionStep = (typeof IGNITION_STEPS)[number];
 export const WAKE_TIMEOUT_MS = 60_000;
 /** How long a connection has to come up before it is tried again through TURN, and then called slow. */
 export const NEGOTIATE_TIMEOUT_MS = 20_000;
-/** How long the game has to say it runs before the stream is shown anyway, once the session has started. */
+/** How long the game has to say it runs before the launch is slow: Ignition stays, and offers another machine. */
 export const LAUNCH_TIMEOUT_MS = 90_000;
 /** How long a session start lost on the network or the server waits before it is tried again. */
 export const START_RETRY_MS = 2_000;
@@ -66,6 +67,8 @@ export type PlayState = {
   muted: boolean;
   /** The server refused the ticket: the session is over. */
   denied: boolean;
+  /** The server took the session start: its clock runs, so leaving ends a session. */
+  started: boolean;
 };
 
 export type PlayOptions = {
@@ -92,8 +95,9 @@ export type Play = {
 /**
  * Join the claimed room, play its stream into `video`, and report Ignition's
  * steps as they happen. On the first frame the session is started with the
- * join ticket, which has the PC launch the game; it is live once the PC says
- * the game runs, or once LAUNCH_TIMEOUT_MS has passed with a frame or without.
+ * join ticket, which has the PC launch the game; it is live once it has a
+ * frame and the PC says the game runs, never before: a launch past
+ * LAUNCH_TIMEOUT_MS stays on Ignition and is slow.
  */
 export function startPlay(opts: PlayOptions): Play {
   const { claim, video, onChange, onFirstFrame } = opts;
@@ -109,6 +113,7 @@ export function startPlay(opts: PlayOptions): Play {
     stats: null,
     muted: false,
     denied: false,
+    started: false,
   };
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -116,9 +121,6 @@ export function startPlay(opts: PlayOptions): Play {
   let framed = false;
   let gameStarted = false;
   let counted = false;
-  // The server took the session start: the clock runs and the PC was told to launch.
-  let started = false;
-  let launchTimedOut = false;
   let startRetry: ReturnType<typeof setTimeout> | undefined;
 
   const set = (next: Partial<PlayState>) => {
@@ -129,17 +131,11 @@ export function startPlay(opts: PlayOptions): Play {
   /** Move to `step`, with its own timeout armed. */
   const enter = (step: PlayState["step"]) => {
     clearTimeout(timer);
-    launchTimedOut = false;
     set({ step, since: now(), slow: false });
     if (step === "waking") timer = setTimeout(() => set({ slow: true }), WAKE_TIMEOUT_MS);
     if (step === "negotiating") armNegotiate();
-    if (step === "launching") {
-      // Shown anyway once the session has started; until then the launch is slow.
-      timer = setTimeout(() => {
-        launchTimedOut = true;
-        if (!maybeLive()) set({ slow: true });
-      }, LAUNCH_TIMEOUT_MS);
-    }
+    // Never shown anyway: what the PC captures before its game runs is its desktop.
+    if (step === "launching") timer = setTimeout(() => set({ slow: true }), LAUNCH_TIMEOUT_MS);
   };
 
   /** A connection that does not come up is tried once more through TURN, then called slow. */
@@ -153,16 +149,9 @@ export function startPlay(opts: PlayOptions): Play {
     }, NEGOTIATE_TIMEOUT_MS);
   };
 
-  /**
-   * The stream is shown on the first frame with the game running, or, past
-   * LAUNCH_TIMEOUT_MS, once the server has taken the session start: a start it
-   * never took counts no time and launches no game, so it is never live.
-   */
+  /** The stream is shown once it has a frame and the PC says the game runs, and not before. */
   const maybeLive = () => {
-    if (state.step === "live") return true;
-    if (!(framed && gameStarted) && !(launchTimedOut && started)) return false;
-    enter("live");
-    return true;
+    if (framed && gameStarted && state.step !== "live") enter("live");
   };
 
   /**
@@ -174,7 +163,7 @@ export function startPlay(opts: PlayOptions): Play {
   const startSession = () => {
     clearTimeout(startRetry);
     const retry = () => {
-      if (!stopped && !started) startRetry = setTimeout(startSession, START_RETRY_MS);
+      if (!stopped && !state.started) startRetry = setTimeout(startSession, START_RETRY_MS);
     };
     void get(`/api/sessions/${encodeURIComponent(claim.sessionId)}/start`, {
       method: "POST",
@@ -182,8 +171,7 @@ export function startPlay(opts: PlayOptions): Play {
     }).then((response) => {
       if (stopped) return;
       if (response.ok) {
-        started = true;
-        if (state.step === "launching") maybeLive();
+        if (!state.started) set({ started: true });
         return;
       }
       if (response.status >= 400 && response.status < 500) {
