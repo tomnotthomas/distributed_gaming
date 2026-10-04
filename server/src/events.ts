@@ -23,9 +23,11 @@
 //       |  GET /api/availability?appids=…   |  went busy, came free or went offline
 //       |---------------------------------->|
 //
-// An open stream is not presence by itself: a sleeping laptop's stream can
-// stay open, through Cloudflare, long after its page stopped running. The
-// renter is there only while the page speaks: the open, then its heartbeat.
+// An open stream does not keep a queued booking in the queue: a sleeping
+// laptop's stream can stay open, through Cloudflare, long after its page
+// stopped running, so for that the renter is there only while the page
+// speaks: the open, then its heartbeat. A renter whose stream is open at the
+// match is there for it, though: their claim clock starts at the match.
 //
 // One-way plain HTTP, so it passes Cloudflare as it is, and the browser's
 // EventSource reconnects by itself. Each booking event carries the whole
@@ -216,7 +218,9 @@ export function createRenterEvents(
       let open = streams.get(bookingId);
       if (!open) streams.set(bookingId, (open = new Set()));
       const mine = open;
+      const unwatch = platform.watchBooking(bookingId);
       hold(res, renterId, until, mine, () => {
+        unwatch();
         if (!mine.size && streams.get(bookingId) === mine) streams.delete(bookingId);
       });
       sendBooking(res, booking);

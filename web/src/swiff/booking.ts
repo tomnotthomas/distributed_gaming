@@ -19,7 +19,9 @@
 // out of sight. An open page is the renter being there, so a match is claimed
 // whether the stream pushes it or the slow poll that stands in while the stream
 // is down finds it. A renter whose page is closed is away, and nothing is
-// claimed until they come back, within the server's two minutes.
+// claimed until they come back: the server holds a machine matched meanwhile
+// for up to two minutes from the match, and starts the claim's 60 s when the
+// page reopens its stream, so the page claims it then with the time restored.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";

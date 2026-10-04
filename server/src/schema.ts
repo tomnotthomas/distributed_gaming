@@ -137,6 +137,15 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE bookings ADD COLUMN controls TEXT`,
     `ALTER TABLE bookings ADD COLUMN picture TEXT`,
   ],
+  [
+    // When the reservation was made. Its renter's claim clock starts at their
+    // first contact since then, so expires_at is no longer the match plus a
+    // fixed window; one made before this was kept had its clock start at the
+    // match.
+    `ALTER TABLE reservations ADD COLUMN matched_at BIGINT`,
+    `UPDATE reservations SET matched_at = expires_at - 60000`,
+    `ALTER TABLE reservations ALTER COLUMN matched_at SET NOT NULL`,
+  ],
 ];
 
 /**

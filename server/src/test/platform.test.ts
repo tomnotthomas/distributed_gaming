@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { Database } from "../db.js";
 import {
   LIVENESS_MS,
+  MAX_HOLD_MS,
   Platform,
   QOS_GRACE_MS,
   QUEUE_TIMEOUT_MS,
@@ -267,25 +268,6 @@ describe("queue timeout", () => {
     assert.equal((await platform.booking(bookingId))!.status, "matched");
   });
 
-  it("keeps the booking of a renter who was away while its reservation lapsed", async () => {
-    await offer("pc-1");
-    const first = await platform.claim((await platform.book(730, 30)).bookingId);
-    assert.ok(first.ok);
-    const { bookingId } = await platform.book(730, 30); // the renter's laptop sleeps
-    const behind = await platform.book(570, 30);
-
-    await beatFor("pc-1", 10_000);
-    await platform.endSession("pc-1", first.sessionId); // pc-1 frees while they are away
-    assert.equal((await platform.booking(behind.bookingId))!.status, "queued");
-    await beatFor("pc-1", RESERVATION_MS); // and the reservation lapses unclaimed
-
-    const back = (await platform.booking(bookingId))!; // back inside 2 minutes
-    assert.equal(back.status, "matched");
-    assert.equal(back.machine?.id, "pc-1");
-    assert.equal((await platform.booking(behind.bookingId))!.status, "queued");
-    assert.ok((await platform.claim(bookingId)).ok);
-  });
-
   it("expires the booking of a renter who saw the match and let it lapse, and serves the next", async () => {
     await offer("pc-1");
     const first = await platform.claim((await platform.book(730, 30)).bookingId);
@@ -301,6 +283,78 @@ describe("queue timeout", () => {
 
     assert.equal((await platform.booking(bookingId))!.status, "expired");
     const next = (await platform.booking(behind.bookingId))!;
+    assert.equal(next.status, "matched");
+    assert.equal(next.machine?.id, "pc-1");
+  });
+});
+
+describe("the claim clock of a renter away at the match", () => {
+  /** A booking queued at its renter's last contact and matched to pc-1 `awayMs` later, with the tab closed. */
+  const matchedAway = async (awayMs = 30_000) => {
+    await platform.hostConnected("pc-1");
+    const { bookingId } = await platform.book(730, 30, "steam:1");
+    now += awayMs;
+    await offer("pc-1");
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    return { bookingId, matchedAt: now };
+  };
+
+  it("runs 60 s from the match for a renter there at the match, however often they check", async () => {
+    await platform.hostConnected("pc-1");
+    const { bookingId } = await platform.book(730, 30, "steam:1");
+    now += 10_000;
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.status, "queued"); // the page's heartbeat
+    await offer("pc-1");
+    const matchedAt = now;
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.claimBy, matchedAt + RESERVATION_MS);
+
+    await advance(15_000);
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.claimBy, matchedAt + RESERVATION_MS);
+    await advance(RESERVATION_MS - 15_000);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "expired");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+  });
+
+  it("holds the machine for a renter away at the match, and starts their 60 s when they are back", async () => {
+    const { bookingId, matchedAt } = await matchedAway();
+    assert.equal((await platform.viewBooking(bookingId))!.claimBy, matchedAt + MAX_HOLD_MS);
+
+    await advance(50_000); // back with 10 s left of a clock started at the match
+    const back = (await platform.booking(bookingId, "steam:1"))!;
+    assert.equal(back.status, "matched");
+    assert.equal(back.claimBy, now + RESERVATION_MS);
+    await advance(30_000);
+    assert.equal(
+      (await platform.booking(bookingId, "steam:1"))!.claimBy,
+      back.claimBy,
+      "only the first contact starts it",
+    );
+    assert.ok((await platform.claim(bookingId, "steam:1")).ok);
+  });
+
+  it("never runs past 2 minutes from the match for a renter back late", async () => {
+    const { bookingId, matchedAt } = await matchedAway();
+    await advance(100_000);
+    assert.equal((await platform.booking(bookingId, "steam:1"))!.claimBy, matchedAt + MAX_HOLD_MS);
+
+    await advance(MAX_HOLD_MS - 100_000 - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    await advance(1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "expired");
+    assert.equal((await platform.heartbeat("pc-1")).status, "available");
+  });
+
+  it("lets the machine go to the next in line 2 minutes after the match when the renter never comes back", async () => {
+    const { bookingId, matchedAt } = await matchedAway();
+    assert.equal(await platform.nextDeadline(), matchedAt + MAX_HOLD_MS);
+    const behind = await platform.book(730, 30, "steam:2");
+
+    await advance(MAX_HOLD_MS - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    assert.equal((await platform.booking(behind.bookingId, "steam:2"))!.status, "queued");
+    await advance(1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "expired");
+    const next = (await platform.viewBooking(behind.bookingId))!;
     assert.equal(next.status, "matched");
     assert.equal(next.machine?.id, "pc-1");
   });
@@ -770,18 +824,19 @@ describe("booking a picked machine", () => {
     assert.equal(await bookingCount(), 1);
   });
 
-  it("serves the queue first: a booking back in the queue gets the machine before a renter picking it", async () => {
-    const waiting = await platform.book(730, 30, "steam:1");
-    now += 1_000;
-    await offer("pc-1");
+  it("serves the queue first: a waiting booking gets a machine come free before a renter picking it", async () => {
     await platform.hostConnected("pc-1");
-    assert.equal((await platform.viewBooking(waiting.bookingId))!.machine?.id, "pc-1");
-    // Its renter was away while the reservation lapsed: back in the queue, and matched again first.
-    now += RESERVATION_MS;
+    await offer("pc-1");
+    const playing = await platform.claim((await platform.book(730, 1, "steam:3")).bookingId, "steam:3");
+    assert.ok(playing.ok);
+    const waiting = await platform.book(730, 30, "steam:1");
+    assert.equal(waiting.status, "queued");
+    // The one-minute session runs out with nothing yet to have noticed: the pick finds pc-1 free.
+    now += 60_000;
     assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:2"), null);
-    const back = (await platform.viewBooking(waiting.bookingId))!;
-    assert.equal(back.status, "matched");
-    assert.equal(back.machine?.id, "pc-1");
+    const served = (await platform.viewBooking(waiting.bookingId))!;
+    assert.equal(served.status, "matched");
+    assert.equal(served.machine?.id, "pc-1");
   });
 
   it("books nothing on a machine that is gone, not free all session, without the game, or the renter's own", async () => {

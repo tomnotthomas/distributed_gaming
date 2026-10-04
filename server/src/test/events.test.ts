@@ -13,7 +13,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { mintRenterSession } from "../access.js";
 import { createApi } from "../api.js";
 import { createRenterEvents, MAX_STREAMS_PER_BOOKING, type RenterEvents } from "../events.js";
-import { Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS } from "../platform.js";
+import { MAX_HOLD_MS, Platform, QUEUE_TIMEOUT_MS, RESERVATION_MS } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { testDatabase } from "./db.js";
 import { REPORT } from "./report.js";
@@ -206,23 +206,41 @@ describe("renter event stream", () => {
     s.close();
   });
 
-  it("puts a match that lapsed while the laptop slept back in the queue in its old place", async () => {
-    const first = (await platform.book(730, 30, RENTER)).bookingId;
-    const s = await stream(`?booking=${first}`);
-    const second = (await platform.book(730, 30, RENTER)).bookingId;
+  it("gives a renter whose stream is open at a match the host made 60 s from it, however often the page beats", async () => {
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    const s = await stream(`?booking=${bookingId}`);
     await platform.hostConnected("pc-1");
-    now += 1_000; // the lid closes: the stream stays open, the page stops beating
+    now += 10_000; // between two beats of the page
     await platform.setAvailability("pc-1", true, REPORT);
     await until(() => s.events.length > 1);
     assert.deepEqual(statuses(s), ["queued", "matched"]);
+    const matchedAt = now;
+    assert.equal(s.events[1]!.data.claimBy, matchedAt + RESERVATION_MS);
 
-    now += RESERVATION_MS;
-    await platform.tick();
-    const again = (await platform.viewBooking(first))!;
-    assert.equal(again.status, "matched", "back in the queue, still first, so matched again");
-    assert.equal(again.claimBy, now + RESERVATION_MS);
-    assert.equal((await platform.viewBooking(second))!.status, "queued");
+    now += 5_000;
+    assert.equal(await seen(bookingId), 204);
+    assert.equal((await platform.viewBooking(bookingId))!.claimBy, matchedAt + RESERVATION_MS);
     s.close();
+  });
+
+  it("holds a match made while the tab was closed, and starts its claim clock when the stream reopens", async () => {
+    const { bookingId } = await platform.book(730, 30, RENTER);
+    await platform.hostConnected("pc-1");
+    now += 1_000; // the tab is closed: no stream, no beat
+    await platform.setAvailability("pc-1", true, REPORT);
+    const matchedAt = now;
+    const held = (await platform.viewBooking(bookingId))!;
+    assert.equal(held.status, "matched");
+    assert.equal(held.claimBy, matchedAt + MAX_HOLD_MS, "held for them meanwhile");
+
+    now += 50_000; // the tab reopens and so does the stream, 10 s before a clock from the match would end
+    const back = await stream(`?booking=${bookingId}`);
+    assert.deepEqual(statuses(back), ["matched"]);
+    assert.equal(back.events[0]!.data.claimBy, now + RESERVATION_MS);
+    now += RESERVATION_MS - 1;
+    await platform.tick();
+    assert.equal((await platform.viewBooking(bookingId))!.status, "matched");
+    back.close();
   });
 
   it("answers the heartbeat with 204, and 404 for an unknown booking", async () => {
