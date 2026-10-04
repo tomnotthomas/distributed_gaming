@@ -223,7 +223,7 @@ POST /bookings
   → 202 { bookingId, status, machine?, claimBy? }
   Request a game for N minutes (at most 720), as the signed-in renter. `rtts` are the
   renter's round trips in ms as the page measured them: `server`, to this server, and
-  `machines`, straight to each machine it probed (at most 50), by id; matching judges each
+  `machines`, through the relay to each machine it probed (at most 50), by id; matching judges each
   machine's latency by them (see "Matching"). Each may be left out. `controls` and
   `picture` are how the renter plays, as `/games/:appid/machines` takes them (a list of
   kb, mouse, pad; best, 4k or 120fps; none and best when left out), → 400 otherwise;
@@ -441,7 +441,7 @@ best response, then picture, then the lowest latency, then the lowest price. The
 and Picture setting are the ones the booking was made with; a booking made without them
 asks for no controls and the best picture.
 Latency is judged by the round trips the booking was made with: one the renter measured
-straight to a machine, else the estimate through the server (their `rtts.server` plus
+through the relay to a machine, else the estimate through the server (their `rtts.server` plus
 the PC's own round trip); a booking with no round trips counts the renter's leg as
 nothing. A machine that never reported its network is never matched. A booking for a
 picked machine skips the queue only for that machine, and only while it is free: a
