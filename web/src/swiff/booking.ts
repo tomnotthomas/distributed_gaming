@@ -254,7 +254,8 @@ export function watchBooking(
     if (stopped) return;
     const done = !booking || DONE.includes(booking.status);
     if (done && storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
-    if (!booking || booking.status === "ended" || booking.status === "expired") forgetPlay(bookingId, storage);
+    if (!booking || booking.status === "ended" || booking.status === "expired")
+      forgetPlay(bookingId, storage);
     onUpdate(booking);
     if (done) stop();
   };
