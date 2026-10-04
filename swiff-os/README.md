@@ -25,11 +25,11 @@ The rental-mode agent: a root systemd service (`hostd/swiff-hostd.service`), and
 host protocol the desktop app already speaks, with no new messages
 ([`host.md`](../docs/system-design/host.md) §5, `server/src/protocol.ts`).
 
-- **Holds the machine key; the streamer never sees it.** The key is in a file only root
-  can read. For each renter session the agent gets a 5-minute session key
-  (`POST /api/machines/:id/session`) and hands it to the streamer on stdin. The streamer
-  runs as its own unprivileged user. Its environment carries only `SWIFF_SERVER_URL`,
-  `SWIFF_HOST_ID` and `SWIFF_APPID`.
+- **Holds the machine key; the streamer never sees it.** The key is in a file root owns
+  and only root can read (mode 600); the agent refuses any other. For each renter
+  session the agent gets a 5-minute session key (`POST /api/machines/:id/session`) and
+  hands it to the streamer on stdin. The streamer runs as its own unprivileged user. Its
+  environment carries only `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`.
 - **One renter at a time.** While the PC is offered, the agent holds the room with the
   machine-key socket and hears `session-claimed`. It then starts that session's host
   session and the streamer. It sends a heartbeat every 5 s, and learns the session is
@@ -74,8 +74,10 @@ SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
 
 The agent runs as TypeScript source on Node 22.18 or later, using Node's own type
 stripping, so there is no build step. The config format is in
-`hostd/hostd.example.json`. `status` and `return-to-windows` talk to the running agent
-over its control socket, which only root can use.
+`hostd/hostd.example.json`. `serverUrl` must be `wss://`, since the machine key rides on
+it; plain `ws://` is accepted only for a server on this machine. `status` and
+`return-to-windows` talk to the running agent over its control socket, which only root
+can use.
 
 **Not yet here.** These come in later stages:
 
