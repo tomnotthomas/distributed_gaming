@@ -249,8 +249,9 @@ test_run() {
 	local cert_hex
 	cert_hex=$(od -An -v -tx1 "$image_set/swiffos-key.cer" | tr -d ' \n')
 	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
-	# The app's runtime: Electron as Node, which the worker it starts inherits.
-	local cli='$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs'
+	# The app's runtime: Electron as Node, which the worker it starts inherits. Electron is a
+	# windowed program: PowerShell waits for it and hands on its output only through a pipe.
+	local cli='function cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args | Write-Output }; cli'
 	local img='C:\swiff\image'
 	local fail=0
 
@@ -281,11 +282,16 @@ test_run() {
 	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,image-set,gpt,efi,pc,probe}.cjs swiff@127.0.0.1:'C:/swiff/desktop/'
 	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
+	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
+	to_vm "$here/windows/disk-open-check.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
 
 	log "1. What the app reads, and its one elevation"
+	on_vm 'function check { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\disk-open-check.cjs | Write-Output }; check' | tr -d '\r' > "$run/disk-open.txt" || true
+	expect runtime-old-name-fails "the app's runtime cannot open \\.\PhysicalDrive0, the old disk name" grep -q '^ERR \\\\.\\PhysicalDrive0 ' "$run/disk-open.txt"
+	expect runtime-disk-opens "the app's runtime reads disk 0's GPT by the worker's name for it" grep -q '^OK .*GLOBALROOT.* EFI PART$' "$run/disk-open.txt"
 	on_vm "$cli read" | tr -d '\r' > "$run/read-before.json"
 	local seen
-	seen="$(json "$run/read-before.json" read '.read.facts.secureBoot') $(json "$run/read-before.json" read '.read.targets[0].id')"
+	seen="$(json "$run/read-before.json" read '.read.facts.secureBoot' || true) $(json "$run/read-before.json" read '.read.targets[0].id' || true)"
 	expect read "the app reads Secure Boot on and room on C: ($seen)" test "$seen" = 'true "shrink:C"'
 	# From the logged-on user's own session, unelevated, as the app runs: Start-Process -Verb RunAs.
 	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-uac | Out-Null; Start-Sleep 30; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
@@ -304,7 +310,7 @@ test_run() {
 	on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-1"
 	expect files-kept-1 "C: holds its file after the install" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-1"
 	on_vm "$cli read" | tr -d '\r' > "$run/read-installed.json"
-	expect installed "the app reads Swiff OS as installed" test "$(json "$run/read-installed.json" read '.read.installed')" = true
+	expect installed "the app reads Swiff OS as installed" test "$(json "$run/read-installed.json" read '.read.installed' || true)" = true
 	on_vm 'Get-Partition -DiskNumber 0 | Select-Object PartitionNumber, Offset, Size, GptType, Guid | ConvertTo-Json -Compress' | tr -d '\r' > "$run/partitions-installed.json"
 	expect partitions "Windows sees Swiff OS's 6 partitions after its 4" \
 		test "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).length)' "$run/partitions-installed.json")" = 10
@@ -352,7 +358,7 @@ test_run() {
 	on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n' > "$run/partitions-after"
 	expect partitions-gone "Windows' 4 partitions, and no others" test "$(cat "$run/partitions-after")" = 4
 	on_vm "$cli read" | tr -d '\r' > "$run/read-after.json"
-	expect forgotten "the app reads Swiff OS as not installed" test "$(json "$run/read-after.json" read '.read.facts.install')" = null
+	expect forgotten "the app reads Swiff OS as not installed" test "$(json "$run/read-after.json" read '.read.facts.install' || true)" = null
 	on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-3"
 	expect files-kept-3 "C: holds its file after the uninstall" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-3"
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-after.txt"
