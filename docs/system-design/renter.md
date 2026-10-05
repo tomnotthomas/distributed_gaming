@@ -354,8 +354,8 @@ POST /sessions/:id/leave
   POST /bookings/:id/end, the only ways a session is recorded as the renter's own choice
   to end it, and the only ways it ends at once. A renter who just closes the page, or
   whose connection drops, has the reconnect grace to come back (see "Coming back"); one
-  who does not is recorded as `grace_expired`, which counts as a completed session for
-  the machine.
+  who does not is recorded as `grace_expired`, priced only up to the drop and counted
+  neither for nor against the machine's completion.
 ```
 
 ### What can be played where
@@ -600,7 +600,8 @@ any input still held. On the PC, `@swiff/rtc`'s host session reports the grace
 seated on a ticket that a running session handed out gets the grace; one minted by hand
 (`npm run ticket`) leaves with a plain `peer-left`. A join with the same seat within those 2 minutes stops the clock,
 and the PC gets `peer-joined` and sends a new offer: no Ignition, no new launch. When
-the clock runs out the session ends as `grace_expired`: the ticket is revoked, the PC's
+the clock runs out the session ends as `grace_expired`, priced only up to the drop and
+neutral for the machine's stability: the ticket is revoked, the PC's
 host session ends and the machine goes back to its owner. Only End (POST
 /bookings/:id/end or /sessions/:id/leave) and the owner taking the machine back skip the
 2 minutes. A renter whose socket is half open (a laptop that died) is missed after the

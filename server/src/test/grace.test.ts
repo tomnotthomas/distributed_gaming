@@ -20,6 +20,17 @@ describe("reconnect grace", () => {
     assert.equal(grace.pending("pc-1"), null);
   });
 
+  it("tells when the renter dropped, not when the clock ran out", async () => {
+    const drops: number[] = [];
+    const grace = createRenterGrace({ graceMs: 40, onExpire: (_host, _ticket, at) => drops.push(at) });
+    const before = Date.now();
+    grace.start("pc-1", "t-1");
+    const after = Date.now();
+    await wait(80);
+    assert.equal(drops.length, 1);
+    assert.ok(drops[0]! >= before && drops[0]! <= after);
+  });
+
   it("says when a room's clock runs out, while it runs", () => {
     const { grace } = recorder(60_000);
     const before = Date.now();

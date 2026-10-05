@@ -47,7 +47,7 @@ describe("stabilityStats", () => {
     assert.deepEqual(stats, {
       heartbeatCoverage: 0.98,
       dropsPerHour: 0.1,
-      sessionCompletion: 0.6,
+      sessionCompletion: 0.5,
       packetLoss: 0.02,
       sessions: 6,
       offeredHours: 50,
@@ -96,9 +96,16 @@ describe("stability bucket from the raw history", () => {
     assert.equal(bucket({}, withBad(5, "owner_kill")), "shaky");
   });
 
-  it("counts the renter leaving, time running out and a no-show as completed", () => {
-    const ended = [...sessions(5, "renter"), ...sessions(5, "time_up"), ...sessions(5, "grace_expired")];
+  it("counts the renter leaving and time running out as completed", () => {
+    const ended = [...sessions(5, "renter"), ...sessions(5, "time_up")];
     assert.equal(stabilityStats(UPTIME, ended).sessionCompletion, 1);
+  });
+
+  it("leaves a renter who never arrived or never came back out of completion, but counts it as a session", () => {
+    const ended = [...sessions(19, "renter"), ...sessions(1, "host_offline"), ...sessions(10, "grace_expired")];
+    const stats = stabilityStats(UPTIME, ended);
+    assert.equal(stats.sessionCompletion, 0.95);
+    assert.equal(stats.sessions, 30);
   });
 
   it("leaves a host's early end out of completion, but counts it as a session", () => {

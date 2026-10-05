@@ -6,6 +6,9 @@
 //   join, same ticket ──► timer cancelled, host: peer-joined     │
 //                                                     120 s ──► session ends as grace_expired
 //
+// A session that ends as grace_expired is priced only up to the drop, never
+// through the grace, and counts neither for nor against the machine.
+//
 // The PC keeps the game running meanwhile and lets go of whatever the renter
 // was holding. The renter's page comes back with POST /api/bookings/:id/rejoin,
 // which hands out the same seat (the claim's ticket id) again, so its join takes
@@ -46,8 +49,8 @@ export type RenterGrace = {
 
 export type RenterGraceOptions = {
   graceMs: number;
-  /** The renter with `ticketId` did not come back to `hostId` in time. */
-  onExpire: (hostId: string, ticketId: string) => void;
+  /** The renter with `ticketId`, who dropped out of `hostId`'s room at `droppedAt` (Unix ms), did not come back in time. */
+  onExpire: (hostId: string, ticketId: string, droppedAt: number) => void;
 };
 
 export function createRenterGrace({ graceMs, onExpire }: RenterGraceOptions): RenterGrace {
@@ -64,13 +67,14 @@ export function createRenterGrace({ graceMs, onExpire }: RenterGraceOptions): Re
   return {
     start(hostId, ticketId) {
       cancel(hostId);
+      const droppedAt = Date.now();
       const timer = setTimeout(() => {
         if (clocks.get(hostId)?.timer !== timer) return;
         clocks.delete(hostId);
-        onExpire(hostId, ticketId);
+        onExpire(hostId, ticketId, droppedAt);
       }, graceMs);
       timer.unref();
-      clocks.set(hostId, { ticketId, until: Date.now() + graceMs, timer });
+      clocks.set(hostId, { ticketId, until: droppedAt + graceMs, timer });
     },
     cancel,
     pending: (hostId) => clocks.get(hostId)?.ticketId ?? null,

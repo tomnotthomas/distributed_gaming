@@ -127,14 +127,14 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 const GRACE_MS = graceMsFromEnv(process.env.SWIFF_RECONNECT_GRACE_MS);
 const grace = createRenterGrace({
   graceMs: GRACE_MS,
-  onExpire: (hostId, ticketId) => {
+  onExpire: (hostId, ticketId, droppedAt) => {
     // A renter seated again on the same seat came back: their session stands,
     // however the timer and their join crossed.
     const back = () => rooms.get(hostId)?.client?.ticketId === ticketId;
     if (back()) return;
     void (async () => {
       const sessionId = await platform.ticketSession(ticketId);
-      if (sessionId && !back()) await platform.leaveSession(sessionId, ticketId, "grace_expired");
+      if (sessionId && !back()) await platform.leaveSession(sessionId, ticketId, droppedAt);
     })().catch((error: unknown) => {
       console.error("[swiff] grace expiry failed:", error instanceof Error ? error.name : typeof error);
     });

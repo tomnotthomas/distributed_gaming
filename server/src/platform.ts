@@ -1164,21 +1164,18 @@ export class Platform {
   /**
    * The renter left, ending the session as renter. Only the join ticket handed
    * out for this session may do it, and only while the session runs. A renter
-   * who dropped and did not come back within the reconnect grace (grace.ts)
-   * leaves the same way, as grace_expired.
+   * who dropped at `droppedAt` and did not come back within the reconnect grace
+   * (grace.ts) leaves the same way, as grace_expired, priced only up to the drop.
    */
-  leaveSession(
-    sessionId: string,
-    ticketId: string,
-    reason: "renter" | "grace_expired" = "renter",
-  ): Promise<QosResult> {
+  leaveSession(sessionId: string, ticketId: string, droppedAt?: number): Promise<QosResult> {
     return this.#transaction(async (): Promise<QosResult> => {
       const now = this.#now();
       const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      await this.#renterEnds(session, now, reason);
+      if (droppedAt === undefined) await this.#renterEnds(session, now);
+      else await this.#renterEnds(session, Math.min(droppedAt, now), "grace_expired");
       await this.#tick(now);
       return "ok";
     });
@@ -1575,7 +1572,7 @@ export class Platform {
     await this.#setStatus(machineId, held ? "idle" : "available");
   }
 
-  /** The renter ended the session, or never came back to it: closed for `reason`, its machine free again. */
+  /** The renter ended the session at `now`, or never came back after dropping then: closed for `reason`, its machine free again. */
   async #renterEnds(
     session: SessionRow,
     now: number,
