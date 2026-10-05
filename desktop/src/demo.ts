@@ -3,7 +3,18 @@
 // app is opened with --demo (?demo=1), always under a "Demo data" label, and is
 // never mixed with this PC's own data.
 
-import type { DemandRow, Earnings, Game, Hardware, Live, Standing, Step, SteamSetup } from "./model";
+import type { RentalRead } from "../rental.cjs";
+import type {
+  DemandRow,
+  Earnings,
+  Game,
+  Hardware,
+  Live,
+  RentalSetup,
+  Standing,
+  Step,
+  SteamSetup,
+} from "./model";
 import { MINUTE } from "./format";
 import { localArt, type ArtSource } from "./ui/art";
 import art730 from "./demo-art/730.jpg";
@@ -71,6 +82,61 @@ export const DEMO_STEAM: SteamSetup = {
   asked: [],
 };
 
+/**
+ * Rental mode on Nova-01: its IOMMU is off in the BIOS, and its NVIDIA card
+ * waits for a later Swiff OS. C: (Windows) or D: (games) can make room.
+ */
+export const DEMO_RENTAL_READ: RentalRead = {
+  facts: {
+    uefi: true,
+    secureBoot: true,
+    tpm: { present: true, maker: "AMD", firmware: true },
+    iommu: false,
+    fastStartup: true,
+    gpus: [{ name: "NVIDIA GeForce RTX 4080", vendor: "nvidia" }],
+    disks: [],
+    partitions: [],
+    volumes: [],
+    bootEntry: null,
+  },
+  need: 25_367_150_592,
+  targets: [
+    {
+      id: "shrink:C",
+      kind: "shrink",
+      letter: "C",
+      disk: 0,
+      sector: 512,
+      partition: 3,
+      size: 1_974_917_644_288,
+      start: 1_975_040_327_680,
+      free: 657_129_996_288,
+      system: true,
+    },
+    {
+      id: "shrink:D",
+      kind: "shrink",
+      letter: "D",
+      disk: 1,
+      sector: 512,
+      partition: 1,
+      size: 974_286_487_552,
+      start: 974_287_536_128,
+      free: 309_237_645_312,
+      system: false,
+    },
+  ],
+  games: { letter: "D", games: 6, label: "Games", fs: "NTFS", bitlocker: "off" },
+  installed: false,
+};
+
+export const DEMO_RENTAL: RentalSetup = {
+  reading: false,
+  read: DEMO_RENTAL_READ,
+  target: null,
+  preview: null,
+};
+
 /** The demo games' key art, bundled with the app (from prototypes/assets). */
 const DEMO_ART: Record<number, string> = {
   730: art730,
@@ -118,6 +184,7 @@ export const DEMO_SCREENS = [
   { id: "pc", name: "Read this PC" },
   { id: "steam", name: "Set up Steam" },
   { id: "games", name: "Choose your games" },
+  { id: "rental", name: "Rental mode" },
   { id: "golive", name: "Go live" },
   { id: "waiting", name: "Live, waiting" },
   { id: "streaming", name: "Live, streaming" },
@@ -180,6 +247,8 @@ export function demoState(screen: DemoScreen): DemoState {
       return { ...base, setupDone: false, step: "steam", live: off, clockAt: evening(20, 53) };
     case "games":
       return { ...base, setupDone: false, step: "games", live: off, clockAt: evening(20, 55) };
+    case "rental":
+      return { ...base, step: "rental", live: off, clockAt: evening(20, 58) };
     case "golive":
       return { ...base, step: "live", live: off, clockAt: evening(21) };
     case "waiting":

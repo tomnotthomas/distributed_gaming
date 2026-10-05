@@ -118,6 +118,61 @@ check getty-masked "$(systemctl is-enabled getty@tty1.service 2>&1)" test "$(sys
 check no-sshd "" bash -c '! command -v sshd'
 say INFO session-state "$(systemctl show -P ActiveState swiff-session.service) restarts=$(systemctl show -P NRestarts swiff-session.service) (no GPU in the VM)"
 
+# --- Keyboard: no reboot, no other VT ----------------------------------------------
+# Without a GPU, tty1 stays in text mode, so the kernel's console keyboard
+# handles every key: the worst case. run-test.sh presses keys on the VM's PS/2
+# keyboard through QEMU's monitor when it sees "SWIFF-SELFTEST KEYS <round>",
+# and ends each round with Ctrl+Alt+Del. PID 1 logs every Ctrl+Alt+Del it
+# refuses, which tells the self-test that the round's keys have arrived.
+for unit in ctrl-alt-del.target kbrequest.target; do
+	state=$(systemctl show -P LoadState "$unit")
+	check "${unit%.target}-masked" "LoadState=$state" test "$state" = masked
+done
+check cad-burst-none "CtrlAltDelBurstAction=$(systemctl show -P CtrlAltDelBurstAction)" test "$(systemctl show -P CtrlAltDelBurstAction)" = none
+check vtlock-active "$(systemctl is-active swiff-vtlock.service)" systemctl -q is-active swiff-vtlock.service
+# Runs one VT ioctl on /dev/tty0.
+vt_ioctl() { perl -MFcntl -e 'sysopen(my $t, "/dev/tty0", O_RDWR | O_NOCTTY) or die "$!\n"; ioctl($t, hex($ARGV[0]), $ARGV[1] + 0) or die "$!\n"' "$@"; }
+active_vt() { cat /sys/class/tty/tty0/active; }
+# PID 1's log lines about Ctrl+Alt+Del in this boot.
+cad_log() { journalctl -b -q -o cat _PID=1 | grep ctrl-alt-del; }
+# Waits until PID 1 has logged at least the given number of them.
+wait_cad() { for _ in $(seq 60); do [ "$(cad_log | wc -l)" -ge "$1" ] && return 0; sleep 1; done; return 1; }
+# Not even root switches: VT_ACTIVATE allocates tty2, so there is a VT to go to.
+vt_ioctl 0x5606 2
+sleep 1
+check vt-switch-root-refused "VT_ACTIVATE 2 as root -> $(active_vt)" test "$(active_vt)" = tty1
+# Round "locked": Ctrl+Alt+F2, Alt+F2, Alt+Right, Alt+Left and Alt+Up (the
+# kernel's KeyboardSignal, kbrequest.target), then 10 Ctrl+Alt+Del within 2 s.
+before=$(cad_log | wc -l)
+say KEYS locked
+wait_cad $((before + 10))
+sleep 2
+presses=$(($(cad_log | wc -l) - before))
+say INFO cad-log "$(cad_log | tail -n1)"
+# Seconds between the first and the last of the round's presses, from PID 1's
+# log timestamps: under 2 s is a burst systemd would otherwise reboot on.
+span=$(journalctl -b -q -o short-unix _PID=1 | grep ctrl-alt-del | tail -n "$presses" |
+	awk 'NR == 1 { first = $1 } { last = $1 } END { printf "%.2f", last - first }')
+check cad-refused "$presses Ctrl+Alt+Del presses reached PID 1 within ${span} s" \
+	awk -v n="$presses" -v s="$span" 'BEGIN { exit !(n >= 10 && s < 2) }'
+jobs=$(systemctl list-jobs --no-legend | awk '{ print $2 }' | grep -E '^(reboot|poweroff|halt|kexec|rescue|emergency|ctrl-alt-del|kbrequest)\.target$' | paste -sd' ' -)
+check cad-no-reboot "queued: ${jobs:-nothing} state=$(systemctl is-system-running)" \
+	bash -c "test -z '$jobs' && ! systemctl -q is-active reboot.target rescue.target emergency.target"
+check vt-switch-keys-refused "Ctrl+Alt+F2, Alt+F2, Alt+Right, Alt+Left -> $(active_vt)" test "$(active_vt)" = tty1
+# Round "unlocked", a control: with the lock lifted, the same Ctrl+Alt+F2
+# switches to tty2, so the refusal above is the lock's doing.
+vt_ioctl 0x560C 0
+before=$(cad_log | wc -l)
+say KEYS unlocked
+wait_cad $((before + 1))
+sleep 1
+unlocked=$(active_vt)
+/usr/libexec/swiff/vtlock
+vt_ioctl 0x5606 2
+sleep 1
+check vt-switch-control "unlocked: Ctrl+Alt+F2 -> $unlocked" test "$unlocked" = tty2
+check vt-relocked "swiff-vtlock again, then VT_ACTIVATE 2 -> $(active_vt)" test "$(active_vt)" = tty1
+
 # --- Ephemeral scratch -------------------------------------------------------------
 check scratch-random-key "$(dmsetup table swiff-scratch 2> /dev/null | awk '{ print $3, $4 }')" \
 	bash -c 'dmsetup table swiff-scratch | grep -q " crypt aes-xts-plain64 "'

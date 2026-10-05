@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "isolatedModules": true,
+    // The server's own sources, imported by the integration test, name .ts files.
+    "allowImportingTsExtensions": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@swiff/rtc": ["../../packages/rtc/src/index.ts"]
+    }
+  },
+  "include": ["src", "vitest.config.ts"]
+}

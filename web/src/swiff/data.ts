@@ -377,9 +377,6 @@ export const MACHINES: Record<string, SeedMachine> = {
   },
 };
 
-/** The four things that happen between pressing Launch and seeing a frame. */
-export const IGNITION_STEPS = ["Waking machine", "Syncing your save", "Negotiating stream", "Launching game"];
-
 const STEAM_ART = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 
 /** The wide, logo-free key art every game ships for its Steam library page, at 1x or 2x (3840 wide). */

@@ -1,0 +1,3 @@
+# The streamer's home, for GStreamer's plugin cache. Its own, never /tmp: a
+# cache someone else could write would tell GStreamer which libraries to load.
+d /var/lib/swiff-stream 0700 swiff-stream swiff-stream -

@@ -102,13 +102,20 @@ function sha256(value: string): Buffer {
 }
 
 /**
- * Mint a signed join ticket for `room` with a random ticket id.
+ * Mint a signed join ticket for `room` with a random ticket id, or `id` to hand
+ * out a ticket already recorded on a session again.
  * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
  */
-export function mintTicket(secret: string, room: string, ttlSeconds: number, now = Date.now()): string {
+export function mintTicket(
+  secret: string,
+  room: string,
+  ttlSeconds: number,
+  now = Date.now(),
+  id = b64url(randomBytes(12)),
+): string {
   const ticket: Ticket = {
     room,
-    id: b64url(randomBytes(12)),
+    id,
     exp: Math.floor(now / 1000) + ttlSeconds,
   };
   return seal(secret, ticket, "ticket");

@@ -146,6 +146,36 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `UPDATE reservations SET matched_at = expires_at - 60000`,
     `ALTER TABLE reservations ALTER COLUMN matched_at SET NOT NULL`,
   ],
+  [
+    // What the TPM attestation verifier keeps per machine (tpm-verifier.ts).
+    // No foreign key: a machine registers its EK before it first checks in.
+    // ek_certificate is base64 DER and ek_intermediates a JSON list of them;
+    // firmware_pcrs holds PCRs 0-3 as JSON (pcr -> hex), the baseline from its
+    // first attestation, and pending_firmware_pcrs a change seen since
+    // pending_since and still cooling down; reset_count, restart_count and
+    // tpm_clock (a decimal: it is 64 bits) are from its last accepted quote;
+    // reenrolled_at is when the EK was registered again over a firmware
+    // baseline, until the firmware has cooled down again.
+    `CREATE TABLE machine_attestation (
+      machine_id            TEXT PRIMARY KEY,
+      ek_certificate        TEXT,
+      ek_intermediates      TEXT,
+      firmware_pcrs         TEXT,
+      pending_firmware_pcrs TEXT,
+      pending_since         BIGINT,
+      reset_count           BIGINT,
+      restart_count         BIGINT,
+      tpm_clock             TEXT,
+      reenrolled_at         BIGINT,
+      updated_at            BIGINT NOT NULL
+    )`,
+  ],
+  [
+    // A rental-mode PC restarting between renters with a session claimed in
+    // the instant before (platform.ts, the reset hold): until when its silence
+    // does not end that session. Null when no reset is held.
+    `ALTER TABLE machines ADD COLUMN reset_until BIGINT`,
+  ],
 ];
 
 /**

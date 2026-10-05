@@ -20,6 +20,11 @@
 //       |         ice  <-------- relayed both ways -------->  ice
 //       |                          |                            |
 //       |======== WebRTC, peer to peer, not through here =======|
+//       |                          |   first frame: POST        |
+//       |      launch-game         |   /api/sessions/:id/start  |
+//       |<-------------------------|<---------------------------|
+//       |      game-started        |        game-started        |
+//       |------------------------->|--------------------------->|
 //
 // A room is one gaming PC. Only that machine, holding its machine key or a host
 // certificate, may register it; only a renter holding a ticket for it may join,
@@ -82,10 +87,15 @@ const iceServers = () => {
 
 const access = accessFromEnv(process.env);
 
+// Machines, bookings, reservations and sessions (platform.ts below), and what
+// the TPM verifier keeps per machine: Postgres at DATABASE_URL, or in memory
+// without one.
+const database = openDatabase(process.env.DATABASE_URL);
+
 // Which credential may host (HOSTING_ATTESTATION) and who judges attestation
 // (ATTESTATION_VERIFIER). Unset: the machine key hosts, unattested, and no
 // machine can attest.
-const attestationConfig = attestationFromEnv(process.env, access.machines);
+const attestationConfig = attestationFromEnv(process.env, access.machines, database);
 const attestation = createAttestation({ access, ...attestationConfig });
 
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can
@@ -108,7 +118,7 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 // is ever matched to their own PC. The platform arms its own timer for whatever
 // changes only with time.
 const platform = await Platform.open({
-  database: openDatabase(process.env.DATABASE_URL),
+  database,
   owners: access.owners,
   // Attested-only: a machine is on the market only while a socket that may
   // host it is open, never on its machine key's heartbeat alone.
@@ -144,6 +154,7 @@ const serveApi = createApi({
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
   attestation,
+  onRenterStarted: pushLaunch,
 });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
@@ -185,7 +196,11 @@ type PeerSocket = WebSocket & {
    * (performance.now() ms): at join, before a relayed frame, and each reconcile.
    */
   confirmedAt: number;
-  /** The session a host registered under with a session key; null for the PC service's own socket. */
+  /**
+   * The session a host registered under with a session key; null for the PC
+   * service's own socket. For a renter, the session their page started with
+   * their ticket; null until it has.
+   */
   sessionId: string | null;
   /** How far the PC service's socket may be trusted to host; null for a streamer or a renter. */
   tier: HostingTier | null;
@@ -365,10 +380,42 @@ function evictStreamer(hostId: string, sessionId: string): void {
  */
 function pushClaim(hostId: string, { sessionId, gameId, minutes }: ClaimedSession): void {
   const host = rooms.get(hostId)?.host;
-  const certValid = host?.certExp == null || host.certExp * 1000 > Date.now();
-  if (host?.sessionId === null && host.tier !== null && certValid) {
-    send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
+  if (host && mayHost(host)) send(host, { type: "session-claimed", sessionId, appid: gameId, minutes });
+}
+
+/** True for the PC service's socket registered with a credential that may host and has not expired. */
+function mayHost(host: PeerSocket): boolean {
+  const certValid = host.certExp == null || host.certExp * 1000 > Date.now();
+  return host.sessionId === null && host.tier !== null && certValid;
+}
+
+/**
+ * The renter's first frame arrived and their page started the session with
+ * `ticketId`: tell the host serving it to launch the game. The streamer
+ * registered for that session hears it, or the PC service's socket registered
+ * with a credential that may host and streams itself; never a streamer for
+ * another session. The renter seated with that ticket is marked as playing
+ * that session, so only a `game-started` for it reaches them. A host not in
+ * the room misses it, and the renter's page stays on Launching, offering
+ * another machine past 90 s: the stream is never shown before `game-started`.
+ */
+function pushLaunch(hostId: string, sessionId: string, appid: number, ticketId: string): void {
+  const room = rooms.get(hostId);
+  if (room?.client?.ticketId === ticketId) room.client.sessionId = sessionId;
+  const host = room?.host;
+  if (host && (host.sessionId === sessionId || mayHost(host))) {
+    send(host, { type: "launch-game", sessionId, appid });
   }
+}
+
+/**
+ * True when `msg` from `ws` may reach `renter`: a `game-started` only from the
+ * host, for the session the renter's page started, by a host that may serve it.
+ */
+function forRenterSession(ws: PeerSocket, renter: PeerSocket, msg: SignalMessage): boolean {
+  if (msg.type !== "game-started") return true;
+  if (ws.role !== "host" || typeof msg.sessionId !== "string") return false;
+  return renter.sessionId === msg.sessionId && (ws.sessionId === null || ws.sessionId === msg.sessionId);
 }
 
 const SESSION_ROUTE = /^\/api\/machines\/([^/]+)\/session$/;
@@ -777,7 +824,7 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
       await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
     }
   }
-  if (seatRevoked(renter) || peerOf(ws) !== peer) return;
+  if (seatRevoked(renter) || peerOf(ws) !== peer || !forRenterSession(ws, renter, msg)) return;
   send(peer, msg);
 }
 

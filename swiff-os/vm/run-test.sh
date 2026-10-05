@@ -14,7 +14,10 @@
 # The self-test reports on the serial console; this script collects the
 # results and adds the checks that need the host's view: the scratch
 # partition holds no plaintext, it changes completely across a reboot, and
-# PCR 11 equals the value systemd-measure predicts for the built UKI.
+# PCR 11 equals the value systemd-measure predicts for the built UKI. It
+# also presses the keys the self-test asks for (Ctrl+Alt+Del, VT switches) on
+# the VM's keyboard, through QEMU's monitor, and checks that none of them
+# rebooted the VM.
 #
 # Usage: vm/run-test.sh [--no-build]
 #
@@ -121,6 +124,36 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
     if p.get("name") == "swiff-scratch": print(p["start"], p["size"])')
 [ -n "${scratch_start:-}" ] || die "no swiff-scratch partition in the image"
 
+# Presses one round of keys on the VM's keyboard through QEMU's monitor
+# (fd 8). Every round ends with Ctrl+Alt+Del, which the self-test waits for.
+press_keys() { # round
+	local keys key
+	case $1 in
+	# 10 Ctrl+Alt+Del within 2 s: more than systemd's burst limit of 7.
+	locked) keys="ctrl-alt-f2 alt-f2 alt-right alt-left alt-up $(printf 'ctrl-alt-delete %.0s' $(seq 10))" ;;
+	unlocked) keys="ctrl-alt-f2 ctrl-alt-delete" ;;
+	*) return ;;
+	esac
+	# QEMU waits the hold time (ms) after every key-down and key-up, so a
+	# Ctrl+Alt+Del chord takes 6 of them: 10 ms puts all 10 within 2 s.
+	for key in $keys; do printf 'sendkey %s 10\n' "$key" >&8; done
+}
+
+# Watches a boot's serial log for the self-test's "SWIFF-SELFTEST KEYS
+# <round>" lines and presses each round's keys once.
+drive_keys() { # serial-log
+	local serial=$1 seen=0 rounds
+	exec 8> "$run/monitor.in"
+	while :; do
+		mapfile -t rounds < <(sed -n 's/^.*SWIFF-SELFTEST KEYS \([a-z]*\).*$/\1/p' "$serial" 2> /dev/null)
+		while [ "$seen" -lt "${#rounds[@]}" ]; do
+			press_keys "${rounds[$seen]}"
+			seen=$((seen + 1))
+		done
+		sleep 0.5
+	done
+}
+
 # Boots the VM once with swtpm and waits for the self-test to finish;
 # dies if it does not.
 boot_vm() { # boot number
@@ -132,6 +165,14 @@ boot_vm() { # boot number
 		--log file="$run/swtpm-$n.log" &
 	local swtpm_pid=$!
 	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
+	# QEMU's monitor on a pair of pipes, which the calling user owns even
+	# when QEMU is started through sudo.
+	rm -f "$run"/monitor.*
+	mkfifo -m 600 "$run/monitor.in" "$run/monitor.out"
+	cat "$run/monitor.out" > "$run/monitor-$n.log" &
+	local monitor_pid=$!
+	drive_keys "$serial" &
+	local keys_pid=$!
 
 	local rc=0
 	timeout "$boot_timeout" "${qemu[@]}" \
@@ -151,10 +192,10 @@ boot_vm() { # boot number
 		-device virtio-blk-pci,drive=games \
 		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
-		-display none -vga none -monitor none \
+		-display none -vga none -monitor "pipe:$run/monitor" \
 		-serial "file:$serial" || rc=$?
-	kill "$swtpm_pid" 2> /dev/null || true
-	wait "$swtpm_pid" 2> /dev/null || true
+	kill "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
+	wait "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	[ "$rc" = 124 ] && echo "boot $n timed out after ${boot_timeout}s" >&2
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
@@ -216,6 +257,15 @@ if [ -n "$token" ] && [ "$plaintext" = absent ]; then
 else
 	result FAIL scratch-encrypted "marker '${token:-missing}' $plaintext in the raw scratch partition"
 fi
+# Linux started once per boot: no key the self-test asked for rebooted it.
+for n in 1 2; do
+	starts=$(grep -ac 'SWIFF-SELFTEST INFO boot ' "$run/serial-$n.log")
+	if [ "$starts" = 1 ]; then
+		result PASS "boot$n/keys-no-reboot" "Linux started once; the keys did not reboot the VM"
+	else
+		result FAIL "boot$n/keys-no-reboot" "Linux started $starts times during boot $n"
+	fi
+done
 if [ "$digest1" != "$digest2" ]; then
 	result PASS scratch-rekeyed "first 4 MiB of scratch differ completely after reboot"
 else

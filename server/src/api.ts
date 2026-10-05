@@ -5,13 +5,17 @@
 //   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat     either
 //   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand     control
 //   GET  /api/me                           POST /api/machines/:id/attest-challenge
-//   POST /api/me/refresh                   POST /api/machines/:id/attest  (attestation)
-//   POST /api/signout        (signed out)  POST /api/sessions/:id/start        hosting
-//   POST /api/bookings                     POST /api/sessions/:id/end          either
-//   GET  /api/bookings/:id                 POST /api/machines/:id/upload-test   control
+//   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
+//   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
+//   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
+//                                          POST /api/sessions/:id/end          either
+//                                          POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
+//   POST /api/bookings/:id/ticket
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
+//   POST /api/sessions/:id/start (ticket)
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
@@ -36,10 +40,14 @@
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
+// The page never stores that ticket; a renter coming back to their running
+// session gets it again from `ticket`, with the same id, so ending the session
+// still revokes every copy.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
-// The renter's page reports stream quality, and says it is leaving, with that
-// ticket as its bearer.
+// The renter's page starts the session on its first frame, reports stream
+// quality, and says it is leaving, with that ticket as its bearer. Starting it
+// is what tells the PC to launch the game.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -103,6 +111,8 @@ export type ApiOptions = {
   isFree?: FreeToPlay;
   /** Who may host, and how a machine attests. Defaults to the machine key hosting, with no verifier. */
   attestation?: Attestation;
+  /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
+  onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -128,7 +138,7 @@ function reply(
  */
 const HOST_CORS = { "access-control-allow-origin": "*" };
 /** The Host API's machine routes: /api/machines/:id/<action>. */
-const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand"]);
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand", "ek"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
   "access-control-allow-methods": "GET, PUT, POST",
@@ -221,9 +231,14 @@ function qosReport(body: Json): QosReport {
  * it is at join: 401 when missing, forged or expired.
  */
 function requireTicket(req: IncomingMessage, access: Access) {
-  const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
+  const ticket = ticketOf(req, access);
   if (!ticket) throw new HttpError(401, "bad ticket");
   return ticket;
+}
+
+/** The join ticket the request carries as its bearer, or null when it carries none that verifies. */
+function ticketOf(req: IncomingMessage, access: Access) {
+  return access.secret ? verifyTicket(access.secret, bearer(req)) : null;
 }
 
 /** The HTTP answer for a renter call the platform refused. */
@@ -337,6 +352,7 @@ export function createApi({
   discovery = new RequestBudget(),
   isFree = storeFreeToPlay(),
   attestation = createAttestation({ access }),
+  onRenterStarted,
 }: ApiOptions) {
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
@@ -577,6 +593,27 @@ export function createApi({
       return true;
     }
 
+    if (resource === "bookings" && id && action === "ticket" && method === "POST") {
+      // The renter coming back to their running session: its ticket again,
+      // the one recorded at claim, valid only until the session's deadline.
+      const renter = requireRenter(req, sessionSecret);
+      if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      const session = await platform.runningSession(id, renter);
+      if (!session.ok) {
+        if (session.reason === "not-found") throw new HttpError(404, "no such booking");
+        reply(res, 409, { error: "the booking has no session running", status: session.status });
+        return true;
+      }
+      const ttl = Math.max(1, Math.floor(session.remainingMs / 1000));
+      reply(res, 200, {
+        sessionId: session.sessionId,
+        roomId: session.roomId,
+        signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
+        ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
+      });
+      return true;
+    }
+
     if (resource === "bookings" && id && action === "end" && method === "POST") {
       // The renter ends it, whatever it has come to: out of the queue, the
       // machine handed back, or the session over (as renter).
@@ -596,12 +633,18 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
+      if (body.reset !== undefined && typeof body.reset !== "boolean") {
+        throw new HttpError(400, "reset must be true or false");
+      }
+      // A rental-mode restart between renters (platform.ts, the reset hold).
+      if (body.reset && body.available) throw new HttpError(400, "reset takes the machine off offer");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
-      const machine = await platform.setAvailability(id, body.available, {
-        ...hostReport(body),
-        price,
-        availableUntil: optionalTime(body.until, "until"),
-      });
+      const machine = await platform.setAvailability(
+        id,
+        body.available,
+        { ...hostReport(body), price, availableUntil: optionalTime(body.until, "until") },
+        { reset: body.reset === true },
+      );
       reply(res, 200, machine);
       return true;
     }
@@ -644,6 +687,41 @@ export function createApi({
       return true;
     }
 
+    if (resource === "machines" && id && action === "attest-activation" && method === "POST") {
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_HOST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const made = await attestation.activate(id, body.nonce, body.akPublic);
+      reply(res, made.ok ? 200 : made.status, made.ok ? made.grant : made.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "ek" && method === "PUT") {
+      // The owner's Windows registers the TPM's EK certificate, with the machine key.
+      requireMachine(req, access, id);
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const enrolled = await attestation.enroll(id, body);
+      if (enrolled.ok) {
+        res.writeHead(204, { "cache-control": "no-store" });
+        res.end();
+      } else {
+        reply(res, enrolled.status, enrolled.body);
+      }
+      return true;
+    }
+
     if (resource === "machines" && id && action === "attest" && method === "POST") {
       let body: Json;
       try {
@@ -656,6 +734,18 @@ export function createApi({
       }
       const attested = await attestation.attest(id, body.nonce, body.evidence);
       reply(res, attested.ok ? 200 : attested.status, attested.ok ? attested.grant : attested.body);
+      return true;
+    }
+
+    // The renter's first frame: started with the join ticket rather than the
+    // machine key, and the PC launches the game.
+    const ticket =
+      resource === "sessions" && action === "start" && method === "POST" && ticketOf(req, access);
+    if (ticket && id) {
+      const started = await platform.renterStarted(id, ticket.id);
+      if (typeof started === "string") throw renterRefusal(started);
+      onRenterStarted?.(started.machineId, id, started.gameId, ticket.id);
+      reply(res, 200, { sessionId: id, roomId: started.machineId });
       return true;
     }
 

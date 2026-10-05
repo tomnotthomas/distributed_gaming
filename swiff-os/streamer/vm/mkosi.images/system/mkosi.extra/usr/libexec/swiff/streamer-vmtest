@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""The streamer VM test, inside the VM: plays swiff-hostd's part and reports to the host.
+
+The host's harness (vm/harness.mjs) runs the Swiff server and the renter's
+browser. This agent waits for the renter's session (PipeWire, the synthetic
+gamescope node, the access grant), checks the users and devices are separated,
+fetches the session grant from the harness as hostd would get it from the
+server, and starts the streamer exactly as hostd does: as swiff-stream, with
+no supplementary groups, the grant on stdin and only hostd's environment.
+It then watches the virtual devices and tells the harness each input event,
+so the harness can check what the renter typed reached the kernel.
+
+Every check goes to the harness as {name, ok, detail}; the VM powers off when
+the streamer exits.
+"""
+
+import glob
+import json
+import os
+import struct
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+
+RENTER_UID = 1000
+STREAM_UID = 961
+RUNTIME = f"/run/user/{RENTER_UID}"
+PIPEWIRE = f"{RUNTIME}/pipewire-0"
+STREAMER = "/usr/lib/swiff/streamer/dist/swiff-streamer.mjs"
+
+
+def credential(name):
+    with open(os.path.join(os.environ["CREDENTIALS_DIRECTORY"], name)) as f:
+        return f.read().strip()
+
+
+HARNESS = f"http://10.0.2.2:{credential('swifftest.harness')}"
+# The harness answers only the VM, by this token (run-test.sh hands it in as an SMBIOS credential).
+TOKEN = credential("swifftest.token")
+
+
+def call(path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(HARNESS + path, data=data, headers={"content-type": "application/json",
+                                                                     "authorization": f"Bearer {TOKEN}"})
+    with urllib.request.urlopen(req, timeout=10) as res:
+        text = res.read().decode()
+        return json.loads(text) if text else None
+
+
+def say(line):
+    print(line, flush=True)
+
+
+def report(name, ok, detail=""):
+    say(f"SWIFFTEST {'ok' if ok else 'FAIL'} {name} {detail}".rstrip())
+    try:
+        call("/result", {"name": name, "ok": bool(ok), "detail": str(detail)})
+    except OSError as e:
+        say(f"could not report to the harness: {e}")
+
+
+def wait_for(check, seconds, what):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            value = check()
+            if value:
+                return value
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+        time.sleep(0.5)
+    raise TimeoutError(what)
+
+
+def as_user(user, *cmd, **kw):
+    """Run a command as a user of the renter's session, with that session's runtime dir."""
+    env = {"PATH": "/usr/bin:/bin", "XDG_RUNTIME_DIR": RUNTIME}
+    return subprocess.run(["runuser", "-u", user, "--", "env", *[f"{k}={v}" for k, v in env.items()], *cmd],
+                          capture_output=True, text=True, timeout=30, **kw)
+
+
+def gamescope_node():
+    dump = json.loads(as_user("renter", "pw-dump").stdout or "[]")
+    return any(o.get("info", {}).get("props", {}).get("node.name") == "gamescope" for o in dump)
+
+
+def separation_checks():
+    # The renter cannot make input devices; the streamer can.
+    renter_uinput = subprocess.run(["runuser", "-u", "renter", "--", "python3", "-c",
+                                    "import os; os.open('/dev/uinput', os.O_WRONLY)"], capture_output=True)
+    report("renter cannot open /dev/uinput", renter_uinput.returncode != 0)
+    stream_uinput = subprocess.run(["setpriv", f"--reuid={STREAM_UID}", f"--regid={STREAM_UID}", "--clear-groups",
+                                    "python3", "-c", "import os; os.open('/dev/uinput', os.O_WRONLY)"],
+                                   capture_output=True)
+    report("streamer can open /dev/uinput with its primary group alone", stream_uinput.returncode == 0,
+           stream_uinput.stderr.decode().strip()[-200:])
+    # The streamer cannot read the renter's files (where Steam keeps its login).
+    stream_home = subprocess.run(["setpriv", f"--reuid={STREAM_UID}", f"--regid={STREAM_UID}", "--clear-groups",
+                                  "ls", "/home/renter"], capture_output=True)
+    report("streamer cannot read the renter's home", stream_home.returncode != 0)
+
+
+def regrant_check():
+    """Each new PipeWire socket gets the streamer's ACL again: after pipewire.socket
+    is restarted, and after it is stopped and later started."""
+    def new_socket_granted(before):
+        def regranted():
+            if os.stat(PIPEWIRE).st_ino == before:
+                return False
+            acl = subprocess.run(["getfacl", "-p", PIPEWIRE], capture_output=True, text=True).stdout
+            return "user:swiff-stream:rw-" in acl
+        try:
+            return wait_for(regranted, 30, "the grant on the new socket")
+        except TimeoutError:
+            return False
+
+    before = os.stat(PIPEWIRE).st_ino
+    restart = as_user("renter", "systemctl", "--user", "restart", "pipewire.socket")
+    restarted = new_socket_granted(before)
+    before = os.stat(PIPEWIRE).st_ino
+    stop = as_user("renter", "systemctl", "--user", "stop", "pipewire.socket")
+    start = as_user("renter", "systemctl", "--user", "start", "pipewire.socket")
+    restarted_after_stop = new_socket_granted(before)
+    report("swiff-pipewire-grant runs again when pipewire.socket makes a new socket",
+           restarted and restarted_after_stop,
+           f"restart exit {restart.returncode} granted {restarted}; stop exit {stop.returncode}, "
+           f"start exit {start.returncode} granted {restarted_after_stop} "
+           f"{(restart.stderr + stop.stderr + start.stderr).strip()[-200:]}")
+
+
+def watch_input(stop):
+    """Report every key, button and axis event the streamer's virtual devices emit."""
+    opened = {}
+    while not stop.is_set():
+        for name_file in glob.glob("/sys/class/input/event*/device/name"):
+            with open(name_file) as f:
+                name = f.read().strip()
+            if not name.startswith("Swiff virtual") and name != "Microsoft X-Box 360 pad":
+                continue
+            node = "/dev/input/" + name_file.split("/")[4]
+            if node in opened:
+                continue
+            fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+            opened[node] = (fd, name)
+            # A device this new may not have been through udev's rules yet.
+            marked = False
+            for _ in range(50):
+                props = subprocess.run(["udevadm", "info", "--query=property", node], capture_output=True,
+                                       text=True)
+                marked = "SWIFF_STREAMER=1" in props.stdout
+                if marked:
+                    break
+                time.sleep(0.1)
+            report(f"udev marks {name} as the streamer's", marked)
+        for fd, name in list(opened.values()):
+            try:
+                data = os.read(fd, 24 * 64)
+            except BlockingIOError:
+                continue
+            except OSError:
+                continue
+            for i in range(0, len(data) - len(data) % 24, 24):
+                _sec, _usec, type_, code, value = struct.unpack("llHHi", data[i:i + 24])
+                if type_ in (1, 2, 3):
+                    try:
+                        call("/input", {"device": name, "type": type_, "code": code, "value": value})
+                    except OSError:
+                        pass
+        time.sleep(0.02)
+
+
+def main():
+    wait_for(lambda: call("/ping") is not None, 120, "the harness")
+    say("harness reachable")
+
+    try:
+        wait_for(lambda: os.path.exists(PIPEWIRE), 60, "the renter's PipeWire")
+        report("renter's PipeWire is up", True)
+        wait_for(gamescope_node, 60, "the gamescope node")
+        report("synthetic gamescope node is in the renter's PipeWire", True)
+        acl = wait_for(lambda: "user:swiff-stream:rw-" in subprocess.run(
+            ["getfacl", "-p", PIPEWIRE], capture_output=True, text=True).stdout, 30, "the grant")
+        report("swiff-pipewire-grant gave the streamer the renter's socket", acl)
+    except TimeoutError as e:
+        report("renter session", False, f"timed out waiting for {e}")
+        return 1
+
+    separation_checks()
+
+    grant = call("/grant")
+    say("got the session grant from the harness")
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "SWIFF_SERVER_URL": grant["serverUrl"],
+           "SWIFF_HOST_ID": grant["hostId"],
+           # hostd sends the game's app id; the streamer must take any value and ignore it.
+           "SWIFF_APPID": "steam:not-a-number"}
+    args = ["node", STREAMER, "--pipewire-remote", PIPEWIRE, "--size", "1280x720", "--fps", "30",
+            "--bitrate", "3000000",
+            # The harness's server is on the host, which QEMU puts at 10.0.2.2: ws:// off the
+            # VM, so the streamer has to be told this plain-text signaling is a test.
+            "--insecure-signaling"]
+    started = time.time()
+    # As swiff-hostd does it: the streamer's uid and gid, no supplementary groups, key on stdin.
+    proc = subprocess.Popen(args, user=STREAM_UID, group=STREAM_UID, extra_groups=[], env=env, cwd="/",
+                            stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc.stdin.write(json.dumps({"sessionKey": grant["sessionKey"], "expiresAt": grant["expiresAt"]}) + "\n")
+    proc.stdin.close()
+
+    stop = threading.Event()
+    threading.Thread(target=watch_input, args=(stop,), daemon=True).start()
+
+    seen = set()
+    for line in proc.stderr:
+        line = line.rstrip()
+        say(line)
+        try:
+            call("/log", {"line": line, "at": round(time.time() - started, 2)})
+        except OSError:
+            pass
+        for marker in ("encoding with x264", "video capture is flowing", "audio capture is flowing",
+                       "registered; waiting for the renter", "the renter joined"):
+            if marker in line and marker not in seen:
+                seen.add(marker)
+                report(f"streamer: {marker}", True, f"{time.time() - started:.1f}s after start")
+    code = proc.wait()
+    stop.set()
+    # The session ended on the server, which puts the streamer out: a clean exit.
+    report("streamer exits 0 when the session ends", code == 0, f"exit {code}")
+    regrant_check()
+    call("/finished", {})
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as e:  # noqa: BLE001 - every failure must reach the harness
+        report("agent", False, repr(e))
+        sys.exit(1)

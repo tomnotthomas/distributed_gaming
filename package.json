@@ -6,13 +6,15 @@
     "server",
     "web",
     "desktop",
-    "swiff-os/steam"
+    "swiff-os/steam",
+    "swiff-os/streamer"
   ],
   "scripts": {
     "build": "npm run build -w @swiff/web && npm run build -w @swiff/server",
     "start": "npm start -w @swiff/server",
     "machine-key": "npm run build -w @swiff/server && node server/dist/cli.js machine-key",
     "ticket": "npm run build -w @swiff/server && node --env-file-if-exists=.env server/dist/cli.js ticket",
+    "boot-policy": "npm run build -w @swiff/server && node server/dist/cli.js boot-policy",
     "seed-requirements": "npm run build -w @swiff/server && npm run seed-requirements -w @swiff/server --",
     "dev": "npm run build && npm start",
     "dev:web": "npm run dev -w @swiff/web",

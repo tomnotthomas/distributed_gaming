@@ -63,10 +63,13 @@ one session per machine.
 4. The page claims the reserved PC (booking `claimed`).
 5. The gaming PC starts the streamer and Steam in the separate Windows account and locks
    the PC.
-6. The renter plays.
+6. The page joins the PC's room and plays its stream; on the first frame it starts the
+   session (booking `playing`) and the PC launches the game.
+7. The renter plays, and ends the session with End.
 
 Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
 booking the moment it hears of the match, over its event stream or its fallback poll.
+Steps 4 to 6 are Ignition on the page; see "Playing" below.
 
 Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
@@ -299,6 +302,17 @@ POST /bookings/:id/claim
   the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
 
+POST /bookings/:id/ticket
+  → 200 { sessionId, roomId, signalingUrl, ticket }
+  The renter's running session's ticket again, for a page that no longer holds it: the
+  page never stores the ticket (see "Playing" below). It carries the id recorded at
+  claim, so ending the session revokes it with the first, and is valid only until the
+  session's deadline.
+  → 409 { error, status } when the booking has no session running: not yet claimed,
+  over, or past its deadline.
+  → 503 when ROOM_SECRET is not set.
+  → 404 for an unknown booking or another renter's.
+
 POST /bookings/:id/end
   → 200 { bookingId, status: "ended", sessionId?, price? }
   The renter ends their booking, whatever it has come to: a queued one leaves the queue,
@@ -307,6 +321,16 @@ POST /bookings/:id/end
   revoked, the PC's host session ends and the time played is priced.
   → 409 { error, status } once the booking is over (ended or expired).
   → 404 for an unknown booking or another renter's.
+
+POST /sessions/:id/start
+  → 200 { sessionId, roomId }
+  The renter's first frame arrived: starts the session, with the join ticket as bearer,
+  if it has not started yet (booking `playing`; the time played is counted from here),
+  and tells the PC serving it to launch the game booked (`launch-game`, below). Sent
+  again on each new connection's first frame, which tells the PC again. The PC's own
+  start (host.md) takes the machine key instead. → 403 for another session's ticket,
+  → 409 once the session is over or past its deadline (even before the timer that ends
+  it has run, so no `launch-game` goes out for it).
 
 POST /sessions/:id/qos
   { fps, bitrate, rttMs, packetLoss }
@@ -439,14 +463,16 @@ a session all end the booking (POST /bookings/:id/end).
 
 The wire format lives in `server/src/protocol.ts`.
 
-| Message                    | Direction        | Meaning                                                                                                                                                          |
-| -------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                                                                |
-| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                                                      |
-| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                                                         |
-| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                                                             |
-| `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code, then `signed-in` or `failed` ([`host.md`](host.md)); the renter's `retry` asks for a new one. Ignition holds until signed in. |
-| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                   |
+| Message                    | Direction        | Meaning                                                                                                                                                                                                                                                          |
+| -------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`                 | PC → server      | The machine opens its room, with its machine key.                                                                                                                                                                                                                |
+| `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                                                                                                                                                      |
+| `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                                                                                                                                                         |
+| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                                                                                                                                                             |
+| `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                                                                                                                                                      |
+| `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started.                                                                                                                                   |
+| `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code before the stream connects, then `signed-in` or `failed` ([`host.md`](host.md)); the renter's `retry` asks for a new one on the same claim. Ignition shows the code; the PC's `game-started` comes once the game is on screen. |
+| `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                                                                                                                   |
 
 ### Room access
 
@@ -500,3 +526,54 @@ credentials it mints itself (`server/src/ice.ts`).
 | Video track   | PC → renter | The screen, 1080p60               |
 | Audio track   | PC → renter | The machine's sound, Opus stereo  |
 | Data channels | renter → PC | Mouse, keyboard and gamepad input |
+
+### Playing
+
+The stream plays inside Swiff (`web/src/swiff/play.ts` over `@swiff/rtc`'s renter
+session, the one `/rtc` plays too). Launch is a held press of 600 ms. From then until the
+game is on screen, Ignition names each step and moves on what actually happened, not on a
+clock, each step with a timeout of its own:
+
+| Step                 | Done when                                | Timeout                                                                                                     |
+| -------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Reserving a machine  | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                                          |
+| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another machine                                                   |
+| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above                     |
+| Launching _the game_ | the first frame and `game-started`, both | 90 s: Ignition stays up, with Try another machine as above; the stream is never shown before `game-started` |
+
+The claim's session and room are kept in `localStorage` as the booking being played until
+it ends, for the reconnect step to come. Its join ticket is never stored: it is a bearer
+credential, held only in the page's memory, and the reconnect step asks for it again
+(POST /bookings/:id/ticket). A play kept with its ticket before then is dropped on page
+load. Reloading the page does not rejoin the stream
+yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
+first frame can arrive while Ignition is up; that frame starts the session (POST
+/sessions/:id/start, on every new connection's first frame, tried again every 2 s
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
+booking and launches on the best other free machine on the list, or goes back to
+the list when there is none; a session already started there ends first as End ends
+it, and the next machine's clock starts afresh. Cancel ends the booking; once the
+session has started it reads End, and ends it as End does. From Play until the game is on screen the renter sees Ignition and nothing
+else: the frames the PC sends before `game-started` are its desktop or Steam, and they
+stay behind Ignition however long the launch takes, their sound muted until the game is
+on screen (then "Turn sound on" if the browser refuses it). If the PC leaves mid-session
+(its room handed over, or its streamer restarting), the page goes back behind Ignition at
+Waking and shows the stream again only on the new connection's first frame and a fresh
+`game-started`, with the same timeouts; the session clock keeps running from the first
+time it went live.
+
+The session's HUD reads `getStats` once a second: frames per second, round trip, bitrate,
+and whether the stream goes direct or through the relay. It hides 3 s after the pointer
+last moved over the stream (movement while the stream holds the pointer is the game's) and
+comes back when it moves. Full screen puts the session on the whole screen, and is left
+when the stream drops back behind Ignition, which it would otherwise cover; End ends the
+booking (POST /bookings/:id/end), which ends the session as the renter's own. In a
+session every key, Escape and a controller's B included, goes to the game, and so it does
+behind Ignition once the session has started (the PC left mid-session): only End ends it
+there. A session the
+server ends (the booked time runs out, or the PC ends it) refuses the ticket (`denied`),
+and the page ends it there as End does, counted as `session_ended`. This holds behind
+Ignition too once the session has started, after the PC left mid-session. A ticket
+refused before the session started, or a session start the server refuses then (the
+session is already over, or the ticket is not its own), is a failed launch instead: the booking is ended and
+the page says the launch did not go through.

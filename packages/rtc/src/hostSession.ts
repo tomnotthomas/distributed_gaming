@@ -3,6 +3,7 @@
 // code, the browser shows a picker); everything from here down is identical.
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► input channels ──► offer ──► answer
+//   launch-game (the renter's first frame) ──► launchGame(appid) ──► game-started
 //
 // With `serveClaims`, it also stands in for the PC service of
 // docs/system-design/session-keys.md: on `session-claimed` it starts that
@@ -105,6 +106,18 @@ export type HostSessionOptions = IceConfig & {
   onConnection?: (state: HostConnection) => void;
   /** Each round trip to the server, in ms, timed on the signaling socket's pings. */
   onRtt?: (ms: number) => void;
+  /**
+   * Launch Steam game `appid`: the renter's first frame arrived and the session
+   * started. Answered with `game-started` once it resolves, so it resolves only
+   * once the game's own window is what is captured: the renter sees the stream
+   * from then on. A rejection sends nothing, and the renter's page stays on
+   * Ignition and offers another machine.
+   * Called again for every start the renter's page makes, so it must be
+   * idempotent. Without it, nothing is launched and nothing is answered: the
+   * renter's page stays on Ignition. The desktop app has no launcher until the
+   * PC session's streamer exists, so it never answers until then.
+   */
+  launchGame?: (appid: number) => Promise<void> | void;
   /**
    * The renter's input channels, once per peer connection. Attach both to one
    * `createInputReceiver`, and close that receiver when `onPeerConnection(null)`
@@ -347,6 +360,19 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         }
         opts.onSessionClaimed?.(next);
         if (opts.serveClaims && !claim) serve(next);
+        break;
+      }
+      case "launch-game": {
+        const { launchGame } = opts;
+        if (!launchGame) break;
+        void Promise.resolve()
+          .then(() => launchGame(msg.appid))
+          .then(
+            () => send({ type: "game-started", sessionId: msg.sessionId }),
+            // Only a fixed line: the launcher is the caller's, and what it
+            // rejects with may carry a ticket or a token.
+            () => console.warn(`[swiff] could not launch the game (app ${msg.appid})`),
+          );
         break;
       }
       case "peer-joined":

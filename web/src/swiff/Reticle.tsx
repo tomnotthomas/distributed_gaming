@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Glyph } from "./Glyph";
 
 /** How long the press has to last, and how fast an early release drains. */
-export const HOLD_MS = 1200;
+export const HOLD_MS = 600;
 const DRAIN_MS = 350;
 /** How long "Launching" shows before the button rests again. */
 const RESET_MS = 1800;
@@ -17,7 +17,7 @@ const LABEL: Record<Phase, [string, string]> = {
 
 /**
  * Launch wakes someone else's PC and starts a booking, so it is a held press,
- * not a click. Pointer, Space or Enter fills the outer ring over 1.2 s and
+ * not a click. Pointer, Space or Enter fills the outer ring over 0.6 s and
  * pulls the brackets in; letting go early drains it with nothing spent. The
  * fill is feedback for the player's own action, so it runs under reduced
  * motion too; only the idle cue stops. While a launch is under way it stays

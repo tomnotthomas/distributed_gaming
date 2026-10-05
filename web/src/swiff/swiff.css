@@ -1468,6 +1468,18 @@ button.band-tab:hover {
   right: var(--gut);
   color: var(--on-paper);
 }
+.ig-slow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--pline);
+  color: var(--on-paper);
+  animation: swiff-rise 0.5s ease both;
+}
 .ig-dial {
   flex: 1 1 auto;
   min-height: 0;
@@ -1592,10 +1604,35 @@ button.band-tab:hover {
   font-weight: 500;
   letter-spacing: -0.02em;
 }
+.session-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.session-video:focus {
+  outline: none;
+}
 .session-end {
   position: absolute;
   left: var(--space-8);
   bottom: var(--space-8);
+  display: flex;
+  gap: var(--space-3);
+}
+/* The HUD gets out of the way while the pointer rests; moving it brings the HUD back. */
+.session-hud,
+.session-end {
+  transition: opacity 0.3s var(--ease);
+}
+.session[data-hud="hidden"] :is(.session-hud, .session-end) {
+  opacity: 0;
+  pointer-events: none;
+}
+.session[data-hud="hidden"] {
+  cursor: none;
 }
 
 /* — profile — */
@@ -2137,7 +2174,8 @@ button.band-tab:hover {
     transform: none;
   }
   .profile,
-  .estimate-sheet {
+  .estimate-sheet,
+  .ig-slow {
     animation: none;
   }
   .tier {

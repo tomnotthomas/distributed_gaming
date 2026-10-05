@@ -151,7 +151,10 @@ export function useLive({
       return;
     }
     let current = true;
-    void measureRtt(latest.current.get).then((ms) => {
+    // Pings stop once signed out or gone, so no timing outlives the page.
+    const get: typeof fetch = (input, init) =>
+      current ? latest.current.get(input, init) : Promise.reject(new Error("stopped"));
+    void measureRtt(get).then((ms) => {
       if (current) setRtt(ms ?? UNMEASURED_RTT_MS);
     });
     return () => {

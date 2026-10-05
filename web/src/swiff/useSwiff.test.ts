@@ -1,15 +1,54 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { storedPlay } from "./booking";
 import { GAMES } from "./data";
+import { WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
-// Analytics are off in tests; the real module refuses to load without a key in dev.
-vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
+// The real module refuses to load without a key in dev: tests stand in for it and read what the funnel was told.
+const track = vi.hoisted(() => vi.fn());
+vi.mock("../posthog", () => ({ default: { capture: track }, isPostHogEnabled: true }));
+
+/** The renter sessions the page started, each driven by the test: what it joined with, its events, its end. */
+const rtc = vi.hoisted(() => ({
+  sessions: [] as {
+    options: RenterSessionOptions;
+    emit: (event: RenterSessionEvent) => void;
+    ended: boolean;
+    retries: number;
+  }[],
+}));
+vi.mock("@swiff/rtc", () => ({
+  startRenterSession: (options: RenterSessionOptions) => {
+    const listeners = new Set<(event: RenterSessionEvent) => void>();
+    const session = {
+      options,
+      ended: false,
+      retries: 0,
+      emit: (event: RenterSessionEvent) => listeners.forEach((fn) => fn(event)),
+    };
+    rtc.sessions.push(session);
+    return {
+      on: (listener: (event: RenterSessionEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      stats: () => null,
+      retrySteamLogin: () => {
+        session.retries += 1;
+      },
+      end: () => {
+        session.ended = true;
+      },
+    };
+  },
+}));
 
 /** What /api/me answers without a Steam Web API key: the session's Steam id, an empty profile. */
 const unnamed: Renter = {
@@ -71,8 +110,6 @@ const booked = (status: string, claimBy?: number) => ({
 });
 
 const TICKET = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
-/** The same claim on a rental-mode (Swiff OS) PC. */
-const RENTAL_TICKET = { ...TICKET, rentalMode: true };
 
 /** The page's event streams, opened through a stand-in for EventSource that each test drives. */
 function streams() {
@@ -94,53 +131,6 @@ function streams() {
         this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
       }
       close() {}
-    },
-  );
-  return opened;
-}
-
-/** The signaling sockets the page opens, through a stand-in for WebSocket that each test drives. */
-function sockets() {
-  const opened: {
-    url: string;
-    sent: unknown[];
-    closed: boolean;
-    open: () => void;
-    deliver: (msg: unknown) => void;
-    drop: () => void;
-  }[] = [];
-  vi.stubGlobal(
-    "WebSocket",
-    class {
-      static OPEN = 1;
-      readyState = 0;
-      onopen: (() => void) | null = null;
-      onmessage: ((event: { data: string }) => void) | null = null;
-      onclose: (() => void) | null = null;
-      constructor(url: string) {
-        const socket = {
-          url,
-          sent: [] as unknown[],
-          closed: false,
-          open: () => {
-            this.readyState = 1;
-            this.onopen?.();
-          },
-          deliver: (msg: unknown) => this.onmessage?.({ data: JSON.stringify(msg) }),
-          drop: () => {
-            this.readyState = 3;
-            this.onclose?.();
-          },
-        };
-        this.send = (data: string) => socket.sent.push(JSON.parse(data));
-        this.close = () => {
-          socket.closed = true;
-          this.readyState = 3;
-        };
-        opened.push(socket);
-      }
-      send: (data: string) => void;
-      close: () => void;
     },
   );
   return opened;
@@ -187,6 +177,7 @@ describe("useSwiff", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    rtc.sessions = [];
   });
 
   it("is the demo only at ?demo=1", () => {
@@ -234,10 +225,6 @@ describe("useSwiff", () => {
 
   describe("on the real hosts", () => {
     // jsdom has no EventSource, so the hook falls back to its slow poll here.
-    let signaling: ReturnType<typeof sockets>;
-    beforeEach(() => {
-      signaling = sockets();
-    });
 
     it("never asks a signed-out visitor's availability, and lists no invented machine", async () => {
       serve(null);
@@ -387,375 +374,317 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
-    it("shows a rental-mode PC's Steam sign-in code from the claimed room until the renter approves it", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
+    it("drops a join ticket kept on disk before tickets stopped being stored", async () => {
+      localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: TICKET }));
+      serve(unnamed, LIVE, {});
       streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-
-      const socket = signaling[0]!;
-      expect(socket.url).toBe(TICKET.signalingUrl);
-      act(() => socket.open());
-      expect(socket.sent).toContainEqual({ type: "join", ticket: TICKET.ticket });
-      expect(result.current.steamLogin).toBeNull();
-
-      act(() => socket.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-      expect(result.current.steamLogin).toEqual({
-        type: "steam-login",
-        state: "qr",
-        url: "https://s.team/q/1/42",
-      });
-
-      act(() => socket.deliver({ type: "steam-login", state: "signed-in" }));
-      expect(result.current.steamLogin).toBeNull();
-      expect(result.current.phase).toBe("connecting");
-      expect(socket.closed).toBe(false);
+      await openLive();
+      expect(localStorage.getItem("swiff.play")).toBeNull();
     });
 
-    it("drops the Steam sign-in code and leaves the room when the launch is left", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-        "POST /api/bookings/b-1/end": json(200, booked("ended")),
-      });
-      streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      act(() => signaling[0]!.open());
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-      expect(result.current.steamLogin).not.toBeNull();
-
-      act(() => result.current.goHome());
-
-      expect(result.current.phase).toBe("idle");
-      expect(result.current.steamLogin).toBeNull();
-      expect(signaling[0]!.closed).toBe(true);
-    });
-
-    it("holds Ignition on the Steam sign-in code until the renter approves it, then goes live", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        act(() => result.current.launch());
-        await waitFor(() => expect(signaling).toHaveLength(1));
-        act(() => signaling[0]!.open());
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-        const held = result.current.progress;
-
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
-        expect(result.current.phase).toBe("connecting");
-        expect(result.current.progress).toBe(held);
-        expect(result.current.steamLogin?.state).toBe("qr");
-        expect(signaling[0]!.closed).toBe(false);
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
-        expect(result.current.phase).toBe("live");
-        expect(result.current.steamLogin).toBeNull();
-        expect(signaling[0]!.closed).toBe(true);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("holds Ignition from a rental-mode claim until signed in, however late the code comes", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        act(() => result.current.launch());
-        await waitFor(() => expect(signaling).toHaveLength(1));
-        act(() => signaling[0]!.open());
-
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-        expect(result.current.phase).toBe("connecting");
-        expect(result.current.steamLogin).toBeNull();
-        expect(signaling[0]!.closed).toBe(false);
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-        expect(result.current.steamLogin?.state).toBe("qr");
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-        expect(result.current.phase).toBe("live");
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("shows no code but a Steam sign-in link, and keeps Ignition held for a real one", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      act(() => signaling[0]!.open());
-
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://evil.test/q/1/42" }));
-
-      expect(result.current.steamLogin).toBeNull();
-      expect(result.current.phase).toBe("connecting");
-    });
-
-    it("keeps Ignition held on the code for any Steam sign-in state but signed-in", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        act(() => result.current.launch());
-        await waitFor(() => expect(signaling).toHaveLength(1));
-        act(() => signaling[0]!.open());
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
-        expect(result.current.phase).toBe("connecting");
-        expect(result.current.steamLogin?.state).toBe("qr");
-        expect(signaling[0]!.closed).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("says a failed Steam sign-in and never goes live on it, until a new code comes", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        act(() => result.current.launch());
-        await waitFor(() => expect(signaling).toHaveLength(1));
-        act(() => signaling[0]!.open());
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-        expect(result.current.steamSignInFailed).toBe(false);
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
-        expect(result.current.steamSignInFailed).toBe(true);
-        expect(result.current.phase).toBe("connecting");
-        expect(signaling[0]!.closed).toBe(false);
-
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" }));
-        expect(result.current.steamSignInFailed).toBe(false);
-        expect(result.current.steamLogin).toEqual({
-          type: "steam-login",
-          state: "qr",
-          url: "https://s.team/q/1/43",
-        });
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("holds Ignition again when the PC says the launch failed after signing in", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        act(() => result.current.launch());
-        await waitFor(() => expect(signaling).toHaveLength(1));
-        act(() => signaling[0]!.open());
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "signed-in" }));
-        act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
-
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
-        expect(result.current.phase).toBe("connecting");
-        expect(result.current.steamSignInFailed).toBe(true);
-        expect(signaling[0]!.closed).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("tries a failed Steam sign-in again on the claimed room, keeping the booking and the machine", async () => {
+    it("plays the claimed stream behind Ignition, step by step, and ends the session with End", async () => {
       const calls = serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("queued")),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-        "POST /api/bookings/b-1/end": json(200, booked("ended")),
-      });
-      const opened = streams();
-      const result = await openLive();
-      act(() => result.current.joinQueue());
-      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
-      act(() => opened.find((o) => o.url === "/api/events?booking=b-1")!.push(booked("matched", 1_000)));
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      act(() => signaling[0]!.open());
-      act(() => signaling[0]!.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" }));
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
-      expect(result.current.steamSignInFailed).toBe(true);
-
-      act(() => result.current.retrySignIn());
-
-      expect(signaling[0]!.sent).toContainEqual({ type: "steam-login", state: "retry" });
-      expect(signaling[0]!.closed).toBe(false);
-      expect(signaling).toHaveLength(1);
-      expect(result.current.steamSignInFailed).toBe(false);
-      expect(result.current.steamLogin).toBeNull();
-      expect(result.current.phase).toBe("connecting");
-      expect(result.current.claim).toEqual(RENTAL_TICKET);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(calls.filter((c) => c.call === "POST /api/bookings")).toHaveLength(1);
-      expect(fetched()).not.toContain("/api/bookings/b-1/end");
-
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" }));
-      expect(result.current.steamLogin).toEqual({
-        type: "steam-login",
-        state: "qr",
-        url: "https://s.team/q/1/43",
-      });
-    });
-
-    it("holds a Steam sign-in retry while the room is reconnecting, and sends it once joined again", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      act(() => signaling[0]!.open());
-      act(() => signaling[0]!.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
-      act(() => signaling[0]!.deliver({ type: "steam-login", state: "failed" }));
-      act(() => signaling[0]!.drop());
-
-      act(() => result.current.retrySignIn());
-
-      expect(result.current.steamSignInFailed).toBe(false);
-      expect(result.current.phase).toBe("connecting");
-      await waitFor(() => expect(signaling).toHaveLength(2));
-      const again = signaling[1]!;
-      act(() => again.open());
-      expect(again.sent).not.toContainEqual({ type: "steam-login", state: "retry" });
-      act(() => again.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
-      expect(again.sent).toContainEqual({ type: "steam-login", state: "retry" });
-
-      act(() => again.deliver({ type: "steam-login", state: "failed" }));
-      expect(result.current.steamSignInFailed).toBe(true);
-      expect(again.sent.filter((m) => JSON.stringify(m).includes("retry"))).toHaveLength(1);
-    });
-
-    it("holds a Steam sign-in retry while the PC is away, and sends it once the PC is heard again", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      const room = signaling[0]!;
-      const retries = () =>
-        room.sent.filter(
-          (m) => JSON.stringify(m) === JSON.stringify({ type: "steam-login", state: "retry" }),
-        );
-      act(() => room.open());
-      act(() => room.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
-      act(() => room.deliver({ type: "steam-login", state: "failed" }));
-      act(() => room.deliver({ type: "peer-left" }));
-
-      act(() => result.current.retrySignIn());
-      expect(retries()).toHaveLength(0);
-      expect(result.current.steamSignInFailed).toBe(false);
-
-      act(() => room.deliver({ type: "ice", candidate: { candidate: "" } }));
-      act(() => room.deliver({ type: "ice", candidate: { candidate: "" } }));
-      expect(retries()).toHaveLength(1);
-      expect(room.closed).toBe(false);
-      expect(signaling).toHaveLength(1);
-    });
-
-    it("counts the PC back on its Steam sign-in frame, so Try again reaches it", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
-      });
-      streams();
-      const result = await openLive();
-      act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      const room = signaling[0]!;
-      act(() => room.open());
-      act(() => room.deliver({ type: "joined", hostId: "pc-1", hostOnline: true }));
-      act(() => room.deliver({ type: "peer-left" }));
-      act(() => room.deliver({ type: "steam-login", state: "failed" }));
-
-      act(() => result.current.retrySignIn());
-
-      expect(room.sent).toContainEqual({ type: "steam-login", state: "retry" });
-    });
-
-    it("leaves the Steam sign-in hold and ends the booking when the room refuses the ticket", async () => {
-      serve(unnamed, LIVE, {
-        "POST /api/bookings": json(202, booked("matched", 1_000)),
-        "POST /api/bookings/b-1/claim": json(200, RENTAL_TICKET),
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
         "POST /api/bookings/b-1/end": json(200, booked("ended")),
       });
       streams();
       const result = await openLive();
       act(() => result.current.launch());
-      await waitFor(() => expect(signaling).toHaveLength(1));
-      act(() => signaling[0]!.open());
+      expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a machine");
 
-      act(() => signaling[0]!.deliver({ type: "denied", reason: "bad-ticket" }));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      // Kept as the booking being played, for the later resume step.
+      expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+      const video = document.createElement("video");
+      act(() => result.current.attachVideo(video));
+      expect(rtc.sessions).toHaveLength(1);
+      const session = rtc.sessions[0]!;
+      expect(session.options).toMatchObject({ url: "ws://localhost", ticket: "t", video });
+      const step = () => result.current.ignitionSteps[result.current.ignitionIndex];
+      expect(step()).toBe("Waking Basement rig");
 
+      act(() => session.emit({ type: "peer-connection", pc: {} as RTCPeerConnection }));
+      expect(step()).toBe("Negotiating stream");
+      act(() => session.emit({ type: "connected" }));
+      expect(step()).toBe("Launching Counter-Strike 2");
+      act(() => session.emit({ type: "first-frame" }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/sessions/s-1/start"));
+      expect(result.current.phase).toBe("connecting");
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+
+      act(() => result.current.endSession());
       expect(result.current.phase).toBe("idle");
-      expect(result.current.bookingFailed).toBe(true);
-      expect(result.current.claim).toBeNull();
-      expect(signaling[0]!.closed).toBe(true);
-      await waitFor(() => expect(fetched()).toContain("/api/bookings/b-1/end"));
+      expect(session.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
     });
 
-    it("never joins the room of a PC not in rental mode, and goes live on Ignition's timer", async () => {
+    it("shows a rental-mode PC's Steam code, retries a failed sign-in on the same claim, and is live only once the game runs", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      const QR = { type: "steam-login", state: "qr", url: "https://s.team/q/1/42" } as const;
+
+      act(() => session.emit(QR));
+      expect(result.current.steamLogin).toEqual(QR);
+      act(() => session.emit({ type: "connected" }));
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "steam-login", state: "failed" }));
+      expect(result.current.steamSignInFailed).toBe(true);
+      expect(result.current.steamLogin).toBeNull();
+
+      act(() => result.current.retrySignIn());
+      // The same PC is asked for a new code: the booking is neither ended nor made again.
+      expect(session.retries).toBe(1);
+      expect(rtc.sessions).toHaveLength(1);
+      expect(result.current.steamSignInFailed).toBe(false);
+      expect(calls.map((c) => c.call).filter((c) => c.startsWith("POST /api/bookings"))).toEqual([
+        "POST /api/bookings",
+        "POST /api/bookings/b-1/claim",
+      ]);
+
+      act(() => session.emit({ ...QR, url: "https://s.team/q/1/43" }));
+      act(() => session.emit({ type: "steam-login", state: "signed-in" }));
+      expect(result.current.phase).toBe("connecting");
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+    });
+
+    it("ends a live session the server ended as a session end, not a failed launch", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        "POST /api/bookings/b-1/end": json(409, { status: "ended" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+      track.mockClear();
+
+      act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(false);
+      expect(result.current.claim).toBeNull();
+      expect(track).toHaveBeenCalledWith("session_ended", expect.anything());
+      expect(storedPlay()).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("fails the launch when the ticket is denied during Ignition", async () => {
       serve(unnamed, LIVE, {
         "POST /api/bookings": json(202, booked("matched", 1_000)),
         "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
       });
       streams();
       const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      track.mockClear();
+
+      act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(true);
+      expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("goes back behind Ignition when the PC leaves mid-session, keeping the session clock", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       try {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        streams();
+        const result = await openLive();
         act(() => result.current.launch());
         await waitFor(() => expect(result.current.claim).toEqual(TICKET));
-        await act(() => vi.advanceTimersByTimeAsync(60_000));
-
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
         expect(result.current.phase).toBe("live");
-        expect(signaling).toHaveLength(0);
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(4_000);
+
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Waking Basement rig");
+
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(5_000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    describe("after the PC drops a started session", () => {
+      /** A session live on h1 for 10 s, then back behind Ignition because its PC left. */
+      async function dropped(extra: Record<string, Response> = {}) {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 600_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+          ...extra,
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        await waitFor(() => expect(result.current.play?.started).toBe(true));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(10_000));
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        track.mockClear();
+        return { result, calls, session };
+      }
+
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("ends a session the server ended behind Ignition as a session end, not a failed launch", async () => {
+        const { result, calls, session } = await dropped();
+
+        act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.bookingFailed).toBe(false);
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        expect(
+          track.mock.calls.find(([name]) => name === "session_ended")![1].seconds,
+        ).toBeGreaterThanOrEqual(9);
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("ends it as a session with End on Ignition", async () => {
+        const { result, calls } = await dropped();
+
+        act(() => result.current.goHome());
+        expect(result.current.phase).toBe("idle");
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("leaves Escape and a controller's B to the game: only End ends it", async () => {
+        const pad = { axes: [0], buttons: Array.from({ length: 16 }, () => ({ pressed: false })) };
+        Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [pad] });
+        try {
+          const { result, calls } = await dropped();
+
+          act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+          pad.buttons[1]!.pressed = true;
+          await act(() => vi.advanceTimersByTimeAsync(500));
+          expect(result.current.phase).toBe("connecting");
+          expect(result.current.claim).toEqual(TICKET);
+          expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+          expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+        } finally {
+          delete (navigator as { getGamepads?: unknown }).getGamepads;
+        }
+      });
+
+      it("ends it as a session before trying another machine, whose clock starts afresh", async () => {
+        const { result, calls } = await dropped();
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+
+        act(() => result.current.tryAnother());
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        await waitFor(() => expect(rtc.sessions).toHaveLength(2));
+        const next = rtc.sessions[1]!;
+        act(() => next.emit({ type: "first-frame" }));
+        act(() => next.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        expect(result.current.elapsedMs).toBeLessThan(2_000);
+      });
+    });
+
+    it("cancels a launch by ending its booking and hanging up", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+
+      act(() => result.current.goHome());
+      expect(result.current.phase).toBe("idle");
+      expect(rtc.sessions[0]!.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("offers another machine when the PC takes too long to wake, and launches on it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        expect(result.current.slow).toBe(false);
+
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+        expect(result.current.phase).toBe("connecting");
+
+        act(() => result.current.tryAnother());
+        expect(rtc.sessions[0]!.ended).toBe(true);
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        expect(result.current.picked?.id).toBe("h2");
+        expect(result.current.phase).toBe("connecting");
       } finally {
         vi.useRealTimers();
       }

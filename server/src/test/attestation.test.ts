@@ -91,7 +91,7 @@ describe("attestation config", () => {
     assert.ok(typo.warnings.some((w) => w.includes("HOSTING_ATTESTATION")));
   });
 
-  it("knows only the insecure dev verifier, and warns whenever it is set", () => {
+  it("knows the insecure dev verifier, and warns whenever it is set", () => {
     const dev = attestationFromEnv({ ATTESTATION_VERIFIER: "insecure-dev" }, ACCESS.machines);
     assert.equal(dev.verifier?.name, "insecure-dev");
     assert.ok(dev.warnings.some((w) => w.includes("insecure-dev")));
@@ -235,7 +235,7 @@ describe("attesting", () => {
     assert.ok(own.ok, "its own key does");
   });
 
-  it("hands the verifier the machine, the nonce and the evidence as sent", async () => {
+  it("hands the verifier the machine, the nonce, the evidence as sent and the time", async () => {
     const seen: unknown[] = [];
     const attestation = required({
       name: "spy",
@@ -244,9 +244,10 @@ describe("attesting", () => {
         return { ok: true, facts: GOOD };
       },
     });
-    const nonce = nonceFor(attestation);
-    assert.ok((await attestation.attest("pc-1", nonce, { quote: "q" })).ok);
-    assert.deepEqual(seen, [{ room: "pc-1", nonce, evidence: { quote: "q" } }]);
+    const now = Date.now();
+    const nonce = nonceFor(attestation, "pc-1", now);
+    assert.ok((await attestation.attest("pc-1", nonce, { quote: "q" }, now)).ok);
+    assert.deepEqual(seen, [{ room: "pc-1", nonce, evidence: { quote: "q" }, now }]);
   });
 
   it("refuses evidence the verifier rejects, and a machine below the floor", async () => {

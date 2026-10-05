@@ -1,0 +1,20 @@
+#!/usr/bin/perl
+# Makes tty1, the renter session's VT, the active one and locks VT switching
+# (VT_LOCKSWITCH). Until the next boot the kernel then refuses every switch:
+# Ctrl+Alt+Fn, Alt+Fn and Alt+Left/Right on the keyboard, and VT_ACTIVATE from
+# any program, including logind on a compositor's behalf. The renter never
+# reaches another VT, so never a text console.
+use strict;
+use warnings;
+use Fcntl qw(O_RDWR O_NOCTTY);
+
+use constant {
+	VT_ACTIVATE   => 0x5606,
+	VT_WAITACTIVE => 0x5607,
+	VT_LOCKSWITCH => 0x560B,
+};
+
+sysopen(my $tty, '/dev/tty0', O_RDWR | O_NOCTTY) or die "vtlock: /dev/tty0: $!\n";
+ioctl($tty, VT_ACTIVATE, 1) or die "vtlock: VT_ACTIVATE: $!\n";
+ioctl($tty, VT_WAITACTIVE, 1) or die "vtlock: VT_WAITACTIVE: $!\n";
+ioctl($tty, VT_LOCKSWITCH, 0) or die "vtlock: VT_LOCKSWITCH: $!\n";
