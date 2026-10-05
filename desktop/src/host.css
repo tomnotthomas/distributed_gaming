@@ -542,6 +542,11 @@ body {
 .zc .acts {
   margin-top: 14px;
 }
+.zc .soft.ragain {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ln);
+}
 .krow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1584,6 +1589,29 @@ button.inst {
   color: var(--t1);
   font: 400 11.5px/1.55 var(--mono);
   white-space: pre;
+}
+/* The install's confirmation at the PC: the code large on the left, the blue
+   screen's steps on the right, each with the screen's own words under it, in
+   mono and in its own case, as the owner will see them. */
+.rmok {
+  display: grid;
+  /* The code's column holds its 8 digits on one line at the window's narrowest. */
+  grid-template-columns: minmax(350px, 1fr) minmax(0, 1.25fr);
+  gap: 36px;
+  align-items: start;
+}
+.rcv {
+  user-select: all;
+  white-space: nowrap;
+}
+.rcode .soft {
+  max-width: 40ch;
+  margin-top: 12px;
+}
+.hx .rmoks small {
+  color: var(--t3);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* --- settings ------------------------------------------------------------------ */
