@@ -122,13 +122,15 @@ describe("useRental", () => {
     expect(pending).toHaveLength(1);
     act(() => tell({ type: "step", id: "check", state: "done" }));
     act(() => tell({ type: "step", id: "write", state: "running" }));
-    // Each of the step's writes counts half as it is written and half as it is read back.
+    // Each of the step's writes counts a third as it is copied, a third as written and a third as read back.
+    act(() => tell({ type: "progress", id: "write", what: "Copying esp", done: 100, total: 100 }));
+    expect(result.current.run.progress).toEqual({ id: "write", done: 100 / 3, total: 910, doing: "copying" });
     act(() => tell({ type: "progress", id: "write", what: "Writing esp", done: 50, total: 100 }));
-    expect(result.current.run.progress).toEqual({ id: "write", done: 25, total: 910 });
+    expect(result.current.run.progress).toEqual({ id: "write", done: 50, total: 910, doing: "writing" });
     act(() => tell({ type: "progress", id: "write", what: "Checking esp", done: 100, total: 100 }));
     act(() => tell({ type: "progress", id: "write", what: "Writing root", done: 400, total: 800 }));
-    expect(result.current.run.progress).toEqual({ id: "write", done: 300, total: 910 });
-    expect(result.current.run.meter?.done).toBe(300);
+    expect(result.current.run.progress).toEqual({ id: "write", done: 500, total: 910, doing: "writing" });
+    expect(result.current.run.meter?.done).toBe(500);
     act(() => tell({ type: "step", id: "write", state: "failed", error: "no room" }));
     expect(result.current.run.endedAt).toEqual(expect.any(Number));
     await act(async () =>
@@ -287,23 +289,42 @@ describe("useRental", () => {
 });
 
 describe("stepBytes", () => {
-  it("counts each write half as written and half as read back, in the plan's order", () => {
-    expect(stepBytes([100, 800, 10], { what: "Writing a", done: 100, total: 100 })).toEqual({
-      done: 50,
-      total: 910,
+  it("counts each write a third as copied, a third as written and a third as read back, in the plan's order", () => {
+    expect(stepBytes([90, 810, 9], { what: "Copying a", done: 90, total: 90 })).toEqual({
+      done: 30,
+      total: 909,
+      doing: "copying",
     });
-    expect(stepBytes([100, 800, 10], { what: "Checking b", done: 0, total: 800 })).toEqual({
-      done: 500,
-      total: 910,
+    expect(stepBytes([90, 810, 9], { what: "Writing a", done: 90, total: 90 })).toEqual({
+      done: 60,
+      total: 909,
+      doing: "writing",
     });
-    expect(stepBytes([100, 800, 10], { what: "Checking c", done: 10, total: 10 })).toEqual({
-      done: 910,
-      total: 910,
+    expect(stepBytes([90, 810, 9], { what: "Checking b", done: 0, total: 810 })).toEqual({
+      done: 630,
+      total: 909,
+      doing: "checking",
     });
+    expect(stepBytes([90, 810, 9], { what: "Checking c", done: 9, total: 9 })).toEqual({
+      done: 909,
+      total: 909,
+      doing: "checking",
+    });
+  });
+
+  it("only moves forward through one write's copy, write and read-back", () => {
+    const events = ["Copying", "Writing", "Checking"].flatMap((pass) =>
+      [0, 400, 810].map((done) => ({ what: `${pass} b`, done, total: 810 })),
+    );
+    const seen = events.map((e) => stepBytes([90, 810, 9], e)!.done);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    expect(seen[0]).toBe(90);
+    expect(seen.at(-1)).toBe(900);
   });
 
   it("measures nothing it cannot place", () => {
     expect(stepBytes([100], { what: "Checking files", done: 1, total: 7 })).toBeNull();
     expect(stepBytes([], { what: "Writing a", done: 1, total: 1 })).toBeNull();
+    expect(stepBytes([100], { what: "Reading a", done: 1, total: 100 })).toBeNull();
   });
 });

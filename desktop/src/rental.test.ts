@@ -1071,7 +1071,7 @@ describe("the run on screen", () => {
       runOf({
         status: "running",
         steps: { write: "running" },
-        progress: { id: "write", done: 42, total: 100 },
+        progress: { id: "write", done: 42, total: 100, doing: "writing" },
       }),
     );
     expect(rentalLine(s)).toBe("Installing, 42%");
@@ -1164,7 +1164,7 @@ describe("when a step stops", () => {
   it("says how far the write got, what already changed, and that trying again starts the write over", () => {
     const { f } = failed("write", "Write to disk 0 failed: an I/O device error. (0x8007045D)", {
       steps: { ...done(["check", "fast-startup", "room", "partitions"]), write: "failed" },
-      progress: { id: "write", done: 4.1e9, total: 9.8e9 },
+      progress: { id: "write", done: 4.1e9, total: 9.8e9, doing: "writing" },
     });
     expect(f).toMatchObject({
       kind: "write",

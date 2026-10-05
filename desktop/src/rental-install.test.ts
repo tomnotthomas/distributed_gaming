@@ -464,6 +464,14 @@ describe("the elevated worker", () => {
     imageSet(image);
     fs.writeFileSync(path.join(image, "swiffos-key.cer"), Buffer.from("3082010a0282010100badbad", "hex"));
     await expect((await worker()).apply(mok)).rejects.toThrow(/is not the file its image set lists/);
+    // Left out of a download whose manifest and signature arrived: the image set's own failure, at the check too.
+    fs.rmSync(path.join(image, "swiffos-key.cer"));
+    await expect((await worker()).apply(mok)).rejects.toThrow(
+      /swiffos-key\.cer of the image set is not on this PC/,
+    );
+    await expect((await worker()).apply({ op: "image-check" })).rejects.toThrow(
+      /swiffos-key\.cer of the image set is not on this PC/,
+    );
     expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokNew"))).toBe(false);
     // Nothing of what was refused stays in the administrators' folder.
     expect(fs.readdirSync(path.join(dir, "state", "swiff-os"))).not.toContain("swiffos-key.cer");

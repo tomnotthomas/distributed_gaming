@@ -791,7 +791,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             live
             progress={bytes.done / bytes.total}
             big={`${gbNum(bytes.done)} GB`}
-            small={`of ${gbNum(bytes.total)} GB written`}
+            small={`of ${gbNum(bytes.total)} GB, ${bytes.doing}`}
           />
         </Plate>
       ) : (

@@ -8,23 +8,26 @@ import { endsInRestart, firmwareChecks, pcChecks, writesOf } from "./rental";
 
 const LIVE_SEEN = "swiff.rental.liveSeen";
 
+/** A write's three passes over its bytes, in the order the worker makes them (rental-worker.cjs). */
+const PASSES = ["copying", "writing", "checking"] as const;
+
 /**
  * How far a measured step is, in bytes of the whole step, from one write's
- * progress. Each write is written, then read back to check it: its bytes
- * count half when written and the rest as they are checked. The write is
- * told apart by its size (Swiff OS's three are all different).
+ * progress, and which pass that is. Each write is copied into the
+ * administrators' folder, written, then read back to check it: its bytes
+ * count a third for each pass. The write is told apart by its size (Swiff
+ * OS's three are all different).
  */
 export function stepBytes(
   writes: number[],
   event: { what: string; done: number; total: number },
-): { done: number; total: number } | null {
+): { done: number; total: number; doing: (typeof PASSES)[number] } | null {
   const total = writes.reduce((sum, b) => sum + b, 0);
   const at = writes.indexOf(event.total);
-  if (at < 0 || total <= 0) return null;
+  const pass = PASSES.findIndex((p) => event.what.toLowerCase().startsWith(`${p} `));
+  if (at < 0 || pass < 0 || total <= 0) return null;
   const before = writes.slice(0, at).reduce((sum, b) => sum + b, 0);
-  const checking = /^Checking /.test(event.what);
-  const part = ((checking ? event.total : 0) + event.done) / 2;
-  return { done: before + part, total };
+  return { done: before + (pass * event.total + event.done) / 3, total, doing: PASSES[pass]! };
 }
 
 /**

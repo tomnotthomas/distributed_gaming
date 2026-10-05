@@ -421,7 +421,12 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
   /** Swiff's certificate, read once: these very bytes are checked, kept in `home`, and used. */
   function certificate() {
     const file = fileOf(imageSet(), MOK_CERT);
-    const cert = files.readFileSync(path.join(imageDir, MOK_CERT));
+    let cert;
+    try {
+      cert = files.readFileSync(path.join(imageDir, MOK_CERT));
+    } catch {
+      throw new Error(`${MOK_CERT} of the image set is not on this PC.`);
+    }
     must(
       cert.length === file.bytes && crypto.createHash("sha256").update(cert).digest("hex") === file.sha256,
       `${MOK_CERT} is not the file its image set lists.`,

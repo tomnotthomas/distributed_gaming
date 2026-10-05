@@ -158,7 +158,7 @@ function writing(run: RentalRun, share: number, elapsed: number): RentalRun {
     mark: { at: now - 1000, done: done - RATE },
     recent: RATE,
   };
-  return { ...run, progress: { id: "write", done, total }, meter: m };
+  return { ...run, progress: { id: "write", done, total, doing: "writing" }, meter: m };
 }
 
 type Start = { read: RentalRead | null; reading: boolean; preview: RentalPlan | null; run: RentalRun };
@@ -376,7 +376,10 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
           );
           const m: RateMeter = meter(run.meter, done, now);
           if (done < total)
-            return { ...cur, run: { ...run, progress: { id: at.id, done, total }, meter: m } };
+            return {
+              ...cur,
+              run: { ...run, progress: { id: at.id, done, total, doing: "writing" }, meter: m },
+            };
         } else if (elapsed < (SECONDS[at.id] ?? 1)) return cur;
         return {
           ...cur,

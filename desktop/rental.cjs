@@ -598,7 +598,8 @@ function commandsOf(op) {
   switch (op.op) {
     case "image-check":
       return [
-        "# Check that Swiff signed Swiff OS's image set (swiffos.json) and that its certificate is Swiff's; each file is checked against its SHA-256 as it is written",
+        "# Check that Swiff signed Swiff OS's image set (swiffos.json), that its certificate is Swiff's, and that each image file has the SHA-256 it lists, where it is, before anything changes",
+        "# Each image is hashed again as it is copied into the administrators' folder, as it is written, and as it is read back",
       ];
     case "gpt-add":
       return [

@@ -81,7 +81,7 @@ export type RentalRun = {
   steps: Record<string, StepState>;
   startedAt: number | null;
   stepStartedAt: number | null;
-  progress: { id: string; done: number; total: number } | null;
+  progress: { id: string; done: number; total: number; doing: "copying" | "writing" | "checking" } | null;
   meter: RateMeter | null;
   failed: { step: string; error: string } | null;
   /** When it stopped, and when its details went to Swiff (Send details to Swiff). */

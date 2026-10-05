@@ -1023,7 +1023,7 @@ describe("rental mode", () => {
           status: "running",
           steps: { ...steps, write: "running" },
           stepStartedAt: now - 131_000,
-          progress: { id: "write", done: 4.1e9, total },
+          progress: { id: "write", done: 4.1e9, total, doing: "writing" },
           meter: {
             since: now - 131_000,
             at: now,
@@ -1039,7 +1039,7 @@ describe("rental mode", () => {
     expect(screen.getByText(/About 3 minutes left\. Keep the PC on\./)).toBeInTheDocument();
     expect(screen.getByText(/Step 5 of 9, running for 2:1\d/)).toBeInTheDocument();
     expect(document.querySelector(".plate")).toHaveTextContent("4.1 GB");
-    expect(document.querySelector(".plate")).toHaveTextContent("of 9.8 GB written");
+    expect(document.querySelector(".plate")).toHaveTextContent("of 9.8 GB, writing");
     expect(screen.getByRole("button", { name: "Rental mode Installing, 41%" })).toBeInTheDocument();
     expect(pills()).toHaveLength(0);
     expect(document.querySelector(".mrun li.now")).toHaveTextContent("4.1 of 9.8 GB");
@@ -1156,7 +1156,7 @@ describe("rental mode", () => {
         off,
         failedAt("write", error, {
           steps: { ...steps, write: "failed" },
-          progress: { id: "write", done: 4.1e9, total: 9.8e9 },
+          progress: { id: "write", done: 4.1e9, total: 9.8e9, doing: "writing" },
         }),
       );
       expect(h1()).toHaveTextContent("Writing Swiff OS stopped");
