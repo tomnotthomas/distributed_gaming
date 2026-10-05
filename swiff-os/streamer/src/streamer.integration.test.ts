@@ -224,7 +224,7 @@ describe("swiff-streamer against the server", () => {
       try {
         await until(() => renter.payloads.length > 0, "video at the renter");
         // A keyframe was asked for the moment the connection came up.
-        expect(keyframes).toBeGreaterThanOrEqual(1);
+        await until(() => keyframes >= 1, "the keyframe request when the connection came up");
         expect(renter.payloads[0]!.toString("latin1")).toMatch(/^\x65frame-\d+$/);
 
         // The renter's input arrives in order on the reliable lane, and moves on the fast one.

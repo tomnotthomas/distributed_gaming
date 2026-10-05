@@ -21,6 +21,7 @@ repo=$(cd "$streamer/../.." && pwd)
 build=${SWIFF_STREAMER_BUILD_DIR:-$HOME/.cache/swiff-os-streamer}
 browsers=${PLAYWRIGHT_BROWSERS_PATH:-$build/playwright}
 mkdir -p "$build"
+. "$here/vm-status.sh"
 
 # The Node.js the VM runs the streamer with.
 NODE_VERSION=22.23.3
@@ -119,7 +120,7 @@ kvm_sudo=""
 
 echo "== booting the VM (2 GiB, 2 vCPUs); its console is in $build/console.log"
 set +e
-timeout 600 $kvm_sudo qemu-system-x86_64 \
+boot_vm $kvm_sudo qemu-system-x86_64 \
     ${kvm_sudo:+-runas "$(id -un)"} \
     -machine q35,accel=kvm -cpu host -smp 2 -m 2048 \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
@@ -136,9 +137,7 @@ rm -f "$token_cred"
 echo "== the VM is off (qemu exit $qemu)"
 
 status=0
-wait "$harness" || status=$?
-# A VM that did not power off on its own (timeout) fails the run too.
-[ "$status" = 0 ] && [ "$qemu" != 0 ] && status=$qemu
+run_status "$harness" "$qemu" || status=$?
 trap - EXIT
 echo "== results in $results"
 exit "$status"
