@@ -14,7 +14,9 @@ import {
   gamesDriveOf,
   gpuVendor,
   imageLayout,
+  installOf,
   installPlan,
+  keyRemovalPlan,
   libraryDrives,
   MOK_CERT,
   mokCode,
@@ -27,6 +29,7 @@ import {
   SWIFF_OS_BYTES,
   switchPlan,
   tpmMaker,
+  uninstallPlan,
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
@@ -50,7 +53,7 @@ describe("reading the PC", () => {
       iommu: true,
       fastStartup: true,
       gpus: [{ name: "AMD Radeon(TM) Graphics", vendor: "amd" }],
-      bootEntry: null,
+      install: null,
     });
     expect(facts.partitions.map((p) => p.letter)).toEqual([null, null, "C", null]);
     expect(facts.volumes).toEqual([
@@ -102,21 +105,46 @@ describe("reading the PC", () => {
     expect(factsOf({ securityProperties: [1, 2, 3] }).iommu).toBe(true);
   });
 
-  it("is installed only with its boot entry recorded and its root partition on a disk", () => {
+  it("is installed only once the install recorded that it finished", () => {
     expect(pc().installed).toBe(false);
-    const entry = "{6a1f3c2e-0d4b-4e8a-9f7c-2b1d3e4f5a60}";
-    expect(pc((raw) => ({ ...raw, bootEntry: entry })).installed).toBe(false);
-    const root = {
+    const record = { disk: 0, bootEntry: 3, partitions: [], complete: false };
+    expect(pc((raw) => ({ ...raw, install: record })).installed).toBe(false);
+    expect(pc((raw) => ({ ...raw, install: { ...record, complete: true } })).installed).toBe(true);
+  });
+
+  it("reads what the install recorded, and drops what is malformed", () => {
+    const install = installOf({
+      complete: true,
       disk: 0,
-      number: 6,
-      letter: "",
-      type: `{${TYPE.root}}`,
-      offset: 998842040320,
-      size: 8 * GiB,
-    };
-    expect(pc((raw) => ({ ...raw, bootEntry: entry, partitions: [...raw.partitions, root] })).installed).toBe(
-      true,
-    );
+      bitlocker: "C",
+      fastStartup: true,
+      shrink: { letter: "C", partition: 3, from: 100 * GiB, to: 76 * GiB },
+      partitions: [
+        { role: "esp", id: "3D7B64D1-2E0C-493B-958E-7F825AEC1F7C", offset: 76 * GiB, bytes: GiB },
+        { role: "root-a", id: "not a guid", offset: 77 * GiB, bytes: 8 * GiB },
+      ],
+      bootEntry: 3,
+      windowsEntry: 70000,
+      labels: [
+        { letter: "C", from: "Windows" },
+        { letter: "?", from: "x" },
+      ],
+      mok: true,
+    });
+    expect(install).toEqual({
+      complete: true,
+      disk: 0,
+      bitlocker: "C",
+      fastStartup: true,
+      shrink: { letter: "C", partition: 3, from: 100 * GiB, to: 76 * GiB },
+      partitions: [{ role: "esp", id: "3d7b64d1-2e0c-493b-958e-7f825aec1f7c", offset: 76 * GiB, bytes: GiB }],
+      bootEntry: 3,
+      windowsEntry: null,
+      labels: [{ letter: "C", from: "Windows" }],
+      mok: true,
+    });
+    expect(installOf("garbage")).toBeNull();
+    expect(installOf({ shrink: { letter: "C" } })!.shrink).toBeNull();
   });
 
   it("reads nothing off Windows, and nothing when the script fails", async () => {
@@ -250,9 +278,8 @@ describe("where Swiff OS goes", () => {
 });
 
 describe("the install plan", () => {
-  it("lists the steps in order, each with its operations and commands, as a dry run", () => {
+  it("lists the steps in order, each with its operations and commands", () => {
     const plan = installPlan(pc());
-    expect(plan.dryRun).toBe(true);
     expect(plan.steps.map((s) => s.id)).toEqual([
       "check",
       "fast-startup",
@@ -270,13 +297,43 @@ describe("the install plan", () => {
     }
   });
 
+  it("asks the owner before every step that changes the disk or the firmware, and only those", () => {
+    const plan = installPlan(
+      pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })) })),
+    );
+    expect(plan.steps.filter((s) => s.confirm).map((s) => s.id)).toEqual([
+      "bitlocker",
+      "room",
+      "partitions",
+      "write",
+      "boot-entry",
+      "mok",
+      "mok-restart",
+    ]);
+    expect(plan.steps.find((s) => s.id === "bitlocker")!.confirm).toMatch(/recovery key/);
+    expect(plan.steps.find((s) => s.id === "room")!.confirm).toMatch(/Back up/);
+  });
+
+  it("suspends BitLocker on C: for three restarts first, when it is on", () => {
+    const plan = installPlan(
+      pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })) })),
+    );
+    const step = plan.steps[1]!;
+    expect(step.id).toBe("bitlocker");
+    expect(step.ops).toEqual([{ op: "bitlocker-suspend", letter: "C", restarts: 3 }]);
+    expect(step.commands[0]).toMatch(
+      /^manage-bde -protectors -disable C: -RebootCount 3; if \(\$LASTEXITCODE\)/,
+    );
+    expect(installPlan(pc()).steps.map((s) => s.id)).not.toContain("bitlocker");
+  });
+
   it("shrinks C: and lays Swiff OS's six partitions end to end in the room it made", () => {
     const rental = pc();
     const target = rental.targets[0]!;
     const plan = installPlan(rental);
     const room = plan.steps.find((s) => s.id === "room")!;
     expect(room.ops).toEqual([
-      { op: "shrink", disk: 0, partition: 3, size: (target as { size: number }).size },
+      { op: "shrink", disk: 0, partition: 3, size: (target as { size: number }).size, letter: "C" },
     ]);
     expect(room.commands).toEqual([
       `Resize-Partition -DiskNumber 0 -PartitionNumber 3 -Size ${(target as { size: number }).size}`,
@@ -292,7 +349,7 @@ describe("the install plan", () => {
     expect(at - target.start).toBe(SWIFF_OS_BYTES);
   });
 
-  it("writes only the boot partition and slot A, and points the boot entry at Swiff OS's own ESP", () => {
+  it("writes only the boot partition and slot A, and points the boot entry at the shim on Swiff OS's own ESP", () => {
     const plan = installPlan(pc());
     const writes = plan.steps.find((s) => s.id === "write")!.ops;
     expect(writes.map((o) => (o.op === "write" ? o.source : null))).toEqual([
@@ -307,16 +364,20 @@ describe("the install plan", () => {
         op: "boot-entry",
         disk: 0,
         offset: esp.op === "write" ? esp.offset : -1,
-        path: "\\EFI\\BOOT\\BOOTX64.EFI",
+        path: "\\EFI\\swiff\\shimx64.efi",
         title: "Swiff OS",
       },
     ]);
-    expect(entry.commands).toContain("bcdedit /set '{fwbootmgr}' displayorder $entry /addlast");
+    expect(entry.commands.join("\n")).toMatch(
+      /Boot####.*HD\(the ESP at offset \d+, GPT, its id\)\/File\(\\EFI\\swiff\\shimx64\.efi\)/,
+    );
   });
 
-  it("checks Secure Boot's db, the TPM's certificate and the shrink limit as administrator first", () => {
+  it("checks Secure Boot's db for the CA that signs the shim, the TPM, the shrink limit and the image first", () => {
     const check = installPlan(pc()).steps[0]!;
-    expect(check.commands.join("\n")).toMatch(/Microsoft UEFI CA 2023/);
+    expect(check.ops.map((o) => o.op)).toEqual(["check", "image-check"]);
+    expect(check.confirm).toBeNull();
+    expect(check.commands.join("\n")).toMatch(/Microsoft Corporation UEFI CA 2011/);
     expect(check.commands.join("\n")).toMatch(/Get-TpmEndorsementKeyInfo/);
     expect(check.commands.join("\n")).toMatch(/Get-PartitionSupportedSize -DiskNumber 0 -PartitionNumber 3/);
   });
@@ -369,6 +430,11 @@ describe("the install plan", () => {
     expect(plan.target?.disk).toBe(1);
   });
 
+  it("offers no disk with 4,096-byte sectors: Swiff OS's ESP is a FAT with 512-byte ones", () => {
+    const native = pc((raw) => ({ ...raw, disks: raw.disks.map((d) => ({ ...d, sector: 4096 })) }));
+    expect(native.targets).toEqual([]);
+  });
+
   it("refuses a chosen drive that is no longer there, rather than picking another", () => {
     expect(() => installPlan(pc(), { target: "shrink:D" })).toThrow(/no longer available/);
     expect(installPlan(pc(), { target: null }).target?.id).toBe("shrink:C");
@@ -416,18 +482,21 @@ describe("Swiff's key, enrolled once as a MOK", () => {
     const plan = installPlan(pc(), { code: "48217730" });
     expect(plan.mok).toEqual({ code: "48217730" });
     const [mok, restart] = plan.steps.slice(-2);
-    expect(mok!.ops).toEqual([{ op: "mok-import", cert: MOK_CERT, code: "48217730" }]);
+    expect(mok!.ops).toEqual([{ op: "mok-import", cert: MOK_CERT, code: "48217730" }, { op: "installed" }]);
     expect(mok!.commands.join("\n")).toMatch(/mokutil --import swiffos-key\.cer --simple-hash/);
     expect(mok!.commands.join("\n")).toMatch(/MokNew-605dab50-e046-4300-abb6-3dd810dd8b23/);
     expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the one-time code/);
     expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("48217730");
     expect(restart!.ops).toEqual([{ op: "boot-next", entry: "swiff" }, { op: "restart" }]);
-    expect(restart!.commands).toContain("bcdedit /set '{fwbootmgr}' bootsequence $entry");
+    expect(restart!.commands).toEqual([
+      "# BootNext: Swiff OS's Boot####, for the next start only",
+      "shutdown /r /t 5; if ($LASTEXITCODE) { throw 'shutdown failed: exit code ' + $LASTEXITCODE }",
+    ]);
   });
 
   it("confirms the key again after a missed screen: the same request with a new code, and one restart", () => {
     const plan = mokPlan("11112222");
-    expect(plan).toMatchObject({ kind: "mok", dryRun: true, mok: { code: "11112222" } });
+    expect(plan).toMatchObject({ kind: "mok", mok: { code: "11112222" } });
     expect(plan.steps).toEqual(mokSteps("11112222"));
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
       { op: "mok-import", cert: MOK_CERT, code: "11112222" },
@@ -477,16 +546,101 @@ describe("the switch", () => {
       { op: "boot-next", entry: "swiff" },
       { op: "restart" },
     ]);
-    expect(plan.steps.flatMap((s) => s.commands)).toEqual([
-      "$entry = (Get-Content $env:ProgramData\\Swiff\\boot-entry.txt -TotalCount 1).Trim()",
-      "bcdedit /set '{fwbootmgr}' displayorder $entry /addfirst",
-      "bcdedit /set '{fwbootmgr}' bootsequence $entry",
-      "shutdown /r /t 0",
+    expect(plan.steps.filter((s) => s.confirm).map((s) => s.id)).toEqual(["restart"]);
+  });
+
+  it("starts Swiff OS once with BootNext alone, so the next restart is Windows again", () => {
+    const plan = switchPlan("once");
+    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "boot-next", entry: "swiff" },
+      { op: "restart" },
     ]);
+    expect(plan.steps[0]!.confirm).toMatch(/next restart after that starts Windows/);
   });
 
   it("stops sharing by putting Windows first again", () => {
     expect(switchPlan("stop").steps.flatMap((s) => s.ops)).toEqual([{ op: "boot-first", entry: "windows" }]);
+  });
+});
+
+describe("the uninstall", () => {
+  const record = {
+    complete: true,
+    disk: 0,
+    bitlocker: "C",
+    fastStartup: true,
+    shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+    partitions: [
+      { role: "esp", id: "11111111-2222-4333-8444-555555555555", offset: 976 * GiB, bytes: GiB },
+      { role: "root-a", id: "66666666-7777-4888-9999-aaaaaaaaaaaa", offset: 977 * GiB, bytes: 8 * GiB },
+    ],
+    bootEntry: 3,
+    windowsEntry: 0,
+    labels: [{ letter: "C", from: "Windows" }],
+    mok: true,
+  };
+  const installed = (change = {}) => pc((raw) => ({ ...raw, install: { ...record, ...change } }));
+
+  it("takes back each thing the install did, boot entry first and C:'s space after the partitions", () => {
+    const plan = uninstallPlan(installed());
+    expect(plan.steps.map((s) => s.id)).toEqual([
+      "boot-entry",
+      "partitions",
+      "room",
+      "labels",
+      "fast-startup",
+      "bitlocker",
+      "forget",
+    ]);
+    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "boot-entry-remove" },
+      { op: "mok-cancel" },
+      { op: "gpt-remove", disk: 0, partitions: record.partitions },
+      { op: "grow", disk: 0, partition: 3, letter: "C", size: 1000 * GiB },
+      { op: "label", letter: "C", label: "Windows" },
+      { op: "fast-startup-on" },
+      { op: "bitlocker-resume", letter: "C" },
+      { op: "forget" },
+    ]);
+    expect(plan.steps.find((s) => s.id === "room")!.title).toBe("Give C: its 24 GB back");
+    expect(plan.mok).toBeUndefined();
+  });
+
+  it("undoes an install that stopped half way: only what it got to", () => {
+    const half = installed({
+      complete: false,
+      bootEntry: null,
+      partitions: [],
+      labels: [],
+      bitlocker: null,
+      fastStartup: false,
+    });
+    expect(uninstallPlan(half).steps.flatMap((s) => s.ops.map((o) => o.op))).toEqual([
+      "mok-cancel",
+      "grow",
+      "forget",
+    ]);
+  });
+
+  it("removes Swiff's key on its own, before the uninstall, through MokManager on Swiff OS's ESP", () => {
+    const plan = keyRemovalPlan("55554444");
+    expect(plan).toMatchObject({ kind: "unkey", mok: { code: "55554444" } });
+    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "mok-delete", cert: MOK_CERT, code: "55554444" },
+      { op: "boot-next", entry: "swiff" },
+      { op: "restart" },
+    ]);
+    expect(plan.steps.every((s) => s.confirm)).toBe(true);
+    expect(
+      uninstallPlan(installed())
+        .steps.flatMap((s) => s.ops)
+        .some((o) => o.op === "mok-delete"),
+    ).toBe(false);
+    expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("55554444");
+  });
+
+  it("refuses a PC where nothing was installed", () => {
+    expect(() => uninstallPlan(pc())).toThrow(/not installed/);
   });
 });
 
@@ -536,7 +690,7 @@ describe("what the screen says", () => {
       expect.objectContaining({ value: "Not checked yet", state: "unchecked" }),
     ]);
     expect(keys.some((c) => isReady(c.state))).toBe(false);
-    expect(status(pc())).toMatchObject({ ready: 8, of: 10, canInstall: true });
+    expect(status(pc())).toMatchObject({ ready: 9, of: 11, canInstall: true });
   });
 
   it("never swaps in another drive when the chosen one is gone: the owner chooses again", () => {

@@ -9,6 +9,7 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
@@ -65,17 +66,35 @@ export function appidIn(text: string): number | null {
 
 // --- rental mode on this PC -------------------------------------------------------
 
+/** Where a step of the plan on screen is: not reached yet (absent), waiting for the owner, running, or past. */
+export type StepState = "confirm" | "running" | "done" | "failed" | "stopped";
+
+/**
+ * The plan on screen, being run: each step's state, the step waiting for the
+ * owner's yes, the running step's progress, and how it ended.
+ */
+export type RentalRun = {
+  status: "idle" | "starting" | "running" | RunOutcome["status"];
+  steps: Record<string, StepState>;
+  waiting: string | null;
+  progress: { id: string; what: string; done: number; total: number } | null;
+  failed: { step: string; error: string } | null;
+};
+
+export const IDLE_RUN: RentalRun = { status: "idle", steps: {}, waiting: null, progress: null, failed: null };
+
 /**
  * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
  * while `reading`; `read` is null until then, and where the app cannot read
  * this PC. `target` is the place for Swiff OS the owner chose, by id, null
- * for the best one. `preview` is the plan on screen: always a dry run.
+ * for the best one. `preview` is the plan on screen, which `run` runs.
  */
 export type RentalSetup = {
   reading: boolean;
   read: RentalRead | null;
   target: string | null;
   preview: RentalPlan | null;
+  run: RentalRun;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -289,11 +308,15 @@ export type HostActions = {
   checkRental(): void;
   /** Where Swiff OS goes, by target id. */
   chooseRentalTarget(id: string): void;
-  /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
+  /** Show the steps that install rental mode, remove it or its key, switch to it or confirm its key again. */
   previewRental(kind: RentalPlan["kind"]): void;
   closeRentalPreview(): void;
   /** Offer this PC to its owner's crew only, or to anyone. */
   setCrewOnly(on: boolean): void;
+  /** Run the plan on screen: Windows asks once for administrator rights. */
+  runRental(): void;
+  /** Yes or no to the step the run is waiting on. */
+  confirmRentalStep(yes: boolean): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };

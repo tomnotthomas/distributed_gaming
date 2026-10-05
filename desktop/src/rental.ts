@@ -101,7 +101,7 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
             }),
     },
     // The Secure Boot db and the TPM's endorsement certificate need administrator rights to read.
-    { id: "db", label: "Microsoft UEFI CA 2023", value: "Not checked yet", state: "unchecked" },
+    { id: "db", label: "Microsoft UEFI CA 2011", value: "Not checked yet", state: "unchecked" },
     { id: "ek", label: "TPM certificate", value: "Not checked yet", state: "unchecked" },
   ] as RentalCheck[];
 }
@@ -113,7 +113,7 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
 export const BIOS_STEPS: readonly string[] = [
   "If Secure Boot is in Setup Mode, leave it: restore the factory keys, then turn Secure Boot on.",
   "On a Secured-core PC, turn on Allow Microsoft 3rd-party UEFI CA in the Secure Boot settings.",
-  "If the firmware lacks the Microsoft UEFI CA 2023, update the BIOS, or let Windows Update add it to the Secure Boot db.",
+  "If the firmware does not trust the Microsoft UEFI CA 2011, which signs the shim Swiff OS starts from, restore the BIOS's factory Secure Boot keys.",
 ];
 
 /**
@@ -129,6 +129,14 @@ export const MOK_SCREENS: readonly { screen: string; act: string }[] = [
   { screen: "Password:", act: "Type the code, then press Enter. The screen shows nothing as you type." },
   { screen: "Perform MOK management", act: "Choose Reboot. The PC starts Windows again." },
 ];
+
+/** The same blue screen when the owner removes Swiff's key: Delete MOK where they chose Enroll MOK. */
+export const MOK_REMOVE_SCREENS: readonly { screen: string; act: string }[] = MOK_SCREENS.map((s) => ({
+  screen: s.screen
+    .replace("[Enroll MOK]", "[Delete MOK]")
+    .replace("Enroll the key(s)?", "Delete the key(s)?"),
+  act: s.act.replace("Choose Enroll MOK.", "Choose Delete MOK."),
+}));
 
 /** "48217730" → "4821 7730": read in two halves, typed without the space. */
 export const codeGroups = (code: string): string => code.replace(/(\d{4})(?=\d)/g, "$1 ");
@@ -172,6 +180,15 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
           : { value: shortGpu(gpu.name), state: "ok" }),
     },
     {
+      id: "image",
+      label: "Swiff OS",
+      ...(read.installed || read.image === undefined
+        ? { value: read.installed ? "Installed" : "Not read", state: read.installed ? "ok" : "unread" }
+        : read.image
+          ? { value: `${read.image}, ready to install`, state: "ok" }
+          : { value: "Its files are not on this PC", state: "blocked" }),
+    },
+    {
       id: "fast-startup",
       label: "Fast Startup",
       ...(facts.fastStartup === null
@@ -199,6 +216,8 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
         `Turn off BitLocker on ${read.games?.letter}:, or move your Steam library to a drive without it: Swiff OS cannot read an encrypted drive.`,
       );
     if (check.id === "gpu") fixes.push("NVIDIA graphics cards come in a later Swiff OS update.");
+    if (check.id === "image")
+      fixes.push("Swiff OS's files are not on this PC yet: Swiff Host brings them in a later update.");
   }
   return fixes;
 }
@@ -221,10 +240,20 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
   const fixes = windowsFixes(read, targetId);
   const canInstall = !bios.length && !fixes.length && !read.installed;
   const many = (n: number, one: string, more: string) => (n === 1 ? one : more.replace("#", String(n)));
+  if (read.facts.install && !read.installed)
+    return {
+      title: "The install did not finish",
+      line: "Part of Swiff OS is on this PC. Undo what the install did, then install again.",
+      ready,
+      of: checks.length,
+      bios,
+      fixes,
+      canInstall: false,
+    };
   if (read.installed)
     return {
       title: "Rental mode is installed",
-      line: "Switching into Swiff OS when you go live is a preview for now: Go live still shares from Windows.",
+      line: "Start Swiff OS once to try it: the PC comes back to Windows on its next restart. Go live still shares from Windows.",
       ready,
       of: checks.length,
       bios,

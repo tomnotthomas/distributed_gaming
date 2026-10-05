@@ -5,18 +5,22 @@
 //
 //   shrink            ntfsresize, then ntfsfix -d (Resize-Partition leaves the volume clean)
 //   label             ntfslabel
+//   write             the image set's file (image-set.cjs), at the plan's offset
 //   boot-entry, boot-first, boot-next, mok-import
 //                     the VM's firmware variables, through boot-vars.py
-//   check, fast-startup-off, restart
+//   check, image-check, fast-startup-off, installed, restart
 //                     nothing: they need Windows, or the next boot is the restart
+//
+// The real installer, on real Windows, is vm/windows-install-test.sh's.
 //
 //   node apply-plan.cjs windows <disk.raw> <bytes>      lay out a disk like a Windows PC's
 //   node apply-plan.cjs facts <disk.raw>                print what the app's preflight would read
-//   node apply-plan.cjs install <disk.raw> <image.raw> <facts.json> <vars.fd> <cert.der>
+//   node apply-plan.cjs install <disk.raw> <image-set> <facts.json> <vars.fd>
 //   node apply-plan.cjs switch <start|stop> <vars.fd>
 //   node apply-plan.cjs mok <vars.fd> <cert.der> <code>   only the install's MOK request, with this code
 //
-// <cert.der> stands in for Swiff's certificate (MOK_CERT) that the install enrols.
+// The install's one-time code is $SWIFF_MOK_CODE when set. <cert.der> stands in
+// for Swiff's certificate (MOK_CERT) that the install enrols.
 //
 // NTFS tools run through sudo on a loop device over the partition; $NTFS_BIN
 // names their directory, $LD_LIBRARY_PATH reaches them, $BOOT_VARS is the
@@ -26,15 +30,8 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
-const {
-  TYPE,
-  imageLayout,
-  installPlan,
-  mokRequest,
-  mokSteps,
-  rentalOf,
-  switchPlan,
-} = require("../rental.cjs");
+const { fileOf, readImageSet, sourceOf } = require("../image-set.cjs");
+const { MOK_CERT, TYPE, installPlan, mokRequest, mokSteps, rentalOf, switchPlan } = require("../rental.cjs");
 
 const MiB = 1024 * 1024;
 const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
@@ -220,14 +217,13 @@ function writeImage(disk, source, offset, bytes) {
   fs.closeSync(fd);
 }
 
-/** The split image file for a partition, next to the full image: swiffos-selftest.esp.raw. */
-const splitPath = (image, split) => image.replace(/\.raw$/, `.${split}.raw`);
-
 function apply(op, ctx) {
   const say = (line) => console.log(`  ${op.op}: ${line}`);
   switch (op.op) {
     case "check":
+    case "image-check":
     case "fast-startup-off":
+    case "installed":
     case "restart":
       return say("Windows only, nothing to do in the VM");
     case "shrink": {
@@ -262,9 +258,10 @@ function apply(op, ctx) {
     }
     case "write": {
       const disk = openDisk(ctx.file);
-      writeImage(disk, splitPath(ctx.image, op.source), op.offset, op.bytes);
+      const source = sourceOf(ctx.set, op.source).path;
+      writeImage(disk, source, op.offset, op.bytes);
       disk.close();
-      return say(`${path.basename(splitPath(ctx.image, op.source))} at ${op.offset}`);
+      return say(`${path.basename(source)} at ${op.offset}`);
     }
     case "boot-entry": {
       const disk = openDisk(ctx.file);
@@ -302,7 +299,7 @@ function apply(op, ctx) {
       bootVars(["next", ctx.vars, "Swiff OS"]);
       return say(op.entry);
     case "mok-import": {
-      const request = mokRequest(fs.readFileSync(ctx.cert), op.code);
+      const request = mokRequest(fs.readFileSync(ctx.cert ?? fileOf(ctx.set, MOK_CERT).path), op.code);
       const files = ["MokNew", "MokAuth"].map((name) => {
         const file = path.join(path.dirname(ctx.vars), `${name}.bin`);
         fs.writeFileSync(file, request[name]);
@@ -327,13 +324,14 @@ const [cmd, ...args] = process.argv.slice(2);
 if (cmd === "windows") windows(args[0], Number(args[1]));
 else if (cmd === "facts") facts(args[0]);
 else if (cmd === "install") {
-  const [file, image, factsFile, vars, cert] = args;
-  const img = openDisk(image);
-  const layout = imageLayout(readGpt(img.read, { diskBytes: img.bytes }));
-  img.close();
+  const [file, dir, factsFile, vars] = args;
+  const set = readImageSet(dir);
   const rental = rentalOf(JSON.parse(fs.readFileSync(factsFile, "utf8")), [{ letter: "C", games: 1 }]);
-  const plan = installPlan(rental, { layout });
-  run(plan, { file, image, vars, cert });
+  const plan = installPlan(rental, {
+    layout: set.layout,
+    ...(process.env.SWIFF_MOK_CODE ? { code: process.env.SWIFF_MOK_CODE } : {}),
+  });
+  run(plan, { file, set, vars });
 } else if (cmd === "switch") {
   run(switchPlan(args[0]), { vars: args[1] });
 } else if (cmd === "mok") {

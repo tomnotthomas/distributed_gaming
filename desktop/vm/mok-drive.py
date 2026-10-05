@@ -8,32 +8,54 @@ src/rental.ts):
 
   mok-drive.py LOG miss -- QEMU...           press nothing: the 10-second wait runs out
   mok-drive.py LOG confirm CODE -- QEMU...   Enroll MOK, Continue, Yes, the code, Reboot
+  mok-drive.py LOG remove CODE -- QEMU...    Delete MOK, Continue, Yes, the code, Reboot
 
-QEMU... is the full QEMU command line, without a serial option. Exits nonzero
-when a screen the owner is told about does not come.
+QEMU... is the full QEMU command line, without a serial option. Instead of
+`-- QEMU...`, `--socket PATH` plays the owner on a VM already running, on its
+serial port's UNIX socket (windows-install-test.sh), and `wait TEXT SECONDS`
+only waits for TEXT there. Exits nonzero when a screen the owner is told about
+does not come. With `--loose`, only the first screen must come: a VM with a
+graphics card mirrors MokManager's later screens to the serial port only in
+pieces, so the keys are then pressed at their own pace and the caller checks
+the outcome (MokList, or Swiff OS starting through shim).
 """
 
 import os
 import re
 import select
+import socket
 import subprocess
 import sys
 import time
 
-ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
+ANSI = re.compile(rb"\x1b\[[0-9;?=]*[A-Za-z]")
 DOWN = b"\x1b[B"
 ENTER = b"\r"
 
 
 class Vm:
-    def __init__(self, qemu, log):
-        self.proc = subprocess.Popen(
-            qemu + ["-serial", "stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
-        )
+    def __init__(self, qemu, log, sock=None):
+        if sock:
+            self.proc = None
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(sock)
+            self.out = self.sock
+            self.send = self.sock.sendall
+        else:
+            self.proc = subprocess.Popen(
+                qemu + ["-serial", "stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+            )
+            self.out = self.proc.stdout
+
+            def send(data):
+                self.proc.stdin.write(data)
+                self.proc.stdin.flush()
+
+            self.send = send
         self.log = open(log, "wb")
         self.seen = b""
 
-    def expect(self, text, timeout):
+    def expect(self, text, timeout, required=True):
         """Waits until `text` is on the screen since the last expect, which may already have shown it."""
         want = text.encode()
         end = time.monotonic() + timeout
@@ -45,25 +67,30 @@ class Vm:
                 return
             if time.monotonic() >= end:
                 break
-            ready, _, _ = select.select([self.proc.stdout], [], [], 0.5)
+            ready, _, _ = select.select([self.out], [], [], 0.5)
             if ready:
-                chunk = os.read(self.proc.stdout.fileno(), 65536)
+                chunk = os.read(self.out.fileno(), 65536)
                 if not chunk:
                     break
                 self.log.write(chunk)
                 self.log.flush()
                 self.seen += chunk
+        if not required:
+            print(f"mok-drive: {text!r} not seen on the serial port, going on", file=sys.stderr)
+            return
         sys.exit(f"mok-drive: no {text!r} on the screen within {timeout} s")
 
     def press(self, *keys):
         """Types keys one at a time, as a person would, once the screen has settled."""
         time.sleep(1)
         for key in keys:
-            self.proc.stdin.write(key)
-            self.proc.stdin.flush()
+            self.send(key)
             time.sleep(0.3)
 
     def stop(self):
+        if not self.proc:
+            self.sock.close()
+            return
         self.proc.terminate()
         try:
             self.proc.wait(10)
@@ -73,10 +100,19 @@ class Vm:
 
 
 def main(log, mode, *rest):
-    code = rest[0] if mode == "confirm" else None
-    qemu = list(rest[rest.index("--") + 1 :])
-    vm = Vm(qemu, log)
+    if "--socket" in rest:
+        vm = Vm(None, log, rest[rest.index("--socket") + 1])
+    else:
+        vm = Vm(list(rest[rest.index("--") + 1 :]), log)
+    code = rest[0] if mode in ("confirm", "remove") else None
+    loose = "--loose" in rest
+    # A screen that may come in pieces: waited for, but not required, with --loose.
+    def screen(text, timeout=30):
+        vm.expect(text, 8 if loose else timeout, required=not loose)
     try:
+        if mode == "wait":
+            vm.expect(rest[0], int(rest[1]))
+            return
         vm.expect("Press any key to perform MOK management", 120)
         if mode == "miss":
             # MokManager gives up after 10 seconds and shim goes on to its next
@@ -84,17 +120,18 @@ def main(log, mode, *rest):
             vm.expect("grubx64.efi", 60)
             return
         vm.press(b" ")
-        vm.expect("Perform MOK management", 30)
-        vm.expect("Enroll MOK", 30)
+        screen("Perform MOK management")
+        action = "Enroll" if mode == "confirm" else "Delete"
+        screen(f"{action} MOK")
         vm.press(DOWN, ENTER)
-        # [Enroll MOK]: View key 0, then Continue.
-        vm.expect("View key 0", 30)
+        # [Enroll MOK] or [Delete MOK]: View key 0, then Continue.
+        screen("View key 0")
         vm.press(DOWN, ENTER)
-        vm.expect("Enroll the key(s)?", 30)
+        screen(f"{action} the key(s)?")
         vm.press(DOWN, ENTER)
-        vm.expect("Password", 30)
+        screen("Password")
         vm.press(*[c.encode() for c in code], ENTER)
-        vm.expect("Reboot", 30)
+        screen("Reboot")
         vm.press(ENTER)
         # The firmware starts again: MokList was written before the reset.
         vm.expect("BdsDxe", 60)
@@ -103,6 +140,6 @@ def main(log, mode, *rest):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4 or "--" not in sys.argv:
+    if len(sys.argv) < 4 or ("--" not in sys.argv and "--socket" not in sys.argv):
         sys.exit(__doc__)
     main(*sys.argv[1:])

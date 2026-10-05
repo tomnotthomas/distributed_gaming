@@ -2,27 +2,34 @@
 // PC restarts into Swiff OS, a locked system nobody at the PC can reach the
 // player's Steam account from, and it comes back to Windows when they stop.
 //
-//   readRental   what Swiff OS needs from this PC, read without administrator
-//                rights and without changing anything: UEFI, Secure Boot, the
-//                TPM, the IOMMU, disk space, BitLocker, the graphics card and
-//                Fast Startup, and whether Swiff OS is installed.
-//   installPlan  the exact steps that install Swiff OS next to Windows: shrink
-//                a drive (or use free space), add Swiff OS's partitions, write
-//                it, add its UEFI boot entry, name the games drive, then queue
-//                Swiff's key for the owner to confirm once at the PC (MOK) and
-//                restart into that confirmation.
-//   switchPlan   the exact steps that start sharing (Swiff OS first in the
-//                boot order, BootNext, restart) and stop it (Windows first).
+//   readRental     what Swiff OS needs from this PC, read without administrator
+//                  rights and without changing anything: UEFI, Secure Boot, the
+//                  TPM, the IOMMU, disk space, BitLocker, the graphics card and
+//                  Fast Startup, and what an install has done so far.
+//   installPlan    the exact steps that install Swiff OS next to Windows:
+//                  suspend BitLocker, shrink a drive (or use free space), add
+//                  Swiff OS's partitions, write it, add its UEFI boot entry, name
+//                  the games drive, then queue Swiff's key for the owner to
+//                  confirm once at the PC (MOK) and restart into that confirmation.
+//   uninstallPlan  the steps that take it all back off, from what the install
+//                  recorded: also what undoes an install that stopped half way.
+//   switchPlan     the steps that start Swiff OS once (BootNext), start sharing
+//                  (Swiff OS first in the boot order, BootNext, restart) and stop
+//                  it (Windows first).
 //
-// The plans are previews: each step carries its operations (`ops`, which the
-// VM test in vm/ carries out on a disk image) and the Windows commands they
-// stand for. Nothing in this app runs them on a PC yet.
+// Each step carries its operations (`ops`) and the Windows commands they
+// stand for (commandsOf). The installer (rental-exec.cjs) runs the ops through
+// one elevated worker (rental-worker.cjs), which runs those same commands; the
+// VM test in vm/ carries them out on a disk image instead. A step that changes
+// the disk or the firmware says so (`confirm`), and runs only once the owner
+// has confirmed it.
 
 const { execFile } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { mokVariables, NV_BS_RT, SHIM_LOCK } = require("./efi.cjs");
 const { findSteamRoot, libraryPaths, steamPathOnce } = require("./pc.cjs");
 
 const MiB = 1024 * 1024;
@@ -71,36 +78,42 @@ const KEEP_FREE = 16 * GiB;
 /** The name Swiff OS mounts the shared games library by (swiff-os/image/mkosi.extra/etc/fstab). */
 const GAMES_LABEL = "SWIFFGAMES";
 
-/** Where the install leaves the firmware boot entry's id, for the switch to find. */
-const BOOT_ENTRY_FILE = String.raw`$env:ProgramData\Swiff\boot-entry.txt`;
+/**
+ * What the firmware starts on Swiff OS's own ESP: Ubuntu's shim, which
+ * Microsoft's 3rd-party UEFI CA signs. It starts grubx64.efi beside it, which
+ * is Swiff's own systemd-boot (signed with Swiff's key), and MokManager
+ * (mmx64.efi) when a MOK request is queued. The image set puts all three
+ * there (swiff-os/image-set.sh).
+ */
+const BOOT_PATH = String.raw`\EFI\swiff\shimx64.efi`;
+
+/** The boot menu's name for Swiff OS. */
+const BOOT_TITLE = "Swiff OS";
 
 /**
- * What the firmware starts on Swiff OS's own ESP. On a PC that is a Linux
- * distribution's shim, which Microsoft's 3rd-party UEFI CA signs, and which
- * starts Swiff's systemd-boot once Swiff's key is enrolled as a MOK; in the VM
- * test, systemd-boot itself.
+ * The CA that signs the shim Swiff OS ships (Ubuntu's, from the image's own
+ * archive snapshot): the firmware's db must trust it. Microsoft's 2023 CA
+ * does not sign Ubuntu's shim yet.
  */
-const BOOT_PATH = String.raw`\EFI\BOOT\BOOTX64.EFI`;
+const SHIM_CA = "Microsoft Corporation UEFI CA 2011";
+
+/** BitLocker stays suspended this many restarts: the MOK confirmation's, Windows' after it, and one to spare. */
+const BITLOCKER_RESTARTS = 3;
+
+/** Where the install records what it changed, for the switch, the uninstall and a recovery to find. */
+const INSTALL_FILE = String.raw`$env:ProgramData\Swiff\rental-install.json`;
 
 // --- Swiff's key, enrolled once as a MOK ----------------------------------------------
 //
 // shim boots only what Microsoft's db or its MOK list trusts, and Swiff's key
 // is in neither until the owner confirms it once, at the PC. Windows queues the
-// request as `mokutil --import --simple-hash` would on Linux: Swiff's
-// certificate in MokNew, and in MokAuth the SHA-256 of MokNew followed by a
-// one-time code in UTF-16. On the next start shim opens MokManager, a blue
-// screen where the owner chooses Enroll MOK and types the code; MokManager
-// clears the request whether or not they did, so a missed screen is queued
-// again with a new code.
+// request as `mokutil --import --simple-hash` would on Linux (efi.cjs). On the
+// next start shim opens MokManager, a blue screen where the owner chooses
+// Enroll MOK and types the code; MokManager clears the request whether or not
+// they did, so a missed screen is queued again with a new code.
 
 /** Swiff's Secure Boot certificate (DER), shipped beside the image: the key that signs systemd-boot and the UKI. */
 const MOK_CERT = "swiffos-key.cer";
-
-/** shim's variables' GUID (SHIM_LOCK_GUID). */
-const SHIM_LOCK = "605dab50-e046-4300-abb6-3dd810dd8b23";
-
-/** EFI_CERT_X509_GUID: a signature list entry that holds an X.509 certificate. */
-const CERT_X509 = "a5c059a1-94e4-4aa7-87b5-ab155c2bf072";
 
 /** Digits only: the keys least likely to move between keyboard layouts at the firmware's screen. */
 const MOK_CODE_DIGITS = 8;
@@ -109,18 +122,6 @@ const MOK_CODE_DIGITS = 8;
 const mokCode = (random = crypto.randomInt) =>
   Array.from({ length: MOK_CODE_DIGITS }, () => String(random(10))).join("");
 
-/** A GUID's 16 bytes as UEFI stores them: the first three fields little-endian. */
-function guidBytes(guid) {
-  const hex = guid.replace(/-/g, "");
-  const b = Buffer.from(hex, "hex");
-  return Buffer.concat([
-    b.subarray(0, 4).reverse(),
-    b.subarray(4, 6).reverse(),
-    b.subarray(6, 8).reverse(),
-    b.subarray(8),
-  ]);
-}
-
 /**
  * The two variables that queue `cert` (DER) for enrolment with `code`, as
  * `mokutil --import --simple-hash` writes them: MokNew, an EFI_SIGNATURE_LIST
@@ -128,13 +129,8 @@ function guidBytes(guid) {
  * the code as UTF-16LE. Both non-volatile, with boot and runtime access.
  */
 function mokRequest(cert, code) {
-  const head = Buffer.alloc(12);
-  head.writeUInt32LE(28 + 16 + cert.length, 0); // SignatureListSize
-  head.writeUInt32LE(0, 4); // SignatureHeaderSize
-  head.writeUInt32LE(16 + cert.length, 8); // SignatureSize: the owner, then the certificate
-  const mokNew = Buffer.concat([guidBytes(CERT_X509), head, guidBytes(SHIM_LOCK), cert]);
-  const mokAuth = crypto.createHash("sha256").update(mokNew).update(Buffer.from(code, "utf16le")).digest();
-  return { guid: SHIM_LOCK, attributes: 7, MokNew: mokNew, MokAuth: mokAuth };
+  const { MokNew, MokAuth } = mokVariables(cert, code);
+  return { guid: SHIM_LOCK, attributes: NV_BS_RT, MokNew, MokAuth };
 }
 
 const alignUp = (n, to) => Math.ceil(n / to) * to;
@@ -163,8 +159,8 @@ $shell = New-Object -ComObject Shell.Application
   disks = @(Get-Disk | ForEach-Object { [pscustomobject]@{ number = $_.Number; style = [string]$_.PartitionStyle; size = $_.Size; sector = $_.LogicalSectorSize; bus = [string]$_.BusType; system = $_.IsSystem } })
   partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
-  bootEntry = Read-Or { (Get-Content -LiteralPath "$env:ProgramData\Swiff\boot-entry.txt" -TotalCount 1 -ErrorAction Stop).Trim() }
-} | ConvertTo-Json -Compress -Depth 4
+  install = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-install.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
+} | ConvertTo-Json -Compress -Depth 6
 `;
 
 /** Run a PowerShell script as the owner, unelevated, and resolve with what it prints. */
@@ -209,6 +205,40 @@ function tpmMaker(info) {
   const maker = /Manufacturer ID:\s*(\S+)/i.exec(str(info))?.[1]?.toUpperCase() ?? null;
   if (!maker) return { maker: null, firmware: null };
   return { maker, firmware: ["AMD", "INTC", "MSFT", "QCOM"].includes(maker) };
+}
+
+const GUID_TEXT = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const guidOrNull = (v) => (GUID_TEXT.test(str(v)) ? str(v).toLowerCase() : null);
+const entryOrNull = (v) => (Number.isInteger(v) && v >= 0 && v <= 0xffff ? v : null);
+const countOf = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+
+/**
+ * What an install recorded so far (rental-install.json, which only the
+ * elevated worker writes), checked; null when nothing was installed. Every
+ * field is what the install changed, so the uninstall can put it back.
+ */
+function installOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw.shrink;
+  return {
+    complete: raw.complete === true,
+    disk: countOf(raw.disk),
+    bitlocker: letterOf(raw.bitlocker),
+    fastStartup: raw.fastStartup === true,
+    shrink:
+      s && letterOf(s.letter) && countOf(s.partition) && num(s.from) && num(s.to)
+        ? { letter: letterOf(s.letter), partition: s.partition, from: s.from, to: s.to }
+        : null,
+    partitions: list(raw.partitions)
+      .filter((p) => guidOrNull(p?.id) && num(p?.offset) !== null && num(p?.bytes))
+      .map((p) => ({ role: str(p.role), id: guidOrNull(p.id), offset: p.offset, bytes: p.bytes })),
+    bootEntry: entryOrNull(raw.bootEntry),
+    windowsEntry: entryOrNull(raw.windowsEntry),
+    labels: list(raw.labels)
+      .filter((l) => letterOf(l?.letter) && typeof l.from === "string")
+      .map((l) => ({ letter: letterOf(l.letter), from: l.from })),
+    mok: raw.mok === true,
+  };
 }
 
 /** The script's output as plain, checked facts. Anything it could not read is null. */
@@ -257,7 +287,7 @@ function factsOf(raw) {
         fixed: v.fixed === true,
         bitlocker: bitlockerState(v.bitlocker),
       })),
-    bootEntry: /^\{[0-9a-f-]{36}\}$/i.test(str(r.bootEntry)) ? str(r.bootEntry).toLowerCase() : null,
+    install: installOf(r.install),
   };
 }
 
@@ -282,7 +312,8 @@ function freeSpans(disk, partitions) {
  * shrunk from its end, by just enough, and only if it keeps KEEP_FREE.
  */
 function targetsOf(facts, need = SWIFF_OS_BYTES) {
-  const disks = facts.disks.filter((d) => d.gpt && !d.usb);
+  // Swiff OS's ESP is a FAT with 512-byte sectors (swiff-os/image-set.sh): only such disks take it.
+  const disks = facts.disks.filter((d) => d.gpt && !d.usb && d.sector === 512);
   // A system disk always has partitions: none read at all, or none for it, means the read failed,
   // not free space. A blank data disk with none, beside disks that were read, is real free space.
   const read = (disk) =>
@@ -373,7 +404,8 @@ function gamesDriveOf(facts, libraries) {
 }
 
 /** Swiff OS is installed: its boot entry is recorded and a disk has its root partition. */
-const installedOf = (facts) => Boolean(facts.bootEntry && facts.partitions.some((p) => p.type === TYPE.root));
+/** Swiff OS is installed: the install recorded that it finished. */
+const installedOf = (facts) => facts.install?.complete === true;
 
 /** Everything the rental-mode screen shows, from the script's output and Steam's libraries. */
 function rentalOf(raw, libraries = []) {
@@ -451,10 +483,135 @@ function placed(layout, start) {
   });
 }
 
+const FAST_STARTUP_KEY = String.raw`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power`;
+
+/** Runs a console tool and fails on its exit code, which PowerShell would ignore. */
+const tool = (line) =>
+  `${line}; if ($LASTEXITCODE) { throw '${line.split(" ")[0]} failed: exit code ' + $LASTEXITCODE }`;
+
+/**
+ * The PowerShell lines an operation is, for the operations that are Windows
+ * commands: the elevated worker runs exactly these, and the plan shows them.
+ * Null for the operations the worker does itself, in bytes (the partition
+ * table, the image, the firmware variables).
+ */
+function shellOf(op) {
+  switch (op.op) {
+    case "check":
+      return [
+        "if (-not (Confirm-SecureBootUEFI)) { throw 'Secure Boot is off.' }",
+        "if (-not (Get-Tpm).TpmReady) { throw 'The TPM is not ready.' }",
+        `if ([Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI db).Bytes) -notmatch ${q(SHIM_CA)}) { throw ${q(`The firmware does not trust the ${SHIM_CA}, which signs the shim Swiff OS starts from.`)} }`,
+        ...(op.shrink
+          ? [
+              `if ((Get-PartitionSupportedSize -DiskNumber ${op.shrink.disk} -PartitionNumber ${op.shrink.partition}).SizeMin -gt ${op.shrink.size}) { throw '${op.shrink.letter}: cannot shrink by ${gb(SWIFF_OS_BYTES)}.' }`,
+            ]
+          : []),
+        // Attestation rates a TPM without one lower (D3); the install does not need it.
+        "try { $ek = (Get-TpmEndorsementKeyInfo).ManufacturerCertificates } catch { $ek = $null }",
+        "if (-not $ek) { 'warning: The TPM has no endorsement key certificate Windows can read.' }",
+      ];
+    case "bitlocker-suspend":
+      return [tool(`manage-bde -protectors -disable ${op.letter}: -RebootCount ${op.restarts}`)];
+    case "bitlocker-resume":
+      return [tool(`manage-bde -protectors -enable ${op.letter}:`)];
+    case "fast-startup-off":
+    case "fast-startup-on":
+      return [
+        tool(
+          `reg add "${FAST_STARTUP_KEY}" /v HiberbootEnabled /t REG_DWORD /d ${op.op === "fast-startup-on" ? 1 : 0} /f`,
+        ),
+      ];
+    case "shrink":
+      return [`Resize-Partition -DiskNumber ${op.disk} -PartitionNumber ${op.partition} -Size ${op.size}`];
+    case "grow":
+      return [
+        `$max = (Get-PartitionSupportedSize -DiskNumber ${op.disk} -PartitionNumber ${op.partition}).SizeMax`,
+        `Resize-Partition -DiskNumber ${op.disk} -PartitionNumber ${op.partition} -Size ([Math]::Min($max, ${op.size}))`,
+      ];
+    case "label":
+      return [`Set-Volume -DriveLetter ${op.letter} -NewFileSystemLabel ${q(op.label)}`];
+    case "restart":
+      return [tool("shutdown /r /t 5")];
+    default:
+      return null;
+  }
+}
+
+/** What an operation does, as the commands it is or, for the worker's own byte-level ones, in words. */
+function commandsOf(op) {
+  const shell = shellOf(op);
+  if (shell) return shell;
+  switch (op.op) {
+    case "image-check":
+      return ["# Check every Swiff OS file against the SHA-256 its image set lists (swiffos.json)"];
+    case "gpt-add":
+      return [
+        `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${op.disk}: types, ids, names and attributes as in the image`,
+        "#   (the boot partition is typed Linux data until it is written: Windows would mount it as an ESP mid-write)",
+        ...op.partitions.map(
+          (p) =>
+            `#   ${p.role}: offset ${p.offset}, ${p.bytes} bytes, type ${p.type}, id ${p.id ?? "(image's)"}, name ${p.name ?? "(image's)"}, attributes ${p.attrs}`,
+        ),
+        `Update-Disk -Number ${op.disk}`,
+      ];
+    case "gpt-remove":
+      return [
+        `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${op.disk}: remove only these, each checked for Swiff OS's type, id, offset and size`,
+        ...op.partitions.map((p) => `#   ${p.role}: id ${p.id}, offset ${p.offset}, ${p.bytes} bytes`),
+        `Update-Disk -Number ${op.disk}`,
+      ];
+    case "write":
+      return [
+        `# Write ${splitFile(op.source)} to \\\\.\\PhysicalDrive${op.disk} at offset ${op.offset} (${op.bytes} bytes), then read it back against its SHA-256`,
+      ];
+    case "boot-entry":
+      return [
+        `# Swiff Host's GPT writer: the boot partition at offset ${op.offset} gets the EFI system partition type, then Update-Disk -Number ${op.disk}`,
+        `# Boot####, the first free number: "${op.title}", HD(the ESP at offset ${op.offset}, GPT, its id)/File(${op.path})`,
+        "# BootOrder: as it was, with it last",
+      ];
+    case "boot-entry-remove":
+      return ["# Swiff OS's Boot#### deleted, and taken out of BootOrder and BootNext"];
+    case "boot-first":
+      return [`# BootOrder: ${op.entry === "swiff" ? "Swiff OS" : "Windows Boot Manager"} first`];
+    case "boot-next":
+      return ["# BootNext: Swiff OS's Boot####, for the next start only"];
+    case "mok-import":
+      return [
+        `# Swiff Host's firmware-variable writer, as administrator: mokutil --import ${op.cert} --simple-hash, from Windows`,
+        `#   ${mokVar("MokNew")}: ${op.cert} as an EFI_SIGNATURE_LIST (X.509, owner shim), non-volatile, boot and runtime access`,
+        `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the one-time code in UTF-16LE, the same attributes`,
+      ];
+    case "mok-delete":
+      return [
+        `# Swiff Host's firmware-variable writer, as administrator: mokutil --delete ${op.cert} --simple-hash, from Windows`,
+        `#   ${mokVar("MokDel")} and ${mokVar("MokDelAuth")}, the same way, with a new one-time code`,
+      ];
+    case "mok-cancel":
+      return [`# ${mokVar("MokNew")} and ${mokVar("MokAuth")} deleted, if a request is still queued`];
+    case "installed":
+      return [`# Record in ${INSTALL_FILE} that Swiff OS is installed`];
+    case "forget":
+      return [`Remove-Item ${INSTALL_FILE}`];
+    default:
+      throw new Error(`unknown op ${op.op}`);
+  }
+}
+
+/** A plan step: its commands come from its operations. `confirm` says what the owner agrees to before it runs. */
+const step = (id, title, ops, confirm = null) => ({
+  id,
+  title,
+  confirm,
+  ops,
+  commands: ops.flatMap(commandsOf),
+});
+
 /**
  * The steps that install Swiff OS next to Windows, for the target the owner
- * chose (an id from targetsOf). `layout` is imageLayout of the image being
- * installed; without it the ids and names show as the image's.
+ * chose (an id from targetsOf). `layout` is the image set's (image-set.cjs);
+ * without it the ids and names show as the image's.
  */
 function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code = mokCode() } = {}) {
   const { facts, games } = rental;
@@ -464,121 +621,114 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   if (!target) throw new Error(`This PC has no drive with ${gb(SWIFF_OS_BYTES)} to spare.`);
   const disk = target.disk;
   const parts = placed(layout, target.start);
-  const espOffset = parts.find((p) => p.role === "esp").offset;
+  const esp = parts.find((p) => p.role === "esp");
   const steps = [];
 
-  const shrinkable =
+  const shrink =
     target.kind === "shrink"
-      ? [
-          `if ((Get-PartitionSupportedSize -DiskNumber ${disk} -PartitionNumber ${target.partition}).SizeMin -gt ${target.size}) { throw '${target.letter}: cannot shrink by ${gb(SWIFF_OS_BYTES)}.' }`,
-        ]
-      : [];
-  steps.push({
-    id: "check",
-    title: "Check the Secure Boot keys and the TPM, as administrator",
-    ops: [{ op: "check" }],
-    commands: [
-      "if (-not (Confirm-SecureBootUEFI)) { throw 'Secure Boot is off.' }",
-      "if (-not (Get-Tpm).TpmReady) { throw 'The TPM is not ready.' }",
-      "if (-not (Get-TpmEndorsementKeyInfo).ManufacturerCertificates) { throw 'The TPM has no endorsement key certificate.' }",
-      "if ([Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI db).Bytes) -notmatch 'Microsoft UEFI CA 2023') { throw 'The firmware lacks the Microsoft UEFI CA 2023.' }",
-      ...shrinkable,
-    ],
-  });
-  if (facts.fastStartup !== false) {
-    steps.push({
-      id: "fast-startup",
-      title: "Turn off Fast Startup, so Windows leaves its drives readable",
-      ops: [{ op: "fast-startup-off" }],
-      commands: [
-        String.raw`reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f`,
-      ],
-    });
-  }
-  if (target.kind === "shrink") {
-    steps.push({
-      id: "room",
-      title: `Shrink ${target.letter}: by ${gb(SWIFF_OS_BYTES)}`,
-      ops: [{ op: "shrink", disk, partition: target.partition, size: target.size }],
-      commands: [
-        `Resize-Partition -DiskNumber ${disk} -PartitionNumber ${target.partition} -Size ${target.size}`,
-      ],
-    });
-  }
-  steps.push({
-    id: "partitions",
-    title: `Add Swiff OS's ${parts.length} partitions on disk ${disk}`,
-    ops: [
-      {
-        op: "gpt-add",
-        disk,
-        partitions: parts.map(({ type, id, name, attrs, offset, bytes }) => ({
-          type,
-          id,
-          name,
-          attrs,
-          offset,
-          bytes,
-        })),
-      },
-    ],
-    commands: [
-      `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${disk}: types, ids, names and attributes as in the image`,
-      ...parts.map(
-        (p) =>
-          `#   ${p.role}: offset ${p.offset}, ${p.bytes} bytes, type ${p.type}, id ${p.id ?? "(image's)"}, name ${p.name ?? "(image's)"}, attributes ${p.attrs}`,
+      ? { disk, partition: target.partition, size: target.size, letter: target.letter }
+      : null;
+  steps.push(
+    step("check", "Check the Secure Boot keys, the TPM and Swiff OS's files, as administrator", [
+      { op: "check", ...(shrink ? { shrink } : {}) },
+      { op: "image-check" },
+    ]),
+  );
+  // Windows' own drive: BitLocker on it would ask for its recovery key after the firmware changes.
+  if (facts.volumes.find((v) => v.letter === "C")?.bitlocker === "on") {
+    steps.push(
+      step(
+        "bitlocker",
+        `Suspend BitLocker on C: for the next ${BITLOCKER_RESTARTS} restarts`,
+        [{ op: "bitlocker-suspend", letter: "C", restarts: BITLOCKER_RESTARTS }],
+        "C: stays encrypted, but its key is left open for the restarts ahead. Have your BitLocker recovery key at hand.",
       ),
-      `Update-Disk -Number ${disk}`,
-    ],
-  });
-  const writes = parts.filter((p) => p.split);
-  steps.push({
-    id: "write",
-    title: "Write Swiff OS: its boot partition and its system",
-    ops: writes.map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
-    commands: writes.map(
-      (p) =>
-        `# Write ${splitFile(p.split)} to \\\\.\\PhysicalDrive${disk} at offset ${p.offset} (${p.bytes} bytes)`,
+    );
+  }
+  if (facts.fastStartup !== false) {
+    steps.push(
+      step("fast-startup", "Turn off Fast Startup, so Windows leaves its drives readable", [
+        { op: "fast-startup-off" },
+      ]),
+    );
+  }
+  if (shrink) {
+    steps.push(
+      step(
+        "room",
+        `Shrink ${target.letter}: by ${gb(SWIFF_OS_BYTES)}`,
+        [{ op: "shrink", ...shrink }],
+        `${target.letter}: gives ${gb(SWIFF_OS_BYTES)} from its end to Swiff OS and keeps its files. Back up anything important first.`,
+      ),
+    );
+  }
+  steps.push(
+    step(
+      "partitions",
+      `Add Swiff OS's ${parts.length} partitions on disk ${disk}`,
+      [
+        {
+          op: "gpt-add",
+          disk,
+          partitions: parts.map(({ role, type, id, name, attrs, offset, bytes }) => ({
+            role,
+            type,
+            id,
+            name,
+            attrs,
+            offset,
+            bytes,
+          })),
+        },
+      ],
+      `Disk ${disk}'s partition table gets Swiff OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
     ),
-  });
-  steps.push({
-    id: "boot-entry",
-    title: "Add Swiff OS to the PC's boot menu, after Windows",
-    ops: [{ op: "boot-entry", disk, offset: espOffset, path: BOOT_PATH, title: "Swiff OS" }],
-    commands: [
-      `$esp = Get-Partition -DiskNumber ${disk} | Where-Object Offset -eq ${espOffset}`,
-      "$used = @((Get-Volume).DriveLetter) + @((Get-PSDrive -PSProvider FileSystem).Name)",
-      "$letter = [char[]](68..90) | Where-Object { $used -notcontains [string]$_ } | Select-Object -First 1",
-      '$esp | Add-PartitionAccessPath -AccessPath "$($letter):\\"',
-      "$entry = [regex]::Match((bcdedit /copy '{bootmgr}' /d 'Swiff OS'), '\\{[0-9a-fA-F-]{36}\\}').Value",
-      'bcdedit /set $entry device "partition=$($letter):"',
-      `bcdedit /set $entry path ${BOOT_PATH}`,
-      "bcdedit /set '{fwbootmgr}' displayorder $entry /addlast",
-      '$esp | Remove-PartitionAccessPath -AccessPath "$($letter):\\"',
-      `New-Item -ItemType Directory -Force (Split-Path ${BOOT_ENTRY_FILE}) | Out-Null; Set-Content ${BOOT_ENTRY_FILE} $entry`,
-    ],
-  });
+  );
+  steps.push(
+    step(
+      "write",
+      "Write Swiff OS: its boot partition and its system",
+      parts
+        .filter((p) => p.split)
+        .map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
+      "Swiff OS is written into its new partitions, and read back to check it. Nothing outside them is touched.",
+    ),
+  );
+  steps.push(
+    step(
+      "boot-entry",
+      "Add Swiff OS to the PC's boot menu, after Windows",
+      [{ op: "boot-entry", disk, offset: esp.offset, path: BOOT_PATH, title: BOOT_TITLE }],
+      "The PC's firmware gets a Swiff OS entry, last in its boot order: Windows still starts first.",
+    ),
+  );
   const stale = games
     ? facts.volumes.filter((v) => v.label === GAMES_LABEL && v.letter !== games.letter)
     : [];
   if (stale.length) {
-    steps.push({
-      id: "games-clear",
-      title: `Take the name ${GAMES_LABEL} off ${stale.map((v) => `${v.letter}:`).join(", ")}, so only your games drive has it`,
-      ops: stale.map((v) => ({ op: "label", letter: v.letter, label: "" })),
-      commands: stale.map((v) => `Set-Volume -DriveLetter ${v.letter} -NewFileSystemLabel ''`),
-    });
+    steps.push(
+      step(
+        "games-clear",
+        `Take the name ${GAMES_LABEL} off ${stale.map((v) => `${v.letter}:`).join(", ")}, so only your games drive has it`,
+        stale.map((v) => ({ op: "label", letter: v.letter, label: "" })),
+      ),
+    );
   }
   if (games && games.label !== GAMES_LABEL) {
-    steps.push({
-      id: "games",
-      title: `Name ${games.letter}: ${GAMES_LABEL}, so Swiff OS finds your Steam games`,
-      ops: [{ op: "label", letter: games.letter, label: GAMES_LABEL }],
-      commands: [`Set-Volume -DriveLetter ${games.letter} -NewFileSystemLabel ${q(GAMES_LABEL)}`],
-    });
+    steps.push(
+      step("games", `Name ${games.letter}: ${GAMES_LABEL}, so Swiff OS finds your Steam games`, [
+        { op: "label", letter: games.letter, label: GAMES_LABEL },
+      ]),
+    );
   }
-  steps.push(...mokSteps(code));
-  return { kind: "install", dryRun: true, target, steps, mok: { code } };
+  const [mok, restart] = mokSteps(code);
+  steps.push({
+    ...mok,
+    ops: [...mok.ops, { op: "installed" }],
+    commands: [...mok.commands, ...commandsOf({ op: "installed" })],
+  });
+  steps.push(restart);
+  return { kind: "install", target, steps, mok: { code } };
 }
 
 /** The firmware variable's PowerShell name: MokNew-605dab50-…. */
@@ -592,80 +742,160 @@ const mokVar = (name) => `${name}-${SHIM_LOCK}`;
  */
 function mokSteps(code) {
   return [
-    {
-      id: "mok",
-      title: "Ask the PC to trust Swiff's key, with a one-time code",
-      ops: [{ op: "mok-import", cert: MOK_CERT, code }],
-      commands: [
-        `# Swiff Host's firmware-variable writer, as administrator: mokutil --import ${MOK_CERT} --simple-hash, from Windows`,
-        `#   ${mokVar("MokNew")}: ${MOK_CERT} as an EFI_SIGNATURE_LIST (X.509, owner shim), non-volatile, boot and runtime access`,
-        `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the one-time code in UTF-16LE, the same attributes`,
-      ],
-    },
-    {
-      id: "mok-restart",
-      title: "Restart once into Swiff OS, to confirm its key",
-      ops: [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
-      commands: [
-        `$entry = (Get-Content ${BOOT_ENTRY_FILE} -TotalCount 1).Trim()`,
-        "bcdedit /set '{fwbootmgr}' bootsequence $entry",
-        "shutdown /r /t 0",
-      ],
-    },
+    step(
+      "mok",
+      "Ask the PC to trust Swiff's key, with a one-time code",
+      [{ op: "mok-import", cert: MOK_CERT, code }],
+      "The firmware queues Swiff's key, for you to confirm at the PC's blue screen with the code.",
+    ),
+    step(
+      "mok-restart",
+      "Restart once into Swiff OS, to confirm its key",
+      [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+      "The PC restarts now, once, to the blue screen. Save your work first.",
+    ),
   ];
 }
 
 /**
  * Confirm Swiff's key again, once installed: after a missed blue screen, the
- * same request with a new code. Whether the key is enrolled is not read yet:
- * reading MokListRT for it is a follow-up for the install executor.
+ * same request with a new code. Whether the key is enrolled cannot be read
+ * from Windows: shim publishes MokListRT only to the system it starts.
  */
 function mokPlan(code = mokCode()) {
-  return { kind: "mok", dryRun: true, steps: mokSteps(code), mok: { code } };
+  return { kind: "mok", steps: mokSteps(code), mok: { code } };
 }
 
 /**
- * Start sharing: Swiff OS first in the boot order, so a power cut or a crash
- * comes back to it, and BootNext for this restart. Stop: Windows first again.
+ * The steps that take Swiff OS off this PC again, from what the install
+ * recorded (facts.install): its boot entry, its partitions, C:'s space, the
+ * names and settings it changed. An install that stopped half way is undone
+ * by the same steps: each is there only for what was done. Swiff's key stays
+ * enrolled: removing it (keyRemovalPlan) needs Swiff OS's boot partition, so
+ * it comes first.
+ */
+function uninstallPlan(rental) {
+  const install = rental.facts.install;
+  if (!install) throw new Error("Swiff OS is not installed on this PC.");
+  const steps = [];
+  steps.push(
+    step(
+      "boot-entry",
+      "Take Swiff OS out of the boot menu",
+      [...(install.bootEntry !== null ? [{ op: "boot-entry-remove" }] : []), { op: "mok-cancel" }],
+      install.bootEntry !== null ? "The PC's firmware forgets its Swiff OS entry." : null,
+    ),
+  );
+  if (install.partitions.length && install.disk !== null) {
+    steps.push(
+      step(
+        "partitions",
+        `Remove Swiff OS's ${install.partitions.length} partitions from disk ${install.disk}`,
+        [{ op: "gpt-remove", disk: install.disk, partitions: install.partitions }],
+        "Swiff OS and everything on its partitions is deleted. Windows' own partitions are not touched.",
+      ),
+    );
+  }
+  if (install.shrink && install.disk !== null) {
+    const { letter, partition, from, to } = install.shrink;
+    steps.push(
+      step(
+        "room",
+        `Give ${letter}: its ${gb(from - to)} back`,
+        [{ op: "grow", disk: install.disk, partition, letter, size: from }],
+        `${letter}: grows back to its size before Swiff OS, into the space Swiff OS left.`,
+      ),
+    );
+  }
+  if (install.labels.length) {
+    steps.push(
+      step(
+        "labels",
+        `Give ${install.labels.map((l) => `${l.letter}:`).join(", ")} back ${install.labels.length === 1 ? "its name" : "their names"}`,
+        install.labels.map((l) => ({ op: "label", letter: l.letter, label: l.from })),
+      ),
+    );
+  }
+  if (install.fastStartup)
+    steps.push(step("fast-startup", "Turn Fast Startup back on", [{ op: "fast-startup-on" }]));
+  if (install.bitlocker)
+    steps.push(
+      step("bitlocker", `Resume BitLocker on ${install.bitlocker}:`, [
+        { op: "bitlocker-resume", letter: install.bitlocker },
+      ]),
+    );
+  steps.push(step("forget", "Forget the install", [{ op: "forget" }]));
+  return { kind: "uninstall", steps };
+}
+
+/**
+ * Ask the PC to stop trusting Swiff's key: MokManager removes it once the
+ * owner confirms at the PC with a new code, as they confirmed it in. shim and
+ * MokManager live on Swiff OS's boot partition, so this runs while Swiff OS
+ * is still installed, before the uninstall.
+ */
+function keyRemovalPlan(code = mokCode()) {
+  return {
+    kind: "unkey",
+    steps: [
+      step(
+        "mok-remove",
+        "Ask the PC to stop trusting Swiff's key, with a one-time code",
+        [{ op: "mok-delete", cert: MOK_CERT, code }],
+        "The firmware queues Swiff's key for removal, for you to confirm at the PC's blue screen with the code.",
+      ),
+      step(
+        "restart",
+        "Restart once into Swiff OS's key manager, to confirm it",
+        [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+        "The PC restarts now, once, to the blue screen. Save your work first.",
+      ),
+    ],
+    mok: { code },
+  };
+}
+
+/**
+ * Start Swiff OS once: BootNext, then restart; whatever happens there, the
+ * next start is Windows again. Start sharing: Swiff OS first in the boot
+ * order, so a power cut or a crash comes back to it, and BootNext for this
+ * restart. Stop: Windows first again.
  */
 function switchPlan(kind) {
-  const entry = `$entry = (Get-Content ${BOOT_ENTRY_FILE} -TotalCount 1).Trim()`;
+  if (kind === "once") {
+    return {
+      kind,
+      steps: [
+        step(
+          "once",
+          "Start Swiff OS on this restart only",
+          [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+          "The PC restarts into Swiff OS now. Its next restart after that starts Windows.",
+        ),
+      ],
+    };
+  }
   if (kind === "start") {
     return {
       kind,
-      dryRun: true,
       steps: [
-        {
-          id: "boot-order",
-          title: "Put Swiff OS first in the boot order",
-          ops: [{ op: "boot-first", entry: "swiff" }],
-          commands: [entry, "bcdedit /set '{fwbootmgr}' displayorder $entry /addfirst"],
-        },
-        {
-          id: "boot-next",
-          title: "Start Swiff OS on this restart",
-          ops: [{ op: "boot-next", entry: "swiff" }],
-          commands: ["bcdedit /set '{fwbootmgr}' bootsequence $entry"],
-        },
-        {
-          id: "restart",
-          title: "Restart into rental mode",
-          ops: [{ op: "restart" }],
-          commands: ["shutdown /r /t 0"],
-        },
+        step("boot-order", "Put Swiff OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
+        step("boot-next", "Start Swiff OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
+        step(
+          "restart",
+          "Restart into rental mode",
+          [{ op: "restart" }],
+          "The PC restarts into Swiff OS now, and keeps starting it until you stop sharing.",
+        ),
       ],
     };
   }
   return {
     kind: "stop",
-    dryRun: true,
     steps: [
-      {
-        id: "boot-order",
-        title: "Put Windows first in the boot order again",
-        ops: [{ op: "boot-first", entry: "windows" }],
-        commands: ["bcdedit /set '{fwbootmgr}' displayorder '{bootmgr}' /addfirst"],
-      },
+      step("boot-order", "Put Windows first in the boot order again", [
+        { op: "boot-first", entry: "windows" },
+      ]),
     ],
   };
 }
@@ -678,11 +908,16 @@ module.exports = {
   GAMES_LABEL,
   MOK_CERT,
   SHIM_LOCK,
+  SHIM_CA,
+  BOOT_PATH,
+  BOOT_TITLE,
+  BITLOCKER_RESTARTS,
   SCRIPT,
   gpuVendor,
   bitlockerState,
   tpmMaker,
   factsOf,
+  installOf,
   freeSpans,
   targetsOf,
   libraryDrives,
@@ -695,6 +930,10 @@ module.exports = {
   mokRequest,
   mokSteps,
   mokPlan,
+  keyRemovalPlan,
+  shellOf,
+  commandsOf,
   installPlan,
+  uninstallPlan,
   switchPlan,
 };

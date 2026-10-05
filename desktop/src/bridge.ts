@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
 import type { Glance, TrayAction } from "./model";
@@ -18,8 +19,13 @@ export type HostBridge = {
   onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
   /** Null where rental mode cannot be read (off Windows). */
   readRental(): Promise<RentalRead | null>;
-  /** A preview of the steps; null when there is no plan to show. */
+  /** The steps, as main will run them; null when there is no plan to show. */
   planRental(ask: { kind: RentalPlan["kind"]; target?: string | null }): Promise<RentalPlan | null>;
+  /** Run the plan main last showed; null when there is none to run. */
+  runRental(): Promise<RunOutcome | null>;
+  /** Yes or no to the step the run is waiting on. */
+  confirmRental(id: string, yes: boolean): Promise<boolean>;
+  onRentalEvent(listener: (event: RunEvent) => void): () => void;
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;

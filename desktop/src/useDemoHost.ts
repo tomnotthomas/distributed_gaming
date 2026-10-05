@@ -140,6 +140,8 @@ export function useDemoHost(screen: DemoScreen): Host & {
     previewRental: () => {},
     closeRentalPreview: () => {},
     setCrewOnly,
+    runRental: () => {},
+    confirmRentalStep: () => {},
   };
 
   return {

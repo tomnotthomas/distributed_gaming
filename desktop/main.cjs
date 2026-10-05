@@ -23,7 +23,16 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
-const { installPlan, mokPlan, readRental, switchPlan } = require("./rental.cjs");
+const { readImageSet } = require("./image-set.cjs");
+const { runPlan, startWorker } = require("./rental-exec.cjs");
+const {
+  installPlan,
+  keyRemovalPlan,
+  mokPlan,
+  readRental,
+  switchPlan,
+  uninstallPlan,
+} = require("./rental.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
@@ -106,22 +115,103 @@ async function watchGames() {
 }
 
 // Rental mode (rental.cjs): what Swiff OS needs from this PC, read fresh and
-// without administrator rights, and the steps that would install it or switch
-// to and from it, or confirm its key again. The steps are previews: nothing
-// here runs them.
-ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRental() : null));
-ipcMain.handle("rental:plan", async (event, ask) => {
-  if (!fromApp(event) || !ask || typeof ask !== "object") return null;
-  if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
-  if (ask.kind === "mok") return mokPlan();
-  if (ask.kind !== "install") return null;
-  const rental = await readRental();
-  if (!rental) return null;
+// without administrator rights, and the steps that install it, take it off
+// again, start it once, or confirm its key again. Main keeps the plan it last
+// showed the window, and only that plan runs (rental-exec.cjs), through one
+// elevated worker that Windows starts after one UAC prompt; before each step
+// that changes the disk or the firmware, the window must confirm it. Going
+// live in Swiff OS stays a preview until Swiff OS can hand the PC back.
+
+/** Where Swiff OS's image set is (image-set.cjs). */
+const imageDir = () => process.env.SWIFF_OS_IMAGE_DIR || path.join(app.getPath("userData"), "swiff-os");
+/** The image set's version, or null when it is not on this PC. */
+const imageVersion = () => {
   try {
-    return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });
+    return readImageSet(imageDir()).version;
   } catch {
     return null;
   }
+};
+
+const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "once"]);
+/** The plan on the window's screen, which `rental:run` runs; the run in progress, with the step waiting for the owner. */
+let rentalPlan = null;
+let rentalRun = null;
+
+ipcMain.handle("rental:read", async (event) => {
+  if (!fromApp(event)) return null;
+  const read = await readRental();
+  return read && { ...read, image: imageVersion() };
+});
+ipcMain.handle("rental:plan", async (event, ask) => {
+  if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
+  rentalPlan = null;
+  let plan = null;
+  try {
+    if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
+    else if (ask.kind === "mok") plan = mokPlan();
+    else if (ask.kind === "unkey") plan = keyRemovalPlan();
+    else if (ask.kind === "install" || ask.kind === "uninstall") {
+      const rental = await readRental();
+      if (!rental) return null;
+      plan =
+        ask.kind === "uninstall"
+          ? uninstallPlan(rental)
+          : installPlan(rental, {
+              target: typeof ask.target === "string" ? ask.target : null,
+              layout: readImageSet(imageDir()).layout,
+            });
+    }
+  } catch {
+    return null;
+  }
+  if (plan && RUNNABLE.has(plan.kind)) rentalPlan = plan;
+  return plan;
+});
+ipcMain.handle("rental:run", async (event) => {
+  if (!fromApp(event) || !rentalPlan || rentalRun) return null;
+  const plan = rentalPlan;
+  rentalRun = { waiting: null };
+  const tell = (e) => {
+    if (win && !win.isDestroyed()) win.webContents.send("rental:event", e);
+  };
+  let worker;
+  try {
+    worker = await startWorker({
+      imageDir: imageDir(),
+      // This app again, as the worker (start.cjs); `electron .` needs the app's folder first.
+      command: (pipe, token, dir) => ({
+        file: process.execPath,
+        args: [...(process.defaultApp ? [app.getAppPath()] : []), "--swiff-rental-worker", pipe, token, dir],
+      }),
+    });
+  } catch (error) {
+    rentalRun = null;
+    return {
+      status: "failed",
+      done: [],
+      failed: { step: "elevate", op: "elevate", error: error.message },
+      results: [],
+    };
+  }
+  try {
+    return await runPlan(plan, {
+      apply: worker.apply,
+      onEvent: tell,
+      confirm: (step) => new Promise((resolve) => (rentalRun.waiting = { id: step.id, resolve })),
+    });
+  } finally {
+    worker.close();
+    rentalRun = null;
+    rentalPlan = null;
+  }
+});
+ipcMain.handle("rental:confirm", (event, id, yes) => {
+  const waiting = rentalRun?.waiting;
+  if (!fromApp(event) || !waiting || waiting.id !== id) return false;
+  rentalRun.waiting = null;
+  waiting.resolve(yes === true);
+  return true;
 });
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no

@@ -6,7 +6,8 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
 
   boot-vars.py init  VARS TEMPLATE DB_AUTH WIN_PART WIN_START WIN_SIZE WIN_UUID
       Secure Boot on with the certificate in DB_AUTH (the image's own
-      db.auth, which systemd-boot would enrol) as PK, KEK and db, and a
+      db.auth, which systemd-boot would enrol) as PK, KEK and db, or with
+      TEMPLATE's own keys when DB_AUTH is "-" (OVMF's Microsoft keys), and a
       "Windows Boot Manager" entry for the fake Windows ESP, first and only
       in BootOrder: a PC as it comes.
   boot-vars.py entry VARS TITLE PART START SIZE UUID PATH
@@ -101,13 +102,14 @@ def main(cmd, vars_path, *args):
     if cmd == "init":
         template, db_auth, part, start, size, uuid = args
         store, varlist = load(template)
-        with tempfile.NamedTemporaryFile(suffix=".der") as cert:
-            cert.write(cert_from_auth(db_auth))
-            cert.flush()
-            owner = guids.OvmfEnrollDefaultKeys
-            for name in ("PK", "KEK", "db"):
-                varlist.add_cert(name, owner, cert.name, True)
-        varlist.enable_secureboot()
+        if db_auth != "-":
+            with tempfile.NamedTemporaryFile(suffix=".der") as cert:
+                cert.write(cert_from_auth(db_auth))
+                cert.flush()
+                owner = guids.OvmfEnrollDefaultKeys
+                for name in ("PK", "KEK", "db"):
+                    varlist.add_cert(name, owner, cert.name, True)
+            varlist.enable_secureboot()
         varlist.set_boot_entry(0, "Windows Boot Manager", hd_path(part, start, size, uuid, WINDOWS_PATH))
         set_order(varlist, [0])
         save(store, varlist, vars_path)

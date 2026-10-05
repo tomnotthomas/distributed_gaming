@@ -30,7 +30,24 @@ export type RentalFacts = {
     fixed: boolean;
     bitlocker: "on" | "off" | null;
   }[];
-  bootEntry: string | null;
+  install: InstallRecord | null;
+};
+
+/** What an install recorded so far (rental-install.json): what it changed, for the uninstall to put back. */
+export type InstallRecord = {
+  complete: boolean;
+  disk: number | null;
+  /** The drive whose BitLocker the install suspended. */
+  bitlocker: string | null;
+  /** Fast Startup was on before the install turned it off. */
+  fastStartup: boolean;
+  shrink: { letter: string; partition: number; from: number; to: number } | null;
+  partitions: { role: string; id: string; offset: number; bytes: number }[];
+  /** Swiff OS's Boot#### number, and Windows' (BootCurrent when the entry was made). */
+  bootEntry: number | null;
+  windowsEntry: number | null;
+  labels: { letter: string; from: string }[];
+  mok: boolean;
 };
 
 /** Where Swiff OS can go: free space on a disk, or the end of a drive shrunk for it. `start` is in bytes. */
@@ -65,42 +82,62 @@ export type RentalRead = {
   targets: RentalTarget[];
   games: GamesDrive | null;
   installed: boolean;
+  /** The version of Swiff OS's image set on this PC, which main adds to the read; null when there is none. */
+  image?: string | null;
+};
+
+type GptAddPartition = {
+  role: string;
+  type: string;
+  id: string | null;
+  name: string | null;
+  attrs: string;
+  offset: number;
+  bytes: number;
 };
 
 export type PlanOp =
-  | { op: "check" }
+  | { op: "check"; shrink?: { disk: number; partition: number | null; size: number; letter: string } }
+  | { op: "image-check" }
+  | { op: "bitlocker-suspend"; letter: string; restarts: number }
+  | { op: "bitlocker-resume"; letter: string }
   | { op: "fast-startup-off" }
-  | { op: "shrink"; disk: number; partition: number | null; size: number }
-  | {
-      op: "gpt-add";
-      disk: number;
-      partitions: {
-        type: string;
-        id: string | null;
-        name: string | null;
-        attrs: string;
-        offset: number;
-        bytes: number;
-      }[];
-    }
+  | { op: "fast-startup-on" }
+  | { op: "shrink"; disk: number; partition: number | null; size: number; letter: string }
+  | { op: "grow"; disk: number; partition: number; size: number; letter: string }
+  | { op: "gpt-add"; disk: number; partitions: GptAddPartition[] }
+  | { op: "gpt-remove"; disk: number; partitions: InstallRecord["partitions"] }
   | { op: "write"; disk: number; offset: number; bytes: number; source: string }
   | { op: "boot-entry"; disk: number; offset: number; path: string; title: string }
+  | { op: "boot-entry-remove" }
   | { op: "label"; letter: string; label: string }
   | { op: "mok-import"; cert: string; code: string }
+  | { op: "mok-delete"; cert: string; code: string }
+  | { op: "mok-cancel" }
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
+  | { op: "installed" }
+  | { op: "forget" }
   | { op: "restart" };
 
-/** One step of a plan: what it does in words, its operations, and the Windows commands they stand for. */
-export type PlanStep = { id: string; title: string; ops: PlanOp[]; commands: string[] };
+/**
+ * One step of a plan: what it does in words, its operations, and the Windows
+ * commands they are. `confirm` says what the owner agrees to before a step
+ * that changes the disk or the firmware runs; null for the others.
+ */
+export type PlanStep = {
+  id: string;
+  title: string;
+  confirm: string | null;
+  ops: PlanOp[];
+  commands: string[];
+};
 
-/** A plan, always a preview here: nothing in the app runs it. */
 export type RentalPlan = {
-  kind: "install" | "mok" | "start" | "stop";
-  dryRun: true;
+  kind: "install" | "uninstall" | "mok" | "unkey" | "once" | "start" | "stop";
   target?: RentalTarget;
   steps: PlanStep[];
-  /** The install's or the re-confirmation's one-time code, which the owner types at the PC to confirm Swiff's key (MOK). */
+  /** The one-time code the owner types at the PC to confirm Swiff's key (MOK), or its removal. */
   mok?: { code: string };
 };
 
@@ -122,11 +159,16 @@ export const KEEP_FREE: number;
 export const GAMES_LABEL: string;
 export const MOK_CERT: string;
 export const SHIM_LOCK: string;
+export const SHIM_CA: string;
+export const BOOT_PATH: string;
+export const BOOT_TITLE: string;
+export const BITLOCKER_RESTARTS: number;
 export const SCRIPT: string;
 export function gpuVendor(pnp: string): GpuVendor;
 export function bitlockerState(value: unknown): "on" | "off" | null;
 export function tpmMaker(info: unknown): { maker: string | null; firmware: boolean | null };
 export function factsOf(raw: unknown): RentalFacts;
+export function installOf(raw: unknown): InstallRecord | null;
 export function freeSpans(
   disk: RentalFacts["disks"][number],
   partitions: RentalFacts["partitions"],
@@ -166,4 +208,8 @@ export function installPlan(
   rental: RentalRead,
   options?: { target?: string | null; layout?: LayoutPartition[]; code?: string },
 ): RentalPlan;
-export function switchPlan(kind: "start" | "stop"): RentalPlan;
+export function uninstallPlan(rental: RentalRead): RentalPlan;
+export function keyRemovalPlan(code?: string): RentalPlan;
+export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
+export function shellOf(op: PlanOp): string[] | null;
+export function commandsOf(op: PlanOp): string[];

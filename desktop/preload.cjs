@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
   readRental: () => ipcRenderer.invoke("rental:read"),
   planRental: (ask) =>
     ipcRenderer.invoke("rental:plan", { kind: String(ask?.kind), target: ask?.target ?? null }),
+  runRental: () => ipcRenderer.invoke("rental:run"),
+  confirmRental: (id, yes) => ipcRenderer.invoke("rental:confirm", String(id), yes === true),
+  onRentalEvent: (listener) => subscribe("rental:event", listener),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),

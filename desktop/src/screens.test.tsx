@@ -2,11 +2,27 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DemoApp, Shell } from "./App";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
-import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
+import {
+  IDLE_RUN,
+  type Claim,
+  type Host,
+  type HostActions,
+  type HostView,
+  type Live,
+  type Step,
+} from "./model";
 import { HOLD_MS } from "./ui/hold";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
-import { installPlan, mokPlan, rentalOf, switchPlan, TYPE, type RentalRead } from "../rental.cjs";
+import {
+  installPlan,
+  keyRemovalPlan,
+  mokPlan,
+  rentalOf,
+  switchPlan,
+  uninstallPlan,
+  type RentalRead,
+} from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 
 const FAKE = [
@@ -63,7 +79,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       installs: [],
       asked: [],
     },
-    rental: { reading: false, read: null, target: null, preview: null },
+    rental: { reading: false, read: null, target: null, preview: null, run: IDLE_RUN },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -107,6 +123,8 @@ function actions(): HostActions {
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
     setCrewOnly: vi.fn(),
+    runRental: vi.fn(),
+    confirmRentalStep: vi.fn(),
   };
 }
 
@@ -632,17 +650,22 @@ describe("rental mode", () => {
   const read = (change: (raw: typeof FACTS) => object = (raw) => raw) =>
     rentalOf(change(structuredClone(FACTS)), [{ letter: "C", games: 2 }]);
   const rental = (more: Partial<HostView["rental"]> = {}): Partial<HostView> => ({
-    rental: { reading: false, read: read(), target: null, preview: null, ...more },
+    rental: { reading: false, read: read(), target: null, preview: null, run: IDLE_RUN, ...more },
   });
-  const installed = () =>
-    read((raw) => ({
-      ...raw,
-      bootEntry: "{6a1f3c2e-0d4b-4e8a-9f7c-2b1d3e4f5a60}",
-      partitions: [
-        ...raw.partitions,
-        { disk: 0, number: 6, letter: "", type: TYPE.root, offset: 0, size: 8 * GiB },
-      ],
-    }));
+  /** What a finished install recorded on the fixture PC. */
+  const RECORD = {
+    complete: true,
+    disk: 0,
+    bitlocker: null,
+    fastStartup: true,
+    shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+    partitions: [{ role: "esp", id: "00000000-0000-4000-8000-000000000000", offset: 976 * GiB, bytes: GiB }],
+    bootEntry: 1,
+    windowsEntry: 0,
+    labels: [],
+    mok: true,
+  };
+  const installed = () => read((raw) => ({ ...raw, install: RECORD }));
 
   it("offers to check again when this PC could not be read", () => {
     const acts = renderReal("rental", off, rental({ reading: false, read: null }));
@@ -660,13 +683,13 @@ describe("rental mode", () => {
   it("shows a ready PC's checks, and previews the install from one button", () => {
     const acts = renderReal("rental", off, rental());
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
-    expect(screen.getByText("8 of 10")).toBeInTheDocument();
-    expect(screen.getByText("Microsoft UEFI CA 2023").closest(".krow")).toHaveTextContent("Not checked yet");
+    expect(screen.getByText("9 of 11")).toBeInTheDocument();
+    expect(screen.getByText("Microsoft UEFI CA 2011").closest(".krow")).toHaveTextContent("Not checked yet");
     expect(screen.getByText("TPM certificate").closest(".krow")).toHaveTextContent("Not checked yet");
     for (const step of [
       /Setup Mode/,
       /Allow Microsoft 3rd-party UEFI CA/,
-      /lacks the Microsoft UEFI CA 2023/,
+      /does not trust the Microsoft UEFI CA 2011/,
       /restarts once, for you to confirm Swiff's key/,
     ])
       expect(screen.getByText(step)).toBeInTheDocument();
@@ -679,16 +702,133 @@ describe("rental mode", () => {
     expect(acts.previewRental).toHaveBeenCalledWith("install");
   });
 
-  it("shows the install as a preview, with its exact commands when asked", () => {
+  it("shows the install's steps, marks those that ask first, and runs it from one button", () => {
     const acts = renderReal("rental", off, rental({ preview: installPlan(read()) }));
-    expect(screen.getByText("Shrink C: by 24 GB")).toBeInTheDocument();
-    expect(screen.getByText("Add Swiff OS to the PC's boot menu, after Windows")).toBeInTheDocument();
-    expect(screen.getByText(/nothing on this PC has been changed/)).toBeInTheDocument();
+    expect(screen.getByText("Installing rental mode")).toBeInTheDocument();
+    expect(screen.getByText("Shrink C: by 24 GB").closest("li")).toHaveTextContent("Asks you before it runs");
+    expect(
+      screen.getByText("Turn off Fast Startup, so Windows leaves its drives readable").closest("li"),
+    ).not.toHaveTextContent("Asks you");
+    expect(screen.getByText(/Windows asks once for administrator rights/)).toBeInTheDocument();
     expect(screen.queryByText(/Resize-Partition/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show the commands" }));
     expect(screen.getByText(/Resize-Partition -DiskNumber 0 -PartitionNumber 3/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Install rental mode/ }));
+    expect(acts.runRental).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
+  });
+
+  it("runs a step that changes the disk only while the owner holds its button, and can stop there", () => {
+    vi.useFakeTimers({ toFake: [...FAKE] });
+    try {
+      const run = {
+        ...IDLE_RUN,
+        status: "running" as const,
+        steps: { check: "done" as const, "fast-startup": "done" as const, room: "confirm" as const },
+        waiting: "room",
+      };
+      const acts = renderReal("rental", off, rental({ preview: installPlan(read()), run }));
+      const room = screen.getByText("Shrink C: by 24 GB").closest("li")!;
+      expect(room).toHaveTextContent(/keeps its files\. Back up anything important first\./);
+      expect(
+        screen
+          .getByText("Check the Secure Boot keys, the TPM and Swiff OS's files, as administrator")
+          .closest("li"),
+      ).toHaveClass("done");
+      // Busy: no closing the plan half way.
+      expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+      hold(within(room).getByRole("button", { name: "Hold to run: Shrink C: by 24 GB" }));
+      expect(acts.confirmRentalStep).toHaveBeenCalledWith(true);
+      fireEvent.click(within(room).getByRole("button", { name: "Stop here" }));
+      expect(acts.confirmRentalStep).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the write's progress, and a failed step's own words with a way to undo", () => {
+    const writing = {
+      ...IDLE_RUN,
+      status: "running" as const,
+      steps: { write: "running" as const },
+      progress: { id: "write", what: "Writing swiffos_0.1.0.root-x86-64.raw", done: 3.2e9, total: 8.6e9 },
+    };
+    renderReal("rental", off, rental({ preview: installPlan(read()), run: writing }));
+    expect(screen.getByText("Writing swiffos_0.1.0.root-x86-64.raw: 3.2 of 8.6 GB")).toBeInTheDocument();
+    cleanup();
+    const failed = {
+      ...IDLE_RUN,
+      status: "failed" as const,
+      steps: { room: "failed" as const },
+      failed: { step: "room", error: "C: cannot shrink by 24 GB." },
+    };
+    const acts = renderReal("rental", off, rental({ preview: installPlan(read()), run: failed }));
+    expect(screen.getByText("Shrink C: by 24 GB").closest("li")).toHaveClass("fail");
+    expect(screen.getByText("Shrink C: by 24 GB").closest("li")).toHaveTextContent(
+      "C: cannot shrink by 24 GB.",
+    );
+    expect(
+      screen.getByText(/Shrink C: by 24 GB did not finish, for the reason under it\. Nothing after it ran\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("After the restart: confirm Swiff's key")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Undo what was done/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
+  });
+
+  it("says so when Windows refused administrator rights, with nothing to undo", () => {
+    const refused = {
+      ...IDLE_RUN,
+      status: "failed" as const,
+      failed: { step: "elevate", error: "Windows did not give Swiff Host administrator rights." },
+    };
+    renderReal("rental", off, rental({ preview: installPlan(read()), run: refused }));
+    expect(
+      screen.getByText(/Nothing ran: Windows did not give Swiff Host administrator rights/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Undo what was done/ })).not.toBeInTheDocument();
+  });
+
+  it("offers to undo an install that stopped part way, and nothing else", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: read((raw) => ({ ...raw, install: { ...RECORD, complete: false } })) }),
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("The install did not finish");
+    expect(screen.queryByRole("button", { name: /Review the install/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Undo what was done/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
+  });
+
+  it("holds the install back while Swiff OS's files are not on this PC", () => {
+    renderReal("rental", off, rental({ read: { ...read(), image: null } }));
+    expect(screen.getByText("Its files are not on this PC").closest(".krow")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+    cleanup();
+    renderReal("rental", off, rental({ read: { ...read(), image: "0.1.0" } }));
+    expect(screen.getByText("0.1.0, ready to install")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeEnabled();
+  });
+
+  it("removes rental mode, and offers to remove Swiff's key first, guided at the blue screen", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: installed(), preview: uninstallPlan(installed()) }),
+    );
+    expect(screen.getByText("Removing rental mode")).toBeInTheDocument();
+    expect(screen.getByText("Give C: its 24 GB back")).toBeInTheDocument();
+    expect(screen.queryByText(/confirm the key's removal/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Swiff's key first" }));
+    expect(acts.previewRental).toHaveBeenCalledWith("unkey");
+    cleanup();
+    renderReal("rental", off, rental({ read: installed(), preview: keyRemovalPlan("55554444") }));
+    expect(screen.getByText("Removing Swiff's key")).toBeInTheDocument();
+    expect(screen.getByText("After the restart: confirm the key's removal")).toBeInTheDocument();
+    expect(screen.getByText("Choose Delete MOK.")).toBeInTheDocument();
+    expect(screen.getByText("5555 4444")).toBeInTheDocument();
+    expect(screen.getByText(/Swiff OS starts as usual and the key stays trusted/)).toBeInTheDocument();
   });
 
   it("guides the one confirmation at the PC after the install's restart, with the code large and copyable", async () => {
@@ -782,7 +922,7 @@ describe("rental mode", () => {
       onTrayAction: vi.fn(() => () => {}),
     };
     function Live() {
-      const { check, choose, plan, close, ...state } = useRental();
+      const { check, choose, plan, close, start, confirm, ...state } = useRental();
       const host: Host = {
         view: realView(off, { rental: state }),
         actions: {
@@ -791,6 +931,8 @@ describe("rental mode", () => {
           chooseRentalTarget: choose,
           previewRental: plan,
           closeRentalPreview: close,
+          runRental: start,
+          confirmRentalStep: confirm,
         },
       };
       return <Shell host={host} step="rental" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />;
@@ -832,13 +974,19 @@ describe("rental mode", () => {
     expect(screen.getByText("Space").closest(".krow")).toHaveTextContent("24 GB: Swiff OS is installed");
   });
 
-  it("switches, once installed: going live and back to Windows, as previews", () => {
+  it("starts Swiff OS once, removes it, and previews going live, once installed", () => {
     const acts = renderReal("rental", off, rental({ read: installed() }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
+    fireEvent.click(screen.getByRole("button", { name: /Start Swiff OS once/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("once");
     fireEvent.click(screen.getByRole("button", { name: "Preview going live" }));
     expect(acts.previewRental).toHaveBeenCalledWith("start");
-    fireEvent.click(screen.getByRole("button", { name: "Preview back to Windows" }));
-    expect(acts.previewRental).toHaveBeenCalledWith("stop");
+    fireEvent.click(screen.getByRole("button", { name: "Remove rental mode" }));
+    expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
+    cleanup();
+    renderReal("rental", off, rental({ read: installed(), preview: switchPlan("start") }));
+    expect(screen.getByText("Preview: Going live in rental mode")).toBeInTheDocument();
+    expect(screen.getByText(/going live in Swiff OS comes in a later Swiff Host update/)).toBeInTheDocument();
   });
 
   it("offers to confirm the key again once installed, and previews it with the same guide and a new code", () => {
@@ -847,7 +995,7 @@ describe("rental mode", () => {
     expect(acts.previewRental).toHaveBeenCalledWith("mok");
     cleanup();
     renderReal("rental", off, rental({ read: installed(), preview: mokPlan("11112222") }));
-    expect(screen.getByText("Preview: Confirming Swiff's key again")).toBeInTheDocument();
+    expect(screen.getByText("Confirming Swiff's key again")).toBeInTheDocument();
     expect(screen.getByText("Ask the PC to trust Swiff's key, with a one-time code")).toBeInTheDocument();
     expect(screen.getByText("Restart once into Swiff OS, to confirm its key")).toBeInTheDocument();
     expect(screen.getByText("After the restart: confirm Swiff's key")).toBeInTheDocument();

@@ -27,28 +27,67 @@ stub for VMs and tests. The contract is in
 [`docs/system-design/session-keys.md`](../docs/system-design/session-keys.md), "Control and
 hosting credentials".
 
-## Host app: preflight, install and switch
+## Host app: preflight, install, uninstall and switch
 
 The owner's side lives in `desktop/`: `desktop/rental.cjs` reads, without administrator
 rights, what Swiff OS needs from the PC (UEFI, Secure Boot, TPM 2.0, IOMMU, disk space,
 BitLocker, graphics card, Fast Startup), and the Rental mode screen
 (`desktop/src/screens/Rental.tsx`) shows it with the BIOS steps the owner must take by hand.
 The Secure Boot db and the TPM's endorsement certificate need administrator rights, so they
-show as not checked yet. The install (shrink a drive or use free space, add the partitions,
-write the ESP, add the boot entry, name the games drive `SWIFFGAMES`, queue Swiff's key as a
-MOK and restart once to confirm it) and the start/stop sharing switch (BootOrder and BootNext)
-are previews: the app plans them and runs nothing on a PC. Real PCs boot Swiff OS through a
-Linux distribution's Microsoft-signed shim, which trusts Swiff's key once the owner confirms it
-at MokManager's blue screen, with a one-time code the host app shows and guides them through.
-A missed screen enrols nothing: shim then shows a security error and the PC falls back to
-Windows, and the owner chooses Confirm the security key again on the Rental mode screen, which
-queues the same request with a new code and restarts once more (a preview too). The app does
-not read yet whether the key is enrolled: reading MokListRT is a follow-up for the install
-executor.
-`desktop/vm/rental-install-test.sh` carries the plans out on a disk image and boots it under
-OVMF with Secure Boot and a software TPM; `desktop/vm/mok-enroll-test.sh` boots Ubuntu's signed
-shim under OVMF with Microsoft's keys and confirms the app's MOK request at MokManager, after a
-miss and then with the code.
+show as not checked yet.
+
+**The installer.** `rental.cjs` plans each change as steps of operations, and the app runs
+them for real: one UAC prompt starts the app again as administrator, as a worker
+(`desktop/rental-worker.cjs`) that takes the operations one at a time over a named pipe only
+the app knows (`desktop/rental-exec.cjs`). Before each step that changes the disk or the
+firmware, the run stops and the owner holds that step's button, or stops there. The install:
+
+1. checks, as administrator, that Secure Boot is on, the TPM is ready, the db trusts the
+   Microsoft UEFI CA 2011 that signs Ubuntu's shim (the 2023 CA does not sign it yet), C: can
+   shrink that far, and every file of the image set matches its SHA-256
+2. suspends BitLocker on C: for 3 restarts (`manage-bde -protectors -disable -RebootCount`)
+3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
+4. adds Swiff OS's six partitions with the image's ids, names and attributes (`gpt.cjs`
+   on `\\.\PhysicalDriveN`, then `Update-Disk`)
+5. writes the ESP and slot A, hashing as it writes and reading back
+6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
+   (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
+   second ESP without a drive letter)
+7. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
+   one-time code, sets BootNext and restarts into MokManager's blue screen
+
+The worker trusts nothing it is sent: it adds only the image's own partitions, writes only
+into partitions it added, and removes only what it added. What it changed goes into
+`%ProgramData%\Swiff\rental-install.json` (writable by administrators only), which the
+uninstall works from: boot entry, partitions, C:'s space back, the drive names, Fast Startup
+and BitLocker. An install that stops part way is undone the same way. Swiff's key is removed
+on its own, before the uninstall: MokManager, which the owner confirms the removal at with a
+new code, lives on Swiff OS's boot partition. Once installed, "Start Swiff OS once" sets
+only BootNext, so the next restart is Windows again; going live (Swiff OS first in BootOrder)
+stays a preview until Swiff OS can hand the PC back. A missed blue screen enrols nothing:
+shim then shows a security error and the PC falls back to Windows, and the owner chooses
+Confirm the security key again, which queues the request with a new code. Whether the key is
+enrolled cannot be read from Windows (shim publishes MokListRT only to what it starts).
+
+**The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
+installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk
+wrecks the build's 4,096-byte-sector FAT on the 512-byte-sector disks nearly every PC has, so
+the installer offers only those disks), with `\EFI\swiff\` added (Ubuntu's Microsoft-signed shim
+from the image's own archive snapshot, MokManager, and the build's signed systemd-boot as
+`grubx64.efi`, the name shim starts), slot A and its verity hashes, Swiff's certificate, and
+`swiffos.json` with the layout and each file's SHA-256. The app looks for it in
+`$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder.
+
+**Tests.** `desktop/vm/windows-install-test.sh` runs the installer, unchanged, on Microsoft's
+Windows 11 Enterprise evaluation in QEMU/KVM, with OVMF and Microsoft's Secure Boot keys, a
+software TPM and BitLocker on: install, MokManager confirmed over the serial console, Windows
+back without its recovery key, Swiff OS started once through shim, its ESP still sound after
+Windows ran beside it, then the key's removal and the uninstall. `desktop/rental-cli.cjs`
+drives the same installer from a console, one step at a
+time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with
+`apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
+Microsoft's keys; `desktop/vm/mok-enroll-test.sh` confirms the app's MOK request at MokManager,
+after a miss and then with the code.
 
 ## Stage 1: the image
 
@@ -197,10 +236,10 @@ checks the session's wiring, not a running game.
 
 ## Follow-ups (not in stage 1)
 
-- **Shim and MOK in the image.** Real PCs boot through a distribution's Microsoft-signed shim, with
-  Swiff's key enrolled once as a MOK (the host app queues it and guides the confirmation). The image
-  does not ship the shim yet; the VM enrols the test key directly instead. Swiff's own
-  Microsoft-signed shim is deferred.
+- **Shim and MOK in the image.** Real PCs boot through Ubuntu's Microsoft-signed shim, with Swiff's
+  key enrolled once as a MOK. The image set adds the shim to the ESP (above); the image's own build
+  does not, so its VM test still enrols the test key directly. Swiff's own Microsoft-signed shim is
+  deferred.
 - **Steam client persistence.** The Steam client's runtime is downloaded into the ephemeral `/home` on
   first start of each boot. It moves to the sealed state partition with attestation (stage 3).
 - **Starting the game directly.** Driving Steam's QR login from Swiff's own screen and launching the

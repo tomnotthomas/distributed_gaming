@@ -285,7 +285,13 @@ export function useHost(): Host {
     pc: { reading, hardware: pc ? { ...pc.hardware, upMbps } : null, hardwareRate: null },
     games: { installed, offered, demand: demand && demandRows(demand, installed), near: null },
     steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
-    rental: { reading: rental.reading, read: rental.read, target: rental.target, preview: rental.preview },
+    rental: {
+      reading: rental.reading,
+      read: rental.read,
+      target: rental.target,
+      preview: rental.preview,
+      run: rental.run,
+    },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -365,6 +371,8 @@ export function useHost(): Host {
         else crewChoice.current = on;
         setCrew((was) => (was ? { ...was, only: on } : was));
       },
+      runRental: rental.start,
+      confirmRentalStep: rental.confirm,
     },
   };
 }

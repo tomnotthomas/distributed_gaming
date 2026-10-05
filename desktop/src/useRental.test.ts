@@ -3,12 +3,13 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
 
 const plan = (kind: RentalPlan["kind"], title: string): RentalPlan =>
-  ({ kind, dryRun: true, steps: [{ id: title, title, commands: [], ops: [] }] }) as unknown as RentalPlan;
+  ({ kind, steps: [{ id: title, title, confirm: null, commands: [], ops: [] }] }) as unknown as RentalPlan;
 
 /** Plans answered by hand, in whatever order a test resolves them. */
 let pending: { ask: { kind: RentalPlan["kind"]; target?: string | null }; answer: (p: RentalPlan) => void }[];
@@ -81,5 +82,45 @@ describe("useRental", () => {
     await answer(1, plan("stop", "Windows first"));
     await answer(0, plan("start", "Swiff OS first"));
     expect(result.current.preview?.kind).toBe("stop");
+  });
+
+  it("follows a run step by step, passes the owner's yes on, and keeps the plan on screen once it ends", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    let tell: (event: RunEvent) => void = () => {};
+    let finish: (outcome: RunOutcome) => void = () => {};
+    host.onRentalEvent = vi.fn((listener) => ((tell = listener), () => {}));
+    host.runRental = vi.fn(() => new Promise<RunOutcome>((done) => (finish = done)));
+    host.confirmRental = vi.fn(async () => true);
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.plan("install"));
+    await answer(0, plan("install", "Shrink C:"));
+    act(() => result.current.start());
+    expect(result.current.run.status).toBe("starting");
+    act(() => tell({ type: "step", id: "Shrink C:", state: "confirm" }));
+    expect(result.current.run).toMatchObject({ status: "running", waiting: "Shrink C:" });
+    // Busy: the owner cannot swap the plan under a run.
+    act(() => result.current.plan("uninstall"));
+    expect(pending).toHaveLength(1);
+    act(() => result.current.confirm(true));
+    expect(host.confirmRental).toHaveBeenCalledWith("Shrink C:", true);
+    act(() => tell({ type: "step", id: "Shrink C:", state: "running" }));
+    act(() => tell({ type: "progress", id: "Shrink C:", what: "Writing", done: 1, total: 2 }));
+    expect(result.current.run.progress).toEqual({ id: "Shrink C:", what: "Writing", done: 1, total: 2 });
+    act(() => tell({ type: "step", id: "Shrink C:", state: "failed", error: "no room" }));
+    await act(async () =>
+      finish({
+        status: "failed",
+        done: [],
+        failed: { step: "Shrink C:", op: "shrink", error: "no room" },
+        results: [],
+      }),
+    );
+    expect(result.current.run).toMatchObject({
+      status: "failed",
+      failed: { step: "Shrink C:", error: "no room" },
+    });
+    expect(result.current.preview?.steps[0]?.title).toBe("Shrink C:");
+    expect(host.readRental).toHaveBeenCalledTimes(2);
   });
 });

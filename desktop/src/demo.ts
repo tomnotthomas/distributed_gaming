@@ -15,6 +15,7 @@ import type {
   Step,
   SteamSetup,
 } from "./model";
+import { IDLE_RUN } from "./model";
 import { MINUTE } from "./format";
 import type { CrewOf } from "./report";
 import { localArt, type ArtSource } from "./ui/art";
@@ -98,7 +99,7 @@ export const DEMO_RENTAL_READ: RentalRead = {
     disks: [],
     partitions: [],
     volumes: [],
-    bootEntry: null,
+    install: null,
   },
   need: 25_367_150_592,
   targets: [
@@ -136,6 +137,7 @@ export const DEMO_RENTAL: RentalSetup = {
   read: DEMO_RENTAL_READ,
   target: null,
   preview: null,
+  run: IDLE_RUN,
 };
 
 /** The demo games' key art, bundled with the app (from prototypes/assets). */

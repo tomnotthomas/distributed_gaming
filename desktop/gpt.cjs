@@ -186,6 +186,20 @@ function withResized(gpt, index, last) {
   return checkEntries({ ...gpt, entries: gpt.entries.map((e) => (e.index === index ? { ...e, last } : e)) });
 }
 
+/** The table with partition slot `index` of type `type` instead. */
+function withRetyped(gpt, index, type) {
+  if (!gpt.entries.some((e) => e.index === index)) throw new GptError(`No partition in slot ${index + 1}.`);
+  guidBytes(type);
+  return checkEntries({ ...gpt, entries: gpt.entries.map((e) => (e.index === index ? { ...e, type } : e)) });
+}
+
+/** The table without the partitions in slots `indexes`. */
+function withRemoved(gpt, indexes) {
+  for (const index of indexes)
+    if (!gpt.entries.some((e) => e.index === index)) throw new GptError(`No partition in slot ${index + 1}.`);
+  return checkEntries({ ...gpt, entries: gpt.entries.filter((e) => !indexes.includes(e.index)) });
+}
+
 // --- writing --------------------------------------------------------------------
 
 function entryArray(gpt) {
@@ -268,5 +282,7 @@ module.exports = {
   emptyGpt,
   withPartitions,
   withResized,
+  withRemoved,
+  withRetyped,
   gptWrites,
 };
