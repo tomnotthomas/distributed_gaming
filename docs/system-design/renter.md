@@ -207,8 +207,9 @@ GET  /me
   Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
   The full list of owned appids stays on the server, for the licence check on
   `POST /bookings` and its claim; the page gets the capped library only, holding only
-  the games Swiff can run. Reading it puts the renter's library first in line to be
-  checked for that.
+  the games Swiff can run, and `profile.checking`, how many of the games it could still
+  show have no verdict yet; the page asks again while that is above 0. Reading it puts
+  the renter's library first in line to be checked for that.
   A profile read is kept in memory for 5 minutes per renter, so reloads do not spend the
   Web API quota; a read Steam fails or takes over 3 s to answer is not kept. For 10 s
   after a failed read Steam is not asked again for that renter: they get their last
