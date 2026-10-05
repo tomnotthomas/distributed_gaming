@@ -9,6 +9,10 @@
 // werift's, and the tracks carry RTP the capture helpers already encoded
 // rather than a MediaStream for the browser to encode.
 //
+// On a rental-mode PC it also carries the renter's Steam sign-in (steamLogin.ts):
+// Steam's code goes out as the renter joins, and the server's launch-game is
+// answered with game-started once the game is on screen.
+//
 // It serves one renter at a time and as many connections as the renter makes
 // (a reload is a new peer-joined). It ends when the server puts it out — the
 // session ended, or its key is refused after a reconnect — and leaves what
@@ -28,6 +32,7 @@ import type { RTCPeerConnection } from "werift";
 import type { SessionGrant, StreamerConfig } from "./config";
 import type { MediaKind } from "./capture";
 import { createPeer, type Peer } from "./peer";
+import type { SteamLoginForwarder } from "./steamLogin";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
 
@@ -38,6 +43,8 @@ export type StreamerOptions = {
   input: InputSink;
   /** The renter's decoder needs a keyframe: it just connected, or lost one. */
   onKeyframeNeeded: () => void;
+  /** Rental mode: the renter's Steam sign-in and the game's launch, through the PC's Steam agent. */
+  steamLogin?: SteamLoginForwarder;
   /** Stand-in for werift's peer connection, so tests can wrap it. */
   makePeer?: typeof createPeer;
   log?: (message: string) => void;
@@ -57,6 +64,7 @@ export function startStreamer({
   grant,
   input,
   onKeyframeNeeded,
+  steamLogin,
   makePeer = createPeer,
   log = (m) => console.error(m),
 }: StreamerOptions): Streamer {
@@ -159,9 +167,17 @@ export function startStreamer({
         break;
       case "peer-joined":
         log("[swiff-streamer] the renter joined");
+        steamLogin?.renterJoined(send);
         offerTo(send).catch((cause: unknown) => {
           log(`[swiff-streamer] could not make the offer: ${cause instanceof Error ? cause.message : cause}`);
         });
+        break;
+      case "steam-login":
+        // The one the server relays this way: the renter asks for a new code.
+        if (msg.state === "retry") steamLogin?.retry(send);
+        break;
+      case "launch-game":
+        steamLogin?.launchGame(msg.sessionId, msg.appid, send);
         break;
       case "answer":
         if (msg.sdp) {
@@ -192,6 +208,7 @@ export function startStreamer({
   function stop() {
     if (stopped) return;
     stopped = true;
+    steamLogin?.stop();
     signaling.close();
     teardown();
   }

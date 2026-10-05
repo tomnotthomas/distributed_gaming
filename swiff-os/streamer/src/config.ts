@@ -3,7 +3,7 @@
 // swiff-hostd starts one streamer per renter session, as the unprivileged
 // swiff-stream user, and gives it three kinds of input (hostd's streamer.ts):
 //
-//   environment  SWIFF_SERVER_URL, SWIFF_HOST_ID — not secret (hostd's SWIFF_APPID is ignored)
+//   environment  SWIFF_SERVER_URL, SWIFF_HOST_ID, SWIFF_APPID — not secret (an app id that is not one is ignored)
 //   stdin        one JSON line { "sessionKey": "...", "expiresAt": <Unix s> }, then closed
 //   arguments    hostd's `streamer.args`, set by the image — not secret
 //
@@ -40,6 +40,10 @@ export type StreamerConfig = {
   /** The helpers, so a test or a dev checkout can point at its own. */
   python: string;
   helperDir: string;
+  /** Rental mode: the Steam agent's socket (swiff-os/steam). Unset: no Steam sign-in here. */
+  steamSocket: string | null;
+  /** The game booked, from hostd, so Steam's sign-in can start before the server's launch-game. */
+  appid: number | null;
 };
 
 export type SessionGrant = { sessionKey: string; expiresAt: number };
@@ -71,6 +75,7 @@ const USAGE = `swiff-streamer [options] < grant.json
   --audio-bitrate <bits/s>     Opus bitrate (128000)
   --python <path>              python3 for the helpers
   --helpers <dir>              directory of swiff-gst.py and swiff-uinput.py
+  --steam-socket <path>        rental mode: the Steam agent's socket
   --insecure-signaling         allow ws:// to a server off this machine (tests only)`;
 
 /** Read the environment and the arguments. Throws ConfigError naming the bad setting. */
@@ -91,6 +96,8 @@ export function readConfig(
     pipewireRemote: null,
     python: "python3",
     helperDir,
+    steamSocket: null,
+    appid: /^[1-9][0-9]{0,9}$/.test(env.SWIFF_APPID ?? "") ? Number(env.SWIFF_APPID) : null,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -146,6 +153,12 @@ export function readConfig(
       case "--helpers":
         config.helperDir = value();
         break;
+      case "--steam-socket": {
+        const path = value();
+        if (!path.startsWith("/")) throw new ConfigError("--steam-socket must be an absolute path");
+        config.steamSocket = path;
+        break;
+      }
       case "--insecure-signaling":
         insecureSignaling = true;
         break;

@@ -220,11 +220,18 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   never as the renter, because it holds the session key. swiff-hostd starts it once per
   renter session and hands it the key as one JSON line on stdin
   (`{"sessionKey": "...", "expiresAt": <Unix s>}`); its environment carries only
-  `SWIFF_SERVER_URL` and `SWIFF_HOST_ID` (hostd's `SWIFF_APPID` is ignored). `SWIFF_SERVER_URL`
+  `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, the game booked. `SWIFF_SERVER_URL`
   must be `wss://` unless it points at this machine (loopback), so the session key never
   crosses the network in the clear; only a test may override that (`--insecure-signaling`,
   as the VM test does). It registers with the session key, never sees the machine key, and exits whenever the server puts it out (session
   ended, or the key refused after a reconnect); swiff-hostd decides what follows.
+- **Steam sign-in** (`src/steamLogin.ts`, with `--steam-socket <path>`). The streamer
+  carries the renter's signaling, so it drives the Steam agent's socket (`steam/` below):
+  as the renter joins it asks for `play <SWIFF_APPID>` and relays Steam's codes,
+  `signed-in` and `failed` to them as `steam-login`; a renter's `retry` after a failure
+  starts a fresh Play on the same claim. The server's `launch-game` names the game when
+  hostd did not, and is answered with `game-started` once the agent says the game is on
+  screen, so the renter's page never shows Steam or a desktop. A code is never logged.
 - **Capture.** `helpers/swiff-gst.py` runs the GStreamer pipelines `src/pipeline.ts`
   builds: `pipewiresrc target-object=gamescope` → scale → H.264 Constrained Baseline,
   no B-frames, a keyframe every 4 s and whenever the renter's decoder sends a PLI →
@@ -334,8 +341,8 @@ or a desktop. Nobody types a password or a Steam Guard code.
 - **Ready before the renter comes.** Steam sits at its sign-in window from boot.
   `status` on the socket answers `sign-in` once Steam's QR code can be read, so the PC
   can be offered only from then on.
-- **Play** is `play <appid>` on the socket. The streamer sends it, since it carries the
-  renter's signaling. The agent reads Steam's QR code off the screen with the stock X
+- **Play** is `play <appid>` on the socket. The streamer sends it as the renter joins
+  (`streamer/src/steamLogin.ts`), since it carries the renter's signaling. The agent reads Steam's QR code off the screen with the stock X
   tools and zbar (`src/x11.ts`) and sends the link it encodes as a `qr` event. Steam
   shows a new code every 20 to 25 s, and each new one is sent within one 250 ms poll.
   The streamer relays each code to the renter as `steam-login` (`server/src/protocol.ts`).
@@ -352,6 +359,12 @@ or a desktop. Nobody types a password or a Steam Guard code.
   `logs/steamui_login.txt`. Once it logs `Success`, the agent runs
   `steam -applaunch <appid>`. It then waits for gamescope to put that game on screen
   (`GAMESCOPE_FOCUSED_APP`). Every event carries the time since Play (`src/login.ts`).
+- **On the page.** Ignition shows the code in the dial's place while the play's own
+  renter session (`web/src/swiff/play.ts`) carries it. The launch is not called slow
+  while a code is up, and the stream shows only on `game-started`, once the game is on
+  screen. On `failed` it offers Try again, which sends `steam-login retry` to the PC for
+  a new code on the same claim, beside Ignition's Cancel. A retry made while the room is
+  reconnecting or the PC is away is held and sent once the PC is back, until it answers.
 
 ```bash
 npm test -w @swiff/steam-login                            # unit tests
@@ -390,27 +403,16 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 ### Not yet here
 
-- **The PC-side sender.** The streamer passes `play` to this socket and relays `qr`,
-  `signed-in` and `failed` to the renter as `steam-login`. It lands with the streamer and
-  `swiff-hostd` integration. The page side is here: while Ignition is up on a claim
-  marked `rentalMode`, `useSwiff` joins the claimed room's signaling, shows the code it
-  hears there and holds Ignition from the claim until the renter is signed in or leaves,
-  or the room refuses the ticket (`denied` ends the claim). On `failed` it offers Try
-  again, which sends `steam-login retry` to the PC for a new code on the same claim (the
-  sender answers it with a fresh `play`), beside Ignition's Cancel. A retry made while the
-  room is reconnecting or the PC is away is held and sent on each join, or once any frame
-  from the PC shows it is back, until the PC answers it. Nothing marks a
-  claim `rentalMode` yet; the server does once Swiff OS PCs register as such.
-- **Ignition's timer.** Open PR #62 (P12) replaces the timer-based Ignition with an
-  event-driven one; whichever of the two lands second reconciles the sign-in hold with
-  it.
 - **Play-to-first-frame** on real GPU hardware with a real Steam account, in a
   supervised session with the captain at the PC.
 - **The image** runs `steam/session` as the renter session. It also needs:
   - the Steam client installed outside the wiped home. Otherwise every boot would show
     Ubuntu's installer prompt and then download Steam for about 2.5 minutes;
   - the socket directory `/run/swiff/steam`, owned by `renter`, with the streamer's
-    group.
+    group;
+  - `--steam-socket /run/swiff/steam/login.sock` among the streamer's arguments, and
+    swiff-hostd setting `SWIFF_APPID` for the streamer (without it the Play waits for the
+    server's `launch-game`, after the stream connects).
 - **Which city to expect.** The report wants the page to say which city Steam's map
   should show, as a phishing check, but the platform has no host location yet.
 - **Phone-only renters** (D7's fallback: password and phone approval through the
