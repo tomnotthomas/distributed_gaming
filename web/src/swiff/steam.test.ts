@@ -328,7 +328,10 @@ describe("sign-in", () => {
   });
 
   it("shows the wall signed out when the server signs nobody in or cannot be reached", async () => {
-    expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBeNull();
+    expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBe(
+      "signed-out",
+    );
+    expect(await fetchRenter(answer(503, { error: "down" }) as unknown as typeof fetch)).toBeNull();
     const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
     expect(await fetchRenter(offline as unknown as typeof fetch)).toBeNull();
   });

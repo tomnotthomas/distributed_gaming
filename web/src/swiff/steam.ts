@@ -41,12 +41,14 @@ export function readSteamFragment(): "ok" | "denied" | null {
 }
 
 /**
- * The renter the session cookie signs in, or null when nobody is signed in or
- * the server cannot be reached; signed out is the safe thing to show then.
+ * The renter the session cookie signs in, "signed-out" when the server says
+ * nobody is (401), or null when it gives no answer; the page shows signed out
+ * for either, but only an unanswered read is worth asking again.
  */
-export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | null> {
+export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | "signed-out" | null> {
   try {
     const response = await get("/api/me");
+    if (response.status === 401) return "signed-out";
     return response.ok ? ((await response.json()) as Renter) : null;
   } catch {
     return null;

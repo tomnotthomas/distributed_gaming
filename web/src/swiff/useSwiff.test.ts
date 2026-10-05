@@ -58,7 +58,7 @@ type Hosts = {
 };
 
 /**
- * The server: /api/me answers `renter` (404 when null), /api/ping answers, the
+ * The server: /api/me answers `renter` (401 when null), /api/ping answers, the
  * availability reads answer from `hosts` for a signed-in renter (401 signed
  * out), each "METHOD path" in `booking` answers as it says, and every catalog
  * read comes back empty but for the wall's two free-to-play games, which the
@@ -74,7 +74,8 @@ function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string,
       calls.push({ call, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       if (booking[call]) return booking[call]!();
       const url = new URL(path, "http://localhost");
-      if (url.pathname === "/api/me") return renter ? json(renter) : json({}, 404);
+      if (url.pathname === "/api/me")
+        return renter ? json(renter) : json({ error: "sign in with Steam first" }, 401);
       if (url.pathname === "/api/ping") return new Response(null, { status: 204 });
       if (url.pathname === "/api/games/popular")
         return json({ games: [], wall: [{ appid: 730 }, { appid: 2073850 }] });
@@ -262,7 +263,7 @@ describe("useSwiff", () => {
       it("stands in only the hand-authored games it vouches for when the chart is empty", async () => {
         serve(null);
         const { result } = renderHook(() => useSwiff({ demo: false }));
-        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([730, 2073850]));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
       });
 
       it("names the launcher account on a hand-authored game standing in for the chart", async () => {
@@ -278,7 +279,7 @@ describe("useSwiff", () => {
           },
         );
         const { result } = renderHook(() => useSwiff({ demo: false }));
-        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([730, 2073850]));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
         const signIn = (appid: number) => result.current.games.find((g) => g.appid === appid)?.signIn;
         expect(signIn(730)).toBe("Needs your PlayStation Network sign-in");
         expect(signIn(2073850)).toBeUndefined();
@@ -463,6 +464,38 @@ describe("useSwiff", () => {
         await waitFor(() => expect(libraryState(result.current.profile!)).toBe("none"));
         await act(() => vi.advanceTimersByTimeAsync(60_000));
         expect(reads()).toBe(63);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops reading the profile, and shows the signed-out wall, once the server no longer signs the renter in", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let answer: "checking" | "offline" | "signed-out" = "checking";
+      const me = () => {
+        if (answer === "offline") return new Response("{}", { status: 503 });
+        if (answer === "signed-out") return new Response("{}", { status: 401 });
+        const profile = { ...unnamed.profile, lib: true, size: 3, checking: 1 };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.signedIn).toBe(true));
+
+        answer = "offline";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(reads()).toBe(2));
+        expect(result.current.signedIn).toBe(true);
+
+        answer = "signed-out";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        expect(result.current.profile).toBeNull();
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(reads()).toBe(3);
       } finally {
         vi.useRealTimers();
       }

@@ -319,6 +319,29 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     [sharedMachineIds, vouch],
   );
 
+  /**
+   * The signed-out wall: what people are actually playing on Steam that Swiff
+   * can run. If Steam is down, the hand-authored nine the server vouches for
+   * stand in; in the demo they are up until it arrives.
+   */
+  const showSignedOut = useCallback(() => {
+    void fetchPopular().then((popular) => {
+      vouch(popular);
+      const catalog = popular?.games ?? [];
+      const accounts = new Map(popular?.wall.map((entry) => [entry.appid, entry]));
+      const curated = GAMES.filter((g) => !vouched.current || vouched.current.has(g.appid)).map((g) => {
+        const entry = accounts.get(g.appid);
+        return entry ? { ...g, signIn: signInNote(entry) } : g;
+      });
+      if (!catalog.length && (demo || !popular)) return;
+      const cards = catalog.length ? popularCards(catalog, sharedMachineIds) : curated;
+      setGames((prev) => {
+        const open = prev.find((g) => g.id === openGameId.current);
+        return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;
+      });
+    });
+  }, [demo, sharedMachineIds, vouch]);
+
   // While the server is still checking games the renter's wall could show, read
   // their profile again, so each game turns up once it is found playable: often
   // at first, then slower, but never stopping while anything is unchecked.
@@ -329,14 +352,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     const timer = setTimeout(() => {
       checkingReads.current++;
       void fetchRenter().then((renter) => {
+        if (renter === "signed-out") {
+          setSteamId(null);
+          setProfile(null);
+          showSignedOut();
+        }
         // An unanswered read keeps the profile, and tries again on the next turn.
-        if (!renter) setProfile({ ...profile });
+        else if (!renter) setProfile({ ...profile });
         else if (sameGames(renter.profile, profile)) setProfile(renter.profile);
         else showLibrary(renter);
       });
     }, wait);
     return () => clearTimeout(timer);
-  }, [profile, steamId, showLibrary]);
+  }, [profile, steamId, showLibrary, showSignedOut]);
 
   /** Read the renter's library from Steam again, after they have made it public or to check on it now. */
   const retryLibrary = useCallback(() => {
@@ -356,25 +384,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     }
     // The session cookie, not the URL, says who is signed in.
     void fetchRenter().then((renter) => {
-      if (!renter) {
-        // Signed out: lead with what people are actually playing on Steam that
-        // Swiff can run. If Steam is down, the hand-authored nine the server
-        // vouches for stand in; in the demo they are up until it arrives.
-        void fetchPopular().then((popular) => {
-          vouch(popular);
-          const catalog = popular?.games ?? [];
-          const accounts = new Map(popular?.wall.map((entry) => [entry.appid, entry]));
-          const curated = GAMES.filter((g) => !vouched.current || vouched.current.has(g.appid)).map((g) => {
-            const entry = accounts.get(g.appid);
-            return entry ? { ...g, signIn: signInNote(entry) } : g;
-          });
-          if (!catalog.length && (demo || !popular)) return;
-          const cards = catalog.length ? popularCards(catalog, sharedMachineIds) : curated;
-          setGames((prev) => {
-            const open = prev.find((g) => g.id === openGameId.current);
-            return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;
-          });
-        });
+      if (!renter || renter === "signed-out") {
+        showSignedOut();
         return;
       }
       const { profile } = renter;
