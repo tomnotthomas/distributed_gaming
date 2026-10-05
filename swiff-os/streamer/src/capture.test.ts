@@ -34,7 +34,7 @@ class FakeHelper extends EventEmitter {
   }
 }
 
-function fakeSpawn({ elements = [] as string[], working = [] as string[] } = {}) {
+function fakeSpawn({ elements = [] as string[], working = [] as string[], hangChecks = false } = {}) {
   const started: FakeHelper[] = [];
   const spawnFn = ((_cmd: string, args: string[]) => {
     const helper = new FakeHelper(args.slice(1));
@@ -46,7 +46,8 @@ function fakeSpawn({ elements = [] as string[], working = [] as string[] } = {})
         helper.exit(0);
       });
     } else if (mode === "--check") {
-      setImmediate(() => helper.exit(working.some((e) => arg!.includes(e)) ? 0 : 1));
+      // A hung check (a GPU driver that never answers) ends only when killed.
+      if (!hangChecks) setImmediate(() => helper.exit(working.some((e) => arg!.includes(e)) ? 0 : 1));
     }
     return helper;
   }) as unknown as typeof spawn;
@@ -150,5 +151,49 @@ describe("startCapture", () => {
     await settle();
     expect(fake.running("video")[0]!.commands).toEqual(["keyframe"]);
     await capture.stop();
+  });
+
+  it("says when the picture starts, and fails when the source never gives one", async () => {
+    const fake = fakeSpawn({ elements: ["x264enc"], working: ["x264enc"] });
+    const silent = await startCapture({
+      config: config("--audio", "off"),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+      firstVideoTimeoutMs: 50,
+    });
+    await expect(silent.videoStarted).rejects.toThrow(/no picture from the source/);
+    await silent.stop();
+
+    const flowing = await startCapture({
+      config: config("--audio", "off"),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+      firstVideoTimeoutMs: 5_000,
+    });
+    fake.running("video")[0]!.packet("v");
+    await expect(flowing.videoStarted).resolves.toBeUndefined();
+    await flowing.stop();
+  });
+
+  it("stops starting up when aborted: the hung check is killed and no helper starts", async () => {
+    const fake = fakeSpawn({ elements: ["x264enc"], hangChecks: true });
+    const startup = new AbortController();
+    const starting = startCapture({
+      config: config("--audio", "test"),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+      signal: startup.signal,
+    });
+    await settle();
+    const check = fake.started.find((h) => h.args[0] === "--check")!;
+    expect(check.exitCode).toBeNull();
+    startup.abort();
+    await expect(starting).rejects.toThrow(CaptureError);
+    expect(check.exitCode).not.toBeNull();
+    expect(fake.running("video")).toHaveLength(0);
+    expect(fake.running("audio")).toHaveLength(0);
   });
 });
