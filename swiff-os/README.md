@@ -246,9 +246,11 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   carries the renter's signaling, so it drives the Steam agent's socket (`steam/` below):
   as the renter joins it asks for `play <SWIFF_APPID>` and relays Steam's codes,
   `signed-in` and `failed` to them as `steam-login`; a renter's `retry` after a failure
-  starts a fresh Play on the same claim. The server's `launch-game` names the game when
-  hostd did not, and is answered with `game-started` once the agent says the game is on
-  screen, so the renter's page never shows Steam or a desktop. A code is never logged.
+  starts a fresh Play on the same claim. `--steam-socket` needs `SWIFF_APPID`; the
+  streamer refuses to start without it. The server's `launch-game` is answered with
+  `game-started` once the agent says the game is on screen, so the renter's page never
+  shows Steam or a desktop. A code is never logged. Sign-in time is not billed: the
+  renter's page starts the session only once Steam says `signed-in`.
 - **Capture.** `helpers/swiff-gst.py` runs the GStreamer pipelines `src/pipeline.ts`
   builds: `pipewiresrc target-object=gamescope` → scale → H.264 Constrained Baseline,
   no B-frames, a keyframe every 4 s and whenever the renter's decoder sends a PLI →
@@ -534,8 +536,8 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
   - the socket directory `/run/swiff/steam`, owned by `renter`, with the streamer's
     group;
   - `--steam-socket /run/swiff/steam/login.sock` among the streamer's arguments, and
-    swiff-hostd setting `SWIFF_APPID` for the streamer (without it the Play waits for the
-    server's `launch-game`, after the stream connects).
+    swiff-hostd setting `SWIFF_APPID` for the streamer (without it the streamer refuses
+    to start).
 - **Which city to expect.** The report wants the page to say which city Steam's map
   should show, as a phishing check, but the platform has no host location yet.
 - **Phone-only renters** (D7's fallback: password and phone approval through the

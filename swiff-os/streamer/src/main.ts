@@ -54,8 +54,8 @@ async function main(): Promise<number> {
     grant,
     input: input.sink,
     onKeyframeNeeded: () => capture?.requestKeyframe(),
-    steamLogin: config.steamSocket
-      ? steamLoginForwarder({ socketPath: config.steamSocket, appid: config.appid })
+    steamLogin: config.steam
+      ? steamLoginForwarder({ socketPath: config.steam.socket, appid: config.steam.appid })
       : undefined,
   });
 

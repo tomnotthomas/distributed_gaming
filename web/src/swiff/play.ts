@@ -32,8 +32,17 @@
 //
 // The stream itself is @swiff/rtc's renter session, the same one /rtc plays;
 // this only turns its events into Ignition's steps and the HUD's numbers.
+//
+// A rental-mode PC (Swiff OS) signs the renter in to Steam first: it sends
+// Steam's sign-in code as `steam-login` as soon as the renter is in the room,
+// before the stream connects, and Ignition shows it to scan. Its game-started
+// comes only once the renter approved it and the game is on screen. While a
+// code is up the launch is not slow: the renter is busy with their phone.
+// Sign-in time is not billed: on a rental-mode claim, or once the PC sent a
+// `steam-login`, the session starts only on a frame after `signed-in` (or at
+// it, when a frame came first).
 
-import { startRenterSession, type RenterSession, type RenterStats } from "@swiff/rtc";
+import { startRenterSession, type RenterSession, type RenterStats, type SteamLogin } from "@swiff/rtc";
 import type { Claim } from "./booking";
 
 /** Ignition's steps, in order. */
@@ -95,6 +104,13 @@ export type PlayState = {
   replaced: boolean;
   /** The server took the session start: its clock runs, so leaving ends a session. */
   started: boolean;
+  /** Rental mode: Steam's sign-in code for the renter to scan, or their approval of it. */
+  steamLogin: SteamLogin | null;
+  /**
+   * Rental mode: the PC's Steam sign-in (its code was never approved) or the
+   * game's launch after it stopped short, or null. Never live on it.
+   */
+  signInFailed: SignInFailure | null;
   /**
    * When reconnecting began, Unix ms: the drop, or the renter's latest retry;
    * null while the stream plays. A resumed play starts dropped, until it is back.
@@ -108,6 +124,9 @@ export type PlayState = {
   /** Reconnecting by itself ran out (RECONNECT_AUTO_MS): the next try is the renter's (retry). */
   gaveUp: boolean;
 };
+
+/** Why a rental-mode PC's Steam sign-in stopped short; a PC that does not say counts as the sign-in. */
+export type SignInFailure = NonNullable<Extract<SteamLogin, { state: "failed" }>["reason"]>;
 
 export type PlayOptions = {
   claim: Claim;
@@ -133,6 +152,8 @@ export type PlayOptions = {
 export type Play = {
   /** The state as it stands. */
   state: () => PlayState;
+  /** Rental mode: ask the PC for a fresh Steam sign-in code after a failed one; the claim stays. */
+  retrySignIn: () => void;
   /** After reconnecting gave up, or to try again at once: join the room again and reconnect for RECONNECT_AUTO_MS more. */
   retry: () => void;
   /** Hang up and stop every timer. Idempotent. Ending the booking is the caller's. */
@@ -165,6 +186,8 @@ export function startPlay(opts: PlayOptions): Play {
     lostAt: resume ? now() : null,
     droppedAt: resume ? (opts.droppedAt ?? now()) : null,
     gaveUp: false,
+    steamLogin: null,
+    signInFailed: null,
   };
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -172,6 +195,10 @@ export function startPlay(opts: PlayOptions): Play {
   let framed = false;
   let gameStarted = false;
   let counted = false;
+  /** Rental mode: the claim says so, or the PC sent a steam-login, so the session waits for signed-in. */
+  let steamSeen = claim.rentalMode;
+  // A resumed session was started, so its renter signed in already.
+  let signedIn = resume;
   let connection = 0;
   // The PC offered on the latest join and it has not failed: under way, so not joined over.
   let offered = false;
@@ -192,8 +219,16 @@ export function startPlay(opts: PlayOptions): Play {
     if (step === "waking") timer = setTimeout(() => set({ slow: true }), WAKE_TIMEOUT_MS);
     if (step === "negotiating") armNegotiate();
     // Never shown anyway: what the PC captures before its game runs is its desktop.
-    if (step === "launching") timer = setTimeout(() => set({ slow: true }), LAUNCH_TIMEOUT_MS);
+    if (step === "launching" && !signingIn()) armLaunch();
   };
+
+  const armLaunch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => set({ slow: true }), LAUNCH_TIMEOUT_MS);
+  };
+
+  /** A Steam code is up, or the sign-in failed: the launch waits on the renter, so it is not slow. */
+  const signingIn = () => state.steamLogin?.state === "qr" || state.signInFailed;
 
   /** A connection that does not come up is tried once more through TURN, then called slow. */
   const armNegotiate = () => {
@@ -205,6 +240,9 @@ export function startPlay(opts: PlayOptions): Play {
       armNegotiate();
     }, NEGOTIATE_TIMEOUT_MS);
   };
+
+  /** Not while a Steam sign-in is pending: its time is not billed. */
+  const mayStart = () => !steamSeen || signedIn;
 
   /**
    * The stream is shown once it has a frame and the PC says the game runs, and
@@ -269,7 +307,8 @@ export function startPlay(opts: PlayOptions): Play {
     clearTimeout(startRetry);
     const at = connection;
     const retry = () => {
-      if (!stopped && at === connection) startRetry = setTimeout(startSession, START_RETRY_MS);
+      if (stopped || at !== connection) return;
+      startRetry = setTimeout(() => mayStart() && startSession(), START_RETRY_MS);
     };
     void get(`/api/sessions/${encodeURIComponent(claim.sessionId)}/start`, {
       method: "POST",
@@ -324,12 +363,30 @@ export function startPlay(opts: PlayOptions): Play {
             counted = true;
             onFirstFrame?.();
           }
-          startSession();
+          if (mayStart()) startSession();
           maybeLive();
           break;
         case "game-started":
           gameStarted = true;
           maybeLive();
+          break;
+        case "steam-login":
+          steamSeen = true;
+          signedIn = event.state === "signed-in";
+          if (!signedIn) clearTimeout(startRetry);
+          else if (framed) startSession();
+          if (event.state === "failed") {
+            // The sign-in or the launch stopped short: no game-started is coming.
+            if (state.step === "launching") clearTimeout(timer);
+            set({ steamLogin: null, signInFailed: event.reason ?? "sign-in-timeout", slow: false });
+          } else {
+            set({ steamLogin: event, signInFailed: null });
+            if (state.step !== "launching") break;
+            if (event.state === "qr") {
+              clearTimeout(timer);
+              set({ slow: false });
+            } else armLaunch();
+          }
           break;
         case "peer-left":
           // The PC is handing the room over (to the session's streamer) or
@@ -368,6 +425,13 @@ export function startPlay(opts: PlayOptions): Play {
 
   return {
     state: () => state,
+    retrySignIn() {
+      if (stopped || !state.signInFailed) return;
+      session?.retrySteamLogin();
+      set({ signInFailed: null });
+      // A PC that never answers with a new code is slow like any other launch.
+      if (state.step === "launching") armLaunch();
+    },
     retry() {
       if (stopped || state.denied || state.replaced || state.step !== "live") return;
       // The PC's hold still runs from the first drop.
