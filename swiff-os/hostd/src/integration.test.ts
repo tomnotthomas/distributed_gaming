@@ -234,7 +234,7 @@ describe("swiff-hostd against the server", () => {
       const sessionId = claim.body!.sessionId as string;
 
       // A renter was served in this boot already: the agent resets again, as a reset hold.
-      await fileResumeStore(stateDir).markServed("boot-3");
+      await fileResumeStore(stateDir).markServed({ bootId: "boot-3", sessionId: "earlier" });
       const streamers = testStreamers();
       const again = await bootAgent(stateDir, streamers.launch, "boot-3");
       expect(await again.running).toBe<Outcome>("reset");

@@ -101,12 +101,12 @@ describe("the streamer", () => {
 });
 
 describe("the resume file", () => {
-  it("notes the boot a renter was served in until it is forgotten", async () => {
+  it("notes the boot a renter was served in, and their session, until it is forgotten", async () => {
     const stateDir = join(await dir(), "state");
     const store = fileResumeStore(stateDir);
     expect(await store.servedBoot()).toBeNull();
-    await store.markServed("boot-1");
-    expect(await fileResumeStore(stateDir).servedBoot()).toBe("boot-1");
+    await store.markServed({ bootId: "boot-1", sessionId: "s1" });
+    expect(await fileResumeStore(stateDir).servedBoot()).toEqual({ bootId: "boot-1", sessionId: "s1" });
     await store.forgetServed();
     expect(await store.servedBoot()).toBeNull();
   });

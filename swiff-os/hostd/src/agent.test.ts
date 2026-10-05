@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgent, type Agent, type AgentDeps, type Outcome, type ReturnReply } from "./agent.ts";
 import { HostApiError, type HostApi, type MachineView } from "./api.ts";
-import type { Resume } from "./resume.ts";
+import type { Resume, Served } from "./resume.ts";
 import type { SocketEvent } from "./socket.ts";
 import type { Streamer } from "./streamer.ts";
 import type { FloorCheck } from "./config.ts";
@@ -138,8 +138,8 @@ function harness(
   }: {
     unmet?: FloorCheck[];
     saved?: Resume | null;
-    /** The boot a renter was last served in, as a previous run of the agent noted it. */
-    served?: string | null;
+    /** The boot a renter was last served in, and their session, as a previous run of the agent noted it. */
+    served?: Served | null;
     bootId?: string;
     /** `systemctl reboot` fails: the agent is left running in the same boot. */
     rebootFails?: boolean;
@@ -149,7 +149,7 @@ function harness(
   const sockets: { emit: (event: SocketEvent) => void; closed: boolean }[] = [];
   const system = { reboots: 0, windows: 0 };
   let saved: Resume | null = initial;
-  let served: string | null = servedBefore;
+  let served: Served | null = servedBefore;
   const agent = createAgent({
     api: server.api,
     openSocket: (onEvent) => {
@@ -187,7 +187,7 @@ function harness(
       save: async (resume) => void (saved = resume),
       read: async () => saved,
       clear: async () => void (saved = null),
-      markServed: async (id) => void (served = id),
+      markServed: async (next) => void (served = next),
       servedBoot: async () => served,
       forgetServed: async () => void (served = null),
     },
@@ -256,7 +256,7 @@ describe("offering and serving", () => {
     // Off offer for the reset, on the owner's terms, and remembered for the next boot.
     expect(h.server.state).toMatchObject({ status: "idle", until: until2h, hostSession: null });
     expect(h.saved()).toEqual({ until: until2h });
-    expect(h.served()).toBe("boot-now");
+    expect(h.served()).toEqual({ bootId: "boot-now", sessionId: "s1" });
     expect(h.server.calls.slice(-3)).toEqual(["heartbeat", "availability false reset", "session end"]);
   });
 
@@ -275,7 +275,7 @@ describe("offering and serving", () => {
     const until2h = Date.now() + 2 * HOUR;
     const h = harness(fakeServer({ status: "idle", until: until2h }), {
       saved: { until: until2h },
-      served: "boot-before",
+      served: { bootId: "boot-before", sessionId: "s0" },
     });
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(h.server.state).toMatchObject({ status: "available", until: until2h });
@@ -313,7 +313,7 @@ describe("offering and serving", () => {
     const until2h = Date.now() + 2 * HOUR;
     const h = harness(fakeServer({ status: "idle", until: until2h }), {
       saved: { until: until2h },
-      served: "boot-now",
+      served: { bootId: "boot-now", sessionId: "s0" },
     });
     expect(await h.running).toBe("reset");
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
@@ -322,11 +322,11 @@ describe("offering and serving", () => {
     expect(h.sockets).toHaveLength(0);
     // Kept for the boot that does come back clean.
     expect(h.saved()).toEqual({ until: until2h });
-    expect(h.served()).toBe("boot-now");
+    expect(h.served()).toEqual({ bootId: "boot-now", sessionId: "s0" });
   });
 
   it("refuses the owner as busy while it starts, and carries nothing into its restart", async () => {
-    const h = harness(fakeServer(), { served: "boot-now" });
+    const h = harness(fakeServer(), { served: { bootId: "boot-now", sessionId: "s0" } });
     expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "busy" });
     expect(await h.running).toBe("reset");
     expect(h.system).toEqual({ reboots: 1, windows: 0 });
@@ -381,6 +381,16 @@ describe("offering and serving", () => {
     expect(again.saved()).toEqual({ until: until2h });
   });
 
+  it("never ends the session it served as the owner's when its reset again finds it still live", async () => {
+    // The agent stopped mid-session, after the renter arrived, and systemd started it again in the same boot.
+    const server = fakeServer({ status: "in_session", sessionId: "s1", started: true });
+    const h = harness(server, { served: { bootId: "boot-now", sessionId: "s1" } });
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(server.calls.filter((call) => call.startsWith("availability"))).toEqual([]);
+    expect(server.state).toMatchObject({ status: "in_session", sessionId: "s1" });
+  });
+
   it("goes back to Windows when the share-until passed during the reset", async () => {
     const past = Date.now() - 1_000;
     const h = harness(fakeServer({ status: "idle", until: past }), {
@@ -430,6 +440,23 @@ describe("offering and serving", () => {
     h.streamers[1]!.exit();
     expect(await h.running).toBe("reset");
     expect(h.server.calls).toContain("platform session end");
+  });
+
+  it("never ends the session it served as the owner's when ending it for a broken streamer failed", async () => {
+    const server = fakeServer();
+    server.api.endSession = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const h = harness(server, { timing: { ...FAST, maxStreamerStarts: 1 } });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(server.calls.filter((call) => call.startsWith("availability false"))).toEqual([]);
+    expect(server.state).toMatchObject({ status: "in_session", sessionId: "s1", started: true });
   });
 
   it("keeps a long session whose streamer stops now and then, long after each start", async () => {
@@ -662,7 +689,7 @@ describe("the owner taking the PC back (D8)", () => {
 
   it("refuses as busy while its reset again cannot reach the server, and restarts all the same", async () => {
     const server = fakeServer();
-    const h = harness(server, { served: "boot-now" });
+    const h = harness(server, { served: { bootId: "boot-now", sessionId: "s0" } });
     let offline = 3;
     const heartbeat = server.api.heartbeat;
     server.api.heartbeat = async () => {

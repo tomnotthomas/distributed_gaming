@@ -178,7 +178,7 @@ export function createAgent(deps: AgentDeps): Agent {
     await endHostSession();
     let view = await beatUntilAnswered();
     const served = await resume.servedBoot();
-    if (served !== null && served === (await system.bootId())) return "unclean";
+    if (served !== null && served.bootId === (await system.bootId())) return "unclean";
     if (served !== null) await resume.forgetServed();
     // Kept on disk until the server has the machine on offer again: an agent
     // restarted while offerAgain() retries must still know the reset was its own.
@@ -302,7 +302,7 @@ export function createAgent(deps: AgentDeps): Agent {
     const appid = "appid" in claim ? claim.appid : null;
     sessionId = id;
     log(`serving session ${id}`);
-    await resume.markServed(await system.bootId());
+    await resume.markServed({ bootId: await system.bootId(), sessionId: id });
 
     let starts = 1;
     let startedAt = now();
@@ -359,7 +359,7 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "resetting";
     if (!toWindows) answer({ ok: false, reason: "busy" });
     const view = await beat();
-    if (view && !toWindows && sharing(view)) {
+    if (view && !toWindows && sharing(view) && view.session?.id !== endedId) {
       const held = await offOfferForReset(view);
       if (held?.session) {
         log(
@@ -394,10 +394,11 @@ export function createAgent(deps: AgentDeps): Agent {
   async function resetAgain(): Promise<Outcome> {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
+    const served = await resume.servedBoot();
     const view = await beatUntilAnswered();
-    // A claim not yet served is held through the restart; one this boot was
-    // serving when the agent stopped ends here, as nobody is served on this boot.
-    if (sharing(view)) await offOfferForReset(view);
+    // A claim not yet served is held through the restart; the one this boot was
+    // serving when the agent stopped is left to end as the host's, not the owner's.
+    if (sharing(view) && view.session?.id !== served?.sessionId) await offOfferForReset(view);
     if (!view.session && view.status !== "idle" && !sharing(view)) return returnToWindows();
     return restart();
   }

@@ -2,24 +2,26 @@
 // offer itself, and the owner's share-until to offer it again with. Without it,
 // a machine found off offer at boot is one its owner stopped sharing.
 //
-// And the boot a renter was last served in: an agent that starts in that same
-// boot (systemd restarted it, the reboot never happened) is on a PC that is not
-// clean yet.
+// And the boot a renter was last served in, with their session: an agent that
+// starts in that same boot (systemd restarted it, the reboot never happened) is
+// on a PC that is not clean yet.
 
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type Resume = { until: number | null };
 
+export type Served = { bootId: string; sessionId: string };
+
 export type ResumeStore = {
   save(resume: Resume): Promise<void>;
   /** The saved resume; null when none was saved. It stays saved until cleared. */
   read(): Promise<Resume | null>;
   clear(): Promise<void>;
-  /** Note that a renter is served in boot `bootId`, before anything of theirs runs. */
-  markServed(bootId: string): Promise<void>;
-  /** The boot a renter was last served in; null when none is noted. */
-  servedBoot(): Promise<string | null>;
+  /** Note that session `sessionId` is served in boot `bootId`, before anything of theirs runs. */
+  markServed(served: Served): Promise<void>;
+  /** The boot a renter was last served in, and their session; null when none is noted. */
+  servedBoot(): Promise<Served | null>;
   forgetServed(): Promise<void>;
 };
 
@@ -49,8 +51,11 @@ export function fileResumeStore(stateDir: string): ResumeStore {
       }
     },
     clear: () => rm(path, { force: true }),
-    markServed: (bootId) => write(servedPath, bootId),
-    servedBoot: async () => (await readFile(servedPath, "utf8").catch(() => "")).trim() || null,
+    markServed: ({ bootId, sessionId }) => write(servedPath, `${bootId}\n${sessionId}\n`),
+    servedBoot: async () => {
+      const [bootId, sessionId] = (await readFile(servedPath, "utf8").catch(() => "")).split("\n");
+      return bootId && sessionId ? { bootId, sessionId } : null;
+    },
     forgetServed: () => rm(servedPath, { force: true }),
   };
 }
