@@ -358,8 +358,9 @@ checks the session's wiring, not a running game.
 - **Games: the table's home.** The table moves into the sealed state partition, under a signed PCR 11
   policy, with attestation (stage 3). The PCR 7 policy survives OS updates but does not tell two
   boot chains signed by the same key apart.
-- **Games: offering games one by one.** The view is mounted once every game is checked. Offering
-  each game as it passes a long re-hash needs the agent to remount the view between sessions.
+- **Games: offering games one by one.** The view is mounted once every game is checked. Until then
+  the PC is not offered, so no renter waits. Offering each game as it passes a long re-hash needs the
+  rental agent to remount the view between sessions.
 - **Games: a drive changed while the PC is off.** A drive taken out and edited in another PC leaves
   no `resetCount` gap. Size, mtime and new program files are still checked, but a same-size edit
   that keeps the mtime is caught only by the next full re-hash.
