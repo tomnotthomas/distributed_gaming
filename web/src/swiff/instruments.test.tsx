@@ -12,7 +12,9 @@ describe("useEased", () => {
     vi.spyOn(performance, "now").mockReturnValue(1_000);
     const runFrame = (t: number) => act(() => frames.splice(0).forEach((cb) => cb(t)));
 
-    const { result, rerender } = renderHook(({ target }) => useEased(target), { initialProps: { target: 0 } });
+    const { result, rerender } = renderHook(({ target }) => useEased(target), {
+      initialProps: { target: 0 },
+    });
     rerender({ target: 100 });
 
     runFrame(990);
