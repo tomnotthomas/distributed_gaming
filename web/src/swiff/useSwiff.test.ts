@@ -970,21 +970,18 @@ describe("useSwiff", () => {
 
     it("says the queue kept the renter's place, and claims a match by itself all the same", async () => {
       localStorage.setItem("swiff.booking", "b-1");
-      localStorage.setItem("swiff.booking.seen", String(Date.now() - 48_000));
       serve(unnamed, LIVE, { "POST /api/bookings/b-1/claim": json(200, TICKET) });
       const opened = streams();
       const { result } = renderHook(() => useSwiff({ demo: false }));
-      await waitFor(() => expect(result.current.queueBack).not.toBeNull());
-      expect(result.current.queueBack!.leftMs).toBeGreaterThan(70_000);
-      expect(result.current.queueBack!.leftMs).toBeLessThanOrEqual(72_000);
+      await waitFor(() => expect(result.current.queueBack).toBe(true));
       await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
       const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
 
       act(() => stream.push(booked("queued")));
-      expect(result.current.queueBack).not.toBeNull();
+      expect(result.current.queueBack).toBe(true);
       act(() => stream.push(booked("matched", 1_000)));
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
-      expect(result.current.queueBack).toBeNull();
+      expect(result.current.queueBack).toBe(false);
     });
 
     it("puts the reconnect up when the connection drops mid-session, and retries on the renter's word", async () => {

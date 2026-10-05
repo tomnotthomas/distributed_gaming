@@ -8,15 +8,15 @@ import type { Swiff } from "./useSwiff";
 
 // Coming back to a game, in three screens. None of them is in v7: they are
 // drawn as Ignition's siblings, the game's art on one side and the paper with
-// one big number on the other, so getting back reads like starting, not like
-// an error.
+// one big number or word on the other, so getting back reads like starting,
+// not like an error.
 //
 //   A  AwayDialog      on load, a session the page left still runs on the PC:
 //                      Still yours, Elden Ring on Glasshouse, held 1:42; Reconnect or End session
 //   B  Reconnecting    in session, the connection dropped: Reconnecting to
 //                      Glasshouse, 0:12, by itself for 15 s, then a button
 //   C  QueueBackDialog on load, a queued booking picked up where it was:
-//                      Still finding a machine, 1:12 left in the queue
+//                      Still finding a machine, in the queue, the place held
 //
 // Only the renter's End skips the PC's two minutes: closing the page, or
 // leaving it open, never does.
@@ -184,10 +184,10 @@ export function QueueBackDialog({ swiff }: { swiff: Swiff }) {
       label="Still finding a machine"
       game={gameOf(swiff, booking.gameId)}
       kicker="Still finding a machine"
-      reading="Left in the queue"
-      timeTestId="queue-back-left"
-      time={minutesSeconds(queueBack.leftMs, true)}
-      line="You kept your place. It starts by itself the moment a machine is free."
+      reading="In the queue"
+      timeTestId="queue-back-held"
+      time="Held"
+      line="Your place in the queue is held while Swiff stays open, and kept for 2 minutes if you close it. Your game starts by itself the moment a machine is free."
       primary={{ label: "Keep waiting", onClick: swiff.keepQueue }}
       secondary={{ label: "Leave the queue", onClick: swiff.leaveQueue }}
     />

@@ -47,7 +47,7 @@ const swiffWith = (more: Partial<Swiff> = {}) =>
     booking: null,
     away: null,
     rejoining: false,
-    queueBack: null,
+    queueBack: false,
     ownerDropped: false,
     attachVideo: vi.fn(),
     endSession: vi.fn(),
@@ -169,14 +169,15 @@ describe("B: the connection dropped mid-session", () => {
 });
 
 describe("C: a place in the queue kept", () => {
-  it("says it is still finding a machine, with the time the queue had left", () => {
-    const swiff = swiffWith({ booking: booking({ status: "queued" }), queueBack: { leftMs: 72_000 } });
+  it("says it is still finding a machine and that the place is held, with no time it cannot know", () => {
+    const swiff = swiffWith({ booking: booking({ status: "queued" }), queueBack: true });
     render(<QueueBackDialog swiff={swiff} />);
 
-    expect(screen.getByRole("dialog", { name: "Still finding a machine" })).toHaveTextContent(
-      "Left in the queue",
-    );
-    expect(screen.getByTestId("queue-back-left")).toHaveTextContent("1:12");
+    const dialog = screen.getByRole("dialog", { name: "Still finding a machine" });
+    expect(dialog).toHaveTextContent("In the queue");
+    expect(dialog).toHaveTextContent("held while Swiff stays open");
+    expect(dialog).toHaveTextContent("kept for 2 minutes if you close it");
+    expect(dialog.textContent).not.toMatch(/\d:\d\d/);
     fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
     expect(swiff.keepQueue).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Leave the queue" }));
@@ -185,9 +186,7 @@ describe("C: a place in the queue kept", () => {
 
   it("is gone once the booking is no longer queued", () => {
     const { container } = render(
-      <QueueBackDialog
-        swiff={swiffWith({ booking: booking({ status: "matched" }), queueBack: { leftMs: 72_000 } })}
-      />,
+      <QueueBackDialog swiff={swiffWith({ booking: booking({ status: "matched" }), queueBack: true })} />,
     );
     expect(container).toBeEmptyDOMElement();
   });

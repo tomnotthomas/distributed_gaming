@@ -26,7 +26,7 @@ export function Swiff() {
   // launch over.
   const sheet = screen === "share" && swiff.estimateOpen;
   // Coming back to a session still running, or to a place in the queue, is asked first.
-  const back = phase === "idle" && (swiff.away !== null || swiff.queueBack !== null);
+  const back = phase === "idle" && (swiff.away !== null || swiff.queueBack);
   const behind = useRef<HTMLDivElement>(null);
   useEffect(() => {
     behind.current?.toggleAttribute("inert", phase !== "idle" || sheet || back);

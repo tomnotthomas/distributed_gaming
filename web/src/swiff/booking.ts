@@ -111,12 +111,8 @@ export type BookMachineResult =
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
-/** When the page last heard from the server about the stored booking, Unix ms. */
-const SEEN_KEY = "swiff.booking.seen";
 /** The claimed booking being played, with its session and room (never its ticket), kept to come back to. */
 const PLAY_KEY = "swiff.play";
-/** How long the server keeps a queued booking whose renter has gone quiet (server/src/platform.ts). */
-export const QUEUE_HOLD_MS = 2 * 60_000;
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
 const SLOW_POLL_MS = 5_000;
 /** The heartbeat while the stream is open: well inside the two minutes. */
@@ -175,7 +171,7 @@ export async function book(
   const response = await post(get, "/api/bookings", { gameId, minutes, ...askBody(options) });
   if (!response.ok) await bookingFailed(response);
   const booking = (await response.json()) as Booking;
-  remember(booking.bookingId, storage);
+  storage.setItem(KEY, booking.bookingId);
   return booking;
 }
 
@@ -199,7 +195,7 @@ export async function bookMachine(
   }
   if (!response.ok) await bookingFailed(response);
   const booking = (await response.json()) as Booking;
-  remember(booking.bookingId, storage);
+  storage.setItem(KEY, booking.bookingId);
   return { kind: "booked", booking };
 }
 
@@ -244,19 +240,6 @@ export async function fetchBooking(bookingId: string, options: BookingOptions = 
   return (await response.json()) as Booking;
 }
 
-/** Keep `bookingId` as the booking to pick up on a reload, heard from now. */
-function remember(bookingId: string, storage: Storage) {
-  storage.setItem(KEY, bookingId);
-  storage.setItem(SEEN_KEY, String(Date.now()));
-}
-
-/** Forget the stored booking, if it is `bookingId`. */
-function forgetBooking(bookingId: string, storage: Storage) {
-  if (storage.getItem(KEY) !== bookingId) return;
-  storage.removeItem(KEY);
-  storage.removeItem(SEEN_KEY);
-}
-
 /**
  * A claim's answer: the room and ticket, or the status the server gave when it
  * refused (4xx), with the Refusal when it refused the game.
@@ -283,7 +266,7 @@ async function askToClaim(bookingId: string, options: BookingOptions): Promise<C
  */
 export async function endBooking(bookingId: string, options: BookingOptions = {}): Promise<Booking | null> {
   const { storage = localStorage, fetch: get = fetch } = options;
-  forgetBooking(bookingId, storage);
+  if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
   forgetPlay(bookingId, storage);
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/end`);
   if (response.status === 409 || response.status === 404) return null;
@@ -332,12 +315,6 @@ export function watchBooking(
       return;
     }
     if (response.status === 404 || response.status === 401) settle(null);
-    else if (response.ok) heard();
-  };
-
-  /** The server answered about the booking: a reload now finds it heard from now. */
-  const heard = () => {
-    if (!stopped && storage.getItem(KEY) === bookingId) storage.setItem(SEEN_KEY, String(Date.now()));
   };
 
   const stopHeartbeat = () => {
@@ -357,8 +334,7 @@ export function watchBooking(
   const settle = (booking: Booking | null) => {
     if (stopped) return;
     const done = !booking || DONE.includes(booking.status);
-    if (done) forgetBooking(bookingId, storage);
-    else heard();
+    if (done && storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
     if (!booking || booking.status === "ended" || booking.status === "expired")
       forgetPlay(bookingId, storage);
     onUpdate(booking);
@@ -455,18 +431,6 @@ export function forgetPlay(bookingId: string, storage: Storage = localStorage) {
 /** The booking this browser made and kept, if any, for a page load to pick up. */
 export function storedBookingId(storage: Storage = localStorage): string | null {
   return storage.getItem(KEY);
-}
-
-/**
- * How long the server still keeps the stored booking in its queue without
- * hearing from the renter, by when the page last heard about it, in ms; 0
- * once that has run out, and null without a stored booking.
- */
-export function queueHoldLeft(storage: Storage = localStorage, now = Date.now()): number | null {
-  if (!storage.getItem(KEY)) return null;
-  const seen = Number(storage.getItem(SEEN_KEY));
-  if (!Number.isFinite(seen) || seen <= 0) return null;
-  return Math.max(0, seen + QUEUE_HOLD_MS - now);
 }
 
 /** On page load: resume watching the booking this browser made, if it kept one. Null when there is none. */
@@ -587,7 +551,7 @@ export function followBooking(
     }
     const claimed = answer.claim;
     stop();
-    forgetBooking(bookingId, storage);
+    if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
     // Kept to come back to only: storage that refuses it (full, or switched
     // off) must not keep the renter from the machine they just claimed.
     try {
