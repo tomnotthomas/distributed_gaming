@@ -1,46 +1,39 @@
 // @vitest-environment node
 // The console installer (rental-cli.cjs) answers in JSON lines that end up in
-// logs: a plan's one-time key code, which enrols or removes a key at the PC's
-// blue screen, is never in them, only in the file its owner asked for.
+// logs. A plan's one-time key code, which enrols or removes a key at the PC's
+// blue screen, is never in them, nor in any file: whoever runs the console
+// chooses the code and gives it with --code.
 
 import { describe, expect, it } from "vitest";
-import { mustShowCode, shown, unkeyed } from "../rental-cli.cjs";
+import { codeOf, shown, unkeyed } from "../rental-cli.cjs";
 import { keyRemovalPlan, mokPlan, switchPlan } from "../rental.cjs";
 
-describe("what the console installer shows", () => {
-  it("never puts the key code in a plan's answer, and writes it only to the code file", () => {
-    const written: [string, string, unknown][] = [];
-    const files = {
-      writeFileSync: (file: string, data: string, opts: unknown) => void written.push([file, data, opts]),
-    };
+describe("the console installer's key code", () => {
+  it("never puts the key code in a plan's answer", () => {
     for (const plan of [mokPlan("48217730"), keyRemovalPlan("48217730")]) {
-      written.length = 0;
-      const answer = shown(plan, "C:\\swiff\\code.txt", files as never);
+      const answer = shown(plan);
       expect(JSON.stringify(answer)).not.toContain("48217730");
-      expect(answer.mok).toEqual({ codeFile: "C:\\swiff\\code.txt" });
-      expect(written).toEqual([["C:\\swiff\\code.txt", "48217730", { mode: 0o600 }]]);
+      expect(answer).not.toHaveProperty("mok");
     }
-    // No code file asked for: the code is nowhere.
-    written.length = 0;
-    expect(JSON.stringify(shown(mokPlan("48217730"), null, files as never))).not.toContain("48217730");
-    expect(written).toEqual([]);
-    expect(shown(switchPlan("once"), "C:\\x", files as never)).not.toHaveProperty("mok");
+    expect(shown(switchPlan("once")).steps.map((s) => s.id)).toEqual(["once", "restart"]);
   });
 
   it("hides the key code in a dry run's operations", () => {
-    const ops = mokPlan("48217730").steps.flatMap((s) => s.ops);
-    const out = JSON.stringify(unkeyed(ops));
+    const out = JSON.stringify(unkeyed(mokPlan("48217730").steps.flatMap((s) => s.ops)));
     expect(out).not.toContain("48217730");
     expect(out).toContain('"op":"mok-import"');
     expect(unkeyed([{ op: "restart" }])).toEqual([{ op: "restart" }]);
   });
 
-  it("refuses to run a plan with a key code unless the code goes to a file, but lets a dry run through", () => {
-    for (const plan of [mokPlan("48217730"), keyRemovalPlan("48217730")]) {
-      expect(() => mustShowCode(plan, {})).toThrow(/--code-file/);
-      expect(() => mustShowCode(plan, { "code-file": "C:\\swiff\\code.txt" })).not.toThrow();
-      expect(() => mustShowCode(plan, { "dry-run": true })).not.toThrow();
-    }
-    expect(() => mustShowCode(switchPlan("once"), {})).not.toThrow();
+  it("takes the code from whoever runs it, and refuses a plan that needs one without it", () => {
+    expect(codeOf({ code: "48217730" })).toBe("48217730");
+    expect(codeOf({})).toBeUndefined();
+    expect(() => codeOf({ code: "1234" })).toThrow(/8 digits/);
+    expect(() => codeOf({ code: true })).toThrow(/8 digits/);
+    expect(() => codeOf({}, mokPlan("48217730"))).toThrow(/--code/);
+    expect(codeOf({ code: "48217730" }, mokPlan("48217730"))).toBe("48217730");
+    // A dry run changes nothing: it may go without.
+    expect(codeOf({ "dry-run": true }, mokPlan("48217730"))).toBeUndefined();
+    expect(codeOf({}, switchPlan("once"))).toBeUndefined();
   });
 });

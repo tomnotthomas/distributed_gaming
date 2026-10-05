@@ -38,8 +38,8 @@
 #                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
 #                  trusts) and Playwright from the repository's node_modules
 #             Windows must come back after each restart without asking for its
-#             BitLocker recovery key, with its files. The one-time key codes go
-#             through a file read once and deleted, never into the logs.
+#             BitLocker recovery key, with its files. The one-time key codes are
+#             chosen here and kept in shell variables, never in the logs.
 #
 # Usage: vm/windows-install-test.sh prepare|test     ($SWIFF_SCENARIOS="2 3" runs only those)
 #
@@ -313,16 +313,15 @@ test_run() {
 		on_vm '$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\key-state.cjs | Write-Output' | tr -d '\r\n'
 	}
 
-	# A run's one-time key code: rental-cli.cjs writes it to this file only (never to its answers,
-	# which are logged); read once into a variable, and the file deleted.
-	local codefile='C:\swiff\code.txt'
-	take_code() { on_vm "Get-Content $codefile; Remove-Item -Force $codefile" | tr -d '\r\n'; }
+	# A run's one-time key code: chosen here, given to rental-cli.cjs with --code, and kept only in
+	# a shell variable, never in a log (the console shows none).
+	new_code() { node -e 'console.log(String(require("node:crypto").randomInt(1e8)).padStart(8, "0"))'; }
 	# The serve console, fed through a file: one elevated worker for several commands.
 	serve() { # name commands...
 		local name=$1
 		shift
 		printf '%s\n' "$@" quit | on_vm "Set-Content C:\\swiff\\cmd-$name.txt -Value (\$input | Out-String).Trim()"
-		on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-$name.txt" | tr -d '\r' > "$run/serve-$name.json" || true
+		on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-$name.txt --code $(new_code)" | tr -d '\r' > "$run/serve-$name.json" || true
 	}
 
 	log "Windows"
@@ -387,7 +386,7 @@ test_run() {
 		on_vm 'Remove-Item -Force C:\swiff-fill.bin'
 		# Files added between the plan on screen and its run: the install's own check finds the room gone.
 		on_vm "Set-Content C:\\swiff\\cmd-race.txt 'plan install'"
-		on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-race.txt" | tr -d '\r' > "$run/serve-race.json" &
+		on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-race.txt --code $(new_code)" | tr -d '\r' > "$run/serve-race.json" &
 		local race=$!
 		for _ in $(seq 60); do grep -q '"plan"' "$run/serve-race.json" 2> /dev/null && break; sleep 5; done
 		on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null; Add-Content C:\\swiff\\cmd-race.txt 'run check','quit'"
@@ -417,8 +416,8 @@ test_run() {
 	fi
 	if want 5; then
 		scenario "5. Fresh install, key screen left waiting, then Continue boot (the wrong choice)"
-		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' | tee "$run/install.json" | grep -E '"(outcome|error)"' || true
-		take_code > /dev/null
+		code=$(new_code)
+		on_vm "$cli run install --image $img --code $code" | tr -d '\r' | tee "$run/install.json" | grep -E '"(outcome|error)"' || true
 		expect install "every install step ran" grep -q '"outcome":{"status":"done"' "$run/install.json"
 		expect mok-waits "MokManager's menu came at once and was still waiting after 150 s; then Continue boot" \
 			"$python" "$here/mok-drive.py" "$run/mok-miss.log" miss 150 --loose --socket "$run/serial.sock"
@@ -444,8 +443,8 @@ test_run() {
 	fi
 	if want 6; then
 		scenario "6. Restart into Windows without the key (powered off at the key screen)"
-		on_vm "$cli run mok --image $img --code-file $codefile" | tr -d '\r' | tee "$run/mok-1.json" | grep -E '"(outcome|error)"' || true
-		take_code > /dev/null
+		code=$(new_code)
+		on_vm "$cli run mok --image $img --code $code" | tr -d '\r' | tee "$run/mok-1.json" | grep -E '"(outcome|error)"' || true
 		expect mok-1 "BitLocker paused, a new request queued, the PC restarting" grep -q '"outcome":{"status":"done"' "$run/mok-1.json"
 		expect mok-1-bitlocker "the key's restart paused BitLocker on C: first" grep -q '"id":"bitlocker","state":"done"' "$run/mok-1.json"
 		expect mok-menu "MokManager's menu came, and waited" \
@@ -463,9 +462,9 @@ test_run() {
 	fi
 	if want 7; then
 		scenario "7. Key confirmed (Enroll MOK, the code, Reboot)"
-		on_vm "$cli run mok --image $img --code-file $codefile" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
+		code=$(new_code)
+		on_vm "$cli run mok --image $img --code $code" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
 		local code
-		code=$(take_code)
 		expect mok-confirmed "the owner's confirmation at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-confirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-mok
@@ -509,9 +508,9 @@ test_run() {
 	if want 9; then
 		scenario "9. Removal after a full install"
 		# The key first: MokManager, which removes it, is on Swiff OS's boot partition.
-		on_vm "$cli run unkey --image $img --code-file $codefile" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
+		code=$(new_code)
+		on_vm "$cli run unkey --image $img --code $code" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
 		expect unkey "the key's removal queued and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/unkey.json"
-		code=$(take_code)
 		expect mok-removed "the owner's removal at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-unkey
@@ -543,9 +542,9 @@ test_run() {
 		scenario "10. Reinstall after removal"
 		vm_up
 		windows_back windows-before-reinstall
-		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
+		code=$(new_code)
+		on_vm "$cli run install --image $img --code $code" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
 		expect reinstall "every install step ran again" grep -q '"outcome":{"status":"done"' "$run/reinstall.json"
-		code=$(take_code)
 		expect reinstall-mok "the key confirmed again at MokManager" \
 			"$python" "$here/mok-drive.py" "$run/mok-reconfirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-reinstall
@@ -632,7 +631,9 @@ test_run() {
 		# its rental screens, its own elevation, its guided failures, its restart to MokManager.
 		# The VM has no IOMMU with DMA protection, so the app stops at that BIOS step before
 		# Install: Swiff OS is installed by the installer modules for the key's screens.
-		[ -s "${SWIFF_HOST_EXE:-}" ] || die "scenario 13 needs \$SWIFF_HOST_EXE (a pack:test build)"
+		if [ ! -s "${SWIFF_HOST_EXE:-}" ] || [ ! -s "${SWIFF_SIGNED_SET:-}/swiffos.json.sig" ]; then
+			result SKIP packaged-app "needs \$SWIFF_HOST_EXE (a pack:test build) and \$SWIFF_SIGNED_SET (the set it trusts)"
+		else
 		local appdata='C:\Users\swiff\AppData\Roaming\@swiff\desktop\swiff-os'
 		local ui="node $here/ui-drive.mjs"
 		step() { # name detail command...: one UI step's result
@@ -652,7 +653,7 @@ test_run() {
 			sleep 3
 		}
 		app() { # start the app as the logged-on user, with remote debugging, and wait for its window
-			on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff Host*' } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
+			on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff*Host*' } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
 			tunnel
 			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
 			sleep 10
@@ -693,9 +694,9 @@ test_run() {
 		expect tampered-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-after-tamper.json" read '.read.facts.install')" = null
 
 		# --- installed by the installer modules; the key's screens in the app ---
-		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' > "$run/ui-install.json" || true
+		code=$(new_code)
+		on_vm "$cli run install --image $img --code $code" | tr -d '\r' > "$run/ui-install.json" || true
 		expect ui-installed "the installer modules installed Swiff OS for the key's screens" grep -q '"outcome":{"status":"done"' "$run/ui-install.json"
-		code=$(take_code)
 		"$python" "$here/mok-drive.py" "$run/ui-mok-0.log" confirm "$code" --loose --socket "$run/serial.sock" || true
 		windows_back ui-windows-after-install
 		app
@@ -735,6 +736,7 @@ test_run() {
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
 		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
+		fi
 	fi
 	echo
 	if [ "$fail" = 0 ]; then echo "Windows install VM test: PASS"; else

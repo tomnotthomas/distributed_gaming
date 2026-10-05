@@ -2,15 +2,12 @@
 
 import type { PlanOp, RentalPlan } from "./rental.cjs";
 
-export function shown(
-  p: RentalPlan,
-  codeFile?: string | null,
-  files?: Pick<typeof import("node:fs"), "writeFileSync">,
-): {
+/** A plan as the console's answer shows it: never with its key code. */
+export function shown(p: RentalPlan): {
   kind: RentalPlan["kind"];
   target: RentalPlan["target"];
-  mok?: { codeFile: string | null };
   steps: { id: string; title: string; confirm: string | null; commands: string[] }[];
 };
+/** The key code given with --code (8 digits); throws for a malformed one, or when `p` needs one and none was given. */
+export function codeOf(opts: Record<string, unknown>, p?: RentalPlan | null): string | undefined;
 export function unkeyed(ops: PlanOp[]): Record<string, unknown>[];
-export function mustShowCode(p: RentalPlan, opts: Record<string, unknown>): void;

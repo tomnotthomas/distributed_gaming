@@ -6,9 +6,9 @@
 //   node rental-cli.cjs read
 //       what the app reads from this PC, and what an install recorded
 //   node rental-cli.cjs run <install|uninstall|unkey|mok|once|start|stop> --image <dir>
-//           [--target <id>] [--dry-run] [--code-file <file>]
+//           [--target <id>] [--dry-run] [--code <8 digits>]
 //       plan it and run every step: typing this command is the confirmation
-//   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run] [--code-file <file>]
+//   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run] [--code <8 digits>]
 //       one elevated worker (one UAC prompt, on `elevate` or the first `run`),
 //       then commands one per line, on stdin or appended to <file> (which
 //       works where a pipe into a Windows process does not, as from WSL), each
@@ -21,11 +21,11 @@
 // Every answer is one JSON line. The worker refuses whatever does not match
 // the image set and the install's record, whatever this console asks.
 //
-// A plan's one-time key code is never in an answer: it lets whoever has it
-// enrol or remove a key at the PC's blue screen, and answers end up in logs.
-// It is written to the --code-file file alone, for its owner to read and
-// delete; the answer says only that it is there. Without --code-file, a plan
-// with a key code is refused before anything runs (a dry run still goes).
+// A plan's one-time key code lets whoever has it enrol or remove a key at the
+// PC's blue screen. This console never shows, logs or writes one: whoever runs
+// it chooses the code and gives it with --code, so they have it already, and a
+// plan that needs one is refused without it (a dry run still goes). Answers
+// and a dry run's operations show it as (hidden).
 
 const path = require("node:path");
 const fs = require("node:fs");
@@ -55,10 +55,10 @@ function flags(args) {
   return out;
 }
 
-async function plan(kind, { image, target = null }) {
+async function plan(kind, { image, target = null, code }) {
   if (kind === "once" || kind === "start" || kind === "stop") return switchPlan(kind);
-  if (kind === "mok") return mokPlan(undefined, await readRental());
-  if (kind === "unkey") return keyRemovalPlan(undefined, await readRental());
+  if (kind === "mok") return mokPlan(code, await readRental());
+  if (kind === "unkey") return keyRemovalPlan(code, await readRental());
   const rental = await readRental();
   if (!rental) throw new Error("This PC could not be read.");
   if (kind === "uninstall") return uninstallPlan(rental);
@@ -66,6 +66,7 @@ async function plan(kind, { image, target = null }) {
     return installPlan(rental, {
       target,
       layout: readImageSet(image, { trust: trustOf({ dev: true }) }).layout,
+      ...(code ? { code } : {}),
     });
   throw new Error(`No plan ${kind}.`);
 }
@@ -82,30 +83,25 @@ const worker = (image, dry) =>
         }),
       });
 
-/**
- * A plan as an answer shows it: its key code, if it has one, only in
- * `codeFile` (written readable by its owner alone), never in the answer.
- */
-function shown(p, codeFile = null, files = fs) {
-  if (p.mok && codeFile) files.writeFileSync(codeFile, p.mok.code, { mode: 0o600 });
-  return {
-    kind: p.kind,
-    target: p.target,
-    ...(p.mok ? { mok: { codeFile: codeFile ?? null } } : {}),
-    steps: p.steps.map(({ id, title, confirm, commands }) => ({ id, title, confirm, commands })),
-  };
-}
+/** A plan as an answer shows it: without its key code. */
+const shown = (p) => ({
+  kind: p.kind,
+  target: p.target,
+  steps: p.steps.map(({ id, title, confirm, commands }) => ({ id, title, confirm, commands })),
+});
 
 /**
- * Refuse to run `p` when it has a key code and there is no --code-file: the
- * code would be shown nowhere, and the PC's blue screen waits for it. A dry
- * run changes nothing, so it may.
+ * The key code given with --code: eight digits, or none. A plan that needs one
+ * runs only with it (`p`, once planned), since this console never shows a code.
  */
-function mustShowCode(p, opts) {
-  if (p.mok && !opts["code-file"] && !opts["dry-run"])
+function codeOf(opts, p = null) {
+  const code = opts.code === undefined ? undefined : String(opts.code);
+  if (code !== undefined && !/^\d{8}$/.test(code)) throw new Error("--code takes 8 digits.");
+  if (p?.mok && code === undefined && !opts["dry-run"])
     throw new Error(
-      "This plan has a one-time key code, which is shown only in a file: give --code-file <file>.",
+      "This plan has a one-time key code, and this console shows none: give your own with --code.",
     );
+  return code;
 }
 
 /** A dry run's operations as an answer shows them: without any key code. */
@@ -137,9 +133,9 @@ async function main([cmd, ...rest]) {
   // With this start's boot trail (rental-key.cjs): what ran before Windows, for the VM test.
   if (cmd === "read") return say({ read: await readRental(), trail: bootTrail() });
   if (cmd === "run") {
-    const p = await plan(opts._[0], { image: opts.image, target: opts.target });
-    mustShowCode(p, opts);
-    say({ plan: shown(p, opts["code-file"] ?? null) });
+    const p = await plan(opts._[0], { image: opts.image, target: opts.target, code: codeOf(opts) });
+    codeOf(opts, p);
+    say({ plan: shown(p) });
     const w = await worker(opts.image, opts["dry-run"]);
     try {
       const outcome = await runPlan(p, { apply: w.apply, onEvent: (event) => say({ event }) });
@@ -162,14 +158,14 @@ async function main([cmd, ...rest]) {
         if (verb === "quit") break;
         if (verb === "read") say({ read: await readRental() });
         else if (verb === "plan") {
-          current = await plan(args[0], { image: opts.image, target: args[1] ?? null });
-          say({ plan: shown(current, opts["code-file"] ?? null) });
+          current = await plan(args[0], { image: opts.image, target: args[1] ?? null, code: codeOf(opts) });
+          say({ plan: shown(current) });
         } else if (verb === "elevate") {
           w ??= await worker(opts.image, opts["dry-run"]);
           say({ elevated: true });
         } else if (verb === "run") {
           if (!current) throw new Error("No plan yet.");
-          mustShowCode(current, opts);
+          codeOf(opts, current);
           const unknown = args.filter((id) => !current.steps.some((s) => s.id === id));
           if (!args.length || unknown.length)
             throw new Error(`No such steps: ${unknown.join(" ") || "none given"}.`);
@@ -193,7 +189,7 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { mustShowCode, shown, unkeyed };
+module.exports = { codeOf, shown, unkeyed };
 
 if (require.main === module)
   main(process.argv.slice(2)).catch((error) => {
