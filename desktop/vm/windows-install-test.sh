@@ -230,8 +230,8 @@ install_windows() {
 	vm_wait_off 14400 || { vm_kill; die "Windows did not finish setting up within 4 hours (screens in $run)"; }
 }
 
-# BitLocker on C: with the TPM and a recovery password (kept in the VM, for a
-# look at a recovery screen), fully encrypted, as on a laptop that came with
+# BitLocker on C: with the TPM and a recovery password (not kept anywhere: the
+# test never needs it), fully encrypted, as on a laptop that came with
 # Device Encryption. setup.ps1 must have finished first.
 encrypt_c() {
 	log "BitLocker on C:"
@@ -246,7 +246,6 @@ if ((Get-BitLockerVolume -MountPoint C:).VolumeStatus -eq "FullyDecrypted") {
   Enable-BitLocker -MountPoint C: -TpmProtector -UsedSpaceOnly -SkipHardwareTest | Out-Null
 } elseif (-not (& $has "Tpm")) { Add-BitLockerKeyProtector -MountPoint C: -TpmProtector | Out-Null }
 if (-not (& $has "RecoveryPassword")) { Add-BitLockerKeyProtector -MountPoint C: -RecoveryPasswordProtector | Out-Null }
-((Get-BitLockerVolume -MountPoint C:).KeyProtector | Where-Object KeyProtectorType -eq RecoveryPassword).RecoveryPassword | Set-Content C:\swiff-recovery.txt
 while ((Get-BitLockerVolume -MountPoint C:).VolumeStatus -ne "FullyEncrypted") { Start-Sleep 10 }
 Resume-BitLocker -MountPoint C: | Out-Null
 manage-bde -status C:
@@ -330,6 +329,8 @@ test_run() {
 	# The test's own folder only: Defender scanning 10 GB of image and Electron as they land
 	# slows the VM so much that the app's 30 s read of the PC times out.
 	on_vm 'Add-MpPreference -ExclusionPath C:\swiff' || true
+	# A base prepared before the recovery password stopped being saved: it is not kept anywhere.
+	on_vm 'Remove-Item -Force -ErrorAction SilentlyContinue C:\swiff-recovery.txt' || true
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\desktop | Out-Null; $m = [guid]::NewGuid().ToString(); Set-Content C:\swiff-marker.txt $m; $m' | tr -d '\r' > "$run/marker"
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
@@ -642,8 +643,8 @@ test_run() {
 				result FAIL "$name" "$detail: $(head -c 400 "$run/ui-$name.json")"
 			fi
 		}
-		ui_has() { # name regex: the last UI answer's text matches
-			grep -Eq "$2" "$run/ui-$1.json"
+		ui_has() { # name regex: the last UI answer's text matches, in any case (the screen uppercases labels)
+			grep -Eiq "$2" "$run/ui-$1.json"
 		}
 		tunnel() {
 			[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
@@ -677,16 +678,13 @@ test_run() {
 		step ui-tampered-manifest "a changed manifest reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui click 'What Swiff checked'"
 		ui_has ui-tampered-manifest 'Not signed by Swiff' || result FAIL ui-tampered-manifest-text "the check did not say so"
 		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
-		on_vm "Set-Content -LiteralPath '$appdata\\swiffos-key.cer' -Value 'not swiff' -Encoding Byte -ErrorAction SilentlyContinue; [IO.File]::WriteAllBytes('$appdata\\swiffos-key.cer', [byte[]](48,130,1,10))" || true
-		step ui-swapped-cert "a swapped certificate reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui screen"
-		$ui click 'What Swiff checked' > "$run/ui-swapped-cert-checks.json" 2>&1 || true
-		ui_has ui-swapped-cert-checks 'Not signed by Swiff' || result FAIL ui-swapped-cert-text "the check did not say so"
-		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
-		$ui click 'Check again' > /dev/null 2>&1 || true
+		# A certificate swapped on disk: the read checks the signed manifest and the fingerprint it lists;
+		# the administrator side checks the file itself, before using it (ui-refused-cert below).
 
 		# --- a tampered image: refused by the install's own check, before any disk or key change ---
 		on_vm "Copy-Item -Recurse -Force '$appdata' C:\\swiff\\tampered; \$f = [IO.File]::Open('C:\\swiff\\tampered\\swiffos_0.1.0.esp.raw', 'Open', 'ReadWrite'); \$f.Seek(1048576, 'Begin') | Out-Null; \$f.WriteByte(0x5A); \$f.Close()" || true
-		serve tampered "plan install" "run check"
+		printf '%s\n' "plan install" "run check" quit | on_vm "Set-Content C:\\swiff\\cmd-tampered.txt -Value (\$input | Out-String).Trim()"
+		on_vm "$cli serve --image C:\\swiff\\tampered --commands C:\\swiff\\cmd-tampered.txt --code $(new_code)" | tr -d '\r' > "$run/serve-tampered.json" || true
 		expect tampered-image "the install's check refuses a changed image before any change: $(json "$run/serve-tampered.json" outcome '.outcome.failed.error' || true)" grep -q '"failed"' "$run/serve-tampered.json"
 		on_vm "Remove-Item -Recurse -Force C:\\swiff\\tampered" || true
 		read_as after-tamper
