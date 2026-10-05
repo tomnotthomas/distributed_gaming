@@ -484,6 +484,10 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
     title: "We couldn't read your Steam library.",
     body: "In Steam, set Profile → Privacy → Game details to Public, then retry.",
   },
+  checking: {
+    title: "Checking your games…",
+    body: "Each one shows up here once we know Swiff can run it.",
+  },
   none: {
     title: "None of your Steam games can be played here yet.",
     body: "Free-to-play games still work.",
@@ -492,8 +496,9 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
 
 /**
  * Why a signed-in renter sees none of their own games. Only free-to-play games
- * are shown beside it. An unreadable library also gets a retry that reads it
- * from Steam again; a readable one would read the same, so it gets none.
+ * are shown beside it. An unreadable library, and one still being checked, also
+ * get a button that reads it again; a checked one would read the same, so it
+ * gets none.
  */
 function LibraryNote({
   state,
@@ -510,9 +515,9 @@ function LibraryNote({
       <p>
         <strong>{title}</strong> {body}
       </p>
-      {state === "unreadable" ? (
+      {state === "unreadable" || state === "checking" ? (
         <button type="button" className="lpill lpill-sm" onClick={onRetry} disabled={retrying}>
-          {retrying ? "Checking…" : "Retry"}
+          {retrying ? "Checking…" : state === "checking" ? "Check again" : "Retry"}
         </button>
       ) : null}
     </div>

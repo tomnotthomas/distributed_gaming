@@ -18,6 +18,8 @@ export type SteamProfile = {
   /** [appid, name, hours] for everything else. */
   games: [number, string, number][];
   lib: boolean;
+  /** How many of the games the wall could show the server has yet to check. */
+  checking?: number;
 };
 
 export const STEAM_LOGIN_URL = "/auth/steam/login";
@@ -39,12 +41,14 @@ export function readSteamFragment(): "ok" | "denied" | null {
 }
 
 /**
- * The renter the session cookie signs in, or null when nobody is signed in or
- * the server cannot be reached; signed out is the safe thing to show then.
+ * The renter the session cookie signs in, "signed-out" when the server says
+ * nobody is (401), or null when it gives no answer; the page shows signed out
+ * for either, but only an unanswered read is worth asking again.
  */
-export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | null> {
+export async function fetchRenter(get: typeof fetch = fetch): Promise<Renter | "signed-out" | null> {
   try {
     const response = await get("/api/me");
+    if (response.status === 401) return "signed-out";
     return response.ok ? ((await response.json()) as Renter) : null;
   } catch {
     return null;
@@ -67,16 +71,23 @@ export async function refreshRenter(get: typeof fetch = fetch): Promise<Renter |
 
 /**
  * What the signed-in wall can say about the renter's library: `unreadable` when
- * Steam gave no library at all (game details private, or Steam failed), `none`
- * when it did but none of it can be put on the wall, else `ok`.
+ * Steam gave no library at all (game details private, or Steam failed),
+ * `checking` when none of it is on the wall yet but the server is still
+ * checking some, `none` when it has checked and none can be put on the wall,
+ * else `ok`.
  */
-export type LibraryState = "ok" | "unreadable" | "none";
+export type LibraryState = "ok" | "unreadable" | "checking" | "none";
 
 /** The renter's library state, as the wall explains it (LibraryState). */
 export function libraryState(profile: SteamProfile): LibraryState {
   if (!profile.lib) return "unreadable";
-  return profile.owned.length || profile.games.some(([, name]) => name) ? "ok" : "none";
+  if (profile.owned.length || profile.games.some(([, name]) => name)) return "ok";
+  return profile.checking ? "checking" : "none";
 }
+
+/** Whether two reads of a profile put the same games of the renter's on the wall. */
+export const sameGames = (a: SteamProfile, b: SteamProfile) =>
+  JSON.stringify([a.owned, a.games]) === JSON.stringify([b.owned, b.games]);
 
 /** End the sign-in session. Resolves once the server has cleared the cookie. */
 export async function signOut(get: typeof fetch = fetch): Promise<void> {
@@ -158,7 +169,13 @@ export type CatalogGame = {
   art: { hero: string | null; capsule: string | null };
   preview: string | null;
   trailer: string | null;
+  /** The account the game asks for at start besides Steam's (server/src/playable.ts); null or absent for none. */
+  requiresAccount?: { launcher: string; name: string } | null;
 };
+
+/** What the game page says about a launcher account the game asks for: "Needs your Ubisoft sign-in". */
+export const signInNote = (game: Pick<CatalogGame, "requiresAccount">): string | undefined =>
+  game.requiresAccount ? `Needs your ${game.requiresAccount.name} sign-in` : undefined;
 
 const mediaOf = (game: CatalogGame): GameMedia => ({
   ...game.art,
@@ -180,6 +197,7 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
       f2p: game.free,
       save: game.free ? "Steam cloud save" : "New game",
       media: mediaOf(game),
+      signIn: signInNote(game),
     }),
   );
 
@@ -187,26 +205,30 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
 export type StoreData = { media: CatalogGame[]; popular: CatalogGame[] };
 
 /**
- * The store data to keep after a new read. Each read fails soft to an empty
- * list, which means "keep what you have" (catalog.ts), so an outage of either
- * during a retry never takes the free-to-play games it found off the wall.
+ * The store data to keep after a new read. A read the server answered replaces
+ * what was kept, even with nothing, since the server sends only games Swiff
+ * can run now (server/src/playable.ts); only a read that failed (null) keeps
+ * the last answer.
  */
 export const nextCatalog = (
   previous: StoreData,
-  media: CatalogGame[],
-  popular: CatalogGame[],
+  media: CatalogGame[] | null,
+  popular: CatalogGame[] | null,
 ): StoreData => ({
-  media: media.length ? media : previous.media,
-  popular: popular.length ? popular : previous.popular,
+  media: media ?? previous.media,
+  popular: popular ?? previous.popular,
 });
 
 /** All the games the store data knows, art first, then the chart. */
 export const storeGames = (store: StoreData): CatalogGame[] => [...store.media, ...store.popular];
 
-/** Put the catalog's art and trailers onto games it knows. */
+/** Put the catalog's art, trailers and launcher sign-in note onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
-  const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));
-  return games.map((game) => (media.has(game.appid) ? { ...game, media: media.get(game.appid) } : game));
+  const known = new Map(catalog.map((g) => [g.appid, g]));
+  return games.map((game) => {
+    const entry = known.get(game.appid);
+    return entry ? { ...game, media: mediaOf(entry), signIn: signInNote(entry) } : game;
+  });
 }
 
 /** A curated title the renter owns, told with their real hours instead of the demo story. */
@@ -230,11 +252,12 @@ const freeCurated = (game: Game): Game => ({ ...game, ...FREE, last: undefined }
 /** A free-to-play game the renter does not own: playable by anyone, and marked Free. */
 function freeCard(game: CatalogGame, pool: string[]): Game {
   const curated = GAMES.find((g) => g.appid === game.appid);
-  if (curated) return { ...freeCurated(curated), media: mediaOf(game) };
+  if (curated) return { ...freeCurated(curated), media: mediaOf(game), signIn: signInNote(game) };
   return cardFor(game.appid, game.name, pool, {
     ...FREE,
     promise: "Free to play. No purchase needed.",
     media: mediaOf(game),
+    signIn: signInNote(game),
   });
 }
 
@@ -242,13 +265,15 @@ function freeCard(game: CatalogGame, pool: string[]): Game {
  * The signed-in wall: only games the renter owns, plus free-to-play games
  * anyone can start, which `catalog` (Steam's store data) marks free. With no
  * catalog (not read yet, or the store is down) the curated games marked f2p
- * stand in. A paid game the renter does not own is never on it, whether or not
- * Steam let us read the library.
+ * stand in, only those in `vouched` (the ones the server says Swiff can run)
+ * when it is given. A paid game the renter does not own is never on it,
+ * whether or not Steam let us read the library.
  */
 export function applySteam(
   profile: SteamProfile,
   sharedMachineIds: string[],
   catalog: CatalogGame[] = [],
+  vouched: ReadonlySet<number> | null = null,
 ): Game[] {
   const owned = new Map(profile.owned);
   const curated = GAMES.filter((game) => owned.has(game.appid)).map((game) =>
@@ -269,7 +294,7 @@ export function applySteam(
     ? [...byApp.values()]
         .filter((g) => g.free && !mine.has(g.appid))
         .map((g) => freeCard(g, sharedMachineIds))
-    : GAMES.filter((g) => g.f2p && !mine.has(g.appid)).map(freeCurated);
+    : GAMES.filter((g) => g.f2p && !mine.has(g.appid) && (!vouched || vouched.has(g.appid))).map(freeCurated);
 
   return [...curated, ...extra, ...free];
 }

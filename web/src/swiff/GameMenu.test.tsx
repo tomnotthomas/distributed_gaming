@@ -151,6 +151,18 @@ describe("GameMenu", () => {
       expect(screen.getByText("No machine can play it right now.")).toBeInTheDocument();
     });
 
+    it("says which launcher the game asks the renter to sign in to, and nothing when it asks for none", () => {
+      const { unmount } = render(
+        <GameMenu
+          swiff={swiffWith("idle", true, { game: { ...bg3, signIn: "Needs your Ubisoft sign-in" } })}
+        />,
+      );
+      expect(screen.getByText("Needs your Ubisoft sign-in")).toBeInTheDocument();
+      unmount();
+      render(<GameMenu swiff={swiffWith("idle", true)} />);
+      expect(screen.queryByText(/sign-in$/)).toBeNull();
+    });
+
     it("says in plain words when the server refuses a game the renter does not own", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-owned" })} />);
       expect(screen.getByRole("alert")).toHaveTextContent(/You don't own this game on Steam/);
@@ -164,6 +176,12 @@ describe("GameMenu", () => {
       );
       expect(screen.getByRole("alert")).toHaveTextContent(/We can't see your Steam library/);
       expect(screen.getByRole("alert")).toHaveTextContent(/Game details to Public/);
+    });
+
+    it("tells the renter when Swiff cannot run the game", () => {
+      render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-playable" })} />);
+      expect(screen.getByRole("alert")).toHaveTextContent(/can't run on Swiff/);
+      expect(screen.queryByText(/Try again/)).toBeNull();
     });
 
     it("keeps the plain retry for a booking call that failed for any other reason", () => {

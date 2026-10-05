@@ -86,6 +86,8 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
         SESSION_SECRET: SESSION,
         MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
         DATABASE_URL: database.url,
+        // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+        SWIFF_PLAYABILITY: "off",
         ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
         ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
       },

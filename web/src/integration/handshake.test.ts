@@ -155,6 +155,8 @@ beforeAll(async () => {
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+      // Every game playable, so nothing here waits on or calls Steam (server/src/playable.ts).
+      SWIFF_PLAYABILITY: "off",
     },
     stdio: "ignore",
   });

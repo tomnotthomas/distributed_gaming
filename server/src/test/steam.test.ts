@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
-  LIBRARY_CAP,
+  LIBRARY_CANDIDATES,
   PROFILE_REFRESH_MIN_MS,
   PROFILE_TTL_MS,
   cachedProfiles,
@@ -124,17 +124,17 @@ describe("readProfile", () => {
   it("splits the curated wall titles from the rest and caps the library", async () => {
     const games = [
       { appid: 730, name: "Counter-Strike 2", playtime_forever: 18000 },
-      ...Array.from({ length: LIBRARY_CAP + 6 }, (_, i) => ({
+      ...Array.from({ length: LIBRARY_CANDIDATES + 6 }, (_, i) => ({
         appid: 900000 + i,
         name: `Game ${i}`,
-        playtime_forever: (LIBRARY_CAP + 6 - i) * 60,
+        playtime_forever: (LIBRARY_CANDIDATES + 6 - i) * 60,
       })),
     ];
     stubFetch({ response: { games, players: [{ personaname: "kai_nx" }] } });
 
     const profile = await readProfile("key", "76561198000000001");
     assert.deepEqual(profile.owned, [[730, 300]]);
-    assert.equal(profile.games.length, LIBRARY_CAP);
+    assert.equal(profile.games.length, LIBRARY_CANDIDATES);
     // Most played first, and no curated title duplicated into the library.
     assert.equal(profile.games[0]![1], "Game 0");
     assert.ok(!profile.games.some(([appid]) => appid === 730));

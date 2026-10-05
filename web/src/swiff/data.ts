@@ -33,6 +33,8 @@ export type Game = {
   media?: GameMedia;
   /** Generated from the player's real library rather than hand-authored. */
   fromLibrary?: boolean;
+  /** The launcher account it asks for at start, as the page says it: "Needs your Ubisoft sign-in". */
+  signIn?: string;
   /** Hardware the game asks for. Without it, a GTX 1060 minimum and an RTX 3060 recommended card. */
   requirements?: Requirements;
 };

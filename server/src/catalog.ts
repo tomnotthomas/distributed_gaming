@@ -17,7 +17,7 @@ const HOUR = 60 * 60 * 1000;
 const CHARTS_TTL = HOUR;
 const ITEMS_TTL = 24 * HOUR;
 /** Appids per GetItems request. */
-const BATCH = 50;
+export const BATCH = 50;
 /** GetItems' `type` for a game; software, DLC and the rest are other numbers. */
 const TYPE_GAME = 0;
 
@@ -113,18 +113,22 @@ export function toCatalogGame(item: any): CatalogGame | null {
   };
 }
 
-async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | null>> {
+/** GetItems' store items for up to BATCH appids, with the parts `dataRequest` asks for; undefined when it lists none. */
+export async function storeItems(appids: number[], dataRequest: object): Promise<any[] | undefined> {
   const url = new URL(ITEMS_URL);
   url.searchParams.set(
     "input_json",
     JSON.stringify({
       ids: appids.map((appid) => ({ appid })),
       context: { language: "english", country_code: "US" },
-      data_request: { include_assets: true, include_trailers: true },
+      data_request: dataRequest,
     }),
   );
-  const body = await getJson(url);
-  const items: any[] = body?.response?.store_items ?? [];
+  return (await getJson(url))?.response?.store_items;
+}
+
+async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | null>> {
+  const items: any[] = (await storeItems(appids, { include_assets: true, include_trailers: true })) ?? [];
   return new Map(items.map((item) => [Number(item.appid), toCatalogGame(item)]));
 }
 
@@ -153,16 +157,28 @@ export async function catalogGames(appids: number[], now = Date.now()): Promise<
   return games.filter((g): g is CatalogGame => g !== null);
 }
 
-/** The most played games on Steam, with art and trailers. Empty if Steam is unreachable. */
-export async function popularGames(limit = POPULAR_LIMIT): Promise<CatalogGame[]> {
-  const appids = await mostPlayed().catch(() => [] as number[]);
+/**
+ * The most played games on Steam that `keep` lets through (playable.ts), with
+ * art and trailers. Empty if Steam is unreachable.
+ */
+export async function popularGames(
+  limit = POPULAR_LIMIT,
+  keep: (appid: number) => boolean = () => true,
+): Promise<CatalogGame[]> {
+  const appids = (await mostPlayed().catch(() => [] as number[])).filter(keep);
   // Ask for a margin over the limit: some charting apps are software, not games.
   const games = await catalogGames(appids.slice(0, Math.ceil(limit * 1.5)));
   return games.slice(0, limit);
 }
 
-/** Art and trailers for specific games, e.g. a signed-in player's library. */
-export function gamesMedia(appids: number[]): Promise<CatalogGame[]> {
-  const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, MEDIA_LIMIT);
+/** Art and trailers for specific games that `keep` lets through, e.g. a signed-in player's library. */
+export function gamesMedia(
+  appids: number[],
+  keep: (appid: number) => boolean = () => true,
+): Promise<CatalogGame[]> {
+  const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0 && keep(id)))].slice(
+    0,
+    MEDIA_LIMIT,
+  );
   return catalogGames(unique);
 }

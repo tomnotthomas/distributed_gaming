@@ -16,6 +16,9 @@ export const E2E_ENV = {
   // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
   SESSION_SECRET: E2E_SESSION_SECRET,
   MACHINE_KEYS: `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
+  // Every game playable, unchecked: the wall's games must not hang on Steam
+  // verdicts (server/src/playable.ts, tested on its own with recordings).
+  SWIFF_PLAYABILITY: "off",
 };
 
 /** The path a renter opens: a fresh ticket for the e2e room. */

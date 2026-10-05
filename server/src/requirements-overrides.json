@@ -5,7 +5,14 @@
     "recGpu": "GTX 1050",
     "minRamGb": 0.5,
     "minVramGb": 0,
-    "why": "Steam names no card, only DirectX 8.1. Both tiers are the table's lowest card."
+    "why": "Steam names no card, only DirectX 8.1. Both tiers are the table's lowest card.",
+    "cloud": "allow",
+    "cloudWhy": "Valve's own game. Valve streams its games itself with Steam Remote Play."
+  },
+  "550": {
+    "name": "Left 4 Dead 2",
+    "cloud": "allow",
+    "cloudWhy": "Valve's own game. Valve streams its games itself with Steam Remote Play."
   },
   "570": {
     "name": "Dota 2",
@@ -13,7 +20,9 @@
     "recGpu": "GTX 1050",
     "minRamGb": 4,
     "minVramGb": 0,
-    "why": "Steam names a GeForce 8600/9600 GT. Older than the GPU table, so both tiers are its lowest card."
+    "why": "Steam names a GeForce 8600/9600 GT. Older than the GPU table, so both tiers are its lowest card.",
+    "cloud": "allow",
+    "cloudWhy": "Valve's own game. Valve streams its games itself with Steam Remote Play."
   },
   "730": {
     "name": "Counter-Strike 2",
@@ -21,7 +30,9 @@
     "recGpu": "GTX 1060",
     "minRamGb": 8,
     "minVramGb": 1,
-    "why": "Steam names no card, only a DirectX 11 GPU with 1 GB. The minimum is the table's lowest card and the recommended is a GTX 1060."
+    "why": "Steam names no card, only a DirectX 11 GPU with 1 GB. The minimum is the table's lowest card and the recommended is a GTX 1060.",
+    "cloud": "allow",
+    "cloudWhy": "Valve's own game. Valve streams its games itself with Steam Remote Play."
   },
   "4000": {
     "name": "Garry's Mod",
@@ -78,5 +89,10 @@
     "minRamGb": 1,
     "minVramGb": 0,
     "why": "Steam names Intel HD Graphics 4600 and a GTX 650. Older than the GPU table, so both tiers are its lowest card."
+  },
+  "1422450": {
+    "name": "Deadlock",
+    "cloud": "allow",
+    "cloudWhy": "Valve's own game. Valve streams its games itself with Steam Remote Play."
   }
 }

@@ -7,7 +7,7 @@ import { GAMES } from "./data";
 import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
-import type { Renter } from "./steam";
+import { libraryState, type Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
@@ -58,10 +58,11 @@ type Hosts = {
 };
 
 /**
- * The server: /api/me answers `renter` (404 when null), /api/ping answers, the
+ * The server: /api/me answers `renter` (401 when null), /api/ping answers, the
  * availability reads answer from `hosts` for a signed-in renter (401 signed
  * out), each "METHOD path" in `booking` answers as it says, and every catalog
- * read comes back empty. Returns every call made, with its JSON body.
+ * read comes back empty but for the wall's two free-to-play games, which the
+ * popular read says Swiff can run. Returns every call made, with its JSON body.
  */
 function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string, () => Response> = {}) {
   const calls: { call: string; body: unknown }[] = [];
@@ -73,8 +74,11 @@ function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string,
       calls.push({ call, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       if (booking[call]) return booking[call]!();
       const url = new URL(path, "http://localhost");
-      if (url.pathname === "/api/me") return renter ? json(renter) : json({}, 404);
+      if (url.pathname === "/api/me")
+        return renter ? json(renter) : json({ error: "sign in with Steam first" }, 401);
       if (url.pathname === "/api/ping") return new Response(null, { status: 204 });
+      if (url.pathname === "/api/games/popular")
+        return json({ games: [], wall: [{ appid: 730 }, { appid: 2073850 }] });
       if (url.pathname === "/api/availability") {
         if (!renter) return json({ error: "sign in with Steam first" }, 401);
         const appids = url.searchParams.get("appids")!.split(",").map(Number);
@@ -184,6 +188,8 @@ const LIVE: Hosts = {
 async function openLive() {
   const { result } = renderHook(() => useSwiff({ demo: false }));
   await waitFor(() => expect(result.current.signedIn).toBe(true));
+  // The server vouches for Counter-Strike 2 once its popular read is in.
+  await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
   act(() => result.current.openGame(result.current.games.find((g) => g.appid === cs2.appid)!));
   await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
   return result;
@@ -242,6 +248,68 @@ describe("useSwiff", () => {
 
   describe("on the real hosts", () => {
     // jsdom has no EventSource, so the hook falls back to its slow poll here.
+
+    describe("shows only games the server says Swiff can run", () => {
+      const appidsOf = (games: { appid: number }[]) => games.map((g) => g.appid).sort((a, b) => a - b);
+      const chart = { appid: 292030, name: "The Witcher 3", free: false, art: { hero: null, capsule: null } };
+
+      it("shows a signed-out visitor nothing until the server answers, then the chart it sent", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(200, { games: [chart], wall: [{ appid: 730 }] }) });
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        expect(result.current.games).toEqual([]);
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([292030]));
+      });
+
+      it("stands in only the hand-authored games it vouches for when the chart is empty", async () => {
+        serve(null);
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+      });
+
+      it("names the launcher account on a hand-authored game standing in for the chart", async () => {
+        const psn = { launcher: "psn", name: "PlayStation Network" };
+        serve(
+          null,
+          {},
+          {
+            "GET /api/games/popular": json(200, {
+              games: [],
+              wall: [{ appid: 730, requiresAccount: psn }, { appid: 2073850 }],
+            }),
+          },
+        );
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+        const signIn = (appid: number) => result.current.games.find((g) => g.appid === appid)?.signIn;
+        expect(signIn(730)).toBe("Needs your PlayStation Network sign-in");
+        expect(signIn(2073850)).toBeUndefined();
+      });
+
+      it("shows nothing it has not heard about from the server", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(503, {}) });
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(fetched()).toContain("/api/games/popular"));
+        await act(() => Promise.resolve());
+        expect(result.current.games).toEqual([]);
+      });
+
+      it("keeps the hand-authored nine in the demo", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(503, {}) });
+        const { result } = renderHook(() => useSwiff({ demo: true }));
+        await waitFor(() => expect(fetched()).toContain("/api/games/popular"));
+        expect(result.current.games).toHaveLength(GAMES.length);
+      });
+
+      it("leaves a free-to-play game it does not vouch for off a signed-in renter's wall", async () => {
+        serve(
+          unnamed,
+          {},
+          { "GET /api/games/popular": json(200, { games: [], wall: [{ appid: 2073850 }] }) },
+        );
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([2073850]));
+      });
+    });
 
     it("never asks a signed-out visitor's availability, and lists no invented machine", async () => {
       serve(null);
@@ -314,6 +382,8 @@ describe("useSwiff", () => {
       });
       const { result } = renderHook(() => useSwiff({ demo: false }));
       await waitFor(() => expect(result.current.signedIn).toBe(true));
+      // The server vouches for Counter-Strike 2 once its popular read is in.
+      await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
       const game = result.current.games.find((g) => g.appid === cs2.appid)!;
       act(() => result.current.openGame(game));
       expect(result.current.machinesLoading).toBe(true);
@@ -324,6 +394,281 @@ describe("useSwiff", () => {
         true,
       );
       expect(result.current.liveLine).toBe("1 free for this game");
+    });
+
+    it("reads the renter's profile again while their games are being checked, and stops once they are", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let checked = false;
+      const me = () =>
+        new Response(
+          JSON.stringify({
+            steamId: unnamed.steamId,
+            profile: checked
+              ? { ...unnamed.profile, lib: true, games: [[440, "Team Fortress 2", 3]], checking: 0 }
+              : { ...unnamed.profile, lib: true, checking: 1 },
+          }),
+        );
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.profile).not.toBeNull());
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(reads()).toBe(2));
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        checked = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(libraryState(result.current.profile!)).toBe("ok"));
+        expect(result.current.games.some((g) => g.appid === 440)).toBe(true);
+        await act(() => vi.advanceTimersByTimeAsync(20_000));
+        expect(reads()).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps reading the renter's profile, slower, past five minutes of checking, until the checks finish", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let checked = false;
+      const me = () =>
+        new Response(
+          JSON.stringify({
+            steamId: unnamed.steamId,
+            profile: checked
+              ? { ...unnamed.profile, lib: true, size: 3, checking: 0 }
+              : { ...unnamed.profile, lib: true, size: 3, checking: 1 },
+          }),
+        );
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.profile).not.toBeNull());
+        for (let read = 2; read <= 61; read++) {
+          await act(() => vi.advanceTimersByTimeAsync(5_000));
+          await waitFor(() => expect(reads()).toBe(read));
+        }
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        expect(reads()).toBe(61);
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        await act(() => vi.advanceTimersByTimeAsync(25_000));
+        await waitFor(() => expect(reads()).toBe(62));
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        checked = true;
+        await act(() => vi.advanceTimersByTimeAsync(30_000));
+        await waitFor(() => expect(libraryState(result.current.profile!)).toBe("none"));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(reads()).toBe(63);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops reading the profile, and shows the signed-out wall, once the server no longer signs the renter in", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let answer: "checking" | "offline" | "signed-out" = "checking";
+      const me = () => {
+        if (answer === "offline") return new Response("{}", { status: 503 });
+        if (answer === "signed-out") return new Response("{}", { status: 401 });
+        const profile = { ...unnamed.profile, lib: true, size: 3, checking: 1 };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.signedIn).toBe(true));
+
+        answer = "offline";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(reads()).toBe(2));
+        expect(result.current.signedIn).toBe(true);
+
+        answer = "signed-out";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        expect(result.current.profile).toBeNull();
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(reads()).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never puts the renter's games back once signed out, when a store read for them answers late", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let answer: "checking" | "found" | "signed-out" = "checking";
+      const me = () => {
+        if (answer === "signed-out") return new Response("{}", { status: 401 });
+        const games = answer === "found" ? [[440, "Team Fortress 2", 3]] : [];
+        const profile = { ...unnamed.profile, lib: true, size: 3, games, checking: 1 };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      // The store read for Team Fortress 2's card answers only once released.
+      let release = () => {};
+      const late = new Promise<void>((resolve) => (release = resolve));
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) => {
+        if (String(path).startsWith("/api/games/media") && String(path).includes("440")) await late;
+        return server(path, init);
+      });
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.signedIn).toBe(true));
+
+        answer = "found";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+
+        answer = "signed-out";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+
+        release();
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves none of the renter's games on the wall once signed out, even when the popular read fails", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) =>
+        signedOut && String(path) === "/api/games/popular"
+          ? new Response("{}", { status: 503 })
+          : server(path, init),
+      );
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.profile).toBeNull();
+        expect(result.current.games).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps the game of a launch under way when the renter is signed out, and nothing else", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const host = {
+        id: "h1",
+        name: "Basement rig",
+        gpu: "RTX 4070",
+        cpu: "Ryzen 7 7700",
+        refreshHz: 144,
+        availableUntil: null,
+        minutesLeft: null,
+        coversSession: true,
+        latency: { rttMs: 23, jitterMs: 2, source: "estimate" as const },
+        response: 3,
+        picture: 3,
+      };
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(
+        unnamed,
+        { machines: () => ({ ...NO_MACHINES, machines: [host] }) },
+        {
+          "GET /api/me": me,
+          "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+        },
+      );
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) =>
+        signedOut && String(path) === "/api/games/popular"
+          ? new Response("{}", { status: 503 })
+          : server(path, init),
+      );
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
+        expect(result.current.games.some((g) => g.appid === 440)).toBe(true);
+        const game = result.current.games.find((g) => g.appid === cs2.appid)!;
+        act(() => result.current.openGame(game));
+        await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
+        act(() => result.current.launch());
+        expect(result.current.phase).not.toBe("idle");
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.games.map((g) => g.appid)).toEqual([cs2.appid]);
+        expect(result.current.game?.appid).toBe(cs2.appid);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("sends a renter on a game's page with no launch started back to the signed-out wall when signed out", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+        act(() => result.current.openGame(result.current.games.find((g) => g.appid === 440)!));
+        expect(result.current.screen).toBe("game");
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.screen).toBe("home");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
@@ -358,6 +703,8 @@ describe("useSwiff", () => {
       try {
         const { result } = renderHook(() => useSwiff({ demo: false }));
         await waitFor(() => expect(result.current.signedIn).toBe(true));
+        // The server vouches for Counter-Strike 2 once its popular read is in.
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
         const game = result.current.games.find((g) => g.appid === cs2.appid)!;
         act(() => result.current.openGame(game));
         await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
@@ -911,6 +1258,7 @@ describe("useSwiff", () => {
       const opened = streams();
       const { result } = renderHook(() => useSwiff({ demo: false }));
       await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
 
       act(() => opened.find((o) => o.url === "/api/events?booking=b-1")!.push(booked("matched", 1_000)));
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));

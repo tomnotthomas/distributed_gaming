@@ -41,6 +41,14 @@ makes a join link without a booking.
 game's minimum and recommended hardware, read from Steam; `server/src/requirements-overrides.json`
 overrides it per game.
 
+Renters are shown, and may book, only games Swiff can run (`server/src/playable.ts`). The server
+checks each game by fixed rules against Steam's store data, Valve's SteamOS rating and
+AreWeAntiCheatYet, on its own and daily, and demotes a game whose launches keep failing. The one
+hand-kept input is whether a publisher allows or objects to cloud play, per game in the same
+overrides file (`cloud`, with the evidence in `cloudWhy`). A game that asks for an account besides
+Steam's at start (Ubisoft Connect, the EA app, Battle.net, Rockstar…) stays playable: the catalog
+names its launcher (`requiresAccount`), and the game page tells the renter they will sign in to it.
+
 Code: `web/`, `server/`, `packages/`.
 
 ## Host side (gaming PC app)

@@ -9,6 +9,8 @@
  * library size, which of the wall's appids the player owns, and their
  * most-played games with names so the wall can render real titles. The library
  * is capped: a 4000-game account must not make every page load ship it all.
+ * Up to LIBRARY_CANDIDATES most-played games are kept, so the page can be sent
+ * the first LIBRARY_CAP of them that Swiff can run (api.ts).
  * Every appid the player owns is kept beside it, for the server alone: a
  * booking and a claim check the game against it (licence.ts), and the page is
  * never sent it (pageProfile).
@@ -19,8 +21,11 @@
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
-/** How many of the player's own games the profile names. */
+/** How many of the player's own games the page is sent. */
 export const LIBRARY_CAP = 14;
+
+/** How many of the player's most-played games the profile keeps, to find LIBRARY_CAP playable ones among. */
+export const LIBRARY_CANDIDATES = 100;
 
 /** The nine hand-authored titles on the wall, which keep their own copy. */
 export const WALL_APPIDS = [
@@ -46,6 +51,7 @@ export type SteamProfile = {
   hours: number;
   size: number;
   owned: OwnedEntry[];
+  /** The most-played, most first: up to LIBRARY_CANDIDATES, of which the page is sent LIBRARY_CAP. */
   games: LibraryEntry[];
   lib: boolean;
   /** Every appid the player owns, ascending; empty when the library cannot be read. Never sent to the page. */
@@ -228,7 +234,7 @@ export async function readProfile(
   out.games = list
     .filter((g: any) => !wall.has(g.appid) && g.name)
     .sort((a: any, b: any) => (b.playtime_forever ?? 0) - (a.playtime_forever ?? 0))
-    .slice(0, LIBRARY_CAP)
+    .slice(0, LIBRARY_CANDIDATES)
     .map((g: any): LibraryEntry => [g.appid, String(g.name).slice(0, 48), hours(g)]);
   return out;
 }

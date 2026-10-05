@@ -55,6 +55,20 @@ describe("popularCards", () => {
     expect(bf).toMatchObject({ owned: false, f2p: false });
   });
 
+  it("tells a renter which launcher a game asks them to sign in to, and says nothing for the rest", () => {
+    const ubisoft = {
+      ...catalog[1]!,
+      appid: 2369390,
+      requiresAccount: { launcher: "ubisoft", name: "Ubisoft" },
+    };
+    const [cs, farCry] = popularCards([catalog[0]!, ubisoft], pool);
+    expect(farCry!.signIn).toBe("Needs your Ubisoft sign-in");
+    expect(cs!.signIn).toBeUndefined();
+    // A library card gets it from the art read too.
+    const [library] = withMedia([{ ...cs!, appid: 2369390 }], [ubisoft]);
+    expect(library!.signIn).toBe("Needs your Ubisoft sign-in");
+  });
+
   it("gives every card machines from the shared pool, so none reads as broken", () => {
     for (const card of popularCards(catalog, pool)) {
       expect(card.machines.length).toBeGreaterThan(0);
@@ -111,6 +125,11 @@ describe("applySteam", () => {
     expect(libraryState(profile({ lib: false }))).toBe("unreadable");
   });
 
+  it("falls back only to the curated free-to-play games the server says Swiff can run, when it says", () => {
+    expect(appids(applySteam(profile({ lib: false }), pool, [], new Set([730])))).toEqual([730]);
+    expect(applySteam(profile({ lib: false }), pool, [], new Set())).toEqual([]);
+  });
+
   it("lets the store data, when there is any, say what is free over the curated set", () => {
     const paid = store.map((g) => (g.appid === 730 ? { ...g, free: false } : g));
     expect(appids(applySteam(profile({ lib: false }), pool, paid))).toEqual([2073850]);
@@ -119,7 +138,7 @@ describe("applySteam", () => {
   it("lets a refreshed art read that marks a game paid beat a kept chart entry that still says free", () => {
     const finals = store.find((g) => g.appid === 2073850)!;
     const kept = { media: [], popular: [finals] };
-    const next = nextCatalog(kept, [{ ...finals, free: false }], []);
+    const next = nextCatalog(kept, [{ ...finals, free: false }], null);
     expect(appids(applySteam(profile({ lib: false }), pool, storeGames(next)))).toEqual([]);
   });
 
@@ -154,7 +173,34 @@ describe("applySteam", () => {
 
   it("says a readable library with nothing to show is empty, rather than unreadable", () => {
     expect(libraryState(profile({ size: 3 }))).toBe("none");
+    expect(libraryState(profile({ size: 3, checking: 0 }))).toBe("none");
     expect(applySteam(profile({ size: 3 }), pool, store).every((g) => g.f2p && !g.owned)).toBe(true);
+  });
+});
+
+describe("libraryState while the server is checking games", () => {
+  const profile = (over: Partial<SteamProfile> = {}): SteamProfile => ({
+    id: "0001",
+    persona: "kai_nx",
+    avatar: "",
+    hours: 0,
+    size: 3,
+    owned: [],
+    games: [],
+    lib: true,
+    ...over,
+  });
+
+  it("says the games are being checked, not that none can be played", () => {
+    expect(libraryState(profile({ checking: 2 }))).toBe("checking");
+  });
+
+  it("shows the games already found playable while the rest are checked", () => {
+    expect(libraryState(profile({ checking: 2, games: [[440, "Team Fortress 2", 3]] }))).toBe("ok");
+  });
+
+  it("still says a private library is unreadable", () => {
+    expect(libraryState(profile({ lib: false, checking: 2 }))).toBe("unreadable");
   });
 });
 
@@ -163,17 +209,24 @@ describe("nextCatalog", () => {
   const previous = { media: [bf!], popular: [cs!] };
 
   it("keeps the store data it has when both store reads fail", () => {
-    expect(nextCatalog(previous, [], [])).toEqual(previous);
+    expect(nextCatalog(previous, null, null)).toEqual(previous);
   });
 
   it("keeps the last chart when only the chart read fails, so its free games stay up", () => {
-    const next = nextCatalog(previous, [cs!], []);
+    const next = nextCatalog(previous, [cs!], null);
     expect(next).toEqual({ media: [cs], popular: [cs] });
     expect(storeGames(next).filter((g) => g.free)).not.toHaveLength(0);
   });
 
   it("keeps the last art when only the art read fails", () => {
-    expect(nextCatalog(previous, [], [bf!])).toEqual({ media: [bf], popular: [bf] });
+    expect(nextCatalog(previous, null, [bf!])).toEqual({ media: [bf], popular: [bf] });
+  });
+
+  it("drops a kept game the server no longer sends, once it answers, even with nothing", () => {
+    // Counter-Strike 2 was free on the kept chart; the server now sends neither list any game.
+    const next = nextCatalog(previous, [], []);
+    expect(next).toEqual({ media: [], popular: [] });
+    expect(storeGames(next)).toHaveLength(0);
   });
 
   it("replaces each source with whatever its read brings back", () => {
@@ -275,7 +328,10 @@ describe("sign-in", () => {
   });
 
   it("shows the wall signed out when the server signs nobody in or cannot be reached", async () => {
-    expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBeNull();
+    expect(await fetchRenter(answer(401, { error: "sign in" }) as unknown as typeof fetch)).toBe(
+      "signed-out",
+    );
+    expect(await fetchRenter(answer(503, { error: "down" }) as unknown as typeof fetch)).toBeNull();
     const offline = vi.fn(async () => Promise.reject(new TypeError("offline")));
     expect(await fetchRenter(offline as unknown as typeof fetch)).toBeNull();
   });

@@ -26,12 +26,16 @@ function ledgerCount(live: Machine[]): string {
   return owners ? `${machines} from ${owners} ${owners === 1 ? "player" : "players"}` : machines;
 }
 
-/** What the page says when the server refuses a game the renter may not play (server/src/licence.ts). */
+/**
+ * What the page says when the server refuses a game the renter may not play
+ * (server/src/licence.ts) or Swiff cannot run (server/src/playable.ts).
+ */
 export const REFUSAL_COPY: Record<Refusal, string> = {
   "not-owned":
     "You don't own this game on Steam. You play with your own Steam licence, so only games in your Steam library and free-to-play games can start.",
   "library-unreadable":
     "We can't see your Steam library, so only free-to-play games can start. In Steam, set Profile → Privacy → Game details to Public, then try again.",
+  "not-playable": "This game can't run on Swiff right now, so it's off the wall. Pick another one.",
 };
 
 /**
@@ -129,6 +133,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           <div className="mono menu-kicker">{game.personal}</div>
           <h1 className="menu-title">{game.title}</h1>
           <p className="menu-line">{game.promise}</p>
+          {game.signIn ? <p className="mono menu-signin">{game.signIn}</p> : null}
         </div>
 
         {picked && pickedMeters ? (
