@@ -1,3 +1,4 @@
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   book,
@@ -399,6 +400,20 @@ describe("claiming and ending", () => {
     expect(await claim("b-1", { fetch: ok.fetch })).toEqual(TICKET);
     const lapsed = routes({ "POST /api/bookings/b-1/claim": json(409, { status: "queued" }) });
     expect(await claim("b-1", { fetch: lapsed.fetch })).toBeNull();
+  });
+
+  it("gives a rental-mode claim its Steam sign-in deadline, counted from when it was asked", async () => {
+    vi.useFakeTimers({ now: 50_000 });
+    try {
+      const rental = routes({ "POST /api/bookings/b-1/claim": json(200, { ...TICKET, rentalMode: true }) });
+      expect(await claim("b-1", { fetch: rental.fetch })).toEqual({
+        ...TICKET,
+        rentalMode: true,
+        signInBy: 50_000 + STEAM_SIGN_IN_MS,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ends the booking and forgets it, over already or not", async () => {

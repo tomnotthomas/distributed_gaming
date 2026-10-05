@@ -22,7 +22,8 @@ import type { Swiff } from "./useSwiff";
  * renter has approved it from the Steam app: the one sign-in step there is.
  * If the PC says that sign-in stopped short, Ignition says so instead and
  * offers to try again, or another machine when the game never came up after
- * sign-in; it never goes live on it.
+ * sign-in, or to book again when the claim's sign-in time ran out; it never
+ * goes live on it.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow, lost } = swiff;
@@ -130,6 +131,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
             reason={signInFailed}
             onRetry={swiff.retrySignIn}
             onTryAnother={swiff.tryAnother}
+            onBookAgain={swiff.launch}
           />
         ) : signIn ? (
           <SteamSignIn url={signIn} />

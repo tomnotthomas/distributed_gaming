@@ -40,7 +40,9 @@
 // code is up the launch is not slow: the renter is busy with their phone.
 // Sign-in time is not billed: on a rental-mode claim, or once the PC sent a
 // `steam-login`, the session starts only on a frame after `signed-in` (or at
-// it, when a frame came first).
+// it, when a frame came first). The claim's sign-in time is capped
+// (signInBy): past it the code is gone and Try again with it, and the renter
+// books again.
 
 import { startRenterSession, type RenterSession, type RenterStats, type SteamLogin } from "@swiff/rtc";
 import type { Claim } from "./booking";
@@ -125,8 +127,12 @@ export type PlayState = {
   gaveUp: boolean;
 };
 
-/** Why a rental-mode PC's Steam sign-in stopped short; a PC that does not say counts as the sign-in. */
-export type SignInFailure = NonNullable<Extract<SteamLogin, { state: "failed" }>["reason"]>;
+/**
+ * Why a rental-mode PC's Steam sign-in stopped short; a PC that does not say
+ * counts as the sign-in. `time-up` is the page's own: the claim's sign-in time
+ * (signInBy) ran out, and the server ends the claim.
+ */
+export type SignInFailure = NonNullable<Extract<SteamLogin, { state: "failed" }>["reason"]> | "time-up";
 
 export type PlayOptions = {
   claim: Claim;
@@ -206,6 +212,9 @@ export function startPlay(opts: PlayOptions): Play {
   // Joining again while the connection is down, and giving that up.
   let rejoinTimer: ReturnType<typeof setTimeout> | undefined;
   let giveUpTimer: ReturnType<typeof setTimeout> | undefined;
+  // A resumed session signed in already.
+  const signInBy = resume ? undefined : claim.signInBy;
+  let signInTimer: ReturnType<typeof setTimeout> | undefined;
 
   const set = (next: Partial<PlayState>) => {
     state = { ...state, ...next };
@@ -239,6 +248,14 @@ export function startPlay(opts: PlayOptions): Play {
       join(true);
       armNegotiate();
     }, NEGOTIATE_TIMEOUT_MS);
+  };
+
+  /** The claim's sign-in time ran out before the renter signed in: the code and Try again are gone. */
+  const timeUp = () => {
+    if (stopped || signedIn || state.started) return;
+    clearTimeout(timer);
+    clearTimeout(startRetry);
+    set({ steamLogin: null, signInFailed: "time-up", slow: false });
   };
 
   /** Not while a Steam sign-in is pending: its time is not billed. */
@@ -371,6 +388,7 @@ export function startPlay(opts: PlayOptions): Play {
           maybeLive();
           break;
         case "steam-login":
+          if (state.signInFailed === "time-up") break;
           steamSeen = true;
           signedIn = event.state === "signed-in";
           if (!signedIn) clearTimeout(startRetry);
@@ -418,6 +436,7 @@ export function startPlay(opts: PlayOptions): Play {
   };
 
   join(false);
+  if (signInBy !== undefined) signInTimer = setTimeout(timeUp, Math.max(0, signInBy - now()));
   if (resume) {
     onChange(state);
     reconnect(RECONNECT_EVERY_MS);
@@ -426,7 +445,8 @@ export function startPlay(opts: PlayOptions): Play {
   return {
     state: () => state,
     retrySignIn() {
-      if (stopped || !state.signInFailed) return;
+      if (stopped || !state.signInFailed || state.signInFailed === "time-up") return;
+      if (signInBy !== undefined && now() >= signInBy && !state.started) return timeUp();
       session?.retrySteamLogin();
       set({ signInFailed: null });
       // A PC that never answers with a new code is slow like any other launch.
@@ -446,6 +466,7 @@ export function startPlay(opts: PlayOptions): Play {
       clearTimeout(startRetry);
       clearTimeout(rejoinTimer);
       clearTimeout(giveUpTimer);
+      clearTimeout(signInTimer);
       session?.end();
       session = null;
     },

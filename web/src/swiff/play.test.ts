@@ -1,3 +1,4 @@
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "@swiff/rtc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Claim } from "./booking";
@@ -630,6 +631,61 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
     latest().emit({ ...QR, url: "https://s.team/q/1/43" });
     expect(handle.state().steamLogin).toEqual({ ...QR, url: "https://s.team/q/1/43" });
     expect(step()).toBe("launching");
+  });
+
+  it("offers Try again until the claim's sign-in time runs out, then nothing from that claim", async () => {
+    vi.setSystemTime(0);
+    const { handle, fetch } = play(false, undefined, {
+      ...CLAIM,
+      rentalMode: true,
+      signInBy: STEAM_SIGN_IN_MS,
+    });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS - 2_000);
+    latest().emit({ type: "steam-login", state: "failed" });
+
+    // A second before the deadline the PC is still asked for a new code.
+    await vi.advanceTimersByTimeAsync(1_000);
+    handle.retrySignIn();
+    expect(latest().retries).toBe(1);
+    latest().emit({ ...QR, url: "https://s.team/q/1/43" });
+    expect(handle.state().steamLogin).toEqual({ ...QR, url: "https://s.team/q/1/43" });
+
+    // At it the code is gone, and no new one, retry or late approval starts anything.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(handle.state()).toMatchObject({ signInFailed: "time-up", steamLogin: null, slow: false });
+    handle.retrySignIn();
+    expect(latest().retries).toBe(1);
+    latest().emit({ ...QR, url: "https://s.team/q/1/44" });
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({
+      signInFailed: "time-up",
+      steamLogin: null,
+      slow: false,
+      started: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a session signed in before the claim's sign-in time ran out", async () => {
+    vi.setSystemTime(0);
+    const { handle, fetch } = play(false, undefined, {
+      ...CLAIM,
+      rentalMode: true,
+      signInBy: STEAM_SIGN_IN_MS,
+    });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(handle.state().signInFailed).toBeNull();
   });
 
   it("calls a PC that never answers a retry slow, like any launch", async () => {

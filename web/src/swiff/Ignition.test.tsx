@@ -201,6 +201,27 @@ describe("Ignition", () => {
     expect(document.querySelector('.ig-legend [data-state="now"]')).toBeNull();
   });
 
+  it("says the sign-in time ran out, and offers to book again rather than a new code", () => {
+    const retrySignIn = vi.fn();
+    const launch = vi.fn();
+    const at = (steamSignInFailed: "sign-in-timeout" | "time-up") =>
+      swiffAt(0.75, 3, { steamSignInFailed, retrySignIn, launch, slow: false });
+    // Try again was up when the time ran out.
+    const { rerender } = render(<Ignition swiff={at("sign-in-timeout")} />);
+    rerender(<Ignition swiff={at("time-up")} />);
+
+    const panel = screen.getByRole("region", { name: "Sign-in time ran out" });
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("Sign-in time ran out");
+    expect(within(panel).queryByRole("button", { name: "Try again" })).toBeNull();
+    const again = within(panel).getByRole("button", { name: "Book again" });
+    expect(again).toHaveFocus();
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+
+    fireEvent.click(again);
+    expect(launch).toHaveBeenCalledOnce();
+    expect(retrySignIn).not.toHaveBeenCalled();
+  });
+
   it("says the game didn't start when it never came up after sign-in, and offers another machine, not a new code", () => {
     const retrySignIn = vi.fn();
     const tryAnother = vi.fn();

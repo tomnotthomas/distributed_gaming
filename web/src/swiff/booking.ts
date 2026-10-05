@@ -42,7 +42,7 @@
 // for the time left, matched to the best other machine there and then, or
 // queued for one, which the page claims as it claims any booking.
 
-import type { Control, PicturePref } from "@swiff/rank";
+import { STEAM_SIGN_IN_MS, type Control, type PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
@@ -139,6 +139,12 @@ export type Claim = {
   signalingUrl: string;
   ticket: string;
   rentalMode: boolean;
+  /**
+   * On a rental-mode claim, Unix ms by which the renter must have signed in to
+   * Steam: the server ends the claim STEAM_SIGN_IN_MS after it, however often
+   * they try again. Counted from when the page asked, so never after the server's.
+   */
+  signInBy?: number;
 };
 
 const KEY = "swiff.booking";
@@ -289,6 +295,7 @@ type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined; refu
 
 async function askToClaim(bookingId: string, options: BookingOptions): Promise<ClaimAnswer> {
   const { fetch: get = fetch } = options;
+  const asked = Date.now();
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
   if (response.status >= 400 && response.status < 500) {
     const refusal = await refusalOf(response);
@@ -297,7 +304,8 @@ async function askToClaim(bookingId: string, options: BookingOptions): Promise<C
     return { refused: status };
   }
   if (!response.ok) throw new Error(`claim failed: ${response.status}`);
-  return { claim: (await response.json()) as Claim };
+  const claimed = (await response.json()) as Claim;
+  return { claim: claimed.rentalMode ? { ...claimed, signInBy: asked + STEAM_SIGN_IN_MS } : claimed };
 }
 
 /**

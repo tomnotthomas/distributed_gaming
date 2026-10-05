@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { encode } from "uqr";
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import { Glyph } from "./Glyph";
 import type { SignInFailure } from "./play";
 
@@ -55,41 +56,61 @@ export function SteamSignIn({ url }: { url: string }) {
 
 /** The failed panel's title, which Ignition also announces. */
 export const signInFailedTitle = (reason: SignInFailure): string =>
-  reason === "launch-timeout" ? "Your game didn't start" : "Sign-in didn't work";
+  reason === "launch-timeout"
+    ? "Your game didn't start"
+    : reason === "time-up"
+      ? "Sign-in time ran out"
+      : "Sign-in didn't work";
 
 /**
  * The PC's Steam sign-in stopped short, in the code's place: the game is not
  * starting. When the code was never approved, trying again asks the same PC
  * for a new code, keeping the machine. When the game never came up after
  * sign-in, a new code would not help, so it offers another machine instead.
- * Ignition's own Cancel is the way out, so there is no second one here. Focus
- * moves to the way on so it is one key away.
+ * When the claim's sign-in time ran out, the machine is gone: it offers to
+ * book again. Ignition's own Cancel is the way out, so there is no second one
+ * here. Focus moves to the way on so it is one key away.
  */
 export function SteamSignInFailed({
   reason,
   onRetry,
   onTryAnother,
+  onBookAgain,
 }: {
   reason: SignInFailure;
   onRetry: () => void;
   onTryAnother: () => void;
+  onBookAgain: () => void;
 }) {
   const action = useRef<HTMLButtonElement>(null);
-  useEffect(() => action.current?.focus(), []);
-  const launch = reason === "launch-timeout";
+  useEffect(() => action.current?.focus(), [reason]);
+  const way =
+    reason === "launch-timeout"
+      ? {
+          text: "Steam signed you in, but your game didn't come up on this machine.",
+          label: "Try another machine",
+          onClick: onTryAnother,
+        }
+      : reason === "time-up"
+        ? {
+            text: `Your ${STEAM_SIGN_IN_MS / 60_000} minutes to sign in to Steam ran out, so this machine went back.`,
+            label: "Book again",
+            onClick: onBookAgain,
+          }
+        : {
+            text: "Steam didn't finish signing you in, so your game hasn't started. Try again for a new code.",
+            label: "Try again",
+            onClick: onRetry,
+          };
 
   return (
     <section className="ig-qr" aria-labelledby="ig-qr-failed-title" data-testid="steam-sign-in-failed">
       <div className="ig-qr-copy">
         <h2 id="ig-qr-failed-title">{signInFailedTitle(reason)}</h2>
-        <p>
-          {launch
-            ? "Steam signed you in, but your game didn't come up on this machine."
-            : "Steam didn't finish signing you in, so your game hasn't started. Try again for a new code."}
-        </p>
+        <p>{way.text}</p>
         <div className="ig-qr-actions">
-          <button type="button" className="lpill" onClick={launch ? onTryAnother : onRetry} ref={action}>
-            {launch ? "Try another machine" : "Try again"}
+          <button type="button" className="lpill" onClick={way.onClick} ref={action}>
+            {way.label}
             <span className="lpill-c">
               <Glyph name="arrow" size={18} />
             </span>
