@@ -42,37 +42,45 @@ EXPECT = json.load(open(f"{FIX}/expect.json"))
 
 
 def say(status, name, detail=""):
+    """Prints one SWIFF-SELFTEST line."""
     print(f"SWIFF-SELFTEST {status} games-{name} {detail}".rstrip(), flush=True)
 
 
 def check(name, ok, detail=""):
+    """Prints PASS or FAIL for a named check."""
     say("PASS" if ok else "FAIL", name, detail)
 
 
 def run(*cmd):
+    """Runs a command and captures its output."""
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def as_renter(*cmd):
+    """Runs a command as the renter, without privileges."""
     return run("setpriv", "--reuid=renter", "--regid=renter", "--init-groups", "--no-new-privs", "--", *cmd)
 
 
 def verify(*args):
+    """Runs swiff-verify; returns its exit code and its log lines."""
     r = run(VERIFY, *args)
     detail = " | ".join(line.removeprefix("swiff-verify: ") for line in r.stderr.splitlines())
     return r.returncode, detail
 
 
 def report():
+    """The games report swiff-verify wrote at boot."""
     with open("/run/swiff/games-report.json") as f:
         return json.load(f)
 
 
 def states(rep):
+    """Each game's state in a report."""
     return {appid: g["state"] for appid, g in sorted(rep["games"].items())}
 
 
 def sha(path):
+    """A file's SHA-256, or None if it cannot be read."""
     try:
         with open(path, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
@@ -81,6 +89,7 @@ def sha(path):
 
 
 def visible(rel):
+    """True when the renter's view shows the path under steamapps."""
     return os.path.lexists(f"{GAMES}/{rel}")
 
 
@@ -94,12 +103,14 @@ def steam(stage):
 
 
 def report_checks(rep, rehash, expected):
+    """Checks the report's re-hash kind and game states."""
     got = states(rep)
     check("rehash", rep["rehash"] == rehash, f"{rep['rehash']} (resetCount {rep['previous_reset_count']} -> {rep['reset_count']}, {rep['hashed_files']} files hashed)")
     check("states", got == expected, " ".join(f"{a}={s}" for a, s in got.items()))
 
 
 def session_layer_checks(fs):
+    """Checks the library mount, the encrypted session layer and the renter's view."""
     rep = report()
     check("library-mounted", rep["library"] == {"fs": fs, "writable": True}, json.dumps(rep["library"]))
     source = run("findmnt", "-no", "SOURCE", "/run/swiff/games/session").stdout.strip()
@@ -123,6 +134,7 @@ def session_layer_checks(fs):
 
 
 def phase_bootstrap():
+    """First boot: nothing offered; the owner's bootstrap of four games is sealed."""
     session_layer_checks("ntfs3")
     report_checks(report(), "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
     check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
@@ -149,6 +161,7 @@ def phase_bootstrap():
 
 
 def phase_update():
+    """The verified view; renter updates sealed or refused, then sealing closed."""
     session_layer_checks("ntfs3")
     rep = report()
     report_checks(rep, "quick", {"1001": "verified", "1002": "verified", "1003": "verified", "1004": "verified", "1005": "not-bootstrapped"})
@@ -189,6 +202,7 @@ def phase_update():
 
 
 def phase_after_update():
+    """Only the good update was promoted."""
     rep = report()
     report_checks(rep, "quick", {"1001": "verified", "1002": "verified", "1003": "verified", "1004": "verified", "1005": "not-bootstrapped"})
     builds = {a: rep["games"][a].get("buildid") for a in ("1001", "1002", "1003")}
@@ -208,6 +222,7 @@ def phase_after_update():
 
 
 def phase_tampered():
+    """After another OS changed the library, a full re-hash blocks both games."""
     rep = report()
     report_checks(rep, "full", {"1001": "blocked", "1002": "verified", "1003": "verified", "1004": "blocked", "1005": "not-bootstrapped"})
     reasons = {a: rep["games"][a].get("reason", "") for a in ("1001", "1004")}
@@ -219,6 +234,7 @@ def phase_tampered():
 
 
 def phase_still_blocked():
+    """No other OS since: both games stay blocked."""
     rep = report()
     report_checks(rep, "quick", {"1001": "blocked", "1002": "verified", "1003": "verified", "1004": "blocked", "1005": "not-bootstrapped"})
     reason = rep["games"]["1004"].get("reason", "")
@@ -229,6 +245,7 @@ def phase_still_blocked():
 
 
 def phase_key_locked():
+    """The table key no longer unseals: every game blocked, key kept, owner bootstraps again."""
     rep = report()
     report_checks(rep, "full", {a: "blocked" for a in ("1001", "1002", "1003", "1004", "1005")})
     check("key-locked-reported", "does not unseal" in rep["table"], rep["table"])
@@ -240,6 +257,7 @@ def phase_key_locked():
 
 
 def bootstrap_bravo():
+    """The owner bootstraps Bravo again."""
     rc, detail = verify("view", "--bootstrap")
     check("rebootstrap-view", rc == 0, detail)
     steam("bootstrap")
@@ -248,6 +266,7 @@ def bootstrap_bravo():
 
 
 def phase_table_newer():
+    """A newer table version is written; the bootstrap's promotion must leave it alone."""
     rep = report()
     check("table-ok", rep["table"] == "ok", rep["table"])
     check("bravo-verified", rep["games"]["1002"]["state"] == "verified", rep["games"]["1002"]["state"])
@@ -267,6 +286,7 @@ def phase_table_newer():
 
 
 def phase_table_unreadable():
+    """The newer table was kept; the table becomes unreadable, which the bootstrap's promotion must leave alone."""
     rep = report()
     check("table-unknown-kept", rep["table"] == "the verified table has an unknown version", rep["table"])
     report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
@@ -279,6 +299,7 @@ def phase_table_unreadable():
 
 
 def phase_table_corrupt():
+    """The unreadable table was kept; a corrupt table is replaced by the owner's bootstrap."""
     rep = report()
     check("table-unreadable-kept", rep["table"] == "the verified table is unreadable", rep["table"])
     report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
@@ -294,6 +315,7 @@ def phase_table_corrupt():
 
 
 def phase_ext4():
+    """The same bootstrap on an ext4 library."""
     session_layer_checks("ext4")
     report_checks(report(), "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
     rc, detail = verify("view", "--bootstrap")

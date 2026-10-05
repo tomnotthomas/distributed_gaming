@@ -48,6 +48,7 @@ def blob(tag, size=6000, prefix=b""):
 
 
 def exe(tag):
+    """Test content that starts like a Windows program."""
     return blob(tag, 9000, b"MZ\x90\x00")
 
 
@@ -76,10 +77,12 @@ GAMES = {
 
 
 def depot(appid):
+    """A game's depot id."""
     return str(int(appid) * 10 + 1)
 
 
 def gid(appid, version):
+    """A game's manifest id for a version."""
     return str(int(appid) * 1000 + version)
 
 
@@ -89,6 +92,7 @@ def files_of(game, version):
 
 
 def varint(n):
+    """Encodes a protobuf varint."""
     out = bytearray()
     while True:
         b, n = n & 0x7F, n >> 7
@@ -98,12 +102,14 @@ def varint(n):
 
 
 def field(num, value):
+    """Encodes one protobuf field: an integer or a length-delimited value."""
     if isinstance(value, int):
         return varint(num << 3) + varint(value)
     return varint(num << 3 | 2) + varint(len(value)) + value
 
 
 def encrypt_name(name, key):
+    """Encrypts a file name the way Steam does for depot manifests."""
     iv = hashlib.md5(name.encode()).digest()
     raw = name.encode()
     pad = 16 - len(raw) % 16
@@ -117,6 +123,7 @@ def manifest(appid, version, files, encrypted=False):
     """A Steam depot manifest in depotcache's binary protobuf format."""
 
     def enc(rel):
+        """A manifest file name, Windows-separated and encrypted when the depot is."""
         name = rel.replace("/", "\\")  # a Windows depot
         return (encrypt_name(name, DEPOT_KEY) if encrypted else name).encode()
 
@@ -135,6 +142,7 @@ def manifest(appid, version, files, encrypted=False):
 
 
 def acf(appid, game, version, owner):
+    """Steam's app manifest for a game version."""
     size = sum(len(d) for d, _ in files_of(game, version).values())
     return f'''"AppState"
 {{
@@ -158,6 +166,7 @@ def acf(appid, game, version, owner):
 
 
 def put(root, rel, data):
+    """Writes a file under a root, creating its folders."""
     path = os.path.join(root, rel)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
@@ -165,6 +174,7 @@ def put(root, rel, data):
 
 
 def main(out):
+    """Writes the library, the fixtures and the tamper files."""
     shutil.rmtree(out, ignore_errors=True)
     lib, fix, tamper = (os.path.join(out, d) for d in ("library", "fixtures", "tamper"))
     sa = "steamapps"

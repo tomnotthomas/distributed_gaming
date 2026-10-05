@@ -98,23 +98,28 @@ PAYLOAD, METADATA, SIGNATURE, END = 0x71F617D0, 0x1F4812BE, 0x1B81B817, 0x32C415
 
 
 class Refused(Exception):
+    """A request swiff-verify turns down, with the reason for the log."""
     pass
 
 
 def log(msg):
+    """Prints a line to the journal."""
     print(f"swiff-verify: {msg}", file=sys.stderr, flush=True)
 
 
 def run(*cmd, **kw):
+    """Runs a command and raises if it fails."""
     return subprocess.run(cmd, check=True, **kw)
 
 
 def renter():
+    """The renter user's uid and gid."""
     pw = pwd.getpwnam("renter")
     return pw.pw_uid, pw.pw_gid
 
 
 def write_atomic(path, data, mode=0o644, owner=None):
+    """Writes a file through a temporary file and a rename, so it is never half-written."""
     tmp = path + TEMP_SUFFIX
     with open(tmp, "wb") as f:
         f.write(data)
@@ -143,6 +148,7 @@ def read_regular(path, limit=64 << 20):
 
 
 def is_dir(path):
+    """True for a real directory, not a symlink to one."""
     try:
         return stat.S_ISDIR(os.lstat(path).st_mode)
     except OSError:
@@ -212,6 +218,7 @@ def parse_vdf(text):
             i = j
 
     def obj(pos):
+        """Parses one KeyValues object starting at a token position; returns it and the next position."""
         d = {}
         while pos < len(tokens) and tokens[pos] != "}":
             key, value = tokens[pos], tokens[pos + 1]
@@ -238,6 +245,7 @@ def protobuf(buf):
     fields, i = {}, 0
 
     def varint():
+        """Reads one protobuf varint."""
         nonlocal i
         value = shift = 0
         while True:
@@ -406,6 +414,7 @@ def new_table_key():
 
 
 def mac(key, table):
+    """The table's HMAC-SHA256 over its canonical JSON."""
     return hmac.new(key, json.dumps(table, sort_keys=True, separators=(",", ":")).encode(), hashlib.sha256).hexdigest()
 
 
@@ -433,6 +442,7 @@ def load_table(key):
 
 
 def save_table(key, table):
+    """Writes the table and its HMAC to the library volume."""
     doc = {"hmac": mac(key, table), "table": table}
     write_atomic(os.path.join(VOLUME, TABLE), json.dumps(doc, sort_keys=True).encode())
 
@@ -441,10 +451,12 @@ def save_table(key, table):
 
 
 def mounted(path):
+    """True when the path is a mount point."""
     return os.path.ismount(path)
 
 
 def umount(path):
+    """Unmounts the path if mounted, lazily if it is busy."""
     if mounted(path) and subprocess.run(["umount", path]).returncode != 0:
         log(f"{path} is busy; detaching it lazily")
         run("umount", "--lazy", path)
@@ -523,6 +535,7 @@ def open_container():
 
 
 def close_container():
+    """Unmounts and closes the session layer and deletes its file, freeing the space."""
     umount(SESSION)
     if os.path.exists(f"/dev/mapper/{CRYPT_NAME}"):
         subprocess.run([CRYPTSETUP, "detach", CRYPT_NAME])
@@ -545,6 +558,7 @@ def build_view(setup, mode, verified):
     uid, gid = renter()
 
     def mkdir(rel):
+        """Creates a directory path in the view layer, owned by the renter."""
         path = VIEW
         for part in rel.split("/"):
             path = os.path.join(path, part)
@@ -553,6 +567,7 @@ def build_view(setup, mode, verified):
                 os.chown(path, uid, gid)
 
     def hide(rel):
+        """Puts a whiteout in the view layer, which hides the entry below."""
         if "/" in rel:
             mkdir(rel.rsplit("/", 1)[0])
         os.mknod(os.path.join(VIEW, rel), stat.S_IFCHR, os.makedev(0, 0))
@@ -600,6 +615,7 @@ def build_view(setup, mode, verified):
 
 
 def mount_view(setup, mode, verified):
+    """Mounts the renter's overlay at /srv/games: the view layer and the library below, the session layer on top."""
     umount(GAMES)
     build_view(setup, mode, verified)
     upper, work = os.path.join(setup["session"], "upper"), os.path.join(setup["session"], "work")
@@ -628,6 +644,7 @@ def check_app(lib, entry, full):
         return "its install folder is missing", hidden, 0
 
     def planted(path, rel):
+        """Records a tamper problem for an unknown program file."""
         if rel not in extras and is_code(path, rel):
             problems.append(f"an unknown program file appeared: {rel}")
 
@@ -664,10 +681,12 @@ def check_app(lib, entry, full):
             problems.append(f"a verified file is missing: {rel}")
 
     def stale(rel):
+        """True when a file's size or mtime differs from the table."""
         st = os.lstat(os.path.join(base, rel))
         return st.st_size != files[rel][0] or st.st_mtime_ns != files[rel][2]
 
     def rehash(rel):
+        """Hashes one file, or returns nothing when it cannot be read."""
         try:
             return hash_file(os.path.join(base, rel))
         except OSError:
@@ -717,16 +736,19 @@ def survey(setup, table, full):
 
 
 def write_report(report):
+    """Writes the games report to /run/swiff/games-report.json."""
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     write_atomic(REPORT, (json.dumps(report, indent=1, sort_keys=True) + "\n").encode())
 
 
 def load_setup():
+    """The mounts and session layer this boot's start chose."""
     with open(SETUP) as f:
         return json.load(f)
 
 
 def cmd_start(_):
+    """Boot: mounts the library, checks every game, writes the report and mounts the renter's view."""
     os.makedirs(STATE, mode=0o700, exist_ok=True)
     os.chmod(STATE, 0o700)
     setup = {"fs": None, "writable": False, "library": None, "session": None}
@@ -777,6 +799,7 @@ def cmd_start(_):
 
 
 def cmd_view(args):
+    """Mounts the view again: the verified view, or with --bootstrap the owner's library minus its manifests."""
     setup = load_setup()
     if args == ["--bootstrap"]:
         mount_view(setup, "bootstrap", {})
@@ -790,6 +813,7 @@ def cmd_view(args):
 
 
 def seal_app(appid, bootstrap, setup, table, keys, report):
+    """Checks one game as Steam just installed it against the manifests fetched this boot; returns its new table entry."""
     old = table["apps"].get(appid)
     if not bootstrap and report["games"].get(appid, {}).get("state") != "verified":
         raise Refused("it is not a verified game (the owner bootstraps new games)")
@@ -852,6 +876,7 @@ def seal_app(appid, bootstrap, setup, table, keys, report):
             raise Refused(f"{rel} is not the symlink its manifest lists")
 
     def check(rel):
+        """Hashes one file and says whether it matches its manifest or table record."""
         kind, size, digest, flags, depot = files[rel]
         try:
             got_size, sha256, sha1, _ = hash_file(os.path.join(base, rel), sha1=True)
@@ -906,6 +931,7 @@ def seal_app(appid, bootstrap, setup, table, keys, report):
 
 
 def cmd_seal(args):
+    """Seals each named game for promotion at shutdown, unless sealing is closed for this boot."""
     bootstrap = "--bootstrap" in args
     appids = [a for a in args if a != "--bootstrap"]
     if not appids or not all(a.isdigit() for a in appids):
@@ -933,6 +959,7 @@ def cmd_seal(args):
 
 
 def cmd_close_seal(_):
+    """Closes sealing for the rest of this boot, before anything the user drives can run."""
     os.makedirs(STATE, mode=0o700, exist_ok=True)
     open(SEAL_CLOSED, "a").close()
 
@@ -970,6 +997,7 @@ def session_copy(path):
 
 
 def promote_app(appid, entry, setup, table, key, verified_at_boot):
+    """Copies a sealed game's verified files onto the library and records them in the table."""
     upper = os.path.join(setup["session"], "upper", "steamapps")
     apps = os.path.join(setup["library"], "steamapps")
     base = os.path.join(apps, "common", entry["installdir"])
@@ -1054,6 +1082,7 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
 
 
 def cmd_stop(_):
+    """Shutdown: promotes sealed games, then always erases the session layer and unmounts the library."""
     try:
         setup = load_setup()
     except FileNotFoundError:
@@ -1071,6 +1100,7 @@ def cmd_stop(_):
 
 
 def promote_all(setup):
+    """Promotes every sealed game whose table may be written, logging each that is not promoted."""
     cands = {}
     if setup["writable"] and os.path.isdir(SEALED):
         for name in sorted(os.listdir(SEALED)):
@@ -1102,6 +1132,7 @@ def promote_all(setup):
 
 
 def cmd_report(_):
+    """Prints the games report."""
     with open(REPORT) as f:
         sys.stdout.write(f.read())
 

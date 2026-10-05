@@ -164,8 +164,10 @@ bootstrap is the only thing that seals a new key: the new table then holds just 
 A table that cannot be read (an I/O error, or not a regular file) or that has a newer version than
 this OS, as after a rollback to the other slot, is kept as it is: every game shows as not
 bootstrapped, nothing is promoted, not even the owner's bootstrap, and the next boot hashes in full.
-A table that fails its integrity check, including corrupt JSON, is not kept: a renter's update is
-refused, and the owner's bootstrap replaces it with a table of just the games it validated.
+A table that fails its integrity check, including corrupt JSON, is not kept: the next boot replaces
+it with an empty table, so every game shows as not bootstrapped until the owner bootstraps it again.
+If it turns bad while rental mode runs, a renter's update is refused, and the owner's bootstrap
+replaces it with a table of just the games it validated.
 
 ### At every boot
 
