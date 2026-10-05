@@ -284,8 +284,11 @@ const rooms = new Map<string, Room>();
  */
 const revokedTickets = new Map<string, number>();
 
-/** A booking's ticket runs for its minutes from the claim, so none outlives its revocation by more. */
-const REVOCATION_KEPT_MS = MAX_MINUTES * 60_000;
+/**
+ * A booking's ticket runs for its minutes from the claim, twice that on a
+ * rental-mode PC (api.ts), so none outlives its revocation by more.
+ */
+const REVOCATION_KEPT_MS = 2 * MAX_MINUTES * 60_000;
 
 /** Record that `ticketId` is revoked. */
 function revoke(ticketId: string): void {
