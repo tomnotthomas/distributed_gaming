@@ -152,7 +152,8 @@ function handshake(socket, token, side) {
           send({ proof: proofOf(theirs, side).toString("hex") });
           continue;
         }
-        const proof = theirs !== null && typeof msg?.proof === "string" ? Buffer.from(msg.proof, "hex") : null;
+        const proof =
+          theirs !== null && typeof msg?.proof === "string" ? Buffer.from(msg.proof, "hex") : null;
         const expected = proofOf(mine, PEER[side]);
         if (!proof || proof.length !== expected.length || !crypto.timingSafeEqual(proof, expected))
           return fail();

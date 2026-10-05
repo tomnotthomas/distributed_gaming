@@ -799,7 +799,11 @@ describe("the worker's pipe", () => {
           c.send({ ok: true });
           c.listen(({ id, op }) => {
             c.send({ id, progress: { what: "x", done: 1, total: 2 } });
-            c.send(op.op === "restart" ? { id, ok: false, error: "no" } : { id, ok: true, result: { echo: op.op } });
+            c.send(
+              op.op === "restart"
+                ? { id, ok: false, error: "no" }
+                : { id, ok: true, result: { echo: op.op } },
+            );
           });
         });
       },

@@ -103,7 +103,9 @@ function shown(p, codeFile = null, files = fs) {
  */
 function mustShowCode(p, opts) {
   if (p.mok && !opts["code-file"] && !opts["dry-run"])
-    throw new Error("This plan has a one-time key code, which is shown only in a file: give --code-file <file>.");
+    throw new Error(
+      "This plan has a one-time key code, which is shown only in a file: give --code-file <file>.",
+    );
 }
 
 /** A dry run's operations as an answer shows them: without any key code. */
