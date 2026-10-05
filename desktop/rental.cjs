@@ -702,16 +702,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
     ]),
   );
   // Windows' own drive: BitLocker on it would ask for its recovery key after the firmware changes.
-  if (facts.volumes.find((v) => v.letter === "C")?.bitlocker === "on") {
-    steps.push(
-      step(
-        "bitlocker",
-        `Suspend BitLocker on C: for the next ${BITLOCKER_RESTARTS} restarts`,
-        [{ op: "bitlocker-suspend", letter: "C", restarts: BITLOCKER_RESTARTS }],
-        "C: stays encrypted, but its key is left open for the restarts ahead. Have your BitLocker recovery key at hand.",
-      ),
-    );
-  }
+  if (bitlockerOn(rental)) steps.push(bitlockerStep(BITLOCKER_RESTARTS));
   if (facts.fastStartup !== false) {
     steps.push(
       step("fast-startup", "Turn off Fast Startup so Swiff OS can read your drives", [
@@ -798,6 +789,22 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   return { kind: "install", target, steps, mok: { code } };
 }
 
+/** BitLocker protects C:, Windows' own drive. */
+const bitlockerOn = (rental) => rental?.facts.volumes.find((v) => v.letter === "C")?.bitlocker === "on";
+
+/**
+ * Suspend BitLocker on C: for `restarts` restarts: a start that goes through
+ * shim and on into Windows in the same power-on (Continue boot at MokManager)
+ * changes PCR 7, and BitLocker would ask for its recovery key.
+ */
+const bitlockerStep = (restarts) =>
+  step(
+    "bitlocker",
+    `Suspend BitLocker on C: for the next ${restarts} restarts`,
+    [{ op: "bitlocker-suspend", letter: "C", restarts }],
+    "C: stays encrypted, but its key is left open for the restarts ahead. Have your BitLocker recovery key at hand.",
+  );
+
 /** The firmware variable's PowerShell name: MokNew-605dab50-…. */
 const mokVar = (name) => `${name}-${SHIM_LOCK}`;
 
@@ -829,11 +836,17 @@ function mokSteps(code) {
 
 /**
  * Confirm Swiff's key again, once installed: after a missed blue screen, the
- * same request with a new code. Whether the key is enrolled cannot be read
- * from Windows: shim publishes MokListRT only to the system it starts.
+ * same request with a new code, BitLocker on C: suspended for its restart and
+ * the one after (`rental`, the PC's read, says whether it is on). Whether the
+ * key is enrolled cannot be read from Windows: shim publishes MokListRT only
+ * to the system it starts.
  */
-function mokPlan(code = mokCode()) {
-  return { kind: "mok", steps: mokSteps(code), mok: { code } };
+function mokPlan(code = mokCode(), rental = null) {
+  return {
+    kind: "mok",
+    steps: [...(bitlockerOn(rental) ? [bitlockerStep(2)] : []), ...mokSteps(code)],
+    mok: { code },
+  };
 }
 
 /**
@@ -900,14 +913,16 @@ function uninstallPlan(rental) {
 
 /**
  * Ask the PC to stop trusting Swiff's key: MokManager removes it once the
- * owner confirms at the PC with a new code, as they confirmed it in. shim and
+ * owner confirms at the PC with a new code, as they confirmed it in (BitLocker
+ * suspended as for mokPlan). shim and
  * MokManager live on Swiff OS's boot partition, so this runs while Swiff OS
  * is still installed, before the uninstall.
  */
-function keyRemovalPlan(code = mokCode()) {
+function keyRemovalPlan(code = mokCode(), rental = null) {
   return {
     kind: "unkey",
     steps: [
+      ...(bitlockerOn(rental) ? [bitlockerStep(2)] : []),
       step("mok-remove", "Make a one-time code to remove Swiff's key", [
         { op: "mok-delete", cert: MOK_CERT, code },
         { op: "boot-next", entry: "swiff" },

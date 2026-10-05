@@ -225,13 +225,13 @@ export function mokRequest(
   code: string,
 ): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer; MokTimeout: Buffer };
 export function mokSteps(code: string): PlanStep[];
-export function mokPlan(code?: string): RentalPlan;
+export function mokPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 export function installPlan(
   rental: RentalRead,
   options?: { target?: string | null; layout?: LayoutPartition[]; code?: string },
 ): RentalPlan;
 export function uninstallPlan(rental: RentalRead): RentalPlan;
-export function keyRemovalPlan(code?: string): RentalPlan;
+export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
 export function shellOf(op: PlanOp): string[] | null;
 export function commandsOf(op: PlanOp): string[];

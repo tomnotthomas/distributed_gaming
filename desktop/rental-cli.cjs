@@ -26,6 +26,7 @@ const fs = require("node:fs");
 const readline = require("node:readline");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
 const { readImageSet } = require("./image-set.cjs");
+const { bootTrail } = require("./rental-key.cjs");
 const {
   installPlan,
   keyRemovalPlan,
@@ -50,8 +51,8 @@ function flags(args) {
 
 async function plan(kind, { image, target = null }) {
   if (kind === "once" || kind === "start" || kind === "stop") return switchPlan(kind);
-  if (kind === "mok") return mokPlan();
-  if (kind === "unkey") return keyRemovalPlan();
+  if (kind === "mok") return mokPlan(undefined, await readRental());
+  if (kind === "unkey") return keyRemovalPlan(undefined, await readRental());
   const rental = await readRental();
   if (!rental) throw new Error("This PC could not be read.");
   if (kind === "uninstall") return uninstallPlan(rental);
@@ -100,7 +101,8 @@ async function* follow(file) {
 
 async function main([cmd, ...rest]) {
   const opts = flags(rest);
-  if (cmd === "read") return say({ read: await readRental() });
+  // With this start's boot trail (rental-key.cjs): what ran before Windows, for the VM test.
+  if (cmd === "read") return say({ read: await readRental(), trail: bootTrail() });
   if (cmd === "run") {
     const p = await plan(opts._[0], { image: opts.image, target: opts.target });
     say({ plan: shown(p) });

@@ -171,8 +171,9 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   let plan = null;
   try {
     if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
-    else if (ask.kind === "mok") plan = mokPlan();
-    else if (ask.kind === "unkey") plan = keyRemovalPlan();
+    // The key's restarts suspend BitLocker on C: when it is on: the read says.
+    else if (ask.kind === "mok") plan = mokPlan(undefined, await readRental());
+    else if (ask.kind === "unkey") plan = keyRemovalPlan(undefined, await readRental());
     else if (ask.kind === "install" || ask.kind === "uninstall") {
       const rental = await readRental();
       if (!rental) return null;

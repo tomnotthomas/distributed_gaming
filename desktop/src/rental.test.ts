@@ -605,6 +605,13 @@ describe("Swiff's key, enrolled once as a MOK", () => {
     expect(mokPlan().mok!.code).toMatch(/^\d{8}$/);
   });
 
+  it("suspends BitLocker on C: for the key's restart and the one after, when it is on", () => {
+    const locked = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })) }));
+    for (const plan of [mokPlan("11112222", locked), keyRemovalPlan("11112222", locked)])
+      expect(plan.steps[0]!.ops).toEqual([{ op: "bitlocker-suspend", letter: "C", restarts: 2 }]);
+    expect(mokPlan("11112222", pc()).steps.map((s) => s.id)).toEqual(["mok", "mok-restart"]);
+  });
+
   it("makes a new 8-digit code for each plan", () => {
     expect(installPlan(pc()).mok!.code).toMatch(/^\d{8}$/);
     let n = 0;
