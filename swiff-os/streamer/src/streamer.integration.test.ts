@@ -337,7 +337,7 @@ describe("swiff-streamer against the server", () => {
         agentSays({ event: "failed", reason: "sign-in-timeout", atMs: 600_000 });
         plays[0]!.conn.end();
         await until(() => steam().length === 2, "the failure at the renter");
-        expect(steam()[1]).toEqual({ type: "steam-login", state: "failed" });
+        expect(steam()[1]).toEqual({ type: "steam-login", state: "failed", reason: "sign-in-timeout" });
         send({ type: "steam-login", state: "retry" });
         await until(() => plays.length === 2, "the fresh Play after the retry");
         expect(plays[1]!.command).toBe("play 730\n");
