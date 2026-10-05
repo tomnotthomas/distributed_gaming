@@ -1,0 +1,325 @@
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { NEUTRAL_GAMEPAD } from "@swiff/rtc";
+import { KEYBOARD_KEYS, linuxKey } from "./keymap";
+import { createUinputSink, DEVICE, RECORD_BYTES } from "./uinputEvents";
+
+type Ev = [device: number, type: number, code: number, value: number];
+
+/** Every event a sink wrote, decoded from the records. */
+function recorder() {
+  const events: Ev[] = [];
+  const batches: Buffer[] = [];
+  // What the helper's pipe answers: false is Node's "buffer full, wait for drain".
+  const pipe = { full: false };
+  const sink = createUinputSink((buf) => {
+    batches.push(buf);
+    for (let at = 0; at < buf.length; at += RECORD_BYTES)
+      events.push([
+        buf.readUInt8(at),
+        buf.readUInt16LE(at + 1),
+        buf.readUInt16LE(at + 3),
+        buf.readInt32LE(at + 5),
+      ]);
+    return !pipe.full;
+  });
+  return { sink, events, batches, pipe };
+}
+
+const SYN = (device: number): Ev => [device, 0, 0, 0];
+
+describe("keymap", () => {
+  it("maps physical keys to Linux keys, whatever the renter's layout", () => {
+    expect(linuxKey("KeyW")).toBe(17);
+    expect(linuxKey("KeyZ")).toBe(44);
+    expect(linuxKey("Space")).toBe(57);
+    expect(linuxKey("ShiftLeft")).toBe(42);
+    expect(linuxKey("IntlBackslash")).toBe(86);
+    expect(linuxKey("F12")).toBe(88);
+    expect(linuxKey("ArrowUp")).toBe(103);
+  });
+
+  it("refuses the keys that would act on the PC rather than the game", () => {
+    // Power and Sleep switch the PC off through logind; PrintScreen is SysRq.
+    for (const code of ["Power", "Sleep", "WakeUp", "PrintScreen", "Eject", "BrowserHome", "toString"])
+      expect(linuxKey(code)).toBeNull();
+    for (const key of [116, 142, 143, 99]) expect(KEYBOARD_KEYS).not.toContain(key);
+  });
+});
+
+describe("createUinputSink under backpressure", () => {
+  it("stops writing once the pipe is full, however much the renter sends", () => {
+    const { sink, batches, pipe } = recorder();
+    pipe.full = true;
+    sink.moveBy(1, 1); // this one is buffered by Node and fills the pipe
+    const before = batches.length;
+    for (let i = 0; i < 10_000; i++) {
+      sink.moveBy(3, 4);
+      sink.move(i / 10_000, 0.5);
+      sink.gamepad(0, { ...NEUTRAL_GAMEPAD, axes: [i / 10_000, 0, 0, 0] });
+      sink.key("KeyW", i % 2 === 0);
+    }
+    expect(batches.length).toBe(before);
+  });
+
+  it("catches up on drain with only what changed: every release lands, stale motion does not", () => {
+    const { sink, events, pipe } = recorder();
+    sink.key("KeyA", true); // held before the pipe filled
+    pipe.full = true;
+    sink.key("ShiftLeft", true); // fills the pipe
+    events.length = 0;
+    sink.key("KeyA", false); // released while full
+    sink.key("KeyD", true); // pressed while full
+    sink.key("KeyQ", true); // tapped while full: gone by the time it clears
+    sink.key("KeyQ", false);
+    sink.button(0, true);
+    sink.moveBy(50, 50); // stale
+    sink.move(0.25, 0.75);
+    sink.move(0.5, 0.5); // only the last position matters
+    sink.gamepad(1, { ...NEUTRAL_GAMEPAD, buttons: 1 });
+    expect(events).toEqual([]);
+    pipe.full = false;
+    sink.drained();
+    const kb = DEVICE.keyboard;
+    expect(events.filter(([, type]) => type !== 0)).toEqual([
+      [kb, 1, 30, 0], // KeyA up
+      [kb, 1, 32, 1], // KeyD down
+      [DEVICE.mouse, 1, 0x110, 1], // left button
+      [DEVICE.pointer, 3, 0, 32768],
+      [DEVICE.pointer, 3, 1, 32768],
+      ...events.filter(([d, t]) => d === DEVICE.gamepad0 + 1 && t !== 0),
+    ]);
+    expect(events).toContainEqual([DEVICE.gamepad0 + 1, 1, 0x130, 1]);
+    expect(events.some(([, type]) => type === 2)).toBe(false); // no relative motion replayed
+  });
+
+  it("presses again what is held when the helper restarts with fresh devices", () => {
+    const { sink, events } = recorder();
+    sink.key("KeyW", true);
+    sink.gamepad(0, { ...NEUTRAL_GAMEPAD, buttons: 1 });
+    events.length = 0;
+    sink.reset();
+    expect(events).toContainEqual([DEVICE.keyboard, 1, 17, 1]);
+    expect(events).toContainEqual([DEVICE.gamepad0, 1, 0x130, 1]);
+  });
+});
+
+describe("createUinputSink", () => {
+  it("writes each call as one batch ending in SYN_REPORT", () => {
+    const { sink, events, batches } = recorder();
+    sink.key("KeyW", true);
+    sink.key("KeyW", false);
+    sink.button(2, true);
+    sink.moveBy(5, -3);
+    expect(batches).toHaveLength(4);
+    expect(events).toEqual([
+      [DEVICE.keyboard, 1, 17, 1], SYN(DEVICE.keyboard),
+      [DEVICE.keyboard, 1, 17, 0], SYN(DEVICE.keyboard),
+      [DEVICE.mouse, 1, 0x111, 1], SYN(DEVICE.mouse), // right button
+      [DEVICE.mouse, 2, 0, 5], [DEVICE.mouse, 2, 1, -3], SYN(DEVICE.mouse),
+    ]); // prettier-ignore
+  });
+
+  it("drops a key it does not map, rather than guessing", () => {
+    const { sink, batches } = recorder();
+    sink.key("Power", true);
+    expect(batches).toHaveLength(0);
+  });
+
+  /** The keys a sequence of presses and releases sends, as [linux code, value]. */
+  function keysSent(steps: [code: string, down: boolean][]) {
+    const { sink, events } = recorder();
+    for (const [code, down] of steps) sink.key(code, down);
+    return events.filter(([, type]) => type === 1).map(([, , code, value]) => [code, value]);
+  }
+  const CTRL = 29,
+    ALT = 56,
+    DEL = 111,
+    F2 = 60,
+    F4 = 62;
+
+  it("drops Ctrl+Alt+Delete, press and release, and sends the modifiers", () => {
+    expect(keysSent([
+      ["ControlLeft", true], ["AltLeft", true], ["Delete", true], ["Delete", false],
+      ["AltLeft", false], ["ControlLeft", false],
+    ])).toEqual([[CTRL, 1], [ALT, 1], [ALT, 0], [CTRL, 0]]); // prettier-ignore
+    expect(keysSent([["ControlRight", true], ["AltRight", true], ["NumpadDecimal", true]])).toEqual([
+      [97, 1], [100, 1],
+    ]); // prettier-ignore
+  });
+
+  it("drops the console switches: Ctrl+Alt+F2, Alt+F4, Alt+Left", () => {
+    expect(keysSent([["ControlLeft", true], ["AltLeft", true], ["F2", true], ["F2", false]])).toEqual([
+      [CTRL, 1], [ALT, 1],
+    ]); // prettier-ignore
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["F4", true],
+        ["F4", false],
+      ]),
+    ).toEqual([[ALT, 1]]);
+    expect(
+      keysSent([
+        ["AltRight", true],
+        ["F24", true],
+      ]),
+    ).toEqual([[100, 1]]);
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["ArrowLeft", true],
+      ]),
+    ).toEqual([[ALT, 1]]);
+  });
+
+  it("still sends F-keys, Delete and Ctrl or Alt alone", () => {
+    expect(
+      keysSent([
+        ["F2", true],
+        ["F2", false],
+      ]),
+    ).toEqual([
+      [F2, 1],
+      [F2, 0],
+    ]);
+    expect(keysSent([["ControlLeft", true], ["F2", true], ["F2", false]])).toEqual([
+      [CTRL, 1], [F2, 1], [F2, 0],
+    ]); // prettier-ignore
+    expect(
+      keysSent([
+        ["Delete", true],
+        ["Delete", false],
+      ]),
+    ).toEqual([
+      [DEL, 1],
+      [DEL, 0],
+    ]);
+    expect(
+      keysSent([
+        ["ControlLeft", true],
+        ["Delete", true],
+      ]),
+    ).toEqual([
+      [CTRL, 1],
+      [DEL, 1],
+    ]);
+    expect(
+      keysSent([
+        ["AltLeft", true],
+        ["KeyA", true],
+      ]),
+    ).toEqual([
+      [ALT, 1],
+      [30, 1],
+    ]);
+  });
+
+  it("pairs every release with a press that was sent", () => {
+    // Pressed before Alt: sent, so released normally, even while Alt is down.
+    expect(keysSent([["F4", true], ["AltLeft", true], ["F4", true], ["F4", false]])).toEqual([
+      [F4, 1], [ALT, 1], [F4, 1], [F4, 0],
+    ]); // prettier-ignore
+    // Dropped with Alt down: its release stays dropped after Alt goes up, and
+    // the next press, now alone, is sent.
+    expect(keysSent([
+      ["AltLeft", true], ["F4", true], ["AltLeft", false], ["F4", true], ["F4", false], ["F4", true],
+    ])).toEqual([[ALT, 1], [ALT, 0], [F4, 1]]); // prettier-ignore
+  });
+
+  it("puts an absolute move on the pointer, across 0..65535", () => {
+    const { sink, events } = recorder();
+    sink.move(0.5, 1.2);
+    expect(events).toEqual([
+      [DEVICE.pointer, 3, 0, 32768],
+      [DEVICE.pointer, 3, 1, 65535],
+      SYN(DEVICE.pointer),
+    ]);
+  });
+
+  it("turns the DOM's wheel into Linux's: up is positive, and whole notches add up", () => {
+    const { sink, events } = recorder();
+    sink.wheel(0, 60); // half a notch down
+    sink.wheel(0, 60); // the other half
+    expect(events).toEqual([
+      [DEVICE.mouse, 2, 11, -60], SYN(DEVICE.mouse),
+      [DEVICE.mouse, 2, 11, -60], [DEVICE.mouse, 2, 8, -1], SYN(DEVICE.mouse),
+    ]); // prettier-ignore
+  });
+
+  it("sends a controller's whole state to its own device, an Xbox 360 layout", () => {
+    const { sink, events } = recorder();
+    // A held, d-pad left, left stick full right, right trigger half.
+    sink.gamepad(1, { buttons: (1 << 0) | (1 << 14), axes: [1, 0, 0, -1], triggers: [0, 0.5] });
+    const pad = events.filter(([d]) => d === DEVICE.gamepad0 + 1);
+    expect(pad).toContainEqual([4, 1, 0x130, 1]); // BTN_SOUTH
+    expect(pad).toContainEqual([4, 1, 0x131, 0]); // BTN_EAST
+    expect(pad).toContainEqual([4, 3, 0, 32767]); // ABS_X
+    expect(pad).toContainEqual([4, 3, 4, -32767]); // ABS_RY
+    expect(pad).toContainEqual([4, 3, 5, 128]); // ABS_RZ
+    expect(pad).toContainEqual([4, 3, 16, -1]); // ABS_HAT0X
+    expect(pad.at(-1)).toEqual(SYN(4));
+  });
+
+  it("releases a controller by sending it neutral, and ignores one past the fourth", () => {
+    const { sink, events } = recorder();
+    sink.gamepad(4, { ...NEUTRAL_GAMEPAD, buttons: 1 });
+    expect(events).toHaveLength(0);
+    sink.gamepad(0, NEUTRAL_GAMEPAD);
+    expect(events.filter(([, type, , value]) => type !== 0 && value !== 0)).toHaveLength(0);
+  });
+});
+
+// The helper reads what the sink writes: one format, two languages. Run it in
+// dry-run mode (no /dev/uinput, no root) and check it saw the same events.
+const HELPER = join(fileURLToPath(new URL(".", import.meta.url)), "..", "helpers", "swiff-uinput.py");
+const python = spawnSync("python3", ["--version"]).status === 0;
+
+describe.skipIf(!python)("swiff-uinput.py", () => {
+  it("replays the sink's records on the devices they name, and only what each device can do", () => {
+    const { sink, batches } = recorder();
+    sink.key("KeyA", true);
+    sink.button(0, true);
+    sink.gamepad(0, { ...NEUTRAL_GAMEPAD, buttons: 1 << 3 });
+    const out = spawnSync("python3", [HELPER, "--keys", KEYBOARD_KEYS.join(","), "--dry-run"], {
+      input: Buffer.concat(batches),
+      encoding: "utf8",
+    });
+    expect(out.status).toBe(0);
+    const lines = out.stdout.trim().split("\n");
+    expect(lines.slice(0, 3)).toEqual([
+      "create Swiff virtual keyboard",
+      "create Swiff virtual mouse",
+      "create Swiff virtual pointer",
+    ]);
+    expect(lines).toContain("Swiff virtual keyboard 1 30 1");
+    expect(lines).toContain("Swiff virtual mouse 1 272 1");
+    // A controller appears only once the renter uses one.
+    expect(lines.indexOf("create Microsoft X-Box 360 pad")).toBeGreaterThan(
+      lines.indexOf("Swiff virtual mouse 1 272 1"),
+    );
+    expect(lines).toContain("Microsoft X-Box 360 pad 1 308 1"); // Y is BTN_WEST
+    expect(lines.slice(-4)).toEqual([
+      "destroy Swiff virtual keyboard",
+      "destroy Swiff virtual mouse",
+      "destroy Swiff virtual pointer",
+      "destroy Microsoft X-Box 360 pad",
+    ]);
+  });
+
+  it("drops events a device was not given, such as a key the keymap leaves out", () => {
+    const records = Buffer.alloc(9);
+    records.writeUInt8(0, 0);
+    records.writeUInt16LE(1, 1);
+    records.writeUInt16LE(116, 3); // KEY_POWER
+    records.writeInt32LE(1, 5);
+    const out = spawnSync("python3", [HELPER, "--keys", KEYBOARD_KEYS.join(","), "--dry-run"], {
+      input: records,
+      encoding: "utf8",
+    });
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain(" 1 116 ");
+  });
+});

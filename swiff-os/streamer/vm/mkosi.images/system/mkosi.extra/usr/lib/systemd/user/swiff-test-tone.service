@@ -1,0 +1,14 @@
+# Stands in for the game's sound: a tone played to the session's default sink.
+[Unit]
+Description=Test tone into the session (VM test)
+ConditionUser=renter
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+ExecStart=/usr/bin/gst-launch-1.0 -q audiotestsrc is-live=true wave=sine freq=440 volume=0.2 ! audioconvert ! pipewiresink
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target

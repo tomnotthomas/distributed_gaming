@@ -1,0 +1,20 @@
+# A user unit, for the renter's own manager: once the renter's PipeWire is up,
+# let the streamer's user connect to it (swiff-pipewire-grant).
+#
+# The ACL belongs to one socket file. Whenever pipewire.socket makes a new one
+# (a restart, or a stop and start), this runs again: PartOf= restarts it with
+# the socket, and WantedBy=pipewire.socket starts it whenever the socket starts.
+[Unit]
+Description=Let the Swiff streamer capture this session
+ConditionUser=renter
+After=pipewire.socket
+Requires=pipewire.socket
+PartOf=pipewire.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/swiff-pipewire-grant
+
+[Install]
+WantedBy=default.target pipewire.socket
