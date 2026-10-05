@@ -163,7 +163,7 @@ export type CatalogGame = {
 };
 
 /** What the game page says about a launcher account the game asks for: "Needs your Ubisoft sign-in". */
-export const signInNote = (game: CatalogGame): string | undefined =>
+export const signInNote = (game: Pick<CatalogGame, "requiresAccount">): string | undefined =>
   game.requiresAccount ? `Needs your ${game.requiresAccount.name} sign-in` : undefined;
 
 const mediaOf = (game: CatalogGame): GameMedia => ({

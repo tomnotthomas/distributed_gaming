@@ -55,6 +55,7 @@ import {
   popularCards,
   readSteamFragment,
   refreshRenter,
+  signInNote,
   withMedia,
   storeGames,
   type Renter,
@@ -278,7 +279,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /** Take the server's word on the hand-authored nine from a popular read. */
   const vouch = useCallback(
     (popular: Popular | null) => {
-      if (popular && !demo) vouched.current = new Set(popular.wall);
+      if (popular && !demo) vouched.current = new Set(popular.wall.map((entry) => entry.appid));
     },
     [demo],
   );
@@ -335,7 +336,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         void fetchPopular().then((popular) => {
           vouch(popular);
           const catalog = popular?.games ?? [];
-          const curated = GAMES.filter((g) => !vouched.current || vouched.current.has(g.appid));
+          const accounts = new Map(popular?.wall.map((entry) => [entry.appid, entry]));
+          const curated = GAMES.filter((g) => !vouched.current || vouched.current.has(g.appid)).map((g) => {
+            const entry = accounts.get(g.appid);
+            return entry ? { ...g, signIn: signInNote(entry) } : g;
+          });
           if (!catalog.length && (demo || !popular)) return;
           const cards = catalog.length ? popularCards(catalog, sharedMachineIds) : curated;
           setGames((prev) => {

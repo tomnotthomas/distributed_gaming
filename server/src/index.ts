@@ -630,7 +630,7 @@ async function answerSession(
 
 /**
  * The game catalog: Steam's most played games for the signed-out wall, with
- * which of the wall's own nine (`wall`, appids) the page may stand in when
+ * which of the wall's own nine (`wall`, by appid with its launcher account) the page may stand in when
  * Steam is down, and names plus trailers for any appids (a signed-in library),
  * only ever games Swiff can run (playable.ts), each with the launcher account
  * it asks for at start. Keyless and cached in catalog.ts; a Steam outage
@@ -642,7 +642,12 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
   let extra = {};
   if (urlPath === "/api/games/popular") {
     games = popularGames(undefined, playable);
-    extra = { wall: WALL_APPIDS.filter(playable) };
+    extra = {
+      wall: withAccounts(
+        WALL_APPIDS.filter(playable).map((appid) => ({ appid })),
+        playability,
+      ),
+    };
   } else if (urlPath === "/api/games/media") {
     games = gamesMedia((query.get("appids") ?? "").split(",").map(Number), playable);
   } else return false;

@@ -76,7 +76,8 @@ function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string,
       const url = new URL(path, "http://localhost");
       if (url.pathname === "/api/me") return renter ? json(renter) : json({}, 404);
       if (url.pathname === "/api/ping") return new Response(null, { status: 204 });
-      if (url.pathname === "/api/games/popular") return json({ games: [], wall: [730, 2073850] });
+      if (url.pathname === "/api/games/popular")
+        return json({ games: [], wall: [{ appid: 730 }, { appid: 2073850 }] });
       if (url.pathname === "/api/availability") {
         if (!renter) return json({ error: "sign in with Steam first" }, 401);
         const appids = url.searchParams.get("appids")!.split(",").map(Number);
@@ -252,7 +253,7 @@ describe("useSwiff", () => {
       const chart = { appid: 292030, name: "The Witcher 3", free: false, art: { hero: null, capsule: null } };
 
       it("shows a signed-out visitor nothing until the server answers, then the chart it sent", async () => {
-        serve(null, {}, { "GET /api/games/popular": json(200, { games: [chart], wall: [730] }) });
+        serve(null, {}, { "GET /api/games/popular": json(200, { games: [chart], wall: [{ appid: 730 }] }) });
         const { result } = renderHook(() => useSwiff({ demo: false }));
         expect(result.current.games).toEqual([]);
         await waitFor(() => expect(appidsOf(result.current.games)).toEqual([292030]));
@@ -262,6 +263,25 @@ describe("useSwiff", () => {
         serve(null);
         const { result } = renderHook(() => useSwiff({ demo: false }));
         await waitFor(() => expect(appidsOf(result.current.games)).toEqual([730, 2073850]));
+      });
+
+      it("names the launcher account on a hand-authored game standing in for the chart", async () => {
+        const psn = { launcher: "psn", name: "PlayStation Network" };
+        serve(
+          null,
+          {},
+          {
+            "GET /api/games/popular": json(200, {
+              games: [],
+              wall: [{ appid: 730, requiresAccount: psn }, { appid: 2073850 }],
+            }),
+          },
+        );
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([730, 2073850]));
+        const signIn = (appid: number) => result.current.games.find((g) => g.appid === appid)?.signIn;
+        expect(signIn(730)).toBe("Needs your PlayStation Network sign-in");
+        expect(signIn(2073850)).toBeUndefined();
       });
 
       it("shows nothing it has not heard about from the server", async () => {
@@ -280,7 +300,11 @@ describe("useSwiff", () => {
       });
 
       it("leaves a free-to-play game it does not vouch for off a signed-in renter's wall", async () => {
-        serve(unnamed, {}, { "GET /api/games/popular": json(200, { games: [], wall: [2073850] }) });
+        serve(
+          unnamed,
+          {},
+          { "GET /api/games/popular": json(200, { games: [], wall: [{ appid: 2073850 }] }) },
+        );
         const { result } = renderHook(() => useSwiff({ demo: false }));
         await waitFor(() => expect(appidsOf(result.current.games)).toEqual([2073850]));
       });

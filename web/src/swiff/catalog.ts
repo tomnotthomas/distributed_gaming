@@ -7,9 +7,10 @@ import type { CatalogGame } from "./steam";
 
 /**
  * The signed-out wall's read: Steam's most played games Swiff can run, and
- * which of the wall's hand-authored nine (data.ts) it can run, by appid.
+ * which of the wall's hand-authored nine (data.ts) it can run, by appid, each
+ * with the launcher account it asks for at start.
  */
-export type Popular = { games: CatalogGame[]; wall: number[] };
+export type Popular = { games: CatalogGame[]; wall: Pick<CatalogGame, "appid" | "requiresAccount">[] };
 
 async function getBody(path: string): Promise<any> {
   const response = await fetch(path);
@@ -24,7 +25,7 @@ export const fetchPopular = (): Promise<Popular | null> =>
   getBody("/api/games/popular")
     .then((body) => ({
       games: gamesOf(body),
-      wall: Array.isArray(body?.wall) ? body.wall.filter(Number.isInteger) : [],
+      wall: Array.isArray(body?.wall) ? body.wall.filter((entry: any) => Number.isInteger(entry?.appid)) : [],
     }))
     .catch(() => null);
 
