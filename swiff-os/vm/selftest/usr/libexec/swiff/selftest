@@ -118,6 +118,49 @@ check getty-masked "$(systemctl is-enabled getty@tty1.service 2>&1)" test "$(sys
 check no-sshd "" bash -c '! command -v sshd'
 say INFO session-state "$(systemctl show -P ActiveState swiff-session.service) restarts=$(systemctl show -P NRestarts swiff-session.service) (no GPU in the VM)"
 
+# --- NVIDIA ------------------------------------------------------------------------
+# Canonical's prebuilt open modules, signed with a Canonical key the kernel has
+# built in. The VM has no NVIDIA GPU, so nvidia.ko gets past the kernel's
+# signature check and then fails its own start with "No such device". As a
+# control, the same module with its signature cut off is refused before it
+# starts, with "Key was rejected by service".
+nv_ko=$(modinfo -n nvidia 2> /dev/null)
+nv_version=$(modinfo -F version nvidia 2> /dev/null)
+check nvidia-module-present "${nv_ko:-none} $nv_version" \
+	bash -c "[[ '$nv_ko' == */lib/modules/$(uname -r)/kernel/nvidia-*-open/nvidia.ko ]]"
+nv_signer=$(modinfo -F signer nvidia 2> /dev/null)
+check nvidia-module-signed "$nv_signer" test "$nv_signer" = "Canonical Ltd. Kernel Module Signing"
+nv_load=$(modprobe nvidia 2>&1)
+check nvidia-signature-accepted "modprobe nvidia -> ${nv_load:-loaded}" grep -q 'No such device' <<< "$nv_load"
+# The module minus its appended signature: the PKCS#7 blob, a 12-byte
+# struct module_signature ending in the blob's length, and the magic string.
+mkdir -p /run/swiff-selftest-nvidia
+perl -0777 -ne 'my $magic = "~Module signature appended~\n"; substr($_, -28) eq $magic or die "not signed\n";
+	my $len = unpack("N", substr($_, -32, 4)); print substr($_, 0, length($_) - 40 - $len)' \
+	"$nv_ko" > /run/swiff-selftest-nvidia/nvidia.ko 2> /dev/null
+nv_unsigned=$(insmod /run/swiff-selftest-nvidia/nvidia.ko 2>&1)
+rm -rf /run/swiff-selftest-nvidia
+check nvidia-unsigned-refused "insmod without its signature -> $nv_unsigned" grep -q 'Key was rejected' <<< "$nv_unsigned"
+# The userspace is the kernel module's release: GL, EGL and Vulkan, gamescope's
+# GBM backend, NVENC, CUDA, 32-bit GL for 32-bit games, and the GSP firmware
+# the open module loads.
+nv_missing=$(for f in \
+	/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so."$nv_version" \
+	/usr/lib/x86_64-linux-gnu/libEGL_nvidia.so.0 \
+	/usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so \
+	/usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1 \
+	/usr/lib/x86_64-linux-gnu/libcuda.so.1 \
+	/usr/lib/i386-linux-gnu/libGLX_nvidia.so."$nv_version" \
+	/usr/share/vulkan/icd.d/nvidia_icd.json \
+	/usr/lib/firmware/nvidia/"$nv_version"/gsp_tu10x.bin \
+	/usr/lib/firmware/nvidia/"$nv_version"/gsp_ga10x.bin \
+	/usr/bin/nvidia-smi; do [ -e "$f" ] || echo "$f"; done | paste -sd' ' -)
+check nvidia-userspace "release $nv_version, missing: ${nv_missing:-nothing}" test -n "$nv_version" -a -z "$nv_missing"
+nv_modprobe=$(modprobe -c)
+check nvidia-nouveau-blacklisted "nouveau and nova never bind an NVIDIA card first" \
+	bash -c 'grep -qx "blacklist nouveau" <<< "$1" && grep -qx "blacklist nova_core" <<< "$1"' _ "$nv_modprobe"
+check nvidia-drm-modeset "gamescope needs nvidia-drm's KMS" grep -qx 'options nvidia_drm modeset=1' <<< "$nv_modprobe"
+
 # --- Keyboard: no reboot, no other VT ----------------------------------------------
 # Without a GPU, tty1 stays in text mode, so the kernel's console keyboard
 # handles every key: the worst case. run-test.sh presses keys on the VM's PS/2

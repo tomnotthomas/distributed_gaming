@@ -1,7 +1,9 @@
 #!/bin/sh
-# Installs the Steam client. It needs the i386 architecture, which mkosi 20's
-# own package install cannot enable, so it is done here with the image's apt
-# against the same pinned snapshot mirror.
+# Installs the Steam client and the 32-bit graphics drivers its 32-bit games
+# use (Mesa, and NVIDIA's of the same release as the 64-bit driver in
+# mkosi.conf). They need the i386 architecture, which mkosi 20's own package
+# install cannot enable, so it is done here with the image's apt against the
+# same pinned snapshot mirror.
 set -eu
 
 dpkg --add-architecture i386
@@ -18,9 +20,16 @@ DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
 	steam-installer \
 	steam-libs-i386:i386 \
 	mesa-vulkan-drivers:i386 \
-	libgl1-mesa-dri:i386
+	libgl1-mesa-dri:i386 \
+	libnvidia-gl-595:i386
 
 apt-get clean
+
+# NVIDIA's licence lets the driver be redistributed only with the licence
+# itself (section 1.1 d). /usr/share/doc is removed from the image after this
+# script, so the text is kept in /usr/share/swiff/licenses.
+mkdir -p /usr/share/swiff/licenses
+cp /usr/share/doc/nvidia-kernel-common-595/copyright /usr/share/swiff/licenses/nvidia-driver
 
 # Mount points on the read-only root.
 mkdir -p /srv/games /srv/games-lower

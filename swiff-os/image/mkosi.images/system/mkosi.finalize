@@ -16,6 +16,46 @@ for moddir in "$BUILDROOT"/usr/lib/modules/*/; do
 	depmod -b "$BUILDROOT" "$(basename "$moddir")"
 done
 
+# One kernel, and Canonical's signed NVIDIA modules built for it. The NVIDIA
+# metapackage follows its own archive upload, so a snapshot bump can name a
+# kernel the image does not boot; apt would then install a second kernel and
+# the NVIDIA modules would never load. Only Canonical's signature is accepted:
+# the kernel enforces module signatures and has that key built in.
+fail() {
+	echo "mkosi.finalize: $*" >&2
+	exit 1
+}
+set -- "$BUILDROOT"/usr/lib/modules/*/
+[ $# = 1 ] || fail "expected one kernel, found: $*"
+moddir=${1%/}
+kernel=$(basename "$moddir")
+nvidia=$(find "$moddir/kernel" -path '*/nvidia-*-open/nvidia.ko*' | head -n1)
+[ -n "$nvidia" ] || fail "no open NVIDIA modules for kernel $kernel"
+vermagic=$(modinfo -F vermagic "$nvidia" | cut -d' ' -f1)
+[ "$vermagic" = "$kernel" ] || fail "$nvidia is built for $vermagic, not $kernel"
+signer=$(modinfo -F signer "$nvidia")
+[ "$signer" = "Canonical Ltd. Kernel Module Signing" ] || fail "$nvidia is signed by '$signer'"
+# The userspace driver is the same release as the kernel module.
+version=$(modinfo -F version "$nvidia")
+[ -e "$BUILDROOT/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so.$version" ] ||
+	fail "NVIDIA userspace is not release $version, the kernel module's"
+[ -e "$BUILDROOT/usr/lib/i386-linux-gnu/libGLX_nvidia.so.$version" ] ||
+	fail "32-bit NVIDIA userspace is not release $version, the kernel module's"
+[ -e "$BUILDROOT/usr/lib/firmware/nvidia/$version/gsp_ga10x.bin" ] ||
+	fail "no GSP firmware for NVIDIA $version"
+grep -q 'NVIDIA Driver License Agreement' "$BUILDROOT/usr/share/swiff/licenses/nvidia-driver" ||
+	fail "NVIDIA's licence is not in the image (it must go with the driver)"
+# Explicit sync, which gamescope needs on NVIDIA: driver 555 or later,
+# Xwayland 24.1 or later, egl-wayland 1.1.14 or later, and a gamescope that
+# speaks linux-drm-syncobj-v1.
+installed() { dpkg-query --admindir="$BUILDROOT/var/lib/dpkg" -W -f '${Version}' "$1"; }
+dpkg --compare-versions "$version" ge 555 || fail "NVIDIA $version has no explicit sync (555 or later)"
+dpkg --compare-versions "$(installed xwayland)" ge 2:24.1 || fail "Xwayland $(installed xwayland) has no explicit sync"
+dpkg --compare-versions "$(installed libnvidia-egl-wayland1)" ge 1:1.1.14 ||
+	fail "egl-wayland $(installed libnvidia-egl-wayland1) has no explicit sync"
+grep -qa wp_linux_drm_syncobj_manager_v1 "$BUILDROOT/usr/games/gamescope" ||
+	fail "gamescope $(installed gamescope) has no explicit sync"
+
 # Ctrl+Alt+Del never reboots. The mask is set here rather than in mkosi.extra
 # because enabling reboot.target during the build (its Alias=) replaces it
 # with a link back to reboot.target.
