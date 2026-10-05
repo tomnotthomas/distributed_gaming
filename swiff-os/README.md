@@ -38,9 +38,12 @@ show as not checked yet.
 
 **The installer.** `rental.cjs` plans each change as steps of operations, and the app runs
 them for real: one UAC prompt starts the app again as administrator, as a worker
-(`desktop/rental-worker.cjs`) that takes the operations one at a time over a named pipe only
-the app knows (`desktop/rental-exec.cjs`). The owner's one OK starts the run, and every step
-runs by itself up to the restart, which waits for the owner's Restart now. The install:
+(`desktop/rental-worker.cjs`) that takes the operations one at a time over a named pipe
+(`desktop/rental-exec.cjs`). Each end proves it holds the one-time token the app started the
+worker with, without sending it, and every later message is sealed with a key from that
+token and both ends' nonces, so a process that opens or relays the pipe cannot add an
+operation. The owner's one OK starts the run, and every step runs by itself up to the
+restart, which waits for the owner's Restart now. The install:
 
 1. checks, as administrator, that Secure Boot is on, the TPM is ready, the db trusts the
    Microsoft UEFI CA 2011 that signs Ubuntu's shim (the 2023 CA does not sign it yet), C: can

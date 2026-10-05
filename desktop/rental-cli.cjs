@@ -23,8 +23,9 @@
 //
 // A plan's one-time key code is never in an answer: it lets whoever has it
 // enrol or remove a key at the PC's blue screen, and answers end up in logs.
-// With --code-file it is written to that file alone, for its owner to read
-// and delete; the answer says only that it is there.
+// It is written to the --code-file file alone, for its owner to read and
+// delete; the answer says only that it is there. Without --code-file, a plan
+// with a key code is refused before anything runs (a dry run still goes).
 
 const path = require("node:path");
 const fs = require("node:fs");
