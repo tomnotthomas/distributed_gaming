@@ -639,6 +639,38 @@ describe("useSwiff", () => {
       }
     });
 
+    it("sends a renter on a game's page with no launch started back to the signed-out wall when signed out", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+        act(() => result.current.openGame(result.current.games.find((g) => g.appid === 440)!));
+        expect(result.current.screen).toBe("game");
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.screen).toBe("home");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const host = {

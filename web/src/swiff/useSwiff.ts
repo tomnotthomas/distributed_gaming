@@ -333,8 +333,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     ++libraryLoad.current;
     setSteamId(null);
     setProfile(null);
-    if (!demo)
+    if (!demo) {
       setGames((prev) => prev.filter((g) => phaseNow.current !== "idle" && g.id === openGameId.current));
+      // A game's page with no launch started loses its game, so it goes back to the wall.
+      if (phaseNow.current === "idle") setScreen((current) => (current === "game" ? "home" : current));
+    }
     void fetchPopular().then((popular) => {
       vouch(popular);
       const catalog = popular?.games ?? [];
