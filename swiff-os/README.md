@@ -174,6 +174,7 @@ bootstrap is the only thing that seals a new key: the new table then holds just 
 
   A blocked game stays marked in the table and is hashed in full at every boot until it passes or the
   owner bootstraps it again. A quick check alone would miss a same-size edit that kept the mtime.
+
 - **The games report.** `/run/swiff/games-report.json` lists each game as `verified`, `blocked` (with
   the reason) or `not-bootstrapped`, which is a game on the library that rental mode has not
   validated. This is the installed-games report (report §8.4).
