@@ -395,15 +395,7 @@ def table_key(create):
     if not os.path.lexists(path):
         if not create:
             return None
-        try:
-            return new_table_key()
-        except (OSError, subprocess.CalledProcessError) as e:
-            # No key, as without a TPM: every game stays unverified, and the
-            # games service still starts.
-            log(f"cannot seal a table key to the TPM: {e}")
-            with contextlib.suppress(OSError):
-                os.unlink(path + TEMP_SUFFIX)
-            return None
+        return new_table_key()
     for attempt in range(3):
         if attempt:
             time.sleep(2)
@@ -415,12 +407,20 @@ def table_key(create):
 
 
 def new_table_key():
-    """Seals a new table key to the TPM, replacing any old one."""
+    """Seals a new table key to the TPM, replacing any old one; None when it cannot."""
     path = os.path.join(VOLUME, KEY)
     key = secrets.token_bytes(32)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    run("systemd-creds", "encrypt", "--with-key=tpm2", "--tpm2-pcrs=7", "--name=swiff-games-table", "-", path + TEMP_SUFFIX, input=key)
-    os.replace(path + TEMP_SUFFIX, path)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        run("systemd-creds", "encrypt", "--with-key=tpm2", "--tpm2-pcrs=7", "--name=swiff-games-table", "-", path + TEMP_SUFFIX, input=key)
+        os.replace(path + TEMP_SUFFIX, path)
+    except (OSError, subprocess.CalledProcessError) as e:
+        # No key, as without a TPM: every game stays unverified, any old
+        # credential is kept, and the games service still runs.
+        log(f"cannot seal a table key to the TPM: {e}")
+        with contextlib.suppress(OSError):
+            os.unlink(path + TEMP_SUFFIX)
+        return None
     log("sealed a new table key to this TPM")
     return key
 
@@ -1127,6 +1127,8 @@ def promote_all(setup):
             # The owner's bootstrap is the one way past a key that no longer unseals.
             log("the owner bootstrapped games again: replacing the table key")
             key = new_table_key()
+            if key is None:
+                log("nothing promoted: the owner's bootstrap could not seal a new table key; the old one is kept")
     if key:
         table, problem = load_table(key)
         if problem in TABLE_KEPT:

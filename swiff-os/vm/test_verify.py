@@ -265,6 +265,21 @@ class LockedKey(Library):
         self.assertIsNone(problem)
         self.assertEqual(list(table["apps"]), ["1004"])
 
+    def test_a_bootstrap_that_cannot_seal_keeps_it(self):
+        """A failed seal at shutdown keeps the old credential and promotes nothing."""
+        def encrypt_fails(cmd, **kw):
+            """systemd-creds encrypt leaves a partial credential and fails."""
+            cmd = list(cmd)
+            if cmd[:2] == ["systemd-creds", "encrypt"]:
+                write(cmd[-1], b"partial")
+                raise subprocess.CalledProcessError(1, cmd)
+            return self.creds(cmd, **kw)
+        with mock.patch.object(verify.subprocess, "run", encrypt_fails):
+            self.stop(verify.KEY_LOCKED, bootstrap=True)
+        self.assertEqual(read(self.cred), b"the old credential")
+        self.assertFalse(os.path.lexists(self.cred + verify.TEMP_SUFFIX))
+        self.assertFalse(os.path.exists(os.path.join(self.volume, verify.TABLE)))
+
     def test_nothing_else_replaces_it(self):
         """A renter update, or a key that failed only now, replaces nothing."""
         self.stop(verify.KEY_LOCKED, bootstrap=False)
