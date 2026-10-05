@@ -5,7 +5,7 @@
 // uninstall on a stand-in for Windows: a disk in memory, firmware variables
 // in a map, and PowerShell answering the few things it is asked.
 
-import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -15,7 +15,7 @@ import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { testBuild } from "../build-kind.cjs";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
-import { clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
+import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
   installOf,
@@ -795,16 +795,11 @@ describe("the worker's pipe", () => {
         expect(strangerHeard.join("\n")).not.toContain(token);
         const socket = net.connect(file!);
         socket.on("connect", async () => {
-          await handshake(socket, token!, "worker");
-          socket.write(`${JSON.stringify({ ok: true })}\n`);
-          socket.on("data", (chunk) => {
-            for (const line of String(chunk).trim().split("\n")) {
-              const { id, op } = JSON.parse(line);
-              socket.write(`${JSON.stringify({ id, progress: { what: "x", done: 1, total: 2 } })}\n`);
-              socket.write(
-                `${JSON.stringify(op.op === "restart" ? { id, ok: false, error: "no" } : { id, ok: true, result: { echo: op.op } })}\n`,
-              );
-            }
+          const c = await handshake(socket, token!, "worker");
+          c.send({ ok: true });
+          c.listen(({ id, op }) => {
+            c.send({ id, progress: { what: "x", done: 1, total: 2 } });
+            c.send(op.op === "restart" ? { id, ok: false, error: "no" } : { id, ok: true, result: { echo: op.op } });
           });
         });
       },
@@ -843,8 +838,107 @@ describe("the worker's pipe", () => {
     const server = net.createServer((s) => s.destroy());
     await new Promise<void>((r) => server.listen(pipe, r));
     const socket = net.connect(pipe);
-    const client = clientOf(socket);
+    socket.on("error", () => {});
+    const client = clientOf(channelOf(socket, randomBytes(32), "app"));
     await expect(client.apply({ op: "installed" })).rejects.toThrow(/stopped/);
     server.close();
+  });
+
+  it("lets a process relaying both handshakes add no operation of its own", async () => {
+    const pipe = path.join(dir, "app.sock");
+    const relayPipe = path.join(dir, "relay.sock");
+    const carried: unknown[] = [];
+    let toWorker!: net.Socket;
+    let workerClosed!: Promise<unknown>;
+    const relay = net.createServer((down) => {
+      toWorker = down;
+      const up = net.connect(pipe);
+      down.on("data", (chunk) => up.write(chunk));
+      up.on("data", (chunk) => down.write(chunk));
+      down.on("close", () => up.destroy());
+    });
+    await new Promise<void>((r) => relay.listen(relayPipe, r));
+    const client = await startWorker({
+      imageDir: dir,
+      pipe,
+      command: (p, token) => ({ file: p, args: [token] }),
+      launch: async ({ args: [token] }) => {
+        // The worker reaches the relay's instance of the pipe, which passes everything on to the app.
+        const socket = net.connect(relayPipe);
+        workerClosed = new Promise((r) => socket.once("close", r));
+        socket.on("connect", async () => {
+          const c = await handshake(socket, token!, "worker");
+          c.send({ ok: true });
+          c.listen((msg) => carried.push(msg));
+        });
+      },
+    });
+    // Both proofs went through the relay, and the app heard the worker's hello. Now the relay's own operations:
+    const body = JSON.stringify({ id: 1, op: { op: "restart" } });
+    toWorker.write(`${JSON.stringify({ id: 1, op: { op: "restart" } })}\n`);
+    toWorker.write(`${JSON.stringify({ seq: 1, body, mac: "00".repeat(32) })}\n`);
+    await workerClosed;
+    expect(carried).toEqual([]);
+    await expect(client.apply({ op: "installed" })).rejects.toThrow(/stopped/);
+    relay.close();
+  });
+
+  it("refuses a replayed, reordered, reflected or forged message", () => {
+    /** A socket in memory: what is written to it, and a way to hand it data. */
+    const fake = () => {
+      const s = {
+        lines: [] as string[],
+        destroyed: false,
+        data: (_chunk: string) => {},
+        on: (event: string, fn: (chunk: string) => void) => {
+          if (event === "data") s.data = fn;
+          return s;
+        },
+        off: () => s,
+        write: (line: string) => void s.lines.push(line),
+        destroy: () => void (s.destroyed = true),
+      };
+      return s;
+    };
+    const key = randomBytes(32);
+    const app = fake();
+    const sender = channelOf(app as never, key, "app");
+    for (const id of [1, 2]) sender.send({ id, op: { op: "restart" } });
+    const receiver = (side = "worker", k = key) => {
+      const socket = fake();
+      const got: unknown[] = [];
+      channelOf(socket as never, k, side).listen((msg) => got.push(msg));
+      return { socket, got };
+    };
+
+    const inOrder = receiver();
+    inOrder.socket.data(app.lines.join(""));
+    expect(inOrder.got).toEqual([
+      { id: 1, op: { op: "restart" } },
+      { id: 2, op: { op: "restart" } },
+    ]);
+    expect(inOrder.socket.destroyed).toBe(false);
+
+    const replayed = receiver();
+    replayed.socket.data(app.lines[0]!);
+    replayed.socket.data(app.lines[0]!);
+    expect(replayed.got).toHaveLength(1);
+    expect(replayed.socket.destroyed).toBe(true);
+
+    const reordered = receiver();
+    reordered.socket.data(app.lines[1]! + app.lines[0]!);
+    expect(reordered.got).toEqual([]);
+    expect(reordered.socket.destroyed).toBe(true);
+
+    // The app's own message sent back to it, as if from the worker.
+    const reflected = receiver("app");
+    reflected.socket.data(app.lines[0]!);
+    expect(reflected.got).toEqual([]);
+    expect(reflected.socket.destroyed).toBe(true);
+
+    const forged = receiver("worker", randomBytes(32));
+    forged.socket.data(app.lines[0]!);
+    expect(forged.got).toEqual([]);
+    expect(forged.socket.destroyed).toBe(true);
   });
 });

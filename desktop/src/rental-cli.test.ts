@@ -4,7 +4,7 @@
 // blue screen, is never in them, only in the file its owner asked for.
 
 import { describe, expect, it } from "vitest";
-import { shown, unkeyed } from "../rental-cli.cjs";
+import { mustShowCode, shown, unkeyed } from "../rental-cli.cjs";
 import { keyRemovalPlan, mokPlan, switchPlan } from "../rental.cjs";
 
 describe("what the console installer shows", () => {
@@ -33,5 +33,14 @@ describe("what the console installer shows", () => {
     expect(out).not.toContain("48217730");
     expect(out).toContain('"op":"mok-import"');
     expect(unkeyed([{ op: "restart" }])).toEqual([{ op: "restart" }]);
+  });
+
+  it("refuses to run a plan with a key code unless the code goes to a file, but lets a dry run through", () => {
+    for (const plan of [mokPlan("48217730"), keyRemovalPlan("48217730")]) {
+      expect(() => mustShowCode(plan, {})).toThrow(/--code-file/);
+      expect(() => mustShowCode(plan, { "code-file": "C:\\swiff\\code.txt" })).not.toThrow();
+      expect(() => mustShowCode(plan, { "dry-run": true })).not.toThrow();
+    }
+    expect(() => mustShowCode(switchPlan("once"), {})).not.toThrow();
   });
 });

@@ -95,6 +95,16 @@ function shown(p, codeFile = null, files = fs) {
   };
 }
 
+/**
+ * Refuse to run `p` when it has a key code and there is no --code-file: the
+ * code would be shown nowhere, and the PC's blue screen waits for it. A dry
+ * run changes nothing, so it may.
+ */
+function mustShowCode(p, opts) {
+  if (p.mok && !opts["code-file"] && !opts["dry-run"])
+    throw new Error("This plan has a one-time key code, which is shown only in a file: give --code-file <file>.");
+}
+
 /** A dry run's operations as an answer shows them: without any key code. */
 const unkeyed = (ops) =>
   ops.map(({ code, ...op }) => (code === undefined ? op : { ...op, code: "(hidden)" }));
@@ -125,6 +135,7 @@ async function main([cmd, ...rest]) {
   if (cmd === "read") return say({ read: await readRental(), trail: bootTrail() });
   if (cmd === "run") {
     const p = await plan(opts._[0], { image: opts.image, target: opts.target });
+    mustShowCode(p, opts);
     say({ plan: shown(p, opts["code-file"] ?? null) });
     const w = await worker(opts.image, opts["dry-run"]);
     try {
@@ -150,22 +161,23 @@ async function main([cmd, ...rest]) {
         else if (verb === "plan") {
           current = await plan(args[0], { image: opts.image, target: args[1] ?? null });
           say({ plan: shown(current, opts["code-file"] ?? null) });
-        } else if (verb === "elevate" || verb === "run") {
+        } else if (verb === "elevate") {
           w ??= await worker(opts.image, opts["dry-run"]);
-          if (verb === "elevate") say({ elevated: true });
-          else {
-            if (!current) throw new Error("No plan yet.");
-            const unknown = args.filter((id) => !current.steps.some((s) => s.id === id));
-            if (!args.length || unknown.length)
-              throw new Error(`No such steps: ${unknown.join(" ") || "none given"}.`);
-            say({
-              outcome: await runPlan(current, {
-                apply: w.apply,
-                only: args,
-                onEvent: (event) => say({ event }),
-              }),
-            });
-          }
+          say({ elevated: true });
+        } else if (verb === "run") {
+          if (!current) throw new Error("No plan yet.");
+          mustShowCode(current, opts);
+          const unknown = args.filter((id) => !current.steps.some((s) => s.id === id));
+          if (!args.length || unknown.length)
+            throw new Error(`No such steps: ${unknown.join(" ") || "none given"}.`);
+          w ??= await worker(opts.image, opts["dry-run"]);
+          say({
+            outcome: await runPlan(current, {
+              apply: w.apply,
+              only: args,
+              onEvent: (event) => say({ event }),
+            }),
+          });
         } else throw new Error(`Unknown command ${verb}.`);
       } catch (error) {
         say({ error: error.message });
@@ -178,7 +190,7 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { shown, unkeyed };
+module.exports = { mustShowCode, shown, unkeyed };
 
 if (require.main === module)
   main(process.argv.slice(2)).catch((error) => {

@@ -7,7 +7,9 @@
 //                the first that fails, or when the owner says no
 //   startWorker  open a named pipe only this app knows the name of, start the
 //                worker as administrator, and wait for it to prove it holds
-//                the token it was given (handshake) and say hello
+//                the token it was given (handshake) and say hello; every
+//                message after that is sealed with a key from the token and
+//                both ends' nonces (channelOf)
 //   dryRun       a worker that only records what it is asked: the tests', and
 //                a rehearsal's
 
@@ -111,16 +113,20 @@ const PEER = { app: "worker", worker: "app" };
  * holds `token`, and have the peer prove the same, without either sending
  * it: each end sends a random nonce and answers the other's with
  * HMAC-SHA256(token, nonce and its own side), before anything else. Resolves
- * with what came after the peer's proof once both proofs are in; a peer
- * without the token is hung up on, and the promise rejects.
+ * with the sealed channel (channelOf) keyed by the token and both nonces once
+ * both proofs are in; a peer without the token is hung up on, and the promise
+ * rejects.
  */
 function handshake(socket, token, side) {
   const mine = crypto.randomBytes(32).toString("hex");
   const proofOf = (nonce, who) => crypto.createHmac("sha256", token).update(`${nonce}:${who}`).digest();
   const send = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
+  socket.setEncoding("utf8");
+  // A broken pipe ends in "close", which fails the handshake or the channel.
+  socket.on("error", () => {});
   return new Promise((resolve, reject) => {
     let buffered = "";
-    let answered = false;
+    let theirs = null;
     const done = () => {
       socket.off("data", onData);
       socket.off("close", fail);
@@ -141,23 +147,84 @@ function handshake(socket, token, side) {
           msg = null;
         }
         buffered = buffered.slice(at + 1);
-        if (!answered && typeof msg?.nonce === "string") {
-          answered = true;
-          send({ proof: proofOf(msg.nonce, side).toString("hex") });
+        if (theirs === null && typeof msg?.nonce === "string") {
+          theirs = msg.nonce;
+          send({ proof: proofOf(theirs, side).toString("hex") });
           continue;
         }
-        const proof = answered && typeof msg?.proof === "string" ? Buffer.from(msg.proof, "hex") : null;
+        const proof = theirs !== null && typeof msg?.proof === "string" ? Buffer.from(msg.proof, "hex") : null;
         const expected = proofOf(mine, PEER[side]);
         if (!proof || proof.length !== expected.length || !crypto.timingSafeEqual(proof, expected))
           return fail();
         done();
-        return resolve(buffered);
+        const [app, worker] = side === "app" ? [mine, theirs] : [theirs, mine];
+        const key = crypto.createHmac("sha256", token).update(`session:${app}:${worker}`).digest();
+        return resolve(channelOf(socket, key, side, buffered));
       }
     }
     socket.on("data", onData);
     socket.on("close", fail);
     send({ nonce: mine });
   });
+}
+
+/**
+ * The messages after the handshake, on `socket` from this end (`side`), each
+ * line `{ seq, body, mac }`: `body` the message as JSON, `seq` counting from 1
+ * in each direction, and `mac` HMAC-SHA256(key, sender, seq and body). A line
+ * with a bad mac, or out of sequence (missing, replayed or reordered), hangs
+ * up. `send(msg)` sends one; `listen(fn)` hands each one in to `fn`, or holds
+ * them until the next `listen` when `fn` is null.
+ */
+function channelOf(socket, key, side, buffered = "") {
+  const macOf = (who, seq, body) => crypto.createHmac("sha256", key).update(`${who}:${seq}:${body}`).digest();
+  let sent = 0;
+  let received = 0;
+  let handler = null;
+  const held = [];
+  const deliver = () => {
+    while (handler && held.length) handler(held.shift());
+  };
+  const onData = (chunk) => {
+    buffered += chunk;
+    let at;
+    while ((at = buffered.indexOf("\n")) >= 0) {
+      let line;
+      try {
+        line = JSON.parse(buffered.slice(0, at));
+      } catch {
+        line = null;
+      }
+      buffered = buffered.slice(at + 1);
+      const mac = typeof line?.mac === "string" ? Buffer.from(line.mac, "hex") : null;
+      const ok =
+        line?.seq === received + 1 &&
+        typeof line.body === "string" &&
+        mac?.length === 32 &&
+        crypto.timingSafeEqual(mac, macOf(PEER[side], line.seq, line.body));
+      if (!ok) {
+        socket.off("data", onData);
+        return void socket.destroy();
+      }
+      received = line.seq;
+      held.push(JSON.parse(line.body));
+    }
+    deliver();
+  };
+  socket.on("data", onData);
+  onData("");
+  return {
+    socket,
+    send(msg) {
+      const body = JSON.stringify(msg);
+      sent += 1;
+      socket.write(`${JSON.stringify({ seq: sent, body, mac: macOf(side, sent, body).toString("hex") })}\n`);
+    },
+    listen(fn) {
+      handler = fn;
+      deliver();
+    },
+  };
 }
 
 /**
@@ -179,37 +246,29 @@ async function startWorker({
   const token = crypto.randomBytes(32).toString("hex");
   const server = net.createServer();
   await new Promise((resolve, reject) => server.once("error", reject).listen(pipe, resolve));
-  let socket;
+  let channel;
   try {
-    socket = await new Promise((resolve, reject) => {
+    channel = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("The installer did not start in time.")), timeout);
+      let taken = false;
       server.on("connection", async (s) => {
-        let buffered;
+        let c;
         try {
           // Only the process started with this token is the worker: anything else is hung up on.
-          buffered = await handshake(s, token, "app");
+          c = await handshake(s, token, "app");
         } catch {
           return;
         }
-        const onData = (chunk) => {
-          buffered += chunk;
-          const at = buffered.indexOf("\n");
-          if (at < 0) return;
-          s.off("data", onData);
-          let hello;
-          try {
-            hello = JSON.parse(buffered.slice(0, at));
-          } catch {
-            hello = null;
-          }
-          if (!hello) return void s.destroy();
+        // One worker: no one else connects once it has.
+        if (taken) return void s.destroy();
+        taken = true;
+        server.close();
+        c.listen((hello) => {
+          c.listen(null);
           clearTimeout(timer);
-          if (at + 1 < buffered.length) s.unshift(buffered.slice(at + 1));
-          if (hello.ok) resolve(s);
+          if (hello.ok) resolve(c);
           else reject(new Error(hello.error || "The installer could not start."));
-        };
-        s.on("data", onData);
-        onData("");
+        });
       });
       launch(command(pipe, token, imageDir)).catch((error) => {
         clearTimeout(timer);
@@ -217,45 +276,25 @@ async function startWorker({
       });
     });
   } finally {
-    // One worker: no one else connects once it has.
     server.close();
   }
-  return clientOf(socket);
+  return clientOf(channel);
 }
 
-/** The app's end of the pipe: one operation at a time, matched to its answer by id. */
-function clientOf(socket) {
+/** The app's end of the sealed channel: one operation at a time, matched to its answer by id. */
+function clientOf(channel) {
   const pending = new Map();
   let next = 0;
-  let buffered = "";
   let closed = false;
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk) => {
-    buffered += chunk;
-    let at;
-    while ((at = buffered.indexOf("\n")) >= 0) {
-      const line = buffered.slice(0, at);
-      buffered = buffered.slice(at + 1);
-      let msg;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const call = pending.get(msg.id);
-      if (!call) continue;
-      if (msg.progress) {
-        call.progress(msg.progress);
-        continue;
-      }
-      pending.delete(msg.id);
-      if (msg.ok) call.resolve(msg.result ?? {});
-      else call.reject(new Error(msg.error));
-    }
+  channel.listen((msg) => {
+    const call = pending.get(msg.id);
+    if (!call) return;
+    if (msg.progress) return void call.progress(msg.progress);
+    pending.delete(msg.id);
+    if (msg.ok) call.resolve(msg.result ?? {});
+    else call.reject(new Error(msg.error));
   });
-  // A broken pipe ends in "close", which fails what is still waiting.
-  socket.on("error", () => {});
-  socket.on("close", () => {
+  channel.socket.on("close", () => {
     closed = true;
     for (const call of pending.values()) call.reject(new Error("The installer stopped."));
     pending.clear();
@@ -266,11 +305,21 @@ function clientOf(socket) {
       const id = ++next;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject, progress });
-        socket.write(`${JSON.stringify({ id, op })}\n`);
+        channel.send({ id, op });
       });
     },
-    close: () => socket.end(),
+    close: () => channel.socket.end(),
   };
 }
 
-module.exports = { runPlan, dryRun, isElevated, winArg, launchElevated, handshake, startWorker, clientOf };
+module.exports = {
+  runPlan,
+  dryRun,
+  isElevated,
+  winArg,
+  launchElevated,
+  handshake,
+  channelOf,
+  startWorker,
+  clientOf,
+};
