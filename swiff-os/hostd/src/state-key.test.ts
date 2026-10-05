@@ -381,6 +381,14 @@ describe("the server keeping V back", () => {
 
 type FakeState = Awaited<ReturnType<typeof fakeStateKeyServer>>["state"];
 
+describe("stateKeyApi", () => {
+  it("never sends the host certificate over plain HTTP to another machine", () => {
+    expect(() => stateKeyApi("ws://swiff.example", MACHINE)).toThrow(/wss:\/\//);
+    expect(() => stateKeyApi("ws://127.0.0.1:9", MACHINE)).not.toThrow();
+    expect(() => stateKeyApi("wss://swiff.example", MACHINE)).not.toThrow();
+  });
+});
+
 describe("combineShares", () => {
   it("is U XOR V", () => {
     expect(combineShares(Buffer.alloc(32, 0b1010), Buffer.alloc(32, 0b0110))).toEqual(

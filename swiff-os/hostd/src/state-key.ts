@@ -38,6 +38,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFile, rename, stat, writeFile } from "node:fs/promises";
 import type { StateKeyError, StateKeyGrant } from "../../../server/src/protocol.ts";
+import { isLoopback } from "./config.ts";
 import type { Run } from "./system.ts";
 
 /** Bytes in each share, and in the key. */
@@ -226,10 +227,14 @@ export function combineShares(u: Uint8Array, v: Uint8Array): Buffer {
 
 /**
  * The server's state-key calls, over HTTPS to its own origin. One try each: the
- * agent tries again later, on a fresh attestation.
+ * agent tries again later, on a fresh attestation. The host certificate rides on
+ * every call, so plain HTTP is only for a server on this machine.
  */
 export function stateKeyApi(serverUrl: string, machineId: string): StateKeyApi {
   const origin = new URL(serverUrl);
+  if (origin.protocol !== "wss:" && !(origin.protocol === "ws:" && isLoopback(origin.hostname))) {
+    throw new Error("the state key server must be wss:// unless it is on this machine");
+  }
   origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
   const url = new URL(`/api/machines/${encodeURIComponent(machineId)}/state-key`, origin);
 
@@ -430,6 +435,8 @@ const runWithInput: RunWithInput = (command, args, input) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "ignore", "inherit"] });
     child.on("error", reject);
+    // EPIPE when the command exits before reading all of its input.
+    child.stdin.on("error", reject);
     child.on("close", (code) =>
       code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`)),
     );
