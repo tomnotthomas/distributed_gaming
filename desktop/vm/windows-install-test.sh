@@ -342,7 +342,7 @@ test_run() {
 	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" "$here/windows/app-windows.ps1" swiff@127.0.0.1:'C:/swiff/vm/'
 	# The app's one elevation, as the logged-on user starts it: unelevated, Start-Process -Verb RunAs.
 	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null"
-	local base
+	local base code
 	base=$(pcr7 base)
 	echo "PCR 7 of a clean start: $base"
 	# From here each scenario says what failed in its results: a command that fails on the way
@@ -464,7 +464,6 @@ test_run() {
 		scenario "7. Key confirmed (Enroll MOK, the code, Reboot)"
 		code=$(new_code)
 		on_vm "$cli run mok --image $img --code $code" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
-		local code
 		expect mok-confirmed "the owner's confirmation at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-confirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-mok
