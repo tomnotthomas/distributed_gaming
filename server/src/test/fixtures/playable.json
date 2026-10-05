@@ -2567,10 +2567,7 @@
     {
       "name": "Apex Legends",
       "status": "Denied",
-      "anticheats": [
-        "Easy Anti-Cheat",
-        "Hyperion"
-      ],
+      "anticheats": ["Easy Anti-Cheat", "Hyperion"],
       "storeIds": {
         "steam": "1172470"
       }
@@ -2578,11 +2575,7 @@
     {
       "name": "PUBG: Battlegrounds",
       "status": "Broken",
-      "anticheats": [
-        "Zakynthos",
-        "BattlEye",
-        "UNCHEATER"
-      ],
+      "anticheats": ["Zakynthos", "BattlEye", "UNCHEATER"],
       "storeIds": {
         "steam": "578080",
         "epic": {
@@ -2594,10 +2587,7 @@
     {
       "name": "Tom Clancy's Rainbow Six® Siege",
       "status": "Denied",
-      "anticheats": [
-        "FairFight",
-        "BattlEye"
-      ],
+      "anticheats": ["FairFight", "BattlEye"],
       "storeIds": {
         "steam": "359550",
         "epic": {
@@ -2609,9 +2599,7 @@
     {
       "name": "Dead By Daylight",
       "status": "Supported",
-      "anticheats": [
-        "Easy Anti-Cheat"
-      ],
+      "anticheats": ["Easy Anti-Cheat"],
       "storeIds": {
         "steam": "381210",
         "epic": {
@@ -2623,10 +2611,7 @@
     {
       "name": "Rust",
       "status": "Denied",
-      "anticheats": [
-        "Easy Anti-Cheat",
-        "VAC"
-      ],
+      "anticheats": ["Easy Anti-Cheat", "VAC"],
       "storeIds": {
         "steam": "252490"
       }
@@ -2634,9 +2619,7 @@
     {
       "name": "War Thunder",
       "status": "Supported",
-      "anticheats": [
-        "BattlEye"
-      ],
+      "anticheats": ["BattlEye"],
       "storeIds": {
         "steam": "236390"
       }
@@ -2644,9 +2627,7 @@
     {
       "name": "DRAGON BALL FighterZ",
       "status": "Broken",
-      "anticheats": [
-        "Easy Anti-Cheat"
-      ],
+      "anticheats": ["Easy Anti-Cheat"],
       "storeIds": {
         "steam": "678950"
       }
@@ -2654,9 +2635,7 @@
     {
       "name": "Counter-Strike: Global Offensive",
       "status": "Supported",
-      "anticheats": [
-        "VAC"
-      ],
+      "anticheats": ["VAC"],
       "storeIds": {
         "steam": "730"
       }
@@ -2664,9 +2643,7 @@
     {
       "name": "Team Fortress 2",
       "status": "Supported",
-      "anticheats": [
-        "VAC"
-      ],
+      "anticheats": ["VAC"],
       "storeIds": {
         "steam": "440"
       }
@@ -2674,9 +2651,7 @@
     {
       "name": "DotA 2",
       "status": "Supported",
-      "anticheats": [
-        "VAC"
-      ],
+      "anticheats": ["VAC"],
       "storeIds": {
         "steam": "570"
       }
@@ -2684,9 +2659,7 @@
     {
       "name": "Left 4 Dead 2",
       "status": "Supported",
-      "anticheats": [
-        "VAC"
-      ],
+      "anticheats": ["VAC"],
       "storeIds": {
         "steam": "550"
       }
@@ -2694,9 +2667,7 @@
     {
       "name": "Warframe",
       "status": "Supported",
-      "anticheats": [
-        "Unknown (Custom)"
-      ],
+      "anticheats": ["Unknown (Custom)"],
       "storeIds": {
         "steam": "230410",
         "epic": {
@@ -2708,9 +2679,7 @@
     {
       "name": "Grand Theft Auto V",
       "status": "Denied",
-      "anticheats": [
-        "BattlEye"
-      ],
+      "anticheats": ["BattlEye"],
       "storeIds": {
         "steam": "271590",
         "epic": {
@@ -2722,9 +2691,7 @@
     {
       "name": "Overwatch 2",
       "status": "Supported",
-      "anticheats": [
-        "Warden"
-      ],
+      "anticheats": ["Warden"],
       "storeIds": {
         "steam": "2357570"
       }
@@ -2732,9 +2699,7 @@
     {
       "name": "VRChat",
       "status": "Supported",
-      "anticheats": [
-        "Easy Anti-Cheat"
-      ],
+      "anticheats": ["Easy Anti-Cheat"],
       "storeIds": {
         "steam": "438100"
       }
@@ -2742,9 +2707,7 @@
     {
       "name": "Helldivers 2",
       "status": "Running",
-      "anticheats": [
-        "nProtect GameGuard"
-      ],
+      "anticheats": ["nProtect GameGuard"],
       "storeIds": {
         "steam": "553850"
       }
@@ -2752,9 +2715,7 @@
     {
       "name": "Marvel Rivals",
       "status": "Running",
-      "anticheats": [
-        "NetEase Game Security"
-      ],
+      "anticheats": ["NetEase Game Security"],
       "storeIds": {
         "steam": "2767030"
       }
@@ -2762,9 +2723,7 @@
     {
       "name": "Deadlock",
       "status": "Supported",
-      "anticheats": [
-        "VAC"
-      ],
+      "anticheats": ["VAC"],
       "storeIds": {
         "steam": "1422450"
       }
@@ -2772,9 +2731,7 @@
     {
       "name": "Battlefield 6",
       "status": "Denied",
-      "anticheats": [
-        "EA anticheat"
-      ],
+      "anticheats": ["EA anticheat"],
       "storeIds": {
         "steam": "2807960"
       }
@@ -2782,11 +2739,7 @@
     {
       "name": "Tom Clancy's Rainbow Six® Siege X",
       "status": "Denied",
-      "anticheats": [
-        "FairFight",
-        "BattlEye",
-        "R6 ShieldGuard"
-      ],
+      "anticheats": ["FairFight", "BattlEye", "R6 ShieldGuard"],
       "storeIds": {
         "steam": "359550",
         "epic": {
