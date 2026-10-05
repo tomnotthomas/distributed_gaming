@@ -904,7 +904,7 @@ describe("the worker's pipe", () => {
     const app = fake();
     const sender = channelOf(app as never, key, "app");
     for (const id of [1, 2]) sender.send({ id, op: { op: "restart" } });
-    const receiver = (side = "worker", k = key) => {
+    const receiver = (side: "app" | "worker" = "worker", k = key) => {
       const socket = fake();
       const got: unknown[] = [];
       channelOf(socket as never, k, side).listen((msg) => got.push(msg));

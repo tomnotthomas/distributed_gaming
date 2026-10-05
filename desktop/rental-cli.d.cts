@@ -13,3 +13,4 @@ export function shown(
   steps: { id: string; title: string; confirm: string | null; commands: string[] }[];
 };
 export function unkeyed(ops: PlanOp[]): Record<string, unknown>[];
+export function mustShowCode(p: RentalPlan, opts: Record<string, unknown>): void;

@@ -15,6 +15,11 @@ export type RunOutcome = {
   results: Record<string, unknown>[];
 };
 export type WorkerClient = { apply: Apply; close(): void };
+export type Channel = {
+  socket: import("node:net").Socket;
+  send(msg: unknown): void;
+  listen(fn: ((msg: any) => void) | null): void;
+};
 
 export function runPlan(
   plan: RentalPlan,
@@ -33,7 +38,13 @@ export function handshake(
   socket: import("node:net").Socket,
   token: string,
   side: "app" | "worker",
-): Promise<string>;
+): Promise<Channel>;
+export function channelOf(
+  socket: import("node:net").Socket,
+  key: Buffer,
+  side: "app" | "worker",
+  buffered?: string,
+): Channel;
 export function startWorker(options: {
   imageDir: string;
   command: (pipe: string, token: string, imageDir: string) => { file: string; args: string[] };
@@ -41,4 +52,4 @@ export function startWorker(options: {
   timeout?: number;
   pipe?: string;
 }): Promise<WorkerClient>;
-export function clientOf(socket: import("node:net").Socket): WorkerClient;
+export function clientOf(channel: Channel): WorkerClient;
