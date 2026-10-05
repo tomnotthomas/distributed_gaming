@@ -295,8 +295,9 @@ test_run() {
 	}
 	# Where the app would put the key now: rental-key.cjs on this start, for a request queued before it.
 	key_state() {
-		on_vm '$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe -e "const k = require(''C:/swiff/desktop/rental-key.cjs''); const boot = Date.now() - require(''os'').uptime() * 1000; console.log(k.keyOf({ code: ''12345678'', queuedAt: boot - 60000, answer: null }, boot, k.bootTrail())?.state)" | Write-Output' | tr -d '\r\n'
+		on_vm '$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\key-state.cjs | Write-Output' | tr -d '\r\n'
 	}
+
 	# The serve console, fed through a file: one elevated worker for several commands.
 	serve() { # name commands...
 		local name=$1
@@ -319,7 +320,7 @@ test_run() {
 	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
-	to_vm "$here/windows/disk-open-check.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
 	# The app's one elevation, as the logged-on user starts it: unelevated, Start-Process -Verb RunAs.
 	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null"
 	local base
@@ -403,13 +404,22 @@ test_run() {
 		windows_back windows-after-continue
 		read_as continued
 		expect record-by-loader "the record keeps the boot entry by partition id and path, no Boot#### number" test "$(json "$run/read-continued.json" read '.read.facts.install.bootEntry.path')" = '"\\EFI\\swiff\\shimx64.efi"'
-		expect fallthrough-seen "the boot log shows shim, MokManager and Windows in one power-on, no Swiff loader" \
-			test "$(json "$run/read-continued.json" trail '.trail.shim') $(json "$run/read-continued.json" trail '.trail.windowsAfterShim') $(json "$run/read-continued.json" trail '.trail.loader')" = 'true true false'
-		expect nokey "the app says the key didn't go in, with the PIN warning (state $(key_state))" test "$(key_state)" = nokey
-		local after
+		# What the firmware does after Continue boot differs: shim gives up with a cold reset
+		# (OVMF here), or returns and the firmware starts Windows in the same power-on (the
+		# GEEKOM's AMI firmware, its boot log of 15:47). Either way the app must say what happened:
+		# a fall-through is named, with the PIN warning; a reset leaves PCR 7 a clean start's.
+		local trail state after
+		trail="$(json "$run/read-continued.json" trail '.trail.shim') $(json "$run/read-continued.json" trail '.trail.windowsAfterShim') $(json "$run/read-continued.json" trail '.trail.loader')"
+		state=$(key_state)
 		after=$(pcr7 continued)
-		expect pcr7-changed "PCR 7 differs from a clean start: the case that cost the PIN, now named on screen" test "$after" != "$base"
-
+		if [ "$trail" = 'true true false' ]; then
+			expect fallthrough-named "Windows started straight after shim: the app says the key didn't go in, PIN warning ($state)" test "$state" = nokey
+			expect pcr7-changed "PCR 7 differs from a clean start, as the warning says" test "$after" != "$base"
+		else
+			expect reset-clean "the firmware reset after Continue boot: a clean start into Windows ($trail)" test "$trail" = 'false false false'
+			expect reset-asks "the app asks the owner whether the code went in ($state)" test "$state" = ask
+			expect pcr7-reset "PCR 7 is a clean start's: no PIN reset" test "$after" = "$base"
+		fi
 	fi
 	if want 6; then
 		scenario "6. Restart into Windows without the key (powered off at the key screen)"
@@ -530,14 +540,21 @@ test_run() {
 		windows_back windows-before-instances
 		if [ -n "${SWIFF_HOST_EXE:-}" ] && [ -s "$SWIFF_HOST_EXE" ]; then
 			to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
-			on_vm "schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 60; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 45; @(Get-Process | Where-Object { \$_.MainWindowHandle -ne 0 -and \$_.Path -like '*Swiff*' }).Count" | tr -d '\r' > "$run/instances.txt"
-			expect one-instance "the second start brought the first forward: $(tail -1 "$run/instances.txt") window(s)" test "$(tail -1 "$run/instances.txt")" = 1
+			# The portable exe unpacks the app and starts it; the second start must hand over to the
+			# first and quit. Counted as the app's main processes (Electron's without --type=), which an
+			# SSH session sees, unlike their windows.
+			local mains='@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*Swiff Host*.exe" -and $_.CommandLine -notmatch "--type=" }).Count'
+			on_vm "schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 120; $mains" | tr -d '\r' > "$run/instances-1.txt"
+			on_vm "schtasks /run /tn swiff-app | Out-Null; Start-Sleep 90; $mains; Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '*Swiff*' } | ForEach-Object { '{0} {1}' -f \$_.ProcessId, \$_.CommandLine }" | tr -d '\r' > "$run/instances-2.txt"
+			expect app-started "the app started: $(head -1 "$run/instances-1.txt") main process" test "$(head -1 "$run/instances-1.txt")" = 1
+			expect one-instance "a second start left one app running: $(head -1 "$run/instances-2.txt") main process" test "$(head -1 "$run/instances-2.txt")" = 1
 		else
 			result SKIP one-instance "no \$SWIFF_HOST_EXE given"
 		fi
 
 	fi
 	if want 12; then
+		# Before any install: run it from a fresh copy (SWIFF_SCENARIOS="12"), or after 9 without 10.
 		scenario "12. Secure Boot off"
 		on_vm 'manage-bde -protectors -disable C: -RebootCount 2 | Out-Null; Stop-Computer -Force' || true
 		vm_wait_off 300 || vm_kill
