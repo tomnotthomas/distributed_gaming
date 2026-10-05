@@ -633,12 +633,18 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
+      if (body.reset !== undefined && typeof body.reset !== "boolean") {
+        throw new HttpError(400, "reset must be true or false");
+      }
+      // A rental-mode restart between renters (platform.ts, the reset hold).
+      if (body.reset && body.available) throw new HttpError(400, "reset takes the machine off offer");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
-      const machine = await platform.setAvailability(id, body.available, {
-        ...hostReport(body),
-        price,
-        availableUntil: optionalTime(body.until, "until"),
-      });
+      const machine = await platform.setAvailability(
+        id,
+        body.available,
+        { ...hostReport(body), price, availableUntil: optionalTime(body.until, "until") },
+        { reset: body.reset === true },
+      );
       reply(res, 200, machine);
       return true;
     }

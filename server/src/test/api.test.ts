@@ -20,7 +20,7 @@ import {
 } from "../access.js";
 import { createApi } from "../api.js";
 import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
-import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
+import { Platform, QUEUE_TIMEOUT_MS, RESET_HOLD_MS } from "../platform.js";
 import { emptyProfile } from "../steam.js";
 import type { SignalMessage } from "../protocol.js";
 import { MAX_GAMES } from "../profile.js";
@@ -300,6 +300,40 @@ describe("booking and host API", () => {
     access.secret = null;
     assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 503);
     assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
+  });
+
+  it("takes a rental-mode PC off offer for its reset without ending a session claimed the instant before", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+
+    const reset = await call(
+      "PUT",
+      "/api/machines/pc-1/availability",
+      { available: false, reset: true },
+      MACHINE_KEY,
+    );
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.status, "in_session");
+    assert.deepEqual(reset.body.session, { id: claim.body.sessionId });
+    assert.equal(reset.body.resetUntil, now + RESET_HOLD_MS);
+    assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "claimed");
+
+    // The owner's host app sends no reset: taking it back ends the session as before.
+    const back = await call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+    assert.equal(back.body.status, "idle");
+    assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "ended");
+  });
+
+  it("answers 400 to a reset that offers the machine or is not true or false", async () => {
+    for (const body of [
+      { available: true, reset: true },
+      { available: false, reset: "yes" },
+    ]) {
+      const { status } = await call("PUT", "/api/machines/pc-1/availability", body, MACHINE_KEY);
+      assert.equal(status, 400, JSON.stringify(body));
+    }
   });
 
   it("refuses the Host API without the machine's own key", async () => {

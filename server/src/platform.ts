@@ -16,6 +16,19 @@
 //   machine idle ─► available ─► reserved ─► in_session ─► available
 //                 (socket dropped, or silent for LIVENESS_MS: offline; taken back: idle)
 //
+// The reset hold: a rental-mode PC restarts between renters, while idle, so the
+// next one gets a clean PC (docs/system-design/host.md). Before it restarts it
+// takes itself off offer with `reset`. That is taking it back, idle, unless a
+// renter claimed it and has not started: a reservation goes back to the queue,
+// so nobody is matched to a PC that is about to restart, and a started session
+// ends as owner_kill. A session claimed in the instant before, not yet
+// started, is kept rather than ended, and the machine holds the reset for up
+// to RESET_HOLD_MS: its silence while it restarts does not end that session. The hold ends once the PC is back (it starts the
+// session's host session, or offers the machine again), when the owner takes
+// it back, or when it runs out, after which the usual liveness rule applies. A
+// held session that ends before the PC is back leaves the machine idle, as the
+// reset would have with no session there.
+//
 // The database is Postgres at DATABASE_URL; unset, one in memory that resets
 // with the process (db.ts). Its tables are made by schema.ts.
 //
@@ -103,6 +116,11 @@ export const RESERVATION_MS = 60_000;
  * back: one away at the match never holds it longer than this.
  */
 export const MAX_HOLD_MS = 2 * 60_000;
+/**
+ * How long a rental-mode PC's restart between renters may keep a session
+ * claimed in the instant before it: the reset hold, from the reset call.
+ */
+export const RESET_HOLD_MS = 3 * 60_000;
 /** A queued booking the renter has not checked on for this long is dropped. */
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
 /** The longest booking accepted. */
@@ -132,6 +150,18 @@ export type MachineView = {
   price: number;
   /** The session running on it, when there is one: the host starts and ends it by this id. */
   session?: { id: string };
+  /** Unix ms until which a reset holds that session through the PC's restart, while it does. */
+  resetUntil?: number;
+};
+
+/** How the host takes the machine off offer. */
+export type OffOffer = {
+  /**
+   * For a rental-mode restart between renters: a session claimed in the instant
+   * before, and not yet started, is kept, and held through the restart, rather
+   * than ended. A started one ends as taking the machine back does.
+   */
+  reset?: boolean;
 };
 
 /** A machine's stored report, as its host last sent it. */
@@ -243,6 +273,8 @@ type MachineRow = {
   last_seen_at: number;
   /** The instant offered time has been counted up to in machine_uptime. */
   uptime_at: number | null;
+  /** Until when a reset holds its session through the PC's restart; null when none is held. */
+  reset_until: number | null;
 };
 type BookingRow = {
   id: string;
@@ -518,9 +550,16 @@ export class Platform {
 
   /**
    * Offer the machine (available) or take it back (not), storing whatever the
-   * host reported with it. Taking it back ends whatever it was doing.
+   * host reported with it. Taking it back ends whatever it was doing, except
+   * a session not yet started that it is taken off offer from with `reset`:
+   * that one is kept, and held through the restart (the reset hold).
    */
-  setAvailability(machineId: string, available: boolean, spec: MachineSpec = {}): Promise<MachineView> {
+  setAvailability(
+    machineId: string,
+    available: boolean,
+    spec: MachineSpec = {},
+    { reset = false }: OffOffer = {},
+  ): Promise<MachineView> {
     return this.#transaction(async () => {
       const now = this.#now();
       const machine = await this.#touch(machineId, now);
@@ -534,11 +573,32 @@ export class Platform {
       // Its terms (price, until when) are what renters see, whether or not its status moves.
       this.#offerChanged = true;
 
-      if (!available) {
-        await this.#release(machine, now, "owner_kill");
-        await this.#setStatus(machineId, "idle");
-      } else if (machine.status === "idle" || machine.status === "offline") {
-        await this.#setStatus(machineId, "available");
+      const unstarted =
+        !available &&
+        reset &&
+        machine.status === "in_session" &&
+        (await this.#get<{ id: string }>(
+          "SELECT id FROM sessions WHERE machine_id = $1 AND ended_at IS NULL AND started_at IS NULL",
+          machineId,
+        ));
+      if (unstarted) {
+        // Claimed in the instant before the restart, not yet served: served once the PC is back.
+        // Asking again during a hold keeps its deadline: a hold never outlasts RESET_HOLD_MS.
+        await this.#run(
+          `UPDATE machines SET reset_until = CASE WHEN reset_until > $1 THEN reset_until ELSE $2 END
+             WHERE id = $3`,
+          now,
+          now + RESET_HOLD_MS,
+          machineId,
+        );
+      } else {
+        await this.#run("UPDATE machines SET reset_until = NULL WHERE id = $1", machineId);
+        if (!available) {
+          await this.#release(machine, now, "owner_kill");
+          await this.#setStatus(machineId, "idle");
+        } else if (machine.status === "idle" || machine.status === "offline") {
+          await this.#setStatus(machineId, "available");
+        }
       }
       await this.#tick(now);
       return this.#machineView(machineId);
@@ -769,8 +829,8 @@ export class Platform {
         return row ? { sessionId: row.session_id, grantId: row.grant_id } : null;
       }),
     add: (machineId, { sessionId, grantId }: KeySession) =>
-      this.#transaction(
-        async () =>
+      this.#transaction(async () => {
+        const added =
           (await this.#run(
             `INSERT INTO key_sessions (machine_id, session_id, grant_id)
                SELECT $1, $2, $3 WHERE EXISTS
@@ -779,8 +839,11 @@ export class Platform {
             machineId,
             sessionId,
             grantId,
-          )) > 0,
-      ),
+          )) > 0;
+        // Serving the session: the PC is back from any reset it held.
+        if (added) await this.#run("UPDATE machines SET reset_until = NULL WHERE id = $1", machineId);
+        return added;
+      }),
     remove: (machineId) =>
       this.#transaction(async () => {
         const row = await this.#get<{ session_id: string }>(
@@ -855,7 +918,7 @@ export class Platform {
         at,
         now >= session.expires_at - TIME_UP_GRACE_MS ? "time_up" : "host_end",
       );
-      if (machine.status === "in_session") await this.#setStatus(machineId, "available");
+      if (machine.status === "in_session") await this.#sessionOver(machineId);
       await this.#tick(now);
       return true;
     });
@@ -1191,8 +1254,9 @@ export class Platform {
 
   /**
    * When the next thing falls due with no call to cause it: a machine with no
-   * socket going silent, a reservation lapsing, a session running out, a queued
-   * booking nobody checks on timing out. Null when nothing is waiting on time.
+   * socket going silent (or its reset hold running out), a reservation
+   * lapsing, a session running out, a queued booking nobody checks on timing
+   * out. Null when nothing is waiting on time.
    */
   nextDeadline(): Promise<number | null> {
     return this.#read(() => this.#nextDeadline());
@@ -1201,7 +1265,7 @@ export class Platform {
   async #nextDeadline(): Promise<number | null> {
     const row = await this.#get<{ at: number | null }>(
       `SELECT min(at) AS at FROM (
-         SELECT GREATEST(last_seen_at + $1, $2) AS at FROM machines
+         SELECT GREATEST(last_seen_at + $1, $2, coalesce(reset_until, 0)) AS at FROM machines
            WHERE status NOT IN ('idle', 'offline') AND NOT (id = ANY ($3::text[]))
          UNION ALL SELECT expires_at FROM reservations
          UNION ALL SELECT expires_at FROM sessions WHERE ended_at IS NULL
@@ -1251,7 +1315,8 @@ export class Platform {
    * Refresh what is present, drop silent machines, settle lapsed reservations
    * and overrun sessions, then match. A silent machine counts a drop unless its
    * offer ended within LIVENESS_MS of its last check-in: a host that beat until
-   * the end of its offer and then went quiet stopped as planned.
+   * the end of its offer and then went quiet stopped as planned. One holding a
+   * reset is not silent until the hold runs out: it is restarting.
    */
   async #tick(now: number): Promise<void> {
     // An open socket is contact right now, so the rules below that read
@@ -1269,8 +1334,10 @@ export class Platform {
       now < this.#graceUntil
         ? []
         : await this.#all<MachineRow>(
-            "SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= $1",
+            `SELECT * FROM machines WHERE status NOT IN ('idle', 'offline') AND last_seen_at <= $1
+               AND (reset_until IS NULL OR reset_until <= $2)`,
             now - LIVENESS_MS,
+            now,
           );
     for (const machine of silent) await this.#goOffline(machine, now);
 
@@ -1297,7 +1364,7 @@ export class Platform {
         session.expires_at,
         session.started_at === null ? "grace_expired" : "time_up",
       );
-      await this.#setStatus(session.machine_id, "available");
+      await this.#sessionOver(session.machine_id);
     }
 
     // A renter who stopped checking on a queued booking has gone; matching it
@@ -1328,6 +1395,7 @@ export class Platform {
       );
     }
     await this.#release(machine, machine.last_seen_at, "host_offline");
+    await this.#run("UPDATE machines SET reset_until = NULL WHERE id = $1", machine.id);
     await this.#setStatus(machine.id, "offline");
   }
 
@@ -1469,6 +1537,19 @@ export class Platform {
     return id;
   }
 
+  /**
+   * A machine whose session just ended: free for the next renter, or, while it
+   * holds a reset, off offer (idle), as the reset left it with no session
+   * there. Its host offers it again once the PC has restarted.
+   */
+  async #sessionOver(machineId: string): Promise<void> {
+    const held = await this.#run(
+      "UPDATE machines SET reset_until = NULL WHERE id = $1 AND reset_until IS NOT NULL",
+      machineId,
+    );
+    await this.#setStatus(machineId, held ? "idle" : "available");
+  }
+
   /** The renter ended the session: closed as `renter`, its machine free again. */
   async #renterEnds(session: SessionRow, now: number): Promise<void> {
     await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
@@ -1476,7 +1557,7 @@ export class Platform {
       "SELECT status FROM machines WHERE id = $1",
       session.machine_id,
     ))!;
-    if (machine.status === "in_session") await this.#setStatus(session.machine_id, "available");
+    if (machine.status === "in_session") await this.#sessionOver(session.machine_id);
   }
 
   /**
@@ -1787,6 +1868,7 @@ export class Platform {
       cpu: m.cpu_model,
       price: m.price,
       ...(m.session_id ? { session: { id: m.session_id } } : {}),
+      ...(m.session_id && m.reset_until !== null ? { resetUntil: m.reset_until } : {}),
     };
   }
 

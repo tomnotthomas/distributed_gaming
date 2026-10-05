@@ -162,7 +162,11 @@ responder, answers at once: the screen it shares stands in for the game.
 
 The server also ends the host session whenever the renter's platform session ends
 ([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the
-machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. The service must treat
+machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. A
+rental-mode PC taking itself off offer with `reset: true` to restart between renters is
+not the owner taking it back: a session claimed the instant before, not yet started, is kept, held through
+the restart, and its host session is started again once the PC is back
+([`host.md`](host.md), the reset hold). The service must treat
 a `session-ended` denial, or a heartbeat whose `session.id` has changed or is missing, as
 the signal to tear down the renter account session. Its later `DELETE` still answers `204`.
 
@@ -363,6 +367,7 @@ fails again), so a flood of junk attempts cannot hold a machine's attestation ba
 | Streamer's socket drops, key expired     | `denied bad-session-key`                           | `DELETE`, start the same `sessionId`, relaunch with the new key            |
 | Streamer crashes                         | renter gets `peer-left`; room stays in the session | relaunch it; if the key has expired, `DELETE` and start first              |
 | Service restarts and lost the session    | the old session is still live; start answers `409` | on startup, always `DELETE` first, then start the heartbeat's `session.id` |
+| PC restarts before a claim is served     | with `reset: true`, the session is held 3 minutes  | `DELETE` before the restart; after it, start the heartbeat's `session.id`  |
 | Signaling server restarts                | live sessions and their keys are kept              | nothing; the streamer reconnects with its key as after any drop            |
 | Server cannot be reached for `DELETE`    | the room stays in the session; the streamer stays  | retry until `204`; stop the streamer locally meanwhile                     |
 | `ROOM_SECRET` not set on the server      | every call `503 not-configured`                    | report the machine unavailable                                             |

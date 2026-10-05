@@ -104,7 +104,9 @@ The app reads what Steam leaves on the PC, never the owner's account (`desktop/s
 
 Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
 `idle` when the owner takes it back, `offline` when its socket drops or, with no socket,
-it stops sending heartbeats).
+it stops sending heartbeats). A rental-mode PC restarting between renters holds a reset
+(`reset_until`, below): a session claimed the instant before, not yet started, stays
+`in_session` through the restart.
 
 ---
 
@@ -123,9 +125,12 @@ can call them from its `file://` page: the bearer credential is the only one.
 ```
 PUT  /machines/:id/availability
   { available: true, until?, price?, ...report }
-  → 200 { id, status, gpu, cpu, price, session? }
+  { available: false, reset?: true, until?, price?, ...report }
+  → 200 { id, status, gpu, cpu, price, session?, resetUntil? }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
   `until` is an ISO date; `price` is cents per hour. `report` is below.
+  `reset: true` is the rental-mode PC taking itself off offer to restart between
+  renters (the reset hold, below); only with `available: false`, else 400.
 
 POST /machines/:id/heartbeat
   { ...report }
@@ -182,6 +187,43 @@ POST /sessions/:id/saves
   Short-lived S3 links for this renter's saves for this game. The PC never holds
   storage credentials. Download before the game starts; upload before the wipe.
 ```
+
+### The reset hold
+
+A rental-mode PC (its agent, swiff-hostd) restarts after every renter, while idle, so
+the next renter gets a clean PC and never waits for it. It takes itself off offer first,
+so nobody is matched to a PC about to restart. It learns of a claim from its socket and
+heartbeat, so a renter can claim it after its last look and before it is off offer.
+Taking the machine back would end that renter's session as `owner_kill`, so the PC
+sends `reset: true` instead, which the server settles in one step
+(`server/src/platform.ts`):
+
+- **Nobody claimed it**: the same as taking it back. It goes `idle`, and a renter
+  matched to it but not yet claimed goes back to the front of the queue. Queued renters
+  stay queued until a PC is free; this one is again once it offers itself after the
+  restart.
+- **A session was started**: the same as taking it back. The session ends as
+  `owner_kill`, priced up to the reset, and the machine goes `idle`.
+- **A session was claimed, not yet started**: the session is kept and the answer names it in `session`.
+  The machine stays `in_session` and holds the reset for up to 3 minutes
+  (`RESET_HOLD_MS`, from the first call: asking again during the hold keeps its deadline;
+  `resetUntil` in the answer). Meanwhile its silence
+  does not end the session as `host_offline`. After the restart its heartbeat names the
+  session, and the PC serves it.
+
+The hold ends when the PC is back: it starts the session's host session
+(`POST /machines/:id/session`) or offers the machine again. It also ends when the owner
+takes the machine back, which ends the session as `owner_kill` as always, or when it
+runs out, and the usual liveness rule applies again. If the held session ends before the
+PC is back (the renter leaves), the machine goes `idle`, as a reset with no session
+leaves it, until the PC offers it again. The owner's host app never sends `reset`, so a
+desktop PC behaves as before.
+
+swiff-hostd should send `reset: true` on every off-offer call it makes before a restart
+between renters, including the one where its heartbeat already names a new session. That
+is a follow-up. As first written, it takes the machine off offer with a plain
+`available: false` when it sees no session, and with a session it sends nothing, so a
+restart longer than 15 s ends that session as `host_offline`.
 
 Whenever the platform session ends — the host ends it, the booked time runs out, the
 machine goes silent or the owner takes it back — the server also ends the PC's host
