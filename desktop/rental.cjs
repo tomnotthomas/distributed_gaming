@@ -599,7 +599,7 @@ function mokSteps(code) {
       commands: [
         `# Swiff Host's firmware-variable writer, as administrator: mokutil --import ${MOK_CERT} --simple-hash, from Windows`,
         `#   ${mokVar("MokNew")}: ${MOK_CERT} as an EFI_SIGNATURE_LIST (X.509, owner shim), non-volatile, boot and runtime access`,
-        `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the code ${code} in UTF-16LE, the same attributes`,
+        `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the one-time code in UTF-16LE, the same attributes`,
       ],
     },
     {
@@ -613,6 +613,15 @@ function mokSteps(code) {
       ],
     },
   ];
+}
+
+/**
+ * Confirm Swiff's key again, once installed: after a missed blue screen, the
+ * same request with a new code. Whether the key is enrolled is not read yet:
+ * reading MokListRT for it is a follow-up for the install executor.
+ */
+function mokPlan(code = mokCode()) {
+  return { kind: "mok", dryRun: true, steps: mokSteps(code), mok: { code } };
 }
 
 /**
@@ -685,6 +694,7 @@ module.exports = {
   mokCode,
   mokRequest,
   mokSteps,
+  mokPlan,
   installPlan,
   switchPlan,
 };

@@ -39,7 +39,11 @@ MOK and restart once to confirm it) and the start/stop sharing switch (BootOrder
 are previews: the app plans them and runs nothing on a PC. Real PCs boot Swiff OS through a
 Linux distribution's Microsoft-signed shim, which trusts Swiff's key once the owner confirms it
 at MokManager's blue screen, with a one-time code the host app shows and guides them through.
-A missed screen enrols nothing, and the owner confirms again from the host app.
+A missed screen enrols nothing: shim then shows a security error and the PC falls back to
+Windows, and the owner chooses Confirm the security key again on the Rental mode screen, which
+queues the same request with a new code and restarts once more (a preview too). The app does
+not read yet whether the key is enrolled: reading MokListRT is a follow-up for the install
+executor.
 `desktop/vm/rental-install-test.sh` carries the plans out on a disk image and boots it under
 OVMF with Secure Boot and a software TPM; `desktop/vm/mok-enroll-test.sh` boots Ubuntu's signed
 shim under OVMF with Microsoft's keys and confirms the app's MOK request at MokManager, after a

@@ -18,7 +18,9 @@ import {
   libraryDrives,
   MOK_CERT,
   mokCode,
+  mokPlan,
   mokRequest,
+  mokSteps,
   readRental,
   rentalOf,
   SWIFF_OS,
@@ -417,9 +419,22 @@ describe("Swiff's key, enrolled once as a MOK", () => {
     expect(mok!.ops).toEqual([{ op: "mok-import", cert: MOK_CERT, code: "48217730" }]);
     expect(mok!.commands.join("\n")).toMatch(/mokutil --import swiffos-key\.cer --simple-hash/);
     expect(mok!.commands.join("\n")).toMatch(/MokNew-605dab50-e046-4300-abb6-3dd810dd8b23/);
-    expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the code 48217730/);
+    expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the one-time code/);
+    expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("48217730");
     expect(restart!.ops).toEqual([{ op: "boot-next", entry: "swiff" }, { op: "restart" }]);
     expect(restart!.commands).toContain("bcdedit /set '{fwbootmgr}' bootsequence $entry");
+  });
+
+  it("confirms the key again after a missed screen: the same request with a new code, and one restart", () => {
+    const plan = mokPlan("11112222");
+    expect(plan).toMatchObject({ kind: "mok", dryRun: true, mok: { code: "11112222" } });
+    expect(plan.steps).toEqual(mokSteps("11112222"));
+    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "mok-import", cert: MOK_CERT, code: "11112222" },
+      { op: "boot-next", entry: "swiff" },
+      { op: "restart" },
+    ]);
+    expect(mokPlan().mok!.code).toMatch(/^\d{8}$/);
   });
 
   it("makes a new 8-digit code for each plan", () => {

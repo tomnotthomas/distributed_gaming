@@ -542,6 +542,11 @@ body {
 .zc .acts {
   margin-top: 14px;
 }
+.zc .soft.ragain {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ln);
+}
 .krow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

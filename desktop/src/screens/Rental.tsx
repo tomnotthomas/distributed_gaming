@@ -41,6 +41,7 @@ function CheckRow({ check }: { check: RentalCheck }) {
 
 const PREVIEW_TITLE: Record<RentalPlan["kind"], string> = {
   install: "Installing rental mode",
+  mok: "Confirming Swiff's key again",
   start: "Going live in rental mode",
   stop: "Back to Windows",
 };
@@ -140,8 +141,9 @@ function MokGuide({ code }: { code: string }) {
         </ol>
       </div>
       <Notice icon="refresh">
-        Missed the blue screen? It waits 10 seconds, then Windows starts as usual and the key is not enrolled.
-        Come back to Rental mode and confirm again: Swiff Host restarts the PC once more, with a new code.
+        Missed the blue screen? It waits 10 seconds, then the PC shows a security error and falls back to
+        Windows, with the key not enrolled. Come back to Rental mode and choose Confirm the security key
+        again: the PC restarts once more, with a new code.
       </Notice>
     </Zone>
   );
@@ -285,6 +287,15 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
                 </Pill>
                 <button type="button" className="lnk" onClick={() => actions.previewRental("stop")}>
                   Preview back to Windows
+                </button>
+              </div>
+              {/* Whether the key is enrolled is not read yet (MokListRT): the owner says they missed it. */}
+              <p className="soft ragain">
+                Missed the blue screen after installing? Swiff OS cannot start until its key is confirmed.
+              </p>
+              <div className="acts">
+                <button type="button" className="lnk" onClick={() => actions.previewRental("mok")}>
+                  Confirm the security key again
                 </button>
               </div>
             </>

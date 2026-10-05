@@ -309,7 +309,7 @@ function apply(op, ctx) {
         return file;
       });
       bootVars(["mok", ctx.vars, ...files]);
-      return say(`MokNew ${request.MokNew.length} bytes, MokAuth with code ${op.code}`);
+      return say(`MokNew ${request.MokNew.length} bytes, MokAuth`);
     }
     default:
       throw new Error(`unknown op ${op.op}`);

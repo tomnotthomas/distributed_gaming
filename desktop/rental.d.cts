@@ -96,11 +96,11 @@ export type PlanStep = { id: string; title: string; ops: PlanOp[]; commands: str
 
 /** A plan, always a preview here: nothing in the app runs it. */
 export type RentalPlan = {
-  kind: "install" | "start" | "stop";
+  kind: "install" | "mok" | "start" | "stop";
   dryRun: true;
   target?: RentalTarget;
   steps: PlanStep[];
-  /** The install's one-time code, which the owner types at the PC to confirm Swiff's key (MOK). */
+  /** The install's or the re-confirmation's one-time code, which the owner types at the PC to confirm Swiff's key (MOK). */
   mok?: { code: string };
 };
 
@@ -161,6 +161,7 @@ export function mokRequest(
   code: string,
 ): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer };
 export function mokSteps(code: string): PlanStep[];
+export function mokPlan(code?: string): RentalPlan;
 export function installPlan(
   rental: RentalRead,
   options?: { target?: string | null; layout?: LayoutPartition[]; code?: string },
