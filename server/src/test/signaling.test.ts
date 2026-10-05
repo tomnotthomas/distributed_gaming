@@ -210,11 +210,18 @@ describe("signaling", () => {
     await handled(first);
 
     const second = await open();
+    const code = new Promise<number>((resolve) => first.once("close", resolve));
     send(second, join(room, ticket));
     await handled(second);
     await wait(150);
 
     assert.equal(first.readyState, WebSocket.CLOSED, "the stale renter socket was closed");
+    // Refused for good, so it stops rather than joining again to take the seat back.
+    assert.equal(await code, 4003);
+    assert.deepEqual(
+      first.received.find((m) => m.type === "denied"),
+      { type: "denied", reason: "replaced" },
+    );
     const inbox = types(host);
     assert.ok(
       inbox.lastIndexOf("peer-left") < inbox.lastIndexOf("peer-joined"),

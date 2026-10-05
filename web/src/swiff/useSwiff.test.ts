@@ -2,7 +2,7 @@ import { act, render, renderHook, screen, waitFor } from "@testing-library/react
 import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { storedPlay } from "./booking";
+import { holdPlay, storedPlay } from "./booking";
 import { GAMES } from "./data";
 import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
@@ -137,6 +137,27 @@ const NO_MACHINES = { minutes: 180, machines: [], reason: null, busy: [] };
 /** The paths fetched so far. */
 const fetched = () => vi.mocked(fetch).mock.calls.map(([path]) => String(path));
 
+/**
+ * The browser's Web Locks, shared by every page of the test as by every tab of
+ * one browser: the names held now, granted one at a time.
+ */
+function locks() {
+  const held = new Set<string>();
+  const manager = {
+    async request(name: string, callback: () => Promise<void>) {
+      held.add(name);
+      try {
+        await callback();
+      } finally {
+        held.delete(name);
+      }
+    },
+    query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
+  } as unknown as LockManager;
+  Object.defineProperty(navigator, "locks", { value: manager, configurable: true });
+  return { held, manager };
+}
+
 /** A free-to-play game with a machine free tonight, so only sign-in can stand in its way. */
 const cs2 = GAMES.find((game) => game.id === "cs")!;
 
@@ -173,6 +194,7 @@ describe("useSwiff", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     rtc.sessions = [];
+    delete (navigator as { locks?: LockManager }).locks;
   });
 
   it("is the demo only at ?demo=1", () => {
@@ -943,6 +965,69 @@ describe("useSwiff", () => {
       act(() => session.emit({ type: "game-started" }));
       expect(result.current.play?.lostAt).toBeNull();
       expect(result.current.phase).toBe("live");
+    });
+
+    it("does not offer a session another open page still plays, and does once that page is gone", async () => {
+      keepPlaying();
+      const { manager } = locks();
+      const otherPage = holdPlay("s-1", manager);
+      const calls = serve(unnamed, LIVE, { "GET /api/bookings/b-1": json(200, playing()) });
+      const first = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("GET /api/bookings/b-1"));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(first.result.current.away).toBeNull();
+      expect(storedPlay()).not.toBeNull();
+      first.unmount();
+
+      otherPage();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+    });
+
+    it("does not take the seat of a page that went back to the session meanwhile", async () => {
+      keepPlaying();
+      const { manager } = locks();
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing()),
+        "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+
+      holdPlay("s-1", manager);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      act(() => result.current.reconnect());
+      await waitFor(() => expect(result.current.away).toBeNull());
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/rejoin");
+      expect(result.current.claim).toBeNull();
+    });
+
+    it("lets the session go to the page that took its seat, without ending it", async () => {
+      const { held } = locks();
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      await waitFor(() => expect(held.has("swiff.play.s-1")).toBe(true));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+      act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+
+      act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "replaced" }));
+      expect(result.current.claim).toBeNull();
+      expect(result.current.phase).toBe("idle");
+      expect(rtc.sessions[0]!.ended).toBe(true);
+      await waitFor(() => expect(held.has("swiff.play.s-1")).toBe(false));
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+      expect(rtc.sessions).toHaveLength(1);
     });
 
     it("lets the left session go when the renter ends it from there", async () => {

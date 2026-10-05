@@ -18,6 +18,7 @@ const playing = (more: Partial<PlayState> = {}): PlayState => ({
   stats: null,
   muted: false,
   denied: false,
+  replaced: false,
   started: true,
   lostAt: null,
   droppedAt: null,

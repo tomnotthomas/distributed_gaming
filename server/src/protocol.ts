@@ -65,6 +65,7 @@ export type JoinedMessage = {
  *   session-ended    sent to a session-key host when its session is ended
  *   bad-ticket       renter's ticket forged or expired
  *   room-taken       another renter holds the seat
+ *   replaced         sent to a renter socket a newer join with the same ticket took the seat from
  */
 export type DeniedMessage = {
   type: "denied";
@@ -76,7 +77,8 @@ export type DeniedMessage = {
     | "session-active"
     | "session-ended"
     | "bad-ticket"
-    | "room-taken";
+    | "room-taken"
+    | "replaced";
 };
 /**
  * Pushed to the PC service's socket (machine key or host certificate, never a

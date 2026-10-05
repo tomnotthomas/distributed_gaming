@@ -786,9 +786,10 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
         // The same ticket again is the same renter refreshing: hand them the
-        // seat. A different ticket is somebody else, and the seat is taken.
+        // seat, and the socket it had stops for good rather than joining again
+        // to take it back. A different ticket is somebody else, and the seat is taken.
         if (room.client.ticketId !== ticket.id) return deny(ws, "room-taken");
-        room.client.close(4001, "replaced by a newer client");
+        deny(room.client, "replaced");
       }
       ws.hostId = ticket.room;
       ws.role = "client";

@@ -91,6 +91,8 @@ export type PlayState = {
   muted: boolean;
   /** The server refused the ticket: the session is over. */
   denied: boolean;
+  /** Another page of this renter's joined with the same ticket and took the seat: this one stops, the session goes on there. */
+  replaced: boolean;
   /** The server took the session start: its clock runs, so leaving ends a session. */
   started: boolean;
   /**
@@ -158,6 +160,7 @@ export function startPlay(opts: PlayOptions): Play {
     stats: null,
     muted: false,
     denied: false,
+    replaced: false,
     started: resume,
     lostAt: resume ? now() : null,
     droppedAt: resume ? (opts.droppedAt ?? now()) : null,
@@ -351,7 +354,7 @@ export function startPlay(opts: PlayOptions): Play {
           clearTimeout(timer);
           clearTimeout(rejoinTimer);
           clearTimeout(giveUpTimer);
-          set({ denied: true });
+          set(event.reason === "replaced" ? { replaced: true } : { denied: true });
           break;
       }
     });
@@ -366,7 +369,7 @@ export function startPlay(opts: PlayOptions): Play {
   return {
     state: () => state,
     retry() {
-      if (stopped || state.denied || state.step !== "live") return;
+      if (stopped || state.denied || state.replaced || state.step !== "live") return;
       // The PC's hold still runs from the first drop.
       set({ lostAt: now(), droppedAt: state.droppedAt ?? now(), gaveUp: false });
       join(state.relayed);

@@ -9,6 +9,8 @@ import {
   followBooking,
   forgetPlay,
   forgetStoredTicket,
+  holdPlay,
+  playedElsewhere,
   resumeTicket,
   storedBookingId,
   storedPlay,
@@ -520,14 +522,16 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // A session this browser was playing when the page went away (closed, a
   // reload, a laptop that died) may still run on the PC, which holds it for
   // two minutes once it misses the renter: screen A offers to go back to it.
+  // One another open page of this browser still plays is that page's, and is
+  // not offered: going back to it would take its seat.
   useEffect(() => {
     if (!steamId || demo) return;
     const stored = storedPlay();
     if (!stored) return;
     let current = true;
-    fetchBooking(stored.bookingId).then(
-      (found) => {
-        if (!current) return;
+    Promise.all([fetchBooking(stored.bookingId), playedElsewhere(stored.sessionId)]).then(
+      ([found, elsewhere]) => {
+        if (!current || elsewhere) return;
         if (found && (found.status === "claimed" || found.status === "playing")) {
           setAway({ booking: found, heldUntil: found.heldUntil ?? null });
         } else forgetPlay(stored.bookingId);
@@ -556,7 +560,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     const { booking: was, heldUntil } = current;
     setRejoining(true);
     track("session_rejoined", { game: was.gameId });
-    resumeTicket(was.bookingId).then(
+    // Another page that took the session up meanwhile keeps it.
+    const seat = async () =>
+      was.sessionId && (await playedElsewhere(was.sessionId)) ? null : resumeTicket(was.bookingId);
+    seat().then(
       (claimed) => {
         setRejoining(false);
         setAway(null);
@@ -675,6 +682,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setPlay(null);
     };
   }, [demo, claim, video]);
+
+  // While this page plays a session, no other page of this browser offers to go back to it.
+  const playingSession = claim?.sessionId ?? null;
+  useEffect(() => (playingSession ? holdPlay(playingSession) : undefined), [playingSession]);
 
   /** Reconnect now, after the page gave up reconnecting by itself (screen B). */
   const retryConnection = useCallback(() => {
@@ -837,6 +848,21 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setBookingFailed(true);
     setPhase("idle");
   }, [play?.denied, endCurrentBooking, endSession]);
+
+  // Another page of this renter's took the session's seat: it plays on there,
+  // so this page lets it go without ending it.
+  useEffect(() => {
+    if (!play?.replaced) return;
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    launchRun.current += 1;
+    liveSince.current = null;
+    stopFollowing();
+    setBooking(null);
+    setClaim(null);
+    setElapsedMs(0);
+    setPhase("idle");
+    setBeat(0);
+  }, [play?.replaced, stopFollowing]);
 
   /**
    * The owner took their machine back mid-session. Nothing drives this yet: the

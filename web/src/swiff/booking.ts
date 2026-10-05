@@ -428,6 +428,34 @@ export function forgetPlay(bookingId: string, storage: Storage = localStorage) {
   if (storedPlay(storage)?.bookingId === bookingId) storage.removeItem(PLAY_KEY);
 }
 
+/** The browser's Web Locks, where it has them (not over plain http). */
+const browserLocks = (): LockManager | undefined => globalThis.navigator?.locks;
+
+/** The lock an open page holds while it plays `sessionId`: released when it stops, or the page goes. */
+const playLock = (sessionId: string) => `swiff.play.${sessionId}`;
+
+/**
+ * Hold the lock saying this page plays `sessionId`, so no other page of this
+ * browser offers to go back to it (playedElsewhere). Returns its release.
+ */
+export function holdPlay(sessionId: string, locks: LockManager | undefined = browserLocks()): () => void {
+  if (!locks) return () => {};
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  void locks.request(playLock(sessionId), () => held).catch(() => {});
+  return release;
+}
+
+/** Whether another open page of this browser plays `sessionId` now (holdPlay). */
+export async function playedElsewhere(
+  sessionId: string,
+  locks: LockManager | undefined = browserLocks(),
+): Promise<boolean> {
+  if (!locks) return false;
+  const { held = [], pending = [] } = await locks.query();
+  return [...held, ...pending].some((lock) => lock.name === playLock(sessionId));
+}
+
 /** The booking this browser made and kept, if any, for a page load to pick up. */
 export function storedBookingId(storage: Storage = localStorage): string | null {
   return storage.getItem(KEY);

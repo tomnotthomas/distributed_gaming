@@ -198,6 +198,19 @@ describe("reconnecting", () => {
     expect(handle.state()).toMatchObject({ denied: true, gaveUp: false });
   });
 
+  it("stops, without taking the seat back, when another page took it with the same ticket", async () => {
+    const { handle } = live();
+    latest().emit({ type: "disconnected", failed: false });
+    latest().emit({ type: "denied", reason: "replaced" });
+    const joins = sessions.length;
+    await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
+    expect(sessions).toHaveLength(joins);
+    expect(handle.state()).toMatchObject({ replaced: true, denied: false });
+
+    handle.retry();
+    expect(sessions).toHaveLength(joins);
+  });
+
   it("stops every reconnect timer when stopped", async () => {
     const { handle } = live();
     latest().emit({ type: "disconnected", failed: false });

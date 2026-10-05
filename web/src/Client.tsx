@@ -13,6 +13,7 @@ import posthog, { isPostHogEnabled } from "./posthog";
 const DENIED: Record<string, string> = {
   "bad-ticket": "This link is invalid or has expired. Ask for a new one.",
   "room-taken": "Someone else is already playing on this machine.",
+  replaced: "This session was opened somewhere else.",
 };
 
 /** Render the renter page, joining with a ticket to play the stream and send input. */

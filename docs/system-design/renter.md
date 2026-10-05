@@ -495,7 +495,8 @@ configured the server lets nobody in (`server/src/access.ts`).
 
 - **One renter at a time.** While a renter is in the room, a join with a different
   ticket is refused (`room-taken`). The same ticket again is the same renter
-  reloading the page and takes the seat back.
+  reloading the page and takes the seat back; the socket it had is refused
+  (`replaced`) and stops, rather than joining again to take the seat back in turn.
 - **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
@@ -554,7 +555,10 @@ The claim's session and room are kept in `localStorage` as the booking being pla
 it ends, to come back to (see "Coming back"). Its join ticket is never stored: it is a
 bearer credential, held only in the page's memory, and coming back asks for it again
 (POST /bookings/:id/rejoin). A play kept with its ticket from before is dropped on page
-load. The stream's video is on the page, under Ignition, from the claim on, so its
+load. While a page plays a session it holds a Web Lock named for it, released when the
+page goes: another tab of the same browser does not offer to come back to a session an
+open page still plays, and a page whose seat another took anyway (`replaced`) leaves the
+session to it without ending it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
 while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
