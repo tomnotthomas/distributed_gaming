@@ -334,10 +334,10 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
 Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
 replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.
 
-**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts }`. The
-machine's own key stands in for the proof of who is asking, which the TPM verifier gets from the
-machine's registered EK, so only its holder earns a certificate. The facts are believed as
-claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
+**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts, resetCount?,
+countersRestarted? }`. The machine's own key stands in for the proof of who is asking, which the
+TPM verifier gets from the machine's registered EK, so only its holder earns a certificate. The
+facts, and the boot count for the state key, are believed as claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
 
 **Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
 setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
