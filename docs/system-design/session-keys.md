@@ -431,8 +431,7 @@ it every call answers `503 not-configured`, and the server warns at startup wher
 is set. Changing it makes every stored share unreadable: keep it as long as the shares. Shares
 and the secret are never logged; replacing (`state-key-replaced`), revoking, reinstating and
 withholding for a gap (`state-key-withheld`) are security events, one JSON line each on stderr
-with the machine id, key ids and boot counts only. `.env.example` does not list it yet: add
-`STATE_KEY_SECRET=` beside `ATTESTATION_POLICY_KEY` there.
+with the machine id, key ids and boot counts only.
 
 Used certificates are kept in memory until they expire: a restart forgets them, so a
 certificate that got a share just before one could get it again within its two minutes, for
