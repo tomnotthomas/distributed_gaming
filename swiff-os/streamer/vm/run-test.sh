@@ -22,6 +22,10 @@ build=${SWIFF_STREAMER_BUILD_DIR:-$HOME/.cache/swiff-os-streamer}
 browsers=${PLAYWRIGHT_BROWSERS_PATH:-$build/playwright}
 mkdir -p "$build"
 
+# The Node.js the VM runs the streamer with.
+NODE_VERSION=22.23.3
+NODE_SHA256=df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
+
 no_build=0
 build_only=0
 case "${1:-}" in
@@ -57,8 +61,15 @@ if [ "$no_build" = 0 ] || [ ! -e "$build/out/swiff-streamer-vmtest.raw" ]; then
         "$stage/usr/lib/systemd/user"
     cp "$streamer/dist/swiff-streamer.mjs" "$lib/dist/"
     cp "$streamer/helpers/swiff-gst.py" "$streamer/helpers/swiff-uinput.py" "$lib/helpers/"
-    # This host's Node 22 runs in the VM too: same Ubuntu release, same libraries.
-    cp "$(command -v node)" "$stage/usr/local/bin/node"
+    # Node.js's own Linux build (linked against glibc 2.28, so it runs in the
+    # guest whatever this host has), pinned by version and checksum.
+    node_tar="$build/node-v$NODE_VERSION-linux-x64.tar.xz"
+    if ! echo "$NODE_SHA256  $node_tar" | sha256sum -c --status 2>/dev/null; then
+        echo "== fetching Node.js $NODE_VERSION"
+        curl -fsSL -o "$node_tar" "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"
+        echo "$NODE_SHA256  $node_tar" | sha256sum -c --status
+    fi
+    tar -xJf "$node_tar" -C "$stage/usr/local/bin" --strip-components=2 "node-v$NODE_VERSION-linux-x64/bin/node"
     cp "$streamer/system/swiff-streamer.sysusers" "$stage/usr/lib/sysusers.d/swiff-streamer.conf"
     cp "$streamer/system/swiff-streamer.tmpfiles" "$stage/usr/lib/tmpfiles.d/swiff-streamer.conf"
     cp "$streamer/system/70-swiff-streamer.rules" "$stage/usr/lib/udev/rules.d/"
@@ -126,6 +137,8 @@ echo "== the VM is off (qemu exit $qemu)"
 
 status=0
 wait "$harness" || status=$?
+# A VM that did not power off on its own (timeout) fails the run too.
+[ "$status" = 0 ] && [ "$qemu" != 0 ] && status=$qemu
 trap - EXIT
 echo "== results in $results"
 exit "$status"

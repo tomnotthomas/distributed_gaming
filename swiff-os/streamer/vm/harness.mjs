@@ -143,6 +143,15 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
   },
   stdio: "ignore",
 });
+// The server must not outlive the harness, however the harness ends: a normal
+// exit, an uncaught start-up failure, or a signal before stopAll is in place.
+let stopping = false;
+process.on("exit", () => server.kill());
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    if (!stopping) process.exit(1);
+  });
+}
 await until(
   () =>
     fetch(`${HTTP}/api/ping`).then(
@@ -377,6 +386,7 @@ const stopAll = (code) => {
   harness.close();
   process.exit(code ?? (missing.length || failed.length ? 1 : 0));
 };
+stopping = true;
 process.on("SIGTERM", () => stopAll(1));
 process.on("SIGINT", () => stopAll(1));
 
