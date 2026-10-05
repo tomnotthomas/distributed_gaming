@@ -34,10 +34,16 @@ BitLocker, graphics card, Fast Startup), and the Rental mode screen
 (`desktop/src/screens/Rental.tsx`) shows it with the BIOS steps the owner must take by hand.
 The Secure Boot db and the TPM's endorsement certificate need administrator rights, so they
 show as not checked yet. The install (shrink a drive or use free space, add the partitions,
-write the ESP, add the boot entry, name the games drive `SWIFFGAMES`) and the start/stop
-sharing switch (BootOrder and BootNext) are previews: the app plans them and runs nothing on
-a PC. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image and boots it
-under OVMF with Secure Boot and a software TPM.
+write the ESP, add the boot entry, name the games drive `SWIFFGAMES`, queue Swiff's key as a
+MOK and restart once to confirm it) and the start/stop sharing switch (BootOrder and BootNext)
+are previews: the app plans them and runs nothing on a PC. Real PCs boot Swiff OS through a
+Linux distribution's Microsoft-signed shim, which trusts Swiff's key once the owner confirms it
+at MokManager's blue screen, with a one-time code the host app shows and guides them through.
+A missed screen enrols nothing, and the owner confirms again from the host app.
+`desktop/vm/rental-install-test.sh` carries the plans out on a disk image and boots it under
+OVMF with Secure Boot and a software TPM; `desktop/vm/mok-enroll-test.sh` boots Ubuntu's signed
+shim under OVMF with Microsoft's keys and confirms the app's MOK request at MokManager, after a
+miss and then with the code.
 
 ## Stage 1: the image
 
@@ -182,8 +188,10 @@ checks the session's wiring, not a running game.
 
 ## Follow-ups (not in stage 1)
 
-- **Shim and MOK on real hardware.** Real PCs boot through a distribution shim with MOK enrolment
-  (stage 1 in the report) and, later, Swiff's own shim. The VM enrols the test key directly instead.
+- **Shim and MOK in the image.** Real PCs boot through a distribution's Microsoft-signed shim, with
+  Swiff's key enrolled once as a MOK (the host app queues it and guides the confirmation). The image
+  does not ship the shim yet; the VM enrols the test key directly instead. Swiff's own
+  Microsoft-signed shim is deferred.
 - **Steam client persistence.** The Steam client's runtime is downloaded into the ephemeral `/home` on
   first start of each boot. It moves to the sealed state partition with attestation (stage 3).
 - **Starting the game directly.** Driving Steam's QR login from Swiff's own screen and launching the

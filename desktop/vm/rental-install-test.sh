@@ -12,7 +12,9 @@
 #   2. the install plan for it: C: shrunk by Swiff OS's 24,192 MiB, Swiff OS's
 #      six partitions added with the image's ids, names and attributes, its
 #      ESP and slot A written, its boot entry added after Windows, C: named
-#      SWIFFGAMES
+#      SWIFFGAMES, Swiff's key queued for MokManager (MokNew, MokAuth) and
+#      BootNext set for the restart that confirms it. The VM boots systemd-boot
+#      without shim, so nothing here shows MokManager: vm/mok-enroll-test.sh does
 #   3. start sharing (Swiff OS first in BootOrder, BootNext), then boot 1:
 #      the firmware must start Swiff OS, which runs its self-test
 #   4. stop sharing (Windows first), then boot 2: the firmware must start
@@ -79,7 +81,7 @@ chmod +x "$BOOT_VARS"
 
 disk=$run/disk.raw
 vars=$run/vars.fd
-rm -rf "$run/tpm" "$run"/*.log "$disk" "$vars" "$run"/*.json "$run"/*.efi "$run"/*.auth
+rm -rf "$run/tpm" "$run"/*.log "$disk" "$vars" "$run"/*.json "$run"/*.efi "$run"/*.auth "$run"/*.cer "$run"/*.bin
 mkdir -p "$run/tpm"
 
 # Runs an NTFS tool on C: through a loop device; {} in the arguments is the device.
@@ -127,7 +129,9 @@ log "What the app reads"
 node "$here/apply-plan.cjs" facts "$disk" > "$run/facts.json"
 cat "$run/facts.json"
 log "Install"
-node "$here/apply-plan.cjs" install "$disk" "$image" "$run/facts.json" "$vars"
+# Swiff's certificate's stand-in: the image's own test certificate.
+"$BOOT_VARS" cert "$run/db.auth" "$run/swiffos-key.cer"
+node "$here/apply-plan.cjs" install "$disk" "$image" "$run/facts.json" "$vars" "$run/swiffos-key.cer"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-installed.log"
 
 # --- 3. start sharing, boot 1 -----------------------------------------------------------
@@ -219,6 +223,10 @@ games_label=$(on_c ntfslabel {} 2> /dev/null || true)
 expect games-drive-named "C: is labelled ${games_label:-?}" test "$games_label" = SWIFFGAMES
 expect install-adds-last "after install: $(head -n1 "$run/vars-installed.log")" \
 	grep -q "^BootOrder: Boot0000 'Windows Boot Manager', Boot0001 'Swiff OS'$" "$run/vars-installed.log"
+expect install-restarts-to-swiff "after install: $(sed -n 2p "$run/vars-installed.log")" \
+	grep -q "^BootNext: Boot0001 'Swiff OS'$" "$run/vars-installed.log"
+expect install-queues-mok "after install: $(sed -n 3p "$run/vars-installed.log")" \
+	grep -q "^MOK request: MokNew $((44 + $(stat -c %s "$run/swiffos-key.cer"))) bytes, MokAuth 32 bytes$" "$run/vars-installed.log"
 expect start-sets-order "start: $(head -n1 "$run/vars-started.log")" \
 	grep -q "^BootOrder: Boot0001 'Swiff OS', Boot0000 'Windows Boot Manager'$" "$run/vars-started.log"
 expect start-sets-bootnext "start: $(sed -n 2p "$run/vars-started.log")" \

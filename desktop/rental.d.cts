@@ -86,6 +86,7 @@ export type PlanOp =
   | { op: "write"; disk: number; offset: number; bytes: number; source: string }
   | { op: "boot-entry"; disk: number; offset: number; path: string; title: string }
   | { op: "label"; letter: string; label: string }
+  | { op: "mok-import"; cert: string; code: string }
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
   | { op: "restart" };
@@ -99,6 +100,8 @@ export type RentalPlan = {
   dryRun: true;
   target?: RentalTarget;
   steps: PlanStep[];
+  /** The install's one-time code, which the owner types at the PC to confirm Swiff's key (MOK). */
+  mok?: { code: string };
 };
 
 export type LayoutPartition = {
@@ -117,6 +120,8 @@ export const SWIFF_OS: { version: string; partitions: Omit<LayoutPartition, "id"
 export const SWIFF_OS_BYTES: number;
 export const KEEP_FREE: number;
 export const GAMES_LABEL: string;
+export const MOK_CERT: string;
+export const SHIM_LOCK: string;
 export const SCRIPT: string;
 export function gpuVendor(pnp: string): GpuVendor;
 export function bitlockerState(value: unknown): "on" | "off" | null;
@@ -150,8 +155,14 @@ export function readRental(options?: {
 }): Promise<RentalRead | null>;
 export function imageLayout(gpt: Gpt): LayoutPartition[];
 export function splitFile(split: string, version?: string): string;
+export function mokCode(random?: (max: number) => number): string;
+export function mokRequest(
+  cert: Uint8Array,
+  code: string,
+): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer };
+export function mokSteps(code: string): PlanStep[];
 export function installPlan(
   rental: RentalRead,
-  options?: { target?: string | null; layout?: LayoutPartition[] },
+  options?: { target?: string | null; layout?: LayoutPartition[]; code?: string },
 ): RentalPlan;
 export function switchPlan(kind: "start" | "stop"): RentalPlan;

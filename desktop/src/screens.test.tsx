@@ -6,7 +6,7 @@ import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
 import { HOLD_MS } from "./ui/hold";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
-import { installPlan, rentalOf, TYPE, type RentalRead } from "../rental.cjs";
+import { installPlan, rentalOf, switchPlan, TYPE, type RentalRead } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 
 const FAKE = [
@@ -610,7 +610,7 @@ describe("rental mode", () => {
       /Setup Mode/,
       /Allow Microsoft 3rd-party UEFI CA/,
       /lacks the Microsoft UEFI CA 2023/,
-      /\(MOK\)/,
+      /restarts once, for you to confirm Swiff's key/,
     ])
       expect(screen.getByText(step)).toBeInTheDocument();
     expect(screen.getByText("2.0, in the processor (AMD fTPM)")).toBeInTheDocument();
@@ -632,6 +632,37 @@ describe("rental mode", () => {
     expect(screen.getByText(/Resize-Partition -DiskNumber 0 -PartitionNumber 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
+  });
+
+  it("guides the one confirmation at the PC after the install's restart, with the code large and copyable", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      renderReal("rental", off, rental({ preview: installPlan(read(), { code: "48217730" }) }));
+      expect(screen.getByText("Restart once into Swiff OS, to confirm its key")).toBeInTheDocument();
+      expect(screen.getByText("After the restart: confirm Swiff's key")).toBeInTheDocument();
+      expect(screen.getByText("4821 7730")).toBeInTheDocument();
+      const steps = screen.getByText("Choose Enroll MOK.").closest("ol")!;
+      expect([...steps.querySelectorAll("b")].map((b) => b.textContent)).toEqual([
+        "Press any key within 10 seconds.",
+        "Choose Enroll MOK.",
+        "Choose Continue.",
+        "Choose Yes.",
+        "Type the code, then press Enter. The screen shows nothing as you type.",
+        "Choose Reboot. The PC starts Windows again.",
+      ]);
+      expect(screen.getByText(/Missed the blue screen\?/)).toHaveTextContent(/confirm again/);
+      fireEvent.click(screen.getByRole("button", { name: "Copy the code" }));
+      expect(writeText).toHaveBeenCalledWith("48217730");
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("shows no confirmation guide when switching, only when installing", () => {
+    renderReal("rental", off, rental({ read: installed(), preview: switchPlan("start") }));
+    expect(screen.queryByText("After the restart: confirm Swiff's key")).not.toBeInTheDocument();
   });
 
   it("shows an unread IOMMU and BitLocker state as not read, never as off", () => {

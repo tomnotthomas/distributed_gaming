@@ -5,15 +5,18 @@
 //
 //   shrink            ntfsresize, then ntfsfix -d (Resize-Partition leaves the volume clean)
 //   label             ntfslabel
-//   boot-entry, boot-first, boot-next
+//   boot-entry, boot-first, boot-next, mok-import
 //                     the VM's firmware variables, through boot-vars.py
 //   check, fast-startup-off, restart
 //                     nothing: they need Windows, or the next boot is the restart
 //
 //   node apply-plan.cjs windows <disk.raw> <bytes>      lay out a disk like a Windows PC's
 //   node apply-plan.cjs facts <disk.raw>                print what the app's preflight would read
-//   node apply-plan.cjs install <disk.raw> <image.raw> <facts.json> <vars.fd>
+//   node apply-plan.cjs install <disk.raw> <image.raw> <facts.json> <vars.fd> <cert.der>
 //   node apply-plan.cjs switch <start|stop> <vars.fd>
+//   node apply-plan.cjs mok <vars.fd> <cert.der> <code>   only the install's MOK request, with this code
+//
+// <cert.der> stands in for Swiff's certificate (MOK_CERT) that the install enrols.
 //
 // NTFS tools run through sudo on a loop device over the partition; $NTFS_BIN
 // names their directory, $LD_LIBRARY_PATH reaches them, $BOOT_VARS is the
@@ -23,7 +26,15 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
-const { TYPE, imageLayout, installPlan, rentalOf, switchPlan } = require("../rental.cjs");
+const {
+  TYPE,
+  imageLayout,
+  installPlan,
+  mokRequest,
+  mokSteps,
+  rentalOf,
+  switchPlan,
+} = require("../rental.cjs");
 
 const MiB = 1024 * 1024;
 const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
@@ -290,6 +301,16 @@ function apply(op, ctx) {
     case "boot-next":
       bootVars(["next", ctx.vars, "Swiff OS"]);
       return say(op.entry);
+    case "mok-import": {
+      const request = mokRequest(fs.readFileSync(ctx.cert), op.code);
+      const files = ["MokNew", "MokAuth"].map((name) => {
+        const file = path.join(path.dirname(ctx.vars), `${name}.bin`);
+        fs.writeFileSync(file, request[name]);
+        return file;
+      });
+      bootVars(["mok", ctx.vars, ...files]);
+      return say(`MokNew ${request.MokNew.length} bytes, MokAuth with code ${op.code}`);
+    }
     default:
       throw new Error(`unknown op ${op.op}`);
   }
@@ -306,16 +327,19 @@ const [cmd, ...args] = process.argv.slice(2);
 if (cmd === "windows") windows(args[0], Number(args[1]));
 else if (cmd === "facts") facts(args[0]);
 else if (cmd === "install") {
-  const [file, image, factsFile, vars] = args;
+  const [file, image, factsFile, vars, cert] = args;
   const img = openDisk(image);
   const layout = imageLayout(readGpt(img.read, { diskBytes: img.bytes }));
   img.close();
   const rental = rentalOf(JSON.parse(fs.readFileSync(factsFile, "utf8")), [{ letter: "C", games: 1 }]);
   const plan = installPlan(rental, { layout });
-  run(plan, { file, image, vars });
+  run(plan, { file, image, vars, cert });
 } else if (cmd === "switch") {
   run(switchPlan(args[0]), { vars: args[1] });
+} else if (cmd === "mok") {
+  const [vars, cert, code] = args;
+  run({ steps: mokSteps(code).filter((step) => step.id === "mok") }, { vars, cert });
 } else {
-  console.error("usage: apply-plan.cjs windows|facts|install|switch ...");
+  console.error("usage: apply-plan.cjs windows|facts|install|switch|mok ...");
   process.exit(2);
 }

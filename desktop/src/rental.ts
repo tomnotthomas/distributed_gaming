@@ -114,8 +114,24 @@ export const BIOS_STEPS: readonly string[] = [
   "If Secure Boot is in Setup Mode, leave it: restore the factory keys, then turn Secure Boot on.",
   "On a Secured-core PC, turn on Allow Microsoft 3rd-party UEFI CA in the Secure Boot settings.",
   "If the firmware lacks the Microsoft UEFI CA 2023, update the BIOS, or let Windows Update add it to the Secure Boot db.",
-  "On the first start of Swiff OS, confirm its key once at the screen (MOK), with the PC's keyboard.",
 ];
+
+/**
+ * What the owner sees after the install's restart, and does: shim's MokManager,
+ * screen by screen, in its own words. It waits 10 seconds for a key, takes
+ * three tries at the code and shows nothing as it is typed.
+ */
+export const MOK_SCREENS: readonly { screen: string; act: string }[] = [
+  { screen: "Press any key to perform MOK management", act: "Press any key within 10 seconds." },
+  { screen: "Perform MOK management", act: "Choose Enroll MOK." },
+  { screen: "[Enroll MOK]", act: "Choose Continue." },
+  { screen: "Enroll the key(s)?", act: "Choose Yes." },
+  { screen: "Password:", act: "Type the code, then press Enter. The screen shows nothing as you type." },
+  { screen: "Perform MOK management", act: "Choose Reboot. The PC starts Windows again." },
+];
+
+/** "48217730" → "4821 7730": read in two halves, typed without the space. */
+export const codeGroups = (code: string): string => code.replace(/(\d{4})(?=\d)/g, "$1 ");
 
 /** The Windows-side checks: space, the games drive, the graphics card, Fast Startup. */
 export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck[] {
@@ -237,7 +253,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
     };
   return {
     title: "Ready for rental mode",
-    line: `Swiff OS takes a fixed ${gb(read.need)} next to Windows. Installing it turns off Fast Startup.`,
+    line: `Swiff OS takes a fixed ${gb(read.need)} next to Windows. Installing it turns off Fast Startup and restarts the PC once, to confirm Swiff's key.`,
     ready,
     of: checks.length,
     bios,
