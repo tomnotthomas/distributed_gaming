@@ -1012,6 +1012,32 @@ describe("useSwiff", () => {
       expect(result.current.phase).toBe("connecting");
     });
 
+    it("carries a machine lost during Ignition on, though its ticket is refused as the loss is heard", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: LOST_ON }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "GET /api/bookings/b-1": json(200, ended()),
+        "POST /api/bookings/b-1/continue": json(202, carried("queued")),
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      expect(result.current.phase).toBe("connecting");
+
+      // The server ends the session for the lost machine: the booking says so,
+      // and the renter's ticket is refused in the same breath.
+      act(() => {
+        runningStream(opened).push(ended());
+        rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" });
+      });
+      await waitFor(() => expect(result.current.lost?.next?.bookingId).toBe("b-2"));
+      expect(result.current.bookingFailed).toBe(false);
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-2/end");
+    });
+
     it("hands the choice back when there is no machine to carry it on", async () => {
       const { opened, result } = await playing({
         "POST /api/bookings/b-1/continue": json(409, { status: "ended" }),

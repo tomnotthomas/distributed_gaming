@@ -936,10 +936,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // machine lost is carried on elsewhere. Otherwise, before the session
   // started the launch failed; once it has, even behind Ignition after the PC
   // dropped, the server ended the session (its time ran out, or the PC ended
-  // it), which is a session end like End.
+  // it), which is a session end like End. A loss already being carried on was
+  // heard first: the ticket refused is the lost session's, and ends nothing.
   useEffect(() => {
     if (!play?.denied) return;
     const ended = () => {
+      if (lostNow.current) return;
       if (covered.current.started) return endSession();
       endCurrentBooking();
       setBookingFailed(true);
