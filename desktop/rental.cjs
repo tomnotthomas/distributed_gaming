@@ -547,7 +547,7 @@ function commandsOf(op) {
       return ["# Check every Swiff OS file against the SHA-256 its image set lists (swiffos.json)"];
     case "gpt-add":
       return [
-        `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${op.disk}: types, ids, names and attributes as in the image`,
+        `# Swiff Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): types, ids, names and attributes as in the image`,
         "#   (the boot partition is typed Linux data until it is written: Windows would mount it as an ESP mid-write)",
         ...op.partitions.map(
           (p) =>
@@ -557,13 +557,13 @@ function commandsOf(op) {
       ];
     case "gpt-remove":
       return [
-        `# Swiff Host's GPT writer (gpt.cjs) on \\\\.\\PhysicalDrive${op.disk}: remove only these, each checked for Swiff OS's type, id, offset and size`,
+        `# Swiff Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): remove only these, each checked for Swiff OS's type, id, offset and size`,
         ...op.partitions.map((p) => `#   ${p.role}: id ${p.id}, offset ${p.offset}, ${p.bytes} bytes`),
         `Update-Disk -Number ${op.disk}`,
       ];
     case "write":
       return [
-        `# Write ${splitFile(op.source)} to \\\\.\\PhysicalDrive${op.disk} at offset ${op.offset} (${op.bytes} bytes), then read it back against its SHA-256`,
+        `# Write ${splitFile(op.source)} to disk ${op.disk} at offset ${op.offset} (${op.bytes} bytes), then read it back against its SHA-256`,
       ];
     case "boot-entry":
       return [

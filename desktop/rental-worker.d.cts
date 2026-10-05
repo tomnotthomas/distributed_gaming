@@ -32,5 +32,6 @@ export function createWorker(options: {
   ): Promise<Record<string, unknown>>;
   state(): Record<string, unknown>;
 }>;
+export function diskPath(number: number): string;
 export function diskOf(fd: number, bytes: number, sector: number): WindowsDisk;
 export function serve(pipe: string, token: string, imageDir: string): Promise<void>;

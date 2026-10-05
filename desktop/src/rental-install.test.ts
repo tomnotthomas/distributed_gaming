@@ -15,7 +15,7 @@ import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { MANIFEST } from "../image-set.cjs";
 import { clientOf, dryRun, runPlan, startWorker } from "../rental-exec.cjs";
-import { checkOp, createWorker, type Windows } from "../rental-worker.cjs";
+import { checkOp, createWorker, diskPath, type Windows } from "../rental-worker.cjs";
 import {
   installOf,
   installPlan,
@@ -445,6 +445,12 @@ describe("the elevated worker", () => {
     );
     expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0001"))).toBe(true);
     await expect(worker.apply({ op: "forget" })).rejects.toThrow(/still on this PC/);
+  });
+
+  it("names the raw disk so that no Node version reads it as a share's root", () => {
+    expect(diskPath(1)).toBe("\\\\.\\GLOBALROOT\\Device\\Harddisk1\\Partition0");
+    // Electron 33's Node turned \\.\PhysicalDrive0 into \\.\PhysicalDrive0\ (EIO); this name has no root to add one to.
+    expect(path.win32.toNamespacedPath(diskPath(0))).toBe(diskPath(0));
   });
 
   it("refuses operations it does not know, or that carry the wrong things", () => {

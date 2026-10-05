@@ -6,7 +6,8 @@
 //   commands       check, BitLocker, Fast Startup, shrink and grow, labels,
 //                  restart: exactly the PowerShell lines rental.cjs shellOf
 //                  shows the owner
-//   partitions     gpt.cjs on \\.\PhysicalDriveN: Swiff OS's partitions added
+//   partitions     gpt.cjs on disk N (\\.\GLOBALROOT\Device\HarddiskN\Partition0):
+//                  Swiff OS's partitions added
 //                  with the image's ids and names, and removed again
 //   the image      each split file written into its own partition, hashed as it
 //                  goes and read back, against the image set's SHA-256
@@ -182,6 +183,15 @@ async function firmware(requests, dir = null) {
   return Object.fromEntries(Object.entries(got).map(([k, v]) => [k, v ? Buffer.from(v, "base64") : null]));
 }
 
+/**
+ * The whole of disk `number`, by the name Windows' object manager gives it.
+ * Not \\.\PhysicalDriveN: the Node in Electron 33 (20.18) takes that for a
+ * network share's root and opens \\.\PhysicalDriveN\ instead, which fails as
+ * EIO; the Node of a Windows console (22+) leaves it alone, so only the app
+ * met it.
+ */
+const diskPath = (number) => `\\\\.\\GLOBALROOT\\Device\\Harddisk${number}\\Partition0`;
+
 /** A physical disk, opened for raw reads and writes: sector-aligned, as Windows requires. */
 async function openDisk(number) {
   const info = JSON.parse(
@@ -190,7 +200,7 @@ async function openDisk(number) {
       "[pscustomobject]@{ size = $d.Size; sector = $d.LogicalSectorSize } | ConvertTo-Json -Compress",
     ]),
   );
-  const fd = fs.openSync(`\\\\.\\PhysicalDrive${number}`, "r+");
+  const fd = fs.openSync(diskPath(number), "r+");
   return diskOf(fd, info.size, info.sector);
 }
 
@@ -789,7 +799,17 @@ async function serve(pipe, token, imageDir) {
   await new Promise((resolve) => socket.once("close", resolve));
 }
 
-module.exports = { SWIFF_TYPES, checkOp, createWorker, diskOf, firmware, powershell, serve, WINDOWS };
+module.exports = {
+  SWIFF_TYPES,
+  checkOp,
+  createWorker,
+  diskOf,
+  diskPath,
+  firmware,
+  powershell,
+  serve,
+  WINDOWS,
+};
 
 if (require.main === module) {
   const [pipe, token, imageDir] = process.argv.slice(2);
