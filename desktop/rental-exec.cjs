@@ -6,8 +6,8 @@
 //   runPlan      the steps in order, each step's operations in order; stops at
 //                the first that fails, or when the owner says no
 //   startWorker  open a named pipe only this app knows the name of, start the
-//                worker as administrator, and wait for it to say hello with
-//                the token it was given
+//                worker as administrator, and wait for it to prove it holds
+//                the token it was given (handshake) and say hello
 //   dryRun       a worker that only records what it is asked: the tests', and
 //                a rehearsal's
 
@@ -103,13 +103,71 @@ async function launchElevated({ file, args }) {
   );
 }
 
+/** The other end of the pipe's side, for each side. */
+const PEER = { app: "worker", worker: "app" };
+
+/**
+ * Prove to the peer on `socket` that this end (`side`: "app" or "worker")
+ * holds `token`, and have the peer prove the same, without either sending
+ * it: each end sends a random nonce and answers the other's with
+ * HMAC-SHA256(token, nonce and its own side), before anything else. Resolves
+ * with what came after the peer's proof once both proofs are in; a peer
+ * without the token is hung up on, and the promise rejects.
+ */
+function handshake(socket, token, side) {
+  const mine = crypto.randomBytes(32).toString("hex");
+  const proofOf = (nonce, who) => crypto.createHmac("sha256", token).update(`${nonce}:${who}`).digest();
+  const send = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
+  return new Promise((resolve, reject) => {
+    let buffered = "";
+    let answered = false;
+    const done = () => {
+      socket.off("data", onData);
+      socket.off("close", fail);
+    };
+    function fail() {
+      done();
+      socket.destroy();
+      reject(new Error("The installer's pipe was not Swiff Host's."));
+    }
+    function onData(chunk) {
+      buffered += chunk;
+      let at;
+      while ((at = buffered.indexOf("\n")) >= 0) {
+        let msg;
+        try {
+          msg = JSON.parse(buffered.slice(0, at));
+        } catch {
+          msg = null;
+        }
+        buffered = buffered.slice(at + 1);
+        if (!answered && typeof msg?.nonce === "string") {
+          answered = true;
+          send({ proof: proofOf(msg.nonce, side).toString("hex") });
+          continue;
+        }
+        const proof = answered && typeof msg?.proof === "string" ? Buffer.from(msg.proof, "hex") : null;
+        const expected = proofOf(mine, PEER[side]);
+        if (!proof || proof.length !== expected.length || !crypto.timingSafeEqual(proof, expected))
+          return fail();
+        done();
+        return resolve(buffered);
+      }
+    }
+    socket.on("data", onData);
+    socket.on("close", fail);
+    send({ nonce: mine });
+  });
+}
+
 /**
  * Start the elevated worker for the image set in `imageDir`, and resolve with
- * its client once it has said hello: `apply(op, progress)` sends one
- * operation and resolves with its result, `close()` lets it exit. `command(pipe,
- * token, imageDir)` is how to start the worker (Swiff Host itself in worker
- * mode, or node with rental-worker.cjs). `pipe` is a fresh random name unless
- * given (a UNIX socket, in tests).
+ * its client once it has proved it holds the token (handshake) and said
+ * hello: `apply(op, progress)` sends one operation and resolves with its
+ * result, `close()` lets it exit. `command(pipe, token, imageDir)` is how to
+ * start the worker (Swiff Host itself in worker mode, or node with
+ * rental-worker.cjs). `pipe` is a fresh random name unless given (a UNIX
+ * socket, in tests).
  */
 async function startWorker({
   imageDir,
@@ -125,8 +183,14 @@ async function startWorker({
   try {
     socket = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("The installer did not start in time.")), timeout);
-      server.on("connection", (s) => {
-        let buffered = "";
+      server.on("connection", async (s) => {
+        let buffered;
+        try {
+          // Only the process started with this token is the worker: anything else is hung up on.
+          buffered = await handshake(s, token, "app");
+        } catch {
+          return;
+        }
         const onData = (chunk) => {
           buffered += chunk;
           const at = buffered.indexOf("\n");
@@ -138,14 +202,14 @@ async function startWorker({
           } catch {
             hello = null;
           }
-          // Only the process started with this token is the worker: anything else is hung up on.
-          if (!hello || hello.hello !== token) return void s.destroy();
+          if (!hello) return void s.destroy();
           clearTimeout(timer);
           if (at + 1 < buffered.length) s.unshift(buffered.slice(at + 1));
           if (hello.ok) resolve(s);
           else reject(new Error(hello.error || "The installer could not start."));
         };
         s.on("data", onData);
+        onData("");
       });
       launch(command(pipe, token, imageDir)).catch((error) => {
         clearTimeout(timer);
@@ -209,4 +273,4 @@ function clientOf(socket) {
   };
 }
 
-module.exports = { runPlan, dryRun, isElevated, winArg, launchElevated, startWorker, clientOf };
+module.exports = { runPlan, dryRun, isElevated, winArg, launchElevated, handshake, startWorker, clientOf };

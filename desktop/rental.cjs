@@ -155,6 +155,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 function Read-Or($block) { try { & $block } catch { $null } }
 $shell = New-Object -ComObject Shell.Application
+$system = Read-Or { Get-CimInstance Win32_ComputerSystem -ErrorAction Stop }
 [pscustomobject]@{
   firmware = $env:firmware_type
   secureBoot = Read-Or { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' -ErrorAction Stop).UEFISecureBootEnabled }
@@ -167,8 +168,8 @@ $shell = New-Object -ComObject Shell.Application
   partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
   bios = Read-Or { (Get-CimInstance Win32_BIOS -ErrorAction Stop).Manufacturer }
-  maker = Read-Or { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Manufacturer }
-  model = Read-Or { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Model }
+  maker = $system.Manufacturer
+  model = $system.Model
   cpu = Read-Or { @(Get-CimInstance Win32_Processor -ErrorAction Stop)[0].Manufacturer }
   install = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-install.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
   check = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-check.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
@@ -181,7 +182,7 @@ async function powershell(script) {
   const { stdout } = await promisify(execFile)(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-    { timeout: 30_000, windowsHide: true, maxBuffer: 1024 * 1024 },
+    { timeout: 90_000, windowsHide: true, maxBuffer: 1024 * 1024 },
   );
   return stdout;
 }

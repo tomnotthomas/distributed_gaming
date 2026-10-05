@@ -148,12 +148,14 @@ export function useRental(): RentalSetup & {
     running.current = plan;
     const now = Date.now();
     setRun({ ...IDLE_RUN, status: "starting", startedAt: now, stepStartedAt: now });
+    // Only main's own "elevate" failure is the administrator prompt: a run main rejected or no longer
+    // has a plan for failed after that, so it is planned afresh (step "run"), never asked again as is.
     return host
       .runRental()
       .catch((error: unknown) => ({
         status: "failed" as const,
         done: [],
-        failed: { step: "elevate", op: "elevate", error: String(error) },
+        failed: { step: "run", op: "run", error: String(error) },
         results: [],
       }))
       .then((outcome) => {
@@ -165,7 +167,7 @@ export function useRental(): RentalSetup & {
             ? { step: outcome.failed.step, error: outcome.failed.error }
             : outcome
               ? r.failed
-              : { step: "elevate", error: "The installer did not start." },
+              : { step: "run", error: "The installer did not start." },
         }));
         // What the run changed is read again, so the screen says where the PC is now. A run that
         // ended at its restart keeps its plan on screen, for Restart now; a finished one is done with.

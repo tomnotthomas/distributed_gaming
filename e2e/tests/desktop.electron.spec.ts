@@ -13,7 +13,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
-import { E2E_MACHINE_KEY, E2E_ROOM } from "./credentials";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 // SWIFF_DESKTOP_DIR lets this run against a desktop app built somewhere else —
@@ -135,9 +134,10 @@ test.describe("Swiff Host desktop app", () => {
     // main to store and return it. Besides that it may read what the PC is,
     // read Steam's state and ask main to fetch Valve's installer, hear its
     // installed games change, read what rental mode needs and preview its
-    // install or switch, read how long since its keyboard was used, send
-    // the tray glance its snapshot and hear the glance's actions. No other
-    // door into main.
+    // install or switch, run that plan, restart into the key request, answer
+    // the key request, report the run and hear its events, read how long
+    // since its keyboard was used, send the tray glance its snapshot and
+    // hear the glance's actions. No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -152,6 +152,11 @@ test.describe("Swiff Host desktop app", () => {
       onGamesChanged: "function",
       readRental: "function",
       planRental: "function",
+      runRental: "function",
+      restartRental: "function",
+      answerRentalKey: "function",
+      reportRental: "function",
+      onRentalEvent: "function",
       secondsSinceInput: "function",
       setGlance: "function",
       onTrayAction: "function",
@@ -206,7 +211,8 @@ test.describe("Swiff Host desktop app", () => {
       .click();
 
     const main = window.getByRole("main");
-    await expect(main.getByRole("heading", { name: "Reading this PC" })).toBeVisible();
+    // "Reading your PC" while the read runs, "Your PC" once it is in.
+    await expect(main.getByRole("heading", { name: "Your PC", exact: true })).toBeVisible();
     // Memory and the processor are read on every OS; the card needs a GPU process.
     await expect(main.locator(".krow", { hasText: "Memory" })).toHaveText(/Memory\s*\d+ GB/);
     await expect(main.locator(".krow", { hasText: "CPU" })).not.toContainText("Not found");
@@ -216,42 +222,19 @@ test.describe("Swiff Host desktop app", () => {
     await expect(main).not.toContainText("€");
   });
 
-  test("goes live from the connection settings, then pauses and resumes", async ({ baseURL }, testInfo) => {
+  test("offers no sharing of this Windows desktop from the connection settings", async () => {
     const window = await app.firstWindow();
-    // The screen itself is the test above's to capture. Here a canvas stands in
-    // for it, so the flow from settings to a room the server holds runs on any
-    // machine, including one that has not granted screen recording.
-    await window.evaluate(() => {
-      navigator.mediaDevices.getDisplayMedia = async () => {
-        const canvas = Object.assign(document.createElement("canvas"), { width: 640, height: 360 });
-        canvas.getContext("2d")!.fillRect(0, 0, 640, 360);
-        return canvas.captureStream(10);
-      };
-    });
+    // Rental mode, with Swiff OS, is the only way to host: sharing this Windows
+    // desktop exists only in a development build (devShare.ts), and this is the
+    // production bundle hosts download, even with main's switch on.
     await window.getByRole("button", { name: "Settings" }).click();
-    await expect(window.getByRole("heading", { name: "Connection" })).toBeVisible();
-
-    await window.getByLabel("Signaling server").fill(baseURL!);
-    await window.getByLabel("Machine id").fill(E2E_ROOM);
-    await window.getByLabel("Machine key").fill(E2E_MACHINE_KEY);
-    await window.getByRole("button", { name: "Save and start sharing" }).click();
-
-    // The real server confirms the room: the app is live and waiting.
-    await expect(window.getByRole("heading", { name: "Waiting for a player" })).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(window.getByText(`${E2E_ROOM} is connected to Swiff.`, { exact: false })).toBeVisible();
-    await testInfo.attach("live, waiting", { body: await window.screenshot(), contentType: "image/png" });
-
-    await window.getByRole("button", { name: "Pause sharing" }).click();
-    await expect(window.getByRole("heading", { name: "Paused" })).toBeVisible();
-    await expect(window.getByText(/^Sharing paused at \d\d:\d\d$/)).toBeVisible();
-
-    await window.getByRole("button", { name: "Resume sharing" }).click();
-    await expect(window.getByRole("heading", { name: "Waiting for a player" })).toBeVisible({
-      timeout: 30_000,
-    });
-    await window.getByRole("button", { name: "Pause sharing" }).click();
+    const main = window.getByRole("main");
+    await expect(main.getByRole("heading", { name: "Connection" })).toBeVisible();
+    await expect(main.getByLabel("Machine ID")).toBeVisible();
+    await expect(main.getByLabel("Machine key")).toBeVisible();
+    await expect(main.getByLabel("Signaling server")).toHaveCount(0);
+    await expect(main.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+    await expect(window.getByRole("button", { name: /go live|sharing/i })).toHaveCount(0);
   });
 
   test("stays up with no uncaught errors in the renderer", async () => {

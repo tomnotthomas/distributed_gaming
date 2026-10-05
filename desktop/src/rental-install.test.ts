@@ -15,8 +15,8 @@ import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { testBuild } from "../build-kind.cjs";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
-import { clientOf, dryRun, runPlan, startWorker } from "../rental-exec.cjs";
-import { checkOp, createWorker, diskPath, type Windows } from "../rental-worker.cjs";
+import { clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
+import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
   installOf,
   installPlan,
@@ -765,21 +765,38 @@ describe("the elevated worker", () => {
 });
 
 describe("the worker's pipe", () => {
-  it("talks only to the process that says hello with its token, and carries progress back", async () => {
+  /** A peer without the token: answers the other end's nonce with a guess, and records what it hears. */
+  const stranger = (socket: net.Socket) => {
+    const heard: string[] = [];
+    socket.on("error", () => {});
+    socket.on("data", (chunk) => {
+      for (const line of String(chunk).trim().split("\n")) {
+        heard.push(line);
+        const msg = JSON.parse(line);
+        if (msg.nonce) socket.write(`${JSON.stringify({ proof: "00".repeat(32) })}\n`);
+      }
+    });
+    socket.write(`${JSON.stringify({ nonce: "guess" })}\n`);
+    return heard;
+  };
+
+  it("talks only to the process that proves it holds its token, and carries progress back", async () => {
     const pipe = path.join(dir, "pipe.sock");
+    let strangerHeard: string[] = [];
     const client = await startWorker({
       imageDir: dir,
       pipe,
       command: (p, token) => ({ file: p, args: [token] }),
       launch: async ({ file, args: [token] }) => {
-        // Someone else first: hung up on.
-        const stranger = net.connect(file!);
-        stranger.on("error", () => {});
-        stranger.on("connect", () => stranger.write(`${JSON.stringify({ hello: "guess", ok: true })}\n`));
-        await new Promise((r) => stranger.once("close", r));
+        // Someone else first: hung up on, and never told the token.
+        const other = net.connect(file!);
+        other.on("connect", () => (strangerHeard = stranger(other)));
+        await new Promise((r) => other.once("close", r));
+        expect(strangerHeard.join("\n")).not.toContain(token);
         const socket = net.connect(file!);
-        socket.on("connect", () => {
-          socket.write(`${JSON.stringify({ hello: token, ok: true })}\n`);
+        socket.on("connect", async () => {
+          await handshake(socket, token!, "worker");
+          socket.write(`${JSON.stringify({ ok: true })}\n`);
           socket.on("data", (chunk) => {
             for (const line of String(chunk).trim().split("\n")) {
               const { id, op } = JSON.parse(line);
@@ -799,6 +816,26 @@ describe("the worker's pipe", () => {
     expect(progress).toEqual([{ what: "x", done: 1, total: 2 }]);
     await expect(client.apply({ op: "restart" })).rejects.toThrow("no");
     client.close();
+  });
+
+  it("has the worker hang up on a pipe that cannot prove it holds the token, before any hello or operation", async () => {
+    const pipe = path.join(dir, "fake-app.sock");
+    const token = "a".repeat(64);
+    let heard: string[] = [];
+    let closed!: Promise<unknown>;
+    const server = net.createServer((s) => {
+      closed = new Promise((r) => s.once("close", r));
+      heard = stranger(s);
+      // An operation sent along with the guess: never carried out.
+      s.write(`${JSON.stringify({ id: 1, op: { op: "restart" } })}\n`);
+    });
+    await new Promise<void>((r) => server.listen(pipe, r));
+    await serve(pipe, token, dir, []);
+    await closed;
+    server.close();
+    // Its nonce and its proof over the stranger's nonce, which proves nothing to anyone else: no hello, no result.
+    expect(heard.map((line) => Object.keys(JSON.parse(line)))).toEqual([["nonce"], ["proof"]]);
+    expect(heard.join("\n")).not.toContain(token);
   });
 
   it("fails every call still waiting when the worker goes away", async () => {

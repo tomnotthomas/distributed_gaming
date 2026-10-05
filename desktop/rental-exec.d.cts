@@ -29,6 +29,11 @@ export function dryRun(): WorkerClient & { ops: PlanOp[] };
 export function isElevated(): Promise<boolean>;
 export function winArg(arg: string): string;
 export function launchElevated(command: { file: string; args: string[] }): Promise<void>;
+export function handshake(
+  socket: import("node:net").Socket,
+  token: string,
+  side: "app" | "worker",
+): Promise<string>;
 export function startWorker(options: {
   imageDir: string;
   command: (pipe: string, token: string, imageDir: string) => { file: string; args: string[] };

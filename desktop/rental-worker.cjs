@@ -47,6 +47,7 @@ const {
   trustOf,
 } = require("./image-set.cjs");
 const { BOOT_PATH, BOOT_TITLE, GAMES_LABEL, MOK_CERT, TYPE, shellOf } = require("./rental.cjs");
+const { handshake } = require("./rental-exec.cjs");
 
 /** The partition types Swiff OS's partitions have: the only ones this worker adds or removes. */
 const SWIFF_TYPES = new Set([TYPE.esp, TYPE.root, TYPE.verity, TYPE.linux]);
@@ -929,8 +930,9 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
 
 /**
  * Serve the app on `pipe`, for the image set in `imageDir` signed by a key in
- * `trust`: say hello with `token` (which only the app knows,
- * from this process's command line), then carry out each operation it sends,
+ * `trust`: prove it holds `token` (which only the app knows, from this
+ * process's command line) and have the app prove the same (handshake), say
+ * hello, then carry out each operation it sends,
  * one at a time, as newline-delimited JSON: `{ id, op }` in, `{ id, progress }`
  * while it runs, then `{ id, ok, result }` or `{ id, ok: false, error }`. Exits
  * when the app hangs up.
@@ -939,18 +941,24 @@ async function serve(pipe, token, imageDir, trust) {
   const socket = net.connect(pipe);
   await new Promise((resolve, reject) => socket.once("connect", resolve).once("error", reject));
   const send = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
+  let buffered;
+  try {
+    // A pipe that is not the app's (anyone can open one by that name) is hung up on.
+    buffered = await handshake(socket, token, "worker");
+  } catch {
+    return;
+  }
   let worker;
   try {
     worker = await createWorker({ imageDir, trust });
-    send({ hello: token, ok: true });
+    send({ ok: true });
   } catch (error) {
-    send({ hello: token, ok: false, error: error.message });
+    send({ ok: false, error: error.message });
     socket.end();
     return;
   }
   let queue = Promise.resolve();
-  let buffered = "";
-  socket.on("data", (chunk) => {
+  const onData = (chunk) => {
     buffered += chunk;
     let at;
     while ((at = buffered.indexOf("\n")) >= 0) {
@@ -971,7 +979,9 @@ async function serve(pipe, token, imageDir, trust) {
         }
       });
     }
-  });
+  };
+  socket.on("data", onData);
+  onData("");
   await new Promise((resolve) => socket.once("close", resolve));
 }
 

@@ -240,6 +240,27 @@ describe("useRental", () => {
     expect(host.runRental).toHaveBeenCalledTimes(2);
   });
 
+  it("plans afresh, not asks again, after a run main rejected or no longer has a plan for", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    for (const [n, runRental] of [
+      () => Promise.reject(new Error("The installer stopped.")),
+      async () => null,
+    ].entries()) {
+      host.runRental = vi.fn(runRental) as HostBridge["runRental"];
+      const { result, unmount } = renderHook(() => useRental());
+      await act(async () => {});
+      act(() => result.current.plan("install"));
+      await answer(2 * n, writing);
+      await act(async () => result.current.start());
+      expect(result.current.run).toMatchObject({ status: "failed", failed: { step: "run" } });
+      await act(async () => result.current.retry());
+      expect(host.runRental).toHaveBeenCalledTimes(1);
+      expect(pending).toHaveLength(2 * n + 2);
+      expect(pending[2 * n + 1]!.ask.kind).toBe("install");
+      unmount();
+    }
+  });
+
   it("sends the failed step, its error and this PC's checks, and remembers when", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
