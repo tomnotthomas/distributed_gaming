@@ -586,11 +586,23 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         );
         return { warnings };
       }
-      case "image-check":
-        // Signed, and its certificate Swiff's: each image is copied and checked only at its write,
-        // after C: has given Swiff OS its room.
+      case "image-check": {
+        // Signed, its certificate Swiff's, and each image the one listed, checked where it is before
+        // anything changes: each is copied, and checked again as it is, only at its write, after C: has
+        // given Swiff OS its room.
+        const { files: listed } = imageSet();
         certificate();
+        for (const [name, file] of Object.entries(listed))
+          if (name !== MOK_CERT)
+            await copyChecked(
+              path.join(imageDir, name),
+              null,
+              file,
+              (done, total) => progress({ what: `Checking ${name}`, done, total }),
+              files,
+            );
         return {};
+      }
       case "bitlocker-suspend":
         await run(op);
         state.save({ bitlocker: op.letter });

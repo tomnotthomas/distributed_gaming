@@ -1235,6 +1235,22 @@ describe("when a step stops", () => {
     expect(rentalLine(setup)).toBe("Removal stopped");
   });
 
+  it("tells an image the check found missing or not the one listed as Swiff OS's files, not an unknown error", () => {
+    for (const error of [
+      "swiffos_0.1.0.root-x86-64.raw of the image set is not on this PC.",
+      "swiffos_0.1.0.root-x86-64.raw is not the file its image set lists.",
+    ]) {
+      const { setup, f } = failed("check", error);
+      expect(f).toMatchObject({
+        kind: "image",
+        title: "Swiff OS's files didn't pass the check",
+        changed: "Nothing on this PC has changed.",
+        action: "send",
+      });
+      expect(rentalLine(setup)).toBe("Files didn't check out");
+    }
+  });
+
   it("asks to send the details of an error it does not know, then offers to try again", () => {
     const { f } = failed("fast-startup", "reg failed: exit code 1", {
       steps: { ...done(["check"]), "fast-startup": "failed" },

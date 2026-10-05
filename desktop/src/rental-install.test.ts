@@ -513,7 +513,8 @@ describe("the elevated worker", () => {
       imageSet(image);
       if (kind === "test") {
         expect(readImageSet(image, { trust }).version).toBe("0.1.0");
-        await expect(check()).resolves.toEqual({});
+        // Past its signature and certificate, to its images, which this set leaves out.
+        await expect(check()).rejects.toThrow(/swiffos_0\.1\.0\.esp\.raw of the image set is not on this PC/);
       } else {
         expect(() => readImageSet(image, { trust })).toThrow(/Swiff did not sign this image set/);
         await expect(check()).rejects.toThrow(/Swiff did not sign this image set/);
@@ -542,6 +543,30 @@ describe("the elevated worker", () => {
       expect(fs.readFileSync(to).equals(good)).toBe(true);
       fs.rmSync(to);
     }
+  });
+
+  it("checks each image where it is, before anything changes: a missing, short or altered one stops it", async () => {
+    const good = Buffer.from("Swiff OS's root");
+    const listed = { bytes: good.length, sha256: sha256(good) };
+    const from = path.join(dir, "image", "root.raw");
+    const progress: number[] = [];
+    await expect(copyChecked(from, null, listed)).rejects.toThrow(
+      /root\.raw of the image set is not on this PC/,
+    );
+    // A download that stopped part way.
+    fs.writeFileSync(from, good.subarray(0, 6));
+    await expect(copyChecked(from, null, listed)).rejects.toThrow(
+      /root\.raw is not the file its image set lists/,
+    );
+    fs.writeFileSync(from, "Someone else's!");
+    await expect(copyChecked(from, null, listed)).rejects.toThrow(
+      /root\.raw is not the file its image set lists/,
+    );
+    fs.writeFileSync(from, good);
+    await copyChecked(from, null, listed, (done) => progress.push(done));
+    expect(progress).toEqual([good.length]);
+    // Checked in place: nothing written beside it, nothing taken from C:.
+    expect(fs.readdirSync(path.join(dir, "image"))).toEqual(["root.raw"]);
   });
 
   it("adds only the image's own partitions, and writes only into the ones it added", async () => {

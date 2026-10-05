@@ -34,7 +34,7 @@ export function hashOf(
 ): Promise<string>;
 export function copyChecked(
   from: string,
-  to: string,
+  to: string | null,
   file: { bytes: number; sha256: string },
   onProgress?: (done: number, total: number) => void,
   files?: typeof import("node:fs"),

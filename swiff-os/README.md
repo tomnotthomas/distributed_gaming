@@ -91,8 +91,8 @@ reads no manifest that a key in `desktop/image-trust.json` did not sign, nor a s
 certificate is not the one that key's sets carry; a set that is there but not signed by Swiff
 shows as that on the rental screen, with Check again. The installer's administrator side keeps the
 set in `%ProgramData%\Swiff\swiff-os`, which only administrators can write: its check reads the
-signed manifest and the certificate there, and each image is copied there, checked as it is
-copied, only at its write (after C: has given Swiff OS its room), then removed once written. The
+signed manifest and the certificate there and hashes each image where it is, before anything on
+the PC changes, and each image is copied there, checked again as it is copied, only at its write (after C: has given Swiff OS its room), then removed once written. The
 release signs with the private key in `$SWIFF_OS_SIGNING_KEY`, a file the release step writes
 from its secret store: it never enters the repository, and its public half and certificate go
 into `desktop/image-trust.json` as `node desktop/image-set.cjs trust <key> <swiffos-key.cer>`

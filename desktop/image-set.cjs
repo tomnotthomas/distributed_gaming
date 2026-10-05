@@ -169,33 +169,44 @@ async function hashOf(read, bytes, onProgress = () => {}) {
 }
 
 /**
- * Copy the first `bytes` bytes of file `from` to `to`, hashed as they go: `to`
- * is there afterwards only if they have the SHA-256 `sha256` the image set lists.
+ * Hash the first `bytes` bytes of file `from`, copying them to `to` as they go
+ * unless `to` is null (a check in place, nothing written): throws unless they
+ * have the SHA-256 `sha256` the image set lists, and `to` is there afterwards
+ * only if they do.
  */
 async function copyChecked(from, to, { bytes, sha256 }, onProgress, files = fs) {
-  const part = `${to}.part`;
-  const src = files.openSync(from, "r");
-  const dst = files.openSync(part, "w");
-  let sha;
+  const name = path.basename(from);
+  let src;
   try {
-    sha = await hashOf(
-      async (buf, at) => {
-        const n = files.readSync(src, buf, 0, buf.length, at);
-        files.writeSync(dst, buf, 0, n, at);
-        return n;
-      },
-      bytes,
-      onProgress,
-    );
+    src = files.openSync(from, "r");
+  } catch {
+    throw new Error(`${name} of the image set is not on this PC.`);
+  }
+  const part = to && `${to}.part`;
+  let sha = null;
+  let dst = null;
+  try {
+    if (files.fstatSync(src).size >= bytes) {
+      dst = part && files.openSync(part, "w");
+      sha = await hashOf(
+        async (buf, at) => {
+          const n = files.readSync(src, buf, 0, buf.length, at);
+          if (dst !== null) files.writeSync(dst, buf, 0, n, at);
+          return n;
+        },
+        bytes,
+        onProgress,
+      );
+    }
   } finally {
     files.closeSync(src);
-    files.closeSync(dst);
+    if (dst !== null) files.closeSync(dst);
   }
   if (sha !== sha256) {
-    files.rmSync(part, { force: true });
-    throw new Error(`${path.basename(from)} is not the file its image set lists: its SHA-256 differs.`);
+    if (part) files.rmSync(part, { force: true });
+    throw new Error(`${name} is not the file its image set lists.`);
   }
-  files.renameSync(part, to);
+  if (part) files.renameSync(part, to);
 }
 
 /** The first X.509 certificate (DER) in an authenticated variable file such as systemd-boot's db.auth. */
