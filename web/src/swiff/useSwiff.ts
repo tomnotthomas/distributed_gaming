@@ -6,6 +6,7 @@ import {
   BookingRefused,
   endBooking,
   followBooking,
+  forgetStoredTicket,
   storedBookingId,
   type Booking,
   type Claim,
@@ -15,7 +16,6 @@ import {
 import { chime } from "./chime";
 import {
   GAMES,
-  IGNITION_STEPS,
   MACHINES,
   type Game,
   type Machine,
@@ -26,6 +26,7 @@ import {
 import { demoNow, machinesFor, readyFor, reason, seedSpots, sessionMinutes } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
 import { askOf, machinesOf, spotOf } from "./live";
+import { IGNITION_STEPS, ignitionLabels, ignitionProgress, startPlay, type PlayState } from "./play";
 import { questionOf, useLive } from "./useLive";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
@@ -51,9 +52,12 @@ export type Device = "kb" | "mouse" | "pad";
 /** A machine picked to launch on that was taken first, and the server's next best instead. */
 export type Taken = { nextBest: NextBest | null };
 
-/** One 340 ms beat of the ignition sequence; twelve of them reach a frame. */
+/** The demo's ignition: one 340 ms beat at a time; twelve of them reach a frame. */
 const IGNITION_MS = 340;
 const IGNITION_BEATS = 12;
+
+/** How often Ignition's dial creeps on while a real launch waits on its next step. */
+const IGNITION_TICK_MS = 250;
 
 /** Moss comes back mid-session, so the demo wall can show a machine freeing up. */
 const MOSS_FREES_AFTER_MS = 12_000;
@@ -127,6 +131,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [taken, setTaken] = useState<Taken | null>(null);
   const [bookingFailed, setBookingFailed] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
+
+  // Real play: the stream's video element, where Ignition stands on the
+  // connection (play.ts), when the launch began, and the clock its dial creeps on.
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+  const [play, setPlay] = useState<PlayState | null>(null);
+  const [launchedAt, setLaunchedAt] = useState(() => Date.now());
+  const [ignitionNow, setIgnitionNow] = useState(() => Date.now());
 
   // Share your PC: the week the owner describes, and whether How we got this number is open.
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
@@ -355,6 +366,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
           setRefusal(null);
           const claimedGame = gamesNow.current.find((g) => g.appid === next.gameId);
           if (claimedGame) setGameId(claimedGame.id);
+          if (next.machine) setMachineId(next.machine.id);
           setScreen("game");
           setPhase((current) => (current === "idle" ? "connecting" : current));
         },
@@ -375,9 +387,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     [stopFollowing],
   );
 
+  // When the session first went live, for its clock; forgotten once it is over.
+  const liveSince = useRef<number | null>(null);
+
   /** End the renter's booking, whatever it has come to, and stop following it. */
   const endCurrentBooking = useCallback(() => {
     launchRun.current += 1;
+    liveSince.current = null;
+    setElapsedMs(0);
     stopFollowing();
     const current = bookingNow.current;
     if (current && current.status !== "ended" && current.status !== "expired") {
@@ -398,6 +415,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setBookingFailed(false);
       setRefusal(null);
       setPhase("connecting");
+      setLaunchedAt(Date.now());
       setBeat(0);
       const { controls, picture } = askOf(0, prefsNow.current);
       bookMachine(machineId, game.appid, sessionMinutes(session), { ...rtts(), controls, picture }).then(
@@ -472,6 +490,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   useEffect(() => stopFollowing, [stopFollowing]);
 
+  // No join ticket stays on disk, even one kept before tickets stopped being stored.
+  useEffect(() => forgetStoredTicket(), []);
+
   // --- timers ----------------------------------------------------------------
 
   useEffect(() => {
@@ -510,22 +531,64 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearTimeout(timer);
   }, [freed]);
 
+  // The demo's machines are invented, so its launch plays out on beats alone.
   useEffect(() => {
-    if (phase !== "connecting") return;
+    if (!demo || phase !== "connecting") return;
     const timer = window.setInterval(() => setBeat((b) => b + 1), IGNITION_MS);
     return () => window.clearInterval(timer);
-  }, [phase]);
+  }, [demo, phase]);
 
   useEffect(() => {
-    if (phase !== "connecting" || beat < IGNITION_BEATS) return;
+    if (!demo || phase !== "connecting" || beat < IGNITION_BEATS) return;
     track("session_started", { game: gameId, machine: machineId });
     setPhase("live");
     setElapsedMs(0);
-  }, [phase, beat, gameId, machineId]);
+  }, [demo, phase, beat, gameId, machineId]);
+
+  // --- real play -------------------------------------------------------------
+
+  // The claimed room is joined once its video is on the page, and left when
+  // the claim goes (the booking ended, or the page closed).
+  const funnel = useRef({ gameId, machineId });
+  funnel.current = { gameId, machineId };
+  useEffect(() => {
+    if (demo || !claim || !video) return;
+    const current = startPlay({
+      claim,
+      video,
+      onChange: setPlay,
+      // The funnel counts a session from its first frame.
+      onFirstFrame: () =>
+        track("session_started", { game: funnel.current.gameId, machine: funnel.current.machineId }),
+    });
+    return () => {
+      current.stop();
+      setPlay(null);
+    };
+  }, [demo, claim, video]);
+
+  // Live once the game is on screen; back behind Ignition when the PC leaves
+  // mid-session, until its new connection shows the game again. The session
+  // clock runs from the first time it went live.
+  useEffect(() => {
+    if (!play) return;
+    if (phase === "connecting" && play.step === "live") setPhase("live");
+    if (phase === "live" && play.step !== "live") setPhase("connecting");
+  }, [phase, play]);
 
   useEffect(() => {
+    if (demo || phase !== "connecting") return;
+    const timer = window.setInterval(() => setIgnitionNow(Date.now()), IGNITION_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [demo, phase]);
+
+  useEffect(() => {
+    if (phase === "idle") liveSince.current = null;
+  }, [phase]);
+  useEffect(() => {
     if (phase !== "live") return;
-    const started = Date.now();
+    const started = (liveSince.current ??= Date.now());
+    setElapsedMs(Date.now() - started);
     const timer = window.setInterval(() => setElapsedMs(Date.now() - started), 1000);
     return () => window.clearInterval(timer);
   }, [phase]);
@@ -542,8 +605,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // While Ignition or a session covers the page, Back and Forward leave the
   // screen behind it alone and put its address back.
-  const covered = useRef({ screen, phase });
-  covered.current = { screen, phase };
+  // Once the server took the session start, or it went live, leaving ends a session.
+  const covered = useRef({ screen, phase, started: false });
+  covered.current = { screen, phase, started: Boolean(play?.started) || phase === "live" };
   useEffect(() => {
     const onPop = () => {
       const { screen, phase } = covered.current;
@@ -560,13 +624,26 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setScreen("share");
   }, []);
 
+  const elapsedNow = useRef(elapsedMs);
+  elapsedNow.current = elapsedMs;
+  const endSession = useCallback(() => {
+    track("session_ended", { seconds: Math.round(elapsedNow.current / 1000) });
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    // The server hears it: the session ends as the renter's, and the PC is told.
+    endCurrentBooking();
+    setPhase("idle");
+    setBeat(0);
+    setOwnerDropped(false);
+  }, [endCurrentBooking]);
+
   const goHome = useCallback(() => {
     // Leaving a launch or a session ends its booking; a queued one waits on.
-    if (covered.current.phase !== "idle") endCurrentBooking();
+    if (covered.current.started) endSession();
+    else if (covered.current.phase !== "idle") endCurrentBooking();
     setScreen("home");
     setPhase("idle");
     setBeat(0);
-  }, [endCurrentBooking]);
+  }, [endSession, endCurrentBooking]);
 
   const openGame = useCallback(
     (next: Game) => {
@@ -615,20 +692,43 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     launchOn(next.id);
   }, [taken, gameId, signedIn, launchOn]);
 
-  const endSession = useCallback(() => {
-    track("session_ended", { seconds: Math.round(elapsedMs / 1000) });
-    // The server hears it: the session ends as the renter's, and the PC is told.
-    endCurrentBooking();
+  /**
+   * Ignition is taking longer than usual: give this machine back and launch on
+   * the best other one free, or, with none, go back to the game's machines.
+   * A session already started on it ends as End ends it.
+   */
+  const tryAnother = useCallback(() => {
+    const next = machines.find((m) => !m.busy && m.id !== machineId);
+    track("machine_switched", { machine: next?.id ?? null, slow: true });
+    if (covered.current.started) endSession();
+    else endCurrentBooking();
+    if (next && signedIn) {
+      setMachineId(next.id);
+      launchOn(next.id);
+      return;
+    }
     setPhase("idle");
     setBeat(0);
-    setOwnerDropped(false);
-  }, [elapsedMs, endCurrentBooking]);
+  }, [machines, machineId, signedIn, endSession, endCurrentBooking, launchOn]);
+
+  // Refused at the door, the ticket opens nothing. Before the session started
+  // the launch failed; once it has, even behind Ignition after the PC dropped,
+  // the server ended the session (its time ran out, or the PC ended it), which
+  // is a session end like End.
+  useEffect(() => {
+    if (!play?.denied) return;
+    if (covered.current.started) return endSession();
+    endCurrentBooking();
+    setBookingFailed(true);
+    setPhase("idle");
+  }, [play?.denied, endCurrentBooking, endSession]);
 
   /**
    * The owner took their machine back mid-session. Nothing drives this yet: the
-   * trigger is the host's `peer-left` on the signaling socket, which arrives
-   * when the wall is wired to @swiff/rtc. Kept here so the recovery path is one
-   * call away rather than a screen that has to be rebuilt then.
+   * stream plays through @swiff/rtc now, but a PC lost mid-session (its
+   * `peer-left` while live) is not yet told apart from one handing its room
+   * over. Kept here so the recovery path is one call away rather than a screen
+   * that has to be rebuilt then.
    */
   const reportOwnerDropped = useCallback(() => setOwnerDropped(true), []);
 
@@ -663,6 +763,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // In a session, every key is the game's, behind Ignition too after the
+      // PC dropped: End is the way out.
+      if (covered.current.started) return;
       if (event.key === "Escape") {
         // An open sheet closes first; the next Escape goes home.
         if (estimateOpen) setEstimateOpen(false);
@@ -693,11 +796,32 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       };
       if (now.left && !previous.left) moveSelection.current(-1);
       if (now.right && !previous.right) moveSelection.current(1);
-      if (now.back && !previous.back) goHome();
+      // In a session, B is the game's, behind Ignition too.
+      if (now.back && !previous.back && !covered.current.started) goHome();
       previous = now;
     }, 90);
     return () => window.clearInterval(timer);
   }, [goHome]);
+
+  // Ignition: the demo's beats, or where the real launch stands on its connection.
+  const labels = ignitionLabels(picked?.name, game?.title);
+  let ignition: { ignitionSteps: string[]; ignitionIndex: number; progress: number; slow: boolean };
+  if (demo) {
+    ignition = {
+      ignitionSteps: labels,
+      ignitionIndex: Math.min(labels.length - 1, Math.floor(beat / 3)),
+      progress: Math.min(1, beat / IGNITION_BEATS),
+      slow: false,
+    };
+  } else {
+    const step = !play ? "reserving" : play.step === "live" ? "launching" : play.step;
+    ignition = {
+      ignitionSteps: labels,
+      ignitionIndex: IGNITION_STEPS.indexOf(step),
+      progress: play?.step === "live" ? 1 : ignitionProgress(step, ignitionNow - (play?.since ?? launchedAt)),
+      slow: play?.slow ?? false,
+    };
+  }
 
   // The live count in the top bar; signed out there is none.
   let liveLine: string | undefined;
@@ -718,6 +842,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     phase,
     booking,
     claim,
+    play,
     taken,
     bookingFailed,
     refusal,
@@ -747,9 +872,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     quality,
     devices,
     showAll,
-    /** 0 to 1 through the ignition sequence. */
-    progress: Math.min(1, beat / IGNITION_BEATS),
-    ignitionStep: IGNITION_STEPS[Math.min(IGNITION_STEPS.length - 1, Math.floor(beat / 3))]!,
+    ...ignition,
     elapsedMs,
     ownerDropped,
     week,
@@ -764,6 +887,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     joinQueue,
     leaveQueue,
     endSession,
+    tryAnother,
+    attachVideo: setVideo,
     reportOwnerDropped,
     switchMachine,
     cycleSession,

@@ -140,6 +140,26 @@ or `sessionKey`. The server answers `registered`, or `denied` and closes with co
 A second `register` with a valid key for the same session replaces the older socket — that
 is the streamer reconnecting, exactly as a phase-1 host does.
 
+Once the renter's first frame has arrived, their page starts the session and the server
+tells the streamer to launch the game booked:
+
+```json
+{ "type": "launch-game", "sessionId": "<platform session id>", "appid": 730 }
+```
+
+The streamer launches it and answers `{ "type": "game-started", "sessionId": "<the same id>" }`
+once it runs, which the server relays to the renter only when that is the session their page
+started with their ticket, so a launch that outlived its session never reaches the next
+renter: until then the renter's page holds Ignition on Launching, past
+90 s offering another machine, and shows none of the stream. Send it only once the game's
+own window is what is being captured: the renter's first sight of the stream is the frame
+after it, and must never be the desktop, the Steam library or any other Steam window. It is sent again on every first frame of a new connection, so launching
+must be idempotent; a game already running is only answered again. Until the streamer
+exists, `startHostSession`'s `launchGame` stands in for it, and with none nothing is
+answered, so the renter stays on Launching. The desktop app has no launcher until the PC
+session step, so it never answers until then; the web host page, a dev and test
+responder, answers at once: the screen it shares stands in for the game.
+
 The server also ends the host session whenever the renter's platform session ends
 ([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the
 machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. The service must treat

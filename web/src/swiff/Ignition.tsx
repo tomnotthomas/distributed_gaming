@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { Backdrop } from "@swiff/ui";
-import { IGNITION_STEPS } from "./data";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
@@ -8,16 +7,20 @@ import type { Swiff } from "./useSwiff";
 
 /**
  * The wait between Launch and a frame, named step by step so it is not a
- * spinner. The dial, the percentage and the legend all follow the launch's
- * real progress, eased between beats. It is modal: Swiff.tsx makes the page
- * behind it inert, and focus moves to Cancel while it is up and back to where
- * it was when it closes.
+ * spinner: Reserving a machine, Waking it, Negotiating the stream, Launching
+ * the game. Each step ends on what actually happened on the connection
+ * (play.ts); the dial, the percentage and the legend follow it, eased between
+ * steps. A step that takes too long says so and offers another machine.
+ * Cancel ends the booking; once the session has started it reads End. Nothing
+ * of the stream shows until the PC says the game runs. It is modal: Swiff.tsx makes the page behind it
+ * inert, and focus moves to Cancel while it is up and back to where it was
+ * when it closes.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
-  const { game, picked, progress, ignitionStep } = swiff;
+  const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow } = swiff;
   const shown = useEased(progress * 100);
   const pct = Math.round(shown);
-  const now = IGNITION_STEPS.indexOf(ignitionStep);
+  const ignitionStep = ignitionSteps[now]!;
   const title = game?.title ?? "your game";
 
   const cancel = useRef<HTMLButtonElement>(null);
@@ -75,7 +78,8 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
           </div>
         </div>
         <button type="button" className="lpill ig-cancel" onClick={swiff.goHome} ref={cancel}>
-          Cancel
+          {/* Once the session's clock runs, leaving ends a session rather than a launch. */}
+          {swiff.play?.started ? "End" : "Cancel"}
           <span className="lpill-c">
             <Glyph name="close" size={18} />
           </span>
@@ -83,13 +87,25 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
-          {ignitionStep}
+          {slow ? `${ignitionStep}: taking longer than usual` : ignitionStep}
         </p>
+
+        {slow ? (
+          <div className="ig-slow" data-testid="ignition-slow">
+            <span className="mono">Taking longer than usual</span>
+            <button type="button" className="lpill lpill-sm" onClick={swiff.tryAnother}>
+              Try another machine
+              <span className="lpill-c">
+                <Glyph name="arrow" size={16} />
+              </span>
+            </button>
+          </div>
+        ) : null}
 
         <IgnitionDial pct={shown} />
 
         <ol className="ig-legend mono">
-          {IGNITION_STEPS.map((step, index) => {
+          {ignitionSteps.map((step, index) => {
             const state = index < now ? "done" : index === now ? "now" : "next";
             return (
               <li key={step} data-state={state}>

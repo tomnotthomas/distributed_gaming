@@ -206,6 +206,15 @@ export type EndResult =
 export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
 /**
+ * A claimed booking's running session, for handing its ticket out again: the
+ * room, the ticket id recorded at claim, and how long the session has left (ms).
+ */
+export type RunningSession =
+  | { ok: true; sessionId: string; roomId: string; ticketId: string; remainingMs: number }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "not-running"; status: BookingStatus };
+
+/**
  * What renters ask for, for one game: the renters who booked it within the
  * window or are still waiting for it, and the bookings for it in the queue now.
  */
@@ -798,6 +807,34 @@ export class Platform {
   }
 
   /**
+   * The renter's first frame arrived: the session starts, as the host's start
+   * does, if it has not already. Only the join ticket handed out for this
+   * session may say so, and only while it runs. Answers the machine and the
+   * game booked, which the PC is then told to launch.
+   */
+  renterStarted(
+    sessionId: string,
+    ticketId: string,
+  ): Promise<{ machineId: string; gameId: number } | Exclude<QosResult, "ok">> {
+    return this.#transaction(async () => {
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
+      if (!session) return "not-found";
+      if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
+      // Past its deadline it is over, even while the timer that ends it is still to run.
+      if (session.ended_at !== null || session.expires_at <= this.#now()) return "over";
+      if (session.started_at === null) {
+        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", this.#now(), sessionId);
+        await this.#setBookingStatus(session.booking_id, "playing");
+      }
+      const { game_id } = (await this.#get<{ game_id: number }>(
+        "SELECT game_id FROM bookings WHERE id = $1",
+        session.booking_id,
+      ))!;
+      return { machineId: session.machine_id, gameId: game_id };
+    });
+  }
+
+  /**
    * The host ended the session. `endedAt` is the host's own clock, kept only
    * between the start and now. The host says nothing about why: once the server
    * sees the session within TIME_UP_GRACE_MS of its expiry it is time_up, and
@@ -1011,6 +1048,38 @@ export class Platform {
       const claimed = { sessionId, gameId: booking.game_id, minutes: booking.minutes };
       this.#notices.push(() => this.#onSessionClaimed(reservation.machine_id, claimed));
       return { ok: true, roomId: reservation.machine_id, ...claimed };
+    });
+  }
+
+  /**
+   * The running session of `renterId`'s claimed booking, for a renter coming
+   * back to it whose page no longer holds its ticket: the ticket is never
+   * stored, so it is handed out again with the id recorded at claim, and
+   * ending the session still revokes every copy. Anyone else's booking reads
+   * as not found; one with no session running (not yet claimed, ended, or past
+   * its deadline) as not running.
+   */
+  runningSession(bookingId: string, renterId: string): Promise<RunningSession> {
+    return this.#read(async (): Promise<RunningSession> => {
+      const booking = await this.#bookingRow(bookingId, renterId);
+      if (!booking) return { ok: false, reason: "not-found" };
+      const session = await this.#get<SessionRow>(
+        "SELECT * FROM sessions WHERE booking_id = $1 AND ended_at IS NULL",
+        bookingId,
+      );
+      const now = this.#now();
+      const running =
+        (booking.status === "claimed" || booking.status === "playing") &&
+        session?.ticket_id != null &&
+        session.expires_at > now;
+      if (!running) return { ok: false, reason: "not-running", status: booking.status };
+      return {
+        ok: true,
+        sessionId: session.id,
+        roomId: session.machine_id,
+        ticketId: session.ticket_id!,
+        remainingMs: session.expires_at - now,
+      };
     });
   }
 
