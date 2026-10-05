@@ -10,8 +10,7 @@
 //
 // The Play starts as soon as the renter is in the room, before the stream
 // connects, so the page has Steam's code while it is still on Ignition. The
-// game is hostd's SWIFF_APPID, or, without one, the one the server's
-// launch-game names. A renter who reloads joins again and is sent where the
+// game is hostd's SWIFF_APPID. A renter who reloads joins again and is sent where the
 // sign-in stands. The page shows the stream only on game-started, which goes
 // once the game is on screen, for every launch-game the server sends. Hanging
 // up the socket stops the Play.
@@ -34,8 +33,8 @@ const MAX_LINE_BYTES = 4096;
 export type SteamLoginOptions = {
   /** The agent's socket, as swiff-steam-login's SWIFF_STEAM_SOCKET. */
   socketPath: string;
-  /** The game booked, when hostd said; otherwise the server's launch-game says. */
-  appid: number | null;
+  /** The game booked, as hostd's SWIFF_APPID. */
+  appid: number;
   /** Stand-in for node:net, so tests can use their own socket. */
   connect?: (path: string) => Socket;
   log?: (message: string) => void;
@@ -57,11 +56,10 @@ export type SteamLoginForwarder = {
 
 export function steamLoginForwarder({
   socketPath,
-  appid: hostdAppid,
+  appid,
   connect = createConnection,
   log = (m) => console.error(m),
 }: SteamLoginOptions): SteamLoginForwarder {
-  let appid = hostdAppid;
   let socket: Socket | null = null;
   let send: Send | null = null;
   /** Where the sign-in stands, for a renter who joins again. */
@@ -153,13 +151,12 @@ export function steamLoginForwarder({
     renterJoined(to) {
       send = to;
       if (stopped) return;
-      if (!socket) {
-        if (appid !== null) startPlay(appid);
-      } else if (latest) to(latest);
+      if (!socket) startPlay(appid);
+      else if (latest) to(latest);
     },
     retry(to) {
       send = to;
-      if (stopped || appid === null) return;
+      if (stopped) return;
       if (!socket || (finished && !onScreen)) {
         socket?.destroy();
         startPlay(appid);
@@ -168,10 +165,8 @@ export function steamLoginForwarder({
     launchGame(sessionId, game, to) {
       send = to;
       if (stopped) return;
-      if (appid !== null && appid !== game) {
+      if (appid !== game)
         log(`[swiff-streamer] launch-game names app ${game}, not ${appid}; playing ${appid}`);
-      }
-      appid ??= game;
       launchSession = sessionId;
       if (!socket) startPlay(appid);
       answerLaunch();

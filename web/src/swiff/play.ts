@@ -22,6 +22,8 @@
 // before the stream connects, and Ignition shows it to scan. Its game-started
 // comes only once the renter approved it and the game is on screen. While a
 // code is up the launch is not slow: the renter is busy with their phone.
+// Sign-in time is not billed: once the PC sent a `steam-login`, the session
+// starts only on a frame after `signed-in` (or at it, when a frame came first).
 
 import { startRenterSession, type RenterSession, type RenterStats, type SteamLogin } from "@swiff/rtc";
 import type { Claim } from "./booking";
@@ -135,6 +137,9 @@ export function startPlay(opts: PlayOptions): Play {
   let framed = false;
   let gameStarted = false;
   let counted = false;
+  /** Rental mode: the PC sent a steam-login, so the session waits for signed-in. */
+  let steamSeen = false;
+  let signedIn = false;
   let connection = 0;
   let startRetry: ReturnType<typeof setTimeout> | undefined;
 
@@ -171,6 +176,9 @@ export function startPlay(opts: PlayOptions): Play {
       armNegotiate();
     }, NEGOTIATE_TIMEOUT_MS);
   };
+
+  /** Not while a Steam sign-in is pending: its time is not billed. */
+  const mayStart = () => !steamSeen || signedIn;
 
   /** The stream is shown once it has a frame and the PC says the game runs, and not before. */
   const maybeLive = () => {
@@ -234,7 +242,7 @@ export function startPlay(opts: PlayOptions): Play {
             counted = true;
             onFirstFrame?.();
           }
-          startSession();
+          if (mayStart()) startSession();
           maybeLive();
           break;
         case "game-started":
@@ -242,6 +250,9 @@ export function startPlay(opts: PlayOptions): Play {
           maybeLive();
           break;
         case "steam-login":
+          steamSeen = true;
+          signedIn = event.state === "signed-in";
+          if (signedIn && framed) startSession();
           if (event.state === "failed") {
             // The sign-in or the launch stopped short: no game-started is coming.
             if (state.step === "launching") clearTimeout(timer);

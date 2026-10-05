@@ -460,6 +460,60 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
     expect(handle.state()).toMatchObject({ step: "launching", slow: true });
   });
 
+  it("does not start the session while the code is up, and starts it on the first frame after signed-in", async () => {
+    const { fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 3);
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).not.toHaveBeenCalled();
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s%201/start", {
+      method: "POST",
+      headers: { authorization: "Bearer t-1" },
+    });
+  });
+
+  it("starts the session at signed-in when a frame came while the code was up", async () => {
+    const { handle, fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handle.state().started).toBe(true);
+  });
+
+  it("never starts the session on a failed sign-in or its retry, only after the next signed-in", async () => {
+    const { handle, fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    latest().emit({ type: "steam-login", state: "failed" });
+    handle.retrySignIn();
+    latest().emit({ type: "peer-left" });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    latest().emit({ ...QR, url: "https://s.team/q/1/43" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 3);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(handle.state().started).toBe(false);
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("asks for a retry only after a failed sign-in", () => {
     const { handle } = play();
     latest().emit(QR);

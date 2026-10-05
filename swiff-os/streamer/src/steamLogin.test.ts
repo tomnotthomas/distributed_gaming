@@ -45,7 +45,7 @@ afterEach(async () => {
 const agentSays = (...events: object[]) =>
   conns.at(-1)!.write(events.map((e) => `${JSON.stringify(e)}\n`).join(""));
 
-const start = (log = vi.fn(), appid: number | null = 1245620) => {
+const start = (log = vi.fn(), appid = 1245620) => {
   forwarder = steamLoginForwarder({ socketPath: path, appid, log });
   return log;
 };
@@ -85,15 +85,14 @@ describe("steamLoginForwarder", () => {
     expect(sent).toHaveLength(4);
   });
 
-  it("waits for the server's launch-game to name the game when hostd did not, and answers each launch-game once it runs", async () => {
-    start(vi.fn(), null);
+  it("answers each launch-game once the game runs, and plays hostd's game whatever launch-game names", async () => {
+    const log = start(vi.fn(), 730);
     const sent: SignalMessage[] = [];
     forwarder!.renterJoined((m) => sent.push(m));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(conns).toHaveLength(0);
-
-    forwarder!.launchGame("s-1", 730, (m) => sent.push(m));
     await vi.waitFor(() => expect(commands.join("")).toBe("play 730\n"));
+
+    forwarder!.launchGame("s-1", 440, (m) => sent.push(m));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("names app 440, not 730; playing 730"));
     expect(sent).toEqual([]);
     agentSays({ event: "signed-in", atMs: 10 }, { event: "game-on-screen", appid: 730, atMs: 9_000 });
     await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "game-started", sessionId: "s-1" }));
@@ -102,6 +101,7 @@ describe("steamLoginForwarder", () => {
     forwarder!.launchGame("s-1", 730, (m) => sent.push(m));
     expect(sent.filter((m) => m.type === "game-started")).toHaveLength(2);
     expect(conns).toHaveLength(1);
+    expect(commands.join("")).toBe("play 730\n");
   });
 
   it("starts the Play once, and sends a renter who joins again where the sign-in stands", async () => {

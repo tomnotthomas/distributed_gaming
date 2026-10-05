@@ -549,7 +549,7 @@ load. Reloading the page does not rejoin the stream
 yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
-while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. Try another machine ends the
 booking and launches on the best other free machine on the list, or goes back to
 the list when there is none; a session already started there ends first as End ends
 it, and the next machine's clock starts afresh. Cancel ends the booking; once the
