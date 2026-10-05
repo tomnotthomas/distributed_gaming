@@ -302,7 +302,7 @@ function readAk(akPublic: unknown): TpmPublic | AttestRefusalDetail {
 }
 
 /** Run `work` for `room` after whatever is already running for it, so its record changes in turn. */
-function perRoom() {
+export function perRoom() {
   const tails = new Map<string, Promise<unknown>>();
   return <T>(room: string, work: () => Promise<T>): Promise<T> => {
     const run = (tails.get(room) ?? Promise.resolve()).then(work);
@@ -318,8 +318,12 @@ function perRoom() {
 /** A registered EK the verifier trusts, with the public area its certificate's key has under its template. */
 type Ek = TrustedEk & { public: TpmPublic };
 
-/** The TPM verifier: it also registers EKs and activates AKs. */
-export type TpmVerifier = AttestationVerifier & { enroll: Enroll; activate: Activate };
+/** The TPM verifier: it also registers EKs, activates AKs and keeps firmware baselines. */
+export type TpmVerifier = AttestationVerifier & {
+  enroll: Enroll;
+  activate: Activate;
+  inCooldown: NonNullable<AttestationVerifier["inCooldown"]>;
+};
 
 export function tpmVerifier({
   store,
@@ -390,6 +394,11 @@ export function tpmVerifier({
         }
         return { ok: true } as const;
       }),
+
+    async inCooldown(room) {
+      const record = await store.get(room);
+      return Boolean(record && (record.pendingFirmware || record.reenrolledAt !== null));
+    },
 
     async activate({ room, nonce, akPublic, now = Date.now() }) {
       const ek = trustedEk(await store.get(room), now);
@@ -577,6 +586,8 @@ export function tpmVerifier({
 
         return {
           ok: true,
+          boot: resetCount,
+          restarted: last === null,
           facts: {
             uefi: boot.uefi,
             secureBoot: trusted,

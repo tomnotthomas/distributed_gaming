@@ -117,8 +117,8 @@ describe("credentials", () => {
   });
 
   it("lets a host certificate host its own room at its tier, under either policy", () => {
-    const cert = mintHostCert(SECRET, "pc-1", "attested-discrete-tpm", 600);
-    const { id, exp } = verifyHostCert(SECRET, cert)!;
+    const cert = mintHostCert(SECRET, "pc-1", "attested-discrete-tpm", 600, Date.now(), 12);
+    const { id, exp, iat } = verifyHostCert(SECRET, cert)!;
     for (const attestation of [required(), createAttestation({ access: ACCESS })]) {
       assert.deepEqual(attestation.credential("pc-1", cert), {
         kind: "host-cert",
@@ -126,6 +126,8 @@ describe("credentials", () => {
         id,
         exp,
         spent: false,
+        iat,
+        boot: 12,
       });
       assert.equal(attestation.credential("pc-2", cert), null, "another room");
     }
@@ -192,12 +194,25 @@ describe("attesting", () => {
     assert.ok(challenge.ok);
     assert.equal(challenge.grant.expiresAt, Math.floor(now / 1000) + CHALLENGE_TTL_SECONDS);
 
-    const attested = await attestation.attest("pc-1", challenge.grant.nonce, evidence(), now);
+    const attested = await attestation.attest(
+      "pc-1",
+      challenge.grant.nonce,
+      { ...evidence(), resetCount: 31 },
+      now,
+    );
     assert.ok(attested.ok);
     assert.equal(attested.grant.tier, "attested");
     assert.equal(attested.grant.expiresAt, Math.floor(now / 1000) + HOST_CERT_TTL_SECONDS);
     const cert = verifyHostCert(SECRET, attested.grant.hostCert, now);
-    assert.deepEqual(cert, { room: "pc-1", tier: "attested", id: cert?.id, exp: attested.grant.expiresAt });
+    // Minted now, for the boot the quote counted.
+    assert.deepEqual(cert, {
+      room: "pc-1",
+      tier: "attested",
+      id: cert?.id,
+      exp: attested.grant.expiresAt,
+      iat: Math.floor(now / 1000),
+      boot: 31,
+    });
     assert.ok(cert?.id, "every certificate has an id of its own");
 
     const discrete = await attestation.attest(

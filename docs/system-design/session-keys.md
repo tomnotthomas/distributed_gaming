@@ -210,7 +210,8 @@ two credentials (`server/src/attestation.ts`):
   unrecognised value counts as `required`.
 
 A host certificate is a token the server signs with `ROOM_SECRET` under its own domain,
-naming one room, its tier, an id of its own and an expiry ten minutes away. It is the PC
+naming one room, its tier, an id of its own, when it was minted, the boot its quote counted
+(see State key) and an expiry ten minutes away. It is the PC
 service's credential, exactly where the machine key was: refused with `session-active` while
 a session is live, and never handed to the streamer. A certificate for a machine no longer
 in `MACHINE_KEYS` hosts nothing. Two rules make `swiff-hostd` attest again:
@@ -333,22 +334,119 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
 Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
 replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.
 
-**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts }`. The
-machine's own key stands in for the proof of who is asking, which the TPM verifier gets from the
-machine's registered EK, so only its holder earns a certificate. The facts are believed as
-claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
+**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts, resetCount?,
+countersRestarted? }`. The machine's own key stands in for the proof of who is asking, which the
+TPM verifier gets from the machine's registered EK, so only its holder earns a certificate. The
+facts, and the boot count for the state key, are believed as claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
 
 **Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
 setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
 firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-discrete-tpm`
 tier. The tier is carried in the certificate, for matching to use later.
 
-Not yet: revoking a certificate before it expires, the disk-key share
-(`POST /machines/:id/state-key`), binding the host certificate to a key inside the attested
+Not yet: revoking a certificate before it expires, binding the host certificate to a key inside the attested
 system (a machine that relays challenges to another, untouched one is not caught), attestation
 failures as a stability input, and rate-limiting the attestation routes per client, as
 protection against load. A failed attempt does not use its challenge up (evidence that failed
 fails again), so a flood of junk attempts cannot hold a machine's attestation back.
+
+### State key
+
+The rental state partition (the verified-file table, the host certificate cache, the Steam
+client) is LUKS2, and its key is split in two, after Keylime's U and V shares
+(`server/src/state-key.ts`):
+
+| Share           | Made by                                                 | Kept                                                                               |
+| --------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **U**, 32 bytes | `swiff-hostd`, at random, when it formats the partition | sealed to the TPM under the Swiff-signed PCR policy; never leaves the machine      |
+| **V**, 32 bytes | the server, at random, per machine: the **state key**   | in `machine_state_keys`, encrypted with `STATE_KEY_SECRET`; released only as below |
+
+The partition opens with **U XOR V**. The disk with its sealed U, copied off the machine, opens
+nothing without V; V opens nothing without the TPM that sealed U. So a tampered system (it
+cannot attest), a cloned one (another TPM, whose EK is not registered) or a revoked one never
+unlocks it.
+
+```
+swiff-hostd, once per boot, right after attest                      server
+POST /api/machines/:id/state-key  (Bearer host certificate) ──────► checks below
+                                         ◄────── 200 { keyId, share }   open with U XOR share
+                                         ◄────── 404 no-state-key       none yet  ─┐
+                                         ◄────── 409 continuity-gap     withheld  ─┤
+PUT  /api/machines/:id/state-key  (Bearer the same certificate) ◄──────────────────┘
+                                         ◄────── 201 { keyId, share }   a new V; the old one is
+                                                                        gone: format anew with a fresh U
+```
+
+Neither call has a body. `share` is base64, 32 bytes; `keyId` names it (a new share has a new
+id), so `swiff-hostd` can keep it beside its sealed U and tell a partition made for an older
+share. The types are `StateKeyGrant` and `StateKeyError` in `protocol.ts`; bodies are JSON with
+`cache-control: no-store` and no CORS. `swiff-hostd` holds the share in memory only, long
+enough to open the partition, and never writes or logs it.
+
+A share is released only to a **host certificate** for this machine (`401 bad-host-cert`
+otherwise, including one for a machine no longer in `MACHINE_KEYS`; the machine key gets `403
+attestation-required`, whatever `HOSTING_ATTESTATION` says) that is:
+
+- **fresh**: minted at most two minutes ago (`STATE_KEY_FRESH_SECONDS`), and not yet used for a
+  share. One call that gets a share per attestation: a refused `POST` does not use it, so the
+  `PUT` after a `404` or `409` takes the same certificate. Otherwise `401 stale-host-cert`:
+  attest again.
+- **for the machine's latest attested boot.** A host certificate names the boot its quote
+  counted (the TPM's `resetCount`, which goes up by one at every boot) and when it was minted.
+  Every attestation that passes records its boot first, and mints nothing if it cannot; a
+  certificate from an earlier boot than the latest attested one is `401 stale-host-cert`.
+
+And only while the machine is not revoked (`403 revoked`), not waiting out a firmware cooldown
+(`403 firmware-cooldown`: changed firmware seen, or its EK registered again, see `tpm` above),
+and within its budget: six calls at once, then one a minute (`429 rate-limited`, with
+`retry-after` in seconds). `503 not-configured` without `STATE_KEY_SECRET`; `413 bad-request`
+for a body over 32 KB; `500 internal-error` when the store fails or a share cannot be unsealed
+(as after `STATE_KEY_SECRET` changed).
+
+**Continuity.** A boot that follows the last attested one (the same boot again, or the next)
+gets the share. Any other, or one the verifier could not count, means something else booted in
+between (the owner's Windows, a live USB) and had the disk, so it may have been changed: the
+share is withheld from then on (`409 continuity-gap`), through restarts and any number of
+attestations, and only a `PUT` opens rental mode again, on a freshly formatted partition. A
+rental-mode boot that attested but never asked for the share counts as a boot, so an
+interrupted boot costs no state. The decision and the record of the boot are one database
+statement, and the latest boot never goes back: an attestation of an earlier boot recorded late
+(by another server process) changes nothing, and its certificate is stale. Only a TPM whose
+counts started again (its EK registered again, as after the TPM was cleared) may count lower,
+and that is a gap. A new share is written only while the boot it was asked for is still the
+latest. Returning to Swiff OS after the owner used Windows is such a
+gap: the state partition is formatted anew, and the games drive fully verified again.
+
+**`swiff-hostd`, in order.** Attest. `POST` state-key. On `200`, open the partition with U XOR
+share; if that fails (a `PUT` whose partition was never formatted), attest again and `PUT`. On
+`404` or `409`, `PUT` with the same certificate, then format the partition with a fresh U
+sealed to the TPM. On `401`, attest again. On `403 firmware-cooldown` or `revoked`, stay off
+the market and show it on the status page. On `429` wait `retry-after`; on `5xx` retry with
+backoff.
+
+**Revoking.** `npm run state-key -- revoke <machine-id>` (on the database at `DATABASE_URL`)
+destroys the machine's share at once, so its partition never opens again, and refuses it any
+until `npm run state-key -- reinstate <machine-id>`, after which it may `PUT` a new one.
+Taking the machine out of `MACHINE_KEYS` also refuses it (`401 bad-host-cert`).
+A revocation takes effect at the database write: every call that reads the machine's row after
+it is refused, and no write the server makes afterwards brings the share back. A `POST` that
+had already read the row when the revocation landed may still answer with the share it read,
+exactly as if it had come a moment earlier; no lock could recall a share already sent, so a
+machine suspected of having its share is also taken out of `MACHINE_KEYS` and its partition
+treated as compromised.
+
+**Secrets.** `STATE_KEY_SECRET` (at least 32 characters, not `ROOM_SECRET`; for example
+`openssl rand -base64 48`) derives the AES-256-GCM key each share is sealed with, bound to its
+machine and key id, so a sealed share copied onto another machine's row opens nothing. Without
+it every call answers `503 not-configured`, and the server warns at startup where a verifier
+is set. Changing it makes every stored share unreadable: keep it as long as the shares. Shares
+and the secret are never logged; replacing (`state-key-replaced`), revoking, reinstating and
+withholding for a gap (`state-key-withheld`) are security events, one JSON line each on stderr
+with the machine id, key ids and boot counts only.
+
+Used certificates are kept in memory until they expire: a restart forgets them, so a
+certificate that got a share just before one could get it again within its two minutes, for
+the same boot of the same machine.
 
 ## Lifetimes
 
@@ -356,6 +454,7 @@ fails again), so a flood of junk attempts cannot hold a machine's attestation ba
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session key      | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
 | Host certificate | 10 minutes from attestation (`HOST_CERT_TTL_SECONDS`), and one session start. A socket registered with it is put out when it expires.                  |
+| State key share  | Until replaced or revoked. Released only within 2 minutes of an attestation (`STATE_KEY_FRESH_SECONDS`), once per host certificate.                    |
 | Session          | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
 | Everything       | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
 

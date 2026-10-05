@@ -246,13 +246,22 @@ export type HostCert = {
   id: string;
   /** Unix seconds after which the certificate hosts nothing. */
   exp: number;
+  /** Unix seconds it was minted at: the attestation it came from. Null in one minted before it was kept. */
+  iat: number | null;
+  /**
+   * The TPM's resetCount in the quote that earned it, which counts the
+   * machine's boots: the boot it was minted for. Null when the verifier does
+   * not report one. The state key is released only to the machine's latest boot (state-key.ts).
+   */
+  boot: number | null;
 };
 
 const ATTESTED_TIERS: readonly string[] = ["attested", "attested-discrete-tpm"];
 
 /**
- * Mint a signed host certificate for `room` at `tier`, with a random id.
- * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
+ * Mint a signed host certificate for `room` at `tier`, with a random id, for
+ * the boot `boot` counts (null: unknown). Expiry is `ttlSeconds` after `now`
+ * (Unix milliseconds) rounded down to whole seconds.
  */
 export function mintHostCert(
   secret: string,
@@ -260,12 +269,16 @@ export function mintHostCert(
   tier: HostCert["tier"],
   ttlSeconds: number,
   now = Date.now(),
+  boot: number | null = null,
 ): string {
+  const iat = Math.floor(now / 1000);
   const cert: HostCert = {
     room,
     tier,
     id: b64url(randomBytes(16)),
-    exp: Math.floor(now / 1000) + ttlSeconds,
+    exp: iat + ttlSeconds,
+    iat,
+    boot,
   };
   return seal(secret, cert, "host");
 }
@@ -282,7 +295,17 @@ export function verifyHostCert(secret: string, token: unknown, now = Date.now())
   if (typeof cert.tier !== "string" || !ATTESTED_TIERS.includes(cert.tier)) return null;
   if (typeof cert.id !== "string" || !cert.id) return null;
   if (typeof cert.exp !== "number" || cert.exp * 1000 <= now) return null;
-  return { room: cert.room, tier: cert.tier as HostCert["tier"], id: cert.id, exp: cert.exp };
+  /** A non-negative whole number, or null. */
+  const count = (value: unknown) =>
+    Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : null;
+  return {
+    room: cert.room,
+    tier: cert.tier as HostCert["tier"],
+    id: cert.id,
+    exp: cert.exp,
+    iat: count(cert.iat),
+    boot: count(cert.boot),
+  };
 }
 
 export type AttestChallenge = {
