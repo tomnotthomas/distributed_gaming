@@ -15,10 +15,20 @@
 //       The signed boot policy for ATTESTATION_POLICY (boot-policy.ts says what
 //       the payload holds), signed with the release key whose public half is
 //       ATTESTATION_POLICY_KEY. Printed; the payload is checked first.
+//
+//   npm run state-key -- revoke <machine-id>
+//   npm run state-key -- reinstate <machine-id>
+//       Revoke a rental-mode PC's state key (state-key.ts) in the database at
+//       DATABASE_URL: its share is destroyed at once, so its state partition
+//       never opens again, and it gets no new one. Reinstating lets it ask for
+//       a new one, on a freshly formatted partition.
 
 import { readFileSync } from "node:fs";
 import { accessFromEnv, MIN_SECRET_LENGTH, mintTicket, newMachineKey, STEAM_ID } from "./access.js";
 import { signBootPolicy } from "./boot-policy.js";
+import { openDatabase } from "./db.js";
+import { migrate } from "./schema.js";
+import { createStateKeys, databaseStateKeyStore } from "./state-key.js";
 
 const [command, id, ...rest] = process.argv.slice(2);
 
@@ -57,8 +67,21 @@ if (command === "machine-key") {
   } catch (error) {
     fail(`the policy was not signed: ${error instanceof Error ? error.message : String(error)}`);
   }
+} else if (command === "state-key") {
+  const machine = rest[0];
+  if ((id !== "revoke" && id !== "reinstate") || !machine)
+    fail("usage: npm run state-key -- revoke|reinstate <machine-id>");
+  const url = process.env.DATABASE_URL;
+  if (!url) fail("DATABASE_URL is not set: point it at the server's Postgres database (see .env.example)");
+  const db = openDatabase(url);
+  await migrate(db);
+  // Revoking and reinstating need no secret: neither reads a share.
+  const stateKeys = createStateKeys({ store: databaseStateKeyStore(db), secret: null });
+  await (id === "revoke" ? stateKeys.revoke(machine) : stateKeys.reinstate(machine));
+  await db.close();
+  console.log(id === "revoke" ? `Revoked the state key of ${machine}.` : `Reinstated ${machine}.`);
 } else {
   fail(
-    "usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]  |  npm run boot-policy -- <payload.json> <private-key.pem>",
+    "usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]  |  npm run boot-policy -- <payload.json> <private-key.pem>  |  npm run state-key -- revoke|reinstate <id>",
   );
 }
