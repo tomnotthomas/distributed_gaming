@@ -33,7 +33,25 @@ import {
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
-import { codeGroups, firmwareChecks, isReady, pcChecks, rentalStatus } from "./rental";
+import { IDLE_RUN, type RentalRun, type RentalSetup } from "./model";
+import {
+  biosTitle,
+  biosTodos,
+  changedSoFar,
+  codeGroups,
+  failureOf,
+  firmwareChecks,
+  isReady,
+  pcChecks,
+  rentalLine,
+  rentalNext,
+  rentalReady,
+  rentalScreen,
+  rentalStage,
+  rentalStepAt,
+  waitingFor,
+  windowsTodos,
+} from "./rental";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -297,7 +315,7 @@ describe("the install plan", () => {
     }
   });
 
-  it("asks the owner before every step that changes the disk or the firmware, and only those", () => {
+  it("says what each step that changes the disk or the firmware changes, and restarts only in its last step", () => {
     const plan = installPlan(
       pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })) })),
     );
@@ -307,11 +325,73 @@ describe("the install plan", () => {
       "partitions",
       "write",
       "boot-entry",
-      "mok",
       "mok-restart",
     ]);
     expect(plan.steps.find((s) => s.id === "bitlocker")!.confirm).toMatch(/recovery key/);
     expect(plan.steps.find((s) => s.id === "room")!.confirm).toMatch(/Back up/);
+    // The one step the owner starts: Restart now, after the rest ran by itself.
+    expect(plan.steps.filter((s) => s.ops.some((o) => o.op === "restart")).map((s) => s.id)).toEqual([
+      "mok-restart",
+    ]);
+    expect(plan.steps.at(-1)!.ops).toEqual([{ op: "restart" }]);
+  });
+
+  it("names each step in the owner's words", () => {
+    const plan = installPlan(
+      pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, label: "Games" })) })),
+    );
+    expect(plan.steps.map((s) => s.title)).toEqual([
+      "Check the Secure Boot keys and the TPM (asks for administrator)",
+      "Turn off Fast Startup so Swiff OS can read your drives",
+      "Shrink C: by 24 GB",
+      "Create 6 partitions for Swiff OS on disk 0",
+      "Copy Swiff OS onto them",
+      "Add Swiff OS to the boot menu, after Windows",
+      "Label C: SWIFFGAMES so Swiff OS finds your games",
+      "Make a one-time code for Swiff's key",
+      "Restart once to confirm the key",
+    ]);
+  });
+
+  it("goes on in the partitions a stopped install already made: no shrink, no new partitions, the same offsets", () => {
+    const first = installPlan(pc());
+    const add = first.steps.find((s) => s.id === "partitions")!.ops[0]!;
+    if (add.op !== "gpt-add") throw new Error("not gpt-add");
+    const record = {
+      complete: false,
+      disk: 0,
+      fastStartup: true,
+      shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+      partitions: add.partitions.map((p, i) => ({
+        role: p.role,
+        id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`,
+        offset: p.offset,
+        bytes: p.bytes,
+      })),
+      bootEntry: null,
+      labels: [],
+      mok: false,
+    };
+    const again = installPlan(pc((raw) => ({ ...raw, fastStartup: 0, install: record })));
+    expect(again.steps.map((s) => s.id)).toEqual([
+      "check",
+      "write",
+      "boot-entry",
+      "games",
+      "mok",
+      "mok-restart",
+    ]);
+    expect(again.target).toMatchObject({ kind: "free", disk: 0, start: record.partitions[0]!.offset });
+    expect(again.steps.find((s) => s.id === "write")!.ops).toEqual(
+      first.steps.find((s) => s.id === "write")!.ops,
+    );
+    // The drive chosen before no longer matters: the room is made.
+    expect(
+      installPlan(
+        pc((raw) => ({ ...raw, install: record })),
+        { target: "shrink:D" },
+      ).target?.kind,
+    ).toBe("free");
   });
 
   it("suspends BitLocker on C: for three restarts first, when it is on", () => {
@@ -478,18 +558,25 @@ describe("the install plan", () => {
 });
 
 describe("Swiff's key, enrolled once as a MOK", () => {
-  it("queues the key with a one-time code, then restarts once into Swiff OS for the owner to confirm it", () => {
+  it("queues the key with a one-time code and points the next start at Swiff OS, then restarts once on the owner's word", () => {
     const plan = installPlan(pc(), { code: "48217730" });
     expect(plan.mok).toEqual({ code: "48217730" });
     const [mok, restart] = plan.steps.slice(-2);
-    expect(mok!.ops).toEqual([{ op: "mok-import", cert: MOK_CERT, code: "48217730" }, { op: "installed" }]);
+    // Recorded as installed before BootNext: a restart from anywhere reaches the blue screen.
+    expect(mok!.ops).toEqual([
+      { op: "mok-import", cert: MOK_CERT, code: "48217730" },
+      { op: "installed" },
+      { op: "boot-next", entry: "swiff" },
+    ]);
+    expect(mok!.confirm).toBeNull();
+    expect(mok!.commands.join("\n")).toMatch(/BootNext: Swiff OS's Boot####/);
     expect(mok!.commands.join("\n")).toMatch(/mokutil --import swiffos-key\.cer --simple-hash/);
     expect(mok!.commands.join("\n")).toMatch(/MokNew-605dab50-e046-4300-abb6-3dd810dd8b23/);
     expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the one-time code/);
     expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("48217730");
-    expect(restart!.ops).toEqual([{ op: "boot-next", entry: "swiff" }, { op: "restart" }]);
+    expect(restart!.ops).toEqual([{ op: "restart" }]);
+    expect(restart!.confirm).toMatch(/restarts now/);
     expect(restart!.commands).toEqual([
-      "# BootNext: Swiff OS's Boot####, for the next start only",
       "shutdown /r /t 5; if ($LASTEXITCODE) { throw 'shutdown failed: exit code ' + $LASTEXITCODE }",
     ]);
   });
@@ -498,10 +585,12 @@ describe("Swiff's key, enrolled once as a MOK", () => {
     const plan = mokPlan("11112222");
     expect(plan).toMatchObject({ kind: "mok", mok: { code: "11112222" } });
     expect(plan.steps).toEqual(mokSteps("11112222"));
-    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
-      { op: "mok-import", cert: MOK_CERT, code: "11112222" },
-      { op: "boot-next", entry: "swiff" },
-      { op: "restart" },
+    expect(plan.steps.map((s) => s.ops)).toEqual([
+      [
+        { op: "mok-import", cert: MOK_CERT, code: "11112222" },
+        { op: "boot-next", entry: "swiff" },
+      ],
+      [{ op: "restart" }],
     ]);
     expect(mokPlan().mok!.code).toMatch(/^\d{8}$/);
   });
@@ -551,11 +640,12 @@ describe("the switch", () => {
 
   it("starts Swiff OS once with BootNext alone, so the next restart is Windows again", () => {
     const plan = switchPlan("once");
-    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
-      { op: "boot-next", entry: "swiff" },
-      { op: "restart" },
+    expect(plan.steps.map((s) => s.ops)).toEqual([
+      [{ op: "boot-next", entry: "swiff" }],
+      [{ op: "restart" }],
     ]);
-    expect(plan.steps[0]!.confirm).toMatch(/next restart after that starts Windows/);
+    expect(plan.steps[0]!.confirm).toBeNull();
+    expect(plan.steps[1]!.confirm).toMatch(/next restart after that starts Windows/);
   });
 
   it("stops sharing by putting Windows first again", () => {
@@ -625,12 +715,14 @@ describe("the uninstall", () => {
   it("removes Swiff's key on its own, before the uninstall, through MokManager on Swiff OS's ESP", () => {
     const plan = keyRemovalPlan("55554444");
     expect(plan).toMatchObject({ kind: "unkey", mok: { code: "55554444" } });
-    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
-      { op: "mok-delete", cert: MOK_CERT, code: "55554444" },
-      { op: "boot-next", entry: "swiff" },
-      { op: "restart" },
+    expect(plan.steps.map((s) => s.ops)).toEqual([
+      [
+        { op: "mok-delete", cert: MOK_CERT, code: "55554444" },
+        { op: "boot-next", entry: "swiff" },
+      ],
+      [{ op: "restart" }],
     ]);
-    expect(plan.steps.every((s) => s.confirm)).toBe(true);
+    expect(plan.steps.map((s) => Boolean(s.confirm))).toEqual([false, true]);
     expect(
       uninstallPlan(installed())
         .steps.flatMap((s) => s.ops)
@@ -645,71 +737,126 @@ describe("the uninstall", () => {
 });
 
 describe("what the screen says", () => {
-  const status = (read: RentalRead, target: string | null = null) => rentalStatus(read, target);
+  /** The rental setup the screen reads, with nothing planned or running. */
+  const setupOf = (read: RentalRead | null, change: Partial<RentalSetup> = {}): RentalSetup => ({
+    reading: false,
+    read,
+    target: null,
+    preview: null,
+    run: IDLE_RUN,
+    ...change,
+  });
+  const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
 
-  it("says the fixture PC is ready, with Fast Startup left to Swiff", () => {
+  it("says the fixture PC is ready to install, with Fast Startup left to Swiff", () => {
     const read = pc();
-    expect(status(read)).toMatchObject({
-      title: "Ready for rental mode",
-      bios: [],
-      fixes: [],
-      canInstall: true,
+    expect(rentalStage(setupOf(read))).toEqual({ kind: "ready" });
+    expect(rentalLine(setupOf(read))).toBe("Ready to install");
+    expect(rentalStepAt(setupOf(read))).toBe(1);
+    expect(pcChecks(read, null).find((c) => c.id === "fast-startup")).toMatchObject({
+      value: "On. The install turns it off",
+      state: "swiff",
     });
-    expect(pcChecks(read, null).find((c) => c.id === "fast-startup")).toMatchObject({ state: "swiff" });
     expect(pcChecks(read, null).find((c) => c.id === "space")).toMatchObject({
       value: "24 GB from C:",
       state: "ok",
     });
   });
 
-  it("lists each BIOS change, and offers no install until they are made", () => {
+  it("names the BIOS settings to change, all in one trip, and offers no install until they are made", () => {
     const read = pc((raw) => ({ ...raw, secureBoot: 0, securityProperties: [1, 2] }));
-    expect(status(read)).toMatchObject({
-      title: "2 changes in the BIOS",
-      bios: ["Turn on Secure Boot.", "Turn on the IOMMU (AMD-Vi or Intel VT-d) and Kernel DMA Protection."],
-      canInstall: false,
+    expect(biosTodos(read)).toEqual(["secure-boot", "iommu"]);
+    expect(rentalStage(setupOf(read))).toMatchObject({ kind: "bios", bios: ["secure-boot", "iommu"] });
+    expect(biosTitle(["secure-boot", "iommu"])).toBe("Turn on Secure Boot and IOMMU");
+    expect(biosTitle(["iommu"])).toBe("Turn on IOMMU");
+    expect(biosTitle(["uefi", "secure-boot", "iommu"])).toBe("Change 3 BIOS settings");
+    expect(rentalLine(setupOf(read))).toBe("2 BIOS settings");
+    expect(rentalLine(setupOf(pc((raw) => ({ ...raw, securityProperties: [1, 2] }))))).toBe("1 BIOS setting");
+  });
+
+  it("puts a to-do in Windows before the BIOS trip: BitLocker first, the IOMMU after", () => {
+    const read = pc((raw) => ({
+      ...raw,
+      securityProperties: [1, 2],
+      volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })),
+    }));
+    expect(rentalStage(setupOf(read))).toMatchObject({
+      kind: "windows",
+      todos: [{ id: "games", title: "Turn off BitLocker on C:", setting: ["C: BitLocker", "Off"] }],
+      bios: ["iommu"],
+    });
+    expect(rentalLine(setupOf(read))).toBe("Not ready");
+    expect(rentalNext(setupOf(read))).toBe("Turn off BitLocker on C:");
+  });
+
+  it("asks for the IOMMU on an NVIDIA PC, with the graphics card only waiting beside it", () => {
+    const read = pc((raw) => ({ ...raw, gpus: [nvidia], securityProperties: [1, 2] }));
+    expect(rentalStage(setupOf(read))).toEqual({
+      kind: "bios",
+      bios: ["iommu"],
+      waiting: [{ id: "gpu", setting: ["Graphics card", "Update coming"] }],
     });
   });
 
-  it("holds a BitLocker games drive, an NVIDIA card and a full disk against the PC, in Windows", () => {
-    const read = pc((raw) => ({
-      ...raw,
-      gpus: [{ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" }],
-      volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1, free: 20 * GiB })),
-    }));
-    const s = status(read);
-    expect(s.title).toBe("3 things to change first");
-    expect(s.fixes).toHaveLength(3);
-    expect(s.canInstall).toBe(false);
+  it("is almost ready when only the graphics card is left, with nothing for the owner to do", () => {
+    const read = pc((raw) => ({ ...raw, gpus: [nvidia] }));
+    expect(windowsTodos(read, null)).toEqual([]);
+    expect(waitingFor(read, null)).toEqual([{ id: "gpu", setting: ["Graphics card", "Update coming"] }]);
+    expect(rentalStage(setupOf(read))).toEqual({ kind: "almost", waiting: waitingFor(read, null) });
+    expect(rentalLine(setupOf(read))).toBe("Not on NVIDIA yet");
+    // NVIDIA keeps today's words in the checks, unchanged.
+    expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({ value: "RTX 4080: not yet" });
   });
 
-  it("never counts the Secure Boot db or the TPM certificate as ready: they are not checked yet", () => {
+  it("holds a full disk against the PC as a to-do in Windows, named by what to free", () => {
+    const read = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, free: 20 * GiB })) }));
+    expect(windowsTodos(read, null)).toEqual([
+      {
+        id: "space",
+        title: "Free up 24 GB",
+        line: "Swiff OS needs 24 GB on one drive. Move or delete files, or add a drive.",
+        setting: ["Free space on one drive", "24 GB"],
+      },
+    ]);
+  });
+
+  it("never holds the Secure Boot db or the TPM certificate against the PC: they are checked when you install", () => {
     const keys = firmwareChecks(pc()).filter((c) => c.id === "db" || c.id === "ek");
     expect(keys).toEqual([
-      expect.objectContaining({ value: "Not checked yet", state: "unchecked" }),
-      expect.objectContaining({ value: "Not checked yet", state: "unchecked" }),
+      expect.objectContaining({ value: "Checked when you install", state: "unchecked" }),
+      expect.objectContaining({ value: "Checked when you install", state: "unchecked" }),
     ]);
     expect(keys.some((c) => isReady(c.state))).toBe(false);
-    expect(status(pc())).toMatchObject({ ready: 9, of: 11, canInstall: true });
+    expect(rentalStage(setupOf(pc())).kind).toBe("ready");
   });
 
-  it("never swaps in another drive when the chosen one is gone: the owner chooses again", () => {
+  it("never holds what it could not read against the PC", () => {
+    const read = pc((raw) => ({ ...raw, secureBoot: null, securityProperties: [null], fastStartup: null }));
+    expect(
+      firmwareChecks(read)
+        .filter((c) => c.state === "unread")
+        .map((c) => c.id),
+    ).toEqual(["secure-boot", "iommu"]);
+    expect(rentalStage(setupOf(read)).kind).toBe("ready");
+  });
+
+  it("never swaps in another drive when the chosen one is gone: the owner picks again", () => {
     const read = pc();
     expect(pcChecks(read, "shrink:D").find((c) => c.id === "space")).toMatchObject({
       value: "The drive you chose is no longer available: choose again",
       state: "blocked",
     });
-    expect(status(read, "shrink:D")).toMatchObject({
-      fixes: ["The drive you chose for Swiff OS is no longer available: choose again where it goes."],
-      canInstall: false,
+    expect(windowsTodos(read, "shrink:D")[0]).toMatchObject({
+      id: "space",
+      line: "The drive you picked for Swiff OS isn't there any more. Pick another, or free up space on one drive.",
     });
-    expect(status(read, "shrink:C").canInstall).toBe(true);
+    expect(rentalStage(setupOf(read, { target: "shrink:C" })).kind).toBe("ready");
   });
 
   it("says BitLocker was not read when it was not, rather than off", () => {
     const read = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })) }));
     expect(pcChecks(read, null).find((c) => c.id === "games")).toMatchObject({
-      value: "C:, BitLocker not read",
+      value: "C: BitLocker not read",
       state: "unread",
     });
   });
@@ -720,5 +867,273 @@ describe("what the screen says", () => {
       value: "2.0, separate chip: lower tier",
       state: "ok",
     });
+  });
+
+  it("checks this PC first, and says when the check did not finish", () => {
+    expect(rentalStage(setupOf(null, { reading: true }))).toEqual({ kind: "reading" });
+    expect(rentalLine(setupOf(null, { reading: true }))).toBe("Checking this PC");
+    expect(rentalStage(setupOf(null))).toEqual({ kind: "unread" });
+    expect(rentalLine(setupOf(null))).toBe("Check didn't finish");
+    expect(rentalStepAt(setupOf(null))).toBe(0);
+  });
+
+  it("offers to continue an install that stopped part way", () => {
+    const record = { complete: false, disk: 0, bootEntry: null, partitions: [], shrink: null };
+    const read = pc((raw) => ({ ...raw, install: record }));
+    expect(rentalStage(setupOf(read)).kind).toBe("resume");
+    expect(rentalNext(setupOf(read))).toBe("Continue the install");
+  });
+});
+
+describe("Swiff's key, after the install", () => {
+  const record = { complete: true, disk: 0, bootEntry: 3, partitions: [], mok: true };
+  const installed = (key: RentalRead["key"], extra: Partial<RentalRead> = {}): RentalSetup => ({
+    reading: false,
+    read: { ...pc((raw) => ({ ...raw, install: record })), key, ...extra },
+    target: null,
+    preview: null,
+    run: IDLE_RUN,
+  });
+
+  it("waits for the restart while the request is queued, with its code", () => {
+    const s = installed({ state: "queued", code: "48217730" });
+    expect(rentalStage(s)).toEqual({ kind: "restart", code: "48217730" });
+    expect(rentalLine(s)).toBe("Ready to restart");
+    expect(rentalStepAt(s)).toBe(2);
+  });
+
+  it("asks the owner after the restart, and when the app never kept track", () => {
+    expect(rentalStage(installed({ state: "ask", code: null }))).toEqual({ kind: "ask" });
+    expect(rentalStage(installed(null))).toEqual({ kind: "ask" });
+    expect(rentalLine(installed(null))).toBe("Confirm the key");
+    expect(rentalReady(installed(null))).toBe(false);
+  });
+
+  it("is ready to go live only once the owner confirmed the key", () => {
+    const s = installed({ state: "confirmed", code: null });
+    expect(rentalStage(s)).toEqual({ kind: "installed" });
+    expect(rentalReady(s)).toBe(true);
+    expect(rentalLine(s)).toBe("Ready");
+    expect(rentalStepAt(s)).toBe(3);
+  });
+
+  it("tells a missed key, a timed-out blue screen, no key and a Secure Boot refusal apart", () => {
+    expect(rentalStage(installed({ state: "missed", code: null })).kind).toBe("key");
+    expect(rentalStage(installed({ state: "timedout", code: null })).kind).toBe("timedout");
+    expect(rentalStage(installed({ state: "nokey", code: null })).kind).toBe("nokey");
+    expect(rentalStage(installed({ state: "blocked", code: null })).kind).toBe("blocked");
+    expect(rentalLine(installed({ state: "timedout", code: null }))).toBe("Key not confirmed");
+    expect(rentalLine(installed({ state: "blocked", code: null }))).toBe("Blocked at startup");
+    for (const state of ["missed", "timedout", "nokey", "blocked"] as const)
+      expect(rentalReady(installed({ state, code: null }))).toBe(false);
+  });
+
+  it("sums up the last live run once, back in Windows, until the owner has seen it", () => {
+    const lastLive = { from: 1, to: 2, sessions: 2, early: 0, earned: 3.1 };
+    const s = installed({ state: "confirmed", code: null }, { lastLive });
+    expect(rentalStage(s)).toEqual({ kind: "back", live: lastLive });
+    expect(rentalReady(s)).toBe(true);
+    expect(rentalStage({ ...s, liveSeen: 2 })).toEqual({ kind: "installed" });
+  });
+});
+
+describe("the run on screen", () => {
+  const read = pc();
+  const plan = installPlan(read, { code: "48217730" });
+  const runOf = (change: Partial<RentalRun>): RentalRun => ({ ...IDLE_RUN, ...change });
+  const setupOf = (run: RentalRun, p = plan): RentalSetup => ({
+    reading: false,
+    read,
+    target: null,
+    preview: p,
+    run,
+  });
+  const done = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, "done" as const]));
+
+  it("previews the plan, waits for Windows, then shows the running step", () => {
+    expect(rentalScreen(setupOf(IDLE_RUN)).kind).toBe("preview");
+    expect(rentalScreen(setupOf(runOf({ status: "starting" })))).toMatchObject({ kind: "elevating" });
+    const running = setupOf(
+      runOf({ status: "running", steps: { ...done(["check", "fast-startup"]), room: "running" } }),
+    );
+    expect(rentalScreen(running)).toMatchObject({ kind: "running", index: 2, step: { id: "room" } });
+    expect(rentalLine(running)).toBe("Installing");
+    expect(rentalStepAt(running)).toBe(1);
+  });
+
+  it("says how far the write is in the rail", () => {
+    const s = setupOf(
+      runOf({
+        status: "running",
+        steps: { write: "running" },
+        progress: { id: "write", done: 42, total: 100 },
+      }),
+    );
+    expect(rentalLine(s)).toBe("Installing, 42%");
+  });
+
+  it("stops at the restart with the code, and restarts only on the owner's word", () => {
+    const s = setupOf(runOf({ status: "done" }));
+    expect(rentalScreen(s)).toMatchObject({ kind: "restart", code: "48217730" });
+    expect(rentalLine(s)).toBe("Ready to restart");
+    expect(rentalStepAt(s)).toBe(1);
+    const restarting = setupOf(runOf({ status: "restarting" }));
+    expect(rentalScreen(restarting)).toMatchObject({ kind: "restarting", code: "48217730" });
+    expect(rentalLine(restarting)).toBe("Restarting");
+  });
+
+  it("puts a new code for the key on step 3", () => {
+    const mok = mokPlan("11112222");
+    expect(rentalStepAt(setupOf(IDLE_RUN, mok))).toBe(2);
+    expect(rentalScreen(setupOf(runOf({ status: "done" }), mok))).toMatchObject({
+      kind: "restart",
+      code: "11112222",
+    });
+  });
+});
+
+describe("when a step stops", () => {
+  const read = pc((raw) => ({
+    ...raw,
+    disks: [
+      ...raw.disks,
+      { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false },
+    ],
+  }));
+  const plan = installPlan(read, { code: "48217730", target: "shrink:C" });
+  const failed = (step: string, error: string, change: Partial<RentalRun> = {}, p = plan, r = read) => {
+    const setup: RentalSetup = {
+      reading: false,
+      read: r,
+      target: null,
+      preview: p,
+      run: {
+        ...IDLE_RUN,
+        status: "failed",
+        failed: { step, error },
+        endedAt: new Date(2026, 9, 5, 21, 4).getTime(),
+        ...change,
+      },
+    };
+    const s = rentalScreen(setup);
+    if (s.kind !== "failed") throw new Error(`not failed: ${s.kind}`);
+    return { setup, f: failureOf(setup, s) };
+  };
+  const done = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, "done" as const]));
+
+  it("asks Windows again when its prompt was declined, with nothing changed", () => {
+    const { setup, f } = failed("elevate", "Windows did not give Swiff Host administrator rights.");
+    expect(f).toMatchObject({
+      kind: "admin",
+      title: "Windows didn't give permission",
+      why: "The install needs administrator rights, and the Windows prompt was declined or closed.",
+      changed: "Nothing on this PC has changed.",
+      label: "Ask again",
+      rail: "Needs permission",
+    });
+    expect(rentalLine(setup)).toBe("Needs permission");
+    expect(rentalStepAt(setup)).toBe(1);
+  });
+
+  it("says how far the write got, what already changed, and that trying again starts the write over", () => {
+    const { f } = failed("write", "Write to disk 0 failed: an I/O device error. (0x8007045D)", {
+      steps: { ...done(["check", "fast-startup", "room", "partitions"]), write: "failed" },
+      progress: { id: "write", done: 4.1e9, total: 9.8e9 },
+    });
+    expect(f).toMatchObject({
+      kind: "write",
+      title: "Writing Swiff OS stopped",
+      why: "The drive reported an error after 4.1 of 9.8 GB.",
+      changed:
+        "Fast Startup is off. C: is already 24 GB smaller. Windows and your files are untouched. Trying again writes Swiff OS from the start.",
+      label: "Try again",
+      rail: "Install stopped",
+      what: "Writing Swiff OS",
+      at: "Stopped at 21:04",
+      far: "at 4.1 of 9.8 GB",
+    });
+  });
+
+  it("offers another drive when the one chosen ran out of space, and a check when none has room", () => {
+    const { setup, f } = failed("room", "C: cannot shrink by 24 GB.", {
+      steps: done(["check", "fast-startup"]),
+    });
+    expect(f).toMatchObject({
+      kind: "space",
+      title: "Not enough space on C:",
+      why: "Files were added since the check, so there isn't room for Swiff OS on C:.",
+      action: "use",
+      label: "Use disk 1 instead",
+      rail: "Not enough space",
+    });
+    expect(rentalStepAt(setup)).toBe(0);
+    const alone = pc();
+    const { f: none } = failed("check", "C: cannot shrink by 24 GB.", {}, installPlan(alone), alone);
+    expect(none).toMatchObject({
+      kind: "space",
+      action: "check",
+      label: "Check again",
+      changed: "Nothing on this PC has changed.",
+    });
+  });
+
+  it("says what a stopped removal left: Windows as normal, Swiff OS off the boot menu, the space unused", () => {
+    const record = {
+      complete: true,
+      disk: 0,
+      shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+      partitions: [
+        { role: "esp", id: "11111111-2222-4333-8444-555555555555", offset: 976 * GiB, bytes: GiB },
+      ],
+      bootEntry: 3,
+      labels: [],
+    };
+    const installed = pc((raw) => ({ ...raw, install: record }));
+    const { setup, f } = failed(
+      "room",
+      "Resize-Partition: Size Not Supported.",
+      { steps: { ...done(["boot-entry", "partitions"]), room: "failed" } },
+      uninstallPlan(installed),
+      installed,
+    );
+    expect(f).toMatchObject({
+      kind: "removal",
+      title: "Removing rental mode stopped",
+      why: "Swiff OS's space couldn't be given back to C:.",
+      changed:
+        "Windows starts as normal. Swiff OS is off the boot menu. Swiff OS is off the disk. The 24 GB stays unused until this finishes.",
+      label: "Try again",
+      rail: "Removal stopped",
+      far: "at step 3 of 4",
+    });
+    expect(rentalLine(setup)).toBe("Removal stopped");
+  });
+
+  it("asks to send the details of an error it does not know, then offers to try again", () => {
+    const { f } = failed("fast-startup", "reg failed: exit code 1", {
+      steps: { ...done(["check"]), "fast-startup": "failed" },
+    });
+    expect(f).toMatchObject({
+      kind: "unknown",
+      title: "The install stopped",
+      why: "It stopped while turning off Fast Startup, and Swiff doesn't know this error yet.",
+      changed: "Nothing after that step ran. Windows and your files are untouched.",
+      action: "send",
+      label: "Send details to Swiff",
+      far: "at step 2 of 9",
+    });
+    const { f: sent } = failed("fast-startup", "reg failed: exit code 1", { reportedAt: 1 });
+    expect(sent).toMatchObject({ action: "again", label: "Try again" });
+  });
+
+  it("says what the finished steps changed, step by step", () => {
+    const run = {
+      ...IDLE_RUN,
+      steps: done(["check", "fast-startup", "room", "partitions", "write", "boot-entry", "mok"]),
+    };
+    expect(changedSoFar(plan, run)).toBe(
+      "Fast Startup is off. C: is already 24 GB smaller. Swiff OS is in the boot menu, after Windows. Swiff's key is queued for the next restart. Windows and your files are untouched.",
+    );
+    expect(changedSoFar(plan, IDLE_RUN)).toBe("Nothing on this PC has changed.");
   });
 });

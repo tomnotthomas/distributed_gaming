@@ -39,8 +39,8 @@ show as not checked yet.
 **The installer.** `rental.cjs` plans each change as steps of operations, and the app runs
 them for real: one UAC prompt starts the app again as administrator, as a worker
 (`desktop/rental-worker.cjs`) that takes the operations one at a time over a named pipe only
-the app knows (`desktop/rental-exec.cjs`). Before each step that changes the disk or the
-firmware, the run stops and the owner holds that step's button, or stops there. The install:
+the app knows (`desktop/rental-exec.cjs`). The owner's one OK starts the run, and every step
+runs by itself up to the restart, which waits for the owner's Restart now. The install:
 
 1. checks, as administrator, that Secure Boot is on, the TPM is ready, the db trusts the
    Microsoft UEFI CA 2011 that signs Ubuntu's shim (the 2023 CA does not sign it yet), C: can
@@ -48,13 +48,13 @@ firmware, the run stops and the owner holds that step's button, or stops there. 
 2. suspends BitLocker on C: for 3 restarts (`manage-bde -protectors -disable -RebootCount`)
 3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
 4. adds Swiff OS's six partitions with the image's ids, names and attributes (`gpt.cjs`
-   on `\\.\PhysicalDriveN`, then `Update-Disk`)
+   on `\\.\GLOBALROOT\Device\HarddiskN\Partition0`, then `Update-Disk`)
 5. writes the ESP and slot A, hashing as it writes and reading back
 6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
 7. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
-   one-time code, sets BootNext and restarts into MokManager's blue screen
+   one-time code and sets BootNext; on Restart now the PC restarts into MokManager's blue screen
 
 The worker trusts nothing it is sent: it adds only the image's own partitions, writes only
 into partitions it added, and removes only what it added. What it changed goes into
@@ -62,12 +62,15 @@ into partitions it added, and removes only what it added. What it changed goes i
 uninstall works from: boot entry, partitions, C:'s space back, the drive names, Fast Startup
 and BitLocker. An install that stops part way is undone the same way. Swiff's key is removed
 on its own, before the uninstall: MokManager, which the owner confirms the removal at with a
-new code, lives on Swiff OS's boot partition. Once installed, "Start Swiff OS once" sets
-only BootNext, so the next restart is Windows again; going live (Swiff OS first in BootOrder)
-stays a preview until Swiff OS can hand the PC back. A missed blue screen enrols nothing:
-shim then shows a security error and the PC falls back to Windows, and the owner chooses
-Confirm the security key again, which queues the request with a new code. Whether the key is
-enrolled cannot be read from Windows (shim publishes MokListRT only to what it starts).
+new code, lives on Swiff OS's boot partition. Once installed, going live sets only BootNext
+for now, so the next restart is Windows again; Swiff OS first in BootOrder waits until Swiff
+OS can hand the PC back. A missed blue screen enrols nothing: MokManager's 10 seconds pass,
+shim fails to verify the next stage and opens MokManager's menu, and Continue boot there falls
+through into Windows in the same power-on, which changes PCR7 (Windows Hello then asks for a
+new PIN), so the app tells the owner to turn the PC off instead. Back in Windows the app finds
+such a fall-through in Windows' measured-boot log and offers Confirm the key, which queues the
+request with a new code. Whether the key is enrolled cannot be read from Windows (shim
+publishes MokListRT only to what it starts), so otherwise the app asks the owner.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk

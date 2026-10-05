@@ -45,7 +45,8 @@ test.describe("Swiff Host desktop app", () => {
     app = await electron.launch({
       args: [DESKTOP_DIR],
       cwd: REPO_ROOT,
-      env: { ...process.env, NODE_ENV: "test" },
+      // Sharing this Windows desktop is a development path (share-gate.cjs): these tests are about it.
+      env: { ...process.env, NODE_ENV: "test", SWIFF_DEV_WINDOWS_SHARE: "1" },
     });
   });
 
@@ -298,7 +299,7 @@ test.describe("Swiff Host desktop app, demo data", () => {
     await window.mouse.up();
     await expect(reticle).toHaveAttribute("data-phase", "idle");
     await window.waitForTimeout(600);
-    await expect(window.getByRole("heading", { name: "Ready to share" })).toBeVisible();
+    await expect(window.getByRole("heading", { name: "Ready to go live" })).toBeVisible();
 
     // Hold it all the way.
     await window.mouse.down();
@@ -316,7 +317,8 @@ test.describe("Swiff Host desktop app, demo data", () => {
       .evaluateAll((options) =>
         options.map((o) => ({ id: (o as HTMLOptionElement).value, name: o.textContent ?? "" })),
       );
-    expect(screens).toHaveLength(15);
+    // The design's screens, rental mode's states and problems among them.
+    expect(screens).toHaveLength(42);
 
     for (const { id, name } of screens) {
       await picker.selectOption(id);

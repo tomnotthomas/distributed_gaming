@@ -241,6 +241,7 @@ body {
 .pt.checking .pd {
   border-color: var(--ln2);
   border-top-color: var(--olive);
+  background: var(--g-bg);
 }
 @media (prefers-reduced-motion: no-preference) {
   .pt.checking .pd {
@@ -1677,6 +1678,8 @@ button.inst {
   font: 400 15px var(--mono);
 }
 .hx .mtrow b {
+  flex: none;
+  white-space: nowrap;
   padding: 4px 11px;
   font-weight: 500;
   color: #242525;

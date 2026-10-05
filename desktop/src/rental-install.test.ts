@@ -240,6 +240,37 @@ describe("firmware variables", () => {
     ).toThrow();
   });
 
+  it("reads a path the firmware split into one node per folder, and matches paths in any case", () => {
+    const option = efi.loadOption({
+      title: "S",
+      partition: { number: 1, first: 2048, sectors: 2097152, id: ID(0) },
+      path: "\\x.efi",
+    });
+    const hd = option.subarray(10, 52);
+    const node = (text: string) => {
+      const name = Buffer.from(`${text}\0`, "utf16le");
+      const head = Buffer.from([4, 4, 0, 0]);
+      head.writeUInt16LE(4 + name.length, 2);
+      return Buffer.concat([head, name]);
+    };
+    const paths = Buffer.concat([
+      hd,
+      node("\\EFI"),
+      node("SWIFF"),
+      node("\\SHIMX64.EFI"),
+      Buffer.from([0x7f, 0xff, 4, 0]),
+    ]);
+    const head = Buffer.alloc(6);
+    head.writeUInt32LE(1, 0);
+    head.writeUInt16LE(paths.length, 4);
+    const split = Buffer.concat([head, Buffer.from("S\0", "utf16le"), paths]);
+    expect(efi.parseLoadOption(split)).toMatchObject({ partition: ID(0), file: "\\EFI\\SWIFF\\SHIMX64.EFI" });
+    expect(efi.samePath("\\EFI\\SWIFF\\SHIMX64.EFI", "\\EFI\\swiff\\shimx64.efi")).toBe(true);
+    expect(efi.samePath("EFI/swiff/shimx64.efi", "\\EFI\\swiff\\shimx64.efi")).toBe(true);
+    expect(efi.samePath("\\EFI\\swiff\\grubx64.efi", "\\EFI\\swiff\\shimx64.efi")).toBe(false);
+    expect(efi.samePath(null, "\\x")).toBe(false);
+  });
+
   it("orders boot entries, and names them Boot####", () => {
     expect(efi.orderOf(efi.orderBytes([0, 3, 0x1a]))).toEqual([0, 3, 0x1a]);
     expect(efi.placeIn([0, 3, 1], 1, "first")).toEqual([1, 0, 3]);
@@ -432,19 +463,77 @@ describe("the elevated worker", () => {
     await expect(worker.apply({ op: "forget" })).resolves.toEqual({});
   });
 
-  it("keeps hands off a boot entry that is no longer Swiff OS's", async () => {
-    const { pc, worker, layout } = await setup();
-    const plan = installPlan(rentalOf(pc.facts(), []), { layout });
-    await runPlan(plan, { apply: skipping(worker.apply), only: ["room", "partitions", "boot-entry"] });
-    pc.vars.set(pc.key(efi.GLOBAL, "Boot0001"), pc.vars.get(pc.key(efi.GLOBAL, "Boot0000"))!);
-    await expect(worker.apply({ op: "boot-next", entry: "swiff" })).rejects.toThrow(
-      /no longer Swiff OS's boot entry/,
+  /** Swiff OS installed up to its boot entry, Boot0001. */
+  async function withEntry() {
+    const set = await setup();
+    const plan = installPlan(rentalOf(set.pc.facts(), []), { layout: set.layout });
+    await runPlan(plan, { apply: skipping(set.worker.apply), only: ["room", "partitions", "boot-entry"] });
+    expect(installOf(set.worker.state())!.bootEntry).toBe(1);
+    return set;
+  }
+
+  it("follows its boot entry when the firmware renumbers it, by the boot partition's id and shim's path", async () => {
+    const { pc, worker } = await withEntry();
+    // As on the GEEKOM: the entry moved to another number, its path in capitals, and BootOrder lists only Windows.
+    const moved = efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!)!;
+    expect(moved.partition).toBe(ID(0));
+    const esp = pc.gpt().entries.find((e) => e.id === ID(0))!;
+    pc.vars.delete(pc.key(efi.GLOBAL, "Boot0001"));
+    pc.vars.set(
+      pc.key(efi.GLOBAL, "Boot0005"),
+      efi.loadOption({
+        title: "Swiff OS",
+        partition: { number: esp.index + 1, first: esp.first, sectors: esp.last - esp.first + 1, id: ID(0) },
+        path: "\\EFI\\SWIFF\\SHIMX64.EFI",
+      }),
     );
-    await expect(worker.apply({ op: "boot-entry-remove" })).rejects.toThrow(
-      /no longer Swiff OS's boot entry/,
-    );
-    expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0001"))).toBe(true);
+    pc.vars.set(pc.key(efi.GLOBAL, "BootOrder"), efi.orderBytes([0]));
+    await expect(worker.apply({ op: "boot-next", entry: "swiff" })).resolves.toEqual({ entry: 5 });
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([5]);
+    expect(installOf(worker.state())!.bootEntry).toBe(5);
+    await worker.apply({ op: "boot-first", entry: "swiff" });
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([5, 0]);
+    // No new entry was made on the way.
+    expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0001"))).toBe(false);
+  });
+
+  it("keeps hands off an entry that is not Swiff OS's, and adds its own again when the firmware dropped it", async () => {
+    const { pc, worker } = await withEntry();
+    const windows = pc.vars.get(pc.key(efi.GLOBAL, "Boot0000"))!;
+    pc.vars.set(pc.key(efi.GLOBAL, "Boot0001"), windows);
+    await expect(worker.apply({ op: "boot-next", entry: "swiff" })).resolves.toEqual({ entry: 2 });
+    expect(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!.equals(windows)).toBe(true);
+    expect(efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0002"))!)).toMatchObject({
+      title: "Swiff OS",
+      partition: ID(0),
+      file: "\\EFI\\swiff\\shimx64.efi",
+    });
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder"))).at(-1)).toBe(2);
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([2]);
+    expect(installOf(worker.state())).toMatchObject({ bootEntry: 2, windowsEntry: 0 });
+    // Removing takes only its own entry away.
+    await worker.apply({ op: "boot-entry-remove" });
+    expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0002"))).toBe(false);
+    expect(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!.equals(windows)).toBe(true);
     await expect(worker.apply({ op: "forget" })).rejects.toThrow(/still on this PC/);
+  });
+
+  it("counts a boot entry that is already gone as removed, every time it is asked", async () => {
+    const { pc, worker } = await withEntry();
+    pc.vars.delete(pc.key(efi.GLOBAL, "Boot0001"));
+    pc.vars.set(pc.key(efi.GLOBAL, "BootOrder"), efi.orderBytes([0]));
+    await expect(worker.apply({ op: "boot-entry-remove" })).resolves.toEqual({});
+    expect(installOf(worker.state())!.bootEntry).toBeNull();
+    await expect(worker.apply({ op: "boot-entry-remove" })).resolves.toEqual({});
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0]);
+  });
+
+  it("reads BootNext back, and fails the restart's step when the firmware did not keep it", async () => {
+    const { pc, worker } = await withEntry();
+    const firmware = pc.win.firmware;
+    pc.win.firmware = async (requests) =>
+      firmware(requests.filter((r) => !("set" in r) || r.set !== "BootNext"));
+    await expect(worker.apply({ op: "boot-next", entry: "swiff" })).rejects.toThrow(/did not keep BootNext/);
   });
 
   it("names the raw disk so that no Node version reads it as a share's root", () => {

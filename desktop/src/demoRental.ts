@@ -92,7 +92,7 @@ const PLANS: Partial<Record<RentalPlan["kind"], RentalPlan>> = {
 };
 
 /** How long each pretend step takes, in seconds; the write goes by bytes instead. */
-const SECONDS: Record<string, number> = { check: 6, room: 24, partitions: 3, "boot-entry": 2, mok: 2 };
+const SECONDS: Record<string, number> = { check: 20, room: 110, partitions: 3, "boot-entry": 2, mok: 2 };
 /** The pretend write rate, in bytes a second: about three minutes for Swiff OS. */
 const RATE = 55e6;
 

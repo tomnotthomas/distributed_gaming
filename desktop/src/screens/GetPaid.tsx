@@ -145,8 +145,8 @@ function SetUp({ view, earnings, onChange }: ScreenProps & { earnings: Earnings;
           </p>
           {ceiling !== null ? (
             <p className="soft fine">
-              Up to <Eur n={ceiling} decimals={0} /> this month at your rate, if you're live 18:00 to
-              midnight every day.
+              Up to <Eur n={ceiling} decimals={0} /> this month at your rate, if you're live 18:00 to midnight
+              every day.
             </p>
           ) : null}
         </div>

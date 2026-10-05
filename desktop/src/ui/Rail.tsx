@@ -179,10 +179,7 @@ export function Rail({
           const passed = s.id === "rental" ? rentalReady(view.rental) : i < at || (setupDone && i < live);
           const state = i === at ? "now" : passed ? "done" : "next";
           return (
-            <li
-              key={s.id}
-              className={checking(s.id, view) && state !== "done" ? `pt ${state} checking` : `pt ${state}`}
-            >
+            <li key={s.id} className={checking(s.id, view) ? `pt ${state} checking` : `pt ${state}`}>
               <button
                 type="button"
                 aria-current={i === at && step !== "settings" ? "step" : undefined}
