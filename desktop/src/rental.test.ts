@@ -595,7 +595,7 @@ describe("what the screen says", () => {
         detail: "Swiff OS's NVIDIA 595 driver runs GeForce GTX 16 and RTX 20 series cards and newer.",
       });
       expect(status(read).fixes).toEqual([
-        "Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the GTX 1080. Sharing from Windows works as before.",
+        "Fit a GeForce GTX 16 or RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the GTX 1080. Sharing from Windows works as before.",
       ]);
     });
 

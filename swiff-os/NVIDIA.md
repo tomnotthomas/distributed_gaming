@@ -66,8 +66,8 @@ The host app reads the device number from Windows (`Win32_VideoController.PNPDev
 no administrator rights) and holds an older card against the PC:
 `desktop/src/rental.ts` (`nvidiaSupported`, `SWIFF_OS_NVIDIA`). Its Graphics row shows the card,
 whether Swiff OS runs it and on which driver, and Windows' own driver version (for NVIDIA in
-NVIDIA's numbering, `32.0.15.6094` → `560.94`). An older card gets "Fit a GeForce RTX 20 series
-card or newer", and is told sharing from Windows works as before.
+NVIDIA's numbering, `32.0.15.6094` → `560.94`). An older card gets "Fit a GeForce GTX 16 or RTX
+20 series card or newer", and is told sharing from Windows works as before.
 
 **NVIDIA stays off for owners until the hardware test passes.** A card Swiff OS will run shows
 "in testing" ("NVIDIA support is in testing: Swiff OS will run it on NVIDIA's 595 driver") and
@@ -157,16 +157,16 @@ IP rights policy, <https://canonical.com/legal/intellectual-property-policy> (15
 Needs, before it can run:
 
 - **A test PC** with UEFI, Secure Boot (with Microsoft's third-party UEFI CA), TPM 2.0, an
-  IOMMU, 24 GB of free disk and a wired network. The GEEKOM serves only if it has an NVIDIA
-  card of the generations below.
+  IOMMU, 24 GB of free disk and a wired network.
 - **NVIDIA cards.** At least one Ampere or Ada card, for example an RTX 3060 or RTX 4060 (the
   most common in German gaming PCs; GSP firmware `gsp_ga10x.bin`). Ideally also a Turing card,
   an RTX 2060 or GTX 1660 (the oldest supported, `gsp_tu10x.bin`), and a GTX 10 series card to
   see the host app hold it back.
 - **A display** on the card (monitor or HDMI/DP dummy plug), and once without one, to learn
   whether gamescope needs a connector.
-- **The image on the PC.** The CI build keeps no image (it is about 3.5 GB); a build host or a
-  manual workflow run that uploads it is needed, then the host app's install (or a USB copy of
+- **The image on the PC.** The CI build does not keep the image yet (it is about 3.5 GB);
+  uploading it as a short-lived workflow artifact is a follow-up. Until then the image is built
+  and copied to the PC by hand, then installed with the host app's install (or a USB copy of
   `swiffos.raw`) and Swiff's key confirmed at MokManager.
 - **A renter** on another network: a browser on the `/rtc` page, and a Steam account with the
   games below.

@@ -286,7 +286,7 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
       fixes.push(
         nvidiaSupported(gpu)
           ? `NVIDIA support is in testing: rental mode takes the ${shortGpu(gpu.name)} once it passes. Sharing from Windows works as before.`
-          : `Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(gpu.name)}. Sharing from Windows works as before.`,
+          : `Fit a GeForce GTX 16 or RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(gpu.name)}. Sharing from Windows works as before.`,
       );
     }
   }
