@@ -12,12 +12,13 @@ import {
   antiCheatStatuses,
   CHECK_TTL_MS,
   FAILURE_WINDOW_MS,
-  fetchSteamOsRating,
+  fetchSteamOsRatings,
   judge,
   LAUNCH_FAILURE_MS,
   MAX_AGE_MS,
   Playability,
-  steamOsRating,
+  REQUESTED_WINDOW_MS,
+  steamOsRatings,
   steamSources,
   type Evidence,
   type Sources,
@@ -29,6 +30,7 @@ import {
   recommendsBeyondTable,
 } from "../requirements.js";
 import { migrate } from "../schema.js";
+import { WALL_APPIDS } from "../steam.js";
 import { testDatabase } from "./db.js";
 import recordedJson from "./fixtures/playable.json" with { type: "json" };
 
@@ -49,13 +51,11 @@ function serveRecorded(): string[] {
     if (url.pathname === "/api/appdetails") {
       const appid = url.searchParams.get("appids")!;
       body = appid in recorded.appdetails ? { [appid]: recorded.appdetails[appid] } : undefined;
-    } else if (url.pathname.endsWith("/ajaxgetdeckappcompatibilityreport")) {
-      body = recorded.deck[url.searchParams.get("nAppID")!];
     } else if (url.pathname.includes("/GetMostPlayedGames/")) {
       body = recorded.charts;
     } else if (url.pathname.includes("/GetItems/")) {
       const ids = askedFor(url);
-      const items = recorded.items.response.store_items.filter((item: any) => ids.includes(item.appid));
+      const items = recorded.items.response.store_items.filter((item: any) => ids.includes(item.id));
       body = { response: { store_items: items } };
     } else if (url.hostname === "raw.githubusercontent.com") {
       body = recorded.antiCheat;
@@ -77,7 +77,7 @@ const recordedSources: Sources = { ...steamSources, antiCheat: async () => antiC
 async function evidenceOf(appid: number, replaced: Partial<Evidence> = {}): Promise<Evidence> {
   return {
     details: await fetchAppDetails(appid),
-    steamos: await fetchSteamOsRating(appid),
+    steamos: (await fetchSteamOsRatings([appid])).get(appid) ?? null,
     antiCheat: antiCheat().get(appid) ?? null,
     cloud: curatedCloud().get(appid) ?? null,
     curatedRequirements: curatedRequirements().has(appid),
@@ -195,12 +195,19 @@ describe("the rule", () => {
 });
 
 describe("reading the sources", () => {
-  it("takes Valve's SteamOS rating, its Deck rating where there is none, and null for no report", () => {
-    assert.equal(steamOsRating(recorded.deck["292030"]), 2);
-    assert.equal(steamOsRating({ success: 1, results: { resolved_category: 3 } }), 3);
-    assert.equal(steamOsRating(recorded.deck["999999999"]), null);
-    assert.throws(() => steamOsRating(null));
-    assert.throws(() => steamOsRating({ success: 2 }));
+  it("takes Valve's SteamOS rating, its Deck rating where there is none, and null for no app, many at once", async () => {
+    const urls = serveRecorded();
+    const ratings = await fetchSteamOsRatings([292030, 578080, 1422450, 999999999]);
+    assert.equal(urls.length, 1);
+    assert.deepEqual(
+      [292030, 578080, 1422450, 999999999].map((appid) => ratings.get(appid)),
+      [2, 1, 0, null],
+    );
+    assert.deepEqual(
+      steamOsRatings([{ id: 10, success: 1, platforms: { steam_deck_compat_category: 3 } }]),
+      new Map([[10, 3]]),
+    );
+    assert.throws(() => steamOsRatings(undefined));
   });
 
   it("reads AreWeAntiCheatYet by Steam appid, and refuses a list cut short", async () => {
@@ -328,7 +335,7 @@ describe("checking", () => {
     playability.want([413150, 292030]);
     playability.want([730], { first: true });
     await playability.drained();
-    assert.deepEqual(asked, [413150, 730, 292030]);
+    assert.deepEqual(asked, [730, 413150, 292030]);
 
     playability.want([730, 292030]);
     await playability.drained();
@@ -336,7 +343,80 @@ describe("checking", () => {
     now += CHECK_TTL_MS;
     playability.want([730]);
     await playability.drained();
-    assert.deepEqual(asked, [413150, 730, 292030, 730]);
+    assert.deepEqual(asked, [730, 413150, 292030, 730]);
+  });
+
+  it("checks the renter who asked last first, ahead of other renters' asks and the rechecks", async () => {
+    const playability = open();
+    playability.want([413150, 292030]);
+    playability.want([550, 381210], { first: true });
+    playability.want([730, 381210], { first: true });
+    await playability.drained();
+    assert.deepEqual(asked, [730, 381210, 550, 413150, 292030]);
+  });
+
+  it("rechecks only the wall, the curated games and what a renter asked about lately", async () => {
+    const chart = [2357570];
+    const playability = new Playability(db, {
+      sources: { ...counted, chart: async () => chart },
+      now: () => now,
+      pauseMs: 0,
+      backoffMs: 0,
+    });
+    // A verdict the last server stored, which no renter has asked about since.
+    await db.query(
+      "INSERT INTO game_playability (appid, verdict, reasons, checked_at) VALUES (292030, 'playable', '[]', $1)",
+      [now],
+    );
+    await playability.load();
+    playability.want([381210, 2767030], { first: true });
+    await playability.drained();
+    now += REQUESTED_WINDOW_MS / 2;
+    playability.want([2767030], { first: true });
+    await playability.drained();
+
+    now += REQUESTED_WINDOW_MS / 2;
+    asked = [];
+    await playability.sweep();
+    await playability.drained();
+    assert.ok(asked.includes(2357570));
+    assert.ok(asked.includes(2767030));
+    assert.ok(!asked.includes(381210));
+    assert.ok(!asked.includes(292030));
+    for (const appid of asked) {
+      assert.ok(
+        appid === 2357570 ||
+          appid === 2767030 ||
+          WALL_APPIDS.includes(appid) ||
+          curatedRequirements().has(appid) ||
+          curatedCloud().has(appid),
+        String(appid),
+      );
+    }
+  });
+
+  it("keeps every game waiting, and waits before trying again, while the anti-cheat list cannot be had", async () => {
+    const tries: number[] = [];
+    const playability = new Playability(db, {
+      sources: {
+        ...counted,
+        antiCheat: async () => {
+          tries.push(Date.now());
+          if (tries.length < 3) throw new Error("503");
+          return antiCheat();
+        },
+      },
+      now: () => now,
+      pauseMs: 0,
+      backoffMs: 30,
+    });
+    playability.want([292030, 413150]);
+    await playability.drained();
+    assert.equal(tries.length, 3);
+    for (let i = 1; i < tries.length; i++)
+      assert.ok(tries[i]! - tries[i - 1]! >= 25, `${tries[i]! - tries[i - 1]!} ms`);
+    assert.deepEqual(asked, [292030, 413150]);
+    assert.equal(playability.playable(292030), true);
   });
 
   it("keeps the verdict it has when a check fails, until it is too old to trust", async () => {
@@ -365,13 +445,14 @@ describe("checking", () => {
       sources: {
         ...recordedSources,
         details: async (appid) => (at.push(Date.now()), recordedSources.details(appid)),
-        steamos: async (appid) => (at.push(Date.now()), recordedSources.steamos(appid)),
+        steamos: async (appids) => (at.push(Date.now()), recordedSources.steamos(appids)),
       },
       pauseMs: 30,
     });
     playability.want([292030, 730]);
     await playability.drained();
-    assert.equal(at.length, 4);
+    // Both games' ratings in one request, then each game's store page.
+    assert.equal(at.length, 3);
     for (let i = 1; i < at.length; i++) assert.ok(at[i]! - at[i - 1]! >= 25, `${at[i]! - at[i - 1]!} ms`);
   });
 });

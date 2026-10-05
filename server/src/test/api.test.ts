@@ -83,6 +83,7 @@ describe("booking and host API", () => {
   let unplayable: Set<number>;
   /** Every game the API asked to have checked, in order. */
   let wanted: number[];
+  let wantedFirst: boolean;
   /** Each launch the API asked for: machine, session, game. */
   let launches: [string, string, number, string][];
 
@@ -107,7 +108,10 @@ describe("booking and host API", () => {
     };
     const playability = {
       playable: (appid: number) => !unplayable.has(appid),
-      want: (appids: Iterable<number>) => void wanted.push(...appids),
+      want: (appids: Iterable<number>, { first = false } = {}) => {
+        wanted.push(...appids);
+        wantedFirst = first;
+      },
     };
     // Counter-Strike 2 and Dota 2 are free to play; every other game is paid.
     const isFree = async (appid: number) => appid === 730 || appid === 570;
@@ -148,6 +152,7 @@ describe("booking and host API", () => {
     shown = new Map();
     unplayable = new Set();
     wanted = [];
+    wantedFirst = false;
     launches = [];
   });
 
@@ -621,6 +626,26 @@ describe("booking and host API", () => {
       assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
     });
 
+    it("refuses the claim of a game Swiff can no longer run, leaving the reservation unspent", async () => {
+      libraries.set(RENTER, [PAID]);
+      await offerPaid();
+      const { body } = await renter("POST", "/api/bookings", {
+        gameId: PAID,
+        minutes: 30,
+        machineId: "pc-1",
+      });
+
+      unplayable.add(PAID);
+      const refused = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+      assert.equal(refused.status, 403);
+      assert.equal(refused.body.code, "not-playable");
+      assert.equal(refused.body.ticket, undefined);
+      assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
+
+      unplayable.delete(PAID);
+      assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 200);
+    });
+
     it("answers a retryable 503 to a claim while Steam cannot be read, keeping the reservation", async () => {
       libraries.set(RENTER, [PAID]);
       await offerPaid();
@@ -727,7 +752,7 @@ describe("booking and host API", () => {
       assert.deepEqual((await call("GET", "/api/games")).body, []);
     });
 
-    it("sends the page only those of the renter's games, and has the whole library checked", async () => {
+    it("sends the page only those of the renter's games, and has the whole library checked first", async () => {
       libraries.set(RENTER, [440, 570, 730, 1245620]);
       shown.set(RENTER, {
         owned: [
@@ -746,6 +771,7 @@ describe("booking and host API", () => {
         assert.deepEqual(profile.owned, [[730, 400]]);
         assert.deepEqual(profile.games, [[440, "Team Fortress 2", 3]]);
         assert.deepEqual(wanted, [440, 570, 730, 1245620]);
+        assert.equal(wantedFirst, true);
       }
     });
 

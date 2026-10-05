@@ -17,7 +17,7 @@ const HOUR = 60 * 60 * 1000;
 const CHARTS_TTL = HOUR;
 const ITEMS_TTL = 24 * HOUR;
 /** Appids per GetItems request. */
-const BATCH = 50;
+export const BATCH = 50;
 /** GetItems' `type` for a game; software, DLC and the rest are other numbers. */
 const TYPE_GAME = 0;
 
@@ -113,18 +113,22 @@ export function toCatalogGame(item: any): CatalogGame | null {
   };
 }
 
-async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | null>> {
+/** GetItems' store items for up to BATCH appids, with the parts `dataRequest` asks for; undefined when it lists none. */
+export async function storeItems(appids: number[], dataRequest: object): Promise<any[] | undefined> {
   const url = new URL(ITEMS_URL);
   url.searchParams.set(
     "input_json",
     JSON.stringify({
       ids: appids.map((appid) => ({ appid })),
       context: { language: "english", country_code: "US" },
-      data_request: { include_assets: true, include_trailers: true },
+      data_request: dataRequest,
     }),
   );
-  const body = await getJson(url);
-  const items: any[] = body?.response?.store_items ?? [];
+  return (await getJson(url))?.response?.store_items;
+}
+
+async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | null>> {
+  const items: any[] = (await storeItems(appids, { include_assets: true, include_trailers: true })) ?? [];
   return new Map(items.map((item) => [Number(item.appid), toCatalogGame(item)]));
 }
 

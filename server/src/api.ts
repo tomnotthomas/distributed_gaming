@@ -408,9 +408,9 @@ export function createApi({
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
 
-  /** The page's copy of the renter's profile; their library is checked for games not checked yet. */
+  /** The page's copy of the renter's profile; their library is checked ahead of background rechecks. */
   function profileReply(steamId: string, read: SteamProfile) {
-    playability.want(read.library);
+    playability.want(read.library, { first: true });
     return { steamId, profile: shownProfile(read, playable) };
   }
 
@@ -648,10 +648,15 @@ export function createApi({
       // Checked before the reservation is spent: a claim that cannot hand out
       // a ticket must not use up the renter's machine.
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
-      // Checked again at claim, as the library may have changed since the
-      // booking; a refusal leaves the reservation unspent, as above.
+      // Checked again at claim, as the library or whether Swiff can run the
+      // game may have changed since the booking; a refusal leaves the
+      // reservation unspent, as above.
       const booked = await platform.booking(id, renter);
       if (!booked) throw new HttpError(404, "no such booking");
+      if (!playable(booked.gameId)) {
+        reply(res, 403, NOT_PLAYABLE);
+        return true;
+      }
       if (await refuseUnlicensed(res, renter, booked.gameId, { claim: true })) return true;
       const claim = await platform.claim(id, renter);
       if (!claim.ok) {

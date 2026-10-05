@@ -5,7 +5,7 @@
 //   store      appdetails                          not a game, a native Mac build, Denuvo,
 //                                                  a third-party account at start, a
 //                                                  recommended GPU newer than any host's
-//   steamos    ajaxgetdeckappcompatibilityreport   Valve rates it unsupported on SteamOS
+//   steamos    IStoreBrowseService/GetItems        Valve rates it unsupported on SteamOS
 //                                                  (its Deck rating where it has no SteamOS one)
 //   anticheat  AreWeAntiCheatYet's games.json      its anti-cheat is Denied or Broken on Linux
 //   cloud      requirements-overrides.json         its publisher objects to cloud play (curated:
@@ -19,13 +19,17 @@
 // playable games: unknown counts as not playable. A game with a native Mac
 // build is left out too: a renter on a Mac can already play it there.
 //
-// Checking: the games renters may be shown are asked about, Steam's most
-// played and the wall's own nine first, then signed-in renters' libraries,
-// and every verdict is checked again once it is a day old. One game at a
-// time, PAUSE_MS between store requests (150 per 5 minutes, under the store's
-// roughly 200 per IP), and AreWeAntiCheatYet's list once a day. A check where
-// any request fails stores nothing, so an outage never replaces a verdict;
-// one not confirmed for MAX_AGE_MS counts as unknown.
+// Checking: what renters are looking at now goes first, the newest ask ahead:
+// a signed-in renter's library, Steam's most played and the wall's own nine.
+// Behind it, the daily rechecks, which cover only the wall, the curated games
+// and what a renter asked about within REQUESTED_WINDOW_MS, so they stay well
+// inside a day's checks. Valve's ratings come BATCH games per GetItems request,
+// then one appdetails request per game, PAUSE_MS between requests (150 per 5
+// minutes, under the store's roughly 200 per IP), and AreWeAntiCheatYet's
+// list once a day. A check where any request fails stores nothing, so an
+// outage never replaces a verdict; one not confirmed for MAX_AGE_MS counts as
+// unknown. A batch whose anti-cheat list or ratings cannot be had stays queued,
+// and the next try waits BACKOFF_MS.
 //
 // Launch failures, from what the server already records when a session ends:
 // a session the renter started (their first frame, which has the PC launch the
@@ -34,7 +38,7 @@
 // machines, making up half or more of its started sessions, is not playable
 // ("launch-failures") until they age out of the window.
 
-import { getJson, mostPlayed } from "./catalog.js";
+import { BATCH, getJson, mostPlayed, storeItems } from "./catalog.js";
 import type { Queryable } from "./db.js";
 import {
   curatedCloud,
@@ -46,7 +50,6 @@ import {
 } from "./requirements.js";
 import { WALL_APPIDS } from "./steam.js";
 
-const DECK_URL = "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport";
 const ANTI_CHEAT_URL =
   "https://raw.githubusercontent.com/AreWeAntiCheatYet/AreWeAntiCheatYet/master/games.json";
 
@@ -60,13 +63,15 @@ export const CHECK_TTL_MS = DAY;
 export const MAX_AGE_MS = 7 * DAY;
 /** Between store requests: 150 per 5 minutes, under the store's roughly 200 per IP. */
 export const PAUSE_MS = 2_000;
-/** After a failed check, before the next store request: Steam may be telling us to slow down. */
+/** After a failed check, before the next request: Steam may be telling us to slow down. */
 const BACKOFF_MS = MINUTE;
 const ANTI_CHEAT_TTL_MS = DAY;
 /** AreWeAntiCheatYet lists over a thousand games; fewer than this is a list cut short. */
 const MIN_ANTI_CHEAT_ENTRIES = 500;
-/** How often the chart and every stale verdict are asked about. */
+/** How often the chart and every stale verdict worth keeping are asked about. */
 const SWEEP_EVERY_MS = HOUR;
+/** A game a renter asked about is kept checked daily for this long after. */
+export const REQUESTED_WINDOW_MS = 14 * DAY;
 /** How often launch failures are read again. */
 const FAILURES_EVERY_MS = 5 * MINUTE;
 /** The most games waiting to be checked: a few large libraries' worth. */
@@ -112,7 +117,7 @@ export const STEAMOS_UNSUPPORTED = 1;
 export type Evidence = {
   /** The store's appdetails; null when the store has no such app. */
   details: AppDetails;
-  /** Valve's SteamOS rating, else its Deck rating: 0 unrated, 1 unsupported, 2 playable, 3 verified. Null: no report. */
+  /** Valve's SteamOS rating, else its Deck rating: 0 unrated, 1 unsupported, 2 playable, 3 verified. Null: no rating. */
   steamos: number | null;
   /** AreWeAntiCheatYet's status (Supported, Running, Planned, Broken, Denied); null when it does not list the game. */
   antiCheat: string | null;
@@ -159,7 +164,8 @@ export function launchesFailing({ started, failed, failedMachines }: LaunchStats
 /** Where a check's evidence comes from. Steam, Valve and AreWeAntiCheatYet, or recordings in tests. */
 export type Sources = {
   details: (appid: number) => Promise<AppDetails>;
-  steamos: (appid: number) => Promise<number | null>;
+  /** Valve's rating of each of up to BATCH apps; an app missing from the map was not answered for. */
+  steamos: (appids: number[]) => Promise<Map<number, number | null>>;
   /** Steam appid to status, every game the list names. */
   antiCheat: () => Promise<Map<number, string>>;
   /** Steam's most played games right now, most played first. */
@@ -167,24 +173,26 @@ export type Sources = {
 };
 
 /**
- * Valve's rating of one app from its compatibility report: the SteamOS one,
- * else the Deck one; null when Valve has no report for it. Throws when the
- * answer is not a report at all.
+ * Valve's rating of each app in GetItems' store items: the SteamOS one, else
+ * the Deck one; null for an app the store does not have or Valve has not
+ * rated. Throws when there are no store items at all.
  */
-export function steamOsRating(body: any): number | null {
-  if (body?.success !== 1) throw new Error("steamos: no report");
-  const results = body.results;
-  // An app Valve knows nothing about answers an empty list.
-  if (!results || typeof results !== "object" || Array.isArray(results)) return null;
-  const rating = results.steamos_resolved_category ?? results.resolved_category;
-  return Number.isInteger(rating) ? rating : null;
+export function steamOsRatings(items: unknown): Map<number, number | null> {
+  if (!Array.isArray(items)) throw new Error("steamos: no store items");
+  const ratings = new Map<number, number | null>();
+  for (const item of items) {
+    // An app the store does not have answers its id, with appid 0.
+    const appid = Number(item?.id);
+    if (!Number.isSafeInteger(appid) || appid <= 0) continue;
+    const platforms = item.success === 1 ? item.platforms : null;
+    const rating = platforms?.steam_os_compat_category ?? platforms?.steam_deck_compat_category;
+    ratings.set(appid, Number.isInteger(rating) ? rating : null);
+  }
+  return ratings;
 }
 
-export async function fetchSteamOsRating(appid: number): Promise<number | null> {
-  const url = new URL(DECK_URL);
-  url.searchParams.set("nAppID", String(appid));
-  url.searchParams.set("l", "english");
-  return steamOsRating(await getJson(url));
+export async function fetchSteamOsRatings(appids: number[]): Promise<Map<number, number | null>> {
+  return steamOsRatings(await storeItems(appids, { include_platforms: true }));
 }
 
 /** AreWeAntiCheatYet's games.json as Steam appid to status. Throws for anything shorter than the real list. */
@@ -208,7 +216,7 @@ async function fetchAntiCheat(): Promise<Map<number, string>> {
 
 export const steamSources: Sources = {
   details: fetchAppDetails,
-  steamos: fetchSteamOsRating,
+  steamos: fetchSteamOsRatings,
   antiCheat: fetchAntiCheat,
   chart: () => mostPlayed(),
 };
@@ -218,7 +226,7 @@ export const steamSources: Sources = {
 /** What the routes need: whether renters may be shown a game, and a way to have games checked. */
 export type PlayableGames = {
   playable: (appid: number) => boolean;
-  /** Have these games checked, ahead of the rest when `first`. */
+  /** Have these games checked; `first` when a renter is looking at them now. */
   want: (appids: Iterable<number>, options?: { first?: boolean }) => void;
 };
 
@@ -246,9 +254,11 @@ export class Playability implements PlayableGames {
   readonly #curated = new Set(curatedRequirements().keys());
   readonly #known = new Map<number, Known>();
   #demoted = new Set<number>();
-  /** Waiting to be checked: `first` before `rest`, each in the order asked. */
-  readonly #first = new Set<number>();
+  /** Waiting to be checked: `first` (newest ask ahead) before `rest` (in the order asked). */
+  #first = new Set<number>();
   readonly #rest = new Set<number>();
+  /** When a renter last asked about each game, for the daily rechecks. */
+  readonly #requested = new Map<number, number>();
   #antiCheat: { at: number; value: Promise<Map<number, string>> } | null = null;
   #draining: Promise<void> | null = null;
   /** Not before this (real time) may the next store request go. */
@@ -322,23 +332,28 @@ export class Playability implements PlayableGames {
   }
 
   /**
-   * Have these games checked, ahead of the rest when `first`. A game checked
-   * within CHECK_TTL_MS is not asked about again; past MAX_QUEUE waiting, the
-   * rest are dropped until asked for again.
+   * Have these games checked. `first`: a renter is looking at them now, so
+   * they go ahead of everything waiting, and are rechecked daily for
+   * REQUESTED_WINDOW_MS. A game checked within CHECK_TTL_MS is not asked
+   * about again; past MAX_QUEUE waiting, the rest are dropped until asked for
+   * again.
    */
   want(appids: Iterable<number>, { first = false }: { first?: boolean } = {}): void {
     const now = this.#now();
+    const ahead = new Set<number>();
     for (const appid of appids) {
-      if (!Number.isSafeInteger(appid) || appid <= 0 || this.#first.has(appid)) continue;
+      if (!Number.isSafeInteger(appid) || appid <= 0) continue;
+      if (first) this.#requested.set(appid, now);
       const known = this.#known.get(appid);
       if (known && now - known.checkedAt < CHECK_TTL_MS) continue;
       if (first) {
         this.#rest.delete(appid);
-        this.#first.add(appid);
-      } else if (!this.#rest.has(appid) && this.#first.size + this.#rest.size < MAX_QUEUE) {
-        this.#rest.add(appid);
+        ahead.add(appid);
+      } else if (!this.#first.has(appid) && !this.#rest.has(appid)) {
+        if (this.#first.size + this.#rest.size < MAX_QUEUE) this.#rest.add(appid);
       }
     }
+    if (ahead.size) this.#first = new Set([...ahead, ...this.#first]);
     this.#drain();
   }
 
@@ -348,15 +363,36 @@ export class Playability implements PlayableGames {
   }
 
   /**
-   * Check one game now and store its verdict. Rejects, storing nothing, when
-   * any source fails to answer.
+   * Check the next BATCH games waiting. Rejects, leaving them waiting, when
+   * the anti-cheat list or Valve's ratings cannot be had; a game whose own
+   * check fails stores nothing and waits for the next time it is asked about.
    */
-  async check(appid: number): Promise<Judgement> {
+  async #checkNext(): Promise<void> {
     const antiCheat = await this.#antiCheatList();
     await this.#turn();
-    const details = await this.#sources.details(appid);
+    // Taken only now, so what was asked for meanwhile is in its place.
+    const appids = [...this.#first, ...this.#rest].slice(0, BATCH);
+    if (!appids.length) return;
+    const ratings = await this.#sources.steamos(appids);
+    for (const appid of appids) {
+      this.#first.delete(appid);
+      this.#rest.delete(appid);
+    }
+    for (const appid of appids) {
+      if (this.#stopped) return;
+      await this.#check(appid, antiCheat, ratings).catch((error: unknown) => {
+        log("playability check")(error);
+        this.#nextRequestAt = Date.now() + this.#backoffMs;
+      });
+    }
+  }
+
+  /** Check one game and store its verdict. Rejects, storing nothing, when any source fails to answer. */
+  async #check(appid: number, antiCheat: Map<number, string>, ratings: Map<number, number | null>) {
+    const steamos = ratings.get(appid);
+    if (steamos === undefined) throw new Error(`steamos ${appid}: no answer`);
     await this.#turn();
-    const steamos = await this.#sources.steamos(appid);
+    const details = await this.#sources.details(appid);
     const judgement = judge({
       details,
       steamos,
@@ -372,20 +408,15 @@ export class Playability implements PlayableGames {
       [appid, judgement.verdict, JSON.stringify(judgement.reasons), checkedAt],
     );
     this.#known.set(appid, { ...judgement, checkedAt });
-    return judgement;
   }
 
-  /**
-   * Load what is stored, then keep it current: the chart, the wall's nine and
-   * every stale verdict asked about now and hourly, launch failures read every
-   * few minutes.
-   */
+  /** Load what is stored, then keep it current: swept now and hourly, launch failures read every few minutes. */
   start(): void {
     void this.load()
       .catch(log("loading playability"))
-      .then(() => this.#sweep());
+      .then(() => this.sweep());
     this.#timers.push(
-      setInterval(() => void this.#sweep(), SWEEP_EVERY_MS),
+      setInterval(() => void this.sweep(), SWEEP_EVERY_MS),
       setInterval(() => void this.loadFailures().catch(log("reading launch failures")), FAILURES_EVERY_MS),
     );
     for (const timer of this.#timers) timer.unref?.();
@@ -397,39 +428,43 @@ export class Playability implements PlayableGames {
     for (const timer of this.#timers) clearInterval(timer);
   }
 
-  async #sweep(): Promise<void> {
+  /**
+   * Ask about Steam's most played and the wall's nine, as renters look at
+   * them, then recheck whatever of the curated games and those a renter asked
+   * about within REQUESTED_WINDOW_MS has gone stale.
+   */
+  async sweep(): Promise<void> {
     const chart = await this.#sources.chart().catch(() => [] as number[]);
     this.want([...chart, ...WALL_APPIDS], { first: true });
-    this.want([...this.#known.keys(), ...this.#curated, ...this.#cloud.keys()]);
+    const since = this.#now() - REQUESTED_WINDOW_MS;
+    for (const [appid, at] of this.#requested) if (at <= since) this.#requested.delete(appid);
+    this.want([...this.#requested.keys(), ...this.#curated, ...this.#cloud.keys()]);
   }
 
-  /** AreWeAntiCheatYet's list, read at most once a day; a failed read is not kept. */
-  #antiCheatList(): Promise<Map<number, string>> {
+  /** AreWeAntiCheatYet's list, read at most once a day, in its turn; a failed read is not kept. */
+  async #antiCheatList(): Promise<Map<number, string>> {
+    if (this.#antiCheat && this.#now() - this.#antiCheat.at < ANTI_CHEAT_TTL_MS) return this.#antiCheat.value;
+    await this.#turn();
     const now = this.#now();
-    if (this.#antiCheat && now - this.#antiCheat.at < ANTI_CHEAT_TTL_MS) return this.#antiCheat.value;
     const value = this.#sources.antiCheat();
     this.#antiCheat = { at: now, value };
     value.catch(() => (this.#antiCheat = null));
     return value;
   }
 
-  /** Wait for the store's turn: PAUSE_MS after the last request. */
+  /** Wait for the next request's turn: PAUSE_MS after the last, or BACKOFF_MS after a failure. */
   async #turn(): Promise<void> {
     const wait = this.#nextRequestAt - Date.now();
     if (wait > 0) await sleep(wait);
     this.#nextRequestAt = Date.now() + this.#pauseMs;
   }
 
-  /** Check what is waiting, one game at a time, until nothing is. */
+  /** Check what is waiting, a batch at a time, until nothing is. */
   #drain(): void {
     if (this.#draining || this.#stopped) return;
     this.#draining = (async () => {
-      for (;;) {
-        const appid = this.#first.values().next().value ?? this.#rest.values().next().value;
-        if (appid === undefined || this.#stopped) return;
-        this.#first.delete(appid);
-        this.#rest.delete(appid);
-        await this.check(appid).catch((error: unknown) => {
+      while ((this.#first.size || this.#rest.size) && !this.#stopped) {
+        await this.#checkNext().catch((error: unknown) => {
           log("playability check")(error);
           this.#nextRequestAt = Date.now() + this.#backoffMs;
         });

@@ -251,6 +251,7 @@
     "response": {
       "store_items": [
         {
+          "id": 730,
           "appid": 730,
           "success": 1,
           "visible": true,
@@ -283,9 +284,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 570,
           "appid": 570,
           "success": 1,
           "visible": true,
@@ -317,9 +323,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 578080,
           "appid": 578080,
           "success": 1,
           "visible": true,
@@ -352,9 +363,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 431960,
           "appid": 431960,
           "success": 1,
           "visible": true,
@@ -383,9 +399,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 1172470,
           "appid": 1172470,
           "success": 1,
           "visible": true,
@@ -418,9 +439,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 1867240,
           "appid": 1867240,
           "success": 1,
           "visible": true,
@@ -452,9 +478,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 1422450,
           "appid": 1422450,
           "success": 1,
           "visible": true,
@@ -468,9 +499,14 @@
             "main_capsule_2x": "bb234ef2fd0409fffbd0e0d0c470c05167d18535/capsule_616x353_2x.jpg",
             "header": "aa249c5e8cc8f90941bd1dbdc311773cd1afe065/header.jpg",
             "header_2x": "aa249c5e8cc8f90941bd1dbdc311773cd1afe065/header_2x.jpg"
+          },
+          "platforms": {
+            "steam_os_compat_category": 0,
+            "steam_deck_compat_category": 0
           }
         },
         {
+          "id": 892970,
           "appid": 892970,
           "success": 1,
           "visible": true,
@@ -502,9 +538,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 292030,
           "appid": 292030,
           "success": 1,
           "visible": true,
@@ -536,9 +577,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 271590,
           "appid": 271590,
           "success": 1,
           "visible": true,
@@ -568,9 +614,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 2676230,
           "appid": 2676230,
           "success": 1,
           "visible": true,
@@ -583,9 +634,14 @@
             "main_capsule_2x": "fbbd1de9c0273fe266a7a9c19fcabcd95dd14c21/capsule_616x353_2x.jpg",
             "header": "9e8a2df18bfdd24267aefa6d3e14778c2ecb1708/header.jpg",
             "header_2x": "9e8a2df18bfdd24267aefa6d3e14778c2ecb1708/header_2x.jpg"
+          },
+          "platforms": {
+            "steam_os_compat_category": 0,
+            "steam_deck_compat_category": 0
           }
         },
         {
+          "id": 2868840,
           "appid": 2868840,
           "success": 1,
           "visible": true,
@@ -617,9 +673,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 2357570,
           "appid": 2357570,
           "success": 1,
           "visible": true,
@@ -652,9 +713,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 359550,
           "appid": 359550,
           "success": 1,
           "visible": true,
@@ -687,9 +753,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 236390,
           "appid": 236390,
           "success": 1,
           "visible": true,
@@ -722,9 +793,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 250900,
           "appid": 250900,
           "success": 1,
           "visible": true,
@@ -753,9 +829,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 2767030,
           "appid": 2767030,
           "success": 1,
           "visible": true,
@@ -788,9 +869,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 4126040,
           "appid": 4126040,
           "success": 1,
           "visible": true,
@@ -823,9 +909,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 322170,
           "appid": 322170,
           "success": 1,
           "visible": true,
@@ -855,9 +946,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 4001890,
           "appid": 4001890,
           "success": 1,
           "visible": true,
@@ -889,9 +985,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 553850,
           "appid": 553850,
           "success": 1,
           "visible": true,
@@ -923,9 +1024,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 550,
           "appid": 550,
           "success": 1,
           "visible": true,
@@ -936,9 +1042,14 @@
             "library_hero": "library_hero.jpg",
             "main_capsule": "capsule_616x353.jpg",
             "header": "header.jpg"
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 1973530,
           "appid": 1973530,
           "success": 1,
           "visible": true,
@@ -968,9 +1079,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 413150,
           "appid": 413150,
           "success": 1,
           "visible": true,
@@ -1000,9 +1116,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 381210,
           "appid": 381210,
           "success": 1,
           "visible": true,
@@ -1032,9 +1153,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 1304930,
           "appid": 1304930,
           "success": 1,
           "visible": true,
@@ -1066,9 +1192,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 252490,
           "appid": 252490,
           "success": 1,
           "visible": true,
@@ -1100,9 +1231,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 105600,
           "appid": 105600,
           "success": 1,
           "visible": true,
@@ -1131,9 +1267,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 2507950,
           "appid": 2507950,
           "success": 1,
           "visible": true,
@@ -1166,9 +1307,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 230410,
           "appid": 230410,
           "success": 1,
           "visible": true,
@@ -1201,9 +1347,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 108600,
           "appid": 108600,
           "success": 1,
           "visible": true,
@@ -1232,9 +1383,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 3240220,
           "appid": 3240220,
           "success": 1,
           "visible": true,
@@ -1266,9 +1422,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 440,
           "appid": 440,
           "success": 1,
           "visible": true,
@@ -1298,9 +1459,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
           }
         },
         {
+          "id": 227300,
           "appid": 227300,
           "success": 1,
           "visible": true,
@@ -1332,9 +1498,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 2807960,
           "appid": 2807960,
           "success": 1,
           "visible": true,
@@ -1366,9 +1537,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 1142710,
           "appid": 1142710,
           "success": 1,
           "visible": true,
@@ -1398,9 +1574,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 438100,
           "appid": 438100,
           "success": 1,
           "visible": true,
@@ -1430,9 +1611,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 4080220,
           "appid": 4080220,
           "success": 1,
           "visible": true,
@@ -1464,9 +1650,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
           }
         },
         {
+          "id": 1091500,
           "appid": 1091500,
           "success": 1,
           "visible": true,
@@ -1498,9 +1689,14 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
         },
         {
+          "id": 1086940,
           "appid": 1086940,
           "success": 1,
           "visible": true,
@@ -1532,7 +1728,53 @@
                 ]
               }
             ]
+          },
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
           }
+        },
+        {
+          "id": 2246340,
+          "appid": 2246340,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Monster Hunter Wilds",
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 3
+          }
+        },
+        {
+          "id": 1174180,
+          "appid": 1174180,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Red Dead Redemption 2",
+          "platforms": {
+            "steam_os_compat_category": 2,
+            "steam_deck_compat_category": 2
+          }
+        },
+        {
+          "id": 678950,
+          "appid": 678950,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "DRAGON BALL FighterZ",
+          "platforms": {
+            "steam_os_compat_category": 1,
+            "steam_deck_compat_category": 1
+          }
+        },
+        {
+          "id": 999999999,
+          "appid": 0,
+          "success": 15,
+          "visible": false
         }
       ]
     }
@@ -2321,533 +2563,14 @@
       "success": false
     }
   },
-  "deck": {
-    "730": {
-      "success": 1,
-      "results": {
-        "appid": 730,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "570": {
-      "success": 1,
-      "results": {
-        "appid": 570,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "578080": {
-      "success": 1,
-      "results": {
-        "appid": 578080,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "431960": {
-      "success": 1,
-      "results": {
-        "appid": 431960,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "1172470": {
-      "success": 1,
-      "results": {
-        "appid": 1172470,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "1867240": {
-      "success": 1,
-      "results": {
-        "appid": 1867240,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "1422450": {
-      "success": 1,
-      "results": {
-        "appid": 1422450,
-        "resolved_category": 0,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 0,
-        "machine_resolved_category": 0,
-        "frame_resolved_category": 0
-      }
-    },
-    "892970": {
-      "success": 1,
-      "results": {
-        "appid": 892970,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "292030": {
-      "success": 1,
-      "results": {
-        "appid": 292030,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "271590": {
-      "success": 1,
-      "results": {
-        "appid": 271590,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "https://steamcommunity.com/games/271590/announcements/detail/6356356787200715685?snr=2___",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "2676230": {
-      "success": 1,
-      "results": {
-        "appid": 2676230,
-        "resolved_category": 0,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 0,
-        "machine_resolved_category": 0,
-        "frame_resolved_category": 0
-      }
-    },
-    "2868840": {
-      "success": 1,
-      "results": {
-        "appid": 2868840,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "2357570": {
-      "success": 1,
-      "results": {
-        "appid": 2357570,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "359550": {
-      "success": 1,
-      "results": {
-        "appid": 359550,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "236390": {
-      "success": 1,
-      "results": {
-        "appid": 236390,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "250900": {
-      "success": 1,
-      "results": {
-        "appid": 250900,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": 1
-      }
-    },
-    "2767030": {
-      "success": 1,
-      "results": {
-        "appid": 2767030,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "4126040": {
-      "success": 1,
-      "results": {
-        "appid": 4126040,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "322170": {
-      "success": 1,
-      "results": {
-        "appid": 322170,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": 2
-      }
-    },
-    "4001890": {
-      "success": 1,
-      "results": {
-        "appid": 4001890,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "553850": {
-      "success": 1,
-      "results": {
-        "appid": 553850,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "550": {
-      "success": 1,
-      "results": {
-        "appid": 550,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "1973530": {
-      "success": 1,
-      "results": {
-        "appid": 1973530,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "413150": {
-      "success": 1,
-      "results": {
-        "appid": 413150,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "381210": {
-      "success": 1,
-      "results": {
-        "appid": 381210,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "1304930": {
-      "success": 1,
-      "results": {
-        "appid": 1304930,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "252490": {
-      "success": 1,
-      "results": {
-        "appid": 252490,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "105600": {
-      "success": 1,
-      "results": {
-        "appid": 105600,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "2507950": {
-      "success": 1,
-      "results": {
-        "appid": 2507950,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "230410": {
-      "success": 1,
-      "results": {
-        "appid": 230410,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "108600": {
-      "success": 1,
-      "results": {
-        "appid": 108600,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "3240220": {
-      "success": 1,
-      "results": {
-        "appid": 3240220,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "440": {
-      "success": 1,
-      "results": {
-        "appid": 440,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "227300": {
-      "success": 1,
-      "results": {
-        "appid": 227300,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "2807960": {
-      "success": 1,
-      "results": {
-        "appid": 2807960,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "1142710": {
-      "success": 1,
-      "results": {
-        "appid": 1142710,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "438100": {
-      "success": 1,
-      "results": {
-        "appid": 438100,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "4080220": {
-      "success": 1,
-      "results": {
-        "appid": 4080220,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "1091500": {
-      "success": 1,
-      "results": {
-        "appid": 1091500,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": 2
-      }
-    },
-    "1086940": {
-      "success": 1,
-      "results": {
-        "appid": 1086940,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "2246340": {
-      "success": 1,
-      "results": {
-        "appid": 2246340,
-        "resolved_category": 3,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 3,
-        "frame_resolved_category": null
-      }
-    },
-    "1174180": {
-      "success": 1,
-      "results": {
-        "appid": 1174180,
-        "resolved_category": 2,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 2,
-        "machine_resolved_category": 2,
-        "frame_resolved_category": null
-      }
-    },
-    "678950": {
-      "success": 1,
-      "results": {
-        "appid": 678950,
-        "resolved_category": 1,
-        "steam_deck_blog_url": "",
-        "search_id": null,
-        "steamos_resolved_category": 1,
-        "machine_resolved_category": 1,
-        "frame_resolved_category": null
-      }
-    },
-    "999999999": {
-      "success": 1,
-      "results": []
-    }
-  },
   "antiCheat": [
     {
       "name": "Apex Legends",
       "status": "Denied",
-      "anticheats": ["Easy Anti-Cheat", "Hyperion"],
+      "anticheats": [
+        "Easy Anti-Cheat",
+        "Hyperion"
+      ],
       "storeIds": {
         "steam": "1172470"
       }
@@ -2855,7 +2578,11 @@
     {
       "name": "PUBG: Battlegrounds",
       "status": "Broken",
-      "anticheats": ["Zakynthos", "BattlEye", "UNCHEATER"],
+      "anticheats": [
+        "Zakynthos",
+        "BattlEye",
+        "UNCHEATER"
+      ],
       "storeIds": {
         "steam": "578080",
         "epic": {
@@ -2867,7 +2594,10 @@
     {
       "name": "Tom Clancy's Rainbow Six® Siege",
       "status": "Denied",
-      "anticheats": ["FairFight", "BattlEye"],
+      "anticheats": [
+        "FairFight",
+        "BattlEye"
+      ],
       "storeIds": {
         "steam": "359550",
         "epic": {
@@ -2879,7 +2609,9 @@
     {
       "name": "Dead By Daylight",
       "status": "Supported",
-      "anticheats": ["Easy Anti-Cheat"],
+      "anticheats": [
+        "Easy Anti-Cheat"
+      ],
       "storeIds": {
         "steam": "381210",
         "epic": {
@@ -2891,7 +2623,10 @@
     {
       "name": "Rust",
       "status": "Denied",
-      "anticheats": ["Easy Anti-Cheat", "VAC"],
+      "anticheats": [
+        "Easy Anti-Cheat",
+        "VAC"
+      ],
       "storeIds": {
         "steam": "252490"
       }
@@ -2899,7 +2634,9 @@
     {
       "name": "War Thunder",
       "status": "Supported",
-      "anticheats": ["BattlEye"],
+      "anticheats": [
+        "BattlEye"
+      ],
       "storeIds": {
         "steam": "236390"
       }
@@ -2907,7 +2644,9 @@
     {
       "name": "DRAGON BALL FighterZ",
       "status": "Broken",
-      "anticheats": ["Easy Anti-Cheat"],
+      "anticheats": [
+        "Easy Anti-Cheat"
+      ],
       "storeIds": {
         "steam": "678950"
       }
@@ -2915,7 +2654,9 @@
     {
       "name": "Counter-Strike: Global Offensive",
       "status": "Supported",
-      "anticheats": ["VAC"],
+      "anticheats": [
+        "VAC"
+      ],
       "storeIds": {
         "steam": "730"
       }
@@ -2923,7 +2664,9 @@
     {
       "name": "Team Fortress 2",
       "status": "Supported",
-      "anticheats": ["VAC"],
+      "anticheats": [
+        "VAC"
+      ],
       "storeIds": {
         "steam": "440"
       }
@@ -2931,7 +2674,9 @@
     {
       "name": "DotA 2",
       "status": "Supported",
-      "anticheats": ["VAC"],
+      "anticheats": [
+        "VAC"
+      ],
       "storeIds": {
         "steam": "570"
       }
@@ -2939,7 +2684,9 @@
     {
       "name": "Left 4 Dead 2",
       "status": "Supported",
-      "anticheats": ["VAC"],
+      "anticheats": [
+        "VAC"
+      ],
       "storeIds": {
         "steam": "550"
       }
@@ -2947,7 +2694,9 @@
     {
       "name": "Warframe",
       "status": "Supported",
-      "anticheats": ["Unknown (Custom)"],
+      "anticheats": [
+        "Unknown (Custom)"
+      ],
       "storeIds": {
         "steam": "230410",
         "epic": {
@@ -2959,7 +2708,9 @@
     {
       "name": "Grand Theft Auto V",
       "status": "Denied",
-      "anticheats": ["BattlEye"],
+      "anticheats": [
+        "BattlEye"
+      ],
       "storeIds": {
         "steam": "271590",
         "epic": {
@@ -2971,7 +2722,9 @@
     {
       "name": "Overwatch 2",
       "status": "Supported",
-      "anticheats": ["Warden"],
+      "anticheats": [
+        "Warden"
+      ],
       "storeIds": {
         "steam": "2357570"
       }
@@ -2979,7 +2732,9 @@
     {
       "name": "VRChat",
       "status": "Supported",
-      "anticheats": ["Easy Anti-Cheat"],
+      "anticheats": [
+        "Easy Anti-Cheat"
+      ],
       "storeIds": {
         "steam": "438100"
       }
@@ -2987,7 +2742,9 @@
     {
       "name": "Helldivers 2",
       "status": "Running",
-      "anticheats": ["nProtect GameGuard"],
+      "anticheats": [
+        "nProtect GameGuard"
+      ],
       "storeIds": {
         "steam": "553850"
       }
@@ -2995,7 +2752,9 @@
     {
       "name": "Marvel Rivals",
       "status": "Running",
-      "anticheats": ["NetEase Game Security"],
+      "anticheats": [
+        "NetEase Game Security"
+      ],
       "storeIds": {
         "steam": "2767030"
       }
@@ -3003,7 +2762,9 @@
     {
       "name": "Deadlock",
       "status": "Supported",
-      "anticheats": ["VAC"],
+      "anticheats": [
+        "VAC"
+      ],
       "storeIds": {
         "steam": "1422450"
       }
@@ -3011,7 +2772,9 @@
     {
       "name": "Battlefield 6",
       "status": "Denied",
-      "anticheats": ["EA anticheat"],
+      "anticheats": [
+        "EA anticheat"
+      ],
       "storeIds": {
         "steam": "2807960"
       }
@@ -3019,7 +2782,11 @@
     {
       "name": "Tom Clancy's Rainbow Six® Siege X",
       "status": "Denied",
-      "anticheats": ["FairFight", "BattlEye", "R6 ShieldGuard"],
+      "anticheats": [
+        "FairFight",
+        "BattlEye",
+        "R6 ShieldGuard"
+      ],
       "storeIds": {
         "steam": "359550",
         "epic": {
