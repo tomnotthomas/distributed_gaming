@@ -110,8 +110,10 @@ const CLOCK_MS = 15_000;
 
 /** While the server is still checking a renter's games, their profile is read again this often... */
 const CHECKING_READ_MS = 5_000;
-/** ...this many times at most: five minutes. */
+/** ...this many times: five minutes... */
 const CHECKING_READS = 60;
+/** ...then this often, for as long as the server is still checking. */
+const CHECKING_SLOW_READ_MS = 30_000;
 
 /**
  * The demo: the five invented machines and the evening pinned to 20:00, at
@@ -318,22 +320,25 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   );
 
   // While the server is still checking games the renter's wall could show, read
-  // their profile again, so each game turns up once it is found playable.
+  // their profile again, so each game turns up once it is found playable: often
+  // at first, then slower, but never stopping while anything is unchecked.
   const checkingReads = useRef(0);
   useEffect(() => {
-    if (!profile?.checking || !steamId || checkingReads.current >= CHECKING_READS) return;
+    if (!profile?.checking || !steamId) return;
+    const wait = checkingReads.current < CHECKING_READS ? CHECKING_READ_MS : CHECKING_SLOW_READ_MS;
     const timer = setTimeout(() => {
       checkingReads.current++;
       void fetchRenter().then((renter) => {
-        if (!renter) return;
-        if (sameGames(renter.profile, profile)) setProfile(renter.profile);
+        // An unanswered read keeps the profile, and tries again on the next turn.
+        if (!renter) setProfile({ ...profile });
+        else if (sameGames(renter.profile, profile)) setProfile(renter.profile);
         else showLibrary(renter);
       });
-    }, CHECKING_READ_MS);
+    }, wait);
     return () => clearTimeout(timer);
   }, [profile, steamId, showLibrary]);
 
-  /** Read the renter's library from Steam again, after they have made it public. */
+  /** Read the renter's library from Steam again, after they have made it public or to check on it now. */
   const retryLibrary = useCallback(() => {
     setLibraryRetrying(true);
     track("library_retried");

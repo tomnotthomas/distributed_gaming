@@ -429,6 +429,45 @@ describe("useSwiff", () => {
       }
     });
 
+    it("keeps reading the renter's profile, slower, past five minutes of checking, until the checks finish", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let checked = false;
+      const me = () =>
+        new Response(
+          JSON.stringify({
+            steamId: unnamed.steamId,
+            profile: checked
+              ? { ...unnamed.profile, lib: true, size: 3, checking: 0 }
+              : { ...unnamed.profile, lib: true, size: 3, checking: 1 },
+          }),
+        );
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.profile).not.toBeNull());
+        for (let read = 2; read <= 61; read++) {
+          await act(() => vi.advanceTimersByTimeAsync(5_000));
+          await waitFor(() => expect(reads()).toBe(read));
+        }
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        expect(reads()).toBe(61);
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        await act(() => vi.advanceTimersByTimeAsync(25_000));
+        await waitFor(() => expect(reads()).toBe(62));
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        checked = true;
+        await act(() => vi.advanceTimersByTimeAsync(30_000));
+        await waitFor(() => expect(libraryState(result.current.profile!)).toBe("none"));
+        await act(() => vi.advanceTimersByTimeAsync(60_000));
+        expect(reads()).toBe(63);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const host = {

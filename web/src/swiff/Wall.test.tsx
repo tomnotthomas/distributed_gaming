@@ -123,10 +123,12 @@ describe("Wall", () => {
 
   it("says a library still being checked is being checked, not that none of it can be played", () => {
     const profile = { ...privateLibrary, lib: true, checking: 3 };
-    render(<Wall swiff={swiffWith(applySteam(profile, pool, [cs2]), profile)} />);
+    const retry = vi.fn();
+    render(<Wall swiff={swiffWith(applySteam(profile, pool, [cs2]), profile, retry)} />);
     expect(screen.getByTestId("library-state").textContent).toMatch(/Checking your games/);
     expect(screen.queryByText(/None of your Steam games/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("says nothing about a library that reads fine", () => {
