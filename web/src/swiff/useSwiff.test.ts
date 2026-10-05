@@ -576,6 +576,69 @@ describe("useSwiff", () => {
       }
     });
 
+    it("keeps the game of a launch under way when the renter is signed out, and nothing else", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const host = {
+        id: "h1",
+        name: "Basement rig",
+        gpu: "RTX 4070",
+        cpu: "Ryzen 7 7700",
+        refreshHz: 144,
+        availableUntil: null,
+        minutesLeft: null,
+        coversSession: true,
+        latency: { rttMs: 23, jitterMs: 2, source: "estimate" as const },
+        response: 3,
+        picture: 3,
+      };
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(
+        unnamed,
+        { machines: () => ({ ...NO_MACHINES, machines: [host] }) },
+        {
+          "GET /api/me": me,
+          "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+        },
+      );
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) =>
+        signedOut && String(path) === "/api/games/popular"
+          ? new Response("{}", { status: 503 })
+          : server(path, init),
+      );
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
+        expect(result.current.games.some((g) => g.appid === 440)).toBe(true);
+        const game = result.current.games.find((g) => g.appid === cs2.appid)!;
+        act(() => result.current.openGame(game));
+        await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
+        act(() => result.current.launch());
+        expect(result.current.phase).not.toBe("idle");
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.games.map((g) => g.appid)).toEqual([cs2.appid]);
+        expect(result.current.game?.appid).toBe(cs2.appid);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const host = {

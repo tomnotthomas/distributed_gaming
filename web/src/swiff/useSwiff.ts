@@ -274,6 +274,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // under the player.
   const openGameId = useRef(gameId);
   openGameId.current = gameId;
+  // The session phase, so signing out mid-launch or mid-session keeps its game.
+  const phaseNow = useRef(phase);
+  phaseNow.current = phase;
 
   // Which showLibrary call is current, so a slow catalog answer for a profile a
   // retry has since replaced never puts the old wall back.
@@ -323,14 +326,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
    * The signed-out wall: what people are actually playing on Steam that Swiff
    * can run. If Steam is down, the hand-authored nine the server vouches for
    * stand in; in the demo they are up until it arrives. Nothing of a renter
-   * signed in before is kept: outside the demo the wall stays empty when the
-   * server cannot say what to show.
+   * signed in before is kept but the game of a launch or session under way:
+   * outside the demo the wall stays empty when the server cannot say what to show.
    */
   const showSignedOut = useCallback(() => {
     ++libraryLoad.current;
     setSteamId(null);
     setProfile(null);
-    if (!demo) setGames([]);
+    if (!demo)
+      setGames((prev) => prev.filter((g) => phaseNow.current !== "idle" && g.id === openGameId.current));
     void fetchPopular().then((popular) => {
       vouch(popular);
       const catalog = popular?.games ?? [];
