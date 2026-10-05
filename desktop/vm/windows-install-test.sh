@@ -33,7 +33,11 @@
 # Needs: sudo (QEMU, when /dev/kvm is not writable), qemu-system-x86_64,
 # qemu-img, swtpm, OVMF's Secure Boot build with Microsoft's keys, xorriso,
 # ssh, curl, a Python with virt-firmware ($VIRT_FW_PYTHON), node, and the
-# image set (swiff-os/image-set.sh) of the self-test build in $SWIFF_IMAGE_SET.
+# image set (swiff-os/image-set.sh) of the self-test build in $SWIFF_IMAGE_SET,
+# and Electron for Windows in $SWIFF_WIN_ELECTRON (the dist folder of the
+# `electron` package as Windows' npm installs it): the console and its worker
+# run on Electron's own Node, as in Swiff Host, whose Node differs from a
+# console's (it took \\.\PhysicalDrive0 for a share root).
 # The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB) and up to ~60 GB of disk under $SWIFF_WIN_VM_DIR.
 # Nothing here touches the host's disks, boot entries or firmware variables.
 set -euo pipefail
@@ -43,6 +47,7 @@ desktop=$here/..
 build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 dir=${SWIFF_WIN_VM_DIR:-$build_dir/win-vm}
 image_set=${SWIFF_IMAGE_SET:-$build_dir/image-set}
+electron_dir=${SWIFF_WIN_ELECTRON:-}
 python=${VIRT_FW_PYTHON:-python3}
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
 ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
@@ -243,7 +248,9 @@ test_run() {
 	chmod +x "$run/boot-vars"
 	local cert_hex
 	cert_hex=$(od -An -v -tx1 "$image_set/swiffos-key.cer" | tr -d ' \n')
-	local cli='node C:\swiff\desktop\rental-cli.cjs'
+	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
+	# The app's runtime: Electron as Node, which the worker it starts inherits.
+	local cli='$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs'
 	local img='C:\swiff\image'
 	local fail=0
 
@@ -273,6 +280,7 @@ test_run() {
 	log "Copying the installer and the image set"
 	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,image-set,gpt,efi,pc,probe}.cjs swiff@127.0.0.1:'C:/swiff/desktop/'
 	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
+	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 
 	log "1. What the app reads, and its one elevation"
 	on_vm "$cli read" | tr -d '\r' > "$run/read-before.json"
