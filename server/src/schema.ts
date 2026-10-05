@@ -176,6 +176,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // does not end that session. Null when no reset is held.
     `ALTER TABLE machines ADD COLUMN reset_until BIGINT`,
   ],
+  [
+    // Offered with an attested host certificate: a rental-mode PC (Swiff OS),
+    // whose renter signs in to Steam before the session starts (api.ts, claim).
+    `ALTER TABLE machines ADD COLUMN rental_mode BOOLEAN NOT NULL DEFAULT false`,
+  ],
 ];
 
 /**

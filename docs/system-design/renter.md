@@ -290,7 +290,7 @@ GET  /events?booking=:id
   cap is full.
 
 POST /bookings/:id/claim
-  → 200 { sessionId, roomId, signalingUrl, ticket }
+  → 200 { sessionId, roomId, signalingUrl, ticket, rentalMode }
   Take the matched machine before the reservation expires (`claimBy`). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first.
@@ -303,7 +303,7 @@ POST /bookings/:id/claim
   → 404 for a booking another renter made.
 
 POST /bookings/:id/ticket
-  → 200 { sessionId, roomId, signalingUrl, ticket }
+  → 200 { sessionId, roomId, signalingUrl, ticket, rentalMode }
   The renter's running session's ticket again, for a page that no longer holds it: the
   page never stores the ticket (see "Playing" below). It carries the id recorded at
   claim, so ending the session revokes it with the first, and is valid only until the
@@ -549,7 +549,7 @@ load. Reloading the page does not rejoin the stream
 yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
-while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. Try another machine ends the
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC (the claim's `rentalMode`: the machine was offered with an attested host certificate) or one that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. Try another machine ends the
 booking and launches on the best other free machine on the list, or goes back to
 the list when there is none; a session already started there ends first as End ends
 it, and the next machine's clock starts afresh. Cancel ends the booking; once the

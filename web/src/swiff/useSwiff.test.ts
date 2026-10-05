@@ -109,7 +109,13 @@ const booked = (status: string, claimBy?: number) => ({
   ...(claimBy === undefined ? {} : { claimBy }),
 });
 
-const TICKET = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+const TICKET = {
+  sessionId: "s-1",
+  roomId: "pc-1",
+  signalingUrl: "ws://localhost",
+  ticket: "t",
+  rentalMode: false,
+};
 
 /** The page's event streams, opened through a stand-in for EventSource that each test drives. */
 function streams() {

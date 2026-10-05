@@ -97,8 +97,17 @@ async function bookingFailed(response: Response): Promise<never> {
 export type BookMachineResult =
   { kind: "booked"; booking: Booking } | { kind: "taken"; nextBest: NextBest | null };
 
-/** What a claim hands back: the room to join, where, and the ticket that opens it. */
-export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
+/**
+ * What a claim hands back: the room to join, where, and the ticket that opens
+ * it; `rentalMode` for a rental-mode PC, whose renter signs in to Steam first.
+ */
+export type Claim = {
+  sessionId: string;
+  roomId: string;
+  signalingUrl: string;
+  ticket: string;
+  rentalMode: boolean;
+};
 
 const KEY = "swiff.booking";
 /** The claimed booking being played, with its session and room (never its ticket), kept for the later resume step. */

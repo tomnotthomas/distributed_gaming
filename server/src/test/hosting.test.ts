@@ -26,7 +26,7 @@ const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
-const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4", "pc-5", "pc-6"];
+const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4", "pc-5", "pc-6", "pc-7"];
 const TURN = "turn:turn.example.test:3478";
 /** What the dev verifier is told about a machine that meets the hardware floor. */
 const FACTS: PlatformFacts = {
@@ -216,7 +216,7 @@ describe("hosting requires attestation", () => {
       body: { error: "bad-host-cert" },
     });
     assert.equal(
-      (await call("PUT", "/api/machines/pc-4/availability", { available: false }, other)).status,
+      (await call("PUT", "/api/machines/pc-3/availability", { available: false }, other)).status,
       401,
     );
   });
@@ -295,6 +295,36 @@ describe("hosting requires attestation", () => {
     assert.equal(matched.body.status, "matched");
     assert.equal(matched.body.machine?.id, room);
     assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+    service.ws.close();
+  });
+
+  it("says rentalMode on the claim of a machine offered with an attested host certificate, not the machine key", async () => {
+    const room = "pc-7";
+    const grant = await attest(room);
+    const service = await host(room, { hostCert: grant.hostCert });
+    assert.equal(service.received[0]?.type, "registered");
+
+    const claimOffered = async (credential: string) => {
+      const offered = await call(
+        "PUT",
+        `/api/machines/${room}/availability`,
+        { available: true, ...REPORT },
+        credential,
+      );
+      assert.equal(offered.status, 200, `availability answered ${offered.status}`);
+      const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+      assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+      assert.equal(claim.body.roomId, room);
+      const ticket = await call("POST", `/api/bookings/${booking.body.bookingId}/ticket`);
+      assert.equal(ticket.status, 200, `ticket answered ${ticket.status}`);
+      assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+      return [claim.body.rentalMode, ticket.body.rentalMode];
+    };
+
+    assert.deepEqual(await claimOffered(MACHINE_KEY), [false, false]);
+    assert.deepEqual(await claimOffered(grant.hostCert), [true, true]);
+    assert.deepEqual(await claimOffered(MACHINE_KEY), [false, false]);
     service.ws.close();
   });
 

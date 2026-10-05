@@ -277,7 +277,13 @@ describe("watching a booking over the event stream", () => {
   });
 });
 
-const TICKET: Claim = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+const TICKET: Claim = {
+  sessionId: "s-1",
+  roomId: "pc-1",
+  signalingUrl: "ws://localhost",
+  ticket: "t",
+  rentalMode: false,
+};
 
 /** A server for the booking calls: each answers what `routes` says for "METHOD path", 404 otherwise. */
 function routes(answers: Record<string, () => Response>) {

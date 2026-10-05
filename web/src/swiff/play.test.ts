@@ -12,7 +12,13 @@ import {
   type PlayState,
 } from "./play";
 
-const CLAIM: Claim = { sessionId: "s 1", roomId: "pc-1", signalingUrl: "ws://swiff.test", ticket: "t-1" };
+const CLAIM: Claim = {
+  sessionId: "s 1",
+  roomId: "pc-1",
+  signalingUrl: "ws://swiff.test",
+  ticket: "t-1",
+  rentalMode: false,
+};
 const PC = {} as RTCPeerConnection;
 const STATS: RenterStats = {
   fps: 59.9,
@@ -71,12 +77,12 @@ const start = (options: RenterSessionOptions): RenterSession => {
 const latest = () => sessions[sessions.length - 1]!;
 
 /** Start playing CLAIM with the fakes, recording every state and every start call. */
-function play() {
+function play(claim: Claim = CLAIM) {
   const states: PlayState[] = [];
   const fetch = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
   const onFirstFrame = vi.fn();
   const handle = startPlay({
-    claim: CLAIM,
+    claim,
     video,
     onChange: (s) => states.push(s),
     onFirstFrame,
@@ -512,6 +518,43 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
 
     latest().emit({ type: "steam-login", state: "signed-in" });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a rental-mode claim, does not start the session on a frame before any code, only on one after signed-in", () => {
+    const { fetch } = play({ ...CLAIM, rentalMode: true });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit(QR);
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "peer-left" });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).not.toHaveBeenCalled();
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("never posts a lost start's retry once a code is up", async () => {
+    const { fetch } = play();
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("asks for a retry only after a failed sign-in", () => {
