@@ -14,10 +14,10 @@ describe("reconnect grace", () => {
   it("ends a renter's grace once it runs out", async () => {
     const { grace, expired } = recorder();
     grace.start("pc-1", "t-1");
-    assert.equal(grace.pending("pc-1"), "t-1");
+    assert.notEqual(grace.until("pc-1"), null);
     await wait(80);
     assert.deepEqual(expired, [["pc-1", "t-1"]]);
-    assert.equal(grace.pending("pc-1"), null);
+    assert.equal(grace.until("pc-1"), null);
   });
 
   it("tells when the renter dropped, not when the clock ran out", async () => {
@@ -29,6 +29,18 @@ describe("reconnect grace", () => {
     await wait(80);
     assert.equal(drops.length, 1);
     assert.ok(drops[0]! >= before && drops[0]! <= after);
+  });
+
+  it("says when the renter on a ticket dropped, only while that ticket's clock runs", () => {
+    const { grace } = recorder(60_000);
+    const before = Date.now();
+    grace.start("pc-1", "t-1");
+    const at = grace.droppedAt("pc-1", "t-1");
+    assert.ok(at !== null && at >= before && at <= Date.now());
+    assert.equal(grace.droppedAt("pc-1", "t-2"), null);
+    assert.equal(grace.droppedAt("pc-2", "t-1"), null);
+    grace.cancel("pc-1");
+    assert.equal(grace.droppedAt("pc-1", "t-1"), null);
   });
 
   it("says when a room's clock runs out, while it runs", () => {

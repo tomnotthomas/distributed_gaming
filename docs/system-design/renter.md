@@ -355,7 +355,8 @@ POST /sessions/:id/leave
   to end it, and the only ways it ends at once. A renter who just closes the page, or
   whose connection drops, has the reconnect grace to come back (see "Coming back"); one
   who does not is recorded as `grace_expired`, priced only up to the drop and counted
-  neither for nor against the machine's completion.
+  neither for nor against the machine's completion. One who ends it while that grace
+  runs is still recorded as `renter`, but priced only up to the drop.
 ```
 
 ### What can be played where
@@ -604,7 +605,8 @@ the clock runs out the session ends as `grace_expired`, priced only up to the dr
 neutral for the machine's stability: the ticket is revoked, the PC's
 host session ends and the machine goes back to its owner. Only End (POST
 /bookings/:id/end or /sessions/:id/leave) and the owner taking the machine back skip the
-2 minutes. A renter whose socket is half open (a laptop that died) is missed after the
+2 minutes; one who ends it during them, still recorded as `renter`, is priced only up to
+the drop as well. A renter whose socket is half open (a laptop that died) is missed after the
 server's liveness sweep, up to 50 s, and the 2 minutes start then. The clocks live in
 memory; a server restart forgets them, and the session runs to its booked end as before.
 

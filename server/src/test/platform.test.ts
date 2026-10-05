@@ -1117,6 +1117,31 @@ describe("session end reasons", () => {
     assert.equal((await platform.booking(bookingId))!.price, 60);
   });
 
+  it("prices a renter who ends the session during the grace only up to the drop, as renter", async () => {
+    let dropped: { ticketId: string; at: number } | null = null;
+    await openPlatform({
+      droppedAt: (machineId, ticketId) =>
+        machineId === "pc-1" && ticketId === dropped?.ticketId ? dropped.at : null,
+    });
+    for (const end of ["booking", "leave"] as const) {
+      const ticketId = `ticket-${end}`;
+      await offer("pc-1", { price: 120 }); // cents per hour
+      const { bookingId } = await platform.book(730, 60);
+      const claim = await platform.claim(bookingId);
+      assert.ok(claim.ok);
+      await platform.recordTicket(claim.sessionId, ticketId);
+      assert.ok(await platform.startSession("pc-1", claim.sessionId));
+      await beatFor("pc-1", 30 * 60_000);
+      dropped = { ticketId, at: now };
+      await beatFor("pc-1", 90_000);
+      if (end === "booking") assert.ok((await platform.endBooking(bookingId)).ok);
+      else assert.equal(await platform.leaveSession(claim.sessionId, ticketId), "ok");
+      dropped = null;
+      assert.equal(await platform.sessionEndReason(claim.sessionId), "renter");
+      assert.equal((await platform.booking(bookingId))!.price, 60, end);
+    }
+  });
+
   it("names a ticket's session only while that session runs", async () => {
     assert.equal(await platform.ticketSession("ticket-1"), null);
     const id = await session();

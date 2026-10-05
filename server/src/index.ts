@@ -158,6 +158,7 @@ const platform = await Platform.open({
   // host it is open, never on its machine key's heartbeat alone.
   offeredOnlyWhilePresent: attestationConfig.attestedOnly,
   onSessionEnded: sessionEnded,
+  droppedAt: (machineId, ticketId) => grace.droppedAt(machineId, ticketId),
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
   onAvailabilityChanged: () => renterEvents.availabilityChanged(),

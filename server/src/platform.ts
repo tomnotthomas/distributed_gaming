@@ -447,6 +447,12 @@ export type PlatformOptions = {
    */
   offeredOnlyWhilePresent?: boolean;
   onSessionEnded?: (machineId: string, sessionId: string, ticketId: string | null) => void;
+  /**
+   * When the renter holding `ticketId` dropped out of `machineId`'s room and is
+   * still within the reconnect grace (grace.ts), or null: a renter who ends the
+   * session then pays only up to the drop.
+   */
+  droppedAt?: (machineId: string, ticketId: string) => number | null;
   onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   onBookingChanged?: (bookingId: string) => void;
   onAvailabilityChanged?: () => void;
@@ -458,6 +464,7 @@ export class Platform {
   /** What each game needs, on the same database: gate E3 compares a machine with it. */
   readonly #requirements: RequirementsTable;
   readonly #onSessionEnded: (machineId: string, sessionId: string, ticketId: string | null) => void;
+  readonly #droppedAt: (machineId: string, ticketId: string) => number | null;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #onAvailabilityChanged: () => void;
@@ -490,6 +497,7 @@ export class Platform {
     owners = new Map(),
     offeredOnlyWhilePresent = false,
     onSessionEnded = () => {},
+    droppedAt = () => null,
     onSessionClaimed = () => {},
     onBookingChanged = () => {},
     onAvailabilityChanged = () => {},
@@ -499,6 +507,7 @@ export class Platform {
     this.#owners = owners;
     this.#offeredOnlyWhilePresent = offeredOnlyWhilePresent;
     this.#onSessionEnded = onSessionEnded;
+    this.#droppedAt = droppedAt;
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
     this.#onAvailabilityChanged = onAvailabilityChanged;
@@ -1572,13 +1581,20 @@ export class Platform {
     await this.#setStatus(machineId, held ? "idle" : "available");
   }
 
-  /** The renter ended the session at `now`, or never came back after dropping then: closed for `reason`, its machine free again. */
+  /**
+   * The renter ended the session at `now`, or never came back after dropping
+   * then: closed for `reason`, its machine free again. One who ends it while
+   * within the reconnect grace is priced only up to the drop.
+   */
   async #renterEnds(
     session: SessionRow,
     now: number,
     reason: "renter" | "grace_expired" = "renter",
   ): Promise<void> {
-    await this.#endSession(session, Math.max(now, session.started_at ?? now), reason);
+    const dropped =
+      session.ticket_id === null ? null : this.#droppedAt(session.machine_id, session.ticket_id);
+    const end = dropped === null ? now : Math.min(dropped, now);
+    await this.#endSession(session, Math.max(end, session.started_at ?? end), reason);
     const machine = (await this.#get<{ status: MachineStatus }>(
       "SELECT status FROM machines WHERE id = $1",
       session.machine_id,

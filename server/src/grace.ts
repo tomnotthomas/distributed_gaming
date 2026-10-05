@@ -7,7 +7,8 @@
 //                                                     120 s ──► session ends as grace_expired
 //
 // A session that ends as grace_expired is priced only up to the drop, never
-// through the grace, and counts neither for nor against the machine.
+// through the grace, and counts neither for nor against the machine. One the
+// renter ends during the grace is priced only up to the drop as well.
 //
 // The PC keeps the game running meanwhile and lets go of whatever the renter
 // was holding. The renter's page comes back with POST /api/bookings/:id/rejoin,
@@ -41,8 +42,8 @@ export type RenterGrace = {
    * no ticket, whenever its session ended. True when a clock was stopped.
    */
   cancel(hostId: string, ticketId?: string): boolean;
-  /** The ticket whose clock runs for `hostId`, or null. */
-  pending(hostId: string): string | null;
+  /** When the renter with `ticketId` dropped out of `hostId`'s room (Unix ms), while its clock runs; else null. */
+  droppedAt(hostId: string, ticketId: string): number | null;
   /** When `hostId`'s clock runs out (Unix ms), or null when none runs. */
   until(hostId: string): number | null;
 };
@@ -54,7 +55,10 @@ export type RenterGraceOptions = {
 };
 
 export function createRenterGrace({ graceMs, onExpire }: RenterGraceOptions): RenterGrace {
-  const clocks = new Map<string, { ticketId: string; until: number; timer: NodeJS.Timeout }>();
+  const clocks = new Map<
+    string,
+    { ticketId: string; droppedAt: number; until: number; timer: NodeJS.Timeout }
+  >();
 
   const cancel = (hostId: string, ticketId?: string) => {
     const clock = clocks.get(hostId);
@@ -74,10 +78,13 @@ export function createRenterGrace({ graceMs, onExpire }: RenterGraceOptions): Re
         onExpire(hostId, ticketId, droppedAt);
       }, graceMs);
       timer.unref();
-      clocks.set(hostId, { ticketId, until: droppedAt + graceMs, timer });
+      clocks.set(hostId, { ticketId, droppedAt, until: droppedAt + graceMs, timer });
     },
     cancel,
-    pending: (hostId) => clocks.get(hostId)?.ticketId ?? null,
+    droppedAt(hostId, ticketId) {
+      const clock = clocks.get(hostId);
+      return clock?.ticketId === ticketId ? clock.droppedAt : null;
+    },
     until: (hostId) => clocks.get(hostId)?.until ?? null,
   };
 }
