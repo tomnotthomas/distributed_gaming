@@ -282,7 +282,7 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,image-set,gpt,efi,pc,probe}.cjs swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe}.cjs swiff@127.0.0.1:'C:/swiff/desktop/'
 	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'

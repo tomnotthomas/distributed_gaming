@@ -18,6 +18,7 @@ import type { RentalRun } from "../model";
 import { mmss, timeLeft } from "../progress";
 import {
   BIOS_ASKS,
+  biosPath,
   biosTitle,
   chosenTarget,
   codeGroups,
@@ -26,6 +27,7 @@ import {
   hintOf,
   pcChecks,
   failureOf,
+  firmwareGuide,
   otherRoom,
   rentalScreen,
   rentalStepAt,
@@ -48,16 +50,22 @@ type Visual =
   { keys: string[] } | { setting: [string, string] } | { screen: string } | { app: "again" | "wait" };
 type Tile = { title: string; text: string; visual: Visual };
 
-function biosTrip(ids: BiosId[]): Tile[] {
+/** The BIOS trip for these settings, with this PC's key and menu paths where Swiff knows its firmware. */
+function biosTrip(ids: BiosId[], read: RentalRead | null): Tile[] {
+  const guide = read ? firmwareGuide(read) : null;
+  const keys = guide?.keys ?? ["F2", "Del"];
   return [
     {
       title: "Open the BIOS",
-      text: "Restart the PC. While it starts, press F2 or Del a few times.",
-      visual: { keys: ["F2", "Del"] },
+      text:
+        guide?.name === "Surface"
+          ? "Turn the PC off. Hold Volume up, press and let go of Power, and keep holding Volume up until the Surface logo goes."
+          : `Restart the PC. While it starts, press ${keys.join(" or ")} a few times.`,
+      visual: { keys },
     },
     ...ids.map((id) => ({
       title: BIOS_ASKS[id].title,
-      text: BIOS_ASKS[id].hint,
+      text: (read && biosPath(read, id)) ?? BIOS_ASKS[id].hint,
       visual: { setting: [BIOS_ASKS[id].setting, BIOS_ASKS[id].value] as [string, string] },
     })),
     {
@@ -90,19 +98,18 @@ function bitlockerTrip(letter: string): Tile[] {
   ];
 }
 
-/** shim's MokManager, screen by screen, in its own words: enrolling Swiff's key, or removing it. */
+/**
+ * shim's MokManager, screen by screen, in its own words: enrolling Swiff's
+ * key, or removing it. Swiff queues the request with MokTimeout -1, so the
+ * menu comes at once and waits: no 10-second countdown to beat.
+ */
 function blueScreen(remove = false): Tile[] {
   const verb = remove ? "Delete" : "Enroll";
   return [
     {
-      title: "Press any key",
-      text: "Within 10 seconds of the blue screen appearing.",
-      visual: { screen: "Press any key to perform MOK management" },
-    },
-    {
       title: `Choose ${verb} MOK`,
-      text: "Use the arrow keys and Enter.",
-      visual: { screen: `Perform MOK management\n> ${verb} MOK` },
+      text: "The blue screen waits for you. Arrow down, then Enter. Not Continue boot.",
+      visual: { screen: `Perform MOK management\n  Continue boot\n> ${verb} MOK` },
     },
     { title: "Choose Continue", text: "", visual: { screen: `[${verb} MOK]\n> Continue` } },
     { title: "Choose Yes", text: "", visual: { screen: `${verb} the key(s)?\n> Yes` } },
@@ -172,13 +179,17 @@ function Strip({ tiles, label, children }: { tiles: Tile[]; label: string; child
   );
 }
 
-/** The way out when the blue screen is not the one the strip shows: never into Windows from there. */
+/**
+ * The way out when the blue screen is not the one the strip shows: never into
+ * Windows from there. Continue boot without the key goes on into Windows in
+ * the same power-on, which changes what Windows Hello's PIN is sealed to.
+ */
 const NoContinue = () => (
   <p className="mnote">
     <Glyph name="warning" size={16} />
     <span>
-      No Enroll MOK in the menu? Don't choose Continue boot. Hold the power button until the PC turns off,
-      then turn it on again. Windows starts as usual.
+      No Enroll MOK in the menu? Don't choose Continue boot: Windows would then ask you to set your PIN again.
+      Hold the power button until the PC turns off, then turn it on again. Windows starts as usual.
     </span>
   </p>
 );
@@ -380,13 +391,7 @@ function PlanSteps({ plan }: { plan: RentalPlan }) {
 const SecureBootHelp = () => (
   <ul className="mlist">
     <li>If Secure Boot is in Setup Mode, restore the factory keys first. Then turn Secure Boot on.</li>
-    <li>
-      On a Secured-core PC, turn on <i>Allow Microsoft 3rd-party UEFI CA</i> in the Secure Boot settings.
-    </li>
-    <li>
-      If the install says the firmware doesn't trust the Microsoft UEFI CA 2011, restore the BIOS's factory
-      Secure Boot keys.
-    </li>
+    <li>On some BIOSes, Secure Boot turns on only once CSM (Legacy boot) is off.</li>
   </ul>
 );
 
@@ -463,17 +468,6 @@ const WINDOWS_ASKS: Tile[] = [
     text: "Look for a flashing shield on the taskbar and click it.",
     visual: { setting: ["Taskbar", "Shield"] },
   },
-];
-
-/** The BIOS trip for a firmware that refused Swiff OS's shim. */
-const THIRD_PARTY_CA: Tile[] = [
-  biosTrip([])[0]!,
-  {
-    title: "Allow the 3rd-party CA",
-    text: "Under Secure Boot, turn on Allow Microsoft 3rd-party UEFI CA.",
-    visual: { setting: ["3rd-party UEFI CA", "Enabled"] },
-  },
-  ...biosTrip([]).slice(1),
 ];
 
 /** What changed so far: the safety fact, after an info glyph. */
@@ -623,7 +617,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           at={checkedAt}
         />
       );
-      below = <Strip tiles={biosTrip(s.bios)} label="In the BIOS" />;
+      below = <Strip tiles={biosTrip(s.bios, read)} label="In the BIOS" />;
       break;
     }
     case "almost": {
@@ -804,8 +798,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       if (!once)
         extra = (
           <p className="mwarn">
-            Press a key the moment you see <q>Press any key to perform MOK management</q>. It waits only 10
-            seconds.
+            On the blue screen, choose {remove ? "Delete" : "Enroll"} MOK. Never Continue boot.
           </p>
         );
       action = (
@@ -893,6 +886,15 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             <Dial progress={null} big="Waiting" small="for permission" />
           </Plate>
         );
+      else if (f.kind === "bios" && f.bios)
+        plate = (
+          <SettingsPlate
+            where={f.what}
+            rows={[{ name: BIOS_ASKS[f.bios].setting, value: BIOS_ASKS[f.bios].value }]}
+            checking={reading}
+            at={f.at.replace(/^Checked at /, "")}
+          />
+        );
       else if (f.kind === "space" && read)
         plate = (
           <SettingsPlate
@@ -912,6 +914,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           </Plate>
         );
       if (f.kind === "admin") below = <Strip tiles={WINDOWS_ASKS} label="When Windows asks" />;
+      if (f.kind === "bios" && f.bios) below = <Strip tiles={biosTrip([f.bios], read)} label="In the BIOS" />;
       if (s.error)
         links.push({
           id: "why",
@@ -922,29 +925,14 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         });
       break;
     }
-    case "timedout":
-      title = "The blue screen timed out";
-      line =
-        "No key was pressed within 10 seconds, so Swiff's key wasn't confirmed and Windows started instead.";
-      extra = <Changed>Swiff OS is installed. It can't start until its key is confirmed.</Changed>;
-      action = (
-        <Pill icon="refresh" onClick={() => actions.previewRental("mok")}>
-          Restart and try again
-        </Pill>
-      );
-      plate = <ScreenPlate text={"Press any key to perform MOK management\n\n10 seconds"} />;
-      below = (
-        <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
-          <NoContinue />
-        </Strip>
-      );
-      break;
     case "nokey":
-      title = "Windows started without Swiff's key";
-      line = "The key wasn't confirmed on the blue screen, maybe a wrong code or a different choice there.";
+      title = "The key didn't go in";
+      line =
+        "Windows started straight from the blue screen, without Swiff's key. Confirm it again, with a new code.";
       extra = (
         <Changed>
-          Swiff OS is installed. It can't start until its key is confirmed. You get a new code.
+          Swiff OS is installed and Windows works as before. Windows may ask you to set your PIN again, now
+          and once after the next restart. Keep your Microsoft account password ready.
         </Changed>
       );
       action = (
@@ -952,28 +940,12 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           Confirm the key
         </Pill>
       );
-      plate = <ScreenPlate text={"Enroll the key(s)?\n> Yes"} />;
+      plate = <ScreenPlate text={"Perform MOK management\n  Continue boot\n> Enroll MOK"} />;
       below = (
         <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
           <NoContinue />
         </Strip>
       );
-      break;
-    case "blocked":
-      title = "Secure Boot blocked Swiff OS";
-      line =
-        "The BIOS showed a Secure Boot warning and started Windows instead. It needs one setting changed.";
-      extra = <Changed>Swiff OS is installed but can't start yet. Windows works as before.</Changed>;
-      action = again;
-      plate = (
-        <SettingsPlate
-          where="In the BIOS"
-          rows={[{ name: "3rd-party UEFI CA", value: "Enabled" }]}
-          checking={reading}
-          at={checkedAt}
-        />
-      );
-      below = <Strip tiles={THIRD_PARTY_CA} label="In the BIOS" />;
       break;
     case "ask":
       title = "Did the blue screen take your code?";
@@ -1001,7 +973,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           Confirm the key
         </Pill>
       );
-      plate = <ScreenPlate text="Press any key to perform MOK management" />;
+      plate = <ScreenPlate text={"Perform MOK management\n  Continue boot\n> Enroll MOK"} />;
       below = (
         <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
           <NoContinue />

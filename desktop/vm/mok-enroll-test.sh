@@ -9,8 +9,10 @@
 # app's own MokNew and MokAuth (apply-plan.cjs mok), and plays the owner over
 # the serial console (mok-drive.py):
 #
-#   1. a miss: nobody presses a key. MokManager's 10 seconds run out, the
-#      request is gone and nothing is enrolled, so the owner confirms again
+#   1. a miss: MokManager opens its menu at once and waits (MokTimeout -1,
+#      queued with the request): still there after a minute. Then the wrong
+#      choice, Continue boot: the request is gone and nothing is enrolled, so
+#      the owner confirms again
 #   2. again with a new code, as the host app does after a miss: Enroll MOK,
 #      Continue, Yes, the code, Reboot. MokList then holds the certificate
 #
@@ -100,7 +102,7 @@ log "Queue Swiff's key, then miss the screen"
 first=$(code)
 node "$here/apply-plan.cjs" mok "$run/vars.fd" "$run/swiffos-key.cer" "$first"
 "$BOOT_VARS" show "$run/vars.fd" | tee "$run/vars-queued.log"
-boot_vm serial-miss.log miss
+boot_vm serial-miss.log miss 60
 "$BOOT_VARS" show "$run/vars.fd" | tee "$run/vars-missed.log"
 
 # --- 2. queued again, confirmed ---------------------------------------------------------
@@ -123,8 +125,10 @@ expect() { # name detail command...
 }
 der=$(od -An -v -tx1 "$run/swiffos-key.cer" | tr -d ' \n')
 expect queued "$(sed -n 3p "$run/vars-queued.log")" grep -q "^MOK request: MokNew .* MokAuth 32 bytes$" "$run/vars-queued.log"
+expect queued-waits "$(sed -n 4p "$run/vars-queued.log")" grep -q "^MokTimeout: -1$" "$run/vars-queued.log"
+expect wait-used-up "after MokManager: $(sed -n 4p "$run/vars-missed.log")" grep -q "^MokTimeout: none$" "$run/vars-missed.log"
 expect miss-clears "after a miss: $(sed -n 3p "$run/vars-missed.log")" grep -q "^MOK request: none$" "$run/vars-missed.log"
-expect miss-enrols-nothing "after a miss: MokList $(sed -n 4p "$run/vars-missed.log" | cut -c10-30)" \
+expect miss-enrols-nothing "after a miss: MokList $(sed -n 5p "$run/vars-missed.log" | cut -c10-30)" \
 	grep -q "^MokList: none$" "$run/vars-missed.log"
 expect confirm-clears "after confirming: $(sed -n 3p "$run/vars-confirmed.log")" \
 	grep -q "^MOK request: none$" "$run/vars-confirmed.log"

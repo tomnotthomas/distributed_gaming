@@ -55,9 +55,9 @@ export function useDemoHost(screen: DemoScreen): Host & {
   }, [live, now, setLive]);
 
   // Rental mode's own demo: the state the picked screen draws, and a pretend run from there.
-  // Going live needs rental mode ready: the live screens open on a PC where it is.
+  // Going live and getting paid need rental mode ready: their screens open on a PC where it is.
   const rental = useDemoRental(
-    isRentalCase(shown) ? shown : state.step === "live" ? "rental-installed" : null,
+    isRentalCase(shown) ? shown : state.step === "live" || state.step === "paid" ? "rental-installed" : null,
     state.clockAt,
   );
   const rate = buildRate(DEMO_HARDWARE_RATE, state.standing);

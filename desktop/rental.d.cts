@@ -9,6 +9,11 @@ export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 export type RentalFacts = {
   uefi: boolean | null;
   secureBoot: boolean | null;
+  /** Whether the Secure Boot db trusts the CA that signs Swiff OS's shim (SHIM_CA), from this start's measured-boot log. */
+  db: boolean | null;
+  /** Who made the firmware (Win32_BIOS) and the PC (Win32_ComputerSystem); empty when not read. */
+  vendor: { bios: string; maker: string; model: string };
+  cpu: "amd" | "intel" | null;
   tpm: { present: boolean | null; maker: string | null; firmware: boolean | null };
   iommu: boolean | null;
   fastStartup: boolean | null;
@@ -44,12 +49,20 @@ export type InstallRecord = {
   fastStartup: boolean;
   shrink: { letter: string; partition: number; from: number; to: number } | null;
   partitions: { role: string; id: string; offset: number; bytes: number }[];
-  /** Swiff OS's Boot#### number, and Windows' (BootCurrent when the entry was made). */
-  bootEntry: number | null;
-  windowsEntry: number | null;
+  /**
+   * Swiff OS's boot entry, and Windows' (BootCurrent when the entry was made), by what each
+   * starts, never by Boot#### number. Both fields null in a record from before, where only a number was kept.
+   */
+  bootEntry: BootLoader | null;
+  windowsEntry: BootLoader | null;
   labels: { letter: string; from: string }[];
   mok: boolean;
+  /** What the install's first step read as administrator: whether the TPM has an endorsement key certificate. */
+  checked: { ek: boolean } | null;
 };
+
+/** A boot entry by what it starts: the file, on the partition with this GPT id. */
+export type BootLoader = { partition: string | null; path: string | null };
 
 /** Where Swiff OS can go: free space on a disk, or the end of a drive shrunk for it. `start` is in bytes. */
 export type RentalTarget =
@@ -210,7 +223,7 @@ export function mokCode(random?: (max: number) => number): string;
 export function mokRequest(
   cert: Uint8Array,
   code: string,
-): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer };
+): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer; MokTimeout: Buffer };
 export function mokSteps(code: string): PlanStep[];
 export function mokPlan(code?: string): RentalPlan;
 export function installPlan(

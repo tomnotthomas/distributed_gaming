@@ -300,13 +300,13 @@ function apply(op, ctx) {
       return say(op.entry);
     case "mok-import": {
       const request = mokRequest(fs.readFileSync(ctx.cert ?? fileOf(ctx.set, MOK_CERT).path), op.code);
-      const files = ["MokNew", "MokAuth"].map((name) => {
+      const files = ["MokNew", "MokAuth", "MokTimeout"].map((name) => {
         const file = path.join(path.dirname(ctx.vars), `${name}.bin`);
         fs.writeFileSync(file, request[name]);
         return file;
       });
       bootVars(["mok", ctx.vars, ...files]);
-      return say(`MokNew ${request.MokNew.length} bytes, MokAuth`);
+      return say(`MokNew ${request.MokNew.length} bytes, MokAuth, MokTimeout -1`);
     }
     default:
       throw new Error(`unknown op ${op.op}`);
@@ -336,7 +336,9 @@ else if (cmd === "install") {
   run(switchPlan(args[0]), { vars: args[1] });
 } else if (cmd === "mok") {
   const [vars, cert, code] = args;
-  run({ steps: mokSteps(code).filter((step) => step.id === "mok") }, { vars, cert });
+  // The request alone: this VM boots its ESP as the firmware's own disk entry, with no Swiff OS entry for BootNext.
+  const [mok] = mokSteps(code);
+  run({ steps: [{ ...mok, ops: mok.ops.filter((op) => op.op === "mok-import") }] }, { vars, cert });
 } else {
   console.error("usage: apply-plan.cjs windows|facts|install|switch|mok ...");
   process.exit(2);

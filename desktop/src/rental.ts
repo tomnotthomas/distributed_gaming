@@ -16,12 +16,11 @@ import { clock, shortGpu } from "./format";
 /**
  *   ok       ready
  *   swiff    not ready, and the install changes it
- *   unchecked  needs administrator rights to read: not checked yet, and not ready
- *   bios     the owner changes it in the BIOS setup
+ *   bios     the owner changes it in the BIOS setup: only when a read shows it missing
  *   blocked  rental mode cannot run until the owner changes it in Windows
- *   unread   could not be read; not held against the PC
+ *   unread   could not be read, or is read by the install's administrator step; not held against the PC
  */
-export type CheckState = "ok" | "swiff" | "unchecked" | "bios" | "blocked" | "unread";
+export type CheckState = "ok" | "swiff" | "bios" | "blocked" | "unread";
 
 export type RentalCheck = { id: string; label: string; value: string; state: CheckState; bios?: string };
 
@@ -102,9 +101,30 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
               bios: "Turn on the IOMMU (AMD-Vi or Intel VT-d) and Kernel DMA Protection.",
             }),
     },
-    // The Secure Boot db and the TPM's endorsement certificate need administrator rights to read.
-    { id: "db", label: "Microsoft UEFI CA 2011", value: "Checked when you install", state: "unchecked" },
-    { id: "ek", label: "TPM certificate", value: "Checked when you install", state: "unchecked" },
+    // From this start's measured-boot log: the db the firmware measured.
+    {
+      id: "ca",
+      label: "Microsoft UEFI CA 2011",
+      ...(facts.db === null
+        ? { value: "Read when you install", state: "unread" }
+        : facts.db
+          ? { value: "Trusted", state: "ok" }
+          : {
+              value: "Not trusted",
+              state: "bios",
+              bios: "Allow the Microsoft 3rd-party UEFI CA.",
+            }),
+    },
+    // Needs administrator rights: the install's first step reads it, and its record keeps it.
+    {
+      id: "ek",
+      label: "TPM certificate",
+      ...(facts.install?.checked
+        ? facts.install.checked.ek
+          ? { value: "Present", state: "ok" }
+          : { value: "None: lower tier", state: "ok" }
+        : { value: "Read when you install", state: "unread" }),
+    },
   ] as RentalCheck[];
 }
 
@@ -179,7 +199,7 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
 // read) is never held against the PC.
 
 /** The BIOS settings Swiff OS needs, as the owner finds them in the setup screen. */
-export type BiosId = "uefi" | "secure-boot" | "tpm" | "iommu";
+export type BiosId = "uefi" | "secure-boot" | "ca" | "tpm" | "iommu";
 
 export type BiosAsk = { setting: string; value: string; title: string; hint: string };
 
@@ -196,6 +216,12 @@ export const BIOS_ASKS: Record<BiosId, BiosAsk> = {
     title: "Turn on Secure Boot",
     hint: "Usually under Boot or Security.",
   },
+  ca: {
+    setting: "3rd-party UEFI CA",
+    value: "Allowed",
+    title: "Allow the 3rd-party UEFI CA",
+    hint: "In the Secure Boot settings. No such switch? Restore the factory Secure Boot keys.",
+  },
   tpm: {
     setting: "fTPM / PTT",
     value: "Enabled",
@@ -209,6 +235,195 @@ export const BIOS_ASKS: Record<BiosId, BiosAsk> = {
     hint: "Called AMD-Vi or Intel VT-d. Turn on Kernel DMA Protection too, if you see it.",
   },
 };
+
+// --- where the settings are, on this PC's firmware ----------------------------------------
+//
+// The BIOS setup screens differ by maker. Where the read names one this table
+// knows (the PC's maker, else the firmware's), the strip names its key and its
+// menu path; otherwise it keeps the general hints above.
+
+type Paths = Partial<Record<BiosId, string | { amd: string; intel: string }>>;
+export type FirmwareGuide = { name: string; keys: string[]; paths: Paths };
+
+const AMI: FirmwareGuide = {
+  name: "AMI Aptio",
+  keys: ["Del", "F2"],
+  paths: {
+    uefi: "Advanced → CSM Configuration → CSM Support: Disabled",
+    "secure-boot": "Security → Secure Boot → Secure Boot: Enabled",
+    ca: "Security → Secure Boot → Key Management → Restore Factory Keys",
+    tpm: "Advanced → Trusted Computing → Security Device Support: Enable",
+    iommu: {
+      amd: "Advanced → AMD CBS → NBIO Common Options → IOMMU: Enabled",
+      intel: "Chipset → System Agent (SA) Configuration → VT-d: Enabled",
+    },
+  },
+};
+
+/** By the PC's maker (Win32_ComputerSystem), then by the firmware's (Win32_BIOS). */
+const GUIDES: { maker?: RegExp; bios?: RegExp; guide: FirmwareGuide }[] = [
+  {
+    maker: /lenovo/i,
+    guide: {
+      name: "Lenovo",
+      keys: ["F1", "F2"],
+      paths: {
+        uefi: "Startup → UEFI/Legacy Boot: UEFI Only",
+        "secure-boot": "Security → Secure Boot → Secure Boot: On",
+        ca: "Security → Secure Boot → Allow Microsoft 3rd Party UEFI CA: On",
+        tpm: "Security → Security Chip → Security Chip: Enabled",
+        iommu: "Security → Virtualization → Kernel DMA Protection: On",
+      },
+    },
+  },
+  {
+    maker: /dell/i,
+    guide: {
+      name: "Dell",
+      keys: ["F2"],
+      paths: {
+        uefi: "Boot Configuration → Enable Legacy Option ROMs: Off",
+        "secure-boot": "Boot Configuration → Secure Boot → Enable Secure Boot: On",
+        ca: "Boot Configuration → Secure Boot → Enable Microsoft UEFI CA: On",
+        tpm: "Security → TPM 2.0 Security: On",
+        iommu: "Virtualization → Enable Intel VT for Direct I/O: On",
+      },
+    },
+  },
+  {
+    maker: /^(hp|hewlett)/i,
+    guide: {
+      name: "HP",
+      keys: ["Esc", "F10"],
+      paths: {
+        uefi: "Advanced → Boot Options → Legacy Support: Disabled",
+        "secure-boot": "Advanced → Secure Boot Configuration → Secure Boot: Enabled",
+        ca: "Advanced → Secure Boot Configuration → Enable MS UEFI CA key: On",
+        tpm: "Security → TPM Embedded Security → TPM State: Enabled",
+        iommu: "Advanced → System Options → Virtualization Technology for Directed I/O: On",
+      },
+    },
+  },
+  {
+    maker: /asus/i,
+    guide: {
+      name: "ASUS",
+      keys: ["Del", "F2"],
+      paths: {
+        uefi: "Advanced Mode (F7) → Boot → CSM → Launch CSM: Disabled",
+        "secure-boot": "Advanced Mode (F7) → Boot → Secure Boot → OS Type: Windows UEFI mode",
+        ca: "Advanced Mode (F7) → Boot → Secure Boot → Key Management → Install default Secure Boot keys",
+        tpm: {
+          amd: "Advanced Mode (F7) → Advanced → AMD fTPM configuration → Firmware TPM",
+          intel: "Advanced Mode (F7) → Advanced → PCH-FW Configuration → PTT: Enable",
+        },
+        iommu: {
+          amd: "Advanced Mode (F7) → Advanced → AMD CBS → NBIO Common Options → IOMMU: Enabled",
+          intel: "Advanced Mode (F7) → Advanced → System Agent (SA) Configuration → VT-d: Enabled",
+        },
+      },
+    },
+  },
+  {
+    maker: /micro-star|^msi/i,
+    guide: {
+      name: "MSI",
+      keys: ["Del"],
+      paths: {
+        uefi: "Settings → Advanced → Windows OS Configuration → BIOS UEFI/CSM Mode: UEFI",
+        "secure-boot": "Settings → Security → Secure Boot → Secure Boot: Enabled",
+        ca: "Settings → Security → Secure Boot → Restore Factory Keys",
+        tpm: "Settings → Security → Trusted Computing → Security Device Support: Enable",
+        iommu: {
+          amd: "OC → CPU Features → IOMMU: Enabled",
+          intel: "OC → CPU Features → Intel VT-D Tech: Enabled",
+        },
+      },
+    },
+  },
+  {
+    maker: /gigabyte/i,
+    guide: {
+      name: "Gigabyte",
+      keys: ["Del"],
+      paths: {
+        uefi: "Boot → CSM Support: Disabled",
+        "secure-boot": "Boot → Secure Boot → Secure Boot: Enabled",
+        ca: "Boot → Secure Boot → Restore Factory Keys",
+        tpm: {
+          amd: "Settings → Miscellaneous → AMD CPU fTPM: Enabled",
+          intel: "Settings → Miscellaneous → Intel Platform Trust Technology (PTT): Enabled",
+        },
+        iommu: {
+          amd: "Settings → Miscellaneous → IOMMU: Enabled",
+          intel: "Settings → Miscellaneous → VT-d: Enabled",
+        },
+      },
+    },
+  },
+  {
+    maker: /asrock/i,
+    guide: {
+      name: "ASRock",
+      keys: ["F2", "Del"],
+      paths: {
+        uefi: "Boot → CSM (Compatibility Support Module) → CSM: Disabled",
+        "secure-boot": "Security → Secure Boot → Secure Boot: Enabled",
+        ca: "Security → Secure Boot → Install Default Secure Boot Keys",
+        tpm: {
+          amd: "Advanced → CPU Configuration → AMD fTPM switch: AMD CPU fTPM",
+          intel: "Security → Intel Platform Trust Technology: Enabled",
+        },
+        iommu: {
+          amd: "Advanced → AMD CBS → NBIO Common Options → IOMMU: Enabled",
+          intel: "Advanced → Chipset Configuration → VT-d: Enabled",
+        },
+      },
+    },
+  },
+  {
+    maker: /microsoft/i,
+    guide: {
+      name: "Surface",
+      keys: ["Vol +"],
+      paths: {
+        "secure-boot": "Security → Secure Boot → Change configuration → Microsoft & 3rd party CA",
+        ca: "Security → Secure Boot → Change configuration → Microsoft & 3rd party CA",
+      },
+    },
+  },
+  { bios: /american megatrends|^ami\b/i, guide: AMI },
+  {
+    bios: /insyde/i,
+    guide: {
+      name: "Insyde",
+      keys: ["F2"],
+      paths: {
+        uefi: "Boot → Boot Mode: UEFI",
+        "secure-boot": "Boot → Secure Boot: Enabled",
+        ca: "Security → Restore Secure Boot to Factory Default",
+      },
+    },
+  },
+];
+
+/** This PC's BIOS setup as far as the table knows it; null when it does not. */
+export function firmwareGuide({ facts }: RentalRead): FirmwareGuide | null {
+  const vendor = facts.vendor ?? { bios: "", maker: "", model: "" };
+  return (
+    GUIDES.find((g) => g.maker?.test(vendor.maker))?.guide ??
+    GUIDES.find((g) => g.bios?.test(vendor.bios))?.guide ??
+    null
+  );
+}
+
+/** The menu path to `id` on this PC's firmware; null when the table has none. */
+export function biosPath(read: RentalRead, id: BiosId): string | null {
+  const path = firmwareGuide(read)?.paths[id];
+  if (!path) return null;
+  if (typeof path === "string") return path;
+  return read.facts.cpu ? path[read.facts.cpu] : null;
+}
 
 /** A to-do in Windows: what to do, why, and what the plate shows to set. */
 export type WindowsTodo = { id: "games" | "space"; title: string; line: string; setting: [string, string] };
@@ -236,12 +451,8 @@ export type RentalStage =
   | { kind: "ask" }
   /** The key was not confirmed: a new code, and one more restart. */
   | { kind: "key" }
-  /** Found after the restart, in this start's boot log: the 10 seconds passed. */
-  | { kind: "timedout" }
-  /** Windows started straight after shim, without the key. */
+  /** Found after the restart, in this start's boot log: Windows started straight after shim, without the key. */
   | { kind: "nokey" }
-  /** The firmware refused to start Swiff OS's shim: a BIOS setting. */
-  | { kind: "blocked" }
   /** Back in Windows after a live run in Swiff OS: what it did, once. */
   | { kind: "back"; live: LastLive }
   | { kind: "installed" };
@@ -305,8 +516,7 @@ export function rentalStage({
       return live && live.to !== liveSeen ? { kind: "back", live } : { kind: "installed" };
     }
     if (key?.state === "missed") return { kind: "key" };
-    if (key?.state === "timedout" || key?.state === "nokey" || key?.state === "blocked")
-      return { kind: key.state };
+    if (key?.state === "nokey") return { kind: "nokey" };
     // Restarted since the request, or installed before the app kept track: the owner knows.
     return { kind: "ask" };
   }
@@ -427,9 +637,7 @@ export function rentalStepAt(setup: RentalSetup): number {
       return 3;
     case "ask":
     case "key":
-    case "timedout":
     case "nokey":
-    case "blocked":
       return 2;
     case "restart":
     case "restarting":
@@ -455,6 +663,21 @@ export const rentalReady = (setup: RentalSetup): boolean => {
   const kind = rentalStage(setup).kind;
   return kind === "installed" || kind === "back";
 };
+
+/**
+ * Go live and Get paid open only once rental mode is ready: before that they
+ * could only send the owner back to it. A PC already live keeps them, and
+ * development builds that share this Windows desktop (`share`) go live without it.
+ */
+export function stepLocked(
+  step: string,
+  view: { rental: RentalSetup; live: { kind: string } },
+  share = false,
+): boolean {
+  return (
+    (step === "live" || step === "paid") && !share && view.live.kind === "off" && !rentalReady(view.rental)
+  );
+}
 
 /** Where rental mode stands, in a few words: the rail's line under it. */
 export function rentalLine(setup: RentalSetup): string {
@@ -491,11 +714,8 @@ export function rentalLine(setup: RentalSetup): string {
     case "ask":
     case "key":
       return "Confirm the key";
-    case "timedout":
     case "nokey":
       return "Key not confirmed";
-    case "blocked":
-      return "Blocked at startup";
     case "installed":
     case "back":
       return "Ready";
@@ -508,7 +728,7 @@ export function rentalLine(setup: RentalSetup): string {
 // different on the PC so far (from the steps that finished), and the one thing
 // to do next. Windows' own words wait behind "What happened, in detail".
 
-export type FailureKind = "admin" | "write" | "space" | "removal" | "restart" | "unknown";
+export type FailureKind = "admin" | "bios" | "write" | "space" | "removal" | "restart" | "unknown";
 
 export type Failure = {
   kind: FailureKind;
@@ -525,7 +745,18 @@ export type Failure = {
   what: string;
   at: string;
   far: string;
+  /** For a BIOS setting the administrator check found missing: which one. */
+  bios?: BiosId;
 };
+
+/** The BIOS setting the install's administrator check found missing, from its error; null for any other error. */
+export function checkBios(error: string): BiosId | null {
+  if (/Secure Boot is off/i.test(error)) return "secure-boot";
+  if (/not supported on this platform/i.test(error)) return "uefi";
+  if (/TPM is not ready/i.test(error)) return "tpm";
+  if (/does not trust/i.test(error)) return "ca";
+  return null;
+}
 
 /** What a finished step left changed on the PC, in the owner's words; null for the ones that leave nothing to know. */
 function changeOf(plan: RentalPlan, step: PlanStep): string | null {
@@ -611,6 +842,24 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       at: "Not started",
       far: "not started",
     };
+  const bios = step?.id === "check" ? checkBios(error) : null;
+  if (bios)
+    return {
+      kind: "bios",
+      bios,
+      title: BIOS_ASKS[bios].title,
+      why:
+        bios === "ca"
+          ? "Swiff checked the BIOS's Secure Boot keys as administrator: they don't allow the Microsoft 3rd-party UEFI CA, which signs Swiff OS's start."
+          : "Swiff checked this PC as administrator, and the BIOS has this setting off.",
+      changed: "Nothing on this PC has changed. Change the setting, then check again.",
+      action: "check",
+      label: "Check again",
+      rail: "BIOS setting",
+      what: "In the BIOS",
+      at: stoppedAt ? `Checked at ${stoppedAt}` : "",
+      far: "",
+    };
   const letter = plan.target?.kind === "shrink" ? plan.target.letter : "C";
   if ((step?.id === "room" || step?.id === "check") && /shrink/i.test(error)) {
     const other = otherRoom(read, letter);
@@ -685,36 +934,3 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
 }
 
 const install = (read: RentalRead | null) => read?.facts.install ?? null;
-
-/** The owner's next rental to-do in a few words, for the screens that wait on rental mode (Go live). */
-export function rentalNext(setup: RentalSetup): string {
-  const s = rentalStage(setup);
-  switch (s.kind) {
-    case "reading":
-      return "Swiff is checking this PC";
-    case "unread":
-      return "Check this PC again";
-    case "resume":
-      return "Continue the install";
-    case "windows":
-      return s.todos[0]!.title;
-    case "bios":
-      return `${biosTitle(s.bios)} in the BIOS`;
-    case "almost":
-      return "Wait for the Swiff OS update for this graphics card";
-    case "ready":
-      return "Install rental mode";
-    case "restart":
-      return "Restart to confirm Swiff's key";
-    case "blocked":
-      return "Allow the 3rd-party UEFI CA in the BIOS";
-    case "ask":
-    case "key":
-    case "timedout":
-    case "nokey":
-      return "Confirm Swiff's key";
-    case "installed":
-    case "back":
-      return "Go live";
-  }
-}

@@ -127,8 +127,7 @@ const installed = (key: NonNullable<RentalRead["key"]> | null): RentalRead => ({
   installed: true,
   key,
 });
-const keyAs = (state: "ask" | "confirmed" | "missed" | "timedout" | "nokey" | "blocked") =>
-  installed({ state, code: null });
+const keyAs = (state: "ask" | "confirmed" | "missed" | "nokey") => installed({ state, code: null });
 
 /** The run of a plan at step `at` (its index), the steps before it done. */
 function runAt(plan: RentalPlan, at: number, state: "running" | "failed", elapsed: number): RentalRun {
@@ -282,12 +281,20 @@ function startOf(c: RentalCase): Start {
           failed: { step: "room", error: "C: cannot shrink by 24 GB." },
         },
       };
-    case "rental-timedout":
-      return { ...idle, read: keyAs("timedout") };
     case "rental-nokey":
       return { ...idle, read: keyAs("nokey") };
-    case "rental-blocked":
-      return { ...idle, read: keyAs("blocked") };
+    case "rental-ca":
+      return { ...idle, read: { ...ready, facts: { ...ready.facts, db: false } } };
+    case "rental-fail-bios":
+      return {
+        ...idle,
+        read: ready,
+        preview: INSTALL,
+        run: {
+          ...runAt(INSTALL, 0, "failed", 4),
+          failed: { step: "check", error: "Secure Boot is off." },
+        },
+      };
     case "rental-fail-removal":
       return {
         ...idle,

@@ -8,8 +8,7 @@ import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
 import { WINDOWS_SHARE } from "../devShare";
-import { failureOf, rentalNext, rentalReady, rentalScreen } from "../rental";
-import { Dial } from "../ui/Dial";
+import { failureOf, rentalScreen } from "../rental";
 import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
 import type { Crew } from "../report";
@@ -156,38 +155,13 @@ export function CrewPicker({
 
 /**
  * Go live, in rental mode: the PC restarts into Swiff OS, where players book
- * it. Reachable only once rental mode is ready; until then the screen names
- * the next rental to-do and leads back to it. Holding the button is the
- * owner's OK: the restart follows by itself.
+ * it. Holding the button is the owner's OK: the restart follows by itself.
  */
 export function GoLive(props: ScreenProps) {
-  const { view, actions, go } = props;
+  const { view, actions } = props;
   if (WINDOWS_SHARE) return <GoLiveWindows {...props} />;
+  // Reachable only once rental mode is ready (stepLocked): the shell shows rental mode until then.
   const setup = view.rental;
-  if (!rentalReady(setup) && setup.preview?.kind !== "once")
-    return (
-      <main className="step">
-        <section className="hz">
-          <div className="cp">
-            <p className="mono ctx">Go live</p>
-            <h1>Finish rental mode first</h1>
-            <p className="ln">
-              Players book this PC in rental mode. Next:{" "}
-              {rentalNext(setup).replace(/^\w/, (c) => c.toLowerCase())}.
-            </p>
-            <div className="acts">
-              <Pill icon="arrow" onClick={() => go("rental")}>
-                Open rental mode
-              </Pill>
-            </div>
-          </div>
-          <Plate caption={["Go live", "Not live yet"]}>
-            <Dial off big="Not live" small="rental mode first" />
-          </Plate>
-        </section>
-        <i className="ruler" aria-hidden="true" />
-      </main>
-    );
   const s = rentalScreen(setup);
   const busy = s.kind === "elevating" || s.kind === "running" || s.kind === "restarting";
   const status =

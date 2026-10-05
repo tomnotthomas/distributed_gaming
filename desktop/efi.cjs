@@ -12,7 +12,7 @@ const crypto = require("node:crypto");
 /** EFI_GLOBAL_VARIABLE: Boot####, BootOrder, BootNext, BootCurrent. */
 const GLOBAL = "8be4df61-93ca-11d2-aa0d-00e098032b8c";
 
-/** shim's variables' GUID (SHIM_LOCK_GUID): MokNew, MokAuth, MokDel, MokDelAuth, MokList. */
+/** shim's variables' GUID (SHIM_LOCK_GUID): MokNew, MokAuth, MokDel, MokDelAuth, MokTimeout, MokList. */
 const SHIM_LOCK = "605dab50-e046-4300-abb6-3dd810dd8b23";
 
 /** EFI_CERT_X509_GUID: a signature list entry that holds an X.509 certificate. */
@@ -93,13 +93,22 @@ function parseLoadOption(bytes) {
   while (at + 1 < b.length && b.readUInt16LE(at) !== 0) at += 2;
   if (at + 1 >= b.length) return null;
   const title = b.subarray(6, at).toString("utf16le");
-  const paths = b.subarray(at + 2, at + 2 + pathsLength);
+  const { partition, file } = parseDevicePath(b.subarray(at + 2, at + 2 + pathsLength));
+  return { active: (b.readUInt32LE(0) & ACTIVE) === ACTIVE, title, partition, file };
+}
+
+/**
+ * The GPT partition id and the file a device path names, from its HD() and
+ * File() nodes; either null when it has none. Some firmware splits the path
+ * into one node per folder: \EFI, \swiff, \shimx64.efi.
+ */
+function parseDevicePath(bytes) {
+  const paths = Buffer.from(bytes);
   let partition = null;
-  // Some firmware splits the path into one node per folder: \EFI, \swiff, \shimx64.efi.
   const files = [];
   for (let p = 0; p + 4 <= paths.length;) {
     const [type, sub, len] = [paths[p], paths[p + 1], paths.readUInt16LE(p + 2)];
-    if (len < 4 || type === 0x7f) break;
+    if (len < 4 || p + len > paths.length || type === 0x7f) break;
     if (type === 0x04 && sub === 0x01 && len === 42) partition = guidText(paths.subarray(p + 24, p + 40));
     if (type === 0x04 && sub === 0x04)
       files.push(
@@ -115,7 +124,7 @@ function parseLoadOption(bytes) {
         .map((f, i) => (i === 0 ? f : f.replace(/^\\*/, "")))
         .reduce((a, f) => (a.endsWith("\\") ? a + f : `${a}\\${f}`))
     : null;
-  return { active: (b.readUInt32LE(0) & ACTIVE) === ACTIVE, title, partition, file };
+  return { partition, file };
 }
 
 /**
@@ -168,13 +177,25 @@ function certList(cert) {
 }
 
 /**
- * The two variables that ask MokManager to enrol (`delete: false`) or remove
- * (`delete: true`) `cert` with `code`, by name.
+ * MokTimeout as `mokutil --timeout -1` sets it: an INT32, -1. MokManager then
+ * opens its menu at once and waits for the owner, instead of its 10-second
+ * "Press any key" countdown, after which it drops the request and shim goes on,
+ * into Windows in the same power-on (which changes PCR 7: Windows Hello's PIN
+ * and BitLocker are sealed to it). MokManager deletes it as it reads it, so it
+ * is set with every request.
+ */
+const MOK_WAIT = Buffer.from([0xff, 0xff, 0xff, 0xff]);
+
+/**
+ * The variables that ask MokManager to enrol (`delete: false`) or remove
+ * (`delete: true`) `cert` with `code`, by name, and that it wait for the owner.
  */
 function mokVariables(cert, code, { remove = false } = {}) {
   const list = certList(cert);
   const auth = crypto.createHash("sha256").update(list).update(Buffer.from(code, "utf16le")).digest();
-  return remove ? { MokDel: list, MokDelAuth: auth } : { MokNew: list, MokAuth: auth };
+  return remove
+    ? { MokDel: list, MokDelAuth: auth, MokTimeout: MOK_WAIT }
+    : { MokNew: list, MokAuth: auth, MokTimeout: MOK_WAIT };
 }
 
 /** Whether a MokList (EFI_SIGNATURE_LIST entries) holds `cert`. */
@@ -206,11 +227,13 @@ module.exports = {
   bootIndex,
   loadOption,
   parseLoadOption,
+  parseDevicePath,
   samePath,
   orderBytes,
   orderOf,
   placeIn,
   certList,
+  MOK_WAIT,
   mokVariables,
   mokListHas,
 };

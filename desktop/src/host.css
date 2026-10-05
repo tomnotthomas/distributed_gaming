@@ -180,7 +180,8 @@ body {
   width: 1px;
   background: var(--ln2);
 }
-.pt button {
+.pt button,
+.ptlock {
   position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -195,6 +196,11 @@ body {
 }
 .pt.done button {
   color: var(--t2);
+}
+/* A step that waits for an earlier one: plain text, no hover, no pointer. */
+.ptlock {
+  cursor: default;
+  opacity: 0.55;
 }
 .pt.now button {
   color: var(--t1);

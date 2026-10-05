@@ -289,6 +289,12 @@ describe("firmware variables", () => {
     expect(efi.mokListHas(MokNew, Buffer.from("00", "hex"))).toBe(false);
     expect(efi.mokListHas(null, CERT)).toBe(false);
   });
+
+  it("asks MokManager to wait for the owner with each request: MokTimeout -1, as mokutil --timeout -1", () => {
+    expect(efi.mokVariables(CERT, "12345678").MokTimeout!.readInt32LE(0)).toBe(-1);
+    expect(efi.mokVariables(CERT, "12345678", { remove: true }).MokTimeout!.readInt32LE(0)).toBe(-1);
+    expect(mokRequest(CERT, "12345678").MokTimeout.equals(efi.MOK_WAIT)).toBe(true);
+  });
 });
 
 describe("running a plan", () => {
@@ -371,17 +377,22 @@ describe("the elevated worker", () => {
     const { MokNew, MokAuth } = mokRequest(CERT, "48217730");
     expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokNew"))!.equals(MokNew)).toBe(true);
     expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokAuth"))!.equals(MokAuth)).toBe(true);
+    // MokManager waits for the owner instead of counting 10 seconds down into Windows.
+    expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokTimeout"))!.readInt32LE(0)).toBe(-1);
     expect(pc.shell.at(-1)).toMatch(/^shutdown \/r \/t 5/m);
     const record = installOf(worker.state())!;
+    // Each boot entry by what it starts, never by its Boot#### number.
     expect(record).toMatchObject({
       complete: true,
       disk: 0,
-      bootEntry: 1,
-      windowsEntry: 0,
+      bootEntry: { partition: ID(0), path: "\\EFI\\swiff\\shimx64.efi" },
+      windowsEntry: { path: expect.stringMatching(/bootmgfw\.efi$/i) },
       bitlocker: "C",
       fastStartup: true,
       mok: true,
+      checked: { ek: true },
     });
+    expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
     // Once: BootNext alone.
@@ -468,7 +479,11 @@ describe("the elevated worker", () => {
     const set = await setup();
     const plan = installPlan(rentalOf(set.pc.facts(), []), { layout: set.layout });
     await runPlan(plan, { apply: skipping(set.worker.apply), only: ["room", "partitions", "boot-entry"] });
-    expect(installOf(set.worker.state())!.bootEntry).toBe(1);
+    expect(installOf(set.worker.state())!.bootEntry).toEqual({
+      partition: ID(0),
+      path: "\\EFI\\swiff\\shimx64.efi",
+    });
+    expect(set.pc.vars.has(set.pc.key(efi.GLOBAL, "Boot0001"))).toBe(true);
     return set;
   }
 
@@ -490,7 +505,11 @@ describe("the elevated worker", () => {
     pc.vars.set(pc.key(efi.GLOBAL, "BootOrder"), efi.orderBytes([0]));
     await expect(worker.apply({ op: "boot-next", entry: "swiff" })).resolves.toEqual({ entry: 5 });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([5]);
-    expect(installOf(worker.state())!.bootEntry).toBe(5);
+    // The record does not change: it names what the entry starts, which did not move.
+    expect(installOf(worker.state())!.bootEntry).toEqual({
+      partition: ID(0),
+      path: "\\EFI\\swiff\\shimx64.efi",
+    });
     await worker.apply({ op: "boot-first", entry: "swiff" });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([5, 0]);
     // No new entry was made on the way.
@@ -510,7 +529,10 @@ describe("the elevated worker", () => {
     });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder"))).at(-1)).toBe(2);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([2]);
-    expect(installOf(worker.state())).toMatchObject({ bootEntry: 2, windowsEntry: 0 });
+    expect(installOf(worker.state())).toMatchObject({
+      bootEntry: { partition: ID(0), path: "\\EFI\\swiff\\shimx64.efi" },
+      windowsEntry: { path: expect.stringMatching(/bootmgfw\.efi$/i) },
+    });
     // Removing takes only its own entry away.
     await worker.apply({ op: "boot-entry-remove" });
     expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0002"))).toBe(false);
@@ -526,6 +548,46 @@ describe("the elevated worker", () => {
     expect(installOf(worker.state())!.bootEntry).toBeNull();
     await expect(worker.apply({ op: "boot-entry-remove" })).resolves.toEqual({});
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0]);
+  });
+
+  it("puts Windows first again by what its entry starts, wherever the firmware renumbered it", async () => {
+    const { pc, worker } = await withEntry();
+    const windows = pc.vars.get(pc.key(efi.GLOBAL, "Boot0000"))!;
+    pc.vars.delete(pc.key(efi.GLOBAL, "Boot0000"));
+    pc.vars.set(pc.key(efi.GLOBAL, "Boot0007"), windows);
+    pc.vars.set(pc.key(efi.GLOBAL, "BootOrder"), efi.orderBytes([1, 7]));
+    await worker.apply({ op: "boot-first", entry: "windows" });
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([7, 1]);
+  });
+
+  it("turns a record from before, with Boot#### numbers, into what each entry starts", async () => {
+    const { pc, layout } = await setup();
+    const plan = installPlan(rentalOf(pc.facts(), []), { layout });
+    const first = await createWorker({ imageDir: path.join(dir, "image"), win: pc.win });
+    await runPlan(plan, { apply: skipping(first.apply), only: ["room", "partitions", "boot-entry"] });
+    // As the GEEKOM's record was written: numbers, version 1.
+    const file = path.join(dir, "state", "rental-install.json");
+    const old = { ...JSON.parse(fs.readFileSync(file, "utf8")), version: 1, bootEntry: 1, windowsEntry: 0 };
+    fs.writeFileSync(file, JSON.stringify(old));
+    expect(installOf(old)!.bootEntry).toEqual({ partition: null, path: null });
+    const worker = await createWorker({ imageDir: path.join(dir, "image"), win: pc.win });
+    expect(worker.state()).toMatchObject({
+      version: 2,
+      bootEntry: { partition: ID(0), path: "\\EFI\\swiff\\shimx64.efi" },
+      windowsEntry: { path: expect.stringMatching(/bootmgfw\.efi$/i) },
+    });
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).bootEntry).toEqual({
+      partition: ID(0),
+      path: "\\EFI\\swiff\\shimx64.efi",
+    });
+  });
+
+  it("asks MokManager to wait with every Swiff OS start, and takes that back with the request", async () => {
+    const { pc, worker } = await withEntry();
+    await worker.apply({ op: "boot-next", entry: "swiff" });
+    expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokTimeout"))!.equals(efi.MOK_WAIT)).toBe(true);
+    await worker.apply({ op: "mok-cancel" });
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokTimeout"))).toBe(false);
   });
 
   it("reads BootNext back, and fails the restart's step when the firmware did not keep it", async () => {

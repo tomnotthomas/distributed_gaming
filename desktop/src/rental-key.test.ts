@@ -1,11 +1,27 @@
 // @vitest-environment node
 // Swiff's key, as far as the app can know it (rental-key.cjs): Windows cannot
 // read whether MokManager enrolled it, so the app remembers what it queued and
-// when, reads this start's measured-boot log for a blue screen that fell
-// through into Windows, and otherwise asks the owner.
+// when, reads this start's measured-boot log for shim starting Swiff's boot
+// loader (the key works) or falling through into Windows (it does not), and
+// otherwise asks the owner.
 
 import { describe, expect, it } from "vitest";
 import { bootTrail, keyOf, keyStore, savedOf } from "../rental-key.cjs";
+import { bootVariable, MOK_MANAGER, SHIM, started, tcgLog, WINDOWS } from "./test/tcgLog";
+
+/** A boot trail: what one power-on started, at `at`. */
+const trail = (
+  at: number,
+  more: Partial<{ shim: boolean; mokManager: number; loader: boolean; windowsAfterShim: boolean }> = {},
+) => ({
+  at,
+  apps: [],
+  shim: false,
+  mokManager: 0,
+  loader: false,
+  windowsAfterShim: false,
+  ...more,
+});
 
 /** A file system in memory, as much of one as rental-key.cjs uses. */
 function memoryFs(files: Record<string, Buffer | string> = {}, times: Record<string, number> = {}) {
@@ -26,13 +42,6 @@ function memoryFs(files: Record<string, Buffer | string> = {}, times: Record<str
   } as unknown as typeof import("node:fs") & { map: Map<string, Buffer> };
 }
 
-/** A TCG log's bytes with these UTF-16 device paths in it, `shift` bytes off the even alignment. */
-const log = (paths: string[], shift = 0) =>
-  Buffer.concat([
-    Buffer.alloc(shift),
-    ...paths.map((p) => Buffer.concat([Buffer.from(p, "utf16le"), Buffer.alloc(8)])),
-  ]);
-
 describe("Swiff's key, as the app knows it", () => {
   const queued = { code: "48217730", queuedAt: 1000, answer: null };
 
@@ -42,10 +51,7 @@ describe("Swiff's key, as the app knows it", () => {
 
   it("asks the owner once the PC has restarted, when the boot log shows nothing", () => {
     expect(keyOf(queued, 2000)).toEqual({ state: "ask", code: null });
-    expect(keyOf(queued, 2000, { at: 2500, shim: false, mokManager: 0, mokList: false })).toEqual({
-      state: "ask",
-      code: null,
-    });
+    expect(keyOf(queued, 2000, trail(2500))).toEqual({ state: "ask", code: null });
   });
 
   it("takes the owner's word over anything else", () => {
@@ -56,16 +62,19 @@ describe("Swiff's key, as the app knows it", () => {
     expect(keyOf({ code: null, queuedAt: null, answer: "no" }, 0)).toEqual({ state: "missed", code: null });
   });
 
-  it("reads a fall-through into Windows from this start's log: timed out, no key, or refused", () => {
-    const after = (trail: { shim: boolean; mokManager: number; mokList: boolean }) =>
-      keyOf(queued, 2000, { at: 2500, ...trail });
-    // The 10 seconds passed, then shim fell back to MokManager again and on into Windows.
-    expect(after({ shim: true, mokManager: 2, mokList: true })?.state).toBe("timedout");
-    expect(after({ shim: true, mokManager: 1, mokList: true })?.state).toBe("nokey");
-    // shim never measured its MOK list: the firmware refused to start it.
-    expect(after({ shim: true, mokManager: 0, mokList: false })?.state).toBe("blocked");
+  it("reads from this start's log whether the key works: shim started Swiff's loader, or fell into Windows", () => {
+    // MokManager, then Continue boot without the key: Windows in the same power-on.
+    expect(
+      keyOf(queued, 2000, trail(2500, { shim: true, mokManager: 2, windowsAfterShim: true }))?.state,
+    ).toBe("nokey");
+    // shim started Swiff's own systemd-boot: only an enrolled key lets it.
+    expect(keyOf(queued, 2000, trail(2500, { shim: true, loader: true }))?.state).toBe("confirmed");
+    // A clean restart (MokManager's Reboot) leaves nothing in the log: the owner is asked.
+    expect(keyOf(queued, 2000, trail(2500))?.state).toBe("ask");
     // A log older than the request says nothing about it.
-    expect(keyOf(queued, 2000, { at: 900, shim: true, mokManager: 2, mokList: true })?.state).toBe("ask");
+    expect(
+      keyOf(queued, 2000, trail(900, { shim: true, mokManager: 2, windowsAfterShim: true }))?.state,
+    ).toBe("ask");
   });
 
   it("knows nothing when nothing was saved, and drops what is malformed", () => {
@@ -97,32 +106,29 @@ describe("the key's file", () => {
 });
 
 describe("this start's measured-boot log", () => {
-  it("finds Swiff's shim and counts MokManager in the newest log, in any case and at either alignment", () => {
+  it("reads the newest log in the folder, and only .log files", () => {
     const files = memoryFs(
       {
-        "/mb/1.log": log(["\\EFI\\Microsoft\\Boot\\bootmgfw.efi"]),
-        "/mb/2.log": log(
-          [
-            "HD(5)/\\EFI\\SWIFF\\SHIMX64.EFI",
-            "MokList",
-            "\\EFI\\swiff\\mmx64.efi",
-            "\\EFI\\SWIFF\\MMX64.EFI",
-          ],
-          1,
-        ),
+        "/mb/1.log": tcgLog([started(WINDOWS)]),
+        "/mb/2.log": tcgLog([started(SHIM), started(MOK_MANAGER), started(MOK_MANAGER), started(WINDOWS)]),
         "/mb/notes.txt": "mmx64.efi",
       },
       { "/mb/1.log": 1, "/mb/2.log": 2, "/mb/notes.txt": 3 },
     );
-    expect(bootTrail("/mb", files)).toEqual({ at: 2, shim: true, mokManager: 2, mokList: true });
+    expect(bootTrail("/mb", files)).toMatchObject({
+      at: 2,
+      shim: true,
+      mokManager: 2,
+      windowsAfterShim: true,
+    });
   });
 
-  it("sees a clean start as one, and no log as nothing to say", () => {
+  it("sees a clean start as one, Swiff OS's boot entry and all, and no log as nothing to say", () => {
     const files = memoryFs(
-      { "/mb/1.log": log(["\\EFI\\Microsoft\\Boot\\bootmgfw.efi"]) },
+      { "/mb/1.log": tcgLog([bootVariable(1, "Swiff OS", SHIM), started(WINDOWS)]) },
       { "/mb/1.log": 5 },
     );
-    expect(bootTrail("/mb", files)).toEqual({ at: 5, shim: false, mokManager: 0, mokList: false });
+    expect(bootTrail("/mb", files)).toMatchObject({ at: 5, shim: false, mokManager: 0, loader: false });
     expect(bootTrail("/none", memoryFs())).toBeNull();
   });
 });

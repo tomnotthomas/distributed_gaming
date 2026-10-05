@@ -43,12 +43,15 @@ import {
   firmwareChecks,
   isReady,
   pcChecks,
+  biosPath,
+  checkBios,
+  firmwareGuide,
   rentalLine,
-  rentalNext,
   rentalReady,
   rentalScreen,
   rentalStage,
   rentalStepAt,
+  stepLocked,
   waitingFor,
   windowsTodos,
 } from "./rental";
@@ -141,13 +144,14 @@ describe("reading the PC", () => {
         { role: "esp", id: "3D7B64D1-2E0C-493B-958E-7F825AEC1F7C", offset: 76 * GiB, bytes: GiB },
         { role: "root-a", id: "not a guid", offset: 77 * GiB, bytes: 8 * GiB },
       ],
-      bootEntry: 3,
+      bootEntry: { partition: "3D7B64D1-2E0C-493B-958E-7F825AEC1F7C", path: "\\EFI\\swiff\\shimx64.efi" },
       windowsEntry: 70000,
       labels: [
         { letter: "C", from: "Windows" },
         { letter: "?", from: "x" },
       ],
       mok: true,
+      checked: { ek: false, at: 5 },
     });
     expect(install).toEqual({
       complete: true,
@@ -156,10 +160,16 @@ describe("reading the PC", () => {
       fastStartup: true,
       shrink: { letter: "C", partition: 3, from: 100 * GiB, to: 76 * GiB },
       partitions: [{ role: "esp", id: "3d7b64d1-2e0c-493b-958e-7f825aec1f7c", offset: 76 * GiB, bytes: GiB }],
-      bootEntry: 3,
+      bootEntry: { partition: "3d7b64d1-2e0c-493b-958e-7f825aec1f7c", path: "\\EFI\\swiff\\shimx64.efi" },
       windowsEntry: null,
       labels: [{ letter: "C", from: "Windows" }],
       mok: true,
+      checked: { ek: false },
+    });
+    // A record from before kept numbers: still an entry, until the worker turns it into what it starts.
+    expect(installOf({ bootEntry: 3, windowsEntry: 0 })).toMatchObject({
+      bootEntry: { partition: null, path: null },
+      windowsEntry: { partition: null, path: null },
     });
     expect(installOf("garbage")).toBeNull();
     expect(installOf({ shrink: { letter: "C" } })!.shrink).toBeNull();
@@ -786,7 +796,6 @@ describe("what the screen says", () => {
       bios: ["iommu"],
     });
     expect(rentalLine(setupOf(read))).toBe("Not ready");
-    expect(rentalNext(setupOf(read))).toBe("Turn off BitLocker on C:");
   });
 
   it("asks for the IOMMU on an NVIDIA PC, with the graphics card only waiting beside it", () => {
@@ -820,14 +829,45 @@ describe("what the screen says", () => {
     ]);
   });
 
-  it("never holds the Secure Boot db or the TPM certificate against the PC: they are checked when you install", () => {
-    const keys = firmwareChecks(pc()).filter((c) => c.id === "db" || c.id === "ek");
-    expect(keys).toEqual([
-      expect.objectContaining({ value: "Checked when you install", state: "unchecked" }),
-      expect.objectContaining({ value: "Checked when you install", state: "unchecked" }),
-    ]);
-    expect(keys.some((c) => isReady(c.state))).toBe(false);
+  it("reads the Secure Boot db from the boot log, and sends the owner to the BIOS only when it lacks the CA", () => {
+    const ca = (read: RentalRead) => firmwareChecks(read).find((c) => c.id === "ca");
+    expect(ca(pc((raw) => ({ ...raw, db: true })))).toMatchObject({ value: "Trusted", state: "ok" });
+    const missing = pc((raw) => ({ ...raw, db: false }));
+    expect(ca(missing)).toMatchObject({ value: "Not trusted", state: "bios" });
+    expect(rentalStage(setupOf(missing))).toMatchObject({ kind: "bios", bios: ["ca"] });
+    // No log to read: the install's administrator step checks it, and nothing is held against the PC.
+    expect(ca(pc())).toMatchObject({ value: "Read when you install", state: "unread" });
     expect(rentalStage(setupOf(pc())).kind).toBe("ready");
+  });
+
+  it("shows the TPM certificate as the install's check recorded it, and never as a to-do", () => {
+    const ek = (checked: unknown) =>
+      firmwareChecks(
+        pc((raw) => ({ ...raw, install: { complete: false, disk: 0, partitions: [], checked } })),
+      ).find((c) => c.id === "ek");
+    expect(ek(null)).toMatchObject({ value: "Read when you install", state: "unread" });
+    expect(ek({ ek: true })).toMatchObject({ value: "Present", state: "ok" });
+    expect(ek({ ek: false })).toMatchObject({ value: "None: lower tier", state: "ok" });
+    expect(firmwareChecks(pc()).some((c) => !isReady(c.state) && c.state !== "bios")).toBe(false);
+  });
+
+  it("names the BIOS key and menu path for the PC's firmware: AMI on the GEEKOM, the maker's own on a Lenovo", () => {
+    const geekom = pc((raw) => ({
+      ...raw,
+      bios: "American Megatrends International, LLC.",
+      maker: "GEEKOM",
+      model: "A6",
+      cpu: "AuthenticAMD",
+    }));
+    expect(firmwareGuide(geekom)).toMatchObject({ name: "AMI Aptio", keys: ["Del", "F2"] });
+    expect(biosPath(geekom, "iommu")).toBe("Advanced → AMD CBS → NBIO Common Options → IOMMU: Enabled");
+    expect(biosPath(geekom, "secure-boot")).toBe("Security → Secure Boot → Secure Boot: Enabled");
+    const lenovo = pc((raw) => ({ ...raw, bios: "LENOVO", maker: "LENOVO", cpu: "GenuineIntel" }));
+    expect(biosPath(lenovo, "ca")).toBe("Security → Secure Boot → Allow Microsoft 3rd Party UEFI CA: On");
+    // Firmware the table does not know keeps the general hints.
+    const other = pc((raw) => ({ ...raw, bios: "Coreboot", maker: "Star Labs" }));
+    expect(firmwareGuide(other)).toBeNull();
+    expect(biosPath(other, "tpm")).toBeNull();
   });
 
   it("never holds what it could not read against the PC", () => {
@@ -836,7 +876,7 @@ describe("what the screen says", () => {
       firmwareChecks(read)
         .filter((c) => c.state === "unread")
         .map((c) => c.id),
-    ).toEqual(["secure-boot", "iommu"]);
+    ).toEqual(["secure-boot", "iommu", "ca", "ek"]);
     expect(rentalStage(setupOf(read)).kind).toBe("ready");
   });
 
@@ -881,7 +921,6 @@ describe("what the screen says", () => {
     const record = { complete: false, disk: 0, bootEntry: null, partitions: [], shrink: null };
     const read = pc((raw) => ({ ...raw, install: record }));
     expect(rentalStage(setupOf(read)).kind).toBe("resume");
-    expect(rentalNext(setupOf(read))).toBe("Continue the install");
   });
 });
 
@@ -917,15 +956,29 @@ describe("Swiff's key, after the install", () => {
     expect(rentalStepAt(s)).toBe(3);
   });
 
-  it("tells a missed key, a timed-out blue screen, no key and a Secure Boot refusal apart", () => {
+  it("tells a key the owner said was missed from one the boot log showed was not taken", () => {
     expect(rentalStage(installed({ state: "missed", code: null })).kind).toBe("key");
-    expect(rentalStage(installed({ state: "timedout", code: null })).kind).toBe("timedout");
     expect(rentalStage(installed({ state: "nokey", code: null })).kind).toBe("nokey");
-    expect(rentalStage(installed({ state: "blocked", code: null })).kind).toBe("blocked");
-    expect(rentalLine(installed({ state: "timedout", code: null }))).toBe("Key not confirmed");
-    expect(rentalLine(installed({ state: "blocked", code: null }))).toBe("Blocked at startup");
-    for (const state of ["missed", "timedout", "nokey", "blocked"] as const)
+    expect(rentalLine(installed({ state: "nokey", code: null }))).toBe("Key not confirmed");
+    for (const state of ["missed", "nokey"] as const) {
       expect(rentalReady(installed({ state, code: null }))).toBe(false);
+      expect(rentalStepAt(installed({ state, code: null }))).toBe(2);
+    }
+  });
+
+  it("keeps Go live and Get paid locked until the key is confirmed, unless the PC is live already", () => {
+    const off = { kind: "off" };
+    for (const state of ["ask", "missed", "nokey"] as const) {
+      const rental = installed({ state, code: null });
+      expect(stepLocked("live", { rental, live: off })).toBe(true);
+      expect(stepLocked("paid", { rental, live: off })).toBe(true);
+      expect(stepLocked("rental", { rental, live: off })).toBe(false);
+    }
+    const ready = installed({ state: "confirmed", code: null });
+    expect(stepLocked("live", { rental: ready, live: off })).toBe(false);
+    expect(stepLocked("live", { rental: installed(null), live: { kind: "waiting" } })).toBe(false);
+    // Development builds that share this Windows desktop go live without rental mode.
+    expect(stepLocked("live", { rental: installed(null), live: off }, true)).toBe(false);
   });
 
   it("sums up the last live run once, back in Windows, until the owner has seen it", () => {
@@ -1033,6 +1086,26 @@ describe("when a step stops", () => {
     });
     expect(rentalLine(setup)).toBe("Needs permission");
     expect(rentalStepAt(setup)).toBe(1);
+  });
+
+  it("turns what the administrator check found off into its BIOS setting, with Check again, never an error code", () => {
+    const { setup, f } = failed("check", "Secure Boot is off.");
+    expect(f).toMatchObject({
+      kind: "bios",
+      bios: "secure-boot",
+      title: "Turn on Secure Boot",
+      changed: "Nothing on this PC has changed. Change the setting, then check again.",
+      action: "check",
+      label: "Check again",
+      rail: "BIOS setting",
+    });
+    expect(rentalLine(setup)).toBe("BIOS setting");
+    expect(
+      checkBios("The firmware does not trust the Microsoft Corporation UEFI CA 2011, which signs the shim."),
+    ).toBe("ca");
+    expect(checkBios("The TPM is not ready.")).toBe("tpm");
+    expect(checkBios("Cmdlet not supported on this platform: 0xC0000002")).toBe("uefi");
+    expect(checkBios("reg failed: exit code 1")).toBeNull();
   });
 
   it("says how far the write got, what already changed, and that trying again starts the write over", () => {

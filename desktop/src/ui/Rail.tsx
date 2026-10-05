@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { clock, count, euros, shortGpu } from "../format";
 import { claimEnd, levelProgress, steamReady, type HostView, type Standing, type Step } from "../model";
-import { rentalLine, rentalReady, rentalStepAt } from "../rental";
+import { WINDOWS_SHARE } from "../devShare";
+import { rentalLine, rentalReady, rentalStepAt, stepLocked } from "../rental";
 import { DemoTag } from "./parts";
 
 type RailStep = { id: Exclude<Step, "settings">; title: string };
@@ -178,6 +179,19 @@ export function Rail({
           // Rental mode is how a PC hosts: it is done once it is ready, not by being passed.
           const passed = s.id === "rental" ? rentalReady(view.rental) : i < at || (setupDone && i < live);
           const state = i === at ? "now" : passed ? "done" : "next";
+          // Locked until rental mode is ready: not a button, and it says what it waits for.
+          if (stepLocked(s.id, view, WINDOWS_SHARE))
+            return (
+              <li key={s.id} className="pt next locked">
+                <div className="ptlock">
+                  <span className="pd" />
+                  <span className="ptx">
+                    <b>{s.title}</b>
+                    <span>After rental mode</span>
+                  </span>
+                </div>
+              </li>
+            );
           return (
             <li key={s.id} className={checking(s.id, view) ? `pt ${state} checking` : `pt ${state}`}>
               <button

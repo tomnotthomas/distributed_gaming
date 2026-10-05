@@ -16,11 +16,14 @@ export function loadOption(option: {
 export function parseLoadOption(
   bytes: Uint8Array,
 ): { active: boolean; title: string; partition: string | null; file: string | null } | null;
+export function parseDevicePath(bytes: Uint8Array): { partition: string | null; file: string | null };
 export function samePath(a: string | null, b: string | null): boolean;
 export function orderBytes(indexes: number[]): Buffer;
 export function orderOf(bytes: Uint8Array | null | undefined): number[];
 export function placeIn(order: number[], index: number, where: "first" | "last"): number[];
 export function certList(cert: Uint8Array): Buffer;
+/** MokTimeout -1: MokManager opens its menu at once and waits for the owner. */
+export const MOK_WAIT: Buffer;
 export function mokVariables(
   cert: Uint8Array,
   code: string,

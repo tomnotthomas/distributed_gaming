@@ -15,10 +15,13 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
       (bcdedit /copy {bootmgr}, /set device and path, displayorder /addlast)
   boot-vars.py first VARS TITLE      move the entry to the front of BootOrder (displayorder /addfirst)
   boot-vars.py next VARS TITLE       BootNext (bootsequence)
-  boot-vars.py mok VARS NEW AUTH     MokNew and MokAuth from the files NEW and AUTH, as
-                                     mokutil --import queues Swiff's key for MokManager
+  boot-vars.py mok VARS NEW AUTH [TIMEOUT]
+                                     MokNew, MokAuth (and MokTimeout) from the files NEW, AUTH
+                                     (and TIMEOUT), as mokutil --import --timeout -1 queues
+                                     Swiff's key for MokManager
   boot-vars.py cert DB_AUTH OUT      the certificate in DB_AUTH, as DER, to OUT
-  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request and MokList
+  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request, MokTimeout
+                                     and MokList
 """
 
 import struct
@@ -131,9 +134,9 @@ def main(cmd, vars_path, *args):
         varlist.set_boot_next(index_of(varlist, title))
         save(store, varlist, vars_path)
     elif cmd == "mok":
-        new, auth = args
+        names = ("MokNew", "MokAuth", "MokTimeout")
         store, varlist = load(vars_path)
-        for name, path in (("MokNew", new), ("MokAuth", auth)):
+        for name, path in zip(names, args):
             varlist[name] = efivar.EfiVar(name, guid=guids.Shim, attr=NV_BS_RT, data=open(path, "rb").read())
         save(store, varlist, vars_path)
     elif cmd == "cert":
@@ -155,6 +158,8 @@ def main(cmd, vars_path, *args):
             print(f"MOK request: MokNew {len(new.data) if new else 0} bytes, MokAuth {len(auth.data) if auth else 0} bytes")
         else:
             print("MOK request: none")
+        wait = varlist.get("MokTimeout")
+        print(f"MokTimeout: {struct.unpack('<i', wait.data)[0] if wait and len(wait.data) == 4 else wait.data.hex() if wait else 'none'}")
         mok = varlist.get("MokList")
         print(f"MokList: {mok.data.hex() if mok else 'none'}")
     else:

@@ -44,6 +44,9 @@ const SWIFF_TYPES = new Set([TYPE.esp, TYPE.root, TYPE.verity, TYPE.linux]);
  */
 const STAGING = TYPE.linux;
 
+/** What Windows Boot Manager's entry starts, wherever Windows' own ESP is. */
+const WINDOWS_PATH = String.raw`\EFI\Microsoft\Boot\bootmgfw.efi`;
+
 const isInt = (v) => Number.isSafeInteger(v) && v >= 0;
 const isLetter = (v) => typeof v === "string" && /^[A-Z]$/.test(v);
 const isGuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(v);
@@ -241,7 +244,7 @@ const WINDOWS = {
 // --- what the install recorded ----------------------------------------------------------
 
 const EMPTY = () => ({
-  version: 1,
+  version: 2,
   complete: false,
   disk: null,
   bitlocker: null,
@@ -252,6 +255,7 @@ const EMPTY = () => ({
   windowsEntry: null,
   labels: [],
   mok: false,
+  checked: null,
 });
 
 /**
@@ -396,36 +400,49 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
     }
   };
 
-  /** Whether a Boot#### variable's bytes start Swiff OS's shim from its own boot partition. */
-  const isOurs = (bytes, esp) => {
+  /**
+   * Whether a Boot#### variable's bytes start `loader`: the same file on the
+   * same partition (by its GPT id), or by file alone when the loader's
+   * partition was not recorded.
+   */
+  const starts = (bytes, loader) => {
     const option = bytes && efi.parseLoadOption(bytes);
-    return Boolean(option && option.partition === esp.id && efi.samePath(option.file, BOOT_PATH));
+    return Boolean(
+      option &&
+      efi.samePath(option.file, loader.path) &&
+      (loader.partition === null || option.partition === loader.partition),
+    );
   };
 
-  /**
-   * Swiff OS's boot entry, found by what it starts (its boot partition's id
-   * and shim's path), never by its number alone: firmware renumbers entries
-   * (the GEEKOM moved it, and its BootOrder then listed only Windows). The
-   * recorded number is tried first; when the entry moved, the record follows
-   * it. Null when the firmware has no such entry any more.
-   */
-  const findEntry = async () => {
-    const { bootEntry, partitions } = state.get();
-    const esp = partitions.find((p) => p.role === "esp");
-    must(esp, "Swiff OS has no boot partition.");
-    if (bootEntry !== null) {
-      const name = efi.bootName(bootEntry);
-      const got = await win.firmware([{ get: name, guid: efi.GLOBAL }]);
-      if (isOurs(got[name], esp)) return bootEntry;
-    }
-    // Every number in use: 0000 to 00FF, and whatever BootOrder names beyond them.
+  /** Every Boot#### the firmware has now, by number: 0000 to 00FF, and whatever BootOrder names beyond them. */
+  const bootEntries = async () => {
     const order = efi.orderOf((await win.firmware([{ get: "BootOrder", guid: efi.GLOBAL }])).BootOrder);
     const numbers = [...new Set([...Array.from({ length: 256 }, (_, i) => i), ...order])];
     const got = await win.firmware(numbers.map((n) => ({ get: efi.bootName(n), guid: efi.GLOBAL })));
-    const found = numbers.find((n) => isOurs(got[efi.bootName(n)], esp)) ?? null;
-    if (found !== bootEntry) state.save({ bootEntry: found });
-    return found;
+    return { order, numbers: numbers.filter((n) => got[efi.bootName(n)]), got };
   };
+
+  /**
+   * The number the firmware gives `loader` now, found by what it starts, never
+   * by a number kept from before: firmware renumbers entries (the GEEKOM moved
+   * Swiff OS's, and its BootOrder then listed only Windows). Prefers one in
+   * BootOrder. Null when no entry starts it.
+   */
+  const numberOf = async (loader) => {
+    const { order, numbers, got } = await bootEntries();
+    const hits = numbers.filter((n) => starts(got[efi.bootName(n)], loader));
+    return hits.find((n) => order.includes(n)) ?? hits[0] ?? null;
+  };
+
+  /** Swiff OS's loader: shim, on Swiff OS's own boot partition. */
+  const swiffLoader = () => {
+    const esp = state.get().partitions.find((p) => p.role === "esp");
+    must(esp, "Swiff OS has no boot partition.");
+    return { partition: esp.id, path: BOOT_PATH };
+  };
+
+  /** Swiff OS's boot entry's number now; null when the firmware has none (it dropped it, or it was removed). */
+  const findEntry = () => numberOf(swiffLoader());
 
   /**
    * Add Swiff OS's boot entry at the first free number, last in BootOrder, for
@@ -458,8 +475,15 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       },
       { set: "BootOrder", guid: efi.GLOBAL, data: efi.orderBytes(efi.placeIn(order, free, "last")) },
     ]);
-    // Windows' entry is the one this boot came from, recorded once: a later add keeps the first.
-    state.save({ bootEntry: free, windowsEntry: state.get().windowsEntry ?? current });
+    // Windows' entry is the one this boot came from, recorded once by what it starts: a later add keeps the first.
+    const windows =
+      current === null ? null : efi.parseLoadOption(got[efi.bootName(current)] ?? Buffer.alloc(0));
+    state.save({
+      bootEntry: swiffLoader(),
+      windowsEntry:
+        state.get().windowsEntry ??
+        (windows?.file ? { partition: windows.partition, path: windows.file } : null),
+    });
     return free;
   };
 
@@ -470,18 +494,53 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
     return (await findEntry()) ?? (await addEntry(disk));
   };
 
+  /** Windows Boot Manager's entry's number now, by what it starts. */
+  const windowsEntry = async () => {
+    const loader = state.get().windowsEntry ?? { partition: null, path: WINDOWS_PATH };
+    const found = await numberOf(loader);
+    must(found !== null, "The firmware has no Windows Boot Manager entry.");
+    return found;
+  };
+
+  /**
+   * A record from before entries were kept by what they start (version 1 kept
+   * Boot#### numbers, which firmware changes): each number becomes the loader
+   * its entry starts, read once. Swiff OS's is shim on its boot partition,
+   * whatever the number points at now.
+   */
+  if (typeof state.get().bootEntry === "number" || typeof state.get().windowsEntry === "number") {
+    const { bootEntry, windowsEntry: windowsNumber, partitions } = state.get();
+    const esp = partitions.find((p) => p.role === "esp");
+    let windows = null;
+    if (typeof windowsNumber === "number") {
+      const name = efi.bootName(windowsNumber);
+      const option = efi.parseLoadOption(
+        (await win.firmware([{ get: name, guid: efi.GLOBAL }]))[name] ?? Buffer.alloc(0),
+      );
+      // An entry that no longer starts Windows Boot Manager is not taken for it.
+      if (option?.file && efi.samePath(option.file, WINDOWS_PATH))
+        windows = { partition: option.partition, path: option.file };
+    }
+    state.save({
+      version: 2,
+      bootEntry: typeof bootEntry === "number" && esp ? { partition: esp.id, path: BOOT_PATH } : null,
+      windowsEntry: windows ?? (typeof windowsNumber === "number" ? null : state.get().windowsEntry),
+    });
+  }
+
   async function apply(op, progress = () => {}) {
     checkOp(op);
     const s = state.get();
     switch (op.op) {
       case "check": {
         const out = await run(op);
-        return {
-          warnings: out
-            .split(/\r?\n/)
-            .filter((l) => l.startsWith("warning: "))
-            .map((l) => l.slice(9)),
-        };
+        const warnings = out
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith("warning: "))
+          .map((l) => l.slice(9));
+        // Kept for the app, which reads the record without administrator rights.
+        state.save({ checked: { at: Date.now(), ek: !warnings.some((w) => /endorsement key/i.test(w)) } });
+        return { warnings };
       }
       case "image-check": {
         for (const name of Object.keys(set.files))
@@ -715,8 +774,7 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
         return {};
       }
       case "boot-first": {
-        const entry = op.entry === "swiff" ? await ourEntry() : s.windowsEntry;
-        must(entry !== null, "Windows' boot entry was not recorded.");
+        const entry = op.entry === "swiff" ? await ourEntry() : await windowsEntry();
         const got = await win.firmware([{ get: "BootOrder", guid: efi.GLOBAL }]);
         await win.firmware([
           {
@@ -729,7 +787,12 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       }
       case "boot-next": {
         const entry = await ourEntry();
-        await win.firmware([{ set: "BootNext", guid: efi.GLOBAL, data: efi.orderBytes([entry]) }]);
+        await win.firmware([
+          { set: "BootNext", guid: efi.GLOBAL, data: efi.orderBytes([entry]) },
+          // Should shim meet a key it cannot check, its MokManager waits for the owner rather than
+          // counting down into Windows in the same power-on (which changes PCR 7: the PIN, BitLocker).
+          { set: "MokTimeout", guid: efi.SHIM_LOCK, data: efi.MOK_WAIT },
+        ]);
         // The restart must reach Swiff OS: BootNext is read back, not trusted.
         const back = await win.firmware([{ get: "BootNext", guid: efi.GLOBAL }]);
         must(efi.orderOf(back.BootNext)[0] === entry, "The firmware did not keep BootNext.");
@@ -755,7 +818,7 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       }
       case "mok-cancel":
         await win.firmware(
-          ["MokNew", "MokAuth"].map((name) => ({ set: name, guid: efi.SHIM_LOCK, data: null })),
+          ["MokNew", "MokAuth", "MokTimeout"].map((name) => ({ set: name, guid: efi.SHIM_LOCK, data: null })),
         );
         return {};
       case "label": {

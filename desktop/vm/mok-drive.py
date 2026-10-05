@@ -6,9 +6,14 @@ so this reads MokManager's screens there and types on it, as the owner would
 on the PC's keyboard, following the steps the host app shows (MOK_SCREENS in
 src/rental.ts):
 
-  mok-drive.py LOG miss -- QEMU...           press nothing: the 10-second wait runs out
+  mok-drive.py LOG miss SECONDS -- QEMU...   wait SECONDS at the menu (it must still be there,
+                                             MokTimeout -1), then the wrong choice, Continue boot:
+                                             the request is used up
   mok-drive.py LOG confirm CODE -- QEMU...   Enroll MOK, Continue, Yes, the code, Reboot
   mok-drive.py LOG remove CODE -- QEMU...    Delete MOK, Continue, Yes, the code, Reboot
+
+The host app queues each request with MokTimeout -1, so MokManager opens its
+menu at once and waits: no "Press any key" countdown comes first.
 
 QEMU... is the full QEMU command line, without a serial option. Instead of
 `-- QEMU...`, `--socket PATH` plays the owner on a VM already running, on its
@@ -80,6 +85,28 @@ class Vm:
             return
         sys.exit(f"mok-drive: no {text!r} on the screen within {timeout} s")
 
+    def log_bytes(self):
+        """Everything the serial port showed so far."""
+        self.log.flush()
+        with open(self.log.name, "rb") as f:
+            return f.read()
+
+    def quiet(self, texts, seconds):
+        """Waits `seconds`, failing if any of `texts` shows up meanwhile."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            ready, _, _ = select.select([self.out], [], [], 0.5)
+            if ready:
+                chunk = os.read(self.out.fileno(), 65536)
+                if not chunk:
+                    break
+                self.log.write(chunk)
+                self.seen += chunk
+            plain = ANSI.sub(b"", self.seen).decode("latin-1")
+            for text in texts:
+                if text in plain:
+                    sys.exit(f"mok-drive: {text!r} came while MokManager should have waited")
+
     def press(self, *keys):
         """Types keys one at a time, as a person would, once the screen has settled."""
         time.sleep(1)
@@ -113,14 +140,18 @@ def main(log, mode, *rest):
         if mode == "wait":
             vm.expect(rest[0], int(rest[1]))
             return
-        vm.expect("Press any key to perform MOK management", 120)
+        # The menu at once, without the countdown (MokTimeout -1).
+        vm.expect("Perform MOK management", 120)
+        if "Press any key to perform MOK management" in ANSI.sub(b"", vm.log_bytes()).decode("latin-1"):
+            sys.exit("mok-drive: MokManager counted down instead of waiting (MokTimeout not honoured)")
         if mode == "miss":
-            # MokManager gives up after 10 seconds and shim goes on to its next
-            # stage, which this ESP does not have.
+            # Still waiting after the time the countdown would have given.
+            vm.quiet(["Booting in", "grubx64.efi"], int(rest[0]))
+            # Continue boot, the first item: the request is gone, and shim goes on
+            # to its next stage, which this ESP lacks.
+            vm.press(ENTER)
             vm.expect("grubx64.efi", 60)
             return
-        vm.press(b" ")
-        screen("Perform MOK management")
         action = "Enroll" if mode == "confirm" else "Delete"
         screen(f"{action} MOK")
         vm.press(DOWN, ENTER)

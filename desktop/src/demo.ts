@@ -92,6 +92,13 @@ export const DEMO_RENTAL_READ: RentalRead = {
   facts: {
     uefi: true,
     secureBoot: true,
+    db: true,
+    vendor: {
+      bios: "American Megatrends International, LLC.",
+      maker: "ASUSTeK COMPUTER INC.",
+      model: "ROG STRIX B650E-F",
+    },
+    cpu: "amd",
     tpm: { present: true, maker: "AMD", firmware: true },
     iommu: false,
     fastStartup: true,
@@ -210,9 +217,9 @@ export const RENTAL_CASES = [
   { id: "rental-fail-admin", name: "Rental problem: no permission" },
   { id: "rental-fail-write", name: "Rental problem: write stopped" },
   { id: "rental-fail-space", name: "Rental problem: not enough space" },
-  { id: "rental-timedout", name: "Rental problem: blue screen timed out" },
   { id: "rental-nokey", name: "Rental problem: started without the key" },
-  { id: "rental-blocked", name: "Rental problem: Secure Boot blocked" },
+  { id: "rental-ca", name: "Rental: BIOS doesn't trust the 3rd-party CA" },
+  { id: "rental-fail-bios", name: "Rental problem: install's check found Secure Boot off" },
   { id: "rental-fail-removal", name: "Rental problem: removing stopped" },
   { id: "rental-fail-unknown", name: "Rental problem: unknown error" },
 ] as const;

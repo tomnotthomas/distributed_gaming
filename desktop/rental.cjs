@@ -31,6 +31,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { mokVariables, NV_BS_RT, SHIM_LOCK } = require("./efi.cjs");
+const { dbTrusts, lastLog } = require("./measured-boot.cjs");
 const { findSteamRoot, libraryPaths, steamPathOnce } = require("./pc.cjs");
 
 const MiB = 1024 * 1024;
@@ -124,14 +125,15 @@ const mokCode = (random = crypto.randomInt) =>
   Array.from({ length: MOK_CODE_DIGITS }, () => String(random(10))).join("");
 
 /**
- * The two variables that queue `cert` (DER) for enrolment with `code`, as
- * `mokutil --import --simple-hash` writes them: MokNew, an EFI_SIGNATURE_LIST
- * of the one certificate owned by shim, and MokAuth, SHA-256 of MokNew then
- * the code as UTF-16LE. Both non-volatile, with boot and runtime access.
+ * The variables that queue `cert` (DER) for enrolment with `code`, as
+ * `mokutil --import --simple-hash --timeout -1` writes them: MokNew, an
+ * EFI_SIGNATURE_LIST of the one certificate owned by shim; MokAuth, SHA-256 of
+ * MokNew then the code as UTF-16LE; and MokTimeout, -1, so MokManager waits
+ * for the owner. All non-volatile, with boot and runtime access.
  */
 function mokRequest(cert, code) {
-  const { MokNew, MokAuth } = mokVariables(cert, code);
-  return { guid: SHIM_LOCK, attributes: NV_BS_RT, MokNew, MokAuth };
+  const { MokNew, MokAuth, MokTimeout } = mokVariables(cert, code);
+  return { guid: SHIM_LOCK, attributes: NV_BS_RT, MokNew, MokAuth, MokTimeout };
 }
 
 const alignUp = (n, to) => Math.ceil(n / to) * to;
@@ -140,9 +142,13 @@ const alignDown = (n, to) => Math.floor(n / to) * to;
 // --- reading the PC ---------------------------------------------------------------
 //
 // One PowerShell script, run as the owner: every read here works without
-// administrator rights. What needs them (the Secure Boot db, the TPM's
-// endorsement certificate, how far a drive can shrink) is checked by the
-// install's first step instead. Each read is best effort and null when it fails.
+// administrator rights. The Secure Boot db, which Windows reads only for
+// administrators, comes from this start's measured-boot log instead, where
+// the firmware measured all of it. What needs administrator rights all the
+// same (the TPM's endorsement certificate, how far a drive can shrink) is
+// checked by the install's first step, which also checks the db once more,
+// and is kept in the install's record. Each read is best effort and null
+// when it fails.
 
 const SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
@@ -160,6 +166,10 @@ $shell = New-Object -ComObject Shell.Application
   disks = @(Get-Disk | ForEach-Object { [pscustomobject]@{ number = $_.Number; style = [string]$_.PartitionStyle; size = $_.Size; sector = $_.LogicalSectorSize; bus = [string]$_.BusType; system = $_.IsSystem } })
   partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
+  bios = Read-Or { (Get-CimInstance Win32_BIOS -ErrorAction Stop).Manufacturer }
+  maker = Read-Or { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Manufacturer }
+  model = Read-Or { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Model }
+  cpu = Read-Or { @(Get-CimInstance Win32_Processor -ErrorAction Stop)[0].Manufacturer }
   install = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-install.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
   lastLive = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\last-live.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
 } | ConvertTo-Json -Compress -Depth 6
@@ -211,8 +221,19 @@ function tpmMaker(info) {
 
 const GUID_TEXT = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const guidOrNull = (v) => (GUID_TEXT.test(str(v)) ? str(v).toLowerCase() : null);
-const entryOrNull = (v) => (Number.isInteger(v) && v >= 0 && v <= 0xffff ? v : null);
 const countOf = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+
+/**
+ * A boot entry as the install records it: by what it starts (the partition's
+ * GPT id and the file), never by its Boot#### number, which firmware changes.
+ * A record from before (a number) still says there is one: the worker turns it
+ * into this on its next start.
+ */
+function loaderOf(v) {
+  if (Number.isInteger(v) && v >= 0 && v <= 0xffff) return { partition: null, path: null };
+  if (!v || typeof v !== "object" || !str(v.path)) return null;
+  return { partition: guidOrNull(v.partition), path: str(v.path) };
+}
 
 /**
  * What an install recorded so far (rental-install.json, which only the
@@ -234,8 +255,13 @@ function installOf(raw) {
     partitions: list(raw.partitions)
       .filter((p) => guidOrNull(p?.id) && num(p?.offset) !== null && num(p?.bytes))
       .map((p) => ({ role: str(p.role), id: guidOrNull(p.id), offset: p.offset, bytes: p.bytes })),
-    bootEntry: entryOrNull(raw.bootEntry),
-    windowsEntry: entryOrNull(raw.windowsEntry),
+    bootEntry: loaderOf(raw.bootEntry),
+    windowsEntry: loaderOf(raw.windowsEntry),
+    // What the install's first step read as administrator.
+    checked:
+      raw.checked && typeof raw.checked === "object" && typeof raw.checked.ek === "boolean"
+        ? { ek: raw.checked.ek }
+        : null,
     labels: list(raw.labels)
       .filter((l) => letterOf(l?.letter) && typeof l.from === "string")
       .map((l) => ({ letter: letterOf(l.letter), from: l.from })),
@@ -249,9 +275,15 @@ function factsOf(raw) {
   const secureBoot = num(r.secureBoot);
   const fastStartup = num(r.fastStartup);
   const security = list(r.securityProperties).filter((v) => num(v) !== null);
+  const cpu = str(r.cpu).toLowerCase();
   return {
     uefi: str(r.firmware) ? str(r.firmware).toUpperCase() === "UEFI" : null,
     secureBoot: secureBoot === null ? null : secureBoot === 1,
+    // Whether the Secure Boot db trusts SHIM_CA (readRental, from the measured-boot log).
+    db: typeof r.db === "boolean" ? r.db : null,
+    // Who made the firmware and the PC: where its settings are, and the key that opens it.
+    vendor: { bios: str(r.bios), maker: str(r.maker), model: str(r.model) },
+    cpu: cpu.includes("amd") ? "amd" : cpu.includes("intel") ? "intel" : null,
     tpm: { present: typeof r.tpm2 === "boolean" ? r.tpm2 : null, ...tpmMaker(r.tpmInfo) },
     iommu: security.length ? security.includes(3) : null,
     fastStartup: fastStartup === null ? null : fastStartup === 1,
@@ -444,11 +476,14 @@ async function readRental({
   run = powershell,
   steamPath = steamPathOnce,
   libraries,
+  log = lastLog,
   ...options
 } = {}) {
   if (platform !== "win32") return null;
   try {
     const facts = JSON.parse(await run(SCRIPT));
+    const boot = log();
+    if (boot) facts.db = dbTrusts(boot.events, SHIM_CA);
     return rentalOf(
       facts,
       libraries ?? libraryDrives({ platform, steamPath: await steamPath(), ...options }),

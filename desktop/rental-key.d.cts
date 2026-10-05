@@ -4,11 +4,10 @@ export type SavedKey = { code: string | null; queuedAt: number | null; answer: "
 
 /** Where Swiff's key stands, as far as the app can know: see rental-key.cjs. */
 export type KeyState =
-  | { state: "queued"; code: string }
-  | { state: "ask" | "confirmed" | "missed" | "timedout" | "nokey" | "blocked"; code: null };
+  { state: "queued"; code: string } | { state: "ask" | "confirmed" | "missed" | "nokey"; code: null };
 
-/** What ran before Windows in this start's power-on, from its measured-boot log. */
-export type BootTrail = { at: number; shim: boolean; mokManager: number; mokList: boolean };
+/** What ran before Windows in this start's power-on, from its measured-boot log (measured-boot.cjs). */
+export type BootTrail = { at: number } & import("./measured-boot.cjs").Trail;
 
 export function savedOf(raw: unknown): SavedKey | null;
 export function keyOf(saved: SavedKey | null, bootAt: number, trail?: BootTrail | null): KeyState | null;
