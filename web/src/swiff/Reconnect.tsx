@@ -201,9 +201,8 @@ export function QueueBackDialog({ swiff }: { swiff: Swiff }) {
  */
 export function Reconnecting({ swiff, host }: { swiff: Swiff; host: string }) {
   const now = useNow();
-  const lostAt = swiff.play?.lostAt;
-  if (lostAt == null) return null;
-  const gaveUp = swiff.play?.gaveUp ?? false;
+  const { lostAt, droppedAt, gaveUp } = swiff.play ?? {};
+  if (lostAt == null || droppedAt == null) return null;
   return (
     <ComeBack
       testId="reconnecting"
@@ -217,7 +216,9 @@ export function Reconnecting({ swiff, host }: { swiff: Swiff; host: string }) {
       }
       reading={gaveUp ? "Held for you" : "Time away"}
       timeTestId="reconnecting-time"
-      time={gaveUp ? minutesSeconds(lostAt + RECONNECT_GRACE_MS - now, true) : minutesSeconds(now - lostAt)}
+      time={
+        gaveUp ? minutesSeconds(droppedAt + RECONNECT_GRACE_MS - now, true) : minutesSeconds(now - lostAt)
+      }
       line={
         gaveUp
           ? `Your game is still running on ${host}. Try again while it is held.`

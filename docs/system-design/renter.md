@@ -247,10 +247,11 @@ POST /bookings
   wall's curated free-to-play titles when the store does not answer within 3 s.
 
 GET  /bookings/:id
-  → 200 { bookingId, status, machine?, claimBy?, price?, heldUntil? }
+  → 200 { bookingId, status, machine?, claimBy?, startedAt?, price?, heldUntil? }
   Check whether a machine has been found yet. `machine` names it too (`name`, the one
-  its owner gave it). `claimBy` is when the reservation lapses; `price` (cents) is set
-  once the session has ended. `heldUntil` (Unix ms) is set on a claimed or playing
+  its owner gave it). `claimBy` is when the reservation lapses; `startedAt` (Unix ms) is
+  when a running session started, so a page coming back to it keeps its clock; `price`
+  (cents) is set once the session has ended. `heldUntil` (Unix ms) is set on a claimed or playing
   booking whose renter dropped out of the room: until then the PC holds the session
   for them (see "Coming back"). Checking also keeps a
   queued booking in the queue: one nobody has checked on for 2 minutes expires.

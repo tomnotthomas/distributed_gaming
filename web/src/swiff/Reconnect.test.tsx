@@ -20,6 +20,7 @@ const playing = (more: Partial<PlayState> = {}): PlayState => ({
   denied: false,
   started: true,
   lostAt: null,
+  droppedAt: null,
   gaveUp: false,
   ...more,
 });
@@ -111,7 +112,7 @@ describe("A: a session the page left", () => {
 
 describe("B: the connection dropped mid-session", () => {
   it("counts up while it reconnects by itself, with End always there", () => {
-    const swiff = swiffWith({ play: playing({ lostAt: NOW - 12_000 }) });
+    const swiff = swiffWith({ play: playing({ lostAt: NOW - 12_000, droppedAt: NOW - 12_000 }) });
     render(<Session swiff={swiff} />);
 
     expect(screen.getByRole("dialog", { name: "Reconnecting to Glasshouse" })).toHaveTextContent(
@@ -126,7 +127,9 @@ describe("B: the connection dropped mid-session", () => {
   });
 
   it("once it gave up, says how long the game keeps running and offers to try again", () => {
-    const swiff = swiffWith({ play: playing({ lostAt: NOW - 15_000, gaveUp: true }) });
+    const swiff = swiffWith({
+      play: playing({ lostAt: NOW - 15_000, droppedAt: NOW - 15_000, gaveUp: true }),
+    });
     render(<Reconnecting swiff={swiff} host="Glasshouse" />);
 
     expect(screen.getByRole("dialog", { name: "Can't reach Glasshouse" })).toHaveTextContent(
@@ -138,6 +141,14 @@ describe("B: the connection dropped mid-session", () => {
     expect(swiff.retryConnection).toHaveBeenCalledTimes(1);
   });
 
+  it("counts the hold down from the first drop, however often the renter tried again", () => {
+    const swiff = swiffWith({
+      play: playing({ lostAt: NOW - 15_000, droppedAt: NOW - 100_000, gaveUp: true }),
+    });
+    render(<Reconnecting swiff={swiff} host="Glasshouse" />);
+    expect(screen.getByTestId("reconnecting-time")).toHaveTextContent("0:20");
+  });
+
   it("is not there while the stream plays", () => {
     render(<Session swiff={swiffWith()} />);
     expect(screen.queryByTestId("reconnecting")).toBeNull();
@@ -145,7 +156,13 @@ describe("B: the connection dropped mid-session", () => {
 
   it("names a resumed session's machine when the game's list no longer shows it", () => {
     render(
-      <Session swiff={swiffWith({ picked: null, booking: booking(), play: playing({ lostAt: NOW }) })} />,
+      <Session
+        swiff={swiffWith({
+          picked: null,
+          booking: booking(),
+          play: playing({ lostAt: NOW, droppedAt: NOW }),
+        })}
+      />,
     );
     expect(screen.getByRole("dialog", { name: "Reconnecting to Glasshouse" })).toBeInTheDocument();
   });

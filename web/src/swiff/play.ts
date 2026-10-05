@@ -19,12 +19,14 @@
 // (server/src/grace.ts), and the page joins again with the same ticket, so
 // the server hands the seat back and the PC sends a new offer. No Ignition:
 // the session shows Reconnecting with how long it has been, retries by itself
-// for RECONNECT_AUTO_MS, then leaves the next try to the renter. It is back
+// for RECONNECT_AUTO_MS, then leaves the next try to the renter. A join that
+// the PC has answered with an offer is left to finish rather than joined over;
+// only one with no offer yet is replaced on the beat. It is back
 // when the same connection comes back by itself, or when a new one has a
 // frame and a fresh game-started, as any new connection must. A page coming
 // back to a session already playing (resume) starts the same way.
 //
-//   live ──► disconnected ──► (RECONNECT_WAIT_MS) join again, every RECONNECT_EVERY_MS
+//   live ──► disconnected ──► (RECONNECT_WAIT_MS) join again, every RECONNECT_EVERY_MS until an offer
 //                 │                       │
 //                 └──────── back ◄────────┘   ── RECONNECT_AUTO_MS ──► gave up: retry()
 //
@@ -92,10 +94,15 @@ export type PlayState = {
   /** The server took the session start: its clock runs, so leaving ends a session. */
   started: boolean;
   /**
-   * When the connection to the PC dropped while live, Unix ms; null while the
-   * stream plays. A resumed play starts dropped, until it is back.
+   * When reconnecting began, Unix ms: the drop, or the renter's latest retry;
+   * null while the stream plays. A resumed play starts dropped, until it is back.
    */
   lostAt: number | null;
+  /**
+   * When the connection first dropped, Unix ms, kept across retries: the PC
+   * holds the session RECONNECT_GRACE_MS from then. Null while the stream plays.
+   */
+  droppedAt: number | null;
   /** Reconnecting by itself ran out (RECONNECT_AUTO_MS): the next try is the renter's (retry). */
   gaveUp: boolean;
 };
@@ -113,6 +120,8 @@ export type PlayOptions = {
    * game runs on the PC already, and the play starts as a dropped connection does.
    */
   resume?: boolean;
+  /** When a resumed session's connection dropped, Unix ms, if known; now if not. */
+  droppedAt?: number;
   /** Stand-ins for tests. */
   start?: typeof startRenterSession;
   fetch?: typeof fetch;
@@ -151,6 +160,7 @@ export function startPlay(opts: PlayOptions): Play {
     denied: false,
     started: resume,
     lostAt: resume ? now() : null,
+    droppedAt: resume ? (opts.droppedAt ?? now()) : null,
     gaveUp: false,
   };
   let stopped = false;
@@ -160,6 +170,8 @@ export function startPlay(opts: PlayOptions): Play {
   let gameStarted = false;
   let counted = false;
   let connection = 0;
+  // The PC offered on the latest join and it has not failed: under way, so not joined over.
+  let offered = false;
   let startRetry: ReturnType<typeof setTimeout> | undefined;
   // Joining again while the connection is down, and giving that up.
   let rejoinTimer: ReturnType<typeof setTimeout> | undefined;
@@ -204,21 +216,26 @@ export function startPlay(opts: PlayOptions): Play {
   /**
    * The connection dropped while live: say so, and join the room again after
    * RECONNECT_WAIT_MS (at once when it `failed` and cannot come back by
-   * itself), then every RECONNECT_EVERY_MS, until RECONNECT_AUTO_MS from the
-   * drop. A drop while already reconnecting changes nothing.
+   * itself), then every RECONNECT_EVERY_MS while no offer came, until
+   * RECONNECT_AUTO_MS from the drop. A drop while already reconnecting changes nothing.
    */
   const lost = (failed: boolean) => {
     if (state.lostAt !== null) return;
-    set({ lostAt: now(), gaveUp: false, stats: null });
+    const at = now();
+    offered = false;
+    set({ lostAt: at, droppedAt: at, gaveUp: false, stats: null });
     reconnect(failed ? 0 : RECONNECT_WAIT_MS);
   };
 
-  /** Join again after `waitMs`, then on the beat, until reconnecting by itself runs out. */
+  /**
+   * Join again after `waitMs`, then on the beat while the PC has not offered
+   * on the latest join, until reconnecting by itself runs out.
+   */
   const reconnect = (waitMs: number) => {
     clearTimeout(rejoinTimer);
     clearTimeout(giveUpTimer);
     const again = () => {
-      join(state.relayed);
+      if (!offered) join(state.relayed);
       rejoinTimer = setTimeout(again, RECONNECT_EVERY_MS);
     };
     rejoinTimer = setTimeout(again, waitMs);
@@ -235,7 +252,7 @@ export function startPlay(opts: PlayOptions): Play {
     if (state.lostAt === null) return;
     clearTimeout(rejoinTimer);
     clearTimeout(giveUpTimer);
-    set({ lostAt: null, gaveUp: false });
+    set({ lostAt: null, droppedAt: null, gaveUp: false });
   };
 
   /**
@@ -273,6 +290,7 @@ export function startPlay(opts: PlayOptions): Play {
     // A new connection earns the stream again: a frame and a fresh game-started.
     framed = false;
     gameStarted = false;
+    offered = false;
     connection += 1;
     clearTimeout(startRetry);
     session?.end();
@@ -283,6 +301,7 @@ export function startPlay(opts: PlayOptions): Play {
       switch (event.type) {
         case "peer-connection":
           // The PC's offer: it is awake.
+          offered = event.pc !== null;
           if (event.pc && state.step === "waking") enter("negotiating");
           break;
         case "connected":
@@ -291,6 +310,8 @@ export function startPlay(opts: PlayOptions): Play {
           maybeLive();
           break;
         case "disconnected":
+          // A join that fails while reconnecting is replaced on the next beat.
+          if (event.failed) offered = false;
           if (state.step === "live") lost(event.failed);
           break;
         case "first-frame":
@@ -337,14 +358,17 @@ export function startPlay(opts: PlayOptions): Play {
   };
 
   join(false);
-  if (resume) reconnect(RECONNECT_EVERY_MS);
-  else enter("waking");
+  if (resume) {
+    onChange(state);
+    reconnect(RECONNECT_EVERY_MS);
+  } else enter("waking");
 
   return {
     state: () => state,
     retry() {
       if (stopped || state.denied || state.step !== "live") return;
-      set({ lostAt: now(), gaveUp: false });
+      // The PC's hold still runs from the first drop.
+      set({ lostAt: now(), droppedAt: state.droppedAt ?? now(), gaveUp: false });
       join(state.relayed);
       reconnect(RECONNECT_EVERY_MS);
     },
