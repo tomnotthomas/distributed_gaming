@@ -318,6 +318,51 @@ describe("refusals for the machine's standing", () => {
     assert.notEqual(fresh.share, old.share);
   });
 
+  for (const kind of ["memory", "database"] as const) {
+    it(`never undoes a revocation made elsewhere between a read and a write, in ${kind}`, async () => {
+      const db = kind === "database" ? await testDatabase() : null;
+      try {
+        if (db) await migrate(db);
+        const shared = db ? databaseStateKeyStore(db) : memoryStateKeyStore();
+        // The CLI, in another process: its own turns, on the same table.
+        const cli = createStateKeys({ store: shared, secret: null, securityLog: () => {} });
+        let revokeOnRead = false;
+        const store: StateKeyStore = {
+          ...shared,
+          async get(room) {
+            const record = await shared.get(room);
+            if (revokeOnRead) {
+              revokeOnRead = false;
+              await cli.revoke(room);
+            }
+            return record;
+          },
+        };
+        const r = rig({ store });
+        await provisioned(r, 7);
+
+        revokeOnRead = true;
+        await r.attest(8);
+        let record = await shared.get("pc-1");
+        assert.ok(record?.revokedAt);
+        assert.equal(record?.keyId, null);
+        assert.equal(record?.sealed, null);
+        assert.equal(record?.lastBoot, 8);
+
+        await cli.reinstate("pc-1");
+        const cert = await r.attest(9);
+        revokeOnRead = true;
+        refusal(await r.replace(cert), 403, "revoked");
+        record = await shared.get("pc-1");
+        assert.ok(record?.revokedAt);
+        assert.equal(record?.keyId, null);
+        assert.equal(record?.sealed, null);
+      } finally {
+        await db?.close();
+      }
+    });
+  }
+
   it("rate-limits each machine, with when to come back", async () => {
     let clock = Date.now();
     const r = rig({ budget: new RequestBudget({ burst: 2, refillMs: 30_000, now: () => clock }) });
@@ -348,16 +393,22 @@ describe("refusals for the machine's standing", () => {
     // pc-1's sealed share in pc-2's row opens nothing.
     const one = (await store.get("pc-1"))!;
     const two = (await store.get("pc-2"))!;
-    await store.put("pc-2", { ...two, sealed: one.sealed });
+    assert.ok(
+      await store.putShare("pc-2", { keyId: two.keyId!, sealed: one.sealed!, createdAt: Date.now() }),
+    );
     refusal(await r.release(await r.attest(8, "pc-2"), "pc-2"), 500, "internal-error");
   });
 
   it("mints no certificate when the boot cannot be recorded", async () => {
+    const down = async () => {
+      throw new Error("the database is down");
+    };
     const failing: StateKeyStore = {
       get: async () => null,
-      put: async () => {
-        throw new Error("the database is down");
-      },
+      recordBoot: down,
+      putShare: down,
+      revoke: down,
+      reinstate: down,
     };
     const stateKeys = createStateKeys({ store: failing, secret: STATE_SECRET });
     const attestation = createAttestation({

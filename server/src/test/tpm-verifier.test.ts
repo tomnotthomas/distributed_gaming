@@ -828,6 +828,34 @@ describe("attestation with the TPM verifier", () => {
     assert.deepEqual(withheld.ok ? null : withheld.body, { error: "continuity-gap" });
   });
 
+  it("refuses the state key once the EK is registered again after the certificate was minted", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    const stateKeys = createStateKeys({
+      store: memoryStateKeyStore(),
+      secret: "a-state-key-secret-of-at-least-32-characters",
+      verifier,
+      securityLog: () => {},
+    });
+    const a = createAttestation({ access, verifier, attestedOnly: true, onAttested: stateKeys.observe });
+    const quote = recorded("pc-rsa", "first");
+    const attested = await a.attest("pc-rsa", quote.nonce, quote.evidence, NOW);
+    assert.ok(attested.ok);
+    const cert = a.credential("pc-rsa", attested.grant.hostCert, NOW);
+    const reenrolled = await verifier.enroll({
+      room: "pc-rsa",
+      certificate: fixture.machines["pc-rsa"].ekCertificate,
+      now: NOW,
+    });
+    assert.deepEqual(reenrolled, { ok: true });
+    for (const call of [stateKeys.release, stateKeys.replace]) {
+      const refused = await call("pc-rsa", cert, NOW);
+      assert.deepEqual(refused.ok ? null : [refused.status, refused.body], [
+        403,
+        { error: "firmware-cooldown" },
+      ]);
+    }
+  });
+
   it("names the verifier's reason, and holds a machine with Secure Boot off below the floor", async () => {
     const a = await attestation();
     const tampered = recorded("pc-rsa", "tampered-uki");

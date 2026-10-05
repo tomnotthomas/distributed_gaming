@@ -86,14 +86,35 @@ export type StateKeyRecord = {
   revokedAt: number | null;
 };
 
+/**
+ * Each write changes only its own columns, and a new share only an unrevoked
+ * machine's, so a revocation from another process (cli.ts) is never undone by
+ * a write made from what was read before it.
+ */
 export type StateKeyStore = {
   get(room: string): Promise<StateKeyRecord | null>;
-  put(room: string, record: StateKeyRecord): Promise<void>;
+  /** The machine's latest attested boot, and withhold its share when `withhold`; the share and revocation untouched. */
+  recordBoot(room: string, boot: number | null, withhold: boolean): Promise<void>;
+  /** Make this the machine's share, no longer withheld, unless it is revoked or has no record: whether it did. */
+  putShare(room: string, share: { keyId: string; sealed: Buffer; createdAt: number }): Promise<boolean>;
+  /** Destroy the machine's share and mark it revoked at `now`. */
+  revoke(room: string, now: number): Promise<void>;
+  /** Clear the machine's revocation: whether it was revoked. */
+  reinstate(room: string): Promise<boolean>;
 };
 
 const copy = (record: StateKeyRecord): StateKeyRecord => ({
   ...record,
   sealed: record.sealed && Buffer.from(record.sealed),
+});
+
+const empty = (): StateKeyRecord => ({
+  keyId: null,
+  sealed: null,
+  createdAt: null,
+  lastBoot: null,
+  withheld: false,
+  revokedAt: null,
 });
 
 /** A store in this process's memory: a restart forgets every share, so every machine formats anew. */
@@ -104,8 +125,25 @@ export function memoryStateKeyStore(): StateKeyStore {
       const record = records.get(room);
       return record ? copy(record) : null;
     },
-    async put(room, record) {
-      records.set(room, copy(record));
+    async recordBoot(room, boot, withhold) {
+      const record = records.get(room) ?? empty();
+      records.set(room, { ...record, lastBoot: boot, withheld: record.withheld || withhold });
+    },
+    async putShare(room, { keyId, sealed, createdAt }) {
+      const record = records.get(room);
+      if (!record || record.revokedAt !== null) return false;
+      records.set(room, { ...record, keyId, sealed: Buffer.from(sealed), createdAt, withheld: false });
+      return true;
+    },
+    async revoke(room, now) {
+      const record = records.get(room) ?? empty();
+      records.set(room, { ...record, keyId: null, sealed: null, createdAt: null, revokedAt: now });
+    },
+    async reinstate(room) {
+      const record = records.get(room);
+      if (!record || record.revokedAt === null) return false;
+      records.set(room, { ...record, revokedAt: null });
+      return true;
     },
   };
 }
@@ -137,23 +175,39 @@ export function databaseStateKeyStore(db: Queryable): StateKeyStore {
         revokedAt: numberOrNull(row.revoked_at),
       };
     },
-    async put(room, record) {
+    async recordBoot(room, boot, withhold) {
       await db.query(
-        `INSERT INTO machine_state_keys (machine_id, key_id, sealed, created_at, last_boot, withheld, revoked_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO machine_state_keys (machine_id, last_boot, withheld, updated_at)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (machine_id) DO UPDATE SET
-           key_id = $2, sealed = $3, created_at = $4, last_boot = $5, withheld = $6, revoked_at = $7, updated_at = $8`,
-        [
-          room,
-          record.keyId,
-          record.sealed?.toString("base64") ?? null,
-          record.createdAt,
-          record.lastBoot,
-          record.withheld,
-          record.revokedAt,
-          Date.now(),
-        ],
+           last_boot = $2, withheld = machine_state_keys.withheld OR $3, updated_at = $4`,
+        [room, boot, withhold, Date.now()],
       );
+    },
+    async putShare(room, { keyId, sealed, createdAt }) {
+      const { rowCount } = await db.query(
+        `UPDATE machine_state_keys SET key_id = $2, sealed = $3, created_at = $4, withheld = FALSE, updated_at = $5
+         WHERE machine_id = $1 AND revoked_at IS NULL`,
+        [room, keyId, sealed.toString("base64"), createdAt, Date.now()],
+      );
+      return rowCount > 0;
+    },
+    async revoke(room, now) {
+      await db.query(
+        `INSERT INTO machine_state_keys (machine_id, revoked_at, updated_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (machine_id) DO UPDATE SET
+           key_id = NULL, sealed = NULL, created_at = NULL, revoked_at = $2, updated_at = $3`,
+        [room, now, Date.now()],
+      );
+    },
+    async reinstate(room) {
+      const { rowCount } = await db.query(
+        `UPDATE machine_state_keys SET revoked_at = NULL, updated_at = $2
+         WHERE machine_id = $1 AND revoked_at IS NOT NULL`,
+        [room, Date.now()],
+      );
+      return rowCount > 0;
     },
   };
 }
@@ -245,15 +299,6 @@ export type StateKeyOptions = {
   securityLog?: (event: StateKeySecurityEvent) => void;
 };
 
-const empty = (): StateKeyRecord => ({
-  keyId: null,
-  sealed: null,
-  createdAt: null,
-  lastBoot: null,
-  withheld: false,
-  revokedAt: null,
-});
-
 /** Whether a boot counted `boot` follows one counted `last`: the same boot again, or the next. */
 const follows = (last: number | null, boot: number | null) =>
   last !== null && boot !== null && (boot === last || boot === last + 1);
@@ -310,6 +355,9 @@ export function createStateKeys({
     }
     const record = await store.get(room);
     if (record?.revokedAt != null) return no(refuse(403, "revoked"));
+    // Defense in depth: closes the race where a firmware-changed refusal or an
+    // EK re-enrollment lands after a host certificate was minted but before
+    // the key is released.
     if (await verifier?.inCooldown?.(room, now)) return no(refuse(403, "firmware-cooldown"));
     // Every attestation that minted a certificate was observed first, so a
     // record whose latest boot is not the certificate's has seen a later one.
@@ -343,7 +391,7 @@ export function createStateKeys({
           });
         }
         if (existing && !gap && existing.lastBoot === boot) return;
-        await store.put(room, { ...record, lastBoot: boot, withheld: record.withheld || gap });
+        await store.recordBoot(room, boot, gap);
       }),
 
     release: (room, credential, now = Date.now()) =>
@@ -376,13 +424,8 @@ export function createStateKeys({
           const { record, cert } = admitted;
           const share = randomBytes(STATE_KEY_BYTES);
           const keyId = randomBytes(12).toString("base64url");
-          await store.put(room, {
-            ...record,
-            keyId,
-            sealed: seal(key!, room, keyId, share),
-            createdAt: now,
-            withheld: false,
-          });
+          const sealed = seal(key!, room, keyId, share);
+          if (!(await store.putShare(room, { keyId, sealed, createdAt: now }))) return refuse(403, "revoked");
           used.set(cert.id, cert.exp * 1000);
           securityLog({
             event: "state-key-replaced",
@@ -397,16 +440,14 @@ export function createStateKeys({
 
     revoke: (room, now = Date.now()) =>
       inTurn(room, async () => {
-        const record = (await store.get(room)) ?? empty();
-        await store.put(room, { ...record, keyId: null, sealed: null, createdAt: null, revokedAt: now });
-        securityLog({ event: "state-key-revoked", machine: room, previous: record.keyId });
+        const previous = (await store.get(room))?.keyId ?? null;
+        await store.revoke(room, now);
+        securityLog({ event: "state-key-revoked", machine: room, previous });
       }),
 
     reinstate: (room) =>
       inTurn(room, async () => {
-        const record = await store.get(room);
-        if (!record?.revokedAt) return;
-        await store.put(room, { ...record, revokedAt: null });
+        if (!(await store.reinstate(room))) return;
         securityLog({ event: "state-key-reinstated", machine: room });
       }),
   };
