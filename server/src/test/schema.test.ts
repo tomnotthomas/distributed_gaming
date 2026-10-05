@@ -50,6 +50,7 @@ describe("migrations", () => {
         "key_sessions",
         "machine_attestation",
         "machine_games",
+        "machine_state_keys",
         "machine_uptime",
         "machines",
         "reservations",

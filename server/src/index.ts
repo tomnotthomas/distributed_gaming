@@ -56,6 +56,7 @@ import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { createIceSource } from "./ice.js";
 import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
+import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from "./state-key.js";
 import {
   DENIED_CODE,
   isRelayed,
@@ -96,7 +97,17 @@ const database = openDatabase(process.env.DATABASE_URL);
 // (ATTESTATION_VERIFIER). Unset: the machine key hosts, unattested, and no
 // machine can attest.
 const attestationConfig = attestationFromEnv(process.env, access.machines, database);
-const attestation = createAttestation({ access, ...attestationConfig });
+
+// Rental-mode PCs' state keys (state-key.ts), sealed with STATE_KEY_SECRET in
+// the platform database: released only to the boot that just attested. Every
+// attestation that passes tells it which boot that was, first.
+const stateKeySecret = stateKeySecretFromEnv(process.env);
+const stateKeys = createStateKeys({
+  store: databaseStateKeyStore(database),
+  secret: stateKeySecret.secret,
+  verifier: attestationConfig.verifier,
+});
+const attestation = createAttestation({ access, ...attestationConfig, onAttested: stateKeys.observe });
 
 // Signs renters' sign-in session cookies (signin.ts). Without it nobody can
 // sign in, so nobody can book.
@@ -154,6 +165,7 @@ const serveApi = createApi({
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
   attestation,
+  stateKeys,
   onRenterStarted: pushLaunch,
 });
 
@@ -1016,6 +1028,10 @@ server.listen(PORT, () => {
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
   for (const warning of attestationConfig.warnings) console.warn(`[swiff] ${warning}`);
+  // Only where a machine can attest is a missing state key secret news.
+  if (attestationConfig.verifier) {
+    for (const warning of stateKeySecret.warnings) console.warn(`[swiff] ${warning}`);
+  }
   if (!sessionSecret)
     console.warn("[swiff] SESSION_SECRET missing, too short or equal to ROOM_SECRET — no renter can sign in");
   if (!publicOrigin)

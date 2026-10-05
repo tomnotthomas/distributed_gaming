@@ -176,6 +176,26 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // does not end that session. Null when no reset is held.
     `ALTER TABLE machines ADD COLUMN reset_until BIGINT`,
   ],
+  [
+    // Each rental-mode PC's state key (state-key.ts): the server's share of
+    // the key to its encrypted state partition. No foreign key, as for
+    // machine_attestation. key_id names the share and sealed holds it,
+    // encrypted with STATE_KEY_SECRET (base64), both null until the machine
+    // first asks for one and after it is revoked; last_boot is the TPM
+    // resetCount of the machine's latest attested boot; withheld is set when a
+    // boot was not the one after the last (something else ran in between) and
+    // stays set until the share is replaced; revoked_at is when it was revoked.
+    `CREATE TABLE machine_state_keys (
+      machine_id TEXT PRIMARY KEY,
+      key_id     TEXT,
+      sealed     TEXT,
+      created_at BIGINT,
+      last_boot  BIGINT,
+      withheld   BOOLEAN NOT NULL DEFAULT FALSE,
+      revoked_at BIGINT,
+      updated_at BIGINT NOT NULL
+    )`,
+  ],
 ];
 
 /**
