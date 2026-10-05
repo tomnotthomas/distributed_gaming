@@ -500,7 +500,8 @@ or a desktop. Nobody types a password or a Steam Guard code.
   while a code is up, and the stream shows only on `game-started`, once the game is on
   screen. On `failed` (reason `sign-in-timeout`, or none) it offers Try again, which
   sends `steam-login retry` to the PC for a new code on the same claim, beside
-  Ignition's Cancel. On `launch-timeout` (the game never came up after sign-in) it says
+  Ignition's Cancel, until the claim's sign-in time runs out
+  ([`renter.md`](../docs/system-design/renter.md), "Playing"). On `launch-timeout` (the game never came up after sign-in) it says
   the game didn't start and offers Try another machine instead. A retry made while the room is
   reconnecting or the PC is away is held and sent once the PC is back, until it answers.
 
