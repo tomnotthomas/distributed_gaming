@@ -116,8 +116,14 @@ def write_atomic(path, data, mode=0o644, owner=None):
         os.fsync(f.fileno())
     os.chmod(tmp, mode)
     if owner:
-        os.chown(tmp, *owner)
+        own(tmp, owner)
     os.replace(tmp, path)
+
+
+def own(path, owner):
+    """Gives a file Swiff wrote the owner it needs (ntfs3 has one fixed owner and refuses)."""
+    with contextlib.suppress(OSError):
+        os.lchown(path, *owner)
 
 
 def read_regular(path, limit=64 << 20):
@@ -933,9 +939,7 @@ def copy_verified(src, dst, owner):
             d.write(chunk)
         d.flush()
         os.fsync(d.fileno())
-    # Owned like the game's folder (ntfs3 has one fixed owner and refuses).
-    with contextlib.suppress(OSError):
-        os.chown(dst, *owner)
+    own(dst, owner)
     return h.hexdigest()
 
 
@@ -989,19 +993,22 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
     vfs = os.statvfs(setup["library"])
     if need > vfs.f_bavail * vfs.f_frsize:
         raise Refused(f"it needs {need >> 20} MiB on the library and {vfs.f_bavail * vfs.f_frsize >> 20} MiB are free; it stays on its verified version")
+    # Everything promotion writes is owned like the game's folder.
+    st = os.lstat(next(p for p in (base, apps, setup["library"]) if is_dir(p)))
+    owner = (st.st_uid, st.st_gid)
     for path in (apps, os.path.join(apps, "common"), os.path.join(apps, "depotcache"), base):
         if not os.path.lexists(path):
             os.mkdir(path)
+            own(path, owner)
         elif not is_dir(path):
             raise Refused(f"{path} is not a folder")
     for rel in sorted(entry["dirs"]):
         path = os.path.join(base, rel)
         if not os.path.lexists(path):
             os.mkdir(path)
+            own(path, owner)
         elif not is_dir(path):
             raise Refused(f"{rel} is not a folder on the library")
-    st = os.lstat(base)
-    owner = (st.st_uid, st.st_gid)
     staged = []  # (temporary, final) paths on the library
     try:
         for src, final, digest, what in copies:
@@ -1013,6 +1020,7 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
             if not (os.path.islink(final) and os.readlink(final) == target):
                 staged.append((final + TEMP_SUFFIX, final))
                 os.symlink(target, final + TEMP_SUFFIX)
+                own(final + TEMP_SUFFIX, owner)
     except BaseException:
         for tmp, _ in staged:
             with contextlib.suppress(OSError):
@@ -1025,7 +1033,7 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
     save_table(key, table)
     for tmp, final in staged:
         os.replace(tmp, final)
-    write_atomic(os.path.join(apps, f"appmanifest_{appid}.acf"), entry["acf"].encode())
+    write_atomic(os.path.join(apps, f"appmanifest_{appid}.acf"), entry["acf"].encode(), owner=owner)
     for rel, record in entry["files"].items():
         record[2] = os.lstat(os.path.join(base, rel)).st_mtime_ns
     del entry["promoting"]

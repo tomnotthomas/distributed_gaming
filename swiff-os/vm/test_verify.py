@@ -148,6 +148,19 @@ class Promotion(Library):
         self.assertEqual(read(self.pak), self.new)
         self.assertEqual(verify.load_table(KEY)[0]["apps"]["1004"]["buildid"], "2")
 
+    def test_everything_promoted_is_owned_like_the_game_folder(self):
+        update = dict(self.update, dirs={"data": "10041"})
+        chowns, real_lstat, game = {}, os.lstat, os.lstat(self.game)
+
+        def lstat(path):
+            return os.stat_result((game.st_mode, 0, 0, 0, 4242, 4343, 0, 0, 0, 0)) if path == self.game else real_lstat(path)
+
+        with mock.patch.object(verify.os, "lchown", side_effect=lambda path, *owner: chowns.setdefault(path, owner)), \
+                mock.patch.object(verify.os, "lstat", side_effect=lstat):
+            verify.promote_app("1004", update, self.setup, self.table, KEY, True)
+        promoted = {os.path.relpath(p, self.lib).removesuffix(verify.TEMP_SUFFIX) for p, owner in chowns.items() if owner == (4242, 4343)}
+        self.assertEqual(promoted, {"steamapps/common/Delta/d.pak", "steamapps/common/Delta/data", "steamapps/depotcache", "steamapps/appmanifest_1004.acf"})
+
     def test_an_update_that_does_not_fit_stays_off_the_library(self):
         full = os.statvfs_result((4096, 4096, 1000, 0, 0, 1000, 0, 0, 0, 255))
         with mock.patch.object(verify.os, "statvfs", return_value=full):
