@@ -501,6 +501,45 @@ describe("useSwiff", () => {
       }
     });
 
+    it("never puts the renter's games back once signed out, when a store read for them answers late", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let answer: "checking" | "found" | "signed-out" = "checking";
+      const me = () => {
+        if (answer === "signed-out") return new Response("{}", { status: 401 });
+        const games = answer === "found" ? [[440, "Team Fortress 2", 3]] : [];
+        const profile = { ...unnamed.profile, lib: true, size: 3, games, checking: 1 };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      // The store read for Team Fortress 2's card answers only once released.
+      let release = () => {};
+      const late = new Promise<void>((resolve) => (release = resolve));
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) => {
+        if (String(path).startsWith("/api/games/media") && String(path).includes("440")) await late;
+        return server(path, init);
+      });
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.signedIn).toBe(true));
+
+        answer = "found";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+
+        answer = "signed-out";
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await waitFor(() => expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]));
+
+        release();
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.games.map((g) => g.appid).sort()).toEqual([2073850, 730]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const host = {

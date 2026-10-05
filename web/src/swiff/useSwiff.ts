@@ -325,6 +325,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
    * stand in; in the demo they are up until it arrives.
    */
   const showSignedOut = useCallback(() => {
+    ++libraryLoad.current;
     void fetchPopular().then((popular) => {
       vouch(popular);
       const catalog = popular?.games ?? [];
