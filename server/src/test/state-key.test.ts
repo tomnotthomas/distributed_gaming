@@ -64,6 +64,7 @@ type Rig = {
   replace(cert: string | null, room?: string, now?: number): ReturnType<StateKeys["replace"]>;
 };
 
+/** State keys and attestation wired together as index.ts wires them, judged by the dev verifier. */
 function rig({
   store = memoryStateKeyStore(),
   secret = STATE_SECRET as string | null,
@@ -115,6 +116,7 @@ function shareOf(result: Awaited<ReturnType<StateKeys["release"]>>, status: 200 
   return { keyId: result.grant.keyId, share: result.grant.share };
 }
 
+/** Assert `result` is the refusal `error` with `status`. */
 function refusal(result: Awaited<ReturnType<StateKeys["release"]>>, status: number, error: string) {
   assert.ok(!result.ok, "released when it should have been refused");
   assert.equal(result.status, status);

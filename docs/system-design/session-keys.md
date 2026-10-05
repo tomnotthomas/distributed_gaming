@@ -423,6 +423,12 @@ backoff.
 destroys the machine's share at once, so its partition never opens again, and refuses it any
 until `npm run state-key -- reinstate <machine-id>`, after which it may `PUT` a new one.
 Taking the machine out of `MACHINE_KEYS` also refuses it (`401 bad-host-cert`).
+A revocation takes effect at the database write: every call that reads the machine's row after
+it is refused, and no write the server makes afterwards brings the share back. A `POST` that
+had already read the row when the revocation landed may still answer with the share it read,
+exactly as if it had come a moment earlier; no lock could recall a share already sent, so a
+machine suspected of having its share is also taken out of `MACHINE_KEYS` and its partition
+treated as compromised.
 
 **Secrets.** `STATE_KEY_SECRET` (at least 32 characters, not `ROOM_SECRET`; for example
 `openssl rand -base64 48`) derives the AES-256-GCM key each share is sealed with, bound to its

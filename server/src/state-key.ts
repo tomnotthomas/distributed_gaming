@@ -103,11 +103,13 @@ export type StateKeyStore = {
   reinstate(room: string): Promise<boolean>;
 };
 
+/** A copy of `record` that shares no buffer with it. */
 const copy = (record: StateKeyRecord): StateKeyRecord => ({
   ...record,
   sealed: record.sealed && Buffer.from(record.sealed),
 });
 
+/** The record of a machine never seen: no share, no boot, not withheld or revoked. */
 const empty = (): StateKeyRecord => ({
   keyId: null,
   sealed: null,
@@ -157,6 +159,7 @@ type Row = {
   revoked_at: number | null;
 };
 
+/** A BIGINT column as a number, or null when it is null. */
 const numberOrNull = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 
 /** The store in the platform database's machine_state_keys table. */
@@ -224,6 +227,7 @@ const sealingKey = (secret: string) =>
 /** Bound to its machine and its id, so a sealed share copied onto another row opens nothing. */
 const aad = (room: string, keyId: string) => Buffer.from(`swiff-state-key\0${room}\0${keyId}`);
 
+/** `share` sealed with AES-256-GCM under `key`, bound to `room` and `keyId`: version, IV, tag, ciphertext. */
 function seal(key: Buffer, room: string, keyId: string, share: Buffer): Buffer {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -262,6 +266,7 @@ export type StateKeySecurityEvent =
   | { event: "state-key-revoked"; machine: string; previous: string | null }
   | { event: "state-key-reinstated"; machine: string };
 
+/** The default security log: one JSON line on stderr. */
 const logSecurityEvent = (event: StateKeySecurityEvent) =>
   console.warn(`[swiff] security event ${JSON.stringify(event)}`);
 
@@ -303,6 +308,11 @@ export type StateKeyOptions = {
 const follows = (last: number | null, boot: number | null) =>
   last !== null && boot !== null && (boot === last || boot === last + 1);
 
+/**
+ * The state keys of every machine, kept in `store` and sealed with `secret`.
+ * Calls for one machine take turns in this process; the store's writes keep a
+ * revocation made from another process (state-key.ts header, cli.ts).
+ */
 export function createStateKeys({
   store,
   secret,
@@ -315,6 +325,7 @@ export function createStateKeys({
   const inTurn = perRoom();
   /** Host certificate id → when it expires (Unix ms), once it has got a share. */
   const used = new Map<string, number>();
+  /** A refusal with its status, and when to come back for a 429. */
   const refuse = (
     status: number,
     error: StateKeyError["error"],
@@ -330,6 +341,7 @@ export function createStateKeys({
    * The checks every state-key call makes, in order: the record to act on, or
    * the refusal. Called in the machine's turn.
    */
+  /** `refusal` as admit's answer. */
   const no = (refusal: StateKeyResult) => ({ admitted: false, refusal }) as const;
 
   async function admit(
