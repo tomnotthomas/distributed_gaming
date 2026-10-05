@@ -41,7 +41,9 @@ const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
 const BLOCK = 4 * MiB;
 const ZERO = Buffer.alloc(BLOCK);
 
+/** An NTFS tool's path, in $NTFS_BIN or /usr/sbin. */
 const ntfs = (tool) => path.join(process.env.NTFS_BIN ?? "/usr/sbin", tool);
+/** Run boot-vars.py ($BOOT_VARS) with `args`, on the VM's firmware variables. */
 const bootVars = (args) =>
   execFileSync(process.env.BOOT_VARS ?? "boot-vars.py", args, { stdio: ["ignore", "inherit", "inherit"] });
 
@@ -316,6 +318,7 @@ function apply(op, ctx) {
   }
 }
 
+/** Carry out a plan's steps in order, printing each step's title. */
 function run(plan, ctx) {
   for (const step of plan.steps) {
     console.log(`- ${step.title}`);
