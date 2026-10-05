@@ -165,7 +165,8 @@ origin, e.g. `https://swiff.example`) in the server's environment.
 ```
 GET  /games
   → 200 [{ id, name, image }]
-  List the games that can be booked. Works signed out.
+  List the games that can be booked: only games Swiff can run (`server/src/playable.ts`),
+  as every list of games a renter is sent. Works signed out.
 
 GET  /ping
   → 204
@@ -174,7 +175,8 @@ GET  /ping
 
 GET  /availability?appids=730,570&rtt=&controls=&picture=&minutes=
   → 200 [{ appid, free, ready, best, busy, backAt, backName }]
-  For each game asked about (1 to 100 appids, in the order asked, repeats once), how
+  For each game asked about that Swiff can run (1 to 100 appids, in the order asked,
+  repeats once; one it cannot run is left out), how
   many machines the renter could play it on right now (`free`), how many of those are
   free for all of the optional `minutes` (1 to 720; `ready`, which is `free` without
   `minutes`), the best of those as the game page would rank it first (`best`, `{ id,
@@ -197,13 +199,16 @@ GET  /games/:appid/machines?minutes=60&rtt=&controls=&picture=
   that put the first above the second (`{ rule, label }`, null with fewer than two);
   `busy` lists the taken machines that would fit, `{ id, name, backAt }`, soonest
   first. → 400 for a bad appid or `minutes`, a missing or bad `rtt`, or a bad
-  `controls` or `picture`. → 429 past the renter's budget of these reads (below).
+  `controls` or `picture`. → 404 { error, code: "not-playable" } for a game Swiff
+  cannot run. → 429 past the renter's budget of these reads (below).
 
 GET  /me
   → 200 { steamId, profile }
   Who is signed in, and their Steam profile (persona, avatar, library), read from Steam.
   The full list of owned appids stays on the server, for the licence check on
-  `POST /bookings` and its claim; the page gets the capped library only.
+  `POST /bookings` and its claim; the page gets the capped library only, holding only
+  the games Swiff can run. Reading it puts the renter's library first in line to be
+  checked for that.
   A profile read is kept in memory for 5 minutes per renter, so reloads do not spend the
   Web API quota; a read Steam fails or takes over 3 s to answer is not kept. For 10 s
   after a failed read Steam is not asked again for that renter: they get their last
@@ -247,6 +252,8 @@ POST /bookings
   no `STEAM_API_KEY`, Steam down) and the game is not free to play
   ("library-unreadable"); no booking is made. Free to play is Steam's store data, or the
   wall's curated free-to-play titles when the store does not answer within 3 s.
+  → 403 { error, code: "not-playable" } when Swiff cannot run the game, or has no fresh
+  verdict on it yet (`server/src/playable.ts`); no booking is made.
 
 GET  /bookings/:id
   → 200 { bookingId, status, machine?, claimBy?, startedAt?, price?, heldUntil?, endReason? }
@@ -308,8 +315,8 @@ POST /bookings/:id/claim
   booked minutes or until the session ends, whichever comes first.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
   is matched to the renter's own machine (the booking goes back to the queue).
-  → 403 { error, code } as `POST /bookings`, checked again since the library may have
-  changed; the reservation is left unspent.
+  → 403 { error, code } as `POST /bookings`, checked again since the library, or whether
+  Swiff can run the game, may have changed; the reservation is left unspent.
   → 503 when Steam does not give the renter's library and the game is not free to play:
   the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
