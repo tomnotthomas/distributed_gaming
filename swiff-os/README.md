@@ -13,6 +13,9 @@ stage by stage.
 | `hostd/`    | `swiff-hostd`: connects the PC to the platform and runs one renter session at a time |
 | later       | attestation client                                                                   |
 
+NVIDIA cards (GTX 16 / RTX 20 and newer): what the image carries, why it loads under lockdown,
+the licence and the hardware test are in [`NVIDIA.md`](NVIDIA.md).
+
 ## Server: hosting requires attestation
 
 The server side lives in `server/`, not here: `server/src/attestation.ts`. A machine's rights
@@ -155,8 +158,11 @@ sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~
 ```
 
 Build output, caches and the VM's disk copy and logs go to `$SWIFF_OS_BUILD_DIR` (default `~/.cache/swiff-os`), outside the
-source tree. The build runs as root, and the root-only directories it leaves would break tools that
-walk the repository, such as `prettier --check .`. The first build downloads about 2 GB and takes
+source tree, and mkosi's workspace to `$SWIFF_OS_WORKSPACE_DIR` when set. `--build-only` builds
+without booting. With the NVIDIA driver the build needs more than a small workstation has, so
+CI runs it: `.github/workflows/swiff-os-image.yml` builds the image and runs this test on a
+GitHub runner whenever `image/`, `vm/` or the workflow change. The build runs as root, and the root-only directories it leaves would break tools that
+walk the repository, such as `prettier --check .`. The first build downloads about 2.4 GB (the NVIDIA driver is about 350 MB of it) and takes
 a while; later builds reuse the caches. If `image/mkosi.key` and `image/mkosi.crt` do not exist, the test makes a
 throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs only.
 
@@ -190,7 +196,12 @@ host's view. Together they cover:
   the firewall is removed.
 - The scratch is encrypted: the renter's marker never appears in the partition's raw bytes. It is
   re-keyed and empty after the reboot, and the games overlay forgets the renter's writes.
-- The disk image fits the 24 GiB budget.
+- The disk image fits the 24 GiB budget (the result also says how much of the 8 GiB root slot
+  the root uses).
+- NVIDIA: Canonical's signed open module is accepted under lockdown and stops at "No such
+  device" (no NVIDIA card in the VM), while the same module without its signature is refused;
+  the userspace, 32-bit GL and GSP firmware of the same release are there; nouveau and nova are
+  blacklisted and `nvidia_drm modeset=1` is set.
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
 checks the session's wiring, not a running game.
@@ -207,8 +218,9 @@ checks the session's wiring, not a running game.
   game straight away, so the renter never sees Steam's UI, is a Stage 0 spike plus the session agent.
 - **Steam's sandbox.** Ubuntu's AppArmor restriction on unprivileged user namespaces may need a Steam
   profile for pressure-vessel. This can only be tested with a GPU.
-- **NVIDIA.** Modules must be signed for `module.sig_enforce`, for example Ubuntu's prebuilt signed
-  NVIDIA modules. Redistribution terms need checking.
+- **NVIDIA on real hardware.** The image carries Canonical's signed open NVIDIA modules and the
+  matching userspace; the hardware test and the licence questions for counsel are in
+  [`NVIDIA.md`](NVIDIA.md).
 - **The `-security` pocket.** mkosi 20 always uses the live `security.ubuntu.com` for it. Pinning it
   too needs a newer mkosi or a local mirror.
 
@@ -247,8 +259,11 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   `rtph264pay` (MTU 1200), and the session's sound (the default sink's monitor) as
   stereo Opus. Each pipeline writes length-framed RTP to the helper's stdout, so no local
   port takes packets from anyone else. A frame the encoder cannot take yet is dropped,
-  never queued. The encoder is picked at start: NVENC, then VA-API, then x264, the first
-  that encodes a few test frames cleanly. A pipeline that stops (gamescope restarting) is
+  never queued. The encoder is picked at start, the first that encodes a few test frames
+  cleanly: NVENC, VA-API, then x264 where NVIDIA's driver runs an NVIDIA card
+  (`src/gpu.ts` reads the cards from sysfs), VA-API then x264 otherwise. NVENC converts and
+  scales on the GPU (`cudaupload ! cudaconvertscale ! nvh264enc`, preset P1, ultra-low-latency
+  tune, a one-frame VBV). A pipeline that stops (gamescope restarting) is
   started again; the picture is ready before the renter connects. If no picture has come
   within 30 s of start (gamescope's node is missing), the streamer exits with 1 instead
   of leaving the renter on a black screen.
@@ -279,7 +294,8 @@ swiff-os/streamer/vm/run-test.sh       # the VM test (below)
 example `/usr/lib/swiff/streamer/dist/` and `/usr/lib/swiff/streamer/helpers/`), and
 `system/` as sysusers, tmpfiles, udev rule, `/usr/libexec/swiff/swiff-pipewire-grant` and
 the renter's user unit. It needs Node 22, Python 3 with GObject introspection, GStreamer
-1.24 or later (base, good, bad, ugly, PipeWire) and `acl`. swiff-hostd's `streamer`
+1.24 or later (base, good, bad, ugly, PipeWire) and `acl`; NVENC also needs the NVIDIA
+driver's `libnvidia-encode` and `libcuda`, which the image has. swiff-hostd's `streamer`
 setting is then `{"command": "/usr/bin/node", "args":
 ["/usr/lib/swiff/streamer/dist/swiff-streamer.mjs", "--pipewire-remote",
 "/run/user/1000/pipewire-0"], "uid": 961, "gid": 961}`. `--help` lists the other
