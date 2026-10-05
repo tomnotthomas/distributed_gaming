@@ -32,6 +32,9 @@ let gamesChanged: ((games: SteamGame[]) => void) | null = null;
 /** Every Host API call the app made: method, path and parsed body. */
 let calls: { method: string; path: string; body: Record<string, unknown> | null; keepalive: boolean }[] = [];
 
+// Sharing this Windows desktop is a development path (devShare.ts): these tests drive it.
+vi.mock("./devShare", () => ({ WINDOWS_SHARE: true }));
+
 vi.mock("./useScreenShare", () => ({
   useScreenShare: (e: ShareEvents) => {
     events = e;
@@ -429,7 +432,7 @@ describe("useHost", () => {
     rerender();
     expect(result.current.view.live).toEqual({
       kind: "off",
-      note: "Sharing stopped at 23:00, as you chose.",
+      note: "You went offline at 23:00, as planned.",
     });
   });
 
@@ -453,7 +456,7 @@ describe("useHost", () => {
     rerender();
     expect(result.current.view.live).toMatchObject({
       kind: "off",
-      note: "Sharing stopped at 22:00, as you chose.",
+      note: "You went offline at 22:00, as planned.",
     });
   });
 
@@ -576,9 +579,7 @@ describe("useHost", () => {
     expect(result.current.view.machine).toBe(" Nova-01 ".trim());
     expect(JSON.stringify({ ...localStorage })).not.toContain("k2");
     expect(bridge.saveMachineKey).toHaveBeenCalledWith("k2");
-    expect(result.current.view.connection.notice).toBe(
-      "This system cannot encrypt the key, so it was not saved.",
-    );
+    expect(result.current.view.connection.notice).toBe("This PC can't encrypt the key, so it wasn't saved.");
     expect(share.start).toHaveBeenCalledWith("otter.example", { machineId: "pc-2", machineKey: "k2" });
   });
 

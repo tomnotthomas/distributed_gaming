@@ -1,6 +1,9 @@
 // A12: where this PC connects to Swiff, the key it signs in with, and the name players see.
+// The signaling server, the screen preview and going live from here belong to
+// sharing this Windows desktop, a development path only (devShare.ts).
 
 import { cloneElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
+import { WINDOWS_SHARE } from "../devShare";
 import { connectionReady } from "../model";
 import { Notice } from "../ui/Notice";
 import { Plate } from "../ui/parts";
@@ -32,6 +35,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
   const [name, setName] = useState(connection.name);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const locked = LOCKED.has(live.kind);
   const preview = useRef<HTMLVideoElement>(null);
 
@@ -49,9 +53,11 @@ export function Settings({ view, actions, go }: ScreenProps) {
   const save = async () => {
     setSaving(true);
     setFailed(null);
+    setSaved(false);
     try {
       await actions.saveConnection(form);
-      go("live");
+      if (WINDOWS_SHARE) go("live");
+      else setSaved(true);
     } catch (cause) {
       setFailed(cause instanceof Error ? cause.message : "The settings could not be saved.");
     } finally {
@@ -65,26 +71,28 @@ export function Settings({ view, actions, go }: ScreenProps) {
         <div className="cp">
           <p className="mono ctx">Settings</p>
           <h1>Connection</h1>
-          <p className="ln">Where this PC connects to Swiff, the key it signs in with, and its name.</p>
+          <p className="ln">How this PC connects to Swiff.</p>
           <form
             id="connection"
             className="form ctl"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!locked && connectionReady(form)) void save();
+              if (!locked && (!WINDOWS_SHARE || connectionReady(form))) void save();
             }}
           >
-            <Field label="Signaling server" hint="The address the renter opens. Paste it exactly as given.">
-              <input
-                value={url}
-                disabled={locked}
-                placeholder="hushed-otter-42.trycloudflare.com"
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-            </Field>
-            <Field label="Machine id" hint="The id the key was made for.">
+            {WINDOWS_SHARE ? (
+              <Field label="Signaling server" hint="Paste the address exactly as you got it.">
+                <input
+                  value={url}
+                  disabled={locked}
+                  placeholder="hushed-otter-42.trycloudflare.com"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+              </Field>
+            ) : null}
+            <Field label="Machine ID" hint="The ID that goes with your key.">
               <input
                 value={machineId}
                 disabled={locked}
@@ -93,7 +101,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
                 onChange={(e) => setMachineId(e.target.value)}
               />
             </Field>
-            <Field label="Machine key" hint="From npm run machine-key. Stored encrypted on this PC.">
+            <Field label="Machine key" hint="Stored encrypted on this PC.">
               <input
                 type="password"
                 value={machineKey}
@@ -102,7 +110,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
                 onChange={(e) => setMachineKey(e.target.value)}
               />
             </Field>
-            <Field label="Name" hint="What players see this PC as. Left empty, the machine id.">
+            <Field label="Name" hint="The name players see. Leave it empty to use the machine ID.">
               <input
                 value={name}
                 disabled={locked}
@@ -117,15 +125,23 @@ export function Settings({ view, actions, go }: ScreenProps) {
             {failed ? <Notice>{failed}</Notice> : null}
           </form>
         </div>
-        <Plate caption={["Preview", connection.preview ? "Capturing" : "Idle"]}>
-          <div className="stagebox">
-            {connection.preview ? (
-              <video ref={preview} autoPlay muted playsInline aria-label="This PC's screen, as shared" />
-            ) : (
-              <span className="mono">Not capturing</span>
-            )}
-          </div>
-        </Plate>
+        {WINDOWS_SHARE ? (
+          <Plate caption={["Preview", connection.preview ? "Capturing" : "Idle"]}>
+            <div className="stagebox">
+              {connection.preview ? (
+                <video ref={preview} autoPlay muted playsInline aria-label="This PC's screen, as shared" />
+              ) : (
+                <span className="mono">Not capturing</span>
+              )}
+            </div>
+          </Plate>
+        ) : (
+          <Plate caption={["This PC", "Name players see"]}>
+            <div className="stagebox">
+              <span className="mono">{name.trim() || machineId.trim() || "Not named yet"}</span>
+            </div>
+          </Plate>
+        )}
       </section>
       <div className="sz one">
         <div className="acts">
@@ -133,11 +149,16 @@ export function Settings({ view, actions, go }: ScreenProps) {
             icon="arrow"
             type="submit"
             form="connection"
-            disabled={locked || saving || !connectionReady(form)}
+            disabled={locked || saving || (WINDOWS_SHARE && !connectionReady(form))}
           >
-            Save and start sharing
+            {WINDOWS_SHARE ? "Save and go live" : "Save"}
           </Pill>
-          {locked ? <span className="soft">Pause sharing to change these.</span> : null}
+          {locked ? <span className="soft">Pause to change these.</span> : null}
+          {saved ? (
+            <span className="soft" role="status">
+              Saved.
+            </span>
+          ) : null}
         </div>
       </div>
       <i className="ruler" aria-hidden="true" />

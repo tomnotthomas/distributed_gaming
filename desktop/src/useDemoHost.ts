@@ -10,12 +10,13 @@ import {
   DEMO_MACHINE,
   DEMO_NEAR,
   DEMO_OFFERED,
-  DEMO_RENTAL,
   DEMO_STEAM,
   demoState,
+  isRentalCase,
   type DemoScreen,
   type DemoState,
 } from "./demo";
+import { useDemoRental } from "./demoRental";
 import { buildRate, GRACE_MS, untilChoices, type Host, type HostView, type Live, type Step } from "./model";
 
 /**
@@ -35,8 +36,8 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [offered, setOffered] = useState(DEMO_OFFERED);
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
-  const [rentalTarget, setRentalTarget] = useState<string | null>(null);
   const [crewOnly, setCrewOnly] = useState(true);
+  const [shown, setShown] = useState<DemoScreen>(screen);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -53,6 +54,8 @@ export function useDemoHost(screen: DemoScreen): Host & {
     if (live.kind === "ending" && now >= live.warnedAt + GRACE_MS) setLive({ kind: "paused", at: now });
   }, [live, now, setLive]);
 
+  // Rental mode's own demo: the state the picked screen draws, and a pretend run from there.
+  const rental = useDemoRental(isRentalCase(shown) ? shown : null, state.clockAt);
   const rate = buildRate(DEMO_HARDWARE_RATE, state.standing);
   const view: HostView = {
     demo: true,
@@ -61,7 +64,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     pc: { reading: false, hardware: DEMO_HARDWARE, hardwareRate: DEMO_HARDWARE_RATE },
     games: { installed: DEMO_INSTALLED, offered, demand: DEMO_DEMAND, near: DEMO_NEAR },
     steam: { ...DEMO_STEAM, asked },
-    rental: { ...DEMO_RENTAL, target: rentalTarget },
+    rental: rental.setup,
     standing: state.standing,
     earlyEnd: { reliability: DEMO_EARLY_END_RELIABILITY },
     rate,
@@ -134,14 +137,9 @@ export function useDemoHost(screen: DemoScreen): Host & {
     // Steam is installed in the demo, and nothing is sent to it.
     installSteam: () => {},
     askInstall: (appid: number) => setAsked((list) => (list.includes(appid) ? list : [...list, appid])),
-    // Nova-01 is not ready for rental mode: there is nothing to check again or preview.
-    checkRental: () => {},
-    chooseRentalTarget: setRentalTarget,
-    previewRental: () => {},
-    closeRentalPreview: () => {},
+    ...rental.actions,
+    goLiveRental: () => setLive(waiting(plan)),
     setCrewOnly,
-    runRental: () => {},
-    confirmRentalStep: () => {},
   };
 
   return {
@@ -150,6 +148,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     step: state.step,
     setStep: (step) => setState((s) => ({ ...s, step, setupDone: s.setupDone || step === "live" })),
     jump: (next) => {
+      setShown(next);
       setState(demoState(next));
       const at = Date.now();
       setMountedAt(at);

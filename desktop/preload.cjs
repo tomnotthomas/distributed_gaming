@@ -9,6 +9,10 @@
 //   onGamesChanged                    the installed games, again, whenever they change
 //   readRental                        what rental mode needs from this PC, and whether it is installed
 //   planRental                        the steps that would install rental mode, confirm its key again or switch to it, as a preview
+//   runRental / onRentalEvent         run that plan up to its restart, and hear each step as it goes
+//   restartRental                     Restart now: the PC restarts, to the blue screen or Swiff OS
+//   answerRentalKey                   the owner's word on whether the blue screen took the code
+//   reportRental                      Send details to Swiff: a failed step's error and this PC's checks
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
@@ -35,7 +39,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
   planRental: (ask) =>
     ipcRenderer.invoke("rental:plan", { kind: String(ask?.kind), target: ask?.target ?? null }),
   runRental: () => ipcRenderer.invoke("rental:run"),
-  confirmRental: (id, yes) => ipcRenderer.invoke("rental:confirm", String(id), yes === true),
+  restartRental: () => ipcRenderer.invoke("rental:restart"),
+  answerRentalKey: (yes) => ipcRenderer.invoke("rental:key-answer", yes === true),
+  reportRental: (report) => ipcRenderer.invoke("rental:report", report),
   onRentalEvent: (listener) => subscribe("rental:event", listener),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),

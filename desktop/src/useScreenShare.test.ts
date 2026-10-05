@@ -13,6 +13,9 @@ vi.mock("@swiff/rtc", () => ({
   startHostSession: (options: unknown) => startHostSession(options),
 }));
 
+// Sharing this Windows desktop is a development path (devShare.ts): these tests drive it.
+vi.mock("./devShare", () => ({ WINDOWS_SHARE: true }));
+
 const { useScreenShare } = await import("./useScreenShare");
 
 const CREDENTIALS = { machineId: "gaming-pc-1", machineKey: "test-machine-key" };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
+import { WINDOWS_SHARE } from "./devShare";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
 import { createHostReporter, hostReport, type Crew, type HostReporter } from "./report";
@@ -131,7 +132,7 @@ export function useHost(): Host {
     onClaimOver: () => {
       const done = after.current;
       if (done.notify && typeof Notification !== "undefined") {
-        new Notification(`${done.machine} is yours again`, { body: "The player's session has ended." });
+        new Notification(`${done.machine} is yours again`, { body: "The session just ended." });
       }
       setNotify(false);
       setAtPc(false);
@@ -139,7 +140,7 @@ export function useHost(): Host {
       const passed = done.until !== null && Date.now() >= done.until;
       if (passed) {
         done.stop();
-        setNote(`Sharing stopped at ${clock(done.until!)}, as you chose.`);
+        setNote(`You went offline at ${clock(done.until!)}, as planned.`);
       } else if (done.stopNew) {
         done.stop();
         setPausedAt(Date.now());
@@ -165,7 +166,7 @@ export function useHost(): Host {
   useEffect(() => {
     if (!share.stream || until === null || now < until || share.claim) return;
     share.stop();
-    setNote(`Sharing stopped at ${clock(until)}, as you chose.`);
+    setNote(`You went offline at ${clock(until)}, as planned.`);
   }, [now, until, share]);
 
   // --- what the platform hears about this PC (report.ts)
@@ -227,9 +228,12 @@ export function useHost(): Host {
     return () => window.clearInterval(id);
   }, [claimId]);
 
+  // Sharing this Windows desktop is a development path (devShare.ts): the app
+  // hosts download goes live through rental mode only.
   const begin = async (settings: Settings, end: number | null) => {
+    if (!WINDOWS_SHARE) return;
     if (end !== null && end <= Date.now()) {
-      setNote(`${clock(end)} has passed. Choose a later time.`);
+      setNote(`${clock(end)} has passed. Pick a later time.`);
       return;
     }
     // Starting again (new settings while offline) replaces the capture rather than adding one.
@@ -291,6 +295,8 @@ export function useHost(): Host {
       target: rental.target,
       preview: rental.preview,
       run: rental.run,
+      readAt: rental.readAt,
+      liveSeen: rental.liveSeen,
     },
     standing: null,
     earlyEnd: null,
@@ -353,7 +359,7 @@ export function useHost(): Host {
         saveMachineId(next.machineId.trim());
         saveName(next.name.trim());
         const kept = key ? await saveMachineKey(key) : true;
-        setKeyNote(kept ? null : "This system cannot encrypt the key, so it was not saved.");
+        setKeyNote(kept ? null : "This PC can't encrypt the key, so it wasn't saved.");
         if (connectionReady(next)) await begin(next, live.kind === "off" ? plan : until);
       },
       // Payouts are not open: details typed into the form are never sent or kept.
@@ -372,7 +378,12 @@ export function useHost(): Host {
         setCrew((was) => (was ? { ...was, only: on } : was));
       },
       runRental: rental.start,
-      confirmRentalStep: rental.confirm,
+      restartRental: rental.restart,
+      answerRentalKey: rental.answer,
+      goLiveRental: rental.goLive,
+      retryRental: rental.retry,
+      reportRental: rental.report,
+      seenLastLive: rental.seenLive,
     },
   };
 }

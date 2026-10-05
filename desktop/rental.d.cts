@@ -1,6 +1,7 @@
 // Types for rental.cjs, so the renderer and its tests can use its results and helpers.
 
 import type { Gpt } from "./gpt.cjs";
+import type { KeyState } from "./rental-key.cjs";
 
 export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 
@@ -84,7 +85,14 @@ export type RentalRead = {
   installed: boolean;
   /** The version of Swiff OS's image set on this PC, which main adds to the read; null when there is none. */
   image?: string | null;
+  /** Where Swiff's key stands as far as the app knows (rental-key.cjs), which main adds; null when it knows nothing. */
+  key?: KeyState | null;
+  /** The last time the PC was live in Swiff OS, as swiff-hostd leaves it for Windows; null when there is none. */
+  lastLive?: LastLive | null;
 };
+
+/** A live run in Swiff OS, summed up: when, how many sessions, how many ended early, what it earned (euros). */
+export type LastLive = { from: number; to: number; sessions: number; early: number; earned: number | null };
 
 type GptAddPartition = {
   role: string;
@@ -185,6 +193,7 @@ export function gamesDriveOf(
   facts: RentalFacts,
   libraries: { letter: string; games: number }[],
 ): GamesDrive | null;
+export function lastLiveOf(raw: unknown): LastLive | null;
 export function rentalOf(raw: unknown, libraries?: { letter: string; games: number }[]): RentalRead;
 export function readRental(options?: {
   platform?: string;

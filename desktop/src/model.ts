@@ -11,6 +11,7 @@
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
 import type { RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
+import type { RateMeter } from "./progress";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 import type { Crew } from "./report";
@@ -66,22 +67,39 @@ export function appidIn(text: string): number | null {
 
 // --- rental mode on this PC -------------------------------------------------------
 
-/** Where a step of the plan on screen is: not reached yet (absent), waiting for the owner, running, or past. */
+/** Where a step of the plan on screen is: not reached yet (absent), running, or past. */
 export type StepState = "confirm" | "running" | "done" | "failed" | "stopped";
 
 /**
- * The plan on screen, being run: each step's state, the step waiting for the
- * owner's yes, the running step's progress, and how it ended.
+ * The plan on screen, being run: each step's state, when the run and its
+ * running step began, the running step's progress in bytes where it measures
+ * them (with a meter of the rate, for the time left), and how it ended.
+ * `restarting`: the owner said Restart now.
  */
 export type RentalRun = {
-  status: "idle" | "starting" | "running" | RunOutcome["status"];
+  status: "idle" | "starting" | "running" | RunOutcome["status"] | "restarting";
   steps: Record<string, StepState>;
-  waiting: string | null;
-  progress: { id: string; what: string; done: number; total: number } | null;
+  startedAt: number | null;
+  stepStartedAt: number | null;
+  progress: { id: string; done: number; total: number } | null;
+  meter: RateMeter | null;
   failed: { step: string; error: string } | null;
+  /** When it stopped, and when its details went to Swiff (Send details to Swiff). */
+  endedAt: number | null;
+  reportedAt: number | null;
 };
 
-export const IDLE_RUN: RentalRun = { status: "idle", steps: {}, waiting: null, progress: null, failed: null };
+export const IDLE_RUN: RentalRun = {
+  status: "idle",
+  steps: {},
+  startedAt: null,
+  stepStartedAt: null,
+  progress: null,
+  meter: null,
+  failed: null,
+  endedAt: null,
+  reportedAt: null,
+};
 
 /**
  * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
@@ -95,6 +113,10 @@ export type RentalSetup = {
   target: string | null;
   preview: RentalPlan | null;
   run: RentalRun;
+  /** When `read` was read. */
+  readAt?: number | null;
+  /** The end of the last live run the owner has seen summed up ("You were live"), shown once. */
+  liveSeen?: number | null;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -166,7 +188,7 @@ export function levelProgress(hours: number): {
     level,
     next,
     share: Math.min(1, hours / next.hours),
-    line: `${Math.floor(hours)} of ${next.hours} reliable hours to ${next.name}`,
+    line: `${Math.floor(hours)} of ${next.hours} hours to ${next.name}`,
   };
 }
 
@@ -313,10 +335,20 @@ export type HostActions = {
   closeRentalPreview(): void;
   /** Offer this PC to its owner's crew only, or to anyone. */
   setCrewOnly(on: boolean): void;
-  /** Run the plan on screen: Windows asks once for administrator rights. */
+  /** Run the plan on screen, the owner's one OK: Windows asks once for administrator rights. */
   runRental(): void;
-  /** Yes or no to the step the run is waiting on. */
-  confirmRentalStep(yes: boolean): void;
+  /** Restart now, after a run that ended at its restart, or with Swiff's key queued. */
+  restartRental(): void;
+  /** Whether the blue screen took the key's code, in the owner's words. */
+  answerRentalKey(yes: boolean): void;
+  /** Go live in rental mode: the PC restarts into Swiff OS. */
+  goLiveRental(): void;
+  /** Try a failed plan again: planned afresh and run at once, the owner's OK given already. */
+  retryRental(): void;
+  /** Send details to Swiff: the failed step, its error and this PC's checks. */
+  reportRental(): void;
+  /** The owner has seen the last live run summed up. */
+  seenLastLive(): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };
@@ -341,7 +373,7 @@ export function untilChoices(now: number): UntilChoice[] {
       const at = onTheHour(h);
       return { at, time: clock(at), label: inLabel(at - now) };
     }),
-    { at: null, time: "Open", label: "until I stop it" },
+    { at: null, time: "Open", label: "until I stop" },
   ];
 }
 
@@ -359,8 +391,8 @@ export function nextAt(hhmm: string, now: number): number | null {
 
 /** One sentence on what the chosen end time means. */
 export function untilSentence(machine: string, until: number | null): string {
-  const window = until === null ? "until you stop sharing" : `until ${clock(until)}`;
-  return `Players can claim ${machine} ${window}. A session that starts before then is protected until its claimed end.`;
+  const window = until === null ? "until you stop" : `until ${clock(until)}`;
+  return `Players can book ${machine} ${window}. A session that starts before then runs to its end.`;
 }
 
 // --- screens --------------------------------------------------------------------
@@ -422,7 +454,7 @@ export function glanceOf(view: HostView): Glance {
         ...base,
         status: until(live.until),
         live: true,
-        action: { id: "pause", label: "Pause sharing" },
+        action: { id: "pause", label: "Pause" },
       };
     case "session":
     case "ending": {
@@ -430,7 +462,7 @@ export function glanceOf(view: HostView): Glance {
       const caption =
         live.kind === "ending"
           ? `${live.claim.name}, ending early`
-          : `${live.claim.name}, protected until ${clock(claimEnd(live.claim))}`;
+          : `${live.claim.name}, booked until ${clock(claimEnd(live.claim))}`;
       return {
         ...base,
         status: until(live.until),
@@ -441,22 +473,22 @@ export function glanceOf(view: HostView): Glance {
           live.kind === "ending"
             ? null
             : live.stopNew
-              ? { id: "allow-new", label: "Allow new sessions" }
-              : { id: "stop-new", label: "Stop new sessions" },
+              ? { id: "allow-new", label: "Allow new bookings" }
+              : { id: "stop-new", label: "Stop new bookings" },
       };
     }
     case "paused":
       return {
         ...base,
         status: `Paused at ${clock(live.at)}`,
-        action: { id: "resume", label: "Resume sharing" },
+        action: { id: "resume", label: "Resume" },
       };
     case "offline":
       return { ...base, status: "Offline", action: { id: "retry", label: "Try again" } };
     case "starting":
       return { ...base, status: "Starting" };
     case "off":
-      return { ...base, status: "Not sharing" };
+      return { ...base, status: "Not live" };
   }
 }
 

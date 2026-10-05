@@ -25,10 +25,10 @@ type Of<K extends Live["kind"]> = ScreenProps & { live: Extract<Live, { kind: K 
 /** The ruled steps of a session, the first one lit. */
 function HowItWorks({ view }: { view: HostView }) {
   const steps = [
-    `A player claims ${view.machine}`,
+    `A player books ${view.machine}`,
     "Their game shows here",
     ...(view.rate ? [`You earn €${euros(view.rate.total)} an hour`] : []),
-    "It is protected until it ends",
+    "It runs until the booked time ends",
   ];
   return (
     <ol className="legend">
@@ -48,9 +48,9 @@ function wantedLine(view: HostView): string | null {
   const top = demand?.slice(0, 2) ?? [];
   if (top.length < 2 || !offered) return null;
   const on = top.filter((d) => offered.includes(d.appid)).length;
-  if (on === 2) return `The two games they want most are on ${view.machine}.`;
-  if (on === 1) return `One of the two games they want most is on ${view.machine}.`;
-  return `Neither of the two games they want most is on ${view.machine}.`;
+  if (on === 2) return "You have both of their top two games.";
+  if (on === 1) return "You have one of their top two games.";
+  return "You have neither of their top two games.";
 }
 
 /** A4: live, no player yet. */
@@ -64,7 +64,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
       ? `Live since ${clock(live.since)}`
       : `Live, ${clock(live.since)} to ${clock(live.until)}`;
   const line = view.demo
-    ? `${machine} is visible to players near you.`
+    ? `Players near you can see ${machine}.`
     : live.registered
       ? `${machine} is connected to Swiff.`
       : `${machine} is connecting to Swiff.`;
@@ -78,7 +78,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
             {kicker}
           </p>
           <h1>{live.registered ? "Waiting for a player" : "Connecting to Swiff"}</h1>
-          <p className="ln">{line} Your PC stays yours until a player claims it.</p>
+          <p className="ln">{line} Use it as normal until someone books it.</p>
           {editing ? (
             <div className="ctl">
               <UntilPicker now={now} value={until} onChange={setUntil} />
@@ -90,7 +90,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
                     setEditing(false);
                   }}
                 >
-                  Keep sharing {until === null ? "until I stop it" : `until ${clock(until)}`}
+                  Stay live {until === null ? "until I stop" : `until ${clock(until)}`}
                 </Pill>
                 <button type="button" className="lnk" onClick={() => setEditing(false)}>
                   Cancel
@@ -100,7 +100,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
           ) : (
             <div className="acts">
               <Pill icon="pause" onClick={actions.pause}>
-                Pause sharing
+                Pause
               </Pill>
               <button
                 type="button"
@@ -176,7 +176,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
         <div className="sl">
           <p className="mono">
             <span className="live" />
-            {live.playerHere ? "A player is streaming" : `A player claimed ${view.machine}`}
+            {live.playerHere ? "A player is streaming" : `A player booked ${view.machine}`}
           </p>
           <h1 className="gname">{claim.name}</h1>
           {earned !== null ? (
@@ -185,8 +185,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
             </Figure>
           ) : null}
           <p className="sline">
-            Claimed until {clock(end)} and protected until then.
-            {until !== null ? ` New players cannot claim past ${clock(until)}.` : ""}
+            Booked until {clock(end)}.{until !== null ? ` No new bookings after ${clock(until)}.` : ""}
           </p>
         </div>
         <Plate glass>
@@ -202,17 +201,17 @@ export function Streaming({ view, actions, live }: Of<"session">) {
         <div className="acts">
           {live.stopNew ? (
             <Pill icon="play" aria-pressed onClick={() => actions.setStopNew(false)}>
-              Allow new sessions
+              Allow new bookings
             </Pill>
           ) : (
             <Pill icon="block" onClick={() => actions.setStopNew(true)}>
-              Stop new sessions
+              Stop new bookings
             </Pill>
           )}
         </div>
         <dl className="facts inl">
           <div>
-            <dt className="mono">Protected until</dt>
+            <dt className="mono">Booked until</dt>
             <dd>{clock(end)}</dd>
           </div>
           {rate ? (
@@ -244,9 +243,7 @@ export function Streaming({ view, actions, live }: Of<"session">) {
           )}
         </dl>
       </div>
-      {live.stopNew ? (
-        <p className="lastline">New sessions are stopped. Sharing pauses when this one ends.</p>
-      ) : null}
+      {live.stopNew ? <p className="lastline">No new bookings. You pause when this session ends.</p> : null}
     </main>
   );
 }
@@ -266,25 +263,26 @@ export function InUse({ view, actions, live }: Of<"session">) {
     <main className="step">
       <section className="hz">
         <div className="cp">
-          <p className="mono ctx">Keyboard or mouse touched</p>
+          <p className="mono ctx">You touched the keyboard or mouse</p>
           <h1>{machine} is in use</h1>
           <p className="ln">
-            A player is in a protected session until {clock(end)}. Your desktop comes back the moment it ends.
+            A player has booked it until {clock(end)}. You get your desktop back when the session ends.
           </p>
-          <div className="acts">
-            {live.notify ? (
-              <Pill icon="check" disabled>
-                Notifying you at {clock(end)}
-              </Pill>
-            ) : (
+          {/* Once asked, it is a fact, not a button: nothing is left to press. */}
+          {live.notify ? (
+            <p className="ln soft" role="status">
+              We'll tell you at {clock(end)}.
+            </p>
+          ) : (
+            <div className="acts">
               <Pill icon="bell" onClick={actions.notifyAtEnd}>
                 Notify me at {clock(end)}
               </Pill>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-        <Plate tint={claim.appid} caption={["Protected until", clock(end)]}>
-          <Dial progress={left / claim.minutes} big={`${left} min`} small="until it's yours" />
+        <Plate tint={claim.appid} caption={["Booked until", clock(end)]}>
+          <Dial progress={left / claim.minutes} big={`${left} min`} small="until it's yours again" />
         </Plate>
       </section>
 
@@ -304,13 +302,13 @@ export function InUse({ view, actions, live }: Of<"session">) {
             </Figure>
             {view.rate && after ? (
               <p className="soft">
-                Rate <Eur n={view.rate.total} /> to <Eur n={after.total} /> an hour for 7 days, and {machine}{" "}
-                ranks lower with players.
+                Your rate drops from <Eur n={view.rate.total} /> to <Eur n={after.total} /> an hour for 7
+                days, and {machine} shows up lower for players.
               </p>
             ) : null}
           </Zone>
-          <Zone title="The player keeps">
-            <p className="soft">Everything they saved, and no charge after the warning.</p>
+          <Zone title="For the player">
+            <p className="soft">They keep their saves and pay nothing after the warning.</p>
           </Zone>
         </div>
       ) : (
@@ -321,9 +319,7 @@ export function InUse({ view, actions, live }: Of<"session">) {
             </p>
           </Zone>
           <Zone title="Need it sooner?">
-            <p className="soft">
-              This session runs to {clock(end)}. Ending a session early is not available yet.
-            </p>
+            <p className="soft">This session runs until {clock(end)}. You can't end it early yet.</p>
           </Zone>
         </div>
       )}
@@ -344,17 +340,17 @@ export function Ending({ view, actions, live }: Of<"ending">) {
         <div className="cp">
           <p className="mono ctx">Ending early, {clock(live.warnedAt)}</p>
           <h1>Player warned</h1>
-          <p className="ln">They have 5 minutes to save. {machine} is yours when the dial runs out.</p>
+          <p className="ln">They have 5 minutes to save. Then {machine} is yours.</p>
           {actions.cancelEnd ? (
             <div className="acts">
               <Pill icon="undo" onClick={actions.cancelEnd}>
-                Cancel, let them play
+                Let them keep playing
               </Pill>
             </div>
           ) : null}
         </div>
         <Plate tint={live.claim.appid} caption={["Grace", "5 minutes"]}>
-          <Dial progress={left / GRACE_MS} big={mmss(left)} small="grace for the player" />
+          <Dial progress={left / GRACE_MS} big={mmss(left)} small="to save" />
         </Plate>
       </section>
       <div className="sz three">
@@ -364,19 +360,21 @@ export function Ending({ view, actions, live }: Of<"ending">) {
               {standing.reliability}
             </Figure>
             <p className="soft">
-              <Eur n={rate.total} /> an hour until it recovers over the next 7 days.
+              <Eur n={rate.total} /> an hour while it recovers, up to 7 days.
             </p>
           </Zone>
         ) : null}
         {earned !== null ? (
           <Zone title="This session">
-            <Figure size="xs" unit="paid up to the warning">
+            <Figure size="xs" unit="paid until the warning">
               <Eur n={earned} />
             </Figure>
           </Zone>
         ) : null}
         <Zone title="Next time">
-          <p className="soft">Choose an earlier end time on Go live. Players can only claim time up to it.</p>
+          <p className="soft">
+            Next time, set an earlier end time when you go live. Players can't book past it.
+          </p>
         </Zone>
       </div>
       <i className="ruler" aria-hidden="true" />
@@ -391,16 +389,16 @@ export function Paused({ view, actions, live }: Of<"paused">) {
     <main className="step">
       <div className="banner mono">
         <Glyph name="pause" />
-        Sharing paused at {clock(live.at)}
+        Paused at {clock(live.at)}
       </div>
       <section className="hz">
         <div className="cp">
           <p className="mono ctx">{view.machine}</p>
           <h1>Paused</h1>
-          <p className="ln">Nobody can start a session until you resume.</p>
+          <p className="ln">No one can book {view.machine} until you resume.</p>
           <div className="acts">
             <Pill icon="play" onClick={actions.resume}>
-              Resume sharing
+              Resume
             </Pill>
           </div>
         </div>
@@ -442,7 +440,7 @@ export function Offline({ view, actions, live, go }: Of<"offline">) {
           <p className="mono ctx">{view.machine}</p>
           <h1>Offline</h1>
           <p className="ln">
-            Nobody can start a session and nothing on your PC is shared. Swiff keeps trying to reconnect.
+            No one can book {view.machine} and nothing is shared. Swiff keeps trying to reconnect.
           </p>
           <div className="acts">
             <Pill icon="refresh" onClick={actions.retry}>
@@ -462,7 +460,7 @@ export function Offline({ view, actions, live, go }: Of<"offline">) {
           <Figure size="xs">{live.lastContact !== null ? clock(live.lastContact) : "None yet"}</Figure>
         </Zone>
         <Zone title="If it lasts">
-          <p className="soft">Check that this PC is online, then open Connection settings.</p>
+          <p className="soft">Check your internet. If that's fine, open Connection settings.</p>
         </Zone>
       </div>
       <i className="ruler" aria-hidden="true" />

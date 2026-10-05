@@ -95,20 +95,42 @@ function parseLoadOption(bytes) {
   const title = b.subarray(6, at).toString("utf16le");
   const paths = b.subarray(at + 2, at + 2 + pathsLength);
   let partition = null;
-  let file = null;
+  // Some firmware splits the path into one node per folder: \EFI, \swiff, \shimx64.efi.
+  const files = [];
   for (let p = 0; p + 4 <= paths.length;) {
     const [type, sub, len] = [paths[p], paths[p + 1], paths.readUInt16LE(p + 2)];
     if (len < 4 || type === 0x7f) break;
     if (type === 0x04 && sub === 0x01 && len === 42) partition = guidText(paths.subarray(p + 24, p + 40));
     if (type === 0x04 && sub === 0x04)
-      file = paths
-        .subarray(p + 4, p + len)
-        .toString("utf16le")
-        .replace(/\0+$/, "");
+      files.push(
+        paths
+          .subarray(p + 4, p + len)
+          .toString("utf16le")
+          .replace(/\0+$/, ""),
+      );
     p += len;
   }
+  const file = files.length
+    ? files
+        .map((f, i) => (i === 0 ? f : f.replace(/^\\*/, "")))
+        .reduce((a, f) => (a.endsWith("\\") ? a + f : `${a}\\${f}`))
+    : null;
   return { active: (b.readUInt32LE(0) & ACTIVE) === ACTIVE, title, partition, file };
 }
+
+/**
+ * Whether two firmware paths name the same file. FAT ignores case, and
+ * firmware that rewrites an entry may change it (\EFI\SWIFF\SHIMX64.EFI) or
+ * its slashes.
+ */
+const samePath = (a, b) => {
+  const norm = (p) =>
+    String(p ?? "")
+      .replace(/\//g, "\\")
+      .replace(/^\\*/, "\\")
+      .toLowerCase();
+  return a !== null && b !== null && norm(a) === norm(b);
+};
 
 /** BootOrder's bytes ↔ entry numbers. */
 const orderBytes = (indexes) => {
@@ -184,6 +206,7 @@ module.exports = {
   bootIndex,
   loadOption,
   parseLoadOption,
+  samePath,
   orderBytes,
   orderOf,
   placeIn,

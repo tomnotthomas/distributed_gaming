@@ -21,8 +21,9 @@
 // stand for (commandsOf). The installer (rental-exec.cjs) runs the ops through
 // one elevated worker (rental-worker.cjs), which runs those same commands; the
 // VM test in vm/ carries them out on a disk image instead. A step that changes
-// the disk or the firmware says so (`confirm`), and runs only once the owner
-// has confirmed it.
+// the disk or the firmware says what it changes (`confirm`); the owner agrees
+// to all of them at once, with the one OK that starts the install, and the app
+// then runs them by itself. Only a restart waits for the owner again.
 
 const { execFile } = require("node:child_process");
 const crypto = require("node:crypto");
@@ -160,6 +161,7 @@ $shell = New-Object -ComObject Shell.Application
   partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
   install = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-install.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
+  lastLive = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\last-live.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
 } | ConvertTo-Json -Compress -Depth 6
 `;
 
@@ -407,6 +409,21 @@ function gamesDriveOf(facts, libraries) {
 /** Swiff OS is installed: the install recorded that it finished. */
 const installedOf = (facts) => facts.install?.complete === true;
 
+/**
+ * The last live run in Swiff OS (last-live.json, which swiff-hostd leaves for
+ * Windows), checked; null when there is none or it does not read as one.
+ */
+function lastLiveOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const at = (v) => (typeof v === "string" && Number.isFinite(Date.parse(v)) ? Date.parse(v) : num(v));
+  const from = at(raw.from);
+  const to = at(raw.to);
+  const sessions = countOf(raw.sessions);
+  if (from === null || to === null || to < from || sessions === null) return null;
+  const early = countOf(raw.early) ?? 0;
+  return { from, to, sessions, early: Math.min(early, sessions), earned: num(raw.earned) };
+}
+
 /** Everything the rental-mode screen shows, from the script's output and Steam's libraries. */
 function rentalOf(raw, libraries = []) {
   const facts = factsOf(raw);
@@ -417,6 +434,7 @@ function rentalOf(raw, libraries = []) {
     targets,
     games: gamesDriveOf(facts, libraries),
     installed: installedOf(facts),
+    lastLive: lastLiveOf(raw?.lastLive),
   };
 }
 
@@ -615,8 +633,22 @@ const step = (id, title, ops, confirm = null) => ({
  */
 function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code = mokCode() } = {}) {
   const { facts, games } = rental;
+  // An install that stopped after adding its partitions goes on in them: their room is made and
+  // laid out already, so trying again writes Swiff OS into them from the start.
+  const made = facts.install && !facts.install.complete && facts.install.disk !== null ? facts.install : null;
+  const room = made?.partitions.length ? made.partitions[0] : null;
   // A target the owner chose that is no longer there is refused, never swapped for another drive.
-  const target = targetId ? rental.targets.find((t) => t.id === targetId) : rental.targets[0];
+  const target = room
+    ? {
+        id: `made:${made.disk}:${room.offset}`,
+        kind: "free",
+        disk: made.disk,
+        sector: 512,
+        start: room.offset,
+      }
+    : targetId
+      ? rental.targets.find((t) => t.id === targetId)
+      : rental.targets[0];
   if (targetId && !target) throw new Error("The drive you chose for Swiff OS is no longer available.");
   if (!target) throw new Error(`This PC has no drive with ${gb(SWIFF_OS_BYTES)} to spare.`);
   const disk = target.disk;
@@ -629,7 +661,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
       ? { disk, partition: target.partition, size: target.size, letter: target.letter }
       : null;
   steps.push(
-    step("check", "Check the Secure Boot keys, the TPM and Swiff OS's files, as administrator", [
+    step("check", "Check the Secure Boot keys and the TPM (asks for administrator)", [
       { op: "check", ...(shrink ? { shrink } : {}) },
       { op: "image-check" },
     ]),
@@ -647,7 +679,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   }
   if (facts.fastStartup !== false) {
     steps.push(
-      step("fast-startup", "Turn off Fast Startup, so Windows leaves its drives readable", [
+      step("fast-startup", "Turn off Fast Startup so Swiff OS can read your drives", [
         { op: "fast-startup-off" },
       ]),
     );
@@ -662,32 +694,33 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
       ),
     );
   }
-  steps.push(
-    step(
-      "partitions",
-      `Add Swiff OS's ${parts.length} partitions on disk ${disk}`,
-      [
-        {
-          op: "gpt-add",
-          disk,
-          partitions: parts.map(({ role, type, id, name, attrs, offset, bytes }) => ({
-            role,
-            type,
-            id,
-            name,
-            attrs,
-            offset,
-            bytes,
-          })),
-        },
-      ],
-      `Disk ${disk}'s partition table gets Swiff OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
-    ),
-  );
+  if (!room)
+    steps.push(
+      step(
+        "partitions",
+        `Create ${parts.length} partitions for Swiff OS on disk ${disk}`,
+        [
+          {
+            op: "gpt-add",
+            disk,
+            partitions: parts.map(({ role, type, id, name, attrs, offset, bytes }) => ({
+              role,
+              type,
+              id,
+              name,
+              attrs,
+              offset,
+              bytes,
+            })),
+          },
+        ],
+        `Disk ${disk}'s partition table gets Swiff OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
+      ),
+    );
   steps.push(
     step(
       "write",
-      "Write Swiff OS: its boot partition and its system",
+      "Copy Swiff OS onto them",
       parts
         .filter((p) => p.split)
         .map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
@@ -697,7 +730,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   steps.push(
     step(
       "boot-entry",
-      "Add Swiff OS to the PC's boot menu, after Windows",
+      "Add Swiff OS to the boot menu, after Windows",
       [{ op: "boot-entry", disk, offset: esp.offset, path: BOOT_PATH, title: BOOT_TITLE }],
       "The PC's firmware gets a Swiff OS entry, last in its boot order: Windows still starts first.",
     ),
@@ -716,17 +749,16 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   }
   if (games && games.label !== GAMES_LABEL) {
     steps.push(
-      step("games", `Name ${games.letter}: ${GAMES_LABEL}, so Swiff OS finds your Steam games`, [
+      step("games", `Label ${games.letter}: ${GAMES_LABEL} so Swiff OS finds your games`, [
         { op: "label", letter: games.letter, label: GAMES_LABEL },
       ]),
     );
   }
+  // Recorded as installed before BootNext is set: the restart's blue screen is the install's last part.
   const [mok, restart] = mokSteps(code);
-  steps.push({
-    ...mok,
-    ops: [...mok.ops, { op: "installed" }],
-    commands: [...mok.commands, ...commandsOf({ op: "installed" })],
-  });
+  const [importKey, bootNext] = mok.ops;
+  const ops = [importKey, { op: "installed" }, bootNext];
+  steps.push({ ...mok, ops, commands: ops.flatMap(commandsOf) });
   steps.push(restart);
   return { kind: "install", target, steps, mok: { code } };
 }
@@ -735,23 +767,26 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
 const mokVar = (name) => `${name}-${SHIM_LOCK}`;
 
 /**
- * Queue Swiff's key with a one-time code, then restart once into Swiff OS,
- * where shim shows the confirmation. After it the PC starts Windows again,
- * still first in the boot order. Also what the owner runs again after missing
- * the screen, with a new code.
+ * Queue Swiff's key with a one-time code and point the next start at Swiff
+ * OS, where shim shows the confirmation; then restart once. After it the PC
+ * starts Windows again, still first in the boot order. Also what the owner
+ * runs again after missing the screen, with a new code.
+ *
+ * The restart is its own last step, the one that asks the owner (`confirm`):
+ * the app runs everything before it by itself and restarts only when the
+ * owner, code written down, says Restart now. BootNext is set before that,
+ * so a restart from Windows' own menu reaches the blue screen too.
  */
 function mokSteps(code) {
   return [
-    step(
-      "mok",
-      "Ask the PC to trust Swiff's key, with a one-time code",
-      [{ op: "mok-import", cert: MOK_CERT, code }],
-      "The firmware queues Swiff's key, for you to confirm at the PC's blue screen with the code.",
-    ),
+    step("mok", "Make a one-time code for Swiff's key", [
+      { op: "mok-import", cert: MOK_CERT, code },
+      { op: "boot-next", entry: "swiff" },
+    ]),
     step(
       "mok-restart",
-      "Restart once into Swiff OS, to confirm its key",
-      [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+      "Restart once to confirm the key",
+      [{ op: "restart" }],
       "The PC restarts now, once, to the blue screen. Save your work first.",
     ),
   ];
@@ -838,16 +873,14 @@ function keyRemovalPlan(code = mokCode()) {
   return {
     kind: "unkey",
     steps: [
-      step(
-        "mok-remove",
-        "Ask the PC to stop trusting Swiff's key, with a one-time code",
-        [{ op: "mok-delete", cert: MOK_CERT, code }],
-        "The firmware queues Swiff's key for removal, for you to confirm at the PC's blue screen with the code.",
-      ),
+      step("mok-remove", "Make a one-time code to remove Swiff's key", [
+        { op: "mok-delete", cert: MOK_CERT, code },
+        { op: "boot-next", entry: "swiff" },
+      ]),
       step(
         "restart",
-        "Restart once into Swiff OS's key manager, to confirm it",
-        [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+        "Restart once to confirm the removal",
+        [{ op: "restart" }],
         "The PC restarts now, once, to the blue screen. Save your work first.",
       ),
     ],
@@ -866,10 +899,11 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
+        step("once", "Start Swiff OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
         step(
-          "once",
-          "Start Swiff OS on this restart only",
-          [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+          "restart",
+          "Restart into Swiff OS",
+          [{ op: "restart" }],
           "The PC restarts into Swiff OS now. Its next restart after that starts Windows.",
         ),
       ],
@@ -922,6 +956,7 @@ module.exports = {
   targetsOf,
   libraryDrives,
   gamesDriveOf,
+  lastLiveOf,
   rentalOf,
   readRental,
   imageLayout,

@@ -94,12 +94,12 @@ export function PayoutForm({ onSave }: { onSave: () => void }) {
       </div>
       <div className="trustrow">
         <Glyph name="lock" />
-        <span>Payouts are not open yet: nothing typed here is sent or stored.</span>
+        <span>Nothing here is sent or saved yet.</span>
         <Pill icon="check" type="submit">
           Save payout details
         </Pill>
       </div>
-      {cleared ? <Notice>Nothing was sent or kept. The fields were cleared.</Notice> : null}
+      {cleared ? <Notice>Cleared. Nothing was sent.</Notice> : null}
     </form>
   );
 }
@@ -145,8 +145,8 @@ function SetUp({ view, earnings, onChange }: ScreenProps & { earnings: Earnings;
           </p>
           {ceiling !== null ? (
             <p className="soft fine">
-              Up to <Eur n={ceiling} decimals={0} /> this month at your current rate, if live every evening
-              from 18:00 to midnight.
+              Up to <Eur n={ceiling} decimals={0} /> this month at your rate, if you're live 18:00 to
+              midnight every day.
             </p>
           ) : null}
         </div>
@@ -233,7 +233,7 @@ export function GetPaid(props: ScreenProps) {
               </p>
             </>
           ) : (
-            <p className="ln">Payouts are not open yet, so nothing you type here is sent or kept.</p>
+            <p className="ln">Payouts aren't open yet. Nothing you type here is sent or saved.</p>
           )}
         </div>
         <Plate caption={earnings ? ["First payout", earnings.nextPayout] : ["Payouts", "Not open yet"]}>

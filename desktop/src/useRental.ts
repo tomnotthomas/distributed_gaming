@@ -3,13 +3,36 @@ import type { RunEvent } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
 import { IDLE_RUN, type RentalRun, type RentalSetup } from "./model";
+import { meter } from "./progress";
+import { endsInRestart, firmwareChecks, pcChecks, writesOf } from "./rental";
+
+const LIVE_SEEN = "swiff.rental.liveSeen";
+
+/**
+ * How far a measured step is, in bytes of the whole step, from one write's
+ * progress. Each write is written, then read back to check it: its bytes
+ * count half when written and the rest as they are checked. The write is
+ * told apart by its size (Swiff OS's three are all different).
+ */
+export function stepBytes(
+  writes: number[],
+  event: { what: string; done: number; total: number },
+): { done: number; total: number } | null {
+  const total = writes.reduce((sum, b) => sum + b, 0);
+  const at = writes.indexOf(event.total);
+  if (at < 0 || total <= 0) return null;
+  const before = writes.slice(0, at).reduce((sum, b) => sum + b, 0);
+  const checking = /^Checking /.test(event.what);
+  const part = ((checking ? event.total : 0) + event.done) / 2;
+  return { done: before + part, total };
+}
 
 /**
  * Rental mode on this PC, read through main (rental.cjs) once on opening and
- * again when the owner asks: after a trip to the BIOS, say. A plan comes
- * back for the screen; running it is main's (rental-exec.cjs), which tells
- * how each step goes and waits for the owner's yes before each step that
- * changes the disk or the firmware.
+ * again when the owner asks: after a trip to the BIOS, say. A plan comes back
+ * for the screen; running it is main's (rental-exec.cjs), which runs every
+ * step by itself after the owner's one OK and tells how each goes. A restart
+ * waits for the owner's Restart now.
  */
 export function useRental(): RentalSetup & {
   check(): void;
@@ -17,16 +40,32 @@ export function useRental(): RentalSetup & {
   plan(kind: RentalPlan["kind"]): void;
   close(): void;
   start(): void;
-  confirm(yes: boolean): void;
+  restart(): void;
+  answer(yes: boolean): void;
+  goLive(): void;
+  retry(): void;
+  report(): void;
+  seenLive(): void;
 } {
   const [read, setRead] = useState<RentalRead | null>(null);
   const [reading, setReading] = useState(true);
   const [target, setTarget] = useState<string | null>(null);
   const [preview, setPreview] = useState<RentalPlan | null>(null);
   const [run, setRun] = useState<RentalRun>(IDLE_RUN);
+  const [readAt, setReadAt] = useState<number | null>(null);
+  // Which live run the owner has seen summed up: kept in this window's storage, a convenience only.
+  const [liveSeen, setLiveSeen] = useState<number | null>(() => {
+    try {
+      return Number(localStorage.getItem(LIVE_SEEN)) || null;
+    } catch {
+      return null;
+    }
+  });
   const reads = useRef(0);
   const plans = useRef(0);
-  const running = run.status === "starting" || run.status === "running";
+  // The plan being run, for its events: they name steps, the plan says what each writes.
+  const running = useRef<RentalPlan | null>(null);
+  const busy = run.status === "starting" || run.status === "running" || run.status === "restarting";
   const drop = () => {
     plans.current++;
     setPreview(null);
@@ -50,6 +89,7 @@ export function useRental(): RentalSetup & {
           setPreview(null);
         }
         setRead(next);
+        setReadAt(Date.now());
         setReading(false);
       });
   }, []);
@@ -59,44 +99,126 @@ export function useRental(): RentalSetup & {
   // Each step of a run, as main reports it.
   useEffect(
     () =>
-      bridge()?.onRentalEvent?.((event: RunEvent) =>
+      bridge()?.onRentalEvent?.((event: RunEvent) => {
+        const now = Date.now();
         setRun((r) => {
-          if (event.type === "progress")
+          if (event.type === "progress") {
+            const step = running.current?.steps.find((s) => s.id === event.id);
+            const bytes = step ? stepBytes(writesOf(step), event) : null;
+            if (!bytes) return r;
             return {
               ...r,
-              progress: { id: event.id, what: event.what, done: event.done, total: event.total },
+              progress: { id: event.id, ...bytes },
+              meter: meter(r.progress?.id === event.id ? r.meter : null, bytes.done, now),
             };
+          }
+          const starts = event.state === "running";
           return {
             ...r,
             status: "running",
             steps: { ...r.steps, [event.id]: event.state },
-            waiting: event.state === "confirm" ? event.id : r.waiting === event.id ? null : r.waiting,
-            progress: event.state === "running" ? null : r.progress,
+            stepStartedAt: starts ? now : r.stepStartedAt,
+            progress: starts ? null : r.progress,
+            meter: starts ? null : r.meter,
             failed: event.state === "failed" ? { step: event.id, error: event.error ?? "" } : r.failed,
+            endedAt: event.state === "failed" ? now : r.endedAt,
           };
-        }),
-      ),
+        });
+      }),
     [],
   );
+
+  /** Run `plan` (the one main last planned): the owner's one OK. Resolves with how it ended. */
+  const runPlan = (plan: RentalPlan) => {
+    const host = bridge();
+    if (!host) return Promise.resolve(null);
+    running.current = plan;
+    const now = Date.now();
+    setRun({ ...IDLE_RUN, status: "starting", startedAt: now, stepStartedAt: now });
+    return host
+      .runRental()
+      .catch((error: unknown) => ({
+        status: "failed" as const,
+        done: [],
+        failed: { step: "elevate", op: "elevate", error: String(error) },
+        results: [],
+      }))
+      .then((outcome) => {
+        setRun((r) => ({
+          ...r,
+          endedAt: Date.now(),
+          status: outcome?.status ?? "failed",
+          failed: outcome?.failed
+            ? { step: outcome.failed.step, error: outcome.failed.error }
+            : outcome
+              ? r.failed
+              : { step: "elevate", error: "The installer did not start." },
+        }));
+        // What the run changed is read again, so the screen says where the PC is now. A run that
+        // ended at its restart keeps its plan on screen, for Restart now; a finished one is done with.
+        reread(outcome?.status !== "done" || endsInRestart(plan));
+        return outcome;
+      });
+  };
+
+  const restart = () => {
+    const host = bridge();
+    if (!host) return;
+    setRun((r) => ({ ...r, status: "restarting", stepStartedAt: Date.now() }));
+    void host
+      .restartRental()
+      .catch(() => false)
+      .then((ok) => {
+        if (!ok)
+          setRun((r) => ({
+            ...r,
+            status: "failed",
+            failed: { step: "restart", error: "Windows didn't restart." },
+          }));
+      });
+  };
+
+  /** Plan `kind` afresh and run it at once: Try again and Ask again, where the owner's OK stands. */
+  const again = (kind: RentalPlan["kind"]) => {
+    const host = bridge();
+    if (!host || busy) return;
+    const n = ++plans.current;
+    void host
+      .planRental({ kind, target })
+      .catch(() => null)
+      .then((plan) => {
+        if (n !== plans.current) return;
+        setPreview(plan);
+        if (plan) void runPlan(plan);
+        else
+          setRun({
+            ...IDLE_RUN,
+            status: "failed",
+            failed: { step: "plan", error: "Swiff couldn't plan this again." },
+          });
+      });
+  };
 
   return {
     reading,
     read,
+    readAt,
+    liveSeen,
     target,
     preview,
     run,
     check: () => {
-      if (running) return;
+      if (busy) return;
       drop();
       check();
     },
     choose: (id) => {
-      if (running) return;
+      if (busy) return;
       setTarget(id);
       drop();
     },
     plan: (kind) => {
-      if (running) return;
+      if (busy) return;
       const n = ++plans.current;
       setRun(IDLE_RUN);
       void bridge()
@@ -107,36 +229,66 @@ export function useRental(): RentalSetup & {
         });
     },
     close: () => {
-      if (!running) drop();
+      if (!busy) drop();
     },
     start: () => {
-      const host = bridge();
-      if (!host || !preview || running) return;
-      setRun({ ...IDLE_RUN, status: "starting" });
-      void host
-        .runRental()
-        .catch((error: unknown) => ({
-          status: "failed" as const,
-          done: [],
-          failed: { step: "elevate", op: "elevate", error: String(error) },
-          results: [],
-        }))
-        .then((outcome) => {
-          setRun((r) => ({
-            ...r,
-            status: outcome?.status ?? "failed",
-            waiting: null,
-            failed: outcome?.failed ? { step: outcome.failed.step, error: outcome.failed.error } : r.failed,
-          }));
-          // What the run changed is read again, so the screen says where the PC is now.
-          reread(true);
-        });
+      if (!preview || busy) return;
+      void runPlan(preview);
     },
-    confirm: (yes) => {
-      const id = run.waiting;
-      if (!id) return;
-      setRun((r) => ({ ...r, waiting: null }));
-      void bridge()?.confirmRental(id, yes);
+    restart,
+    seenLive: () => {
+      const to = read?.lastLive?.to ?? null;
+      if (to === null) return;
+      setLiveSeen(to);
+      try {
+        localStorage.setItem(LIVE_SEEN, String(to));
+      } catch {
+        // Not kept: it shows again next time, which is harmless.
+      }
+    },
+    retry: () => {
+      if (!preview) return;
+      if (run.failed?.step === "restart") return restart();
+      // Windows said no before anything ran: main still holds the same plan, and its code stands.
+      if (run.failed?.step === "elevate") return void runPlan(preview);
+      again(preview.kind);
+    },
+    report: () => {
+      const host = bridge();
+      if (!host || !run.failed) return;
+      const checks = read ? [...firmwareChecks(read), ...pcChecks(read, target)] : [];
+      void host
+        .reportRental({
+          step: run.failed.step,
+          error: run.failed.error,
+          checks: checks.map((c) => ({ id: c.id, value: c.value })),
+        })
+        .catch(() => null)
+        .then((at) => setRun((r) => ({ ...r, reportedAt: at })));
+    },
+    answer: (yes) => {
+      void bridge()
+        ?.answerRentalKey(yes)
+        .catch(() => false)
+        .then(() => reread());
+    },
+    goLive: () => {
+      const host = bridge();
+      if (!host || busy) return;
+      // Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on
+      // Swiff OS handing the PC back. Holding Go live is the owner's OK, so it restarts by itself.
+      const n = ++plans.current;
+      void host
+        .planRental({ kind: "once" })
+        .catch(() => null)
+        .then((plan) => {
+          if (!plan || n !== plans.current) return null;
+          setPreview(plan);
+          return runPlan(plan);
+        })
+        .then((outcome) => {
+          if (outcome?.status === "done") restart();
+        });
     },
   };
 }

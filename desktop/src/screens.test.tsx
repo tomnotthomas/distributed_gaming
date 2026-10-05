@@ -157,11 +157,11 @@ function expectNoDemoData() {
 
 describe("demo", () => {
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
-    pc: "Reading this PC",
+    pc: "Your PC",
     steam: "Steam is ready",
     games: "Choose the games you offer",
     rental: "One change in the BIOS",
-    golive: "Ready to share",
+    golive: "Ready to go live",
     waiting: "Waiting for a player",
     streaming: "Elden Ring",
     inuse: "Nova-01 is in use",
@@ -183,15 +183,15 @@ describe("demo", () => {
 
   it("shows the tray glance under a tray, labelled as demo data", () => {
     render(<DemoApp screen="tray" />);
-    expect(screen.getByText("Elden Ring, protected until 22:40")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop new sessions" })).toBeInTheDocument();
+    expect(screen.getByText("Elden Ring, booked until 22:40")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop new bookings" })).toBeInTheDocument();
     expect(screen.getByText("Demo data")).toBeInTheDocument();
   });
 
-  it("ranks the games by demand, with Install on Steam for the ones this PC lacks", () => {
+  it("ranks the games by demand, with Install in Steam for the ones this PC lacks", () => {
     render(<DemoApp screen="games" />);
     expect(screen.getByText("38 looking")).toBeInTheDocument();
-    const install = screen.getAllByRole("link", { name: /Install on Steam/ });
+    const install = screen.getAllByRole("link", { name: /Install in Steam/ });
     expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/553850"]);
     expect(screen.getByRole("progressbar", { name: "Installing Baldur's Gate 3" })).toHaveAttribute(
       "aria-valuenow",
@@ -209,14 +209,14 @@ describe("demo", () => {
     expect(rate).toHaveTextContent("Hardware, RTX 4080€1,00");
     expect(rate).toHaveTextContent("Reliability 96100%");
     expect(rate).toHaveTextContent("Level Steady+5%");
-    expect(rate).toHaveTextContent("At most €4,20 tonight, if a player stays until 01:00.");
+    expect(rate).toHaveTextContent("Up to €4,20 tonight if players stay until 01:00.");
   });
 
   it("shows the month against a ceiling at the current rate, not a forecast", () => {
     render(<DemoApp screen="paid" />);
     // €1,05 an hour, six evening hours, thirty days in September.
-    expect(screen.getByText(/this month at your current rate, if live every evening/)).toHaveTextContent(
-      "Up to €189 this month at your current rate, if live every evening from 18:00 to midnight.",
+    expect(screen.getByText(/this month at your rate, if you're live/)).toHaveTextContent(
+      "Up to €189 this month at your rate, if you're live 18:00 to midnight every day.",
     );
     expect(document.body.textContent).not.toMatch(/estimate/i);
   });
@@ -234,9 +234,9 @@ describe("demo", () => {
       hold(screen.getByRole("button", { name: "Hold to go live" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Waiting for a player");
 
-      fireEvent.click(screen.getByRole("button", { name: "Pause sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Pause" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Paused");
-      fireEvent.click(screen.getByRole("button", { name: "Resume sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Waiting for a player");
     });
 
@@ -250,7 +250,7 @@ describe("demo", () => {
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Player warned");
       expect(screen.getByLabelText("Your standing")).toHaveTextContent("91↓5");
 
-      fireEvent.click(screen.getByRole("button", { name: "Cancel, let them play" }));
+      fireEvent.click(screen.getByRole("button", { name: "Let them keep playing" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nova-01 is in use");
     });
   });
@@ -323,6 +323,31 @@ describe("this PC's screens", () => {
     expectNoDemoData();
   });
 
+  it("shows the PC and Steam reads as checking while they run, never as undone", () => {
+    renderReal("pc", off, { pc: { reading: true, hardware: null, hardwareRate: null } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Reading your PC");
+    expect(screen.getByText("Checking now")).toBeInTheDocument();
+    expect(screen.queryByText("Not found")).not.toBeInTheDocument();
+    // Steam can be set up while the read runs: nothing waits behind a greyed button.
+    expect(screen.getByRole("button", { name: /Set up Steam/ })).toBeEnabled();
+    cleanup();
+
+    renderReal("steam", off, {
+      steam: { status: null, installer: { kind: "idle" }, installs: [], asked: [] },
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Checking Steam");
+    expect(screen.getByText("Checking now")).toBeInTheDocument();
+    expect(screen.queryByText("No")).not.toBeInTheDocument();
+    cleanup();
+
+    renderReal("games", off, {
+      pc: { reading: true, hardware: null, hardwareRate: null },
+      games: { installed: [], offered: null, demand: null, near: null },
+    });
+    expect(screen.getByText("Checking for installed Steam games.")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
   it("lets the owner choose which installed games players can stream", () => {
     const acts = renderReal("games", off, {
       games: {
@@ -353,8 +378,8 @@ describe("this PC's screens", () => {
     expect(document.body.textContent).not.toMatch(/offered|Offering/);
     expect(screen.getByText("2 games installed")).toBeInTheDocument();
     // No game tile to install: only the field for any game the owner has, empty yet.
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
-    expect(screen.getByText("Read from this PC's Steam library.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
+    expect(screen.getByText("From your Steam library on this PC.")).toBeInTheDocument();
     expectNoDemoData();
   });
 
@@ -377,7 +402,7 @@ describe("this PC's screens", () => {
     expect(screen.getByText(/gaming-pc-1 is connected to Swiff\./)).toBeInTheDocument();
     expect(screen.queryByText("Near you now")).not.toBeInTheDocument();
     expect(screen.queryByText(/You earn/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Pause sharing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(acts.pause).toHaveBeenCalledOnce();
     expectNoDemoData();
   });
@@ -446,15 +471,15 @@ describe("this PC's screens", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Change end time" }));
     fireEvent.click(screen.getByRole("radio", { name: /Open/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Keep sharing until I stop it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stay live until I stop" }));
     expect(acts.setUntil).toHaveBeenCalledWith(null);
   });
 
   it("shows a player's session with only the stop of new sessions", () => {
     const acts = renderReal("live", session(false));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ELDEN RING");
-    expect(screen.getByText(/Claimed until 22:40 and protected until then\./)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Stop new sessions" }));
+    expect(screen.getByText(/Booked until 22:40\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop new bookings" }));
     expect(acts.setStopNew).toHaveBeenCalledWith(true);
     expect(screen.queryByText("this session")).not.toBeInTheDocument();
     expectNoDemoData();
@@ -464,9 +489,14 @@ describe("this PC's screens", () => {
     const acts = renderReal("live", session(true));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("gaming-pc-1 is in use");
     expect(screen.queryByRole("button", { name: /end early/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Ending a session early is not available yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/You can't end it early yet\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Notify me at 22:40" }));
     expect(acts.notifyAtEnd).toHaveBeenCalledOnce();
+    cleanup();
+    // Once asked, it says so plainly: no disabled button stands in for it.
+    renderReal("live", { ...session(true), notify: true } as Live);
+    expect(screen.getByRole("status")).toHaveTextContent("We'll tell you at 22:40.");
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: /22:40/ })).not.toBeInTheDocument();
   });
 
   it("reports a dropped connection with a way to retry", () => {
@@ -484,7 +514,7 @@ describe("this PC's screens", () => {
 
   it("counts today's sessions when paused, without earnings", () => {
     renderReal("live", { kind: "paused", at: evening(21, 31) });
-    expect(screen.getByText("Sharing paused at 21:31")).toBeInTheDocument();
+    expect(screen.getByText("Paused at 21:31", { selector: ".banner" })).toBeInTheDocument();
     const tonight = screen.getByRole("heading", { name: "Tonight" }).closest("section")!;
     expect(within(tonight).getByText("1")).toBeInTheDocument();
     expectNoDemoData();
@@ -504,7 +534,7 @@ describe("getting Steam ready", () => {
       steam({ status: { installed: false, running: false, signedIn: false } }),
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install Steam");
-    expect(screen.getByText(/Valve's own installer/)).toBeInTheDocument();
+    expect(screen.getByText(/Swiff downloads the Steam installer for you/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Get Steam/ }));
     expect(acts.installSteam).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Steam Not installed" })).toBeInTheDocument();
@@ -517,7 +547,7 @@ describe("getting Steam ready", () => {
       off,
       steam({ status: { installed: false, running: false, signedIn: false }, installer: { kind: "opened" } }),
     );
-    expect(screen.getByText(/Valve's installer is open/)).toBeInTheDocument();
+    expect(screen.getByText(/The Steam installer is open/)).toBeInTheDocument();
     cleanup();
     renderReal(
       "steam",
@@ -558,7 +588,7 @@ describe("getting Steam ready", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Steam is ready");
     expect(screen.getByText("3 of 3")).toBeInTheDocument();
     expect(screen.getByText("Steam is installing 1 game.")).toBeInTheDocument();
-    expect(screen.getByText(/a player who does not own it cannot play it/)).toBeInTheDocument();
+    expect(screen.getByText(/Players need to own a game on Steam to play it here/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Choose games/ }));
     expect(go).toHaveBeenCalledWith("games");
   });
@@ -585,8 +615,8 @@ describe("getting Steam ready", () => {
       "25",
     );
     expect(screen.getByText("Downloading 25%")).toBeInTheDocument();
-    expect(screen.getByText("Confirm in Steam")).toBeInTheDocument();
-    const install = screen.getAllByRole("link", { name: /Install on Steam/ });
+    expect(screen.getByText("Click Install in Steam")).toBeInTheDocument();
+    const install = screen.getAllByRole("link", { name: /Install in Steam/ });
     expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/1172470"]);
     fireEvent.click(install[0]!);
     expect(acts.askInstall).toHaveBeenCalledWith(1172470);
@@ -610,17 +640,19 @@ describe("getting Steam ready", () => {
       steam({ status: { installed: true, running: true, signedIn: true } }),
     );
     const field = screen.getByLabelText("Install any game you own");
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
+    // Nothing to install yet is no button at all, not a greyed one.
+    expect(screen.queryByText("Install in Steam")).not.toBeInTheDocument();
 
     fireEvent.change(field, { target: { value: "https://store.steampowered.com/app/570/Dota_2/" } });
-    const link = screen.getByRole("link", { name: /Install on Steam/ });
+    const link = screen.getByRole("link", { name: /Install in Steam/ });
     expect(link).toHaveAttribute("href", "steam://install/570");
     fireEvent.click(link);
     expect(acts.askInstall).toHaveBeenCalledWith(570);
 
     fireEvent.change(field, { target: { value: "730" } });
     expect(screen.getByText("That game is installed already.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open your Steam library/ })).toHaveAttribute(
       "href",
       "steam://open/games",
@@ -637,7 +669,7 @@ describe("getting Steam ready", () => {
       actions: actions(),
     };
     render(<Shell host={host} step="games" onStep={go} setupDone finishSetup={vi.fn()} />);
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Install any game you own")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Install Steam first" })[0]!);
     expect(go).toHaveBeenCalledWith("steam");
@@ -1037,7 +1069,7 @@ describe("the payout form", () => {
     const acts = renderReal("paid", off);
 
     expect(
-      screen.getByText(/Payouts are not open yet, so nothing you type here is sent or kept\./),
+      screen.getByText(/Payouts aren't open yet\. Nothing you type here is sent or saved\./),
     ).toBeInTheDocument();
     const iban = screen.getByLabelText("IBAN");
     fireEvent.change(screen.getByLabelText("Account holder"), { target: { value: "Kai Example" } });
@@ -1046,7 +1078,7 @@ describe("the payout form", () => {
 
     expect(iban).toHaveValue("");
     expect(screen.getByLabelText("Account holder")).toHaveValue("");
-    expect(screen.getByText("Nothing was sent or kept. The fields were cleared.")).toBeInTheDocument();
+    expect(screen.getByText("Cleared. Nothing was sent.")).toBeInTheDocument();
     expect(acts.savePayout).toHaveBeenCalledOnce();
     expect(fetch).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
@@ -1064,20 +1096,29 @@ describe("the payout form", () => {
 });
 
 describe("settings", () => {
-  it("saves the connection and starts sharing", async () => {
-    const acts = renderReal("settings", off);
-    fireEvent.change(screen.getByLabelText("Signaling server"), { target: { value: "otter.example" } });
+  it("saves the connection, with nothing in it that shares this Windows desktop", async () => {
+    const onStep = vi.fn();
+    const host: Host = { view: realView(off), actions: actions() };
+    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
+    // The signaling server, the screen preview and going live from here are the development path only.
+    expect(screen.queryByLabelText("Signaling server")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Capturing|Not capturing/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: /go live|sharing/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveAttribute("placeholder", "gaming-pc-1");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Nova-01" } });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Save and start sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });
-    expect(acts.saveConnection).toHaveBeenCalledWith({
-      url: "otter.example",
+    expect(host.actions.saveConnection).toHaveBeenCalledWith({
+      url: "signal.example",
       machineId: "gaming-pc-1",
       machineKey: "test-machine-key",
       name: "Nova-01",
     });
+    expect(screen.getByRole("status")).toHaveTextContent("Saved.");
+    expect(onStep).not.toHaveBeenCalled();
   });
 
   it("can be saved again when saving fails, and says so", async () => {
@@ -1087,7 +1128,7 @@ describe("settings", () => {
       actions: { ...actions(), saveConnection: vi.fn(async () => Promise.reject(new Error("disk full"))) },
     };
     render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
-    const save = screen.getByRole("button", { name: "Save and start sharing" });
+    const save = screen.getByRole("button", { name: "Save" });
     await act(async () => {
       fireEvent.click(save);
     });
@@ -1099,7 +1140,7 @@ describe("settings", () => {
   it("cannot change under a live session", () => {
     renderReal("settings", session(false));
     expect(screen.getByLabelText("Machine key")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save and start sharing" })).toBeDisabled();
-    expect(screen.getByText("Pause sharing to change these.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByText("Pause to change these.")).toBeInTheDocument();
   });
 });

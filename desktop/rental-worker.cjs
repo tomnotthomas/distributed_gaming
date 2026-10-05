@@ -396,19 +396,78 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
     }
   };
 
-  /** The firmware's boot entry for Swiff OS, checked to be the one this install made. */
-  const ourEntry = async () => {
+  /** Whether a Boot#### variable's bytes start Swiff OS's shim from its own boot partition. */
+  const isOurs = (bytes, esp) => {
+    const option = bytes && efi.parseLoadOption(bytes);
+    return Boolean(option && option.partition === esp.id && efi.samePath(option.file, BOOT_PATH));
+  };
+
+  /**
+   * Swiff OS's boot entry, found by what it starts (its boot partition's id
+   * and shim's path), never by its number alone: firmware renumbers entries
+   * (the GEEKOM moved it, and its BootOrder then listed only Windows). The
+   * recorded number is tried first; when the entry moved, the record follows
+   * it. Null when the firmware has no such entry any more.
+   */
+  const findEntry = async () => {
     const { bootEntry, partitions } = state.get();
-    must(bootEntry !== null, "Swiff OS has no boot entry.");
-    const name = efi.bootName(bootEntry);
-    const got = await win.firmware([{ get: name, guid: efi.GLOBAL }]);
-    const option = got[name] && efi.parseLoadOption(got[name]);
     const esp = partitions.find((p) => p.role === "esp");
-    must(
-      option && esp && option.partition === esp.id && option.file === BOOT_PATH,
-      `${name} is no longer Swiff OS's boot entry.`,
-    );
-    return bootEntry;
+    must(esp, "Swiff OS has no boot partition.");
+    if (bootEntry !== null) {
+      const name = efi.bootName(bootEntry);
+      const got = await win.firmware([{ get: name, guid: efi.GLOBAL }]);
+      if (isOurs(got[name], esp)) return bootEntry;
+    }
+    // Every number in use: 0000 to 00FF, and whatever BootOrder names beyond them.
+    const order = efi.orderOf((await win.firmware([{ get: "BootOrder", guid: efi.GLOBAL }])).BootOrder);
+    const numbers = [...new Set([...Array.from({ length: 256 }, (_, i) => i), ...order])];
+    const got = await win.firmware(numbers.map((n) => ({ get: efi.bootName(n), guid: efi.GLOBAL })));
+    const found = numbers.find((n) => isOurs(got[efi.bootName(n)], esp)) ?? null;
+    if (found !== bootEntry) state.save({ bootEntry: found });
+    return found;
+  };
+
+  /**
+   * Add Swiff OS's boot entry at the first free number, last in BootOrder, for
+   * its boot partition on `disk` (typed ESP by now): the install's own step,
+   * and how an entry the firmware dropped comes back.
+   */
+  const addEntry = async (disk) => {
+    const esp = state.get().partitions.find((p) => p.role === "esp");
+    must(esp, "Swiff OS has no boot partition.");
+    const partition = await withDisk(disk, async (_disk, gpt) => {
+      const e = gpt.entries.find((x) => x.id === esp.id);
+      must(e && e.type === TYPE.esp, "Swiff OS's boot partition is not on the disk.");
+      return { number: e.index + 1, first: e.first, sectors: e.last - e.first + 1, id: e.id };
+    });
+    const names = Array.from({ length: 256 }, (_, i) => efi.bootName(i));
+    const got = await win.firmware([
+      { get: "BootOrder", guid: efi.GLOBAL },
+      { get: "BootCurrent", guid: efi.GLOBAL },
+      ...names.map((name) => ({ get: name, guid: efi.GLOBAL })),
+    ]);
+    const free = names.findIndex((name) => !got[name]);
+    must(free >= 0, "The firmware has no free boot entry number.");
+    const order = efi.orderOf(got.BootOrder);
+    const current = got.BootCurrent ? efi.orderOf(got.BootCurrent)[0] : null;
+    await win.firmware([
+      {
+        set: efi.bootName(free),
+        guid: efi.GLOBAL,
+        data: efi.loadOption({ title: BOOT_TITLE, partition, path: BOOT_PATH }),
+      },
+      { set: "BootOrder", guid: efi.GLOBAL, data: efi.orderBytes(efi.placeIn(order, free, "last")) },
+    ]);
+    // Windows' entry is the one this boot came from, recorded once: a later add keeps the first.
+    state.save({ bootEntry: free, windowsEntry: state.get().windowsEntry ?? current });
+    return free;
+  };
+
+  /** Swiff OS's boot entry, wherever the firmware has it now, or added again when it is gone. */
+  const ourEntry = async () => {
+    const { disk } = state.get();
+    must(disk !== null && state.get().bootEntry !== null, "Swiff OS has no boot entry.");
+    return (await findEntry()) ?? (await addEntry(disk));
   };
 
   async function apply(op, progress = () => {}) {
@@ -629,34 +688,15 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
           return true;
         });
         if (retyped) await win.powershell([`Update-Disk -Number ${op.disk}`]);
-        const partition = await withDisk(op.disk, async (_disk, gpt) => {
-          const e = gpt.entries.find((x) => x.id === esp.id);
-          must(e && e.type === TYPE.esp, "Swiff OS's boot partition is not on the disk.");
-          return { number: e.index + 1, first: e.first, sectors: e.last - e.first + 1, id: e.id };
-        });
-        const names = Array.from({ length: 256 }, (_, i) => efi.bootName(i));
-        const got = await win.firmware([
-          { get: "BootOrder", guid: efi.GLOBAL },
-          { get: "BootCurrent", guid: efi.GLOBAL },
-          ...names.map((name) => ({ get: name, guid: efi.GLOBAL })),
-        ]);
-        const free = names.findIndex((name) => !got[name]);
-        must(free >= 0, "The firmware has no free boot entry number.");
-        const order = efi.orderOf(got.BootOrder);
-        const current = got.BootCurrent ? efi.orderOf(got.BootCurrent)[0] : null;
-        await win.firmware([
-          {
-            set: efi.bootName(free),
-            guid: efi.GLOBAL,
-            data: efi.loadOption({ title: op.title, partition, path: op.path }),
-          },
-          { set: "BootOrder", guid: efi.GLOBAL, data: efi.orderBytes(efi.placeIn(order, free, "last")) },
-        ]);
-        state.save({ bootEntry: free, windowsEntry: current });
-        return { entry: free };
+        return { entry: await addEntry(op.disk) };
       }
       case "boot-entry-remove": {
-        const entry = await ourEntry();
+        // Gone already (the firmware dropped it): nothing of Swiff OS is left in the boot menu.
+        const entry = s.bootEntry === null ? null : await findEntry();
+        if (entry === null) {
+          state.save({ bootEntry: null });
+          return {};
+        }
         const got = await win.firmware([
           { get: "BootOrder", guid: efi.GLOBAL },
           { get: "BootNext", guid: efi.GLOBAL },
@@ -690,7 +730,10 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       case "boot-next": {
         const entry = await ourEntry();
         await win.firmware([{ set: "BootNext", guid: efi.GLOBAL, data: efi.orderBytes([entry]) }]);
-        return {};
+        // The restart must reach Swiff OS: BootNext is read back, not trusted.
+        const back = await win.firmware([{ get: "BootNext", guid: efi.GLOBAL }]);
+        must(efi.orderOf(back.BootNext)[0] === entry, "The firmware did not keep BootNext.");
+        return { entry };
       }
       case "mok-import":
       case "mok-delete": {

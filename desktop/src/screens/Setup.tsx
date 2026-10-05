@@ -31,35 +31,39 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
       <section className="hz">
         <div className="cp">
           <p className="mono ctx">{setupDone ? "This PC" : "First run"}</p>
-          <h1>Reading this PC</h1>
+          <h1>{reading ? "Reading your PC" : "Your PC"}</h1>
           {hardwareRate !== null ? (
-            <Figure unit="an hour, hardware rate">
+            <Figure unit="an hour for this hardware">
               <Eur n={hardwareRate} />
             </Figure>
           ) : null}
           <p className="ln">
             {hardwareRate !== null
-              ? "Your reliability and level adjust it. The rate is fixed while a player is on."
-              : "The parts that decide which games this PC can run for players."}
+              ? "Reliability and level change it. During a session it stays the same."
+              : "These parts decide which games players can run here."}
           </p>
         </div>
-        <Plate caption={["Hardware", reading ? "Reading" : hardwareRate !== null ? "Rate found" : "Read"]}>
+        <Plate
+          caption={["Hardware", reading ? "Checking now" : hardwareRate !== null ? "Rate found" : "Read"]}
+        >
+          {/* The read can take minutes: the ring turns while it runs, so it never looks undone. */}
           <Dial
-            progress={reading ? 0 : read / parts.length}
+            live={reading}
+            progress={reading ? null : read / parts.length}
             big={reading ? "…" : `${read} of ${parts.length}`}
-            small="parts read"
+            small={reading ? "checking" : "parts read"}
           />
         </Plate>
       </section>
 
       <div className="sz three">
         <Zone title="Graphics and processor">
-          <Kv label="GPU">{hw?.gpu ? shortGpu(hw.gpu) : reading ? "…" : "Not found"}</Kv>
-          <Kv label="CPU">{hw?.cpu ?? (reading ? "…" : "Not found")}</Kv>
+          <Kv label="GPU">{hw?.gpu ? shortGpu(hw.gpu) : reading ? "Checking" : "Not found"}</Kv>
+          <Kv label="CPU">{hw?.cpu ?? (reading ? "Checking" : "Not found")}</Kv>
         </Zone>
         <Zone title={hw?.upMbps ? "Memory and network" : "Memory and display"}>
           <Kv label="Memory">
-            {hw?.ramMb ? `${Math.round(hw.ramMb / 1024)} GB` : reading ? "…" : "Not found"}
+            {hw?.ramMb ? `${Math.round(hw.ramMb / 1024)} GB` : reading ? "Checking" : "Not found"}
           </Kv>
           {hw?.upMbps ? (
             <Kv label="Connection">
@@ -72,7 +76,7 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
               {display
                 ? `${display.width} × ${display.height}${display.refreshHz ? `, ${display.refreshHz} Hz` : ""}`
                 : reading
-                  ? "…"
+                  ? "Checking"
                   : "Not found"}
             </Kv>
           )}
@@ -80,13 +84,13 @@ export function ReadPc({ view, go, setupDone }: ScreenProps & { setupDone: boole
         <Zone title="Next">
           <p className="soft">
             {games
-              ? `${count(games, "game is", "games are")} installed.${view.games.offered ? " Choose which ones players can stream." : ""}`
+              ? `${count(games, "game", "games")} installed. Set up Steam next.`
               : reading
-                ? "Looking for installed Steam games."
-                : "No installed Steam games were found on this PC."}
+                ? "Checking for installed Steam games."
+                : "No Steam games on this PC yet."}
           </p>
           <div className="acts">
-            <Pill icon="arrow" onClick={() => go("steam")} disabled={reading}>
+            <Pill icon="arrow" onClick={() => go("steam")}>
               Set up Steam
             </Pill>
           </div>
@@ -134,7 +138,7 @@ function rows(installed: Game[], demand: DemandRow[] | null, installing: SteamIn
 }
 
 const PHASE: Record<SteamInstall["phase"], string> = {
-  queued: "Queued in Steam",
+  queued: "Waiting in Steam",
   downloading: "Downloading",
   finishing: "Finishing",
   paused: "Paused",
@@ -169,7 +173,7 @@ function Missing({ appid, view, actions, go }: ScreenProps & { appid: number }) 
   const { status, installs, asked } = view.steam;
   const install = installs.find((i) => i.appid === appid);
   if (install) return <Progress install={install} />;
-  if (asked.includes(appid)) return <span className="mono gst">Confirm in Steam</span>;
+  if (asked.includes(appid)) return <span className="mono gst">Click Install in Steam</span>;
   if (status && !status.installed) {
     return (
       <button type="button" className="inst" onClick={() => go("steam")}>
@@ -186,7 +190,7 @@ function Missing({ appid, view, actions, go }: ScreenProps & { appid: number }) 
       onClick={() => actions.askInstall(appid)}
     >
       <Glyph name="download" size={15} />
-      Install on Steam
+      Install in Steam
     </a>
   );
 }
@@ -215,7 +219,7 @@ function InstallAny({ view, actions }: ScreenProps) {
         <small id={`${id}-hint`}>
           {has
             ? "That game is installed already."
-            : "Paid games install only if your account owns them; free to play ones always do."}
+            : "Paid games install only if you own them. Free-to-play games always install."}
         </small>
       </div>
       {appid !== null && !has ? (
@@ -227,14 +231,9 @@ function InstallAny({ view, actions }: ScreenProps) {
           onClick={() => actions.askInstall(appid)}
         >
           <Glyph name="download" size={15} />
-          Install on Steam
+          Install in Steam
         </a>
-      ) : (
-        <span className="inst off" aria-disabled="true">
-          <Glyph name="download" size={15} />
-          Install on Steam
-        </span>
-      )}
+      ) : null}
       <a className="inst" href={STEAM_LIBRARY_URL} target="_blank" rel="noreferrer">
         <Glyph name="arrow" size={15} />
         Open your Steam library
@@ -267,8 +266,14 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
           </p>
         </div>
         <div className="gcount">
-          <b>{listedGames(view).length}</b>
-          {toggle ? (
+          <b>{view.pc.reading && !installed.length ? "…" : listedGames(view).length}</b>
+          {view.pc.reading && !installed.length ? (
+            <span className="mono">
+              checking
+              <br />
+              installed games
+            </span>
+          ) : toggle ? (
             <span className="mono">
               of {installed.length} installed
               <br />
@@ -350,8 +355,8 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
       ) : (
         <p className="empty soft">
           {view.pc.reading
-            ? "Looking for installed Steam games."
-            : "No installed Steam games were found on this PC yet. Each one shows here once Steam has installed it."}
+            ? "Checking for installed Steam games."
+            : "No games installed yet. They show up here once Steam has installed them."}
         </p>
       )}
 
@@ -370,7 +375,7 @@ export function Games({ view, actions, go, finishSetup }: ScreenProps & { finish
         <span className="soft">
           {demand
             ? "Demand is the number of players looking for a PC with that game in the last hour."
-            : "Read from this PC's Steam library."}
+            : "From your Steam library on this PC."}
         </span>
         <Pill
           icon="arrow"

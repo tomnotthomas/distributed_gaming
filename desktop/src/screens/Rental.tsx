@@ -1,566 +1,1097 @@
-// Rental mode: what Swiff OS needs from this PC, what the owner changes in the
-// BIOS (Swiff cannot), and the steps that install it, start it once, remove it
-// or confirm its key again, with the one confirmation at the PC the install
-// needs: Swiff's key, enrolled as a MOK with a one-time code. The steps run
-// for real (main.cjs, rental-exec.cjs) after one UAC prompt, and each that
-// changes the disk or the firmware waits for the owner to hold its button.
-// Going live in Swiff OS is still a preview.
+// Rental mode, one thing at a time. Its three steps (get the PC ready, install
+// Swiff OS, confirm the key) hang under it in the rail; this screen shows only
+// the one the owner is on. The title always says what to do, the plate shows
+// the one thing they look for (the setting and its value, the code, the blue
+// screen, the install's progress), the strip under it shows how, and every
+// other fact waits behind one quiet row of links.
+//
+// Everything that needs no one runs by itself after one OK: the checks, the
+// partitions, writing Swiff OS, the boot entry, queuing the key and pointing
+// the next start at Swiff OS. The flow stops only where the owner must act:
+// Windows' administrator prompt, a BIOS setting, writing down the code and
+// pressing a key at the blue screen, and going live.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { PlanStep, RentalPlan, RentalRead } from "../../rental.cjs";
+import { clock } from "../format";
 import type { RentalRun } from "../model";
+import { mmss, timeLeft } from "../progress";
 import {
-  BIOS_STEPS,
-  choiceGone,
+  BIOS_ASKS,
+  biosTitle,
   chosenTarget,
   codeGroups,
   firmwareChecks,
   gb,
-  MOK_REMOVE_SCREENS,
-  MOK_SCREENS,
+  hintOf,
   pcChecks,
-  rentalStatus,
-  targetLine,
+  failureOf,
+  otherRoom,
+  rentalScreen,
+  rentalStepAt,
+  RUNNING_TITLE,
+  type BiosId,
   type RentalCheck,
+  type Waiting,
+  type WindowsTodo,
 } from "../rental";
 import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
-import { Figure, Kv, Plate, Zone } from "../ui/parts";
-import { Notice } from "../ui/Notice";
-import { HoldPill, Pill } from "../ui/Pill";
+import { Eur, Kv, Plate, Zone } from "../ui/parts";
+import { Pill } from "../ui/Pill";
 import type { ScreenProps } from "./types";
 
-/** One check as a ruled row, with a mark where it is not ready yet. */
-function CheckRow({ check }: { check: RentalCheck }) {
-  const mark = check.state === "bios" || check.state === "blocked";
-  return (
-    <Kv label={check.label}>
-      <span className={mark ? "rck warn" : "rck"}>
-        {mark ? <Glyph name="warning" size={14} /> : null}
-        {check.value}
-      </span>
-    </Kv>
-  );
+// --- the strip: a to-do of several steps, one tile each ----------------------------------
+
+/** What a tile shows besides its words: keys to press, a setting, the screen's own text, the app's button. */
+type Visual =
+  { keys: string[] } | { setting: [string, string] } | { screen: string } | { app: "again" | "wait" };
+type Tile = { title: string; text: string; visual: Visual };
+
+function biosTrip(ids: BiosId[]): Tile[] {
+  return [
+    {
+      title: "Open the BIOS",
+      text: "Restart the PC. While it starts, press F2 or Del a few times.",
+      visual: { keys: ["F2", "Del"] },
+    },
+    ...ids.map((id) => ({
+      title: BIOS_ASKS[id].title,
+      text: BIOS_ASKS[id].hint,
+      visual: { setting: [BIOS_ASKS[id].setting, BIOS_ASKS[id].value] as [string, string] },
+    })),
+    {
+      title: "Save and exit",
+      text: "Choose Save & Exit, often F10. Windows starts again.",
+      visual: { keys: ["F10"] },
+    },
+    { title: "Check again", text: "Open Swiff and press Check again.", visual: { app: "again" } },
+  ];
 }
 
-const PLAN_TITLE: Record<RentalPlan["kind"], string> = {
-  install: "Installing rental mode",
-  uninstall: "Removing rental mode",
-  unkey: "Removing Swiff's key",
-  mok: "Confirming Swiff's key again",
-  once: "Starting Swiff OS once",
-  start: "Going live in rental mode",
-  stop: "Back to Windows",
-};
-
-/** What the plan's one action says, for the plans this app runs. Going live stays a preview. */
-const RUN_LABEL: Partial<Record<RentalPlan["kind"], string>> = {
-  install: "Install rental mode",
-  uninstall: "Remove rental mode",
-  unkey: "Remove Swiff's key",
-  mok: "Confirm the security key again",
-  once: "Start Swiff OS once",
-};
-
-/** 9,663,676,416 of 8,589,934,592 bytes → "9.7 of 8.6 GB". */
-const gbOf = (done: number, total: number) => `${(done / 1e9).toFixed(1)} of ${(total / 1e9).toFixed(1)} GB`;
-
-/** One step on the plan's ladder: past, running, waiting for the owner's yes, or still to come. */
-function StepRow({
-  step,
-  n,
-  run,
-  commands,
-  onConfirm,
-}: {
-  step: PlanStep;
-  n: number;
-  run: RentalRun;
-  commands: boolean;
-  onConfirm: (yes: boolean) => void;
-}) {
-  const state = run.steps[step.id];
-  const rung = state === "done" ? "done" : state ? "now" : "next";
-  const progress = run.progress?.id === step.id ? run.progress : null;
-  return (
-    <li className={state === "failed" ? `${rung} fail` : rung}>
-      <span className="pd" />
-      <b>{step.title}</b>
-      <span className="mono">{state === "done" ? "Done" : String(n).padStart(2, "0")}</span>
-      {state === "running" ? (
-        <small aria-live="polite">
-          {progress ? `${progress.what}: ${gbOf(progress.done, progress.total)}` : "Working"}
-        </small>
-      ) : null}
-      {state === "failed" ? (
-        <small className="rerr">{run.failed?.error || "It did not finish."}</small>
-      ) : null}
-      {state === "stopped" ? <small>Stopped here: this step did not run.</small> : null}
-      {!state && step.confirm && run.status === "idle" ? <small>Asks you before it runs</small> : null}
-      {state === "confirm" && run.waiting === step.id ? (
-        <div className="rask" role="group" aria-label={`Run: ${step.title}`}>
-          <p>{step.confirm}</p>
-          <div className="acts">
-            <HoldPill icon="arrow" onFire={() => onConfirm(true)} label={`Hold to run: ${step.title}`}>
-              Hold to run this step
-            </HoldPill>
-            <button type="button" className="lnk" onClick={() => onConfirm(false)}>
-              Stop here
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {commands ? <pre className="rcmd">{step.commands.join("\n")}</pre> : null}
-    </li>
-  );
+function bitlockerTrip(letter: string): Tile[] {
+  return [
+    {
+      title: "Open BitLocker",
+      text: "Search Windows for Manage BitLocker and open it.",
+      visual: { keys: ["Win"] },
+    },
+    {
+      title: `Turn it off for ${letter}:`,
+      text: "Choose Turn off BitLocker next to the drive.",
+      visual: { setting: [`${letter}: BitLocker`, "Off"] },
+    },
+    {
+      title: "Wait for it to finish",
+      text: "Windows decrypts the drive. It can take a while on a big drive.",
+      visual: { app: "wait" },
+    },
+    { title: "Check again", text: "Come back here and press Check again.", visual: { app: "again" } },
+  ];
 }
 
-/** How a run stands, under its steps, with what the owner can do next. */
-function RunFoot({
-  plan,
-  run,
-  onRun,
-  onUndo,
-}: {
-  plan: RentalPlan;
-  run: RentalRun;
-  onRun: () => void;
-  onUndo: () => void;
-}) {
-  const label = RUN_LABEL[plan.kind];
-  const failedStep = plan.steps.find((s) => s.id === run.failed?.step)?.title;
-  // An install, or its undo, that stopped part way can be undone from what it recorded.
-  const undo =
-    plan.kind === "install" ? (
-      <div className="acts">
-        <Pill icon="undo" onClick={onUndo}>
-          Undo what was done
-        </Pill>
-      </div>
-    ) : null;
-  if (!label)
+/** shim's MokManager, screen by screen, in its own words: enrolling Swiff's key, or removing it. */
+function blueScreen(remove = false): Tile[] {
+  const verb = remove ? "Delete" : "Enroll";
+  return [
+    {
+      title: "Press any key",
+      text: "Within 10 seconds of the blue screen appearing.",
+      visual: { screen: "Press any key to perform MOK management" },
+    },
+    {
+      title: `Choose ${verb} MOK`,
+      text: "Use the arrow keys and Enter.",
+      visual: { screen: `Perform MOK management\n> ${verb} MOK` },
+    },
+    { title: "Choose Continue", text: "", visual: { screen: `[${verb} MOK]\n> Continue` } },
+    { title: "Choose Yes", text: "", visual: { screen: `${verb} the key(s)?\n> Yes` } },
+    {
+      title: "Type your code",
+      text: "Then press Enter. Nothing shows as you type.",
+      visual: { screen: "Password:" },
+    },
+    {
+      title: "Choose Reboot",
+      text: "Windows starts again.",
+      visual: { screen: "Perform MOK management\n> Reboot" },
+    },
+  ];
+}
+
+function Visualize({ v }: { v: Visual }) {
+  if ("keys" in v)
     return (
-      <Notice icon="lock">
-        A preview: going live in Swiff OS comes in a later Swiff Host update. Nothing here runs.
-      </Notice>
-    );
-  switch (run.status) {
-    case "idle":
-      return (
-        <>
-          <Notice icon="lock">
-            Windows asks once for administrator rights. Before each step that changes the disk or the
-            firmware, Swiff Host stops and runs it only while you hold its button.
-          </Notice>
-          <div className="acts">
-            <Pill icon="arrow" onClick={onRun}>
-              {label}
-            </Pill>
-          </div>
-        </>
-      );
-    case "starting":
-      return (
-        <Notice icon="clock">Waiting for Windows: allow Swiff Host to make changes in its prompt.</Notice>
-      );
-    case "running":
-      return run.waiting ? null : (
-        <Notice icon="clock">Working. Keep Swiff Host open until the steps are done.</Notice>
-      );
-    case "failed":
-      return (
-        <>
-          <Notice icon="warning">
-            {failedStep
-              ? `${failedStep} did not finish, for the reason under it. Nothing after it ran.`
-              : `Nothing ran: ${run.failed?.error}`}
-          </Notice>
-          {failedStep ? undo : null}
-        </>
-      );
-    case "stopped":
-      return (
-        <>
-          <Notice icon="info">
-            Stopped. The steps marked done stay done: undo them, or review the install again later.
-          </Notice>
-          {undo}
-        </>
-      );
-    default:
-      return (
-        <Notice icon="check">
-          {plan.steps.some((s) => s.ops.some((o) => o.op === "restart"))
-            ? "Done. The PC restarts in a few seconds."
-            : "Done."}
-        </Notice>
-      );
-  }
-}
-
-/** The steps of a plan, in order, as they run, with the exact commands under each when asked. */
-function Plan({
-  plan,
-  run,
-  keyEnrolled,
-  actions,
-}: {
-  plan: RentalPlan;
-  run: RentalRun;
-  /** The install asked the PC to trust Swiff's key: there may be a key to remove. */
-  keyEnrolled: boolean;
-  actions: ScreenProps["actions"];
-}) {
-  const [commands, setCommands] = useState(false);
-  const busy = run.status === "starting" || run.status === "running";
-  // The plan opens under the fold: bring it up, so the button visibly did something.
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    box.current?.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
-  }, [plan]);
-  return (
-    <div className="sz one" ref={box}>
-      <Zone
-        title={RUN_LABEL[plan.kind] ? PLAN_TITLE[plan.kind] : `Preview: ${PLAN_TITLE[plan.kind]}`}
-        action={
-          <span className="rpa">
-            {/* The key's removal needs Swiff OS's boot partition, which the uninstall deletes. */}
-            {plan.kind === "uninstall" && run.status === "idle" && keyEnrolled ? (
-              <button type="button" className="lnk" onClick={() => actions.previewRental("unkey")}>
-                Remove Swiff's key first
-              </button>
-            ) : null}
-            <button type="button" className="lnk" onClick={() => setCommands((on) => !on)}>
-              {commands ? "Hide the commands" : "Show the commands"}
-            </button>
-            {busy ? null : (
-              <button type="button" className="lnk" onClick={actions.closeRentalPreview}>
-                Close
-              </button>
-            )}
+      <span className="mvis keys" aria-hidden="true">
+        {v.keys.map((k, i) => (
+          <span key={k} className="mk-wrap">
+            {i ? <span className="mk-or">or</span> : null}
+            <kbd className="mk">{k}</kbd>
           </span>
-        }
-      >
-        <ol className="ladder rplan">
-          {plan.steps.map((step, i) => (
-            <StepRow
-              key={step.id}
-              step={step}
-              n={i + 1}
-              run={run}
-              commands={commands}
-              onConfirm={actions.confirmRentalStep}
-            />
-          ))}
-        </ol>
-        <RunFoot
-          plan={plan}
-          run={run}
-          onRun={actions.runRental}
-          onUndo={() => actions.previewRental("uninstall")}
-        />
-      </Zone>
-      {/* The code is for the restart at the end: once a run stopped short of it, there is none. */}
-      {plan.mok && run.status !== "failed" && run.status !== "stopped" ? (
-        <MokGuide code={plan.mok.code} remove={plan.kind === "unkey"} />
-      ) : null}
-    </div>
+        ))}
+      </span>
+    );
+  if ("setting" in v)
+    return (
+      <span className="mvis setting" aria-hidden="true">
+        <span>{v.setting[0]}</span>
+        <b>{v.setting[1]}</b>
+      </span>
+    );
+  if ("screen" in v)
+    return (
+      <span className="mvis screen" aria-hidden="true">
+        {v.screen}
+      </span>
+    );
+  return (
+    <span className="mvis appbtn" aria-hidden="true">
+      <Glyph name={v.app === "wait" ? "clock" : "refresh"} size={28} />
+    </span>
   );
 }
 
-/**
- * The install's one confirmation at the PC: after its restart, shim's blue
- * MokManager screen asks the owner to enrol Swiff's key with the code shown
- * here. The code stays on this screen, large, for reading off at the PC.
- */
-function MokGuide({ code, remove = false }: { code: string; remove?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  // "Copied" stands for a moment, then the link offers to copy again.
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(t);
-  }, [copied]);
-  const copy = () =>
-    void navigator.clipboard?.writeText(code).then(
-      () => setCopied(true),
-      () => setCopied(false),
-    );
+function Strip({ tiles, label, children }: { tiles: Tile[]; label: string; children?: ReactNode }) {
   return (
-    <Zone
-      title={
-        remove ? "After the restart: confirm the key's removal" : "After the restart: confirm Swiff's key"
-      }
-      action={
-        navigator.clipboard ? (
-          <button type="button" className="lnk" onClick={copy} aria-live="polite">
-            {copied ? "Copied" : "Copy the code"}
-          </button>
-        ) : null
-      }
-    >
-      <div className="rmok">
-        <div className="rcode">
-          <Figure unit="one-time code">
-            <span className="rcv">{codeGroups(code)}</span>
-          </Figure>
-          <p className="soft">
-            {remove
-              ? "The PC restarts once to a blue screen. Confirm there, at the PC's own keyboard, that it stops trusting Swiff's key. Type the code with the number keys, without the space."
-              : "The PC restarts once to a blue screen. Confirm Swiff's key there, at the PC's own keyboard, so Swiff OS can start under Secure Boot. Type the code with the number keys, without the space."}
-          </p>
-        </div>
-        <ol className="ladder rplan rmoks">
-          {(remove ? MOK_REMOVE_SCREENS : MOK_SCREENS).map((s, i) => (
-            <li key={i} className="next">
-              <span className="pd" />
-              <b>{s.act}</b>
-              <span className="mono">{String(i + 1).padStart(2, "0")}</span>
-              <small className="mono">{s.screen}</small>
+    <div className="sz one">
+      <section className="mmulti" aria-label={label}>
+        <h2 className="mono">{label}</h2>
+        <ol className="mstrip">
+          {tiles.map((t, i) => (
+            <li key={t.title}>
+              <Visualize v={t.visual} />
+              <span className="mono mnum2">{String(i + 1).padStart(2, "0")}</span>
+              <b>{t.title}</b>
+              {t.text ? <span className="mtext">{t.text}</span> : null}
             </li>
           ))}
         </ol>
-      </div>
-      {remove ? (
-        <Notice icon="refresh">
-          Missed the blue screen? It waits 10 seconds, then Swiff OS starts as usual and the key stays
-          trusted. Restart to get back to Windows, and choose Remove Swiff's key again.
-        </Notice>
-      ) : (
-        <Notice icon="refresh">
-          Missed the blue screen? It waits 10 seconds, then the PC shows a security error and falls back to
-          Windows, with the key not enrolled. Come back to Rental mode and choose Confirm the security key
-          again: the PC restarts once more, with a new code.
-        </Notice>
-      )}
-    </Zone>
-  );
-}
-
-/** Where Swiff OS goes, when there is more than one place: the owner picks, never the size. */
-function TargetPicker({
-  read,
-  value,
-  onChange,
-}: {
-  read: RentalRead;
-  value: string | null;
-  onChange: (id: string) => void;
-}) {
-  const chosen = chosenTarget(read, value);
-  return (
-    <div className="until rtg" role="radiogroup" aria-label="Space for Swiff OS">
-      {read.targets.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="radio"
-          aria-checked={t.id === chosen?.id}
-          className="ut"
-          onClick={() => onChange(t.id)}
-        >
-          <b>{t.kind === "shrink" ? `${t.letter}:` : `Disk ${t.disk}`}</b>
-          <span>{t.kind === "shrink" ? "shrinks" : "free space"}</span>
-        </button>
-      ))}
+        {children}
+      </section>
     </div>
   );
 }
 
-export function RentalSetupScreen({ view, actions }: ScreenProps) {
-  const { reading, read, target, preview } = view.rental;
+/** The way out when the blue screen is not the one the strip shows: never into Windows from there. */
+const NoContinue = () => (
+  <p className="mnote">
+    <Glyph name="warning" size={16} />
+    <span>
+      No Enroll MOK in the menu? Don't choose Continue boot. Hold the power button until the PC turns off,
+      then turn it on again. Windows starts as usual.
+    </span>
+  </p>
+);
 
-  if (!read) {
-    return (
-      <main className="step">
-        <section className="hz">
-          <div className="cp">
-            <p className="mono ctx">Rental mode</p>
-            <h1>{reading ? "Checking this PC" : "This PC was not read"}</h1>
-            <p className="ln">
-              {reading
-                ? "What Swiff OS needs: UEFI, Secure Boot, a TPM, an IOMMU, 24 GB of space and a readable games drive."
-                : "Swiff reads what rental mode needs from Windows, and the read did not finish. Check again."}
-            </p>
-            {reading ? null : (
-              <div className="acts">
-                <Pill icon="refresh" onClick={actions.checkRental}>
-                  Check again
-                </Pill>
-              </div>
-            )}
+// --- the plate: the one thing the owner looks for ------------------------------------------
+
+type Row = { name: string; value: string; wait?: boolean };
+
+function SettingsPlate({
+  where,
+  rows,
+  checking,
+  at,
+  label,
+}: {
+  where: string;
+  rows: Row[];
+  checking: boolean;
+  at: string;
+  label?: string;
+}) {
+  return (
+    <Plate caption={[where, checking ? "Checking now" : at ? `Checked at ${at}` : ""]}>
+      <div className="mplatebody">
+        <div className="mtarget">
+          <p className="mono">{label ?? (rows.every((r) => r.wait) ? "Waiting for" : "Set to")}</p>
+          {rows.map((r) => (
+            <div key={r.name} className={r.wait ? "mtrow wait" : "mtrow"}>
+              <span>{r.name}</span>
+              {checking && !r.wait ? <i className="mspin" aria-label="Checking" /> : <b>{r.value}</b>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Plate>
+  );
+}
+
+function CodePlate({ code, caption }: { code: string; caption: [string, string] }) {
+  return (
+    <Plate caption={caption}>
+      <div className="mplatebody">
+        <p className="mplatecode" aria-label={`Key code ${code.split("").join(" ")}`}>
+          {codeGroups(code)}
+        </p>
+      </div>
+    </Plate>
+  );
+}
+
+function ScreenPlate({ text }: { text: string }) {
+  return (
+    <Plate caption={["After the restart", "Blue screen"]}>
+      <div className="mplatebody">
+        <span className="mvis screen big mplatescreen" aria-hidden="true">
+          {text}
+        </span>
+      </div>
+    </Plate>
+  );
+}
+
+const ReadyPlate = ({ small }: { small: string }) => (
+  <Plate caption={["This PC", "Ready"]}>
+    <Dial progress={1} big="Ready" small={small} />
+  </Plate>
+);
+
+// --- the install, as it runs ----------------------------------------------------------------
+
+/** Seconds since `from`, ticking once a second while shown. */
+function useSince(from: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return from === null ? 0 : Math.max(0, (now - from) / 1000);
+}
+
+/** 4,123,456,789 → "4.1". */
+const gbNum = (bytes: number) => (bytes / 1e9).toFixed(1);
+
+/** The plan's steps as they run: done, running (with its bar and clock or bytes), next, or where it stopped. */
+function RunList({
+  plan,
+  run,
+  elapsed,
+  restarting,
+}: {
+  plan: RentalPlan;
+  run: RentalRun;
+  elapsed: number;
+  restarting?: boolean;
+}) {
+  const label = plan.kind === "install" ? "The install, step by step" : "Step by step";
+  return (
+    <div className="sz one">
+      <section className="mmulti" aria-label={label}>
+        <h2 className="mono">{label}</h2>
+        <ol className="mrun">
+          {plan.steps.map((s) => {
+            const state = run.steps[s.id];
+            const restart = restarting && s.ops.some((o) => o.op === "restart");
+            const row =
+              state === "done"
+                ? "done"
+                : state === "running" || restart
+                  ? "now"
+                  : state === "failed"
+                    ? "fail"
+                    : "next";
+            const bytes = row === "now" && run.progress?.id === s.id ? run.progress : null;
+            return (
+              <li key={s.id} className={row} aria-current={row === "now" ? "step" : undefined}>
+                <span className="mrun-mark">
+                  {row === "done" ? (
+                    <Glyph name="check" size={13} />
+                  ) : row === "fail" ? (
+                    <Glyph name="warning" size={13} />
+                  ) : (
+                    <i />
+                  )}
+                </span>
+                <span className="mrun-name">
+                  {row === "now" ? (RUNNING_TITLE[s.id] ?? s.title) : s.title}
+                </span>
+                <span className="mrun-bar" aria-hidden="true">
+                  {row === "now" ? (
+                    bytes ? (
+                      <i className="det" style={{ width: `${(bytes.done / bytes.total) * 100}%` }} />
+                    ) : (
+                      <i className="indet" />
+                    )
+                  ) : null}
+                </span>
+                <span className="mono mrun-t">
+                  {row === "done"
+                    ? "Done"
+                    : row === "fail"
+                      ? "Stopped"
+                      : row === "now"
+                        ? bytes
+                          ? `${gbNum(bytes.done)} of ${gbNum(bytes.total)} GB`
+                          : mmss(elapsed)
+                        : ""}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+// --- everything else, folded -----------------------------------------------------------------
+
+/** A check's value for the fold: the same facts as before, said plainly. */
+function CheckList({ checks }: { checks: RentalCheck[] }) {
+  return (
+    <>
+      {checks.map((c) => {
+        const mark = c.state === "bios" || c.state === "blocked";
+        return (
+          <Kv key={c.id} label={c.label}>
+            <span className={mark ? "rck warn" : "rck"}>
+              {mark ? <Glyph name="warning" size={14} /> : null}
+              {c.value}
+            </span>
+          </Kv>
+        );
+      })}
+    </>
+  );
+}
+
+function PlanSteps({ plan }: { plan: RentalPlan }) {
+  const [commands, setCommands] = useState(false);
+  return (
+    <>
+      <ol className="mnum">
+        {plan.steps.map((s) => (
+          <li key={s.id}>
+            {s.title}
+            {commands ? <pre className="rcmd">{s.commands.join("\n")}</pre> : null}
+          </li>
+        ))}
+      </ol>
+      <p>
+        <button type="button" className="lnk" onClick={() => setCommands((on) => !on)}>
+          {commands ? "Hide commands" : "Show commands"}
+        </button>
+      </p>
+    </>
+  );
+}
+
+const SecureBootHelp = () => (
+  <ul className="mlist">
+    <li>If Secure Boot is in Setup Mode, restore the factory keys first. Then turn Secure Boot on.</li>
+    <li>
+      On a Secured-core PC, turn on <i>Allow Microsoft 3rd-party UEFI CA</i> in the Secure Boot settings.
+    </li>
+    <li>
+      If the install says the firmware doesn't trust the Microsoft UEFI CA 2011, restore the BIOS's factory
+      Secure Boot keys.
+    </li>
+  </ul>
+);
+
+type More = { id: string; label: string; body?: ReactNode; onClick?: () => void };
+
+/** One quiet row of links: each opens its drawer under the row, or does its one thing. */
+function Links({ items }: { items: More[] }) {
+  const [open, setOpen] = useState<string[]>([]);
+  if (!items.length) return null;
+  const toggle = (id: string) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
+  return (
+    <div className="sz one">
+      <div className="mbar">
+        {items.map((i) => (
+          <button
+            key={i.id}
+            type="button"
+            className="lnk"
+            aria-expanded={i.body ? open.includes(i.id) : undefined}
+            onClick={i.onClick ?? (() => toggle(i.id))}
+          >
+            {i.label}
+          </button>
+        ))}
+      </div>
+      {items
+        .filter((i) => i.body && open.includes(i.id))
+        .map((i) => (
+          <div key={i.id} className="mdrawer">
+            <Zone title={i.label}>{i.body}</Zone>
           </div>
-          <Plate caption={["Rental mode", reading ? "Reading" : "Not read"]}>
-            <Dial progress={0} big="…" small="ready" />
+        ))}
+    </div>
+  );
+}
+
+const checkedLink = (read: RentalRead, target: string | null): More => ({
+  id: "checks",
+  label: "What Swiff checked",
+  body: (
+    <div className="mcols">
+      <div>
+        <CheckList checks={firmwareChecks(read)} />
+      </div>
+      <div>
+        <CheckList checks={pcChecks(read, target)} />
+      </div>
+    </div>
+  ),
+});
+
+const planLink = (plan: RentalPlan): More => ({
+  id: "steps",
+  label: `${plan.kind === "install" ? "What the install does" : plan.kind === "uninstall" ? "What removing does" : "What the restart does"}, ${plan.steps.length} steps`,
+  body: <PlanSteps plan={plan} />,
+});
+
+// --- what went wrong, said plainly ----------------------------------------------------------
+
+/** Windows' prompt, as the owner meets it: the strip for "Windows didn't give permission". */
+const WINDOWS_ASKS: Tile[] = [
+  {
+    title: "Press Ask again",
+    text: "Windows shows its prompt in front of this app.",
+    visual: { app: "again" },
+  },
+  {
+    title: "Click Yes",
+    text: "Do you want to allow this app to make changes to your device?",
+    visual: { setting: ["Swiff Host", "Yes"] },
+  },
+  {
+    title: "No prompt?",
+    text: "Look for a flashing shield on the taskbar and click it.",
+    visual: { setting: ["Taskbar", "Shield"] },
+  },
+];
+
+/** The BIOS trip for a firmware that refused Swiff OS's shim. */
+const THIRD_PARTY_CA: Tile[] = [
+  biosTrip([])[0]!,
+  {
+    title: "Allow the 3rd-party CA",
+    text: "Under Secure Boot, turn on Allow Microsoft 3rd-party UEFI CA.",
+    visual: { setting: ["3rd-party UEFI CA", "Enabled"] },
+  },
+  ...biosTrip([]).slice(1),
+];
+
+/** What changed so far: the safety fact, after an info glyph. */
+const Changed = ({ children }: { children: ReactNode }) => (
+  <p className="mchanged">
+    <Glyph name="info" size={15} />
+    <span>{children}</span>
+  </p>
+);
+
+/** The exact error, in mono, with Send details to Swiff under it unless that is the screen's own button. */
+function Detail({ error, sent, onSend }: { error: string; sent: boolean; onSend: (() => void) | null }) {
+  return (
+    <>
+      <pre className="mdetail">{error}</pre>
+      {onSend && !sent ? (
+        <p>
+          <button type="button" className="lnk" onClick={onSend}>
+            Send details to Swiff
+          </button>
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+// --- the screen ---------------------------------------------------------------------------------
+
+/** The plate's rows for the to-dos in Windows and the BIOS, then what only an update brings. */
+function rowsOf(todos: WindowsTodo[], bios: BiosId[], waiting: Waiting[]): Row[] {
+  const wait = (w: Waiting): Row => ({ name: w.setting[0], value: w.setting[1], wait: true });
+  return [
+    ...todos.map((t) => ({ name: t.setting[0], value: t.setting[1] })),
+    ...bios.map((id) => ({ name: BIOS_ASKS[id].setting, value: BIOS_ASKS[id].value })),
+    ...waiting.map(wait),
+  ];
+}
+
+/** "Swiff OS goes on 24 GB of C:" or "… of free space on disk 1". */
+function placeLine(read: RentalRead, target: string | null): string {
+  const where = chosenTarget(read, target);
+  if (!where) return `Swiff OS needs ${gb(read.need)} next to Windows.`;
+  return where.kind === "shrink"
+    ? `Swiff OS goes on ${gb(read.need)} of ${where.letter}:, next to Windows. Your files stay where they are.`
+    : `Swiff OS goes on ${gb(read.need)} of free space on disk ${where.disk}, next to Windows. Your files stay where they are.`;
+}
+
+export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
+  const setup = view.rental;
+  const { read, reading, target, run } = setup;
+  const s = rentalScreen(setup);
+  const at = rentalStepAt(setup);
+  const elapsed = useSince(
+    run.status === "restarting" || run.status === "running" || run.status === "starting"
+      ? run.stepStartedAt
+      : null,
+  );
+  const checkedAt = setup.readAt ? clock(setup.readAt) : "";
+  const label =
+    s.kind === "back"
+      ? "Rental mode, back in Windows"
+      : s.kind === "failed" && s.plan.kind === "uninstall"
+        ? "Rental mode, removing"
+        : at >= 3
+          ? "Rental mode, installed"
+          : `Rental mode, step ${at + 1} of 3`;
+  const again = (
+    <Pill icon="refresh" onClick={actions.checkRental} disabled={reading}>
+      {reading ? "Checking" : "Check again"}
+    </Pill>
+  );
+
+  let title = "";
+  let line: ReactNode = "";
+  let extra: ReactNode = null;
+  let action: ReactNode = null;
+  let plate: ReactNode = null;
+  let below: ReactNode = null;
+  const links: More[] = [];
+
+  switch (s.kind) {
+    case "reading":
+      title = "Checking this PC";
+      line = "This takes a few seconds.";
+      plate = (
+        <Plate caption={["This PC", "Checking now"]}>
+          <Dial live progress={null} big="…" small="checking" />
+        </Plate>
+      );
+      break;
+    case "unread":
+      title = "Check didn't finish";
+      line = "Windows didn't answer in time. Try again.";
+      action = (
+        <Pill icon="refresh" onClick={actions.checkRental}>
+          Check again
+        </Pill>
+      );
+      plate = (
+        <Plate caption={["This PC", "Not checked"]}>
+          <Dial off big="Not checked" small="try again" />
+        </Plate>
+      );
+      break;
+    case "windows": {
+      const todo = s.todos[0]!;
+      title = todo.title;
+      line = todo.line;
+      action = again;
+      if (s.todos.length > 1)
+        extra = (
+          <p className="mstatus">After this: {s.todos[1]!.title.replace(/^\w/, (c) => c.toLowerCase())}.</p>
+        );
+      else if (s.bios.length)
+        extra = (
+          <p className="mstatus">
+            After this: {biosTitle(s.bios).replace(/^\w/, (c) => c.toLowerCase())} in the BIOS.
+          </p>
+        );
+      const rows = rowsOf(s.todos, [], s.waiting);
+      plate = (
+        <SettingsPlate
+          where={rows.length === 1 ? "In Windows" : "This PC"}
+          rows={rows}
+          checking={reading}
+          at={checkedAt}
+        />
+      );
+      if (todo.id === "games" && read?.games)
+        below = <Strip tiles={bitlockerTrip(read.games.letter)} label="In Windows" />;
+      break;
+    }
+    case "bios": {
+      title = biosTitle(s.bios);
+      line =
+        s.bios.length === 1
+          ? "It's a BIOS setting, so you change it yourself. It takes a few minutes."
+          : s.bios.length === 2
+            ? "Both are in the BIOS, so you change them yourself. One trip does it."
+            : "They're all in the BIOS, so you change them yourself. One trip does it.";
+      action = again;
+      plate = (
+        <SettingsPlate
+          where={s.waiting.length ? "This PC" : "In the BIOS"}
+          rows={rowsOf([], s.bios, s.waiting)}
+          checking={reading}
+          at={checkedAt}
+        />
+      );
+      below = <Strip tiles={biosTrip(s.bios)} label="In the BIOS" />;
+      break;
+    }
+    case "almost": {
+      const gpu = s.waiting.some((w) => w.id === "gpu");
+      title = "Almost ready";
+      line = gpu
+        ? "Everything else on this PC is ready. Rental mode starts with the Swiff OS update that supports this graphics card."
+        : "Everything else on this PC is ready. Swiff OS itself comes with a Swiff Host update.";
+      plate = (
+        <SettingsPlate
+          where="This PC"
+          rows={s.waiting.map((w) =>
+            w.id === "gpu"
+              ? { name: "Graphics card support", value: "Swiff OS update", wait: true }
+              : { name: "Swiff OS", value: "Swiff Host update", wait: true },
+          )}
+          checking={reading}
+          at={checkedAt}
+        />
+      );
+      break;
+    }
+    case "ready": {
+      title = "Install rental mode";
+      line = read ? placeLine(read, target) : "";
+      action = (
+        <Pill icon="arrow" onClick={() => actions.previewRental("install")}>
+          See the install
+        </Pill>
+      );
+      const where = read && chosenTarget(read, target);
+      const other = read?.targets.find((t) => t.id !== where?.id);
+      if (other)
+        extra = (
+          <p className="mstatus">
+            <button type="button" className="lnk" onClick={() => actions.chooseRentalTarget(other.id)}>
+              {other.kind === "shrink" ? `Use ${other.letter}: instead` : `Use disk ${other.disk} instead`}
+            </button>
+          </p>
+        );
+      plate = <ReadyPlate small="this PC" />;
+      break;
+    }
+    case "resume":
+      title = "The install didn't finish";
+      line =
+        "Part of Swiff OS is on this PC already. Continue, and Swiff picks up where it stopped. Windows and your files are fine.";
+      action = (
+        <Pill icon="arrow" onClick={() => actions.previewRental("install")}>
+          Continue the install
+        </Pill>
+      );
+      plate = (
+        <Plate caption={["This PC", "Install not finished"]}>
+          <Dial progress={null} big="Paused" small="part way" />
+        </Plate>
+      );
+      links.push({
+        id: "undo",
+        label: "Undo what was done",
+        onClick: () => actions.previewRental("uninstall"),
+      });
+      break;
+    case "preview": {
+      const { plan } = s;
+      if (plan.mok) {
+        const remove = plan.kind === "unkey";
+        title = "Write down this code";
+        line = remove
+          ? "Or take a photo. You type it on a blue screen after the restart, to remove Swiff's key."
+          : "Or take a photo. You type it on a blue screen after the restart, when this app is closed.";
+        extra = (
+          <p className="mstatus">
+            <Glyph name="info" size={15} />
+            {plan.kind === "install"
+              ? "Then Swiff runs every step by itself. Windows asks once for permission."
+              : "Windows asks once for permission. Then Swiff gets the restart ready."}
+          </p>
+        );
+        action = (
+          <>
+            <Pill icon="arrow" onClick={actions.runRental}>
+              {plan.kind === "install" ? "Install" : remove ? "Remove the key" : "Confirm the key"}
+            </Pill>
+            <button type="button" className="lnk" onClick={actions.closeRentalPreview}>
+              Back
+            </button>
+          </>
+        );
+        plate = <CodePlate code={plan.mok.code} caption={["Your key code", "Write it down"]} />;
+        below = <Strip tiles={blueScreen(remove)} label="After the restart, on the blue screen" />;
+      } else {
+        title = plan.kind === "uninstall" ? "Remove rental mode" : "Start Swiff OS";
+        line =
+          plan.kind === "uninstall"
+            ? "Swiff OS comes off this PC, and the drive it came from gets its space back. Your files stay where they are."
+            : "The PC restarts into Swiff OS. Its next restart after that starts Windows.";
+        action = (
+          <>
+            <Pill icon={plan.kind === "uninstall" ? "undo" : "play"} onClick={actions.runRental}>
+              {plan.kind === "uninstall" ? "Remove rental mode" : "Start Swiff OS"}
+            </Pill>
+            <button type="button" className="lnk" onClick={actions.closeRentalPreview}>
+              Back
+            </button>
+          </>
+        );
+        plate = (
+          <Plate caption={["Windows asks once", `${plan.steps.length} steps`]}>
+            <Dial progress={null} big={String(plan.steps.length)} small="steps, by themselves" />
           </Plate>
-        </section>
-        <i className="ruler" aria-hidden="true" />
-      </main>
-    );
+        );
+        below = <RunList plan={plan} run={run} elapsed={0} />;
+      }
+      links.push(planLink(plan));
+      break;
+    }
+    case "elevating":
+      title = "Waiting for Windows";
+      line = "Windows asks for permission to make changes. Click Yes.";
+      extra = (
+        <p className="mstatus mlive">
+          <i className="mpulse" aria-hidden="true" />
+          No prompt? Look for a flashing shield on the taskbar and click it.
+        </p>
+      );
+      plate = s.plan.mok ? (
+        <CodePlate code={s.plan.mok.code} caption={["Your key code", "Write it down"]} />
+      ) : (
+        <Plate caption={["Windows", "Asking now"]}>
+          <Dial live progress={null} big={mmss(elapsed)} small="waiting" />
+        </Plate>
+      );
+      below = <Strip tiles={WINDOWS_ASKS.slice(1)} label="When Windows asks" />;
+      break;
+    case "running": {
+      const { plan, step, index } = s;
+      const bytes = run.progress?.id === step.id ? run.progress : null;
+      const left = bytes ? timeLeft(run.meter, bytes.total) : null;
+      const hint = hintOf(step.id);
+      title = RUNNING_TITLE[step.id] ?? step.title;
+      line = `${bytes ? (left ?? "") : hint.line} Keep the PC on. You can leave this screen open.`.trim();
+      extra = (
+        <p className="mstatus mlive">
+          <i className="mpulse" aria-hidden="true" />
+          Step {index + 1} of {plan.steps.length}, running for {mmss(elapsed)}
+        </p>
+      );
+      const percent = bytes ? Math.floor((bytes.done / bytes.total) * 100) : 0;
+      plate = bytes ? (
+        <Plate caption={[`${percent} percent`, left ? left.replace(/\.$/, "") : "Measuring"]}>
+          <Dial
+            live
+            progress={bytes.done / bytes.total}
+            big={`${gbNum(bytes.done)} GB`}
+            small={`of ${gbNum(bytes.total)} GB written`}
+          />
+        </Plate>
+      ) : (
+        <Plate caption={[`Step ${index + 1} of ${plan.steps.length}`, hint.short]}>
+          <Dial live progress={index / plan.steps.length} big={mmss(elapsed)} small="this step" />
+        </Plate>
+      );
+      below = <RunList plan={plan} run={run} elapsed={elapsed} />;
+      break;
+    }
+    case "restart": {
+      const remove = s.plan?.kind === "unkey";
+      const once = s.plan?.kind === "once";
+      title = once
+        ? "Restart into Swiff OS"
+        : remove
+          ? "Restart to remove the key"
+          : "Restart to confirm the key";
+      line = once
+        ? "Swiff OS starts on the next restart only. Then Windows again."
+        : "Have your code at hand. The PC restarts to a blue screen, and this app closes.";
+      if (!once)
+        extra = (
+          <p className="mwarn">
+            Press a key the moment you see <q>Press any key to perform MOK management</q>. It waits only 10
+            seconds.
+          </p>
+        );
+      action = (
+        <Pill icon="refresh" onClick={actions.restartRental}>
+          Restart now
+        </Pill>
+      );
+      plate = s.code ? (
+        <CodePlate code={s.code} caption={["Your key code", "Type it on the blue screen"]} />
+      ) : (
+        <ReadyPlate small="to restart" />
+      );
+      if (!once)
+        below = (
+          <Strip tiles={blueScreen(remove)} label="After the restart, on the blue screen">
+            <NoContinue />
+          </Strip>
+        );
+      if (s.plan) links.push(planLink(s.plan));
+      break;
+    }
+    case "restarting":
+      title = "Restarting";
+      line = s.code ? "Have your code ready." : "The PC restarts in a few seconds.";
+      extra = (
+        <p className="mstatus mlive">
+          <i className="mpulse" aria-hidden="true" />
+          {s.plan
+            ? `Step ${s.plan.steps.length} of ${s.plan.steps.length}, running for ${mmss(elapsed)}`
+            : `Restarting for ${mmss(elapsed)}`}
+        </p>
+      );
+      plate = s.code ? (
+        <CodePlate code={s.code} caption={["Your key code", "Type it on the blue screen"]} />
+      ) : (
+        <Plate caption={["This PC", "Restarting"]}>
+          <Dial live progress={null} big={mmss(elapsed)} small="restarting" />
+        </Plate>
+      );
+      if (s.plan) below = <RunList plan={s.plan} run={run} elapsed={elapsed} restarting />;
+      break;
+    case "failed": {
+      const f = failureOf(setup, s);
+      title = f.title;
+      line = f.why;
+      const sent = run.reportedAt !== null;
+      extra = (
+        <>
+          <Changed>{f.changed}</Changed>
+          {sent ? (
+            <p className="msent">
+              <Glyph name="check" size={14} />
+              Sent at {clock(run.reportedAt!)}. Swiff got the error, the step and this PC's checks.
+            </p>
+          ) : null}
+        </>
+      );
+      const other =
+        f.kind === "space"
+          ? otherRoom(read, s.plan.target?.kind === "shrink" ? s.plan.target.letter : "C")
+          : null;
+      const onAction = () => {
+        if (f.action === "send") return actions.reportRental();
+        if (f.action === "use" && other) {
+          actions.chooseRentalTarget(other.id);
+          return actions.closeRentalPreview();
+        }
+        if (f.action === "check") {
+          actions.closeRentalPreview();
+          return actions.checkRental();
+        }
+        actions.retryRental();
+      };
+      action = (
+        <Pill
+          icon={f.action === "use" ? "arrow" : f.action === "send" ? "arrow" : "refresh"}
+          onClick={onAction}
+        >
+          {f.label}
+        </Pill>
+      );
+      if (f.kind === "admin")
+        plate = (
+          <Plate caption={[f.what, f.at]}>
+            <Dial progress={null} big="Waiting" small="for permission" />
+          </Plate>
+        );
+      else if (f.kind === "space" && read)
+        plate = (
+          <SettingsPlate
+            where="Space"
+            label={`Free now, Swiff OS needs ${gb(read.need)}`}
+            rows={read.facts.volumes
+              .filter((v) => v.fixed && v.fs.toUpperCase() === "NTFS")
+              .map((v) => ({ name: `${v.letter}:`, value: gb(v.free), wait: v.free < read.need }))}
+            checking={false}
+            at={f.at.replace(/^Checked at /, "")}
+          />
+        );
+      else
+        plate = (
+          <Plate caption={[f.what, f.at]}>
+            <Dial off cut big="Stopped" small={f.far} />
+          </Plate>
+        );
+      if (f.kind === "admin") below = <Strip tiles={WINDOWS_ASKS} label="When Windows asks" />;
+      if (s.error)
+        links.push({
+          id: "why",
+          label: "What happened, in detail",
+          body: (
+            <Detail error={s.error} sent={sent} onSend={f.action === "send" ? null : actions.reportRental} />
+          ),
+        });
+      break;
+    }
+    case "timedout":
+      title = "The blue screen timed out";
+      line =
+        "No key was pressed within 10 seconds, so Swiff's key wasn't confirmed and Windows started instead.";
+      extra = <Changed>Swiff OS is installed. It can't start until its key is confirmed.</Changed>;
+      action = (
+        <Pill icon="refresh" onClick={() => actions.previewRental("mok")}>
+          Restart and try again
+        </Pill>
+      );
+      plate = <ScreenPlate text={"Press any key to perform MOK management\n\n10 seconds"} />;
+      below = (
+        <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
+          <NoContinue />
+        </Strip>
+      );
+      break;
+    case "nokey":
+      title = "Windows started without Swiff's key";
+      line = "The key wasn't confirmed on the blue screen, maybe a wrong code or a different choice there.";
+      extra = (
+        <Changed>
+          Swiff OS is installed. It can't start until its key is confirmed. You get a new code.
+        </Changed>
+      );
+      action = (
+        <Pill icon="refresh" onClick={() => actions.previewRental("mok")}>
+          Confirm the key
+        </Pill>
+      );
+      plate = <ScreenPlate text={"Enroll the key(s)?\n> Yes"} />;
+      below = (
+        <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
+          <NoContinue />
+        </Strip>
+      );
+      break;
+    case "blocked":
+      title = "Secure Boot blocked Swiff OS";
+      line =
+        "The BIOS showed a Secure Boot warning and started Windows instead. It needs one setting changed.";
+      extra = <Changed>Swiff OS is installed but can't start yet. Windows works as before.</Changed>;
+      action = again;
+      plate = (
+        <SettingsPlate
+          where="In the BIOS"
+          rows={[{ name: "3rd-party UEFI CA", value: "Enabled" }]}
+          checking={reading}
+          at={checkedAt}
+        />
+      );
+      below = <Strip tiles={THIRD_PARTY_CA} label="In the BIOS" />;
+      break;
+    case "ask":
+      title = "Did the blue screen take your code?";
+      line =
+        "Windows can't see the blue screen, so Swiff asks. If you chose Enroll MOK, typed the code and chose Reboot, it did.";
+      action = (
+        <>
+          <Pill icon="check" onClick={() => actions.answerRentalKey(true)}>
+            Yes, it did
+          </Pill>
+          <button type="button" className="lnk" onClick={() => actions.answerRentalKey(false)}>
+            No, or I'm not sure
+          </button>
+        </>
+      );
+      plate = <ScreenPlate text={"Perform MOK management\n> Reboot"} />;
+      below = <Strip tiles={blueScreen()} label="What the blue screen asked for" />;
+      break;
+    case "key":
+      title = "Confirm Swiff's key";
+      line =
+        "Swiff OS is installed, but its key wasn't confirmed, so rental mode can't start yet. The PC restarts once more, with a new code.";
+      action = (
+        <Pill icon="refresh" onClick={() => actions.previewRental("mok")}>
+          Confirm the key
+        </Pill>
+      );
+      plate = <ScreenPlate text="Press any key to perform MOK management" />;
+      below = (
+        <Strip tiles={blueScreen()} label="After the restart, on the blue screen">
+          <NoContinue />
+        </Strip>
+      );
+      links.push({
+        id: "remove",
+        label: "Remove rental mode",
+        onClick: () => actions.previewRental("uninstall"),
+      });
+      break;
+    case "back": {
+      const { live } = s;
+      title = `You were live ${clock(live.from)} to ${clock(live.to)}`;
+      const ran = live.sessions - live.early;
+      line =
+        live.sessions === 0
+          ? "No one booked it this time. Swiff OS is waiting for the next time you go live."
+          : `${live.sessions === 1 ? "1 session" : `${live.sessions} sessions`}, ${
+              live.early === 0
+                ? live.sessions === 1
+                  ? "it ran to its end"
+                  : live.sessions === 2
+                    ? "both ran to their end"
+                    : "all ran to their end"
+                : `${ran} ran to ${ran === 1 ? "its" : "their"} end and ${live.early} ended early`
+            }. Swiff OS is waiting for the next time you go live.`;
+      action = (
+        <Pill
+          icon="arrow"
+          onClick={() => {
+            actions.seenLastLive();
+            go("live");
+          }}
+        >
+          Go live again
+        </Pill>
+      );
+      plate = (
+        <Plate caption={["Tonight", live.sessions === 1 ? "1 session" : `${live.sessions} sessions`]}>
+          <Dial
+            progress={1}
+            big={live.earned === null ? String(live.sessions) : <Eur n={live.earned} />}
+            small={live.earned === null ? "sessions" : "earned tonight"}
+          />
+        </Plate>
+      );
+      break;
+    }
+    case "installed":
+      title = "Rental mode is ready";
+      line =
+        "When you go live, the PC restarts into Swiff OS and players can book it. When you stop, it goes back to Windows.";
+      action = (
+        <Pill icon="arrow" onClick={() => go("live")}>
+          Go live
+        </Pill>
+      );
+      plate = <ReadyPlate small="for rental mode" />;
+      links.push(
+        { id: "unkey", label: "Remove Swiff's key", onClick: () => actions.previewRental("unkey") },
+        { id: "remove", label: "Remove rental mode", onClick: () => actions.previewRental("uninstall") },
+      );
+      break;
   }
 
-  const status = rentalStatus(read, target);
-  const where = chosenTarget(read, target);
-  const todo = status.bios.length ? status.bios : status.fixes;
+  // The checks stay one link away until the PC is ready, and while a to-do or a stop needs them.
+  if (read && at < 2 && !["running", "elevating", "restarting", "failed"].includes(s.kind))
+    links.push(checkedLink(read, target));
+  if (s.kind === "bios")
+    links.push({ id: "sb", label: "Secure Boot won't turn on?", body: <SecureBootHelp /> });
 
   return (
     <main className="step">
       <section className="hz">
         <div className="cp">
-          <p className="mono ctx">Rental mode</p>
-          <h1>{status.title}</h1>
-          <p className="ln">{status.line}</p>
-          {todo.length ? (
-            <ol className="legend rfix">
-              {todo.map((fix, i) => (
-                <li key={fix} className={i === 0 ? "lg st-now" : "lg st-next"}>
-                  <span className="dotst" />
-                  <span>{fix}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="ln soft">
-              To use the PC yourself, stop sharing from your phone. It returns to Windows once no player is on
-              it.
-            </p>
-          )}
-          {/* The headline counts BIOS changes: what else blocks rental mode is said apart from them. */}
-          {status.bios.length
-            ? status.fixes.map((fix) => (
-                <Notice key={fix} icon="warning">
-                  {fix}
-                </Notice>
-              ))
-            : null}
-          {status.bios.length || status.fixes.length ? (
-            <div className="acts">
-              <Pill icon="refresh" onClick={actions.checkRental} disabled={reading}>
-                {reading ? "Checking" : "Check again"}
-              </Pill>
-            </div>
-          ) : null}
+          <p className="mono ctx">{label}</p>
+          <h1>{title}</h1>
+          {line ? <p className="ln">{line}</p> : null}
+          {extra}
+          {action ? <div className="acts">{action}</div> : null}
         </div>
-        <Plate
-          caption={[
-            "Rental mode",
-            reading ? "Reading" : read.installed ? "Installed" : status.canInstall ? "Ready" : "Not ready",
-          ]}
-        >
-          <Dial progress={status.ready / status.of} big={`${status.ready} of ${status.of}`} small="ready" />
-        </Plate>
+        {plate}
       </section>
-
-      <div className="sz three">
-        <Zone title="Firmware">
-          {firmwareChecks(read).map((check) => (
-            <CheckRow key={check.id} check={check} />
-          ))}
-        </Zone>
-        <Zone title="This PC">
-          {pcChecks(read, target).map((check) => (
-            <CheckRow key={check.id} check={check} />
-          ))}
-        </Zone>
-        <Zone title={read.installed ? "Switch" : "Install"}>
-          {read.facts.install && !read.installed ? (
-            <>
-              <p className="soft">
-                The install stopped before it finished. Continue it into the room it already made, or undo
-                each step it got to: either way Windows and your files stay as they are.
-              </p>
-              <div className="acts">
-                <Pill
-                  icon="arrow"
-                  onClick={() => actions.previewRental("install")}
-                  disabled={status.bios.length > 0 || status.fixes.length > 0}
-                >
-                  Continue the install
-                </Pill>
-                <button type="button" className="lnk" onClick={() => actions.previewRental("uninstall")}>
-                  Undo what was done
-                </button>
-              </div>
-            </>
-          ) : read.installed ? (
-            <>
-              <p className="soft">
-                Start Swiff OS once to try it. Whatever happens there, the PC starts Windows on its next
-                restart. Going live will restart into Swiff OS and keep it first while you share.
-              </p>
-              <div className="acts">
-                <Pill icon="play" onClick={() => actions.previewRental("once")}>
-                  Start Swiff OS once
-                </Pill>
-                <button type="button" className="lnk" onClick={() => actions.previewRental("start")}>
-                  Preview going live
-                </button>
-              </div>
-              {/* Whether the key is enrolled is not read yet (MokListRT): the owner says they missed it. */}
-              <p className="soft ragain">
-                Missed the blue screen after installing? Swiff OS cannot start until its key is confirmed.
-              </p>
-              <div className="acts">
-                <button type="button" className="lnk" onClick={() => actions.previewRental("mok")}>
-                  Confirm the security key again
-                </button>
-                <button type="button" className="lnk" onClick={() => actions.previewRental("unkey")}>
-                  Remove Swiff's key
-                </button>
-                <button type="button" className="lnk" onClick={() => actions.previewRental("uninstall")}>
-                  Remove rental mode
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              {read.targets.length > 1 || choiceGone(read, target) ? (
-                <TargetPicker read={read} value={target} onChange={actions.chooseRentalTarget} />
-              ) : null}
-              <p className="soft">
-                {where
-                  ? `Swiff OS takes ${targetLine(where, read.need)}, a fixed size. Windows and your files stay as they are.`
-                  : `Swiff OS needs ${gb(read.need)} of its own.`}{" "}
-                Then the PC restarts once, for you to confirm Swiff's key at its screen with a code shown
-                here.
-              </p>
-              <div className="acts">
-                <Pill
-                  icon="arrow"
-                  onClick={() => actions.previewRental("install")}
-                  disabled={!status.canInstall}
-                >
-                  Review the install
-                </Pill>
-              </div>
-            </>
-          )}
-        </Zone>
-      </div>
-      {read.installed ? null : (
-        <div className="sz one">
-          <Zone title="In the BIOS, if it asks">
-            <ol className="legend">
-              {BIOS_STEPS.map((step) => (
-                <li key={step} className="lg st-next">
-                  <span className="dotst" />
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
-          </Zone>
-        </div>
-      )}
-      {preview ? (
-        <Plan
-          plan={preview}
-          run={view.rental.run}
-          keyEnrolled={read.facts.install?.mok === true}
-          actions={actions}
-        />
-      ) : null}
+      {below}
+      <Links items={links} />
       <i className="ruler" aria-hidden="true" />
     </main>
   );
 }
+
+/** For the step's running title elsewhere (the Go live screen): what the step is called now. */
+export const runningTitle = (step: PlanStep): string => RUNNING_TITLE[step.id] ?? step.title;

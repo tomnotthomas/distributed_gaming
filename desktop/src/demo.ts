@@ -185,12 +185,48 @@ export const DEMO_EARNINGS: Earnings = {
   today: 0.42,
 };
 
+/** The rental cases of the demo's picker, in the design's order, each opening on its own state. */
+export const RENTAL_CASES = [
+  { id: "rental-checking", name: "Rental: checking this PC" },
+  { id: "rental-unread", name: "Rental: check didn't finish" },
+  { id: "rental", name: "Rental: a BIOS setting (NVIDIA)" },
+  { id: "rental-bios2", name: "Rental: two BIOS settings" },
+  { id: "rental-recheck", name: "Rental: checking again" },
+  { id: "rental-bitlocker", name: "Rental: BitLocker in Windows" },
+  { id: "rental-almost", name: "Rental: almost ready" },
+  { id: "rental-ready", name: "Rental: ready to install" },
+  { id: "rental-preview", name: "Rental: write down this code" },
+  { id: "rental-run-check", name: "Rental: installing, a short step" },
+  { id: "rental-run-shrink", name: "Rental: installing, making room" },
+  { id: "rental-run-write", name: "Rental: installing, writing" },
+  { id: "rental-run-late", name: "Rental: installing, almost written" },
+  { id: "rental-restart", name: "Rental: restart now" },
+  { id: "rental-restarting", name: "Rental: restarting" },
+  { id: "rental-ask", name: "Rental: did the code go in?" },
+  { id: "rental-key", name: "Rental: confirm the key" },
+  { id: "rental-key-code", name: "Rental: a new code for the key" },
+  { id: "rental-installed", name: "Rental: ready, go live" },
+  { id: "rental-back", name: "Rental: back in Windows after live" },
+  { id: "rental-fail-admin", name: "Rental problem: no permission" },
+  { id: "rental-fail-write", name: "Rental problem: write stopped" },
+  { id: "rental-fail-space", name: "Rental problem: not enough space" },
+  { id: "rental-timedout", name: "Rental problem: blue screen timed out" },
+  { id: "rental-nokey", name: "Rental problem: started without the key" },
+  { id: "rental-blocked", name: "Rental problem: Secure Boot blocked" },
+  { id: "rental-fail-removal", name: "Rental problem: removing stopped" },
+  { id: "rental-fail-unknown", name: "Rental problem: unknown error" },
+] as const;
+
+export type RentalCase = (typeof RENTAL_CASES)[number]["id"];
+
+export const isRentalCase = (id: string): id is RentalCase => RENTAL_CASES.some((c) => c.id === id);
+
 /** The design's screens, in its order. */
 export const DEMO_SCREENS = [
   { id: "pc", name: "Read this PC" },
   { id: "steam", name: "Set up Steam" },
   { id: "games", name: "Choose your games" },
-  { id: "rental", name: "Rental mode" },
+  ...RENTAL_CASES,
   { id: "golive", name: "Go live" },
   { id: "waiting", name: "Live, waiting" },
   { id: "streaming", name: "Live, streaming" },
@@ -246,6 +282,7 @@ export function demoState(screen: DemoScreen): DemoState {
     }) as const;
   const base = { standing: DEMO_STANDING, payoutSaved: false, setupDone: true };
   const off: Live = { kind: "off", note: null };
+  if (isRentalCase(screen)) return { ...base, step: "rental", live: off, clockAt: evening(20, 58) };
   switch (screen) {
     case "pc":
       return { ...base, setupDone: false, step: "pc", live: off, clockAt: evening(20, 52) };
@@ -253,8 +290,7 @@ export function demoState(screen: DemoScreen): DemoState {
       return { ...base, setupDone: false, step: "steam", live: off, clockAt: evening(20, 53) };
     case "games":
       return { ...base, setupDone: false, step: "games", live: off, clockAt: evening(20, 55) };
-    case "rental":
-      return { ...base, step: "rental", live: off, clockAt: evening(20, 58) };
+
     case "golive":
       return { ...base, step: "live", live: off, clockAt: evening(21) };
     case "waiting":

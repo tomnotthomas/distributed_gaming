@@ -75,7 +75,7 @@ describe("levels", () => {
   });
 
   it("say how far the next one is", () => {
-    expect(levelProgress(61)).toMatchObject({ share: 0.61, line: "61 of 100 reliable hours to Trusted" });
+    expect(levelProgress(61)).toMatchObject({ share: 0.61, line: "61 of 100 hours to Trusted" });
     expect(levelProgress(320)).toMatchObject({
       next: null,
       share: 1,
@@ -90,7 +90,7 @@ describe("share until", () => {
       ["23:00", "in 2 hours"],
       ["01:00", "in 4 hours"],
       ["07:00", "in 10 hours"],
-      ["Open", "until I stop it"],
+      ["Open", "until I stop"],
     ]);
   });
 
@@ -114,9 +114,9 @@ describe("share until", () => {
 
   it("states what the choice means for players, and for a running session", () => {
     expect(untilSentence("Nova-01", evening(1))).toBe(
-      "Players can claim Nova-01 until 01:00. A session that starts before then is protected until its claimed end.",
+      "Players can book Nova-01 until 01:00. A session that starts before then runs to its end.",
     );
-    expect(untilSentence("Nova-01", null)).toMatch(/^Players can claim Nova-01 until you stop sharing\./);
+    expect(untilSentence("Nova-01", null)).toMatch(/^Players can book Nova-01 until you stop\./);
   });
 });
 
@@ -159,7 +159,7 @@ describe("the tray glance", () => {
     expect(paused).toMatchObject({ status: "Paused at 21:31", live: false, action: { id: "resume" } });
 
     expect(glanceOf(realView({ kind: "off", note: null }))).toMatchObject({
-      status: "Not sharing",
+      status: "Not live",
       action: null,
     });
   });
@@ -177,9 +177,9 @@ describe("the tray glance", () => {
         atPc: false,
       }),
     );
-    expect(glance.game).toEqual({ appid: 1245620, caption: "Elden Ring, protected until 22:40" });
+    expect(glance.game).toEqual({ appid: 1245620, caption: "Elden Ring, booked until 22:40" });
     expect(glance.figure).toBeNull();
-    expect(glance.action).toEqual({ id: "allow-new", label: "Allow new sessions" });
+    expect(glance.action).toEqual({ id: "allow-new", label: "Allow new bookings" });
     expect(glance.foot).toBe("gaming-pc-1");
   });
 });
