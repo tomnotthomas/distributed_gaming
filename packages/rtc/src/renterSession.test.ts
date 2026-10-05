@@ -207,6 +207,68 @@ describe("startRenterSession", () => {
     ]);
   });
 
+  it("never passes on a Steam sign-in retry, which only the renter sends", () => {
+    const { events } = start();
+    socket().deliver({ type: "steam-login", state: "retry" });
+
+    expect(events).toEqual([]);
+  });
+
+  describe("a Steam sign-in retry", () => {
+    const RETRY = { type: "steam-login", state: "retry" };
+    const retries = () => socket().messages.filter((m) => m.type === "steam-login");
+
+    it("goes to the PC at once when it is in the room, and once only", async () => {
+      const { session } = start();
+      await answered();
+
+      session.retrySteamLogin();
+      socket().deliver({ type: "ice", candidate: { candidate: "c" } });
+
+      expect(retries()).toEqual([RETRY]);
+    });
+
+    it("is held while the room is reconnecting, and sent once joined again with the PC there", async () => {
+      const { session } = start();
+      await answered();
+      socket().drop();
+
+      session.retrySteamLogin();
+      await vi.advanceTimersByTimeAsync(1_000);
+      socket().accept();
+      expect(retries()).toEqual([]);
+      socket().deliver({ type: "joined", hostId: "room-1", hostOnline: true });
+
+      expect(retries()).toEqual([RETRY]);
+    });
+
+    it("is held while the PC is away, and sent once any frame shows it is back", async () => {
+      const { session } = start();
+      await answered();
+      socket().deliver({ type: "peer-left" });
+
+      session.retrySteamLogin();
+      expect(retries()).toEqual([]);
+      socket().deliver({ type: "offer", sdp: OFFER });
+      await flush();
+
+      expect(retries()).toEqual([RETRY]);
+    });
+
+    it("is done with once the PC answers, so a later return of the PC does not repeat it", async () => {
+      const { session } = start();
+      await answered();
+      session.retrySteamLogin();
+      socket().deliver({ type: "steam-login", state: "qr", url: "https://s.team/q/1/43" });
+      socket().deliver({ type: "peer-left" });
+
+      socket().deliver({ type: "offer", sdp: OFFER });
+      await flush();
+
+      expect(retries()).toEqual([RETRY]);
+    });
+  });
+
   it("answers the PC's offer with the server's TURN added to the default STUN", async () => {
     const { events } = start();
 

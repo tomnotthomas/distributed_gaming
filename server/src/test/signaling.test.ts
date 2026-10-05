@@ -908,6 +908,50 @@ describe("host sessions", () => {
     await api(room, "DELETE");
   });
 
+  it("says rentalMode on the claim and rejoin for a PC that registers as rental mode with the machine key", async () => {
+    /** What a claim of `room` and its rejoin say of rental mode, with `room`'s service registered by `msg` first. */
+    const rentalMode = async (room: string, msg: SignalMessage) => {
+      const host = await open();
+      send(host, msg);
+      await handled(host);
+      assert.deepEqual(types(host), ["registered"]);
+      // The owner shares with the machine key, after the register.
+      const offered = await call(
+        "PUT",
+        `/api/machines/${room}/availability`,
+        { available: true, ...REPORT },
+        MACHINE_KEY,
+      );
+      assert.equal(offered.status, 200);
+      const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+      assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+      assert.equal(claim.body.roomId, room);
+      const rejoin = await call("POST", `/api/bookings/${booking.body.bookingId}/rejoin`);
+      assert.equal(rejoin.status, 200, `rejoin answered ${rejoin.status}`);
+      assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+      host.close();
+      return [claim.body.rentalMode, rejoin.body.rentalMode];
+    };
+    // swiff-hostd in Swiff OS, unattested: its register is the PC's first contact.
+    const swiffOs = nextRoom();
+    assert.deepEqual(
+      await rentalMode(swiffOs, { type: "register", hostId: swiffOs, key: MACHINE_KEY, rental: true }),
+      [true, true],
+    );
+    // The desktop host app does not say it.
+    const desktop = nextRoom();
+    assert.deepEqual(await rentalMode(desktop, register(desktop)), [false, false]);
+  });
+
+  it("refuses a register whose rental flag is not a boolean", async () => {
+    const host = await open();
+    const code = closed(host);
+    send(host, { ...register(nextRoom()), rental: "yes" } as unknown as SignalMessage);
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "bad-machine-key" });
+  });
+
   it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
     const room = nextRoom();
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);

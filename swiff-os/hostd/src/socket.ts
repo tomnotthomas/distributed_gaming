@@ -57,7 +57,7 @@ export function openMachineSocket({
     socket = ws;
     ws.onopen = () => {
       backoff = BACKOFF_MIN_MS;
-      send({ type: "register", hostId, key: machineKey });
+      send({ type: "register", hostId, key: machineKey, rental: true });
       pingTimer = setInterval(() => send({ type: "ping" }), pingMs);
     };
     ws.onmessage = (event) => {

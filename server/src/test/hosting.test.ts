@@ -332,10 +332,10 @@ describe("hosting requires attestation", () => {
       const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
       assert.equal(claim.status, 200, `claim answered ${claim.status}`);
       assert.equal(claim.body.roomId, room);
-      const ticket = await call("POST", `/api/bookings/${booking.body.bookingId}/ticket`);
-      assert.equal(ticket.status, 200, `ticket answered ${ticket.status}`);
+      const rejoin = await call("POST", `/api/bookings/${booking.body.bookingId}/rejoin`);
+      assert.equal(rejoin.status, 200, `rejoin answered ${rejoin.status}`);
       assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
-      return [claim.body.rentalMode, ticket.body.rentalMode];
+      return [claim.body.rentalMode, rejoin.body.rentalMode];
     };
     assert.deepEqual(await claimed(), [true, true]);
 

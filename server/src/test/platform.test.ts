@@ -312,6 +312,12 @@ describe("rental mode on the claim", () => {
     await platform.hostConnected("pc-1", false);
     assert.equal(await claimed(), false);
   });
+
+  it("holds when the hosting socket's register is the PC's first contact", async () => {
+    await platform.hostConnected("pc-1", true);
+    await offer("pc-1");
+    assert.equal(await claimed(), true);
+  });
 });
 
 describe("the claim clock of a renter away at the match", () => {
@@ -1048,7 +1054,14 @@ describe("a renter's running session", () => {
 
   it("hands the renter their session's room and seat, claimed or playing, until its deadline", async () => {
     const { bookingId, sessionId } = await claimed();
-    const expected = { ok: true, sessionId, roomId: "pc-1", ticketId: "ticket-1", remainingMs: 30 * 60_000 };
+    const expected = {
+      ok: true,
+      sessionId,
+      roomId: "pc-1",
+      ticketId: "ticket-1",
+      remainingMs: 30 * 60_000,
+      rentalMode: false,
+    };
     assert.deepEqual(await platform.runningSession(bookingId, "renter-1"), expected);
     assert.ok(await platform.startSession("pc-1", sessionId));
     now += 60_000;

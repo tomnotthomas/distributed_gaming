@@ -727,7 +727,9 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       // only asserted to be a RegisterMessage. Anything else is refused for
       // the credential it names, and never registered.
       const given = [msg.key, msg.hostCert, msg.sessionKey].filter((c) => c !== undefined);
-      if (given.length !== 1 || typeof given[0] !== "string") {
+      const badRental =
+        msg.rental !== undefined && (msg.sessionKey !== undefined || typeof msg.rental !== "boolean");
+      if (given.length !== 1 || typeof given[0] !== "string" || badRental) {
         if (msg.hostCert !== undefined) return deny(ws, "bad-host-cert");
         return deny(ws, msg.sessionKey !== undefined ? "bad-session-key" : "bad-machine-key");
       }
@@ -776,7 +778,10 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         ws.certTimer.unref?.();
       }
       // The PC is there for as long as this socket stays open.
-      await platform.hostConnected(msg.hostId, tier === null ? undefined : tier !== "unattested");
+      await platform.hostConnected(
+        msg.hostId,
+        tier === null ? undefined : msg.rental === true || tier !== "unattested",
+      );
       // A newer host took the seat meanwhile: this one is being hung up on.
       if (room.host !== ws) return;
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });

@@ -562,6 +562,8 @@ export class Platform {
   #offerChanged = false;
   /** Machines whose PC holds a socket open to the server. */
   readonly #present = new Set<string>();
+  /** Whether each PC service's hosting socket registered as rental mode, for a machine created after. */
+  readonly #rentalMode = new Map<string, boolean>();
   /** Open renter event streams per booking: a renter with one open is there for a match. */
   readonly #watched = new Map<string, number>();
   /** The one timer, armed for the next deadline. */
@@ -726,14 +728,17 @@ export class Platform {
    * back as it was offered. Nothing is stored for a machine never heard from.
    * The time before the socket opened is counted first, as seen only up to its
    * last contact. `rentalMode`, for the PC service's hosting socket: whether
-   * it registered with an attested host certificate (a rental-mode PC, Swiff
-   * OS), which its claims carry. Left as it was for the streamer's socket.
+   * it registered as a rental-mode PC (Swiff OS: it said so, or it holds an
+   * attested host certificate), which its claims carry. Kept for a machine
+   * not stored yet, so it holds from its first check-in. Left as it was for
+   * the streamer's socket.
    */
   hostConnected(machineId: string, rentalMode?: boolean): Promise<void> {
     return this.#transaction(async () => {
       const now = this.#now();
       const machine = await this.#machineRow(machineId);
       if (machine) await this.#touch(machineId, now);
+      if (rentalMode !== undefined) this.#rentalMode.set(machineId, rentalMode);
       if (machine && rentalMode !== undefined) {
         await this.#run("UPDATE machines SET rental_mode = $1 WHERE id = $2", rentalMode, machineId);
       }
@@ -2070,16 +2075,17 @@ export class Platform {
     const owner = this.#owners.get(machineId) ?? null;
     // A PC first heard from is crew-only when its owner is in someone else's crew.
     const machine = (await this.#get<MachineRow>(
-      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only)
+      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only, rental_mode)
          VALUES ($1, $2, 'idle', $3, $3, EXISTS (
            SELECT 1 FROM crew_members m JOIN crews c ON c.id = m.crew_id
-             WHERE m.user_id = $2 AND c.owner_id <> $2))
+             WHERE m.user_id = $2 AND c.owner_id <> $2), $4)
          ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
            uptime_at = excluded.uptime_at
          RETURNING *`,
       machineId,
       owner,
       now,
+      this.#rentalMode.get(machineId) ?? false,
     ))!;
     if (
       owner !== null &&

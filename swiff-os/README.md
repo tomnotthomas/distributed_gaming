@@ -11,7 +11,7 @@ stage by stage.
 | `vm/`       | The VM test: builds the image and boots it under Secure Boot with a TPM              |
 | `streamer/` | `swiff-streamer`: gamescope's picture and sound to the renter, their input back in   |
 | `hostd/`    | `swiff-hostd`: connects the PC to the platform and runs one renter session at a time |
-| `steam/`    | `swiff-steam-login`: QR sign-in on Swiff's page, then the game                       |
+| `steam/`    | `swiff-steam-login`: Steam's QR sign-in on Swiff's page, then the game               |
 | later       | attestation client                                                                   |
 
 ## Server: hosting requires attestation
@@ -250,7 +250,9 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   streamer refuses to start without it. The server's `launch-game` is answered with
   `game-started` once the agent says the game is on screen, so the renter's page never
   shows Steam or a desktop. A code is never logged. Sign-in time is not billed: the
-  renter's page starts the session only once Steam says `signed-in`.
+  claim of a rental-mode PC says `rentalMode` (swiff-hostd registers with
+  `rental: true`, below), and then the renter's page starts the session only once Steam
+  says `signed-in`.
 - **Capture.** `helpers/swiff-gst.py` runs the GStreamer pipelines `src/pipeline.ts`
   builds: `pipewiresrc target-object=gamescope` → scale → H.264 Constrained Baseline,
   no B-frames, a keyframe every 4 s and whenever the renter's decoder sends a PLI →
@@ -351,7 +353,11 @@ Mbit/s.
 The rental-mode agent: a root systemd service (`hostd/swiff-hostd.service`), and the
 "PC service" of [`session-keys.md`](../docs/system-design/session-keys.md). It speaks the
 host protocol the desktop app already speaks, with no new messages
-([`host.md`](../docs/system-design/host.md) §5, `server/src/protocol.ts`).
+([`host.md`](../docs/system-design/host.md) §5, `server/src/protocol.ts`). Its `register`
+adds `rental: true`: the server stores the PC as rental mode, and its claims say
+`rentalMode`, so the renter's page bills nothing before Steam signs in. The desktop app
+does not send it. Until the agent attests, this declaration is what makes the PC rental
+mode; a socket on an attested host certificate is rental mode either way.
 
 - **Holds the machine key; the streamer never sees it.** The key is in a file root owns
   and only root can read (mode 600); the agent refuses any other. For each renter
@@ -483,7 +489,10 @@ or a desktop. Nobody types a password or a Steam Guard code.
   `steam -applaunch <appid>`. It then waits for gamescope to put that game on screen
   (`GAMESCOPE_FOCUSED_APP`). Every event carries the time since Play (`src/login.ts`).
 - **On the page.** Ignition shows the code in the dial's place while the play's own
-  renter session (`web/src/swiff/play.ts`) carries it. The launch is not called slow
+  renter session (`web/src/swiff/play.ts`) carries it. On a rental-mode PC (the claim's
+  `rentalMode`: swiff-hostd registered with `rental: true`, or on an attested host
+  certificate) the session starts only on a frame after `signed-in`, so sign-in time is
+  not billed. The launch is not called slow
   while a code is up, and the stream shows only on `game-started`, once the game is on
   screen. On `failed` (reason `sign-in-timeout`, or none) it offers Try again, which
   sends `steam-login retry` to the PC for a new code on the same claim, beside
@@ -535,9 +544,9 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
     Ubuntu's installer prompt and then download Steam for about 2.5 minutes;
   - the socket directory `/run/swiff/steam`, owned by `renter`, with the streamer's
     group;
-  - `--steam-socket /run/swiff/steam/login.sock` among the streamer's arguments, and
-    swiff-hostd setting `SWIFF_APPID` for the streamer (without it the streamer refuses
-    to start).
+  - `--steam-socket /run/swiff/steam/login.sock` among the streamer's arguments in
+    swiff-hostd's config. With it the streamer needs `SWIFF_APPID`, which swiff-hostd
+    sets once it knows the game booked.
 - **Which city to expect.** The report wants the page to say which city Steam's map
   should show, as a phishing check, but the platform has no host location yet.
 - **Phone-only renters** (D7's fallback: password and phone approval through the
