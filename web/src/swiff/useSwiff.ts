@@ -4,16 +4,19 @@ import {
   bookMachine,
   book,
   BookingRefused,
+  continueBooking,
   endBooking,
   fetchBooking,
   followBooking,
   forgetPlay,
   forgetStoredTicket,
   holdPlay,
+  machineLost,
   playedElsewhere,
   resumeTicket,
   storedBookingId,
   storedPlay,
+  watchBooking,
   type Booking,
   type Claim,
   type NextBest,
@@ -71,6 +74,21 @@ export type Taken = { nextBest: NextBest | null };
  * missed the renter.
  */
 export type Away = { booking: Booking; heldUntil: number | null };
+/**
+ * A session whose machine was lost (it went offline, or its owner took it
+ * back), being carried on elsewhere: the lost booking, its machine's name,
+ * whether the owner took it back, when the page heard (Unix ms), the booking
+ * carrying it on once the server has made it (matched to the next machine, or
+ * queued for one), and whether there turned out to be none.
+ */
+export type Lost = {
+  booking: Booking;
+  host: string;
+  taken: boolean;
+  at: number;
+  next: Booking | null;
+  failed: boolean;
+};
 
 /** The demo's ignition: one 340 ms beat at a time; twelve of them reach a frame. */
 const IGNITION_MS = 340;
@@ -141,7 +159,6 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [beat, setBeat] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showAll, setShowAll] = useState(false);
-  const [ownerDropped, setOwnerDropped] = useState(false);
 
   // The renter's booking on the server, the room and ticket its claim handed
   // out, a picked machine that was taken first, and a booking call that failed,
@@ -156,6 +173,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [away, setAway] = useState<Away | null>(null);
   const [queueBack, setQueueBack] = useState(false);
   const [rejoining, setRejoining] = useState(false);
+  // A session whose machine was lost, being carried on elsewhere.
+  const [lost, setLost] = useState<Lost | null>(null);
 
   // Real play: the stream's video element, where Ignition stands on the
   // connection (play.ts), when the launch began, and the clock its dial creeps on.
@@ -348,6 +367,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const queueing = useRef(false);
   const bookingNow = useRef(booking);
   bookingNow.current = booking;
+  // The loss being carried on, as it stands; set at once, ahead of the render.
+  const lostNow = useRef<Lost | null>(null);
   // Which launch is current, so one cancelled while its booking call was in
   // flight hands its machine back rather than claiming it.
   const launchRun = useRef(0);
@@ -429,6 +450,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     }
     setBooking(null);
     setClaim(null);
+    lostNow.current = null;
+    setLost(null);
   }, [stopFollowing]);
 
   /** Book `machineId` for the open game and launch on it; the claim follows by itself. */
@@ -759,7 +782,6 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     endCurrentBooking();
     setPhase("idle");
     setBeat(0);
-    setOwnerDropped(false);
   }, [endCurrentBooking]);
 
   const goHome = useCallback(() => {
@@ -837,16 +859,108 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setBeat(0);
   }, [machines, machineId, signedIn, endSession, endCurrentBooking, launchOn]);
 
-  // Refused at the door, the ticket opens nothing. Before the session started
-  // the launch failed; once it has, even behind Ignition after the PC dropped,
-  // the server ended the session (its time ran out, or the PC ended it), which
-  // is a session end like End.
+  // --- machine lost ----------------------------------------------------------
+
+  /**
+   * The session's machine was lost (it went offline, or its owner took it
+   * back): carry it on elsewhere at once, with nothing to press. The stream
+   * is let go, and the server makes a booking for the time left (continue),
+   * matched to the best other machine with the game, which is claimed by
+   * itself and goes through Ignition there, or queued for one, claimed the
+   * moment it is matched. Heard of once per booking.
+   */
+  const carryOn = useCallback(
+    (was: Booking) => {
+      if (lostNow.current?.booking.bookingId === was.bookingId) return;
+      launchRun.current += 1;
+      stopFollowing();
+      const taken = was.endReason === "owner_kill";
+      const host = was.machine?.name || "your machine";
+      track("machine_lost", { game: was.gameId, reason: was.endReason });
+      if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+      const entered: Lost = { booking: was, host, taken, at: Date.now(), next: null, failed: false };
+      lostNow.current = entered;
+      setLost(entered);
+      setBooking(null);
+      setClaim(null);
+      setTaken(null);
+      setBookingFailed(false);
+      setScreen("game");
+      setPhase("idle");
+      setBeat(0);
+      /** Settle this loss with what the server answered, unless it was stopped meanwhile; false then. */
+      const settle = (patch: Partial<Lost>) => {
+        if (lostNow.current !== entered) return false;
+        lostNow.current = { ...entered, ...patch };
+        setLost(lostNow.current);
+        return true;
+      };
+      continueBooking(was.bookingId).then(
+        (next) => {
+          if (!next) return void settle({ failed: true });
+          if (!settle({ next })) {
+            // Stopped meanwhile: the machine goes back rather than to a renter who left.
+            void endBooking(next.bookingId).catch(() => {});
+            return;
+          }
+          track("session_continued", { game: next.gameId, queued: next.status === "queued" });
+          setBooking(next);
+          if (next.machine) setMachineId(next.machine.id);
+          setLaunchedAt(Date.now());
+          follow(next, next.status === "matched");
+        },
+        () => void settle({ failed: true }),
+      );
+    },
+    [stopFollowing, follow],
+  );
+  const carryOnNow = useRef(carryOn);
+  carryOnNow.current = carryOn;
+
+  // A running session's booking is followed on to its end, so a machine lost
+  // mid-session is heard of the moment the server gives up on it, whether the
+  // stream is still trying to reconnect or has left that to the renter.
+  const runningId = !demo && claim ? (booking?.bookingId ?? null) : null;
+  useEffect(() => {
+    if (!runningId) return;
+    return watchBooking(
+      runningId,
+      (next) => {
+        if (next && machineLost(next)) carryOnNow.current(next);
+      },
+      { toEnd: true },
+    );
+  }, [runningId]);
+
+  // Refused at the door, the ticket opens nothing. The server says why: a
+  // machine lost is carried on elsewhere. Otherwise, before the session
+  // started the launch failed; once it has, even behind Ignition after the PC
+  // dropped, the server ended the session (its time ran out, or the PC ended
+  // it), which is a session end like End. A loss already being carried on was
+  // heard first: the ticket refused is the lost session's, and ends nothing.
   useEffect(() => {
     if (!play?.denied) return;
-    if (covered.current.started) return endSession();
-    endCurrentBooking();
-    setBookingFailed(true);
-    setPhase("idle");
+    const ended = () => {
+      if (lostNow.current) return;
+      if (covered.current.started) return endSession();
+      endCurrentBooking();
+      setBookingFailed(true);
+      setPhase("idle");
+    };
+    const current = bookingNow.current;
+    if (!current) return ended();
+    let asking = true;
+    fetchBooking(current.bookingId).then(
+      (found) => {
+        if (!asking) return;
+        if (found && machineLost(found)) carryOnNow.current(found);
+        else ended();
+      },
+      () => asking && ended(),
+    );
+    return () => {
+      asking = false;
+    };
   }, [play?.denied, endCurrentBooking, endSession]);
 
   // Another page of this renter's took the session's seat: it plays on there,
@@ -864,22 +978,24 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setBeat(0);
   }, [play?.replaced, stopFollowing]);
 
-  /**
-   * The owner took their machine back mid-session. Nothing drives this yet: the
-   * stream plays through @swiff/rtc now, but a PC lost mid-session (its
-   * `peer-left` while live) is not yet told apart from one handing its room
-   * over. Kept here so the recovery path is one call away rather than a screen
-   * that has to be rebuilt then.
-   */
-  const reportOwnerDropped = useCallback(() => setOwnerDropped(true), []);
-
-  const switchMachine = useCallback((id: string) => {
-    track("machine_switched", { machine: id });
-    setMachineId(id);
-    setOwnerDropped(false);
-    setPhase("connecting");
+  /** Stop for now, rather than carry the lost session on: the booking carrying it on ends too. */
+  const stopLost = useCallback(() => {
+    track("machine_lost_stopped");
+    endCurrentBooking();
+    setPhase("idle");
     setBeat(0);
-  }, []);
+  }, [endCurrentBooking]);
+
+  /** No machine to carry the lost session on: back to the game's machines, to choose one. */
+  const chooseMachine = useCallback(() => {
+    endCurrentBooking();
+    setBookingFailed(false);
+  }, [endCurrentBooking]);
+
+  // Once the game is on screen again, the loss is behind the renter.
+  useEffect(() => {
+    if (phase === "live") setLost(null);
+  }, [phase]);
 
   const cycleSession = useCallback(
     () =>
@@ -945,7 +1061,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [goHome]);
 
   // Ignition: the demo's beats, or where the real launch stands on its connection.
-  const labels = ignitionLabels(picked?.name, game?.title);
+  // A machine carried on to may not be on the list the game's page last read.
+  const labels = ignitionLabels(picked?.name ?? booking?.machine?.name, game?.title);
   let ignition: { ignitionSteps: string[]; ignitionIndex: number; progress: number; slow: boolean };
   if (demo) {
     ignition = {
@@ -1018,7 +1135,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     showAll,
     ...ignition,
     elapsedMs,
-    ownerDropped,
+    lost,
     week,
     estimateOpen,
     goHome,
@@ -1037,8 +1154,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     endSession,
     tryAnother,
     attachVideo: setVideo,
-    reportOwnerDropped,
-    switchMachine,
+    stopLost,
+    chooseMachine,
     cycleSession,
     toggleDevice,
     setHoverId,

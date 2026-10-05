@@ -34,11 +34,21 @@
 // its seat again with POST /api/bookings/:id/rejoin, which hands out the
 // claim's ticket id again while the PC holds the session for a renter who
 // dropped (two minutes, server/src/grace.ts).
+//
+// A session whose machine is lost (the PC went offline, or its owner took it
+// back) ends with that as its endReason. The page follows a running session's
+// booking to its end (watchBooking with `toEnd`) to hear of it at once, and
+// carries the session on with POST /api/bookings/:id/continue: a new booking
+// for the time left, matched to the best other machine there and then, or
+// queued for one, which the page claims as it claims any booking.
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
+
+/** Why a session ended (server/src/stability.ts). */
+export type EndReason = "renter" | "time_up" | "host_offline" | "owner_kill" | "grace_expired";
 
 export type Booking = {
   bookingId: string;
@@ -57,7 +67,16 @@ export type Booking = {
    * dropped out of it; absent while they are connected, or not yet missed.
    */
   heldUntil?: number;
+  /** Why its session ended, once it has. */
+  endReason?: EndReason;
 };
+
+/**
+ * Whether the booking's session ended because its machine was lost: the PC
+ * went offline, or its owner took it back. Then it can be carried on elsewhere.
+ */
+export const machineLost = (booking: Booking | null | undefined): boolean =>
+  booking?.status === "ended" && (booking.endReason === "host_offline" || booking.endReason === "owner_kill");
 
 /**
  * The renter's round trips in ms: to the server, and straight to any machine
@@ -119,6 +138,8 @@ const SLOW_POLL_MS = 5_000;
 const HEARTBEAT_MS = 15_000;
 /** Past these the browser has nothing left to wait for. */
 const DONE: readonly BookingStatus[] = ["claimed", "playing", "ended", "expired"];
+/** Past these a running session's booking has nothing left to say. */
+const OVER: readonly BookingStatus[] = ["ended", "expired"];
 
 /** The part of EventSource this file uses, so tests can stand in for it. */
 type EventStream = Pick<EventSource, "addEventListener" | "close">;
@@ -132,6 +153,14 @@ export type BookingOptions = {
   heartbeatMs?: number;
   /** Opens the event stream; null polls only. Defaults to the browser's EventSource where there is one. */
   eventSource?: ((url: string) => EventStream) | null;
+};
+
+export type WatchOptions = BookingOptions & {
+  /**
+   * Follow a claimed or playing booking on to its end, rather than stopping
+   * once it is claimed: how a running session hears that its machine was lost.
+   */
+  toEnd?: boolean;
 };
 
 /** The browser's EventSource as it is now, or null where there is none (and the helper polls only). */
@@ -279,12 +308,13 @@ export async function endBooking(bookingId: string, options: BookingOptions = {}
  * stream while it is open, with a heartbeat every `heartbeatMs`, and polled
  * every `intervalMs` while it is not. Stops, and forgets the stored booking,
  * once it is claimed, over, or gone — including gone from view because the
- * renter is no longer signed in. Returns stop().
+ * renter is no longer signed in; with `toEnd`, only once it is over or gone.
+ * Returns stop().
  */
 export function watchBooking(
   bookingId: string,
   onUpdate: (booking: Booking | null) => void,
-  options: BookingOptions = {},
+  options: WatchOptions = {},
 ): () => void {
   const {
     storage = localStorage,
@@ -292,7 +322,9 @@ export function watchBooking(
     intervalMs = SLOW_POLL_MS,
     heartbeatMs = HEARTBEAT_MS,
     eventSource = browserEventSource(),
+    toEnd = false,
   } = options;
+  const done = toEnd ? OVER : DONE;
   let stopped = false;
   let polling = false;
   /** Bumped whenever the poll starts or stops, so a check still in flight from an older run ends there. */
@@ -333,12 +365,13 @@ export function watchBooking(
   /** Report one answer; the last one forgets the booking and stops. */
   const settle = (booking: Booking | null) => {
     if (stopped) return;
-    const done = !booking || DONE.includes(booking.status);
-    if (done && storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
+    const finished = !booking || done.includes(booking.status);
+    if ((!booking || DONE.includes(booking.status)) && storage.getItem(KEY) === bookingId)
+      storage.removeItem(KEY);
     if (!booking || booking.status === "ended" || booking.status === "expired")
       forgetPlay(bookingId, storage);
     onUpdate(booking);
-    if (done) stop();
+    if (finished) stop();
   };
 
   /** Check on the booking once, and again after `intervalMs` while run `current` is on. */
@@ -380,7 +413,7 @@ export function watchBooking(
     return stop;
   }
 
-  stream = eventSource(`/api/events?booking=${encodeURIComponent(bookingId)}`);
+  stream = eventSource(`/api/events?booking=${encodeURIComponent(bookingId)}${toEnd ? "&to=end" : ""}`);
   stream.addEventListener("booking", (event) => {
     stopPolling();
     settle(JSON.parse((event as MessageEvent<string>).data) as Booking);
@@ -459,6 +492,28 @@ export async function playedElsewhere(
 /** The booking this browser made and kept, if any, for a page load to pick up. */
 export function storedBookingId(storage: Storage = localStorage): string | null {
   return storage.getItem(KEY);
+}
+
+/**
+ * Carry on the booking's session, whose machine was lost, elsewhere: a new
+ * booking for the time left, matched at once to the best other machine free
+ * for the game, or queued for one, and remembered as book() does. Asking
+ * again hands back the same one while it is not over. Null when there is
+ * nothing to carry on (4xx: it was not lost, too long ago, or is not the
+ * renter's).
+ */
+export async function continueBooking(
+  bookingId: string,
+  options: BookingOptions = {},
+): Promise<Booking | null> {
+  const { storage = localStorage, fetch: get = fetch } = options;
+  forgetPlay(bookingId, storage);
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/continue`);
+  if (response.status >= 400 && response.status < 500) return null;
+  if (!response.ok) throw new Error(`continuing failed: ${response.status}`);
+  const booking = (await response.json()) as Booking;
+  storage.setItem(KEY, booking.bookingId);
+  return booking;
 }
 
 /** On page load: resume watching the booking this browser made, if it kept one. Null when there is none. */

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { Database } from "../db.js";
 import {
+  CONTINUE_WINDOW_MS,
   LIVENESS_MS,
   MAX_HOLD_MS,
   Platform,
@@ -1068,6 +1069,157 @@ describe("a renter's running session", () => {
       ok: false,
       reason: "not-running",
       status: "matched",
+    });
+  });
+});
+
+describe("carrying on a session whose machine was lost", () => {
+  /**
+   * `renter`'s 60-minute booking playing on pc-1, asked with their round trip,
+   * the pad and the 4K Picture setting, after `playedMs` of play.
+   */
+  const playing = async (playedMs = 0, renter = "renter-1") => {
+    await offer("pc-1");
+    const { bookingId } = await platform.book(
+      730,
+      60,
+      renter,
+      { server: 9 },
+      { controls: ["pad"], picture: "4k" },
+    );
+    const claim = await platform.claim(bookingId, renter);
+    assert.ok(claim.ok);
+    assert.ok(await platform.startSession("pc-1", claim.sessionId));
+    if (playedMs) await beatFor("pc-1", playedMs);
+    return bookingId;
+  };
+
+  /** pc-1 goes silent, and the server gives up on it. */
+  const lose = () => advance(LIVENESS_MS);
+
+  it("says why the session ended: the machine went offline, or its owner took it back", async () => {
+    const offline = await playing();
+    await lose();
+    assert.equal((await platform.booking(offline, "renter-1"))!.endReason, "host_offline");
+
+    await offer("pc-2");
+    const { bookingId } = await platform.book(570, 30, "renter-2");
+    const claim = await platform.claim(bookingId, "renter-2");
+    assert.ok(claim.ok);
+    await platform.setAvailability("pc-2", false);
+    assert.equal((await platform.booking(bookingId, "renter-2"))!.endReason, "owner_kill");
+  });
+
+  it("matches the time left to the best other machine at once, asked as the lost booking was", async () => {
+    const lost = await playing(20 * 60_000);
+    await lose();
+    await offer("pc-2");
+
+    const continued = await platform.continueBooking(lost, "renter-1");
+    assert.ok(continued.ok);
+    const { booking } = continued;
+    assert.notEqual(booking.bookingId, lost);
+    assert.equal(booking.status, "matched");
+    assert.equal(booking.gameId, 730);
+    assert.equal(booking.machine?.id, "pc-2");
+    assert.equal(booking.minutes, 40);
+    // The renter's own call made the match: their claim clock runs from now.
+    assert.equal(booking.claimBy, now + RESERVATION_MS);
+    const { rows } = await database.query<{
+      rtts: string;
+      controls: string;
+      picture: string;
+      renter_id: string;
+    }>("SELECT rtts, controls, picture, renter_id FROM bookings WHERE id = $1", [booking.bookingId]);
+    assert.deepEqual(
+      { ...rows[0]!, rtts: JSON.parse(rows[0]!.rtts), controls: JSON.parse(rows[0]!.controls) },
+      { rtts: { server: 9 }, controls: ["pad"], picture: "4k", renter_id: "renter-1" },
+    );
+    assert.ok((await platform.claim(booking.bookingId, "renter-1")).ok);
+  });
+
+  it("hands back the same booking when asked again, and a new one once that lapsed", async () => {
+    const lost = await playing();
+    await lose();
+    await offer("pc-2");
+    const first = await platform.continueBooking(lost, "renter-1");
+    const again = await platform.continueBooking(lost, "renter-1");
+    assert.ok(first.ok && again.ok);
+    assert.equal(again.booking.bookingId, first.booking.bookingId);
+    assert.equal(await bookingCount(), 2);
+
+    await beatFor("pc-2", RESERVATION_MS);
+    assert.equal((await platform.booking(first.booking.bookingId, "renter-1"))!.status, "expired");
+    const later = await platform.continueBooking(lost, "renter-1");
+    assert.ok(later.ok);
+    assert.notEqual(later.booking.bookingId, first.booking.bookingId);
+    assert.equal(later.booking.status, "matched");
+  });
+
+  it("never matches it to the machine that lost it, even once that is back", async () => {
+    const lost = await playing();
+    await platform.setAvailability("pc-1", false);
+    await offer("pc-1");
+
+    const continued = await platform.continueBooking(lost, "renter-1");
+    assert.ok(continued.ok);
+    assert.equal(continued.booking.status, "queued");
+    await offer("pc-2");
+    const matched = (await platform.booking(continued.booking.bookingId, "renter-1"))!;
+    assert.equal(matched.status, "matched");
+    assert.equal(matched.machine?.id, "pc-2");
+  });
+
+  it("waits in the queue in the lost booking's place, ahead of anyone who came after it", async () => {
+    const lost = await playing();
+    await beatFor("pc-1", 5_000);
+    const later = await platform.book(730, 30, "renter-2");
+    assert.equal(later.status, "queued");
+    await lose();
+
+    const continued = await platform.continueBooking(lost, "renter-1");
+    assert.ok(continued.ok);
+    assert.equal(continued.booking.status, "queued");
+    await offer("pc-2");
+    assert.equal((await platform.booking(continued.booking.bookingId, "renter-1"))!.status, "matched");
+    assert.equal((await platform.booking(later.bookingId, "renter-2"))!.status, "queued");
+  });
+
+  it("refuses a session the renter ended, one lost too long ago or with no time left, and anyone else's", async () => {
+    const lost = await playing();
+    assert.deepEqual(await platform.continueBooking(lost, "renter-1"), {
+      ok: false,
+      reason: "not-lost",
+      status: "playing",
+    });
+    await lose();
+
+    await offer("pc-2");
+    const ended = await platform.book(730, 30, "renter-1");
+    assert.ok((await platform.claim(ended.bookingId, "renter-1")).ok);
+    assert.ok((await platform.endBooking(ended.bookingId, "renter-1")).ok);
+    assert.deepEqual(await platform.continueBooking(ended.bookingId, "renter-1"), {
+      ok: false,
+      reason: "not-lost",
+      status: "ended",
+    });
+
+    assert.deepEqual(await platform.continueBooking(lost, "renter-2"), { ok: false, reason: "not-found" });
+    now += CONTINUE_WINDOW_MS + LIVENESS_MS;
+    assert.deepEqual(await platform.continueBooking(lost, "renter-1"), {
+      ok: false,
+      reason: "not-lost",
+      status: "ended",
+    });
+  });
+
+  it("has nothing to carry on once the booked time is used up", async () => {
+    const lost = await playing(60 * 60_000 - 5_000);
+    await lose();
+    assert.deepEqual(await platform.continueBooking(lost, "renter-1"), {
+      ok: false,
+      reason: "not-lost",
+      status: "ended",
     });
   });
 });

@@ -196,6 +196,14 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       updated_at BIGINT NOT NULL
     )`,
   ],
+  [
+    // A booking that carries on a session its machine lost (platform.ts
+    // continueBooking): the lost booking's id, and the machine that lost it,
+    // which it is never matched to. Null for every other booking.
+    `ALTER TABLE bookings ADD COLUMN continues TEXT`,
+    `ALTER TABLE bookings ADD COLUMN avoid_machine_id TEXT`,
+    `CREATE INDEX bookings_continues ON bookings (continues) WHERE continues IS NOT NULL`,
+  ],
 ];
 
 /**

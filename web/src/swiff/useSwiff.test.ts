@@ -458,8 +458,9 @@ describe("useSwiff", () => {
       track.mockClear();
 
       act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
-      expect(result.current.phase).toBe("idle");
+      await waitFor(() => expect(result.current.phase).toBe("idle"));
       expect(result.current.bookingFailed).toBe(false);
+      expect(result.current.lost).toBeNull();
       expect(result.current.claim).toBeNull();
       expect(track).toHaveBeenCalledWith("session_ended", expect.anything());
       expect(storedPlay()).toBeNull();
@@ -475,12 +476,13 @@ describe("useSwiff", () => {
       streams();
       const result = await openLive();
       act(() => result.current.launch());
-      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET), { timeout: 3_000 });
       act(() => result.current.attachVideo(document.createElement("video")));
       track.mockClear();
 
       act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" }));
-      expect(result.current.phase).toBe("idle");
+      // A denied ticket reads the booking first, to tell a lost machine from any other end.
+      await waitFor(() => expect(result.current.phase).toBe("idle"), { timeout: 3_000 });
       expect(result.current.bookingFailed).toBe(true);
       expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
       expect(storedPlay()).toBeNull();
@@ -557,8 +559,9 @@ describe("useSwiff", () => {
       it("ends a session the server ended behind Ignition as a session end, not a failed launch", async () => {
         const { result, calls, session } = await dropped();
 
+        // The page reads the booking first, to tell a lost machine from any other end.
         act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
-        expect(result.current.phase).toBe("idle");
+        await waitFor(() => expect(result.current.phase).toBe("idle"));
         expect(result.current.bookingFailed).toBe(false);
         expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
         expect(
@@ -913,6 +916,160 @@ describe("useSwiff", () => {
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       expect(result.current.game?.appid).toBe(cs2.appid);
       expect(result.current.phase).toBe("connecting");
+    });
+  });
+
+  describe("a machine lost mid-session", () => {
+    const LOST_ON = { id: "h1", name: "Basement rig", gpu: null, cpu: null, price: 100 };
+    const NEXT_ON = { id: "h2", name: "Attic box", gpu: null, cpu: null, price: 100 };
+    const NEXT_TICKET = { ...TICKET, sessionId: "s-2", roomId: "h2", ticket: "t-2" };
+    /** b-1 ended because its machine was lost: gone offline, or `endReason`. */
+    const ended = (endReason = "host_offline") => ({ ...booked("ended"), machine: LOST_ON, endReason });
+    /** b-2, carrying it on: matched to h2, or `status`. */
+    const carried = (status = "matched") => ({
+      ...booked(status, status === "matched" ? 1_000 : undefined),
+      bookingId: "b-2",
+      minutes: 150,
+      ...(status === "matched" ? { machine: NEXT_ON } : {}),
+    });
+
+    /** The renter playing Counter-Strike 2 live on h1, booked as b-1, with the server answering `answers` too. */
+    async function playing(answers: Record<string, () => Response> = {}) {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: LOST_ON }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        ...answers,
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+      return { calls, opened, result, session };
+    }
+
+    /** The stream following b-1, the running session's booking, on to its end. */
+    const runningStream = (opened: ReturnType<typeof streams>) =>
+      opened.find((o) => o.url === "/api/events?booking=b-1&to=end")!;
+
+    it("follows the running session's booking to its end, and carries a lost one on by itself", async () => {
+      const { calls, opened, result, session } = await playing({
+        "POST /api/bookings/b-1/continue": json(202, carried()),
+        "POST /api/bookings/b-2/claim": json(200, NEXT_TICKET),
+      });
+      expect(runningStream(opened)).toBeDefined();
+      track.mockClear();
+
+      act(() => runningStream(opened).push(ended()));
+      expect(result.current.lost).toMatchObject({ host: "Basement rig", taken: false, next: null });
+      expect(result.current.phase).toBe("idle");
+      expect(session.ended).toBe(true);
+      expect(track).toHaveBeenCalledWith("machine_lost", { game: 730, reason: "host_offline" });
+
+      // Nothing to press: the next machine is claimed, and Ignition starts there.
+      await waitFor(() => expect(result.current.claim).toEqual(NEXT_TICKET));
+      expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/continue");
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(result.current.phase).toBe("connecting");
+      expect(result.current.lost?.next?.bookingId).toBe("b-2");
+      expect(result.current.ignitionSteps[1]).toBe("Waking Attic box");
+      await waitFor(() => expect(rtc.sessions).toHaveLength(2));
+      expect(rtc.sessions[1]!.options.ticket).toBe("t-2");
+      act(() => rtc.sessions[1]!.emit({ type: "first-frame" }));
+      act(() => rtc.sessions[1]!.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+      expect(result.current.lost).toBeNull();
+    });
+
+    it("asks the server why a ticket was refused, and waits in the queue when every machine is busy", async () => {
+      const { calls, opened, result, session } = await playing({
+        "GET /api/bookings/b-1": json(200, ended("owner_kill")),
+        "POST /api/bookings/b-1/continue": json(202, carried("queued")),
+        "POST /api/bookings/b-2/claim": json(200, NEXT_TICKET),
+      });
+      track.mockClear();
+
+      act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+      await waitFor(() => expect(result.current.lost?.next?.status).toBe("queued"));
+      expect(result.current.lost?.taken).toBe(true);
+      expect(result.current.phase).toBe("idle");
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+
+      // Matched later: claimed the moment it is, as any queued booking is.
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-2")).toBe(true));
+      act(() =>
+        opened
+          .find((o) => o.url === "/api/events?booking=b-2")!
+          .push({ ...carried(), claimBy: Date.now() + 60_000 }),
+      );
+      await waitFor(() => expect(result.current.claim).toEqual(NEXT_TICKET));
+      expect(result.current.phase).toBe("connecting");
+    });
+
+    it("carries a machine lost during Ignition on, though its ticket is refused as the loss is heard", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: LOST_ON }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "GET /api/bookings/b-1": json(200, ended()),
+        "POST /api/bookings/b-1/continue": json(202, carried("queued")),
+      });
+      const opened = streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      expect(result.current.phase).toBe("connecting");
+
+      // The server ends the session for the lost machine: the booking says so,
+      // and the renter's ticket is refused in the same breath.
+      act(() => {
+        runningStream(opened).push(ended());
+        rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" });
+      });
+      await waitFor(() => expect(result.current.lost?.next?.bookingId).toBe("b-2"));
+      expect(result.current.bookingFailed).toBe(false);
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-2/end");
+    });
+
+    it("hands the choice back when there is no machine to carry it on", async () => {
+      const { opened, result } = await playing({
+        "POST /api/bookings/b-1/continue": json(409, { status: "ended" }),
+      });
+      act(() => runningStream(opened).push(ended()));
+      await waitFor(() => expect(result.current.lost?.failed).toBe(true));
+
+      act(() => result.current.chooseMachine());
+      expect(result.current.lost).toBeNull();
+      expect(result.current.screen).toBe("game");
+      expect(result.current.phase).toBe("idle");
+    });
+
+    it("stops for now: the booking carrying it on ends, and its machine goes back", async () => {
+      const { calls, opened, result } = await playing({
+        "POST /api/bookings/b-1/continue": json(202, carried("queued")),
+        "POST /api/bookings/b-2/end": json(200, { ...carried("queued"), status: "ended" }),
+      });
+      act(() => runningStream(opened).push(ended()));
+      await waitFor(() => expect(result.current.lost?.next).not.toBeNull());
+
+      act(() => result.current.stopLost());
+      expect(result.current.lost).toBeNull();
+      expect(result.current.booking).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-2/end"));
+    });
+
+    it("carries nothing on for a session that ended any other way", async () => {
+      const { calls, opened, result } = await playing();
+      act(() => runningStream(opened).push(ended("time_up")));
+      expect(result.current.lost).toBeNull();
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/continue");
     });
   });
 

@@ -6,6 +6,12 @@
 //                     │         └──────────► expired (lapses unclaimed)
 //                     └ (renter silent for QUEUE_TIMEOUT_MS) ─► expired
 //
+// A session whose machine is lost (it went silent for LIVENESS_MS, or its owner
+// took it back) ends as host_offline or owner_kill, which the renter's booking
+// says (endReason). The renter can carry on elsewhere (continueBooking): a new
+// booking for the time they had left, asked as the lost one was, kept off the
+// machine that lost it and matched at once, or queued in the lost one's place.
+//
 // The claim clock: a matched renter has RESERVATION_MS to claim from their
 // first contact since the match, which is the match itself when they were
 // there for it (their own call made it, or their event stream on the booking
@@ -123,6 +129,10 @@ export const MAX_HOLD_MS = 2 * 60_000;
 export const RESET_HOLD_MS = 3 * 60_000;
 /** A queued booking the renter has not checked on for this long is dropped. */
 export const QUEUE_TIMEOUT_MS = 2 * 60_000;
+/** How long after its machine was lost a session can still be carried on elsewhere (continueBooking). */
+export const CONTINUE_WINDOW_MS = 10 * 60_000;
+/** Ends where the machine, not the renter, stopped the session: it went away, or its owner took it back. */
+const MACHINE_LOST: readonly EndReason[] = ["host_offline", "owner_kill"];
 /** The longest booking accepted. */
 export const MAX_MINUTES = 12 * 60;
 /** A renter's last QoS report may arrive this long after the session ended, while its join ticket is still valid. */
@@ -215,6 +225,8 @@ export type BookingView = {
   startedAt?: number;
   /** Cents charged for the time played, once the session has ended. */
   price?: number;
+  /** Why its session ended, once it has: host_offline or owner_kill means the machine was lost. */
+  endReason?: EndReason;
 };
 
 /** What the PC is told when a renter claims it: the session to start, the game and the time booked. */
@@ -233,6 +245,15 @@ export type Rtts = { server?: number; machines?: Record<string, number> };
 
 /** How the renter plays: the controls they turned on and their Picture setting. None and best when left out. */
 export type PlayPrefs = { controls?: Control[]; picture?: PicturePref };
+
+/**
+ * A booking carrying on a session its machine lost (matched to its new
+ * machine, or queued for one), or why there is none.
+ */
+export type ContinueResult =
+  | { ok: true; booking: BookingView }
+  | { ok: false; reason: "not-found" }
+  | { ok: false; reason: "not-lost"; status: BookingStatus };
 
 /** What became of the renter ending their booking: its view once ended, or why not. */
 export type EndResult =
@@ -296,6 +317,10 @@ type BookingRow = {
   /** JSON Control[], null when the renter sent none. */
   controls: string | null;
   picture: PicturePref | null;
+  /** The booking whose lost session this one carries on, if it does. */
+  continues: string | null;
+  /** The machine that lost it, which this booking is never matched to. */
+  avoid_machine_id: string | null;
 };
 /** A machine free to be matched now: its row, the games installed on it and its seven days. */
 type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
@@ -992,6 +1017,7 @@ export class Platform {
         rtts: JSON.stringify(rtts),
         controls: JSON.stringify(prefs.controls ?? []),
         picture: prefs.picture ?? null,
+        avoid_machine_id: null,
       };
       if (!(await this.#best(ask, free, now))) return null;
       const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
@@ -1160,6 +1186,75 @@ export class Platform {
         ticketId: session.ticket_id!,
         remainingMs: session.expires_at - now,
       };
+    });
+  }
+
+  /**
+   * Carry on a session whose machine was lost (host_offline or owner_kill) on
+   * another one: a new booking for the same game and the time the renter had
+   * left, asked for with the round trips, controls and Picture setting the
+   * lost booking was, so matching ranks machines as their list did, and never
+   * matched to the machine that lost it. It takes the lost booking's place in
+   * the queue, ahead of anyone who came after it, and is matched at once to
+   * the best machine free for it (to be claimed within RESERVATION_MS, the
+   * renter being there), or waits in the queue as any booking does. Asked
+   * again while that booking is not over, it is handed back rather than a
+   * second one made. Only `renterId`'s own booking, its machine lost within
+   * CONTINUE_WINDOW_MS with time left; anyone else's reads as not found.
+   */
+  continueBooking(bookingId: string, renterId: string | null = null): Promise<ContinueResult> {
+    return this.#transaction(async (): Promise<ContinueResult> => {
+      const now = this.#now();
+      await this.#tick(now); // a machine that went silent a moment ago is lost by now
+      const lost = await this.#bookingRow(bookingId, renterId);
+      if (!lost) return { ok: false, reason: "not-found" };
+      const notLost = { ok: false, reason: "not-lost", status: lost.status } as const;
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE booking_id = $1", bookingId);
+      if (
+        lost.status !== "ended" ||
+        !session?.end_reason ||
+        !MACHINE_LOST.includes(session.end_reason) ||
+        session.ended_at === null ||
+        now - session.ended_at > CONTINUE_WINDOW_MS
+      ) {
+        return notLost;
+      }
+
+      const already = await this.#get<BookingRow>(
+        `SELECT * FROM bookings WHERE continues = $1 AND status IN ('queued', 'matched', 'claimed', 'playing')
+           ORDER BY created_at DESC, seq DESC LIMIT 1`,
+        bookingId,
+      );
+      if (already) return { ok: true, booking: (await this.#bookingView(already.id))! };
+
+      const played = session.started_at === null ? 0 : session.ended_at - session.started_at;
+      const minutes = Math.floor(lost.minutes - played / 60_000);
+      if (minutes < 1) return notLost;
+
+      const { created_at } = (await this.#get<{ created_at: number }>(
+        "SELECT created_at FROM bookings WHERE id = $1",
+        bookingId,
+      ))!;
+      const id = newId();
+      await this.#run(
+        `INSERT INTO bookings (id, renter_id, game_id, minutes, status, created_at, last_seen_at, rtts, controls,
+             picture, continues, avoid_machine_id)
+           VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11)`,
+        id,
+        lost.renter_id,
+        lost.game_id,
+        minutes,
+        created_at,
+        now,
+        lost.rtts,
+        lost.controls,
+        lost.picture,
+        bookingId,
+        session.machine_id,
+      );
+      this.#changed.add(id);
+      await this.#tick(now);
+      return { ok: true, booking: (await this.#bookingView(id))! };
     });
   }
 
@@ -1489,16 +1584,23 @@ export class Platform {
    * none passes its gates: the game installed (E2), the hardware the game asks
    * for (E3), every control the booking asked for (E4), not the renter's own
    * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes is
-   * considered. The order is the renter's own list's: free all session, most
+   * considered, and never the one a booking carrying on a lost session lost it on. The order is the renter's own list's: free all session, most
    * reliable, best response, then picture, lowest latency, lowest price.
    */
   async #best(
-    booking: Pick<BookingRow, "id" | "renter_id" | "game_id" | "minutes" | "rtts" | "controls" | "picture">,
+    booking: Pick<
+      BookingRow,
+      "id" | "renter_id" | "game_id" | "minutes" | "rtts" | "controls" | "picture" | "avoid_machine_id"
+    >,
     free: FreeMachine[],
     now: number,
   ): Promise<string | null> {
     const until = now + booking.minutes * 60_000;
-    const fits = free.filter((m) => m.row.available_until === null || m.row.available_until >= until);
+    const fits = free.filter(
+      (m) =>
+        m.row.id !== booking.avoid_machine_id &&
+        (m.row.available_until === null || m.row.available_until >= until),
+    );
     if (!fits.length) return null;
     const game = await this.#requirements.lookup(booking.game_id);
     const rtts = fromJson<Rtts>(booking.rtts, {});
@@ -1939,6 +2041,7 @@ export class Platform {
     if (session) view.sessionId = session.id;
     if (session?.started_at != null && session.ended_at === null) view.startedAt = session.started_at;
     if (session?.price != null) view.price = session.price;
+    if (session?.end_reason) view.endReason = session.end_reason;
     return view;
   }
 

@@ -44,6 +44,29 @@ describe("Ignition", () => {
     ]);
   });
 
+  it("says which machine a session carried on from a lost one moved from, and the one it is on now", () => {
+    const lost = { host: "Basement rig", taken: false, next: null, failed: false };
+    const { rerender } = render(
+      <Ignition
+        swiff={swiffAt(0.25, 1, {
+          picked: null,
+          booking: { machine: { name: "Attic box" } },
+          lost,
+        } as unknown as Partial<Swiff>)}
+      />,
+    );
+    expect(screen.getByTestId("ignition-kicker")).toHaveTextContent("Basement rig went offline");
+    expect(screen.getByText("Attic box")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent("now on Attic box");
+
+    rerender(
+      <Ignition swiff={swiffAt(0.25, 1, { lost: { ...lost, taken: true } } as unknown as Partial<Swiff>)} />,
+    );
+    expect(screen.getByTestId("ignition-kicker")).toHaveTextContent("Basement rig was taken back");
+    rerender(<Ignition swiff={swiffAt(0.25, 1)} />);
+    expect(screen.getByTestId("ignition-kicker")).toHaveTextContent("Starting");
+  });
+
   it("announces the current step, not every eased percentage", () => {
     render(<Ignition swiff={swiffAt(0.25, 1)} />);
 

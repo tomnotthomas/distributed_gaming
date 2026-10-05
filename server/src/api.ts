@@ -17,10 +17,11 @@
 //   POST /api/bookings/:id/rejoin
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
+//   POST /api/bookings/:id/continue
 //   POST /api/sessions/:id/start (ticket)
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
-//   GET  /api/events?booking=:id  (event stream, events.ts)
+//   GET  /api/events?booking=:id[&to=end]  (event stream, events.ts)
 //   GET  /api/events              (availability events, events.ts)
 //   GET  /api/ping           (signed out)
 //
@@ -51,7 +52,11 @@
 // quality, and says it is leaving, with that ticket as its bearer. Starting it
 // is what tells the PC to launch the game. A renter who dropped has the
 // reconnect grace the PC holds the session for (grace.ts) to rejoin; reading a
-// running booking says until when that grace holds it.
+// running booking says until when that grace holds it. A session whose machine
+// was lost instead (it went offline, or its owner took it back) says so in its
+// booking's endReason, and continue carries it on elsewhere: a new booking for
+// the time left, matched to the best other machine at once or queued, which the
+// page claims as it claims any, for a game the renter may still play.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -495,7 +500,9 @@ export function createApi({
       }
       if (!bookingId) throw new HttpError(400, "booking is required");
       // Somebody else's booking reads exactly like one that does not exist.
-      const opened = await events.open(res, bookingId, session.steamId, until);
+      // A running session's page follows its booking on to its end (to=end), to hear its machine was lost.
+      const toEnd = queryOf(req).get("to") === "end";
+      const opened = await events.open(res, bookingId, session.steamId, until, toEnd);
       if (opened === "not-found") throw new HttpError(404, "no such booking");
       if (opened === "too-many") throw new HttpError(429, "too many open event streams");
       return true; // opened, or nobody left to answer
@@ -627,6 +634,24 @@ export function createApi({
         signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
         ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
       });
+      return true;
+    }
+
+    if (resource === "bookings" && id && action === "continue" && method === "POST") {
+      // The session's machine was lost: carry on elsewhere, on the best machine
+      // free for the same game and the time left, or in the queue for one.
+      // The game must still be the renter's to play, checked as at claim.
+      const renter = requireRenter(req, sessionSecret);
+      const lost = await platform.booking(id, renter);
+      if (!lost) throw new HttpError(404, "no such booking");
+      if (await refuseUnlicensed(res, renter, lost.gameId, { claim: true })) return true;
+      const continued = await platform.continueBooking(id, renter);
+      if (!continued.ok) {
+        if (continued.reason === "not-found") throw new HttpError(404, "no such booking");
+        reply(res, 409, { error: "the booking has no lost session to carry on", status: continued.status });
+        return true;
+      }
+      reply(res, 202, continued.booking);
       return true;
     }
 
