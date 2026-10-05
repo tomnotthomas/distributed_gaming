@@ -1071,7 +1071,12 @@ describe("the run on screen", () => {
       runOf({
         status: "running",
         steps: { write: "running" },
-        progress: { id: "write", done: 42, total: 100, doing: "writing" },
+        progress: {
+          id: "write",
+          done: 42,
+          total: 100,
+          pass: { doing: "checking", name: "Root", done: 3.0e9, total: 8.6e9 },
+        },
       }),
     );
     expect(rentalLine(s)).toBe("Installing, 42%");
@@ -1164,19 +1169,24 @@ describe("when a step stops", () => {
   it("says how far the write got, what already changed, and that trying again starts the write over", () => {
     const { f } = failed("write", "Write to disk 0 failed: an I/O device error. (0x8007045D)", {
       steps: { ...done(["check", "fast-startup", "room", "partitions"]), write: "failed" },
-      progress: { id: "write", done: 4.1e9, total: 9.8e9, doing: "writing" },
+      progress: {
+        id: "write",
+        done: 4.1e9,
+        total: 9.8e9,
+        pass: { doing: "checking", name: "Root", done: 3.0e9, total: 8.6e9 },
+      },
     });
     expect(f).toMatchObject({
       kind: "write",
       title: "Writing Swiff OS stopped",
-      why: "The drive reported an error after 4.1 of 9.8 GB.",
+      why: "The drive reported an error while checking Root, after 3.0 of 8.6 GB.",
       changed:
         "Fast Startup is off. C: is already 24 GB smaller. Windows and your files are untouched. Trying again writes Swiff OS from the start.",
       label: "Try again",
       rail: "Install stopped",
       what: "Writing Swiff OS",
       at: "Stopped at 21:04",
-      far: "at 4.1 of 9.8 GB",
+      far: "Root, at 3.0 of 8.6 GB",
     });
   });
 

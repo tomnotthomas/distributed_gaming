@@ -29,6 +29,7 @@ import {
   failureOf,
   firmwareGuide,
   otherRoom,
+  passBytes,
   rentalScreen,
   rentalStepAt,
   RUNNING_TITLE,
@@ -271,7 +272,6 @@ function useSince(from: number | null): number {
 }
 
 /** 4,123,456,789 → "4.1". */
-const gbNum = (bytes: number) => (bytes / 1e9).toFixed(1);
 
 /** The plan's steps as they run: done, running (with its bar and clock or bytes), next, or where it stopped. */
 function RunList({
@@ -333,7 +333,7 @@ function RunList({
                       ? "Stopped"
                       : row === "now"
                         ? bytes
-                          ? `${gbNum(bytes.done)} of ${gbNum(bytes.total)} GB`
+                          ? `${bytes.pass.name}: ${passBytes(bytes.pass)}`
                           : mmss(elapsed)
                         : ""}
                 </span>
@@ -790,8 +790,8 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           <Dial
             live
             progress={bytes.done / bytes.total}
-            big={`${gbNum(bytes.done)} GB`}
-            small={`of ${gbNum(bytes.total)} GB, ${bytes.doing}`}
+            big={bytes.pass.name}
+            small={passBytes(bytes.pass)}
           />
         </Plate>
       ) : (

@@ -10,7 +10,7 @@
 // its own chip accepted at a lower trust tier. Change it here and there.
 
 import type { LastLive, PlanStep, RentalPlan, RentalRead, RentalTarget } from "../rental.cjs";
-import type { RentalRun, RentalSetup } from "./model";
+import type { RentalRun, RentalSetup, WritePass } from "./model";
 import { clock, shortGpu } from "./format";
 
 /**
@@ -802,6 +802,18 @@ export function changedSoFar(plan: RentalPlan, run: RentalRun): string {
 /** 4,123,456,789 bytes → "4.1". */
 const gbOne = (bytes: number) => (bytes / 1e9).toFixed(1);
 
+/** One of Swiff OS's files (image-set.cjs), in the owner's words: Boot, Root or Verity. */
+export function fileName(file: string): string {
+  if (/\.esp\.raw$/.test(file)) return "Boot";
+  if (/-verity\.raw$/.test(file)) return "Verity";
+  if (/\.root-[\w-]+\.raw$/.test(file)) return "Root";
+  return file;
+}
+
+const PAST = { copying: "copied", writing: "written", checking: "checked" } as const;
+/** A pass in its own file's bytes: "2.1 of 8.6 GB copied". */
+export const passBytes = (p: WritePass) => `${gbOne(p.done)} of ${gbOne(p.total)} GB ${PAST[p.doing]}`;
+
 /** A drive that has room for Swiff OS, other than the one that just ran out: the way on from "not enough space". */
 export function otherRoom(read: RentalRead | null, failed: string | null): RentalTarget | null {
   return read?.targets.find((t) => t.kind !== "shrink" || t.letter !== failed) ?? null;
@@ -914,21 +926,21 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       rail: "Removal stopped",
     });
   if (step?.id === "write") {
-    const p = run.progress?.id === "write" ? run.progress : null;
+    const p = run.progress?.id === "write" ? run.progress.pass : null;
     return stopped(
       "Writing Swiff OS",
       {
         kind: "write",
         title: "Writing Swiff OS stopped",
         why: p
-          ? `The drive reported an error after ${gbOne(p.done)} of ${gbOne(p.total)} GB.`
+          ? `The drive reported an error while ${p.doing} ${p.name}, after ${gbOne(p.done)} of ${gbOne(p.total)} GB.`
           : "The drive reported an error while Swiff OS was written.",
         changed: `${changedSoFar(plan, run)} Trying again writes Swiff OS from the start.`,
         action: "again",
         label: "Try again",
         rail: installing ? "Install stopped" : "Stopped",
       },
-      p ? `at ${gbOne(p.done)} of ${gbOne(p.total)} GB` : far,
+      p ? `${p.name}, at ${gbOne(p.done)} of ${gbOne(p.total)} GB` : far,
     );
   }
   const running = (RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "working").replace(/^\w/, (c) =>

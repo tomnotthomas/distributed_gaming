@@ -1023,7 +1023,12 @@ describe("rental mode", () => {
           status: "running",
           steps: { ...steps, write: "running" },
           stepStartedAt: now - 131_000,
-          progress: { id: "write", done: 4.1e9, total, doing: "writing" },
+          progress: {
+            id: "write",
+            done: 4.1e9,
+            total,
+            pass: { doing: "copying", name: "Root", done: 2.1e9, total: 8.6e9 },
+          },
           meter: {
             since: now - 131_000,
             at: now,
@@ -1038,11 +1043,12 @@ describe("rental mode", () => {
     expect(h1()).toHaveTextContent("Writing Swiff OS");
     expect(screen.getByText(/About 3 minutes left\. Keep the PC on\./)).toBeInTheDocument();
     expect(screen.getByText(/Step 5 of 9, running for 2:1\d/)).toBeInTheDocument();
-    expect(document.querySelector(".plate")).toHaveTextContent("4.1 GB");
-    expect(document.querySelector(".plate")).toHaveTextContent("of 9.8 GB, writing");
+    expect(document.querySelector(".plate")).toHaveTextContent("Root");
+    expect(document.querySelector(".plate")).toHaveTextContent("2.1 of 8.6 GB copied");
+    expect(document.querySelector(".plate")).toHaveTextContent("41 percent");
     expect(screen.getByRole("button", { name: "Rental mode Installing, 41%" })).toBeInTheDocument();
     expect(pills()).toHaveLength(0);
-    expect(document.querySelector(".mrun li.now")).toHaveTextContent("4.1 of 9.8 GB");
+    expect(document.querySelector(".mrun li.now")).toHaveTextContent("Root: 2.1 of 8.6 GB copied");
   });
 
   it("stops at the restart: the code on the plate, the one choice to make said large, and Restart now", () => {
@@ -1156,13 +1162,20 @@ describe("rental mode", () => {
         off,
         failedAt("write", error, {
           steps: { ...steps, write: "failed" },
-          progress: { id: "write", done: 4.1e9, total: 9.8e9, doing: "writing" },
+          progress: {
+            id: "write",
+            done: 4.1e9,
+            total: 9.8e9,
+            pass: { doing: "checking", name: "Root", done: 3.0e9, total: 8.6e9 },
+          },
         }),
       );
       expect(h1()).toHaveTextContent("Writing Swiff OS stopped");
-      expect(screen.getByText("The drive reported an error after 4.1 of 9.8 GB.")).toBeInTheDocument();
+      expect(
+        screen.getByText("The drive reported an error while checking Root, after 3.0 of 8.6 GB."),
+      ).toBeInTheDocument();
       expect(document.querySelector(".mchanged")).toHaveTextContent("C: is already 24 GB smaller.");
-      expect(document.querySelector(".plate")).toHaveTextContent("at 4.1 of 9.8 GB");
+      expect(document.querySelector(".plate")).toHaveTextContent("Root, at 3.0 of 8.6 GB");
       expect(document.querySelector(".plate")).toHaveTextContent("Stopped at 21:04");
       expect(screen.queryByText(error)).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "What happened, in detail" }));

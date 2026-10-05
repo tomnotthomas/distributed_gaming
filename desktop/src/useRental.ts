@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunEvent } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
-import { IDLE_RUN, type RentalRun, type RentalSetup } from "./model";
+import { IDLE_RUN, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
-import { endsInRestart, firmwareChecks, pcChecks, writesOf } from "./rental";
+import { endsInRestart, fileName, firmwareChecks, pcChecks, writesOf } from "./rental";
 
 const LIVE_SEEN = "swiff.rental.liveSeen";
 
@@ -12,22 +12,32 @@ const LIVE_SEEN = "swiff.rental.liveSeen";
 const PASSES = ["copying", "writing", "checking"] as const;
 
 /**
- * How far a measured step is, in bytes of the whole step, from one write's
- * progress, and which pass that is. Each write is copied into the
- * administrators' folder, written, then read back to check it: its bytes
- * count a third for each pass. The write is told apart by its size (Swiff
- * OS's three are all different).
+ * How far a measured step is from one write's progress: `done` of `total`
+ * across the whole step, which only moves forward, and the pass itself, in
+ * its own file's bytes. Each write is copied into the administrators' folder,
+ * written, then read back to check it: each pass counts a third of its bytes
+ * across the step. The write is told apart by its size (Swiff OS's three are
+ * all different).
  */
 export function stepBytes(
   writes: number[],
   event: { what: string; done: number; total: number },
-): { done: number; total: number; doing: (typeof PASSES)[number] } | null {
+): { done: number; total: number; pass: WritePass } | null {
   const total = writes.reduce((sum, b) => sum + b, 0);
   const at = writes.indexOf(event.total);
   const pass = PASSES.findIndex((p) => event.what.toLowerCase().startsWith(`${p} `));
   if (at < 0 || pass < 0 || total <= 0) return null;
   const before = writes.slice(0, at).reduce((sum, b) => sum + b, 0);
-  return { done: before + (pass * event.total + event.done) / 3, total, doing: PASSES[pass]! };
+  return {
+    done: before + (pass * event.total + event.done) / 3,
+    total,
+    pass: {
+      doing: PASSES[pass]!,
+      name: fileName(event.what.slice(PASSES[pass]!.length + 1)),
+      done: event.done,
+      total: event.total,
+    },
+  };
 }
 
 /**

@@ -123,13 +123,26 @@ describe("useRental", () => {
     act(() => tell({ type: "step", id: "check", state: "done" }));
     act(() => tell({ type: "step", id: "write", state: "running" }));
     // Each of the step's writes counts a third as it is copied, a third as written and a third as read back.
-    act(() => tell({ type: "progress", id: "write", what: "Copying esp", done: 100, total: 100 }));
-    expect(result.current.run.progress).toEqual({ id: "write", done: 100 / 3, total: 910, doing: "copying" });
-    act(() => tell({ type: "progress", id: "write", what: "Writing esp", done: 50, total: 100 }));
-    expect(result.current.run.progress).toEqual({ id: "write", done: 50, total: 910, doing: "writing" });
-    act(() => tell({ type: "progress", id: "write", what: "Checking esp", done: 100, total: 100 }));
-    act(() => tell({ type: "progress", id: "write", what: "Writing root", done: 400, total: 800 }));
-    expect(result.current.run.progress).toEqual({ id: "write", done: 500, total: 910, doing: "writing" });
+    const ESP = "swiffos_0.1.0.esp.raw";
+    const ROOT = "swiffos_0.1.0.root-x86-64.raw";
+    act(() => tell({ type: "progress", id: "write", what: `Copying ${ESP}`, done: 100, total: 100 }));
+    expect(result.current.run.progress).toEqual({
+      id: "write",
+      done: 100 / 3,
+      total: 910,
+      pass: { doing: "copying", name: "Boot", done: 100, total: 100 },
+    });
+    act(() => tell({ type: "progress", id: "write", what: `Writing ${ESP}`, done: 50, total: 100 }));
+    expect(result.current.run.progress?.done).toBe(50);
+    act(() => tell({ type: "progress", id: "write", what: `Checking ${ESP}`, done: 100, total: 100 }));
+    act(() => tell({ type: "progress", id: "write", what: `Writing ${ROOT}`, done: 400, total: 800 }));
+    // The step's own count only moves forward; the pass says what it measures, in its own file's bytes.
+    expect(result.current.run.progress).toEqual({
+      id: "write",
+      done: 500,
+      total: 910,
+      pass: { doing: "writing", name: "Root", done: 400, total: 800 },
+    });
     expect(result.current.run.meter?.done).toBe(500);
     act(() => tell({ type: "step", id: "write", state: "failed", error: "no room" }));
     expect(result.current.run.endedAt).toEqual(expect.any(Number));
@@ -290,25 +303,22 @@ describe("useRental", () => {
 
 describe("stepBytes", () => {
   it("counts each write a third as copied, a third as written and a third as read back, in the plan's order", () => {
-    expect(stepBytes([90, 810, 9], { what: "Copying a", done: 90, total: 90 })).toEqual({
+    const at = (what: string, done: number, total: number) => stepBytes([90, 810, 9], { what, done, total });
+    expect(at("Copying swiffos_0.1.0.esp.raw", 90, 90)).toEqual({
       done: 30,
       total: 909,
-      doing: "copying",
+      pass: { doing: "copying", name: "Boot", done: 90, total: 90 },
     });
-    expect(stepBytes([90, 810, 9], { what: "Writing a", done: 90, total: 90 })).toEqual({
-      done: 60,
-      total: 909,
-      doing: "writing",
-    });
-    expect(stepBytes([90, 810, 9], { what: "Checking b", done: 0, total: 810 })).toEqual({
+    expect(at("Writing swiffos_0.1.0.esp.raw", 90, 90)?.done).toBe(60);
+    expect(at("Checking swiffos_0.1.0.root-x86-64.raw", 0, 810)).toEqual({
       done: 630,
       total: 909,
-      doing: "checking",
+      pass: { doing: "checking", name: "Root", done: 0, total: 810 },
     });
-    expect(stepBytes([90, 810, 9], { what: "Checking c", done: 9, total: 9 })).toEqual({
+    expect(at("Checking swiffos_0.1.0.root-x86-64-verity.raw", 9, 9)).toEqual({
       done: 909,
       total: 909,
-      doing: "checking",
+      pass: { doing: "checking", name: "Verity", done: 9, total: 9 },
     });
   });
 

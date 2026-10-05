@@ -70,6 +70,14 @@ export function appidIn(text: string): number | null {
 /** Where a step of the plan on screen is: not reached yet (absent), running, or past. */
 export type StepState = "confirm" | "running" | "done" | "failed" | "stopped";
 
+/** One pass over one of Swiff OS's files while it is written: the file, in the owner's words, and its own bytes. */
+export type WritePass = {
+  doing: "copying" | "writing" | "checking";
+  name: string;
+  done: number;
+  total: number;
+};
+
 /**
  * The plan on screen, being run: each step's state, when the run and its
  * running step began, the running step's progress in bytes where it measures
@@ -81,7 +89,8 @@ export type RentalRun = {
   steps: Record<string, StepState>;
   startedAt: number | null;
   stepStartedAt: number | null;
-  progress: { id: string; done: number; total: number; doing: "copying" | "writing" | "checking" } | null;
+  /** `done` of `total` moves only forward across the step and is no count of bytes; `pass` is. */
+  progress: { id: string; done: number; total: number; pass: WritePass } | null;
   meter: RateMeter | null;
   failed: { step: string; error: string } | null;
   /** When it stopped, and when its details went to Swiff (Send details to Swiff). */

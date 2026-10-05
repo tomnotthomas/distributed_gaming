@@ -10,6 +10,14 @@ import { IDLE_RUN, type RentalRun, type RentalSetup } from "./model";
 import { meter, type RateMeter } from "./progress";
 import { writesOf } from "./rental";
 
+/** The demo's write, as one pass over all of Swiff OS. */
+const demoPass = (done: number, total: number) => ({
+  doing: "writing" as const,
+  name: "Swiff OS",
+  done,
+  total,
+});
+
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 
@@ -158,7 +166,7 @@ function writing(run: RentalRun, share: number, elapsed: number): RentalRun {
     mark: { at: now - 1000, done: done - RATE },
     recent: RATE,
   };
-  return { ...run, progress: { id: "write", done, total, doing: "writing" }, meter: m };
+  return { ...run, progress: { id: "write", done, total, pass: demoPass(done, total) }, meter: m };
 }
 
 type Start = { read: RentalRead | null; reading: boolean; preview: RentalPlan | null; run: RentalRun };
@@ -378,7 +386,7 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
           if (done < total)
             return {
               ...cur,
-              run: { ...run, progress: { id: at.id, done, total, doing: "writing" }, meter: m },
+              run: { ...run, progress: { id: at.id, done, total, pass: demoPass(done, total) }, meter: m },
             };
         } else if (elapsed < (SECONDS[at.id] ?? 1)) return cur;
         return {
