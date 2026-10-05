@@ -36,6 +36,10 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
+// `--nvidia-rental` lets rental mode take NVIDIA cards Swiff OS's driver runs.
+// A test switch: NVIDIA in Swiff OS is off for owners until it has passed its
+// test on real hardware (swiff-os/NVIDIA.md).
+const NVIDIA_RENTAL = process.argv.includes("--nvidia-rental");
 /** The app page's query string: `extra`, plus demo=1 in demo mode. */
 const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
 
@@ -109,13 +113,15 @@ async function watchGames() {
 // without administrator rights, and the steps that would install it or switch
 // to and from it, or confirm its key again. The steps are previews: nothing
 // here runs them.
-ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRental() : null));
+ipcMain.handle("rental:read", (event) =>
+  fromApp(event) ? readRental({ nvidiaRental: NVIDIA_RENTAL }) : null,
+);
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object") return null;
   if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
   if (ask.kind === "mok") return mokPlan();
   if (ask.kind !== "install") return null;
-  const rental = await readRental();
+  const rental = await readRental({ nvidiaRental: NVIDIA_RENTAL });
   if (!rental) return null;
   try {
     return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });

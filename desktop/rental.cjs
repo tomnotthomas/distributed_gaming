@@ -387,7 +387,7 @@ function gamesDriveOf(facts, libraries) {
 const installedOf = (facts) => Boolean(facts.bootEntry && facts.partitions.some((p) => p.type === TYPE.root));
 
 /** Everything the rental-mode screen shows, from the script's output and Steam's libraries. */
-function rentalOf(raw, libraries = []) {
+function rentalOf(raw, libraries = [], { nvidiaRental = false } = {}) {
   const facts = factsOf(raw);
   const targets = targetsOf(facts);
   return {
@@ -396,6 +396,7 @@ function rentalOf(raw, libraries = []) {
     targets,
     games: gamesDriveOf(facts, libraries),
     installed: installedOf(facts),
+    nvidiaRental,
   };
 }
 
@@ -405,6 +406,7 @@ async function readRental({
   run = powershell,
   steamPath = steamPathOnce,
   libraries,
+  nvidiaRental = false,
   ...options
 } = {}) {
   if (platform !== "win32") return null;
@@ -413,6 +415,7 @@ async function readRental({
     return rentalOf(
       facts,
       libraries ?? libraryDrives({ platform, steamPath: await steamPath(), ...options }),
+      { nvidiaRental },
     );
   } catch {
     return null;

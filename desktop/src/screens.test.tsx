@@ -705,10 +705,13 @@ describe("rental mode", () => {
   it("shows the graphics card with the driver Swiff OS runs it on, under its row", () => {
     const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" };
     renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, gpus: [nvidia] })) }));
-    expect(screen.getByText("RTX 4080", { selector: ".rck" })).toBeInTheDocument();
+    expect(screen.getByText("RTX 4080: in testing", { selector: ".rck" })).toBeInTheDocument();
     expect(
-      screen.getByText("Supported: Swiff OS runs it on NVIDIA's 595 driver, Windows on 560.94."),
+      screen.getByText(
+        "NVIDIA support is in testing: Swiff OS will run it on NVIDIA's 595 driver, Windows on 560.94.",
+      ),
     ).toHaveClass("rck-note");
+    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
   });
 
   it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {

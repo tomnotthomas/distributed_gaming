@@ -173,8 +173,12 @@ function rentalGpu(gpus: Gpu[]): Gpu | undefined {
   );
 }
 
-/** The graphics card, the driver Swiff OS runs it on, and whether it can. */
-function gpuCheck(gpu: Gpu | undefined): RentalCheck {
+/**
+ * The graphics card, the driver Swiff OS runs it on, and whether it can. An
+ * NVIDIA card Swiff OS runs still waits while NVIDIA is in testing (the app's
+ * --nvidia-rental flag lifts that, for the hardware test).
+ */
+function gpuCheck(gpu: Gpu | undefined, nvidiaRental: boolean): RentalCheck {
   const check = { id: "gpu", label: "Graphics" };
   if (!gpu) return { ...check, value: "Not read", state: "unread" };
   const name = shortGpu(gpu.name);
@@ -192,6 +196,13 @@ function gpuCheck(gpu: Gpu | undefined): RentalCheck {
   const series = "GeForce GTX 16 and RTX 20 series cards and newer";
   switch (nvidiaSupported(gpu)) {
     case true:
+      if (!nvidiaRental)
+        return {
+          ...check,
+          value: `${name}: in testing`,
+          state: "blocked",
+          detail: `NVIDIA support is in testing: Swiff OS will run it on NVIDIA's ${SWIFF_OS_NVIDIA} driver${windows}.`,
+        };
       return {
         ...check,
         value: name,
@@ -242,7 +253,7 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
             ? { value: `${games.letter}:, BitLocker off`, state: "ok" }
             : { value: `${games.letter}:, BitLocker not read`, state: "unread" }),
     },
-    gpuCheck(rentalGpu(facts.gpus)),
+    gpuCheck(rentalGpu(facts.gpus), read.nvidiaRental),
     {
       id: "fast-startup",
       label: "Fast Startup",
@@ -270,10 +281,14 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
       fixes.push(
         `Turn off BitLocker on ${read.games?.letter}:, or move your Steam library to a drive without it: Swiff OS cannot read an encrypted drive.`,
       );
-    if (check.id === "gpu")
+    if (check.id === "gpu") {
+      const gpu = rentalGpu(read.facts.gpus)!;
       fixes.push(
-        `Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(rentalGpu(read.facts.gpus)!.name)}. Sharing from Windows works as before.`,
+        nvidiaSupported(gpu)
+          ? `NVIDIA support is in testing: rental mode takes the ${shortGpu(gpu.name)} once it passes. Sharing from Windows works as before.`
+          : `Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(gpu.name)}. Sharing from Windows works as before.`,
       );
+    }
   }
   return fixes;
 }

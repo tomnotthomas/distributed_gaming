@@ -69,6 +69,12 @@ whether Swiff OS runs it and on which driver, and Windows' own driver version (f
 NVIDIA's numbering, `32.0.15.6094` → `560.94`). An older card gets "Fit a GeForce RTX 20 series
 card or newer", and is told sharing from Windows works as before.
 
+**NVIDIA stays off for owners until the hardware test passes.** A card Swiff OS will run shows
+"in testing" ("NVIDIA support is in testing: Swiff OS will run it on NVIDIA's 595 driver") and
+is not ready, so the install is not offered. Starting the app with `--nvidia-rental` (main.cjs)
+takes such cards, for the hardware test. When the test passes, drop the flag and make taking
+them the default.
+
 ## gamescope and explicit sync
 
 gamescope on NVIDIA needs explicit sync (the `linux-drm-syncobj-v1` Wayland protocol), which
@@ -190,4 +196,6 @@ Checks, in order:
    (pressure-vessel) finds the NVIDIA libraries.
 5. **Clean between renters.** End the session: the PC reboots, the modules load again, and the
    next renter's session starts on the same driver.
-6. **Older card.** With a GTX 10 series card the host app shows "too old" and offers no install.
+6. **The host app.** Without `--nvidia-rental` a supported card shows "in testing" and offers no
+   install; with it, the card is ready and the install is offered. With a GTX 10 series card the
+   app shows "too old" and offers no install either way.

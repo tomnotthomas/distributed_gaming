@@ -542,13 +542,34 @@ describe("what the screen says", () => {
   });
 
   describe("the graphics card", () => {
-    const gpu = (...gpus: { name: string; pnp: string; driver?: string }[]) =>
-      pcChecks(
-        pc((raw) => ({ ...raw, gpus })),
-        null,
-      ).find((c) => c.id === "gpu");
+    type Card = { name: string; pnp: string; driver?: string };
+    /** The Graphics row, with NVIDIA in rental mode switched on (the app's --nvidia-rental). */
+    const gpu = (...gpus: Card[]) =>
+      pcChecks({ ...pc((raw) => ({ ...raw, gpus })), nvidiaRental: true }, null).find((c) => c.id === "gpu");
 
-    it("takes an NVIDIA card from the GTX 16 and RTX 20 series on, and names the driver on each side", () => {
+    it("keeps NVIDIA off while it is in testing, and says so for a card Swiff OS will run", () => {
+      const read = pc((raw) => ({
+        ...raw,
+        gpus: [{ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" }],
+      }));
+      expect(read.nvidiaRental).toBe(false);
+      expect(pcChecks(read, null).find((c) => c.id === "gpu")).toEqual({
+        id: "gpu",
+        label: "Graphics",
+        value: "RTX 4080: in testing",
+        state: "blocked",
+        detail:
+          "NVIDIA support is in testing: Swiff OS will run it on NVIDIA's 595 driver, Windows on 560.94.",
+      });
+      expect(status(read)).toMatchObject({
+        fixes: [
+          "NVIDIA support is in testing: rental mode takes the RTX 4080 once it passes. Sharing from Windows works as before.",
+        ],
+        canInstall: false,
+      });
+    });
+
+    it("with NVIDIA on, takes a card from the GTX 16 and RTX 20 series on, and names the driver on each side", () => {
       expect(
         gpu({ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" }),
       ).toEqual({

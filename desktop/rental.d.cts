@@ -66,6 +66,11 @@ export type RentalRead = {
   targets: RentalTarget[];
   games: GamesDrive | null;
   installed: boolean;
+  /**
+   * Whether rental mode takes NVIDIA cards Swiff OS's driver runs. Off until
+   * NVIDIA is tested on real hardware; on with the app's --nvidia-rental flag.
+   */
+  nvidiaRental: boolean;
 };
 
 export type PlanOp =
@@ -145,12 +150,17 @@ export function gamesDriveOf(
   facts: RentalFacts,
   libraries: { letter: string; games: number }[],
 ): GamesDrive | null;
-export function rentalOf(raw: unknown, libraries?: { letter: string; games: number }[]): RentalRead;
+export function rentalOf(
+  raw: unknown,
+  libraries?: { letter: string; games: number }[],
+  options?: { nvidiaRental?: boolean },
+): RentalRead;
 export function readRental(options?: {
   platform?: string;
   run?: (script: string) => Promise<string>;
   steamPath?: () => Promise<string | null>;
   libraries?: { letter: string; games: number }[];
+  nvidiaRental?: boolean;
   env?: Record<string, string | undefined>;
   home?: string;
   files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };
