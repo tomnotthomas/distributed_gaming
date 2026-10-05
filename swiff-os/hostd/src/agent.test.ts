@@ -20,6 +20,8 @@ function fakeServer(start: Partial<FakeState> = {}) {
     status: "available",
     until: null,
     sessionId: null,
+    started: false,
+    resetUntil: null,
     hostSession: null,
     keys: 0,
     refuseKey: false,
@@ -35,6 +37,7 @@ function fakeServer(start: Partial<FakeState> = {}) {
     price: 100,
     ...(state.until === null ? {} : { until: state.until }),
     ...(state.sessionId ? { session: { id: state.sessionId } } : {}),
+    ...(state.sessionId && state.resetUntil !== null ? { resetUntil: state.resetUntil } : {}),
   });
   const guard = (call: string) => {
     calls.push(call);
@@ -45,14 +48,17 @@ function fakeServer(start: Partial<FakeState> = {}) {
       guard("heartbeat");
       return view();
     },
-    setAvailability: async (available, until) => {
-      guard(`availability ${available}`);
+    setAvailability: async (available, until, { reset = false } = {}) => {
+      guard(`availability ${available}${reset ? " reset" : ""}`);
       if (state.unreachable > 0) {
         state.unreachable--;
         throw new TypeError("fetch failed");
       }
       state.until = until;
-      if (!available) {
+      if (!available && reset && state.sessionId && !state.started) {
+        // The reset hold: a claim not yet served is kept through the restart.
+        state.resetUntil ??= Date.now() + 3 * 60_000;
+      } else if (!available) {
         // Taking it back ends a live session: the owner's.
         state.sessionId = null;
         state.hostSession = null;
@@ -65,6 +71,8 @@ function fakeServer(start: Partial<FakeState> = {}) {
       if (sessionId !== state.sessionId) throw new HostApiError("session start", 409, "not-claimed");
       if (state.hostSession) throw new HostApiError("session start", 409, "session-active");
       state.hostSession = sessionId;
+      state.started = true;
+      state.resetUntil = null;
       state.keys++;
       return { sessionId, sessionKey: `key-${state.keys}`, expiresAt: 0 };
     },
@@ -84,13 +92,18 @@ function fakeServer(start: Partial<FakeState> = {}) {
     /** A renter claims the machine. */
     claim(sessionId: string) {
       state.sessionId = sessionId;
+      state.started = false;
       state.status = "in_session";
     },
     /** The platform session ends (the renter left, the time ran out): its host session with it. */
     endSession() {
+      // A session that ends during a reset hold leaves the machine idle, as the reset would have.
+      const held = state.resetUntil !== null;
       state.sessionId = null;
+      state.started = false;
+      state.resetUntil = null;
       state.hostSession = null;
-      state.status = "available";
+      state.status = held ? "idle" : "available";
     },
   };
   return server;
@@ -100,6 +113,10 @@ type FakeState = {
   status: MachineView["status"];
   until: number | null;
   sessionId: string | null;
+  /** Its host session has started: the server's `started_at`. */
+  started: boolean;
+  /** Until when a reset holds the claimed session through the restart. */
+  resetUntil: number | null;
   hostSession: string | null;
   keys: number;
   refuseKey: boolean;
@@ -240,7 +257,7 @@ describe("offering and serving", () => {
     expect(h.server.state).toMatchObject({ status: "idle", until: until2h, hostSession: null });
     expect(h.saved()).toEqual({ until: until2h });
     expect(h.served()).toBe("boot-now");
-    expect(h.server.calls.slice(-3)).toEqual(["heartbeat", "availability false", "session end"]);
+    expect(h.server.calls.slice(-3)).toEqual(["heartbeat", "availability false reset", "session end"]);
   });
 
   it("learns of the end from its heartbeat when the streamer says nothing", async () => {
@@ -457,7 +474,7 @@ describe("offering and serving", () => {
     expect(h.server.calls.filter((c) => c === "session end")).toHaveLength(2);
   });
 
-  it("restarts without taking the machine off offer when a renter claimed it as the last one left", async () => {
+  it("holds a renter who claimed it as the last one left through the reset, and serves them after it", async () => {
     const h = harness();
     await until(() => phase(h.agent) === "offered", "the offer");
     h.server.claim("s1");
@@ -467,10 +484,58 @@ describe("offering and serving", () => {
     h.server.claim("s2");
     h.streamers[0]!.exit();
     expect(await h.running).toBe("reset");
-    // Taking it off offer now would end s2 as the owner's; it is served after the reset.
-    expect(h.server.calls).not.toContain("availability false");
-    expect(h.server.state).toMatchObject({ status: "in_session", sessionId: "s2" });
-    expect(h.saved()).toBeNull();
+    // Off offer as a reset: s2 is kept, not ended as the owner's.
+    expect(h.server.calls).toContain("availability false reset");
+    expect(h.server.state).toMatchObject({ status: "in_session", sessionId: "s2", hostSession: null });
+    expect(h.server.state.resetUntil).not.toBeNull();
+
+    const back = harness(h.server, { saved: h.saved(), served: h.served(), bootId: "boot-next" });
+    await until(() => back.streamers.length === 1, "the streamer after the reboot");
+    expect(back.agent.status()).toMatchObject({ phase: "serving", sessionId: "s2" });
+    expect(h.server.state.resetUntil).toBeNull();
+    expect(back.saved()).toBeNull();
+  });
+
+  it("holds a renter who claims after its last heartbeat, as the reset takes it off offer", async () => {
+    const until2h = Date.now() + 2 * HOUR;
+    const h = harness(fakeServer({ until: until2h }));
+    await until(() => phase(h.agent) === "offered", "the offer");
+    h.server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    const setAvailability = h.server.api.setAvailability;
+    h.server.api.setAvailability = async (available, until, options) => {
+      // The claim commits between the reset's heartbeat and its off-offer.
+      if (!available) h.server.claim("s2");
+      return setAvailability(available, until, options);
+    };
+    h.server.endSession();
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
+    expect(h.server.state).toMatchObject({ status: "in_session", sessionId: "s2", until: until2h });
+    expect(h.saved()).toEqual({ until: until2h });
+  });
+
+  it("lets a held renter's session end during the reset leave the PC to offer itself again", async () => {
+    const until2h = Date.now() + 2 * HOUR;
+    const server = fakeServer({ until: until2h });
+    const h = harness(server);
+    await until(() => phase(h.agent) === "offered", "the offer");
+    server.claim("s1");
+    h.socket().emit({ type: "claimed", claim: { sessionId: "s1", appid: 730, minutes: 30 } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    server.endSession();
+    server.claim("s2");
+    h.streamers[0]!.exit();
+    expect(await h.running).toBe("reset");
+    // The held renter leaves before the PC is back.
+    server.endSession();
+    expect(server.state.status).toBe("idle");
+
+    const back = harness(server, { saved: h.saved(), served: h.served(), bootId: "boot-next" });
+    await until(() => phase(back.agent) === "offered", "the offer after the reboot");
+    expect(server.state).toMatchObject({ status: "available", until: until2h });
   });
 });
 
@@ -483,9 +548,9 @@ function askWhileResetting(api: HostApi, agent: Agent) {
     return heartbeat();
   };
   const setAvailability = api.setAvailability;
-  api.setAvailability = async (available, until) => {
+  api.setAvailability = async (available, until, options) => {
     if (phase(agent) === "resetting") answers.push(await agent.requestReturnToWindows());
-    return setAvailability(available, until);
+    return setAvailability(available, until, options);
   };
   return answers;
 }
@@ -495,7 +560,7 @@ describe("the owner taking the PC back (D8)", () => {
     const h = harness();
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
-    expect(h.server.calls).toContain("availability false");
+    expect(h.server.calls).toContain("availability false reset");
     expect(h.server.state.status).toBe("idle");
     expect(await h.running).toBe("windows");
     expect(h.system).toEqual({ reboots: 0, windows: 1 });
@@ -507,7 +572,7 @@ describe("the owner taking the PC back (D8)", () => {
     await until(() => phase(h.agent) === "offered", "the offer");
     h.server.claim("s1");
     expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "session-live" });
-    expect(h.server.calls).not.toContain("availability false");
+    expect(h.server.calls.some((c) => c.startsWith("availability false"))).toBe(false);
     await until(() => h.streamers.length === 1, "the streamer");
     expect(h.agent.status()).toMatchObject({ phase: "serving", sessionId: "s1" });
     h.server.endSession();
@@ -519,8 +584,8 @@ describe("the owner taking the PC back (D8)", () => {
     const h = harness();
     await until(() => phase(h.agent) === "offered", "the offer");
     const setAvailability = h.server.api.setAvailability;
-    h.server.api.setAvailability = async (available, until) => {
-      const view = await setAvailability(available, until);
+    h.server.api.setAvailability = async (available, until, options) => {
+      const view = await setAvailability(available, until, options);
       h.socket().emit({ type: "claimed", claim: { sessionId: "late", appid: 730, minutes: 30 } });
       return view;
     };
@@ -528,6 +593,24 @@ describe("the owner taking the PC back (D8)", () => {
     expect(await h.running).toBe("windows");
     expect(h.streamers).toHaveLength(0);
     expect(h.server.calls).not.toContain("session start");
+  });
+
+  it("refuses when a renter claims after its heartbeat, as it takes the PC off offer, and serves them", async () => {
+    const h = harness();
+    await until(() => phase(h.agent) === "offered", "the offer");
+    const setAvailability = h.server.api.setAvailability;
+    h.server.api.setAvailability = async (available, until, options) => {
+      if (!available) h.server.claim("s1");
+      return setAvailability(available, until, options);
+    };
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: false, reason: "session-live" });
+    await until(() => h.streamers.length === 1, "the streamer");
+    expect(h.agent.status()).toMatchObject({ phase: "serving", sessionId: "s1" });
+    expect(h.server.state.resetUntil).toBeNull();
+    h.server.api.setAvailability = setAvailability;
+    h.server.endSession();
+    expect(await h.running).toBe("reset");
+    expect(h.system).toEqual({ reboots: 1, windows: 0 });
   });
 
   it("refuses while a renter's session is live, and resets as usual after it", async () => {

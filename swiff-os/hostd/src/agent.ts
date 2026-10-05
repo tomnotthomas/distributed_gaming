@@ -30,8 +30,9 @@
 //
 // Resetting. Take the machine off offer at once, so no renter is matched to a
 // PC that is about to restart (D5: renters never wait for the reset), end the
-// host session, and reboot. A renter who claimed it in the instant before is
-// not turned away: the PC still restarts first, and serves them once it is back.
+// host session, and reboot. The off-offer is the server's reset hold: a renter
+// who claimed it in the instant before, even after the last heartbeat, is not
+// turned away but held through the restart and served once the PC is back.
 
 import type { MachineView, HostApi } from "./api.ts";
 import { HostApiError } from "./api.ts";
@@ -245,7 +246,9 @@ export function createAgent(deps: AgentDeps): Agent {
 
   /**
    * The owner's request while offered: back to Windows when the server shows no
-   * session, the PC then off offer; a session there is served. Null: ask again.
+   * session, the PC then off offer; a session there is served. The off-offer
+   * goes as a reset, so a claim that lands after the heartbeat is kept and
+   * served rather than ended as the owner's. Null: ask again.
    */
   async function takeBack(): Promise<{ sessionId: string } | "windows" | null> {
     const view = await beat();
@@ -255,8 +258,10 @@ export function createAgent(deps: AgentDeps): Agent {
     }
     if (view) {
       try {
-        await api.setAvailability(false, view.until ?? null);
-        return "windows";
+        const off = await api.setAvailability(false, view.until ?? null, { reset: true });
+        if (!off.session) return "windows";
+        answer({ ok: false, reason: "session-live" });
+        return { sessionId: off.session.id };
       } catch (cause) {
         if (refusal(cause)) throw new Refused("the server refused the machine key");
         log(`could not take the machine off offer: ${describe(cause)}`);
@@ -354,10 +359,13 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "resetting";
     if (!toWindows) answer({ ok: false, reason: "busy" });
     const view = await beat();
-    if (view?.session && view.session.id !== endedId) {
-      log(`session ${view.session.id} was claimed as ${endedId} ended; it is served after the reset`);
-    } else if (view && !view.session && !toWindows && sharing(view)) {
-      await offOfferForReset(view);
+    if (view && !toWindows && sharing(view)) {
+      const held = await offOfferForReset(view);
+      if (held?.session) {
+        log(
+          `session ${held.session.id} was claimed as ${endedId} ended; it is held and served after the reset`,
+        );
+      }
     }
     await endHostSession();
     sessionId = null;
@@ -365,14 +373,20 @@ export function createAgent(deps: AgentDeps): Agent {
     return restart();
   }
 
-  /** Off offer for the reset, remembered so the next boot offers it again on the same terms. */
-  async function offOfferForReset(view: MachineView): Promise<void> {
+  /**
+   * Off offer for the reset, remembered so the next boot offers it again on the
+   * same terms. The server keeps a session claimed and not yet started, held
+   * through the restart, and names it in the answer; a started one it ends.
+   * Null when the server could not be told.
+   */
+  async function offOfferForReset(view: MachineView): Promise<MachineView | null> {
     try {
       // Saved first: a machine found off offer at boot with nothing saved goes back to Windows.
       await resume.save({ until: view.until ?? null });
-      await api.setAvailability(false, view.until ?? null);
+      return await api.setAvailability(false, view.until ?? null, { reset: true });
     } catch (cause) {
       log(`could not take the machine off offer for the reset: ${describe(cause)}`);
+      return null;
     }
   }
 
@@ -381,7 +395,9 @@ export function createAgent(deps: AgentDeps): Agent {
     phase = "resetting";
     log("a renter was served in this boot and it has not restarted since");
     const view = await beatUntilAnswered();
-    if (!view.session && sharing(view)) await offOfferForReset(view);
+    // A claim not yet served is held through the restart; one this boot was
+    // serving when the agent stopped ends here, as nobody is served on this boot.
+    if (sharing(view)) await offOfferForReset(view);
     if (!view.session && view.status !== "idle" && !sharing(view)) return returnToWindows();
     return restart();
   }

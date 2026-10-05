@@ -212,6 +212,54 @@ describe("swiff-hostd against the server", () => {
       expect(await second.running).toBe<Outcome>("windows");
       expect(second.system).toEqual({ reboots: 0, windows: 1 });
       expect(await machine()).toMatchObject({ status: "idle" });
+      await call("POST", `/api/bookings/${waiting.body!.bookingId}/end`, RENTER);
+    },
+  );
+
+  it(
+    "holds a renter who claimed before a reset that never rebooted, and serves them after the restart",
+    { timeout: 60_000 },
+    async () => {
+      const stateDir = join(await mkdtemp(join(tmpdir(), "swiff-hostd-")), "state");
+      const shareUntil = Date.now() + 2 * HOUR;
+      await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: true,
+        until: shareUntil,
+        ...REPORT,
+      });
+      const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
+      expect(booking.body).toMatchObject({ status: "matched" });
+      const claim = await call("POST", `/api/bookings/${booking.body!.bookingId}/claim`, RENTER);
+      expect(claim.status).toBe(200);
+      const sessionId = claim.body!.sessionId as string;
+
+      // A renter was served in this boot already: the agent resets again, as a reset hold.
+      await fileResumeStore(stateDir).markServed("boot-3");
+      const streamers = testStreamers();
+      const again = await bootAgent(stateDir, streamers.launch, "boot-3");
+      expect(await again.running).toBe<Outcome>("reset");
+      expect(streamers.seen).toHaveLength(0);
+      const held = await machine();
+      expect(held).toMatchObject({ status: "in_session", session: { id: sessionId }, until: shareUntil });
+      expect(held.resetUntil).toBeGreaterThan(Date.now());
+
+      // Back from the restart: the held renter is served, and the hold is over.
+      const back = await bootAgent(stateDir, streamers.launch, "boot-4");
+      await until(
+        () => streamers.seen[0]?.messages.includes("registered") ?? false,
+        "the streamer in the room",
+      );
+      expect(back.agent.status()).toMatchObject({ phase: "serving", sessionId });
+      expect(await machine()).not.toHaveProperty("resetUntil");
+
+      const left = await call(
+        "POST",
+        `/api/sessions/${sessionId}/leave`,
+        bearer(claim.body!.ticket as string),
+      );
+      expect(left.status).toBe(200);
+      expect(await back.running).toBe<Outcome>("reset");
+      expect(await machine()).toMatchObject({ status: "idle", until: shareUntil });
     },
   );
 });

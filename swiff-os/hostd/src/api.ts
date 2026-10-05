@@ -32,9 +32,15 @@ export type HostApi = {
   /**
    * Offer the machine or take it off offer. `until` (Unix ms) is the owner's
    * share-until, sent back as it was: the server replaces it on every call.
-   * Taking it off offer ends a live session as the owner taking it back.
+   * Taking it off offer ends a live session as the owner taking it back,
+   * except with `reset`: a session claimed and not yet started is kept, held
+   * through the restart, and named in the answer (the reset hold, host.md).
    */
-  setAvailability(available: boolean, until: number | null): Promise<MachineView>;
+  setAvailability(
+    available: boolean,
+    until: number | null,
+    options?: { reset?: boolean },
+  ): Promise<MachineView>;
   startHostSession(sessionId: string): Promise<SessionGrant>;
   /** Answers once the host session is over, whether or not one was live. */
   endHostSession(): Promise<void>;
@@ -100,11 +106,15 @@ export function createHostApi({
 
   return {
     heartbeat: async () => call("heartbeat", 200, await send("POST", `${machine}/heartbeat`, {})),
-    setAvailability: async (available, until) =>
+    setAvailability: async (available, until, { reset = false } = {}) =>
       call(
         "availability",
         200,
-        await send("PUT", `${machine}/availability`, { available, ...(until === null ? {} : { until }) }),
+        await send("PUT", `${machine}/availability`, {
+          available,
+          ...(until === null ? {} : { until }),
+          ...(reset ? { reset } : {}),
+        }),
       ),
     startHostSession: async (sessionId) =>
       call("session start", 201, await send("POST", sessionPath(machineId), { sessionId })),

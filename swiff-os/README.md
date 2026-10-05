@@ -339,9 +339,12 @@ host protocol the desktop app already speaks, with no new messages
   again with a fresh key. After 4 starts in a row that each stop within a minute, the agent
   ends the session.
 - **Restarts clean after every renter, while nobody waits (D5).** When a session ends,
-  the agent first takes the PC off offer (`available: false`, with the owner's share-until
-  sent back), so no renter is matched to a PC that is about to restart. It then ends the
-  host session and reboots. On the way back up it offers the PC again on the same terms.
+  the agent first takes the PC off offer (`available: false` with `reset: true`, and the
+  owner's share-until sent back), so no renter is matched to a PC that is about to
+  restart. That is the server's reset hold ([`host.md`](../docs/system-design/host.md)):
+  a renter who claimed the PC in the instant before, even after the agent's last
+  heartbeat, is kept and held through the restart, and served once the PC is back. It
+  then ends the host session and reboots. On the way back up it offers the PC again on the same terms.
   It keeps a small `resume.json` in its state directory to remember that it took the PC
   off offer itself. Before serving a renter it also notes the current boot id. If the agent
   starts again in a boot where a renter was already served, the reboot never happened, so
@@ -359,16 +362,18 @@ defaults:
   idle: offered, or not offered at all (below the hardware floor, or its key refused).
   While offered, the agent first checks with a heartbeat: if the server shows a session,
   the answer is `session-live` and that renter is served; otherwise it takes the PC off
-  offer itself, answers `ok` and goes back to Windows. During a session the answer is
+  offer itself, as a reset, so a claim that lands meanwhile is kept, answered
+  `session-live` and served; with none it answers `ok` and goes back to Windows. During a session the answer is
   `session-live`; while the agent is starting or resetting it is `busy`, and the owner
   tries again shortly. A refused request is never kept for later. Set it to `"always"`
   to end a live session as the owner taking the machine back.
 - **D3 `HARDWARE_FLOOR`.** The agent does not offer the PC unless it has UEFI, Secure
-  Boot on, a TPM 2.0 and an IOMMU. The server's verifier, in the attestation stage, judges
-  the TPM's EK certificate and the lower trust tier for a discrete TPM.
+  Boot on, a TPM 2.0 and an IOMMU. The server's attestation verifier
+  (`server/src/tpm-verifier.ts`) judges the TPM's EK certificate and the lower trust tier
+  for a discrete TPM.
 
 ```bash
-npm test -w @swiff/hostd                  # unit tests, and one against the real server (build it first)
+npm test -w @swiff/hostd                  # unit tests, and two against the real server (build it first)
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts      # the agent
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts status
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
@@ -385,12 +390,7 @@ can use.
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
-- Re-attesting before each session.
-- A host certificate in place of the machine key.
+- Attesting, and hosting on the host certificate it earns in place of the machine key
+  (the server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at
+  the `unattested` tier meanwhile), then re-attesting before each session.
 - Holding the PC back until its games are verified.
-- A server-side hold, or an off-offer that refuses while a session exists
-  (`swiff-reset-hold`). Today a renter who claims the PC in the instant its last session
-  ends, before the agent's heartbeat check, is served after the restart, about 30 s
-  later. A claim that lands in the narrow window between a heartbeat check and the
-  off-offer PUT, in the reset or in the owner's return to Windows, is ended instead, as
-  the owner taking the PC back, until that exists.

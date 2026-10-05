@@ -221,11 +221,13 @@ PC is back (the renter leaves), the machine goes `idle`, as a reset with no sess
 leaves it, until the PC offers it again. The owner's host app never sends `reset`, so a
 desktop PC behaves as before.
 
-swiff-hostd should send `reset: true` on every off-offer call it makes before a restart
-between renters, including the one where its heartbeat already names a new session. That
-is a follow-up. As first written, it takes the machine off offer with a plain
-`available: false` when it sees no session, and with a session it sends nothing, so a
-restart longer than 15 s ends that session as `host_offline`.
+swiff-hostd (`swiff-os/hostd/src/agent.ts`) sends `reset: true` on every off-offer call it
+makes before a restart between renters, including the one where its heartbeat already
+names a new session, and serves the session the answer names once it is back. It sends
+it too when the owner asks for the PC back while it is offered: a claim that lands after
+its heartbeat is then kept, and served, rather than ended as `owner_kill`, and the owner
+is told a session is live. Its other off-offer calls (going back to Windows when the owner
+stopped sharing, the share-until passed, or takeover is set to `always`) are plain.
 
 Whenever the platform session ends — the host ends it, the booked time runs out, the
 machine goes silent or the owner takes it back — the server also ends the PC's host
