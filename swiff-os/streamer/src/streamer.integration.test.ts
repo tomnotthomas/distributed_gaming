@@ -13,8 +13,10 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RTCPeerConnection, RtpHeader, RtpPacket, useH264, useOPUS, type RTCDataChannel } from "werift";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,6 +25,7 @@ import { mintRenterSession } from "../../../server/src/access";
 import { SESSION_COOKIE } from "../../../server/src/signin";
 import { REPORT } from "../../../server/src/test/report";
 import { createPeer } from "./peer";
+import { steamLoginForwarder } from "./steamLogin";
 import { startStreamer } from "./streamer";
 import { VIDEO_PT } from "./pipeline";
 
@@ -273,6 +276,104 @@ describe("swiff-streamer against the server", () => {
         clearInterval(feed);
         streamer.stop();
         await renter.close();
+      }
+    },
+  );
+
+  it(
+    "carries a rental-mode renter's Steam sign-in: the code out, a retry back, and game-started once the game runs",
+    { timeout: 60_000 },
+    async () => {
+      // A stand-in for swiff-steam-login on its socket: it records each Play and answers as the test says.
+      const dir = mkdtempSync(join(tmpdir(), "swiff-steam-"));
+      const agentPath = join(dir, "login.sock");
+      const plays: { command: string; conn: Socket }[] = [];
+      const agent = createServer((conn) => {
+        conn.setEncoding("utf8");
+        conn.on("data", (command: string) => plays.push({ command, conn }));
+      });
+      await new Promise<void>((done) => agent.listen(agentPath, done));
+      const agentSays = (...events: object[]) =>
+        plays.at(-1)!.conn.write(events.map((e) => `${JSON.stringify(e)}\n`).join(""));
+
+      const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: true,
+        ...REPORT,
+      });
+      expect(offered.status).toBe(200);
+      const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
+      expect(booking.body).toMatchObject({ status: "matched" });
+      const claim = await call("POST", `/api/bookings/${booking.body!.bookingId}/claim`, RENTER);
+      expect(claim.status).toBe(200);
+      const sessionId = claim.body!.sessionId as string;
+      const ticket = claim.body!.ticket as string;
+      const grant = await call("POST", `/api/machines/${MACHINE}/session`, HOST, { sessionId });
+      expect(grant.status).toBe(201);
+
+      const streamer = startStreamer({
+        config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
+        grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
+        input: recordingSink().sink,
+        onKeyframeNeeded: () => {},
+        steamLogin: steamLoginForwarder({ socketPath: agentPath, appid: 730, log: () => {} }),
+        makePeer: (options) => createPeer({ ...options, iceServers: [] }),
+        log: () => {},
+      });
+
+      // The renter's page, as far as signaling goes: it joins with its ticket and hears the PC.
+      const heard: SignalMessage[] = [];
+      const ws = new WebSocket(SERVER_URL);
+      const send = (m: SignalMessage) => ws.send(JSON.stringify(m));
+      ws.addEventListener("open", () => send({ type: "join", ticket }));
+      ws.addEventListener("message", (event) => heard.push(JSON.parse(String(event.data)) as SignalMessage));
+      const steam = () => heard.filter((m) => m.type === "steam-login");
+      try {
+        // The renter is in the room: the PC asks Steam for its code before any stream.
+        await until(() => plays.length === 1, "the Play at the agent");
+        expect(plays[0]!.command).toBe("play 730\n");
+        agentSays({ event: "qr", url: "https://s.team/q/1/42", atMs: 50 });
+        await until(() => steam().length === 1, "the code at the renter");
+        expect(steam()[0]).toEqual({ type: "steam-login", state: "qr", url: "https://s.team/q/1/42" });
+
+        // The code timed out: the renter hears it, asks for a new one, and the PC plays afresh.
+        agentSays({ event: "failed", reason: "sign-in-timeout", atMs: 600_000 });
+        plays[0]!.conn.end();
+        await until(() => steam().length === 2, "the failure at the renter");
+        expect(steam()[1]).toEqual({ type: "steam-login", state: "failed" });
+        send({ type: "steam-login", state: "retry" });
+        await until(() => plays.length === 2, "the fresh Play after the retry");
+        expect(plays[1]!.command).toBe("play 730\n");
+
+        agentSays(
+          { event: "qr", url: "https://s.team/q/1/43", atMs: 40 },
+          { event: "signed-in", atMs: 9_000 },
+          { event: "launching", appid: 730, atMs: 9_100 },
+          { event: "game-on-screen", appid: 730, atMs: 21_000 },
+        );
+        await until(() => steam().length === 4, "the new code and the sign-in at the renter");
+        expect(steam().slice(2)).toEqual([
+          { type: "steam-login", state: "qr", url: "https://s.team/q/1/43" },
+          { type: "steam-login", state: "signed-in" },
+        ]);
+
+        // The page starts the session on its first frame; the server asks the PC to launch, and the game runs.
+        const started = await call("POST", `/api/sessions/${sessionId}/start`, {
+          authorization: `Bearer ${ticket}`,
+        });
+        expect(started.status).toBe(200);
+        await until(() => heard.some((m) => m.type === "game-started"), "game-started at the renter");
+        expect(heard.find((m) => m.type === "game-started")).toEqual({ type: "game-started", sessionId });
+
+        const left = await call("POST", `/api/sessions/${sessionId}/leave`, {
+          authorization: `Bearer ${ticket}`,
+        });
+        expect(left.status).toBe(200);
+        expect(await streamer.ended).toBe("session-ended");
+      } finally {
+        streamer.stop();
+        ws.close();
+        await new Promise((done) => agent.close(done));
+        rmSync(dir, { recursive: true, force: true });
       }
     },
   );
