@@ -1,0 +1,19 @@
+# VM test build only (mkosi --profile selftest). Never part of the shipped
+# image: it runs the Stage 1 assertions as root, prints them on the serial
+# console for vm/run-test.sh and powers the VM off.
+[Unit]
+Description=Swiff OS VM self-test
+After=multi-user.target swiff-games-overlay.service swiff-hwcheck.service systemd-pcrphase.service
+Requires=home.mount
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/swiff/selftest
+ExecStopPost=/usr/bin/systemctl --no-block poweroff
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+# Not multi-user.target: a target is ordered after the units it wants, which
+# with After=multi-user.target above would be an ordering cycle.
+WantedBy=graphical.target

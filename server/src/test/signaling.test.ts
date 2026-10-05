@@ -11,7 +11,7 @@ import { after, afterEach, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
-import { mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
+import { mintHostCert, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
@@ -476,9 +476,13 @@ describe("host sessions", () => {
 
   /**
    * A renter books and claims `room`, the only machine on offer, as the
-   * platform's booking flow does. Returns the claimed platform session's id.
+   * platform's booking flow does. Returns the claimed platform session's id
+   * and the join ticket the claim handed out.
    */
-  async function claimRoom(room: string, minutes = 30): Promise<string> {
+  async function claimRoomWithTicket(
+    room: string,
+    minutes = 30,
+  ): Promise<{ sessionId: string; ticket: string }> {
     const offered = await call(
       "PUT",
       `/api/machines/${room}/availability`,
@@ -491,8 +495,12 @@ describe("host sessions", () => {
     // The status and room only: the body carries the renter's ticket.
     assert.equal(claim.status, 200, `claim answered ${claim.status}`);
     assert.equal(claim.body.roomId, room);
-    return claim.body.sessionId as string;
+    return { sessionId: claim.body.sessionId as string, ticket: claim.body.ticket as string };
   }
+
+  /** As claimRoomWithTicket, returning the claimed platform session's id alone. */
+  const claimRoom = async (room: string, minutes = 30): Promise<string> =>
+    (await claimRoomWithTicket(room, minutes)).sessionId;
 
   /**
    * Start a host session for `room` as the PC service would, with the machine
@@ -639,6 +647,31 @@ describe("host sessions", () => {
     await handled(host);
     assert.ok(types(host).includes("registered"), "the phase-1 machine-key register works again");
     host.close();
+  });
+
+  it("lets a host certificate serve as the PC service too, kept out while a session is live", async () => {
+    const room = nextRoom();
+    const hostCert = mintHostCert(SECRET, room, "attested", 600);
+    const service = await open();
+    send(service, { type: "register", hostId: room, hostCert });
+    await handled(service);
+    assert.ok(types(service).includes("registered"));
+
+    const sessionId = await claimRoom(room);
+    await wait(100);
+    assert.ok(types(service).includes("session-claimed"), "the claim reached the attested socket");
+    const code = closed(service);
+    const started = await api(room, "POST", "", hostCert, { sessionId });
+    assert.equal(started.status, 201, `start answered ${started.status}`);
+    assert.equal(await code, 4003);
+
+    const early = await open();
+    const refused = closed(early);
+    // A fresh certificate: the one that started the session is spent.
+    send(early, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 600) });
+    assert.equal(await refused, 4003);
+    assert.deepEqual(denial(early), { type: "denied", reason: "session-active" });
+    assert.equal((await api(room, "DELETE")).status, 204, "the machine key still ends it");
   });
 
   it("puts out a machine-key host when a session starts", async () => {
@@ -791,6 +824,85 @@ describe("host sessions", () => {
     assert.equal(grant.sessionId, sessionId);
     assert.equal(keyFields(grant.sessionKey).session, sessionId);
     bystander.close();
+    await api(room, "DELETE");
+  });
+
+  it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
+    const room = nextRoom();
+    const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    const host = await streamer(room, (await startSession(room, sessionId)).sessionKey);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const launches = () => host.received.filter((m) => m.type === "launch-game");
+    assert.deepEqual(launches(), [], "nothing to launch before the first frame");
+
+    // The renter's page starts the session with its ticket once a frame has arrived.
+    assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
+    for (const end = Date.now() + 10_000; !launches().length && Date.now() < end;) await wait(5);
+    assert.deepEqual(launches(), [{ type: "launch-game", sessionId, appid: 730 }]);
+
+    send(host, { type: "game-started", sessionId });
+    await handled(host);
+    for (const end = Date.now() + 10_000; !types(renter).includes("game-started") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("game-started"), "the renter heard the game runs");
+    renter.close();
+    host.close();
+    await api(room, "DELETE");
+  });
+
+  it("has the PC service launch the game, and tells the renter only for the session they started", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const launches = () => host.received.filter((m) => m.type === "launch-game");
+
+    // Answered before the renter's page started anything: not theirs yet.
+    send(host, { type: "game-started", sessionId });
+    await handled(host);
+    assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
+    for (const end = Date.now() + 10_000; !launches().length && Date.now() < end;) await wait(5);
+    assert.deepEqual(launches(), [{ type: "launch-game", sessionId, appid: 730 }]);
+
+    // A launch that outlived another session, or one with no session, never reaches them.
+    send(host, { type: "game-started", sessionId: "another-session" });
+    send(host, { type: "game-started" } as unknown as SignalMessage);
+    await handled(host);
+    await wait(100);
+    assert.ok(!types(renter).includes("game-started"), `renter saw [${types(renter)}]`);
+
+    send(host, { type: "game-started", sessionId });
+    await handled(host);
+    for (const end = Date.now() + 10_000; !types(renter).includes("game-started") && Date.now() < end;)
+      await wait(5);
+    assert.deepEqual(
+      renter.received.filter((m) => m.type === "game-started"),
+      [{ type: "game-started", sessionId }],
+    );
+    renter.close();
+    host.close();
+    await api(room, "DELETE");
+  });
+
+  it("never has a host certificate launch a game once it has expired", async () => {
+    const room = nextRoom();
+    const service = await open();
+    const code = closed(service);
+    send(service, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 2) });
+    await handled(service);
+    assert.ok(types(service).includes("registered"));
+    assert.equal(await code, 4003);
+
+    const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
+    await wait(100);
+    assert.ok(!types(service).includes("launch-game"), `the expired host saw [${types(service)}]`);
     await api(room, "DELETE");
   });
 

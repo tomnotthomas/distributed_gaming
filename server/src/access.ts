@@ -20,6 +20,14 @@
 //                            account, so the machine key never enters it. Only
 //                            valid while that session is live — see sessions.ts.
 //
+//   Swiff OS   host certificate  Signed by this server (HMAC-SHA256, ROOM_SECRET,
+//                            its own domain), naming one room, its hosting tier
+//                            and an expiry minutes away. Minted only after the
+//                            machine passed attestation — see attestation.ts.
+//                            The hosting credential: the machine key alone is
+//                            the control credential once hosting requires
+//                            attestation.
+//
 //   Renter     sign-in session  Signed by this server (HMAC-SHA256 with
 //                            SESSION_SECRET, never ROOM_SECRET, under its own
 //                            domain), naming one Steam account and an expiry.
@@ -48,7 +56,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter" | "signin";
+type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -94,13 +102,20 @@ function sha256(value: string): Buffer {
 }
 
 /**
- * Mint a signed join ticket for `room` with a random ticket id.
+ * Mint a signed join ticket for `room` with a random ticket id, or `id` to hand
+ * out a ticket already recorded on a session again.
  * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
  */
-export function mintTicket(secret: string, room: string, ttlSeconds: number, now = Date.now()): string {
+export function mintTicket(
+  secret: string,
+  room: string,
+  ttlSeconds: number,
+  now = Date.now(),
+  id = b64url(randomBytes(12)),
+): string {
   const ticket: Ticket = {
     room,
-    id: b64url(randomBytes(12)),
+    id,
     exp: Math.floor(now / 1000) + ttlSeconds,
   };
   return seal(secret, ticket, "ticket");
@@ -217,6 +232,94 @@ export function verifySignInState(secret: string, token: unknown, now = Date.now
   if (!state || typeof state.nonce !== "string" || !state.nonce) return null;
   if (typeof state.exp !== "number" || state.exp * 1000 <= now) return null;
   return state.nonce;
+}
+
+/** How far a machine may be trusted to host, by what vouched for it (attestation.ts). */
+export type HostingTier = "attested" | "attested-discrete-tpm" | "unattested";
+
+export type HostCert = {
+  /** The room (machine id) this certificate may host. */
+  room: string;
+  /** What attestation found the machine to be. Never "unattested": that is the machine key's tier. */
+  tier: Exclude<HostingTier, "unattested">;
+  /** Unique per certificate. Starting a host session spends it (attestation.ts). */
+  id: string;
+  /** Unix seconds after which the certificate hosts nothing. */
+  exp: number;
+};
+
+const ATTESTED_TIERS: readonly string[] = ["attested", "attested-discrete-tpm"];
+
+/**
+ * Mint a signed host certificate for `room` at `tier`, with a random id.
+ * Expiry is `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
+ */
+export function mintHostCert(
+  secret: string,
+  room: string,
+  tier: HostCert["tier"],
+  ttlSeconds: number,
+  now = Date.now(),
+): string {
+  const cert: HostCert = {
+    room,
+    tier,
+    id: b64url(randomBytes(16)),
+    exp: Math.floor(now / 1000) + ttlSeconds,
+  };
+  return seal(secret, cert, "host");
+}
+
+/**
+ * The certificate, if `secret` signed it as a host certificate, it names a room
+ * and an attested tier, and it has not expired. Otherwise null. `now` is Unix
+ * milliseconds; a certificate is expired at its expiry time.
+ */
+export function verifyHostCert(secret: string, token: unknown, now = Date.now()): HostCert | null {
+  const cert = unseal(secret, token, "host");
+  if (!cert) return null;
+  if (typeof cert.room !== "string" || !cert.room) return null;
+  if (typeof cert.tier !== "string" || !ATTESTED_TIERS.includes(cert.tier)) return null;
+  if (typeof cert.id !== "string" || !cert.id) return null;
+  if (typeof cert.exp !== "number" || cert.exp * 1000 <= now) return null;
+  return { room: cert.room, tier: cert.tier as HostCert["tier"], id: cert.id, exp: cert.exp };
+}
+
+export type AttestChallenge = {
+  /** The room (machine id) whose attestation this challenge is for. */
+  room: string;
+  /** Unique per challenge; it is spent by the first attestation that names it. */
+  id: string;
+  /** Unix seconds after which it is no longer accepted. */
+  exp: number;
+};
+
+/**
+ * Mint a signed attestation challenge for `room` with a random id. The machine
+ * quotes over its SHA-256, so the quote is fresh. Expiry is `ttlSeconds` after
+ * `now` (Unix milliseconds) rounded down to whole seconds.
+ */
+export function mintChallenge(secret: string, room: string, ttlSeconds: number, now = Date.now()): string {
+  const challenge: AttestChallenge = {
+    room,
+    id: b64url(randomBytes(16)),
+    exp: Math.floor(now / 1000) + ttlSeconds,
+  };
+  return seal(secret, challenge, "attest");
+}
+
+/**
+ * The challenge, if `secret` signed it as an attestation challenge and it has
+ * not expired. Otherwise null. Whether it was already spent is the caller's to
+ * track. `now` is Unix milliseconds; a challenge is expired at its expiry time.
+ */
+export function verifyChallenge(secret: string, token: unknown, now = Date.now()): AttestChallenge | null {
+  const challenge = unseal(secret, token, "attest");
+  if (!challenge) return null;
+  if (typeof challenge.room !== "string" || !challenge.room) return null;
+  if (typeof challenge.id !== "string" || !challenge.id) return null;
+  if (typeof challenge.exp !== "number" || challenge.exp * 1000 <= now) return null;
+  return { room: challenge.room, id: challenge.id, exp: challenge.exp };
 }
 
 /** A new machine key and the hash the server stores for it. */

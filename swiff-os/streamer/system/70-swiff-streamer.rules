@@ -1,0 +1,9 @@
+# /dev/uinput belongs to the streamer's group, so the streamer, and nobody
+# else, can create the renter's virtual keyboard, mouse and controllers.
+# swiff-hostd starts it with its primary group only, so a group of its own
+# would not do.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="swiff-stream", MODE="0660", OPTIONS+="static_node=uinput"
+
+# Mark the streamer's devices, so the session can tell them from the PC's own
+# keyboard and mouse (which the image ignores while a renter plays).
+SUBSYSTEM=="input", ATTRS{phys}=="swiff-streamer", ENV{SWIFF_STREAMER}="1"

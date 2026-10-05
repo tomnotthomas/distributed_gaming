@@ -1,0 +1,22 @@
+#!/bin/sh
+# Last touches on the root tree before it becomes the read-only verity image.
+set -eu
+
+# No setuid or setgid programs: nothing on the root can raise a process's
+# privileges (su, passwd, mount, pkexec, ...). The renter session additionally
+# runs with NoNewPrivileges=yes.
+find "$BUILDROOT" -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
+
+# Ubuntu ships ZFS as an out-of-tree module under ubuntu/dkms/. Swiff OS does
+# not use ZFS, and mkosi 20's initrd module filter only handles modules under
+# kernel/, so drop them and refresh the module index.
+for moddir in "$BUILDROOT"/usr/lib/modules/*/; do
+	[ -d "$moddir/ubuntu" ] || continue
+	rm -rf "$moddir/ubuntu"
+	depmod -b "$BUILDROOT" "$(basename "$moddir")"
+done
+
+# Ctrl+Alt+Del never reboots. The mask is set here rather than in mkosi.extra
+# because enabling reboot.target during the build (its Alias=) replaces it
+# with a link back to reboot.target.
+ln -sfn /dev/null "$BUILDROOT/etc/systemd/system/ctrl-alt-del.target"

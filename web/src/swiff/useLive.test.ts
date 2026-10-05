@@ -76,6 +76,17 @@ describe("useLive", () => {
     expect(result.current.wall).toBeNull();
   });
 
+  it("stops timing the round trip once it is unmounted", async () => {
+    const api = server();
+    const { unmount } = renderHook(() => useLive(options({ fetch: api.get })));
+    await flush();
+    expect(api.calls).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await started();
+    expect(api.calls).toHaveBeenCalledTimes(1);
+  });
+
   it("reads the wall once the round trip is timed, and the open game's machines", async () => {
     const api = server();
     api.setFree(2);

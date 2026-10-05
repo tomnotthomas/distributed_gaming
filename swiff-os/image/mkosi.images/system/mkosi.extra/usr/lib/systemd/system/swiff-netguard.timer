@@ -1,0 +1,11 @@
+# Backstop for route changes the path unit does not see.
+[Unit]
+Description=Periodic Swiff LAN firewall update
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

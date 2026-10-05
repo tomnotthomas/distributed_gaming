@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { clock, count, euros, shortGpu } from "../format";
 import { claimEnd, levelProgress, steamReady, type HostView, type Standing, type Step } from "../model";
+import { rentalStatus } from "../rental";
 import { DemoTag } from "./parts";
 
 type RailStep = { id: Exclude<Step, "settings">; title: string };
@@ -9,6 +10,7 @@ const STEPS: RailStep[] = [
   { id: "pc", title: "This PC" },
   { id: "steam", title: "Steam" },
   { id: "games", title: "Games" },
+  { id: "rental", title: "Rental mode" },
   { id: "live", title: "Go live" },
   { id: "paid", title: "Get paid" },
 ];
@@ -41,12 +43,25 @@ function steamLine({ steam }: HostView): string {
   return installs.length ? `Installing ${count(installs.length, "game", "games")}` : "Signed in";
 }
 
+/** Where rental mode stands on this PC, in a few words. */
+function rentalLine({ rental }: HostView): string {
+  const { read, reading, target } = rental;
+  if (!read) return reading ? "Checking this PC" : "Not read";
+  if (read.installed) return "Installed";
+  const { bios, fixes } = rentalStatus(read, target);
+  if (bios.length) return bios.length === 1 ? "One change in the BIOS" : `${bios.length} changes in the BIOS`;
+  if (fixes.length) return "Not ready";
+  return "Ready to install";
+}
+
 /** One line under each step: what it has, or what it is doing now. */
 function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): string {
   const { pc, games } = view;
   switch (id) {
     case "steam":
       return steamLine(view);
+    case "rental":
+      return rentalLine(view);
     case "pc": {
       if (pc.reading) return "Reading hardware";
       const gpu = pc.hardware?.gpu ? shortGpu(pc.hardware.gpu) : "Hardware read";
@@ -112,7 +127,7 @@ export function StandingCard({ standing }: { standing: Standing }) {
 }
 
 /**
- * The rail: the five PC steps with where each stands, the owner's standing at
+ * The rail: the six PC steps with where each stands, the owner's standing at
  * its foot from the second step on, and Settings.
  */
 export function Rail({
@@ -144,7 +159,10 @@ export function Rail({
       ) : null}
       <ol>
         {STEPS.map((s, i) => {
-          const state = i === at ? "now" : i < at || (setupDone && i < live) ? "done" : "next";
+          // Rental mode is optional: it is done once installed, not by being passed.
+          const passed =
+            s.id === "rental" ? Boolean(view.rental.read?.installed) : i < at || (setupDone && i < live);
+          const state = i === at ? "now" : passed ? "done" : "next";
           return (
             <li key={s.id} className={`pt ${state}`}>
               <button

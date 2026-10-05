@@ -1,4 +1,4 @@
-// A12: where this PC connects to Swiff, and the key it signs in with.
+// A12: where this PC connects to Swiff, the key it signs in with, and the name players see.
 
 import { cloneElement, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { connectionReady } from "../model";
@@ -29,6 +29,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
   const [url, setUrl] = useState(connection.url);
   const [machineId, setMachineId] = useState(connection.machineId);
   const [machineKey, setMachineKey] = useState(connection.machineKey);
+  const [name, setName] = useState(connection.name);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const locked = LOCKED.has(live.kind);
@@ -44,7 +45,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
     if (preview.current) preview.current.srcObject = connection.preview;
   }, [connection.preview]);
 
-  const form = { url, machineId, machineKey };
+  const form = { url, machineId, machineKey, name };
   const save = async () => {
     setSaving(true);
     setFailed(null);
@@ -64,7 +65,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
         <div className="cp">
           <p className="mono ctx">Settings</p>
           <h1>Connection</h1>
-          <p className="ln">Where this PC connects to Swiff, and the key it signs in with.</p>
+          <p className="ln">Where this PC connects to Swiff, the key it signs in with, and its name.</p>
           <form
             id="connection"
             className="form ctl"
@@ -99,6 +100,17 @@ export function Settings({ view, actions, go }: ScreenProps) {
                 disabled={locked}
                 autoComplete="off"
                 onChange={(e) => setMachineKey(e.target.value)}
+              />
+            </Field>
+            <Field label="Name" hint="What players see this PC as. Left empty, the machine id.">
+              <input
+                value={name}
+                disabled={locked}
+                maxLength={64}
+                placeholder={machineId.trim() || "Nova-01"}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setName(e.target.value)}
               />
             </Field>
             {connection.notice ? <Notice>{connection.notice}</Notice> : null}

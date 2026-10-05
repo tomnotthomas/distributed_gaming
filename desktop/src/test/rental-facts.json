@@ -1,0 +1,70 @@
+{
+  "firmware": "UEFI",
+  "secureBoot": 1,
+  "tpm2": true,
+  "tpmInfo": "\r\n-TPM Present: True\r\n-TPM Version: 2.0\r\n-TPM Manufacturer ID: AMD\r\n-TPM Manufacturer Full Name: AMD\r\n-Ready For Attestation: True",
+  "securityProperties": [1, 2, 3, 5, 6, 7],
+  "fastStartup": 1,
+  "gpus": [
+    {
+      "name": "AMD Radeon(TM) Graphics",
+      "pnp": "PCI\\VEN_1002&DEV_1681&SUBSYS_10011F55&REV_C4"
+    }
+  ],
+  "disks": [
+    {
+      "number": 0,
+      "style": "GPT",
+      "size": 1024209543168,
+      "sector": 512,
+      "bus": "NVMe",
+      "system": true
+    }
+  ],
+  "partitions": [
+    {
+      "disk": 0,
+      "number": 1,
+      "letter": "\u0000",
+      "type": "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}",
+      "offset": 1048576,
+      "size": 314572800
+    },
+    {
+      "disk": 0,
+      "number": 2,
+      "letter": "\u0000",
+      "type": "{e3c9e316-0b5c-4db8-817d-f92df00215ae}",
+      "offset": 315621376,
+      "size": 16777216
+    },
+    {
+      "disk": 0,
+      "number": 3,
+      "letter": "C",
+      "type": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",
+      "offset": 332398592,
+      "size": 1022803050496
+    },
+    {
+      "disk": 0,
+      "number": 4,
+      "letter": "\u0000",
+      "type": "{de94bba4-06d1-4d40-a16a-bfd50179d6ac}",
+      "offset": 1023135449088,
+      "size": 1073741824
+    }
+  ],
+  "volumes": [
+    {
+      "letter": "C",
+      "fs": "NTFS",
+      "label": "Windows",
+      "size": 1022803046400,
+      "free": 694908047360,
+      "fixed": true,
+      "bitlocker": 2
+    }
+  ],
+  "bootEntry": null
+}

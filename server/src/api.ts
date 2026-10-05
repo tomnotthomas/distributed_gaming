@@ -1,17 +1,21 @@
 // The platform's HTTP API, over the state in platform.ts.
 //
-//   Booking API (renter, signed in)        Host API (gaming PC, machine key)
-//   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability
-//   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat
-//   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand
-//   GET  /api/me
-//   POST /api/me/refresh
-//   POST /api/signout        (signed out)  POST /api/sessions/:id/start
-//   POST /api/bookings                     POST /api/sessions/:id/end
-//   GET  /api/bookings/:id
+//   Booking API (renter, signed in)        Host API (gaming PC)
+//   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability  control
+//   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat     either
+//   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand     control
+//   GET  /api/me                           POST /api/machines/:id/attest-challenge
+//   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
+//   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
+//   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
+//                                          POST /api/sessions/:id/end          either
+//                                          POST /api/machines/:id/upload-test   control
 //   POST /api/bookings/:id/claim
+//   POST /api/bookings/:id/ticket
 //   POST /api/bookings/:id/seen
 //   POST /api/bookings/:id/end
+//   POST /api/sessions/:id/start (ticket)
 //   POST /api/sessions/:id/qos   (ticket)
 //   POST /api/sessions/:id/leave (ticket)
 //   GET  /api/events?booking=:id  (event stream, events.ts)
@@ -25,22 +29,30 @@
 // answers 409 with the next best from the same ranking, which spends from the
 // same budget: past it, the 409 names none.
 //
-// The host authenticates with `Authorization: Bearer <machine key>`, the same
-// key it registers its room with (access.ts). The owner's host app reads what
-// renters ask for from the demand route, from its own origin: it answers any
-// origin, as the session routes do (index.ts), since the machine key in the
-// Authorization header is its only credential. The renter authenticates with the
+// The host authenticates with `Authorization: Bearer <credential>`, the same
+// one it registers its room with: its machine key (control) or a host
+// certificate from attestation (hosting). A hosting call with the machine key
+// is refused 403 while hosting requires attestation (attestation.ts); the
+// attestation calls need no credential but the evidence itself. The owner's
+// host app reads what renters ask for from the demand route, from its own
+// origin: it answers any origin, as the session routes do (index.ts), since the
+// machine key in the Authorization header is its only credential. The renter authenticates with the
 // sign-in session cookie set after Steam sign-in (signin.ts), and sees and
 // claims only their own bookings. Claiming mints the join ticket the way
 // `npm run ticket` does, tied to the session so that ending it revokes the ticket.
+// The page never stores that ticket; a renter coming back to their running
+// session gets it again from `ticket`, with the same id, so ending the session
+// still revokes every copy.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
-// The renter's page reports stream quality, and says it is leaving, with that
-// ticket as its bearer.
+// The renter's page starts the session on its first frame, reports stream
+// quality, and says it is leaving, with that ticket as its bearer. Starting it
+// is what tells the PC to launch the game.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
 import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
+import { createAttestation, looksLikeHostCert, type Attestation, type Credential } from "./attestation.js";
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
@@ -49,12 +61,16 @@ import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
-import { bearer, HttpError, readJson } from "./http.js";
+import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
+/** A TPM quote, its event log and the EK certificate chain: tens of KB. */
+const MAX_ATTEST_BODY_BYTES = 256 * 1024;
+/** The most an upload test may send: the host app sends 4 MB (desktop/src/report.ts). */
+const MAX_UPLOAD_TEST_BYTES = 8 * 1024 * 1024;
 /** A QoS report is four numbers. */
 const MAX_QOS_BODY_BYTES = 1024;
 /** Demand counts the bookings made in this window, and the queue now. */
@@ -93,6 +109,10 @@ export type ApiOptions = {
   discovery?: RequestBudget;
   /** Whether a game is free to play, so anyone may book it. Defaults to Steam's store data (licence.ts). */
   isFree?: FreeToPlay;
+  /** Who may host, and how a machine attests. Defaults to the machine key hosting, with no verifier. */
+  attestation?: Attestation;
+  /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
+  onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -112,12 +132,17 @@ function reply(
   res.end(JSON.stringify(body));
 }
 
-/** The host app calls the demand route from its own origin; the machine key is its only credential. */
+/**
+ * The host app calls the Host API from its own origin (a file:// page, or the
+ * dev server's); the machine key is its only credential, so any origin may ask.
+ */
 const HOST_CORS = { "access-control-allow-origin": "*" };
+/** The Host API's machine routes: /api/machines/:id/<action>. */
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand", "ek"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
-  "access-control-allow-methods": "GET",
-  "access-control-allow-headers": "authorization",
+  "access-control-allow-methods": "GET, PUT, POST",
+  "access-control-allow-headers": "authorization, content-type",
   "access-control-max-age": "600",
 };
 
@@ -133,9 +158,25 @@ function requireRenter(req: IncomingMessage, sessionSecret: string | null): stri
   return requireRenterSession(req, sessionSecret).steamId;
 }
 
-/** 401 unless the request carries this machine's own key. */
+/** 401 unless the request carries this machine's own key: the control credential. */
 function requireMachine(req: IncomingMessage, access: Access, machineId: string): void {
   if (!verifyMachineKey(access.machines, machineId, bearer(req))) throw new HttpError(401, "bad machine key");
+}
+
+/** The machine's own key or a host certificate for it; 401 for anything else. */
+function requireMachineOrHost(req: IncomingMessage, attestation: Attestation, machineId: string): Credential {
+  const token = bearer(req);
+  const credential = attestation.credential(machineId, token);
+  if (!credential)
+    throw new HttpError(401, looksLikeHostCert(token) ? "bad host certificate" : "bad machine key");
+  return credential;
+}
+
+/** A credential that may host this machine; 403 for the machine key while hosting requires attestation. */
+function requireHosting(req: IncomingMessage, attestation: Attestation, machineId: string): void {
+  if (requireMachineOrHost(req, attestation, machineId).hosting === null) {
+    throw new HttpError(403, "attestation-required");
+  }
 }
 
 /** The host report in a Host API body, or a 400 naming the bad field. */
@@ -164,6 +205,7 @@ function positiveInt(value: unknown, field: string, max = Number.MAX_SAFE_INTEGE
   return value as number;
 }
 
+/** 0, or a positive whole number, or a 400 naming the field. */
 const positiveIntOrZero = (value: unknown, field: string) => (value === 0 ? 0 : positiveInt(value, field));
 
 /** A finite number from 0 to `max`, or a 400 naming the field. */
@@ -189,9 +231,14 @@ function qosReport(body: Json): QosReport {
  * it is at join: 401 when missing, forged or expired.
  */
 function requireTicket(req: IncomingMessage, access: Access) {
-  const ticket = access.secret ? verifyTicket(access.secret, bearer(req)) : null;
+  const ticket = ticketOf(req, access);
   if (!ticket) throw new HttpError(401, "bad ticket");
   return ticket;
+}
+
+/** The join ticket the request carries as its bearer, or null when it carries none that verifies. */
+function ticketOf(req: IncomingMessage, access: Access) {
+  return access.secret ? verifyTicket(access.secret, bearer(req)) : null;
 }
 
 /** The HTTP answer for a renter call the platform refused. */
@@ -304,6 +351,8 @@ export function createApi({
   events,
   discovery = new RequestBudget(),
   isFree = storeFreeToPlay(),
+  attestation = createAttestation({ access }),
+  onRenterStarted,
 }: ApiOptions) {
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
@@ -356,6 +405,20 @@ export function createApi({
     }
     const [, resource, id, action, extra] = parts;
     if (extra !== undefined) throw new HttpError(404, "no such route");
+
+    // The Host API answers the host app's origin, errors included, so the app
+    // can read why a call was refused.
+    const hostRoute =
+      (resource === "machines" && id && HOST_ACTIONS.has(action ?? "")) ||
+      (resource === "sessions" && id && (action === "start" || action === "end"));
+    if (hostRoute) {
+      for (const [name, value] of Object.entries(HOST_CORS)) res.setHeader(name, value);
+      if (method === "OPTIONS") {
+        res.writeHead(204, HOST_PREFLIGHT);
+        res.end();
+        return true;
+      }
+    }
 
     // --- Booking API ---------------------------------------------------------
 
@@ -530,6 +593,27 @@ export function createApi({
       return true;
     }
 
+    if (resource === "bookings" && id && action === "ticket" && method === "POST") {
+      // The renter coming back to their running session: its ticket again,
+      // the one recorded at claim, valid only until the session's deadline.
+      const renter = requireRenter(req, sessionSecret);
+      if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      const session = await platform.runningSession(id, renter);
+      if (!session.ok) {
+        if (session.reason === "not-found") throw new HttpError(404, "no such booking");
+        reply(res, 409, { error: "the booking has no session running", status: session.status });
+        return true;
+      }
+      const ttl = Math.max(1, Math.floor(session.remainingMs / 1000));
+      reply(res, 200, {
+        sessionId: session.sessionId,
+        roomId: session.roomId,
+        signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
+        ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
+      });
+      return true;
+    }
+
     if (resource === "bookings" && id && action === "end" && method === "POST") {
       // The renter ends it, whatever it has come to: out of the queue, the
       // machine handed back, or the session over (as renter).
@@ -549,25 +633,34 @@ export function createApi({
       requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
+      if (body.reset !== undefined && typeof body.reset !== "boolean") {
+        throw new HttpError(400, "reset must be true or false");
+      }
+      // A rental-mode restart between renters (platform.ts, the reset hold).
+      if (body.reset && body.available) throw new HttpError(400, "reset takes the machine off offer");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
-      const machine = await platform.setAvailability(id, body.available, {
-        ...hostReport(body),
-        price,
-        availableUntil: optionalTime(body.until, "until"),
-      });
+      const machine = await platform.setAvailability(
+        id,
+        body.available,
+        { ...hostReport(body), price, availableUntil: optionalTime(body.until, "until") },
+        { reset: body.reset === true },
+      );
       reply(res, 200, machine);
       return true;
     }
 
     if (resource === "machines" && id && action === "heartbeat" && method === "POST") {
-      requireMachine(req, access, id);
+      requireMachineOrHost(req, attestation, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       reply(res, 200, await platform.heartbeat(id, hostReport(body)));
       return true;
     }
 
-    if (resource === "machines" && id && action === "demand" && method === "OPTIONS") {
-      res.writeHead(204, HOST_PREFLIGHT);
+    if (resource === "machines" && id && action === "upload-test" && method === "POST") {
+      // The PC times this to report its upload speed (net.upMbps). Nothing is kept.
+      requireMachine(req, access, id);
+      await discardBody(req, MAX_UPLOAD_TEST_BYTES);
+      res.writeHead(204, { "cache-control": "no-store" });
       res.end();
       return true;
     }
@@ -581,22 +674,87 @@ export function createApi({
         games().catch(() => []),
       ]);
       const names = new Map(catalogue.map((g) => [g.id, g.name]));
-      reply(
-        res,
-        200,
-        {
-          windowMinutes: DEMAND_WINDOW_MS / 60_000,
-          games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
-        },
-        HOST_CORS,
-      );
+      reply(res, 200, {
+        windowMinutes: DEMAND_WINDOW_MS / 60_000,
+        games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
+      });
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "attest-challenge" && method === "POST") {
+      const challenge = attestation.challenge(id);
+      reply(res, challenge.ok ? 200 : challenge.status, challenge.ok ? challenge.grant : challenge.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "attest-activation" && method === "POST") {
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_HOST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const made = await attestation.activate(id, body.nonce, body.akPublic);
+      reply(res, made.ok ? 200 : made.status, made.ok ? made.grant : made.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "ek" && method === "PUT") {
+      // The owner's Windows registers the TPM's EK certificate, with the machine key.
+      requireMachine(req, access, id);
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const enrolled = await attestation.enroll(id, body);
+      if (enrolled.ok) {
+        res.writeHead(204, { "cache-control": "no-store" });
+        res.end();
+      } else {
+        reply(res, enrolled.status, enrolled.body);
+      }
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "attest" && method === "POST") {
+      let body: Json;
+      try {
+        body = await readJson(req, MAX_ATTEST_BODY_BYTES);
+      } catch (error) {
+        // Not JSON, not an object, or too large: the documented refusal, not prose.
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
+        return true;
+      }
+      const attested = await attestation.attest(id, body.nonce, body.evidence);
+      reply(res, attested.ok ? 200 : attested.status, attested.ok ? attested.grant : attested.body);
+      return true;
+    }
+
+    // The renter's first frame: started with the join ticket rather than the
+    // machine key, and the PC launches the game.
+    const ticket =
+      resource === "sessions" && action === "start" && method === "POST" && ticketOf(req, access);
+    if (ticket && id) {
+      const started = await platform.renterStarted(id, ticket.id);
+      if (typeof started === "string") throw renterRefusal(started);
+      onRenterStarted?.(started.machineId, id, started.gameId, ticket.id);
+      reply(res, 200, { sessionId: id, roomId: started.machineId });
       return true;
     }
 
     if (resource === "sessions" && id && (action === "start" || action === "end") && method === "POST") {
       const machineId = await platform.sessionMachine(id);
       if (!machineId) throw new HttpError(404, "no such session");
-      requireMachine(req, access, machineId);
+      // The renter arriving is the host's to report; ending is the owner's too.
+      if (action === "start") requireHosting(req, attestation, machineId);
+      else requireMachineOrHost(req, attestation, machineId);
       const body = await readJson(req);
       const ok =
         action === "start"

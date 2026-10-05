@@ -48,6 +48,7 @@ describe("migrations", () => {
         "bookings",
         "game_requirements",
         "key_sessions",
+        "machine_attestation",
         "machine_games",
         "machine_uptime",
         "machines",

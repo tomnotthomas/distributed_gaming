@@ -6,7 +6,10 @@ import {
   claim,
   endBooking,
   followBooking,
+  forgetStoredTicket,
   resumeBooking,
+  resumeTicket,
+  storedPlay,
   watchBooking,
   type Booking,
   type BookingStatus,
@@ -411,6 +414,91 @@ describe("following a booking to its claim", () => {
     expect(stream.closed).toBe(true);
   });
 
+  it("keeps the claimed booking as the one being played, with its session and room but never its ticket, until it is ended", async () => {
+    localStorage.setItem("swiff.booking", "b-1");
+    const server = routes({
+      "POST /api/bookings/b-1/claim": json(200, TICKET),
+      "POST /api/bookings/b-1/end": json(200, booking("ended")),
+    });
+    follow(booking("matched", 1_000), server);
+    await settle();
+    expect(localStorage.getItem("swiff.booking")).toBeNull();
+    expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+    // The ticket is a bearer credential: what is written holds no trace of it.
+    expect(JSON.parse(localStorage.getItem("swiff.play")!)).toEqual({
+      bookingId: "b-1",
+      sessionId: "s-1",
+      roomId: "pc-1",
+    });
+
+    await endBooking("b-1", { fetch: server.fetch });
+    expect(storedPlay()).toBeNull();
+  });
+
+  it("still hands over a claim when storage refuses to keep it for resume", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const full = Object.assign(Object.create(localStorage) as Storage, {
+      getItem: (key: string) => localStorage.getItem(key),
+      removeItem: (key: string) => localStorage.removeItem(key),
+      setItem: () => {
+        throw new DOMException("quota exceeded", "QuotaExceededError");
+      },
+    });
+    const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
+    const { open } = fakeStream();
+    const claimed: Claim[] = [];
+    followBooking(
+      booking("matched", 1_000),
+      { onUpdate: () => {}, onClaimed: (c) => claimed.push(c) },
+      { fetch: server.fetch, eventSource: open, intervalMs: 5, heartbeatMs: 1_000, storage: full },
+    );
+    await settle();
+
+    expect(claimed).toEqual([TICKET]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("forgets the play once its booking is seen ended or expired, and keeps it while it plays", () => {
+    const play = (bookingId: string) =>
+      localStorage.setItem("swiff.play", JSON.stringify({ bookingId, sessionId: "s-1", roomId: "pc-1" }));
+    const watch = (status: BookingStatus) => {
+      const { stream, open } = fakeStream();
+      watchBooking("b-1", () => {}, { eventSource: open });
+      stream.push(status);
+    };
+    play("b-1");
+    watch("playing");
+    expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+    for (const over of ["ended", "expired"] as const) {
+      play("b-1");
+      watch(over);
+      expect(storedPlay()).toBeNull();
+    }
+    play("b-2");
+    watch("ended");
+    expect(storedPlay()).toEqual({ bookingId: "b-2", sessionId: "s-1", roomId: "pc-1" });
+  });
+
+  it("forgets the play when it is ended, even when the network loses the call", async () => {
+    localStorage.setItem(
+      "swiff.play",
+      JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+    );
+    const fetch = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof globalThis.fetch;
+    await expect(endBooking("b-1", { fetch })).rejects.toThrow("offline");
+    expect(storedPlay()).toBeNull();
+  });
+
+  it("reads no play from what is not one", () => {
+    localStorage.setItem("swiff.play", "{not json");
+    expect(storedPlay()).toBeNull();
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1" }));
+    expect(storedPlay()).toBeNull();
+  });
+
   it("claims a queued booking when the open stream pushes its match", async () => {
     localStorage.setItem("swiff.booking", "b-1");
     const server = routes({ "POST /api/bookings/b-1/claim": json(200, TICKET) });
@@ -689,5 +777,45 @@ describe("following a booking to its claim", () => {
     await settle();
     expect(claimed).toEqual([]);
     expect(server.made()).toEqual([]);
+  });
+});
+
+describe("the ticket, never stored", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("asks the server for the running session's ticket again", async () => {
+    const server = routes({ "POST /api/bookings/b-1/ticket": json(200, TICKET) });
+    expect(await resumeTicket("b-1", { fetch: server.fetch })).toEqual(TICKET);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/ticket"]);
+  });
+
+  it("gets none for a booking with no session running, and fails on a server error", async () => {
+    const server = routes({
+      "POST /api/bookings/b-1/ticket": json(409, { status: "ended" }),
+      "POST /api/bookings/b-2/ticket": json(500, {}),
+    });
+    expect(await resumeTicket("b-1", { fetch: server.fetch })).toBeNull();
+    expect(await resumeTicket("nope", { fetch: server.fetch })).toBeNull();
+    await expect(resumeTicket("b-2", { fetch: server.fetch })).rejects.toThrow("500");
+  });
+
+  it("drops a kept play that still holds a ticket, and keeps one that does not", () => {
+    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: TICKET }));
+    forgetStoredTicket();
+    expect(localStorage.getItem("swiff.play")).toBeNull();
+
+    const play = JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+    localStorage.setItem("swiff.play", play);
+    forgetStoredTicket();
+    expect(localStorage.getItem("swiff.play")).toBe(play);
+  });
+
+  it("leaves storage that refuses to be read alone", () => {
+    const off = Object.assign(Object.create(localStorage) as Storage, {
+      getItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    });
+    expect(() => forgetStoredTicket(off)).not.toThrow();
   });
 });

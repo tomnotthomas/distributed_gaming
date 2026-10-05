@@ -1,0 +1,16 @@
+[Unit]
+Description=Swiff streamer VM test agent
+Wants=network-online.target user@1000.service
+After=network-online.target user@1000.service
+
+[Service]
+Type=exec
+ImportCredential=swifftest.harness
+ImportCredential=swifftest.token
+ExecStart=/usr/libexec/swiff/streamer-vmtest
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStopPost=/usr/bin/systemctl --no-block poweroff
+
+[Install]
+WantedBy=multi-user.target

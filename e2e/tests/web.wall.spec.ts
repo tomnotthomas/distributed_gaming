@@ -7,59 +7,12 @@
 // signed in it shows the machines the server offers. What needs machines to
 // look at runs on the demo's five invented ones, at /?demo=1.
 
-import { expect, test, type APIRequestContext } from "@playwright/test";
-import { E2E_MACHINE_KEY, E2E_ROOM, signIn } from "./credentials";
+import { expect, test } from "@playwright/test";
+import { signIn } from "./credentials";
+import { offerHost } from "./hosts";
 
 /** The demo: five invented machines at a pinned 20:00. */
 const DEMO = "/?demo=1";
-
-/** The heartbeat that keeps the offered machine on offer, while one runs. */
-let beating: ReturnType<typeof setInterval> | undefined;
-
-/**
- * Offer the e2e machine through the Host API as its PC would, beating every
- * 5 s as the host app does, or take it back. It has every game a signed-in
- * renter's wall could lead with installed: the curated free-to-play two, and
- * Steam's most played, whose free ones fill the wall once the server has read
- * them.
- */
-async function offerHost(request: APIRequestContext, available: boolean) {
-  clearInterval(beating);
-  beating = undefined;
-  const popular = available ? await request.get("/api/games/popular") : null;
-  const chart = popular?.ok() ? ((await popular.json()).games as { appid: number }[]) : [];
-  const res = await request.put(`/api/machines/${E2E_ROOM}/availability`, {
-    headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
-    data: {
-      available,
-      name: "E2E rig",
-      hardware: {
-        gpu: "NVIDIA GeForce RTX 4070",
-        vramMb: 12_288,
-        ramMb: 32_768,
-        cpu: "AMD Ryzen 7 7800X3D",
-        cores: 8,
-        encoders: ["h264", "hevc", "av1"],
-        display: { width: 2560, height: 1440, refreshHz: 144 },
-      },
-      games: [...new Set([730, 2073850, ...chart.map((g) => g.appid)])],
-      controls: ["kb", "mouse", "pad"],
-      // Next to the server: the renter's own round trip, which a busy runner
-      // inflates, is then all that counts against the 80 ms limit (gate E6).
-      net: { rttMs: 1, jitterMs: 1, upMbps: 100 },
-    },
-  });
-  expect(res.status()).toBe(200);
-  if (!available) return;
-  // Silent for 15 s, a machine is no longer offered.
-  beating = setInterval(() => {
-    void request
-      .post(`/api/machines/${E2E_ROOM}/heartbeat`, {
-        headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
-      })
-      .catch(() => {});
-  }, 5_000);
-}
 
 /** Common screens, desktop and phone. */
 const VIEWPORTS = [

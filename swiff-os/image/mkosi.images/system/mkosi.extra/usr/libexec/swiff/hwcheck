@@ -1,0 +1,36 @@
+#!/bin/sh
+# Checks this PC against the D3 hardware floor in /usr/lib/swiff/rental-policy.conf
+# and writes the verdict to /run/swiff/hardware-floor for the rental agent.
+# tpm2-ekcert and the discrete-TPM tier need the TPM's EK certificate, which
+# the attestation stage (report §5.3) reads; until then they are "deferred".
+set -eu
+. /usr/lib/swiff/rental-policy.conf
+
+# Succeeds when this PC meets one floor item; returns 2 for an item
+# Swiff OS cannot check on its own yet.
+check() {
+	case $1 in
+	uefi) [ -d /sys/firmware/efi ] ;;
+	secureboot) [ "$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2>/dev/null | awk '{ print $NF }')" = 1 ] ;;
+	tpm2) [ "$(cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null)" = 2 ] ;;
+	iommu) [ -n "$(ls /sys/class/iommu 2>/dev/null)" ] ;;
+	*) return 2 ;;
+	esac
+}
+
+mkdir -p /run/swiff
+verdict=pass
+{
+	for item in $SWIFF_HARDWARE_FLOOR; do
+		rc=0
+		check "$item" || rc=$?
+		case $rc in
+		0) echo "$item=pass" ;;
+		2) echo "$item=deferred" ;;
+		*) echo "$item=fail"; verdict=fail ;;
+		esac
+	done
+	echo "floor=$verdict"
+} > /run/swiff/hardware-floor.new
+mv /run/swiff/hardware-floor.new /run/swiff/hardware-floor
+cat /run/swiff/hardware-floor

@@ -9,6 +9,7 @@ import {
   DEMO_MACHINE,
   DEMO_NEAR,
   DEMO_OFFERED,
+  DEMO_RENTAL,
   DEMO_STEAM,
   demoState,
   type DemoScreen,
@@ -33,6 +34,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [offered, setOffered] = useState(DEMO_OFFERED);
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
+  const [rentalTarget, setRentalTarget] = useState<string | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -57,6 +59,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     pc: { reading: false, hardware: DEMO_HARDWARE, hardwareRate: DEMO_HARDWARE_RATE },
     games: { installed: DEMO_INSTALLED, offered, demand: DEMO_DEMAND, near: DEMO_NEAR },
     steam: { ...DEMO_STEAM, asked },
+    rental: { ...DEMO_RENTAL, target: rentalTarget },
     standing: state.standing,
     earlyEnd: { reliability: DEMO_EARLY_END_RELIABILITY },
     rate,
@@ -68,6 +71,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
       url: "hushed-otter-42.trycloudflare.com",
       machineId: "gaming-pc-1",
       machineKey: "demo-machine-key",
+      name: DEMO_MACHINE,
       notice: null,
       preview: null,
     },
@@ -127,6 +131,11 @@ export function useDemoHost(screen: DemoScreen): Host & {
     // Steam is installed in the demo, and nothing is sent to it.
     installSteam: () => {},
     askInstall: (appid: number) => setAsked((list) => (list.includes(appid) ? list : [...list, appid])),
+    // Nova-01 is not ready for rental mode: there is nothing to check again or preview.
+    checkRental: () => {},
+    chooseRentalTarget: setRentalTarget,
+    previewRental: () => {},
+    closeRentalPreview: () => {},
   };
 
   return {

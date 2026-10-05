@@ -49,8 +49,9 @@ DELETE /api/machines/:id/session ─► 204; every key of the session is dead
 
 ## Learning of a claim: `session-claimed`
 
-The service keeps its own WebSocket registered with the **machine key** while the PC is
-offered (the phase-1 `register`, see `protocol.ts`). The moment a renter claims the
+The service keeps its own WebSocket registered with the **machine key** (in Swiff OS, a
+host certificate: see Control and hosting credentials) while the PC is offered (the
+phase-1 `register`, see `protocol.ts`). The moment a renter claims the
 machine, the server pushes to that socket, and to no other machine's:
 
 ```json
@@ -69,10 +70,15 @@ live; the heartbeat (`POST /api/machines/:id/heartbeat`) also carries the same i
 Until the Windows service exists, the host app (the desktop app and the web host page)
 stands in for it: `startHostSession` with `serveClaims` answers `session-claimed` by
 starting that session, registers again with the session key, and goes back to the machine
-key once the session is over. A session key refused with `bad-session-key` is replaced as
-the table under Failure behaviour says: `DELETE`, then start the same `sessionId` again.
-A start or end that fails on the network or with a `5xx` is tried up to three times; a
-`4xx` refusal goes back to the machine key at once. A machine key refused with
+key once the session is over. Given `hostCert`, a getter for host certificates from
+attestation, it registers and starts each session with a fresh certificate instead of the
+machine key, and still ends sessions with the machine key; it never attests itself. It
+sends a certificate only over `wss:`/`https:` or to this machine, and refuses to start
+otherwise. A
+session key refused with `bad-session-key` is replaced as the table under Failure behaviour
+says: `DELETE`, then start the same `sessionId` again. A start or end that fails on the
+network or with a `5xx` is tried up to three times; a `4xx` refusal goes back to waiting
+for the next claim at once. A machine key refused with
 `session-active` (the app reloaded mid-session) ends that session with `DELETE` and
 registers again, and the claim is pushed to it again; a `DELETE` that still fails on the
 network or with a `5xx` registers again and retries, and only a `4xx` refusal of that
@@ -86,14 +92,18 @@ again to hear the next claim.
 ## Endpoints
 
 Both are called by the **PC service only**, over HTTPS to the signaling server, with
-`Authorization: Bearer <machine key>`. `:id` is the machine id (the room). Start has a JSON
+`Authorization: Bearer <machine key or host certificate>`. `:id` is the machine id (the room). Start has a JSON
 body (`SessionStart` in `protocol.ts`); end has none. Responses are JSON with
 `cache-control: no-store`.
 
-| Call                                             | Success                                    | Refusals                                                                                                                      |
-| ------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured`, `500 internal-error` |
-| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `503 not-configured`, `500 internal-error`                                                             |
+| Call                                             | Success                                    | Refusals                                                                                                                                                                       |
+| ------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/machines/:id/session` `{ sessionId }` | `201 { sessionId, sessionKey, expiresAt }` | `401 bad-machine-key`, `401 bad-host-cert`, `403 attestation-required`, `400 bad-request`, `409 not-claimed`, `409 session-active`, `503 not-configured`, `500 internal-error` |
+| `DELETE /api/machines/:id/session`               | `204`, whether or not a session was live   | `401 bad-machine-key`, `401 bad-host-cert`, `503 not-configured`, `500 internal-error`                                                                                         |
+
+The bearer is the machine key or a host certificate (see Control and hosting credentials
+below). Starting is hosting: `403 attestation-required` answers the machine key when hosting
+requires attestation. Ending is control too, so the machine key always may.
 
 - A refusal body is `{ "error": "<code>" }` (`SessionError` in `protocol.ts`). A wrong
   method answers `405`.
@@ -119,8 +129,8 @@ The same socket, heartbeat and relay as the phase-1 host (see `protocol.ts` and
 { "type": "register", "hostId": "<machine id>", "sessionKey": "<from the service>" }
 ```
 
-Exactly one of `key` (machine key) or `sessionKey`. The server answers `registered`, or
-`denied` and closes with code `4003`:
+Exactly one of `key` (machine key), `hostCert` (host certificate, the PC service in Swiff OS)
+or `sessionKey`. The server answers `registered`, or `denied` and closes with code `4003`:
 
 | `denied.reason`   | When                                                        | Streamer should           |
 | ----------------- | ----------------------------------------------------------- | ------------------------- |
@@ -130,9 +140,33 @@ Exactly one of `key` (machine key) or `sessionKey`. The server answers `register
 A second `register` with a valid key for the same session replaces the older socket — that
 is the streamer reconnecting, exactly as a phase-1 host does.
 
+Once the renter's first frame has arrived, their page starts the session and the server
+tells the streamer to launch the game booked:
+
+```json
+{ "type": "launch-game", "sessionId": "<platform session id>", "appid": 730 }
+```
+
+The streamer launches it and answers `{ "type": "game-started", "sessionId": "<the same id>" }`
+once it runs, which the server relays to the renter only when that is the session their page
+started with their ticket, so a launch that outlived its session never reaches the next
+renter: until then the renter's page holds Ignition on Launching, past
+90 s offering another machine, and shows none of the stream. Send it only once the game's
+own window is what is being captured: the renter's first sight of the stream is the frame
+after it, and must never be the desktop, the Steam library or any other Steam window. It is sent again on every first frame of a new connection, so launching
+must be idempotent; a game already running is only answered again. Until the streamer
+exists, `startHostSession`'s `launchGame` stands in for it, and with none nothing is
+answered, so the renter stays on Launching. The desktop app has no launcher until the PC
+session step, so it never answers until then; the web host page, a dev and test
+responder, answers at once: the screen it shares stands in for the game.
+
 The server also ends the host session whenever the renter's platform session ends
 ([`host.md`](host.md): the host ends it, the renter leaves, the booked time runs out, the
-machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. The service must treat
+machine goes silent or the owner takes it back), exactly as `DELETE .../session` does. A
+rental-mode PC taking itself off offer with `reset: true` to restart between renters is
+not the owner taking it back: a session claimed the instant before, not yet started, is kept, held through
+the restart, and its host session is started again once the PC is back
+([`host.md`](host.md), the reset hold). The service must treat
 a `session-ended` denial, or a heartbeat whose `session.id` has changed or is missing, as
 the signal to tear down the renter account session. Its later `DELETE` still answers `204`.
 
@@ -153,13 +187,177 @@ streamer when it ends — the host leaves the room at once and the renter gets `
 before any new host can register. A socket that has been put out or replaced relays nothing
 more while it closes.
 
+## Control and hosting credentials
+
+The machine key opens the room for good, and in Swiff OS rental mode it stays in the owner's
+Windows, which does not run during a rental. So the server splits a machine's rights between
+two credentials (`server/src/attestation.ts`):
+
+| Credential                     | Held by                                      | Rights                                                                                                                                                                                                                                           |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Machine key** (control)      | the owner's host app                         | set availability, price and share-until; heartbeat; end a session (`DELETE .../session`, `POST /api/sessions/:id/end`), the owner's confirmed end-early                                                                                          |
+| **Host certificate** (hosting) | `swiff-hostd` in Swiff OS, after attestation | `register` the PC service's socket, which hears `session-claimed` and gets TURN credentials in `registered`; start a host session, which mints the session keys; report the renter in (`POST /api/sessions/:id/start`); heartbeat; end a session |
+
+`HOSTING_ATTESTATION` picks the policy per environment:
+
+- `optional` (the default, for development): the machine key also has the hosting rights, at
+  an explicit `unattested` tier, so the desktop host app works exactly as described above.
+- `required`: only a host certificate hosts. A machine-key `register` is refused with
+  `denied attestation-required`, and a hosting call made with it answers
+  `403 attestation-required`. Its control rights are unchanged. A free machine is offered
+  and matched only while a socket that may host it is open: the machine key's availability
+  and heartbeats keep its terms and its liveness, but never put it on the market alone. An
+  unrecognised value counts as `required`.
+
+A host certificate is a token the server signs with `ROOM_SECRET` under its own domain,
+naming one room, its tier, an id of its own and an expiry ten minutes away. It is the PC
+service's credential, exactly where the machine key was: refused with `session-active` while
+a session is live, and never handed to the streamer. A certificate for a machine no longer
+in `MACHINE_KEYS` hosts nothing. Two rules make `swiff-hostd` attest again:
+
+- **One session start per certificate.** Starting a host session spends it. A spent
+  certificate is refused for another start (`401 bad-host-cert`) and for `register`
+  (`denied bad-host-cert`); it may still report that session's renter in, heartbeat and end
+  it. So the machine attests again after every session, before it can be offered again.
+- **Expiry puts the socket out.** A socket registered with a certificate is put out with
+  `denied bad-host-cert` when the certificate expires, so it never hears a claim on an
+  expired one; `swiff-hostd` attests again and registers anew, at least every ten minutes
+  while it waits for a renter.
+
+Spent certificates are kept in memory until they expire. A server restart forgets them, so a
+certificate spent just before a restart could start one more session within what is left of
+its ten minutes.
+
+### Attestation
+
+```
+owner's Windows, once (machine key)
+PUT  /api/machines/:id/ek  { certificate } ────► EK certificate must chain to a TPM vendor   (tpm verifier)
+                                         ◄────── 204
+
+swiff-hostd                                      server
+POST /api/machines/:id/attest-challenge  ──────► 200 { nonce, expiresAt }       60 s, one certificate
+POST /api/machines/:id/attest-activation ──────► TPM2_MakeCredential to the        (tpm verifier)
+  { nonce, akPublic }                            registered EK for this AK
+                                         ◄────── 200 { credentialBlob, encryptedSecret }
+TPM2_ActivateCredential (AK, EK); TPM quote by
+the AK with qualifying data SHA-256(nonce)
+over PCRs 0-7, 11-13; the firmware event log
+POST /api/machines/:id/attest            ──────► verifier judges the evidence, the hardware
+  { nonce, evidence }                            floor picks the tier
+                                         ◄────── 200 { hostCert, tier, expiresAt }
+```
+
+Refusals: `400 bad-request` (`413` with the same body when it is too large); `401 bad-nonce`
+(forged, expired, another machine's, already used up by the attempt that earned a
+certificate, or being judged in another attempt right now); `403 attestation-refused` with
+`reason` `evidence-rejected` or `below-hardware-floor`, and with `evidence-rejected` the
+verifier's `detail` when it gives one; `404 not-found` for a machine with no key; `503
+verifier-unavailable` when the verifier itself fails; `503 not-configured` with no
+`ROOM_SECRET` or no verifier (for `attest-activation` and `ek`, also a verifier that has no use
+for them). Bodies are JSON with `cache-control: no-store`; the types are in `protocol.ts`.
+
+The verifier sits behind the `AttestationVerifier` interface (`verify({ room, nonce, evidence, now })`
+returning the platform facts it verified, or why not). It is picked with `ATTESTATION_VERIFIER`.
+The attestation routes themselves take no other credential: the evidence is the proof.
+
+**`tpm`, the production verifier** (`tpm-verifier.ts`). The owner's Windows registers the
+TPM's EK certificate once, with the machine key; it must chain to a TPM vendor root. In Swiff
+OS, `swiff-hostd` makes an AK under the EK, has the server make an activation credential for
+it (TPM2_MakeCredential to the registered EK, keyed to this nonce, this AK and this EK, so the
+server keeps no state between the calls), recovers it with TPM2_ActivateCredential, and quotes.
+The evidence (`TpmEvidence` in `protocol.ts`) is judged in order, and the first failure is the
+refusal's `detail`:
+
+| Check                                                                                                                                                                                                                                                                                                                                       | `detail` when it fails                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| An EK is registered, its certificate still chains to a vendor root (the root's directory says firmware or discrete TPM), and its key is an RSA 2048 or ECC P-256 EK                                                                                                                                                                         | `unknown-ek`, `ek-untrusted`, `ek-unsupported` |
+| The AK is a restricted signing key that never leaves its TPM                                                                                                                                                                                                                                                                                | `ak-unsuitable`                                |
+| The AK signed the quote, over SHA-256 of this nonce                                                                                                                                                                                                                                                                                         | `bad-signature`, `wrong-nonce`                 |
+| The AK was activated by the registered EK's TPM, and is a child of the EK (so the quote's counters are not obfuscated)                                                                                                                                                                                                                      | `ak-not-activated`, `ak-not-under-ek`          |
+| The quote covers SHA-256 PCRs 0-7 and 11-13, and the PCR values sent are the quoted ones                                                                                                                                                                                                                                                    | `pcrs-not-quoted`, `pcr-digest-mismatch`       |
+| The firmware event log replays to PCRs 0-7                                                                                                                                                                                                                                                                                                  | `event-log-mismatch`                           |
+| PCR 11 is a released Swiff OS's, from the signed boot policy                                                                                                                                                                                                                                                                                | `unknown-boot-image`                           |
+| PCRs 12 and 13 are that release's: systemd-stub took no command line, credential or extension from outside the UKI that the release does not expect                                                                                                                                                                                         | `unknown-boot-extras`                          |
+| PCR 4 measured at least one application, everything in it is that release's boot chain, and the last one is the release's UKI                                                                                                                                                                                                               | `unknown-boot-application`                     |
+| PCR 7 measured SecureBoot, PK, KEK, db and dbx, each once before its separator, with a platform key enrolled (not setup mode) whose whole variable record its digest binds, and every other extend of it, whatever type the log claims, is a known action or a Secure Boot authority the release lists. Never cooled down: refused outright | `secure-boot-untrusted`                        |
+| PCRs 0-3 (firmware) are the ones the machine first attested with; a change, or any firmware after the EK was registered again, is refused until seen for 24 hours with Secure Boot on; a boot with Secure Boot off never sets, starts or accepts firmware                                                                                   | `firmware-changed`                             |
+| The TPM's resetCount, restartCount and clock only go forward from the last accepted quote                                                                                                                                                                                                                                                   | `counter-rollback`, `replayed-quote`           |
+
+What passes gives the platform facts: UEFI, Secure Boot and pre-boot DMA protection from the
+replayed log, IOMMU from the release (a release declares it will not finish booting without
+DMA remapping), and the TPM's kind from its EK root.
+Per machine the server keeps the registered EK, the firmware baseline, a pending firmware change
+and the last accepted counters, in the `machine_attestation` table, so a restart never makes
+changed firmware look like a first use. The firmware baseline is the machine's, not its EK's.
+Registering an EK again (the same one after the owner cleared the TPM, which sets its counters
+back to zero, or another one) keeps the baseline and any pending change, forgets the counters,
+and holds the firmware, even unchanged, for the 24-hour cooldown.
+
+An event's type is not extended into its PCR, so the verifier never takes the type a log claims
+on trust: every extend of PCRs 4 and 7 must be a separator, a known action or Secure Boot
+variable whose data its digest binds, or else counts as a boot application (PCR 4) or an
+authority (PCR 7) that the release must list.
+
+The 24-hour cooldown only ever trusts changed firmware whose PCR 7 matches the policy and says
+Secure Boot was on, so a key
+the owner enrolled in db, verifying a driver of theirs, is refused however long it waits. The
+verifier reports security events as one JSON line each on stderr (`[swiff] security event {...}`),
+with the machine's id and PCR values only, never keys or evidence, for review and alerts:
+`secure-boot-untrusted` (whether the keys were enrolled, and the authorities the release does
+not list), every `firmware-changed` refusal (the baseline, the presented PCRs 0-3 and whether Secure Boot was on),
+`firmware-accepted` when a change has cooled down (the previous and the accepted values), and
+`ek-registered-again`.
+
+It needs `ROOM_SECRET` (it keys the activation credentials) and:
+
+- `ATTESTATION_TPM_ROOTS`: a directory of TPM vendor certificates, roots and intermediates, as
+  PEM or DER, in `firmware/` (Intel PTT, AMD fTPM, Microsoft Pluton…) and `discrete/`
+  (Infineon, STMicro, Nuvoton…), which host at the lower tier. Microsoft's TrustedTpm.cab is one
+  source of them. For example `/etc/swiff/tpm-roots`.
+- `ATTESTATION_POLICY` and `ATTESTATION_POLICY_KEY`: the signed boot policy file (which Swiff OS
+  releases may host: their golden PCRs 11-13, boot applications, UKI and Secure Boot
+  authorities; see `boot-policy.ts`)
+  and the PEM public key that signs it (Ed25519, RSA or ECDSA), for example
+  `/etc/swiff/boot-policy.json` and `/etc/swiff/boot-policy.pub.pem`. A policy without
+  `pcr12`, `pcr13`, `uki` or `secureBootAuthorities` is refused. The release pipeline writes the payload (each release's PCR 11 from
+  `systemd-measure calculate` at the `ready` phase, its PCRs 12 and 13, all zero unless it takes
+  add-ons, credentials or extensions from the ESP, the Authenticode digests of shim, boot
+  loader and UKI (every PCR 4 extend but the separator and the known actions), which of them is
+  the UKI, every PCR 7 extend but the separator, the known actions and the first SecureBoot, PK,
+  KEK, db and dbx before the separator (chiefly the Secure Boot authorities that verify the boot
+  chain: Microsoft's UEFI CA 2023 or 2011, shim's vendor certificate or MOK; also, say, dbt where
+  the firmware measures it), and whether it enforces an IOMMU) and signs it with
+  `npm run boot-policy -- <payload.json> <private-key.pem>`.
+
+Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
+replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.
+
+**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts }`. The
+machine's own key stands in for the proof of who is asking, which the TPM verifier gets from the
+machine's registered EK, so only its holder earns a certificate. The facts are believed as
+claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
+
+**Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
+setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
+firmware TPM hosts at `attested`, and a discrete TPM at the lower `attested-discrete-tpm`
+tier. The tier is carried in the certificate, for matching to use later.
+
+Not yet: revoking a certificate before it expires, the disk-key share
+(`POST /machines/:id/state-key`), binding the host certificate to a key inside the attested
+system (a machine that relays challenges to another, untouched one is not caught), attestation
+failures as a stability input, and rate-limiting the attestation routes per client, as
+protection against load. A failed attempt does not use its challenge up (evidence that failed
+fails again), so a flood of junk attempts cannot hold a machine's attestation back.
+
 ## Lifetimes
 
-| Thing       | Lifetime                                                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session key | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
-| Session     | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
-| Everything  | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
+| Thing            | Lifetime                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session key      | 5 minutes from issue (`SESSION_KEY_TTL_SECONDS`). Checked only when registering: a streamer already registered keeps its socket after the key expires. |
+| Host certificate | 10 minutes from attestation (`HOST_CERT_TTL_SECONDS`), and one session start. A socket registered with it is put out when it expires.                  |
+| Session          | From start until the service ends it or the renter's platform session ends. Ending it and starting it again for the same `sessionId` issues a new key. |
+| Everything       | Kept in the platform database (`key_sessions`, at `DATABASE_URL`). A restart keeps every live session, and its unexpired keys still register.          |
 
 ## Failure behaviour
 
@@ -169,6 +367,7 @@ more while it closes.
 | Streamer's socket drops, key expired     | `denied bad-session-key`                           | `DELETE`, start the same `sessionId`, relaunch with the new key            |
 | Streamer crashes                         | renter gets `peer-left`; room stays in the session | relaunch it; if the key has expired, `DELETE` and start first              |
 | Service restarts and lost the session    | the old session is still live; start answers `409` | on startup, always `DELETE` first, then start the heartbeat's `session.id` |
+| PC restarts before a claim is served     | with `reset: true`, the session is held 3 minutes  | `DELETE` before the restart; after it, start the heartbeat's `session.id`  |
 | Signaling server restarts                | live sessions and their keys are kept              | nothing; the streamer reconnects with its key as after any drop            |
 | Server cannot be reached for `DELETE`    | the room stays in the session; the streamer stays  | retry until `204`; stop the streamer locally meanwhile                     |
 | `ROOM_SECRET` not set on the server      | every call `503 not-configured`                    | report the machine unavailable                                             |

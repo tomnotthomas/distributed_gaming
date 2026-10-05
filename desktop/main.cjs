@@ -22,7 +22,8 @@ const {
 } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readPc, readSteamArt, steamRootOnce } = require("./pc.cjs");
+const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
+const { installPlan, readRental, switchPlan } = require("./rental.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
@@ -35,6 +36,7 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
+/** The app page's query string: `extra`, plus demo=1 in demo mode. */
 const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
 
 // The machine key, encrypted by the OS for the logged-in Windows user. Never
@@ -86,6 +88,40 @@ ipcMain.handle("steam:install", (event) => {
   return installingSteam;
 });
 
+// Games installed or removed while the app runs go to the app window as the
+// whole list, so the platform hears of them without a restart.
+let stopWatchingGames = null;
+/** Start watching Steam's libraries, once; the list goes to the app window as it changes. */
+async function watchGames() {
+  const steamPath = await steamPathOnce();
+  if (stopWatchingGames) return;
+  stopWatchingGames = watchSteamGames(
+    (games) => {
+      // A closed window has no one to tell: its next load reads the games afresh.
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed())
+        win.webContents.send("pc:games", games);
+    },
+    { steamPath },
+  );
+}
+
+// Rental mode (rental.cjs): what Swiff OS needs from this PC, read fresh and
+// without administrator rights, and the steps that would install it or switch
+// to and from it. The steps are previews: nothing here runs them.
+ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRental() : null));
+ipcMain.handle("rental:plan", async (event, ask) => {
+  if (!fromApp(event) || !ask || typeof ask !== "object") return null;
+  if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
+  if (ask.kind !== "install") return null;
+  const rental = await readRental();
+  if (!rental) return null;
+  try {
+    return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });
+  } catch {
+    return null;
+  }
+});
+
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.
 ipcMain.handle("pc:idle", (event) => (fromApp(event) ? powerMonitor.getSystemIdleTime() : null));
@@ -135,6 +171,7 @@ function guardNavigation(contents) {
 let win = null;
 let quitting = false;
 
+/** Open the app window; closing it hides it to the tray. */
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -160,6 +197,7 @@ function createWindow() {
   return win;
 }
 
+/** Bring the app window up, opening it again if it was destroyed. */
 function showWindow() {
   if (!win) createWindow();
   win.show();
@@ -207,6 +245,7 @@ function placeGlance() {
   glance.setPosition(x, Math.round(Math.max(workArea.y, y)));
 }
 
+/** Show the tray glance by the tray icon, or hide it when it is showing. */
 function toggleGlance() {
   if (glance?.isVisible()) return glance.hide();
   if (!glance) {
@@ -233,6 +272,7 @@ function toggleGlance() {
   glance.focus();
 }
 
+/** The tray icon: a click toggles the glance, its menu opens or quits Swiff. */
 function createTray() {
   tray = new Tray(trayIcon());
   tray.setToolTip("Swiff Host");
@@ -306,6 +346,7 @@ app.whenReady().then(() => {
   );
 
   createWindow();
+  void watchGames();
   try {
     createTray();
   } catch (cause) {
@@ -317,6 +358,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   quitting = true;
+  stopWatchingGames?.();
 });
 
 process.on("unhandledRejection", (cause) => {

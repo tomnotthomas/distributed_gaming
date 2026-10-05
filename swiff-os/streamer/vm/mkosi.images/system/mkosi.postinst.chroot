@@ -1,0 +1,8 @@
+#!/bin/sh
+# Inside the image, after the packages: the users, the network and the test units.
+set -eu
+systemd-sysusers
+useradd --uid 1000 --user-group --home-dir /home/renter --create-home --shell /usr/sbin/nologin renter
+systemctl enable systemd-networkd.service systemd-resolved.service swiff-streamer-vmtest.service
+# The renter's session units, in the renter's own manager.
+systemctl --global enable swiff-pipewire-grant.service swiff-fake-gamescope.service swiff-test-tone.service

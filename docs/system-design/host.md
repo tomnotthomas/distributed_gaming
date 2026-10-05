@@ -17,11 +17,12 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 ## 1. Functional requirements
 
 1. The owner can install the host app on a Windows gaming PC from a single file.
-2. The owner can offer the PC for rent, with a price and how long it is available.
+2. The owner can offer the PC for rent, with a price and how long it is available, and
+   choose which of its installed games players can stream on it.
 3. A running session is protected until its claimed end. The owner's share-until time is
-   when new claims stop: a session that started before it runs to its claimed end. Once the
-   platform receives the share-until time (the app does not send it yet), players can only
-   book time that ends by it. The owner can always stop new sessions. Ending early is a
+   when new claims stop: a session that started before it runs to its claimed end. The app
+   sends it to the platform as `until` on availability, so players can only book time that
+   ends by it. The owner can always stop new sessions. Ending early is a
    deliberate, confirmed action: it warns the player and gives them 5 minutes to save, and
    it costs the owner reliability. The app does not offer it yet; it shows this flow only on
    its labelled demo data.
@@ -103,7 +104,9 @@ The app reads what Steam leaves on the PC, never the owner's account (`desktop/s
 
 Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
 `idle` when the owner takes it back, `offline` when its socket drops or, with no socket,
-it stops sending heartbeats).
+it stops sending heartbeats). A rental-mode PC restarting between renters holds a reset
+(`reset_until`, below): a session claimed the instant before, not yet started, stays
+`in_session` through the restart.
 
 ---
 
@@ -113,24 +116,32 @@ it stops sending heartbeats).
 
 Served under `/api` (`server/src/api.ts`). Every call carries the machine key as
 `Authorization: Bearer <machine key>`; a session call needs the key of the machine the
-session runs on.
+session runs on. In Swiff OS the hosting calls bear a host certificate instead
+([`session-keys.md`](session-keys.md), Control and hosting credentials).
+Availability, heartbeat, upload-test, demand and session start and end
+answer any origin (`access-control-allow-origin: *`, preflight included), so the host app
+can call them from its `file://` page: the bearer credential is the only one.
 
 ```
 PUT  /machines/:id/availability
   { available: true, until?, price?, ...report }
-  → 200 { id, status, gpu, cpu, price, until?, session? }
+  { available: false, reset?: true, until?, price?, ...report }
+  → 200 { id, status, gpu, cpu, price, until?, session?, resetUntil? }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
   `until` is an ISO date or Unix ms; `price` is cents per hour. `report` is below. Every
   call replaces `until`, so one that leaves it out clears it; the answer's `until` (Unix ms,
   when set) is what to send back to offer the PC again on the same terms.
+  `reset: true` is the rental-mode PC taking itself off offer to restart between
+  renters (the reset hold, below); only with `available: false`, else 400.
 
 POST /machines/:id/heartbeat
   { ...report }
   → 200 { id, status, gpu, cpu, price, until?, session? }
-  Sent when part of the report changes. Liveness is the PC's socket (below), not this
-  call: while the socket is open the machine needs no heartbeat. Without one (the
-  service was handed over to the streamer, or cannot connect) the service sends this
-  every 5 s, and a machine silent for 15 s is `offline`. `offline` means no longer
+  Carries the parts of the report that changed. Liveness is the PC's socket (below):
+  while the socket is open the machine needs no heartbeat. The host app beats every 5 s
+  all the same while the PC is offered (`desktop/src/report.ts`), most often with an
+  empty body, so it stays live through a socket handover; without a socket or a beat
+  for 15 s a machine is `offline`. `offline` means no longer
   offered: its reserved booking goes to another machine, its running session ends. Its
   next heartbeat, or its socket registering again, offers it again. `session.id` names
   the session a renter has claimed; the PC normally hears of it sooner, pushed as
@@ -141,8 +152,7 @@ GET  /machines/:id/demand
   What renters ask for, for the owner choosing what to install: per game, busiest first
   and at most 24, the renters who booked it in the last hour or still wait for it
   (`looking`), and its bookings in the queue now (`waiting`). Counts only, never who
-  asked. `name` is the catalogue's, null where it has none. The host app calls it from
-  its own origin, so it answers any origin (CORS): the machine key is its only credential.
+  asked. `name` is the catalogue's, null where it has none.
 
 POST /machines/:id/session
   { sessionId }
@@ -156,7 +166,8 @@ POST /sessions/:id/start
 POST /sessions/:id/end
   { endedAt? }
   Mark the session started (the renter arrived), and ended. → 409 once the session is
-  over. Any `reason` the host sends is ignored: the server alone decides why a session
+  over. The renter's page also starts it, with its join ticket, on each connection's first frame
+  (renter.md); either start counts once. Any `reason` the host sends is ignored: the server alone decides why a session
   ended, so a host can never claim credit for one: `time_up` once the server sees the
   session within 10 s of its expiry (to absorb clock skew), `host_end` for any earlier
   end the host reports (often a renter who disconnected without leaving; it counts
@@ -166,6 +177,11 @@ POST /sessions/:id/end
   arrived) when the join ticket runs out and `host_offline` when the machine goes
   silent or its socket drops. The reason feeds the machine's stability (below).
 
+POST /machines/:id/upload-test
+  <up to 8 MB, any bytes>
+  → 204
+  The upload test: the PC times sending 4 MB here for `net.upMbps`. Nothing is kept.
+
 GET  /sessions/:id/saves
   → 200 { downloadUrl? }
 POST /sessions/:id/saves
@@ -173,6 +189,43 @@ POST /sessions/:id/saves
   Short-lived S3 links for this renter's saves for this game. The PC never holds
   storage credentials. Download before the game starts; upload before the wipe.
 ```
+
+### The reset hold
+
+A rental-mode PC (its agent, swiff-hostd) restarts after every renter, while idle, so
+the next renter gets a clean PC and never waits for it. It takes itself off offer first,
+so nobody is matched to a PC about to restart. It learns of a claim from its socket and
+heartbeat, so a renter can claim it after its last look and before it is off offer.
+Taking the machine back would end that renter's session as `owner_kill`, so the PC
+sends `reset: true` instead, which the server settles in one step
+(`server/src/platform.ts`):
+
+- **Nobody claimed it**: the same as taking it back. It goes `idle`, and a renter
+  matched to it but not yet claimed goes back to the front of the queue. Queued renters
+  stay queued until a PC is free; this one is again once it offers itself after the
+  restart.
+- **A session was started**: the same as taking it back. The session ends as
+  `owner_kill`, priced up to the reset, and the machine goes `idle`.
+- **A session was claimed, not yet started**: the session is kept and the answer names it in `session`.
+  The machine stays `in_session` and holds the reset for up to 3 minutes
+  (`RESET_HOLD_MS`, from the first call: asking again during the hold keeps its deadline;
+  `resetUntil` in the answer). Meanwhile its silence
+  does not end the session as `host_offline`. After the restart its heartbeat names the
+  session, and the PC serves it.
+
+The hold ends when the PC is back: it starts the session's host session
+(`POST /machines/:id/session`) or offers the machine again. It also ends when the owner
+takes the machine back, which ends the session as `owner_kill` as always, or when it
+runs out, and the usual liveness rule applies again. If the held session ends before the
+PC is back (the renter leaves), the machine goes `idle`, as a reset with no session
+leaves it, until the PC offers it again. The owner's host app never sends `reset`, so a
+desktop PC behaves as before.
+
+swiff-hostd should send `reset: true` on every off-offer call it makes before a restart
+between renters, including the one where its heartbeat already names a new session. That
+is a follow-up. As first written, it takes the machine off offer with a plain
+`available: false` when it sees no session, and with a session it sends nothing, so a
+restart longer than 15 s ends that session as `host_offline`.
 
 Whenever the platform session ends — the host ends it, the booked time runs out, the
 machine goes silent or the owner takes it back — the server also ends the PC's host
@@ -196,9 +249,11 @@ loss median). `@swiff/rank` buckets that into Steady, OK, Shaky or New.
 
 The PC describes itself in the body of its availability and heartbeat calls. Every
 section is optional: one that is sent replaces what the platform stored for it, one that
-is left out keeps it. Send every section with the first availability call, `games` again
-whenever the installed games change, `net` after each upload test, and nothing more on a
-plain heartbeat. A body is at most 32 KB.
+is left out keeps it. The host app sends every section it knows with the first
+availability call, then each section again only when it changes: `games` when a game is
+installed or removed (it watches the Steam libraries) or the owner offers or stops offering
+one, `net` once its figures move, and nothing more on a plain heartbeat. A body is at most
+32 KB.
 
 ```json
 {
@@ -220,18 +275,33 @@ plain heartbeat. A body is at most 32 KB.
 
 | Field               | Rule                                                                                                                                           | Where the PC gets it                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `name`              | 1–64 characters, shown to renters                                                                                                              | The owner, in the host app                                             |
+| `name`              | 1–64 characters, shown to renters                                                                                                              | The owner, in the host app's settings; else the machine id             |
 | `hardware`          | All seven fields required                                                                                                                      |                                                                        |
-| `hardware.gpu`      | 1–200 characters, the adapter's name as Windows reports it; scored against the GPU score table (`packages/rank`), and an unknown card scores 0 | DXGI adapter description                                               |
+| `hardware.gpu`      | 1–200 characters, the adapter's name as Windows reports it; scored against the GPU score table (`packages/rank`), and an unknown card scores 0 | DXGI adapter description, of the card with the most memory of its own  |
 | `hardware.vramMb`   | Whole MB, 0–262144; stored as the whole GB when within 3% of it (8028 → 8192): drivers report under the marketed size; else kept as sent       | DXGI `DedicatedVideoMemory`                                            |
 | `hardware.ramMb`    | Whole MB, 0–4194304; snapped to a whole GB in the same way (16311 → 16384), other values kept                                                  | WMI `Win32_PhysicalMemory` capacities, summed                          |
 | `hardware.cpu`      | 1–200 characters                                                                                                                               | WMI `Win32_Processor.Name`                                             |
 | `hardware.cores`    | Whole number, 1–1024: physical cores                                                                                                           | WMI `Win32_Processor.NumberOfCores`, summed                            |
-| `hardware.encoders` | Any of `h264`, `hevc`, `av1`: what the GPU can encode the stream with                                                                          | NVENC, AMF or QSV probe                                                |
+| `hardware.encoders` | Any of `h264`, `hevc`, `av1`: what the GPU can encode the stream with                                                                          | NVENC, AMF or QSV probe: Media Foundation's hardware encoders          |
 | `hardware.display`  | `width`, `height` (1–16384) and `refreshHz` (1–1000), whole numbers: the display the stream captures                                           | The primary display's mode                                             |
-| `games`             | Up to 2000 Steam appids, whole numbers from 1: installed and ready to launch. `[]` means none                                                  | `libraryfolders.vdf` → `appmanifest_<appid>.acf` with `StateFlags` = 4 |
+| `games`             | Up to 2000 Steam appids, whole numbers from 1: installed, ready to launch and offered by the owner. `[]` means none                            | `libraryfolders.vdf` → `appmanifest_<appid>.acf` with `StateFlags` = 4 |
 | `controls`          | Any of `kb`, `mouse`, `pad`; `pad` only when the ViGEmBus driver is installed                                                                  | Driver check                                                           |
-| `net`               | All three fields required, numbers from 0: `rttMs` and `jitterMs` up to 60000, `upMbps` up to 100000                                           | Round trip to the server, and an upload test                           |
+| `net`               | All three fields required, numbers from 0: `rttMs` and `jitterMs` up to 60000, `upMbps` up to 100000                                           | Round trip to the server, and an upload test (below)                   |
+
+The host app reads the hardware once per launch, in one PowerShell run (`desktop/probe.cjs`);
+the section is sent only once all seven fields are read. `rttMs` is the median round trip
+of the signaling socket's latest pings (one a second for the first three, then every 25 s;
+the server answers them from memory) and `jitterMs` their mean change from one to the next;
+`upMbps` is timed from an upload test when the PC goes live and every 30 minutes after,
+never while a player is on.
+
+A claim for a game the owner does not offer (the owner stopped offering it as the claim
+came in) is turned down: the app ends that session at once (`POST /sessions/:id/end`)
+instead of serving it, and until the platform confirms that end it offers the screen to no
+renter who joins (a session the platform does not know, `404`, counts as ended). An end
+that fails on the network or the server, or gets no answer within 15 s, is tried again, from 5 s apart up to a minute, for
+as long as the app runs; any other refusal keeps the screen closed until the claim is pushed
+again on the next register.
 
 A bad field is a `400` naming it; nothing in that body is stored. The matcher gives a
 booking only to a machine that lists the game in `games` and meets the game's minimum
@@ -243,7 +313,7 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 
 | Message                    | Direction   | Meaning                                                                                                                                   |
 | -------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key.                                                                           |
+| `register`                 | PC → server | Open the room and wait for the renter. Carries the machine key (a host certificate in Swiff OS, [`session-keys.md`](session-keys.md)).    |
 | `session-claimed`          | server → PC | A renter claimed this PC: `{ sessionId, appid, minutes }`. The service starts the host session for that `sessionId` at once.              |
 | `denied`                   | server → PC | The machine key was refused. The app stops sharing and does not retry, except on `session-active` ([`session-keys.md`](session-keys.md)). |
 | `join`                     | server → PC | The renter has arrived; the PC creates the offer.                                                                                         |
@@ -253,7 +323,8 @@ each PC's latency from `net.rttMs`, so a PC that has not sent `net` is not liste
 The open socket is the PC's presence. The machine stays offered for as long as it is
 open, and goes `offline` the moment the service's socket closes while the PC is on offer
 (`available` or `reserved`); a socket that stops answering `ping` is closed by the server
-after two missed rounds. Once a renter has claimed the PC the room is being handed to the
+after two missed rounds. The PC drops and reopens a socket that has heard nothing back for two
+rounds in the same way, so a half-open socket does not leave it waiting. Once a renter has claimed the PC the room is being handed to the
 streamer, so a socket that closes from then on (the service's or the streamer's) leaves
 the machine the 15 s heartbeat window to come back on its new credential: a renter's
 session does not end with one socket.

@@ -1,15 +1,49 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { storedPlay } from "./booking";
 import { GAMES } from "./data";
+import { WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
-// Analytics are off in tests; the real module refuses to load without a key in dev.
-vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
+// The real module refuses to load without a key in dev: tests stand in for it and read what the funnel was told.
+const track = vi.hoisted(() => vi.fn());
+vi.mock("../posthog", () => ({ default: { capture: track }, isPostHogEnabled: true }));
+
+/** The renter sessions the page started, each driven by the test: what it joined with, its events, its end. */
+const rtc = vi.hoisted(() => ({
+  sessions: [] as {
+    options: RenterSessionOptions;
+    emit: (event: RenterSessionEvent) => void;
+    ended: boolean;
+  }[],
+}));
+vi.mock("@swiff/rtc", () => ({
+  startRenterSession: (options: RenterSessionOptions) => {
+    const listeners = new Set<(event: RenterSessionEvent) => void>();
+    const session = {
+      options,
+      ended: false,
+      emit: (event: RenterSessionEvent) => listeners.forEach((fn) => fn(event)),
+    };
+    rtc.sessions.push(session);
+    return {
+      on: (listener: (event: RenterSessionEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      stats: () => null,
+      end: () => {
+        session.ended = true;
+      },
+    };
+  },
+}));
 
 /** What /api/me answers without a Steam Web API key: the session's Steam id, an empty profile. */
 const unnamed: Renter = {
@@ -138,6 +172,7 @@ describe("useSwiff", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    rtc.sessions = [];
   });
 
   it("is the demo only at ?demo=1", () => {
@@ -332,6 +367,283 @@ describe("useSwiff", () => {
       expect(body).toMatchObject({ gameId: cs2.appid, minutes: 180, machineId: "h1" });
       expect(body.rtts).toEqual({ server: expect.any(Number) });
       expect(result.current.phase).toBe("connecting");
+    });
+
+    it("drops a join ticket kept on disk before tickets stopped being stored", async () => {
+      localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: TICKET }));
+      serve(unnamed, LIVE, {});
+      streams();
+      await openLive();
+      expect(localStorage.getItem("swiff.play")).toBeNull();
+    });
+
+    it("plays the claimed stream behind Ignition, step by step, and ends the session with End", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a machine");
+
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      // Kept as the booking being played, for the later resume step.
+      expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+      const video = document.createElement("video");
+      act(() => result.current.attachVideo(video));
+      expect(rtc.sessions).toHaveLength(1);
+      const session = rtc.sessions[0]!;
+      expect(session.options).toMatchObject({ url: "ws://localhost", ticket: "t", video });
+      const step = () => result.current.ignitionSteps[result.current.ignitionIndex];
+      expect(step()).toBe("Waking Basement rig");
+
+      act(() => session.emit({ type: "peer-connection", pc: {} as RTCPeerConnection }));
+      expect(step()).toBe("Negotiating stream");
+      act(() => session.emit({ type: "connected" }));
+      expect(step()).toBe("Launching Counter-Strike 2");
+      act(() => session.emit({ type: "first-frame" }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/sessions/s-1/start"));
+      expect(result.current.phase).toBe("connecting");
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+
+      act(() => result.current.endSession());
+      expect(result.current.phase).toBe("idle");
+      expect(session.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("ends a live session the server ended as a session end, not a failed launch", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        "POST /api/bookings/b-1/end": json(409, { status: "ended" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+      track.mockClear();
+
+      act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(false);
+      expect(result.current.claim).toBeNull();
+      expect(track).toHaveBeenCalledWith("session_ended", expect.anything());
+      expect(storedPlay()).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("fails the launch when the ticket is denied during Ignition", async () => {
+      serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      track.mockClear();
+
+      act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" }));
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.bookingFailed).toBe(true);
+      expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("goes back behind Ignition when the PC leaves mid-session, keeping the session clock", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(4_000);
+
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Waking Basement rig");
+
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.elapsedMs).toBeGreaterThanOrEqual(5_000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    describe("after the PC drops a started session", () => {
+      /** A session live on h1 for 10 s, then back behind Ignition because its PC left. */
+      async function dropped(extra: Record<string, Response> = {}) {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 600_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+          ...extra,
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        const session = rtc.sessions[0]!;
+        act(() => session.emit({ type: "first-frame" }));
+        act(() => session.emit({ type: "game-started" }));
+        await waitFor(() => expect(result.current.play?.started).toBe(true));
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(10_000));
+        act(() => session.emit({ type: "peer-left" }));
+        expect(result.current.phase).toBe("connecting");
+        track.mockClear();
+        return { result, calls, session };
+      }
+
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("ends a session the server ended behind Ignition as a session end, not a failed launch", async () => {
+        const { result, calls, session } = await dropped();
+
+        act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
+        expect(result.current.phase).toBe("idle");
+        expect(result.current.bookingFailed).toBe(false);
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        expect(
+          track.mock.calls.find(([name]) => name === "session_ended")![1].seconds,
+        ).toBeGreaterThanOrEqual(9);
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("ends it as a session with End on Ignition", async () => {
+        const { result, calls } = await dropped();
+
+        act(() => result.current.goHome());
+        expect(result.current.phase).toBe("idle");
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      });
+
+      it("leaves Escape and a controller's B to the game: only End ends it", async () => {
+        const pad = { axes: [0], buttons: Array.from({ length: 16 }, () => ({ pressed: false })) };
+        Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [pad] });
+        try {
+          const { result, calls } = await dropped();
+
+          act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+          pad.buttons[1]!.pressed = true;
+          await act(() => vi.advanceTimersByTimeAsync(500));
+          expect(result.current.phase).toBe("connecting");
+          expect(result.current.claim).toEqual(TICKET);
+          expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
+          expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+        } finally {
+          delete (navigator as { getGamepads?: unknown }).getGamepads;
+        }
+      });
+
+      it("ends it as a session before trying another machine, whose clock starts afresh", async () => {
+        const { result, calls } = await dropped();
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+
+        act(() => result.current.tryAnother());
+        expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        await waitFor(() => expect(rtc.sessions).toHaveLength(2));
+        const next = rtc.sessions[1]!;
+        act(() => next.emit({ type: "first-frame" }));
+        act(() => next.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+        expect(result.current.elapsedMs).toBeLessThan(2_000);
+      });
+    });
+
+    it("cancels a launch by ending its booking and hanging up", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, booked("matched", 1_000)),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+
+      act(() => result.current.goHome());
+      expect(result.current.phase).toBe("idle");
+      expect(rtc.sessions[0]!.ended).toBe(true);
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+    });
+
+    it("offers another machine when the PC takes too long to wake, and launches on it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const calls = serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, booked("matched", Date.now() + 60_000)),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        expect(result.current.slow).toBe(false);
+
+        await act(() => vi.advanceTimersByTimeAsync(WAKE_TIMEOUT_MS));
+        expect(result.current.slow).toBe(true);
+        expect(result.current.phase).toBe("connecting");
+
+        act(() => result.current.tryAnother());
+        expect(rtc.sessions[0]!.ended).toBe(true);
+        await waitFor(() =>
+          expect(calls.filter((c) => c.call === "POST /api/bookings").at(-1)!.body).toMatchObject({
+            machineId: "h2",
+          }),
+        );
+        expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end");
+        expect(result.current.picked?.id).toBe("h2");
+        expect(result.current.phase).toBe("connecting");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("books with how the renter plays, as their list was read", async () => {

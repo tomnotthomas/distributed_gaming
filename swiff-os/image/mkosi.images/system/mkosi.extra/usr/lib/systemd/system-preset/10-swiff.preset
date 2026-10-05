@@ -1,0 +1,10 @@
+enable swiff-session.service
+enable swiff-games-overlay.service
+enable swiff-netguard.path
+enable swiff-netguard.timer
+enable nftables.service
+enable systemd-networkd.service
+enable systemd-resolved.service
+enable systemd-timesyncd.service
+enable swiff-hwcheck.service
+enable swiff-vtlock.service

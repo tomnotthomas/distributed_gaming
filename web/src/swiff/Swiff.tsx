@@ -60,7 +60,10 @@ export function Swiff() {
         </div>
         {sheet ? <EstimateSheet swiff={swiff} /> : null}
         {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
-        {phase === "live" ? <Session swiff={swiff} /> : null}
+        {/* A claimed launch's stream plays behind Ignition until its game is on screen. */}
+        {phase === "live" || (phase === "connecting" && swiff.claim && !swiff.demo) ? (
+          <Session swiff={swiff} />
+        ) : null}
       </MotionContext.Provider>
     </div>
   );

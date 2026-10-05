@@ -9,12 +9,13 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 
 export type Game = SteamGame;
 
-/** What the app read about the PC. The demo also knows a connection speed, which the app cannot measure. */
+/** What the app read about the PC, and its upload speed once the app has measured it. */
 export type Hardware = PcHardware & { upMbps?: number | null };
 
 /**
@@ -61,6 +62,21 @@ export function appidIn(text: string): number | null {
   return Number.isSafeInteger(appid) && appid > 0 && appid < 2 ** 31 ? appid : null;
 }
 
+// --- rental mode on this PC -------------------------------------------------------
+
+/**
+ * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
+ * while `reading`; `read` is null until then, and where the app cannot read
+ * this PC. `target` is the place for Swiff OS the owner chose, by id, null
+ * for the best one. `preview` is the plan on screen: always a dry run.
+ */
+export type RentalSetup = {
+  reading: boolean;
+  read: RentalRead | null;
+  target: string | null;
+  preview: RentalPlan | null;
+};
+
 // --- standing, levels and the rate ---------------------------------------------
 
 export type LevelId = "starter" | "steady" | "trusted" | "keystone";
@@ -80,9 +96,11 @@ export const LEVELS: readonly Level[] = [
   },
 ];
 
+/** The level reached after `hours` of reliable sharing. */
 export const levelAt = (hours: number): Level =>
   [...LEVELS].reverse().find((l) => hours >= l.hours) ?? LEVELS[0]!;
 
+/** The level after `level`; null at the top. */
 export const nextLevel = (level: Level): Level | null => LEVELS[LEVELS.indexOf(level) + 1] ?? null;
 
 /** How much of the hardware rate a seven-day reliability score keeps. */
@@ -106,6 +124,7 @@ export type Standing = {
 /** The rate, built in the open: hardware, times reliability, plus the level's bonus. */
 export type Rate = { hardware: number; reliability: number; factor: number; level: Level; total: number };
 
+/** The rate for `hardware`'s hourly base at `standing`. */
 export function buildRate(hardware: number, standing: Standing): Rate {
   const level = levelAt(standing.reliableHours);
   const factor = reliabilityFactor(standing.reliability);
@@ -193,6 +212,7 @@ export type Live =
 /** How long a warned player has to save. */
 export const GRACE_MS = 5 * MINUTE;
 
+/** When `claim`'s booked minutes run out, in ms. */
 export const claimEnd = (claim: Claim): number => claim.at + claim.minutes * MINUTE;
 
 /** The connection the app signs in with. */
@@ -200,19 +220,22 @@ export type Connection = {
   url: string;
   machineId: string;
   machineKey: string;
+  /** The name players see; empty for the machine id. */
+  name: string;
   /** Something to tell the owner about the key or the last attempt. */
   notice: string | null;
   /** The screen being captured, for the settings preview. */
   preview: MediaStream | null;
 };
 
+/** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>
   Boolean(c.url.trim() && c.machineId.trim() && c.machineKey.trim());
 
 export type HostView = {
   demo: boolean;
   now: number;
-  /** The name players see: the machine id until the app can set a name. */
+  /** The name players see: the owner's, else the machine id. */
   machine: string;
   pc: { reading: boolean; hardware: Hardware | null; hardwareRate: number | null };
   /**
@@ -221,6 +244,7 @@ export type HostView = {
    */
   games: { installed: Game[]; offered: number[] | null; demand: DemandRow[] | null; near: number | null };
   steam: SteamSetup;
+  rental: RentalSetup;
   standing: Standing | null;
   /** What ending a session early would leave the reliability score at; null where it cannot be done. */
   earlyEnd: { reliability: number } | null;
@@ -250,14 +274,21 @@ export type HostActions = {
   endEarly: (() => void) | null;
   cancelEnd: (() => void) | null;
   retry(): void;
-  /** Choosing the games offered needs the platform to match on them: demo only until it can. */
+  /** Offer an installed game, or stop offering it; null until the games are read. */
   toggleOffer: ((appid: number) => void) | null;
-  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey">): Promise<void>;
+  saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey" | "name">): Promise<void>;
   savePayout(): void;
   /** Download Valve's installer and open it for the owner. */
   installSteam(): void;
   /** The owner sent a game to Steam to install: follow it until Steam starts. */
   askInstall(appid: number): void;
+  /** Read what rental mode needs from this PC again. */
+  checkRental(): void;
+  /** Where Swiff OS goes, by target id. */
+  chooseRentalTarget(id: string): void;
+  /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
+  previewRental(kind: RentalPlan["kind"]): void;
+  closeRentalPreview(): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };
@@ -306,11 +337,12 @@ export function untilSentence(machine: string, until: number | null): string {
 
 // --- screens --------------------------------------------------------------------
 
-export type Step = "pc" | "steam" | "games" | "live" | "paid" | "settings";
+export type Step = "pc" | "steam" | "games" | "rental" | "live" | "paid" | "settings";
 
 /** Which of the Go live step's screens a live state shows. */
 export type LiveScreen = "golive" | "waiting" | "streaming" | "inuse" | "ending" | "paused" | "offline";
 
+/** The screen `live` shows. */
 export function liveScreen(live: Live): LiveScreen {
   switch (live.kind) {
     case "off":
@@ -347,6 +379,7 @@ export type Glance = {
   foot: string;
 };
 
+/** The tray glance's snapshot of `view`. */
 export function glanceOf(view: HostView): Glance {
   const { live, now } = view;
   const foot =

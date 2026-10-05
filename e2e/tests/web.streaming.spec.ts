@@ -8,62 +8,8 @@
 // Everything downstream of that track is the code that ships.
 
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { E2E_MACHINE_KEY, joinLink } from "./credentials";
-
-/** Open the browser host page and start sharing into the e2e room. */
-async function startHost(page: Page, key = E2E_MACHINE_KEY) {
-  await page.goto("/host");
-  await page.getByLabel("Machine key").fill(key);
-  await page.getByRole("button", { name: "Start sharing" }).click();
-}
-
-/**
- * Replace `getDisplayMedia` with an animated canvas.
- *
- * Installed before any page script runs, so `Host` sees it as the real API.
- * The canvas is repainted on a timer because a still image encodes to almost
- * nothing and the renter's `videoWidth` can stay 0 — motion is what makes the
- * assertion below mean "frames are arriving".
- */
-async function fakeScreenCapture(page: Page) {
-  await page.addInitScript(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1280;
-    canvas.height = 720;
-    const ctx = canvas.getContext("2d")!;
-
-    let frame = 0;
-    setInterval(() => {
-      frame += 1;
-      ctx.fillStyle = `hsl(${(frame * 9) % 360} 70% 45%)`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#fff";
-      ctx.font = "96px sans-serif";
-      ctx.fillText(String(frame), 60, 400);
-    }, 60);
-
-    const stream = (
-      canvas as HTMLCanvasElement & {
-        captureStream(fps?: number): MediaStream;
-      }
-    ).captureStream(30);
-
-    // Host applies width/frameRate constraints after the fact; a canvas track
-    // rejects those, and the rejection would be reported as a capture failure.
-    for (const track of stream.getVideoTracks()) {
-      track.applyConstraints = async () => {};
-    }
-
-    navigator.mediaDevices.getDisplayMedia = async () => stream;
-  });
-}
-
-/** Fail loudly on a page error rather than letting it surface as a timeout. */
-function failOnPageError(page: Page, label: string) {
-  const errors: string[] = [];
-  page.on("pageerror", (err) => errors.push(`${label}: ${err.message}`));
-  return errors;
-}
+import { joinLink } from "./credentials";
+import { failOnPageError, fakeScreenCapture, startHost } from "./hosts";
 
 // The /host page always registers one room, HOST_ID, and every test in this
 // file shares the one server process. So a test that leaves a socket open hands

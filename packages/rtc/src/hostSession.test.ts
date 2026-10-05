@@ -3,7 +3,13 @@
 // handover are covered here: no renter arrives, so no peer connection is made.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { requestSessionKey, startHostSession, type HostConnection, type SessionClaim } from "./hostSession";
+import {
+  requestSessionKey,
+  startHostSession,
+  type HostConnection,
+  type HostSessionOptions,
+  type SessionClaim,
+} from "./hostSession";
 import { FakeSocket } from "./test/fakes";
 
 beforeEach(() => {
@@ -53,8 +59,41 @@ const settleRetries = () => vi.advanceTimersByTimeAsync(5_000);
 const callsOf = (fetch: ReturnType<typeof fakeFetches>) =>
   fetch.mock.calls.map(([, init]) => [init.method, init.body ?? null]);
 
+/**
+ * A peer connection just able to make an offer, and a stream with one video
+ * track: `offered` counts the peer connections made.
+ */
+function fakePeer() {
+  const offered = vi.fn();
+  vi.stubGlobal(
+    "RTCPeerConnection",
+    class extends EventTarget {
+      localDescription: RTCSessionDescriptionInit | null = null;
+      constructor() {
+        super();
+        offered();
+      }
+      addTrack() {
+        return { getParameters: () => ({}), setParameters: async () => {} };
+      }
+      createDataChannel() {
+        return {};
+      }
+      async createOffer() {
+        return { type: "offer", sdp: "v=0" };
+      }
+      async setLocalDescription(sdp: RTCSessionDescriptionInit) {
+        this.localDescription = sdp;
+      }
+      close() {}
+    },
+  );
+  const stream = { getVideoTracks: () => [{}], getAudioTracks: () => [] } as unknown as MediaStream;
+  return { offered, stream };
+}
+
 /** Start a host session on a fresh fake socket, recording what it reports. */
-function start(serveClaims = false) {
+function start(serveClaims = false, extra: Partial<HostSessionOptions> = {}) {
   const claims: SessionClaim[] = [];
   const connection: HostConnection[] = [];
   const denied = vi.fn();
@@ -71,6 +110,7 @@ function start(serveClaims = false) {
     onPeerHere: () => {},
     onPeerConnection: () => {},
     onSessionClaimed: (claim) => claims.push(claim),
+    ...extra,
   });
   const socket = FakeSocket.instances[0]!;
   socket.accept();
@@ -91,6 +131,205 @@ describe("startHostSession", () => {
     expect(claims).toEqual([{ sessionId: "s1", appid: 730, minutes: 45 }]);
     expect(socket.messages).toHaveLength(1); // still only the register
     session.stop();
+  });
+
+  it("ends a claim it does not accept, instead of serving it", async () => {
+    const fetch = fakeFetch(200, { sessionId: "s1", roomId: "pc-1" });
+    const refused: SessionClaim[] = [];
+    const acceptClaim = vi.fn((claim: SessionClaim) => claim.appid !== 730);
+    const { session, socket, claims } = start(true, { acceptClaim, onClaimRefused: (c) => refused.push(c) });
+    socket.deliver(CLAIM);
+    await settle();
+
+    expect(acceptClaim).toHaveBeenCalledWith({ sessionId: "s1", appid: 730, minutes: 45 });
+    expect(claims).toEqual([]);
+    expect(refused).toEqual([{ sessionId: "s1", appid: 730, minutes: 45 }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://signal.test/api/sessions/s1/end");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer test-machine-key");
+    // Still in the room with the machine key, waiting for the next claim.
+    expect(socket.closeCalls).toBe(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    socket.deliver({ ...CLAIM, sessionId: "s2", appid: 570 });
+    expect(claims).toEqual([{ sessionId: "s2", appid: 570, minutes: 45 }]);
+    session.stop();
+  });
+
+  it("offers no renter the screen while a refused claim is not yet ended, nor after its end fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { offered, stream } = fakePeer();
+    let end!: (res: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (end = resolve))),
+    );
+    const peerHere = vi.fn();
+    const acceptClaim = (claim: SessionClaim) => claim.appid !== 730;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await settle();
+
+    // The end is still under way: a renter joining now may hold the refused session's ticket.
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).not.toHaveBeenCalled();
+    expect(offered).not.toHaveBeenCalled();
+
+    // Once the platform has ended it, a renter who joins is offered the screen again.
+    end(new Response("{}", { status: 200 }));
+    await settle();
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    expect(socket.messages.at(-1)).toMatchObject({ type: "offer" });
+
+    // An end the platform refuses keeps the screen closed.
+    socket.deliver({ type: "peer-left" });
+    vi.mocked(fetch).mockImplementation(async () => new Response("{}", { status: 403 }));
+    socket.deliver({ ...CLAIM, sessionId: "s3" });
+    await settleRetries();
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("keeps trying to end a refused claim while the platform fails, and opens the screen once it has", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const peerHere = vi.fn();
+    const { offered, stream } = fakePeer();
+    // Every try of the first end, and of its first retry, fails on the server.
+    const fetch = fakeFetches([500], [500], [500], [500], [500], [500], [200, {}]);
+    const acceptClaim = (claim: SessionClaim) => claim.appid !== 730;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    // Pushed again meanwhile: the end under way goes on, no second one starts.
+    socket.deliver(CLAIM);
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(6);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(fetch.mock.calls.every(([url]) => url === "https://signal.test/api/sessions/s1/end")).toBe(true);
+    expect(offered).not.toHaveBeenCalled();
+
+    // Ended: a renter who joins now is offered the screen.
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("gives up on a refused-claim end that hangs, tries again, and opens the screen once it has", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const peerHere = vi.fn();
+    const { offered, stream } = fakePeer();
+    // The first end never answers; it settles only when aborted. The next one is answered.
+    let calls = 0;
+    const fetch = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const signal = init.signal!;
+          if (signal.aborted) return reject(signal.reason);
+          if (calls++ > 0) return resolve(new Response("{}", { status: 200 }));
+          signal.addEventListener("abort", () => reject(signal.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const acceptClaim = () => false;
+    const { session, socket } = start(true, { acceptClaim, stream, onPeerHere: peerHere });
+    socket.deliver(CLAIM);
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    socket.deliver({ type: "peer-joined" });
+    expect(peerHere).not.toHaveBeenCalled();
+
+    // Past the deadline the hung end fails, and the end is tried again after the backoff.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await settleRetries();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toBe(2);
+
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(peerHere).toHaveBeenCalledWith(true);
+    expect(offered).toHaveBeenCalledTimes(1);
+    session.stop();
+  });
+
+  it("stops trying to end a refused claim on stop", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetch = fakeFetch(500);
+    const acceptClaim = () => false;
+    const { session, socket } = start(true, { acceptClaim });
+    socket.deliver(CLAIM);
+    await settleRetries();
+    const tries = fetch.mock.calls.length;
+    session.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetch).toHaveBeenCalledTimes(tries);
+  });
+
+  it("launches the game it is told to and answers game-started once it runs", async () => {
+    let running: () => void = () => {};
+    const launchGame = vi.fn(() => new Promise<void>((resolve) => (running = resolve)));
+    const { session, socket } = start(false, { launchGame });
+    socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(launchGame).toHaveBeenCalledWith(730);
+    expect(socket.messages.map((m) => m.type)).toEqual(["register"]);
+
+    running();
+    await settle();
+    expect(socket.messages.at(-1)).toEqual({ type: "game-started", sessionId: "s1" });
+    session.stop();
+  });
+
+  it("answers nothing with nothing to launch, nor when the launch fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bare = start();
+    bare.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(bare.socket.messages.map((m) => m.type)).toEqual(["register"]);
+    bare.session.stop();
+
+    FakeSocket.instances = [];
+    const failing = start(false, { launchGame: () => Promise.reject(new Error("Steam is not running")) });
+    failing.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+    await settle();
+    expect(failing.socket.messages.map((m) => m.type)).toEqual(["register"]);
+    expect(warn).toHaveBeenCalled();
+    failing.session.stop();
+
+    // What a launcher rejects with may be secret: none of it reaches the log.
+    for (const secret of [new Error("ticket=SECRET-TICKET"), "SECRET-TICKET", { token: "SECRET-TICKET" }]) {
+      warn.mockClear();
+      FakeSocket.instances = [];
+      const leaky = start(false, { launchGame: () => Promise.reject(secret) });
+      leaky.socket.deliver({ type: "launch-game", sessionId: "s1", appid: 730 });
+      await settle();
+      expect(warn).toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET");
+      expect(warn.mock.calls.flat()).not.toContain(secret);
+      leaky.session.stop();
+    }
+    warn.mockRestore();
   });
 
   it("only reports a claim unless asked to serve it", async () => {
@@ -325,6 +564,87 @@ describe("startHostSession", () => {
     session.stop();
     await settle();
     expect(FakeSocket.instances).toHaveLength(1);
+  });
+});
+
+describe("startHostSession with a host certificate", () => {
+  /** Serve claims with host certificates handed out in turn, as an attesting caller would. */
+  function startAttested(...certs: string[]) {
+    const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
+    const session = startHostSession({
+      serveClaims: true,
+      url: "wss://signal.test",
+      hostId: "pc-1",
+      machineKey: "test-machine-key",
+      hostCert: () => certs.shift(),
+      stream: {} as MediaStream,
+      onPeerHere: () => {},
+      onPeerConnection: () => {},
+    });
+    const socket = FakeSocket.instances[0]!;
+    socket.accept();
+    return { session, socket, fetch };
+  }
+
+  it("registers and starts the session with a fresh certificate each time, and ends it with the machine key", async () => {
+    const { session, socket, fetch } = startAttested("cert-1", "cert-2", "cert-3");
+    expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", hostCert: "cert-1" }]);
+
+    socket.deliver(CLAIM);
+    await settle();
+    const [, start] = fetch.mock.calls[0]!;
+    expect((start.headers as Record<string, string>).authorization).toBe("Bearer cert-2");
+
+    // The session ends: back to waiting, on the next certificate.
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+    streamer.deliver({ type: "denied", reason: "session-ended" });
+    const waiting = FakeSocket.instances[2]!;
+    waiting.accept();
+    expect(waiting.messages).toEqual([{ type: "register", hostId: "pc-1", hostCert: "cert-3" }]);
+
+    // Kept out by a session this app lost: ended with the machine key, the control credential.
+    waiting.deliver({ type: "denied", reason: "session-active" });
+    await settle();
+    const [, end] = fetch.mock.calls.at(-1)!;
+    expect(end.method).toBe("DELETE");
+    expect((end.headers as Record<string, string>).authorization).toBe("Bearer test-machine-key");
+    session.stop();
+  });
+
+  it("never sends a certificate unencrypted to another machine", async () => {
+    const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
+    const start = (url: string) =>
+      startHostSession({
+        url,
+        hostId: "pc-1",
+        machineKey: "test-machine-key",
+        hostCert: () => "cert-1",
+        stream: {} as MediaStream,
+        onPeerHere: () => {},
+        onPeerConnection: () => {},
+      });
+    expect(() => start("ws://signal.test")).toThrow(/wss/);
+    expect(FakeSocket.instances).toHaveLength(0);
+    await expect(
+      requestSessionKey({
+        url: "ws://signal.test",
+        hostId: "pc-1",
+        machineKey: "k",
+        hostCert: "cert-1",
+        sessionId: "s1",
+      }),
+    ).rejects.toThrow(/wss/);
+    expect(fetch).not.toHaveBeenCalled();
+    // This machine, as in development, is fine.
+    start("ws://localhost:8080").stop();
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it("falls back to the machine key when no certificate is given", () => {
+    const { session, socket } = startAttested();
+    expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    session.stop();
   });
 });
 

@@ -20,7 +20,7 @@ import {
 } from "../access.js";
 import { createApi } from "../api.js";
 import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
-import { Platform, QUEUE_TIMEOUT_MS } from "../platform.js";
+import { Platform, QUEUE_TIMEOUT_MS, RESET_HOLD_MS } from "../platform.js";
 import { emptyProfile } from "../steam.js";
 import type { SignalMessage } from "../protocol.js";
 import { MAX_GAMES } from "../profile.js";
@@ -77,6 +77,8 @@ describe("booking and host API", () => {
   // has their library hidden. Renters in `unreachable` cannot be read at all.
   let libraries: Map<string, number[]>;
   let unreachable: Set<string>;
+  /** Each launch the API asked for: machine, session, game. */
+  let launches: [string, string, number, string][];
 
   before(async () => {
     access = {
@@ -110,6 +112,7 @@ describe("booking and host API", () => {
         profile,
         discovery,
         isFree,
+        onRenterStarted: (...launch) => launches.push(launch),
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -130,6 +133,7 @@ describe("booking and host API", () => {
     access.secret = SECRET;
     libraries = new Map();
     unreachable = new Set();
+    launches = [];
   });
 
   afterEach(() => platform.close());
@@ -197,6 +201,43 @@ describe("booking and host API", () => {
     assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
   });
 
+  it("lets the host app report from its own origin, and read why a report was refused", async () => {
+    const origin = `http://localhost:${(server.address() as AddressInfo).port}`;
+    for (const [method, path] of [
+      ["PUT", "/api/machines/pc-1/availability"],
+      ["POST", "/api/machines/pc-1/heartbeat"],
+      ["POST", "/api/machines/pc-1/upload-test"],
+      ["POST", "/api/sessions/s1/end"],
+    ] as const) {
+      const preflight = await fetch(`${origin}${path}`, {
+        method: "OPTIONS",
+        headers: {
+          origin: "null",
+          "access-control-request-method": method,
+          "access-control-request-headers": "authorization, content-type",
+        },
+      });
+      assert.equal(preflight.status, 204, path);
+      assert.equal(preflight.headers.get("access-control-allow-origin"), "*", path);
+      assert.match(preflight.headers.get("access-control-allow-methods") ?? "", new RegExp(method), path);
+      assert.match(
+        preflight.headers.get("access-control-allow-headers") ?? "",
+        /authorization, content-type/,
+      );
+      assert.equal(preflight.headers.get("access-control-allow-credentials"), null, path);
+    }
+
+    const offered = await call("PUT", "/api/machines/pc-1/availability", { available: true }, MACHINE_KEY);
+    assert.equal(offered.status, 200);
+    assert.equal(offered.headers.get("access-control-allow-origin"), "*");
+    const refused = await call("POST", "/api/machines/pc-1/heartbeat", { games: "730" }, MACHINE_KEY);
+    assert.equal(refused.status, 400);
+    assert.equal(refused.headers.get("access-control-allow-origin"), "*");
+    // The renter's own calls are not opened up to other origins.
+    const renterCall = await renter("GET", "/api/me");
+    assert.equal(renterCall.headers.get("access-control-allow-origin"), null);
+  });
+
   it("books, matches and claims, handing out a ticket for the matched room", async () => {
     const booked = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal(booked.status, 202);
@@ -259,6 +300,40 @@ describe("booking and host API", () => {
     access.secret = null;
     assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 503);
     assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "matched");
+  });
+
+  it("takes a rental-mode PC off offer for its reset without ending a session claimed the instant before", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    assert.equal(claim.status, 200);
+
+    const reset = await call(
+      "PUT",
+      "/api/machines/pc-1/availability",
+      { available: false, reset: true },
+      MACHINE_KEY,
+    );
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.status, "in_session");
+    assert.deepEqual(reset.body.session, { id: claim.body.sessionId });
+    assert.equal(reset.body.resetUntil, now + RESET_HOLD_MS);
+    assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "claimed");
+
+    // The owner's host app sends no reset: taking it back ends the session as before.
+    const back = await call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+    assert.equal(back.body.status, "idle");
+    assert.equal((await renter("GET", `/api/bookings/${body.bookingId}`)).body.status, "ended");
+  });
+
+  it("answers 400 to a reset that offers the machine or is not true or false", async () => {
+    for (const body of [
+      { available: true, reset: true },
+      { available: false, reset: "yes" },
+    ]) {
+      const { status } = await call("PUT", "/api/machines/pc-1/availability", body, MACHINE_KEY);
+      assert.equal(status, 400, JSON.stringify(body));
+    }
   });
 
   it("refuses the Host API without the machine's own key", async () => {
@@ -633,6 +708,15 @@ describe("booking and host API", () => {
     assert.deepEqual((await platform.machineProfile("pc-1"))!.games, [440]);
   });
 
+  it("takes an upload test from the machine's own key, and keeps nothing of it", async () => {
+    const body = "x".repeat(4 * 1024 * 1024);
+    assert.equal((await call("POST", "/api/machines/pc-1/upload-test", body, "wrong")).status, 401);
+    const test = await call("POST", "/api/machines/pc-1/upload-test", body, MACHINE_KEY);
+    assert.equal(test.status, 204);
+    assert.equal(test.headers.get("cache-control"), "no-store");
+    assert.equal(await platform.machineProfile("pc-1"), null);
+  });
+
   it("refuses a bad host report with a 400 naming the field, and stores none of it", async () => {
     const bad = await offer("pc-1", { available: true, ...REPORT, net: { rttMs: "fast" } });
     assert.equal(bad.status, 400);
@@ -681,6 +765,117 @@ describe("booking and host API", () => {
     assert.deepEqual(left.body, { sessionId: mine.body.sessionId });
     assert.equal(await platform.sessionEndReason(mine.body.sessionId), "renter");
     assert.equal((await call("POST", leave, undefined, mine.body.ticket)).status, 409);
+  });
+
+  it("starts a session on the renter's first frame with its own ticket, and has the PC launch the game", async () => {
+    await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
+    await offer("pc-2");
+    const first = await renter("POST", "/api/bookings", { gameId: 730, minutes: 120, machineId: "pc-1" });
+    const second = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const mine = await renter("POST", `/api/bookings/${first.body.bookingId}/claim`);
+    const theirs = await renter("POST", `/api/bookings/${second.body.bookingId}/claim`);
+    const start = `/api/sessions/${mine.body.sessionId}/start`;
+
+    assert.equal((await call("POST", start, undefined, theirs.body.ticket)).status, 403);
+    assert.equal((await call("POST", "/api/sessions/nope/start", undefined, mine.body.ticket)).status, 404);
+    assert.equal((await renter("GET", `/api/bookings/${first.body.bookingId}`)).body.status, "claimed");
+    assert.deepEqual(launches, []);
+
+    now += 5_000;
+    const started = await call("POST", start, undefined, mine.body.ticket);
+    assert.equal(started.status, 200);
+    assert.deepEqual(started.body, { sessionId: mine.body.sessionId, roomId: "pc-1" });
+    assert.equal((await renter("GET", `/api/bookings/${first.body.bookingId}`)).body.status, "playing");
+    assert.deepEqual(launches, [
+      ["pc-1", mine.body.sessionId, 730, verifyTicket(SECRET, mine.body.ticket)!.id],
+    ]);
+
+    // A first frame again (a new connection) launches again, and the clock runs from the first.
+    for (let beat = 0; beat < 6; beat++) {
+      now += 10_000;
+      await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
+    }
+    assert.equal((await call("POST", start, undefined, mine.body.ticket)).status, 200);
+    assert.equal(launches.length, 2);
+    const ended = await renter("POST", `/api/bookings/${first.body.bookingId}/end`);
+    assert.equal(ended.body.price, 100, "a minute at 60.00 an hour");
+
+    assert.equal((await call("POST", start, undefined, mine.body.ticket)).status, 409);
+    assert.equal(launches.length, 2);
+  });
+
+  it("refuses a start past the session's deadline, before the timer that ends it has run", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    now += 30 * 60_000;
+    const started = await platform.renterStarted(
+      claim.body.sessionId,
+      verifyTicket(SECRET, claim.body.ticket)!.id,
+    );
+    assert.equal(started, "over");
+    assert.equal((await platform.viewBooking(body.bookingId))?.status, "claimed");
+    assert.deepEqual(launches, []);
+  });
+
+  it("hands the renter their running session's ticket again, the same one, only until its deadline", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    // Nothing to hand out before the claim, nor to anyone but the renter.
+    const early = await renter("POST", ticketOf);
+    assert.equal(early.status, 409);
+    assert.equal(early.body.status, "matched");
+    const claim = await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const claimed = verifyTicket(SECRET, claim.body.ticket)!;
+    assert.equal((await as(signedIn(OTHER))("POST", ticketOf)).status, 404);
+    assert.equal((await call("POST", ticketOf)).status, 401);
+    assert.equal((await renter("POST", "/api/bookings/nope/ticket")).status, 404);
+
+    for (let beat = 0; beat < 60; beat++) {
+      now += 10_000;
+      await call("POST", "/api/machines/pc-1/heartbeat", undefined, MACHINE_KEY);
+    }
+    const again = await renter("POST", ticketOf);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.sessionId, claim.body.sessionId);
+    assert.equal(again.body.roomId, "pc-1");
+    assert.equal(again.body.signalingUrl, claim.body.signalingUrl);
+    const ticket = verifyTicket(SECRET, again.body.ticket)!;
+    assert.equal(ticket.id, claimed.id, "the id recorded at claim, so ending the session revokes it");
+    assert.equal(ticket.room, "pc-1");
+    assert.ok(
+      Math.abs(ticket.exp * 1000 - (Date.now() + 20 * 60_000)) < 5_000,
+      "valid only for what is left",
+    );
+
+    // It opens the session as the claim's does.
+    const start = await call(
+      "POST",
+      `/api/sessions/${claim.body.sessionId}/start`,
+      undefined,
+      again.body.ticket,
+    );
+    assert.equal(start.status, 200);
+    assert.equal((await renter("POST", ticketOf)).status, 200);
+
+    await renter("POST", `/api/bookings/${body.bookingId}/end`);
+    const over = await renter("POST", ticketOf);
+    assert.equal(over.status, 409);
+    assert.equal(over.body.status, "ended");
+    assert.equal(await platform.ticketRevoked(ticket.id), true);
+  });
+
+  it("hands no ticket again once the session's deadline has passed, or when none can be minted", async () => {
+    await offer();
+    const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    access.secret = null;
+    assert.equal((await renter("POST", ticketOf)).status, 503);
+    access.secret = SECRET;
+    now += 30 * 60_000;
+    assert.equal((await renter("POST", ticketOf)).status, 409);
   });
 
   describe("renter QoS", () => {
@@ -771,7 +966,7 @@ describe("booking and host API", () => {
     });
 
     it("ranks the machines for a game with the latency estimated through the server", async () => {
-      await offer("pc-1", { available: true, ...REPORT, price: 300 });
+      await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
       await offer("pc-2", {
         available: true,
         ...REPORT,
@@ -861,7 +1056,7 @@ describe("booking and host API", () => {
     });
 
     it("says which machines are ready for the minutes asked for, and offers the best of those", async () => {
-      await offer("pc-1", { available: true, ...REPORT, price: 300 });
+      await offer("pc-1", { available: true, ...REPORT, price: 6_000 });
       await offer("pc-2", {
         available: true,
         ...REPORT,

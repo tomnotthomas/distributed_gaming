@@ -1,19 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
+import { createHostReporter, hostReport, type HostReporter } from "./report";
 import {
   countSession,
   loadMachineId,
   loadMachineKey,
+  loadName,
+  loadNotOffered,
   loadSessionsToday,
   loadUrl,
   saveMachineId,
   saveMachineKey,
+  saveName,
+  saveNotOffered,
   saveUrl,
+  toSocketUrl,
 } from "./settings";
+import { useRental } from "./useRental";
 import { useScreenShare } from "./useScreenShare";
 import { useSteam } from "./useSteam";
 
@@ -29,7 +36,9 @@ type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
 
 /**
  * This PC's view-model: what the app reads about the PC and its Steam, what
- * renters ask for, the owner's choices, and the live sharing session. The
+ * renters ask for, the owner's choices, and the live sharing session. While it
+ * shares, the app reports this PC to the platform (report.ts): its parts, the
+ * games the owner offers, the share-until time, and a beat every 5 s. The
  * platform does not report reliability, levels, a rate or earnings yet, so
  * those stay null here.
  */
@@ -43,6 +52,7 @@ export function useHost(): Host {
   // --- the connection the app signs in with
   const [url, setUrl] = useState(loadUrl);
   const [machineId, setMachineId] = useState(loadMachineId);
+  const [name, setName] = useState(loadName);
   const [machineKey, setMachineKey] = useState("");
   const [keyNote, setKeyNote] = useState<string | null>(null);
   useEffect(() => {
@@ -62,8 +72,11 @@ export function useHost(): Host {
       .then((read) => current && setPc(read))
       .catch(() => {})
       .finally(() => current && setReading(false));
+    // Games installed or removed later arrive as the whole list.
+    const unwatch = host.onGamesChanged((games) => setPc((read) => (read ? { ...read, games } : read)));
     return () => {
       current = false;
+      unwatch();
     };
   }, [reads]);
 
@@ -73,6 +86,14 @@ export function useHost(): Host {
     onChanged: () => setReads((n) => n + 1),
   });
   const demand = useDemand({ url, machineId, machineKey });
+  const rental = useRental();
+
+  // --- the games offered: every installed game the owner has not turned off
+  const [notOffered, setNotOffered] = useState(loadNotOffered);
+  const offered = useMemo(
+    () => (pc ? pc.games.filter((g) => !notOffered.has(g.appid)).map((g) => g.appid) : null),
+    [pc, notOffered],
+  );
 
   // --- the owner's plan, and the live session
   // Until the owner picks one, the plan is the ~4 hours choice from now.
@@ -88,11 +109,25 @@ export function useHost(): Host {
   const [atPc, setAtPc] = useState(false);
   const [sessionsToday, setSessionsToday] = useState(() => loadSessionsToday(Date.now()));
 
-  const machine = machineId.trim() || "This PC";
+  const machine = name.trim() || machineId.trim() || "This PC";
   // What the end of a session needs to know, read when it ends rather than when it began.
   const after = useRef({ stopNew, notify, until, machine, stop: () => {} });
 
+  // What reports this PC to the platform while it shares (report.ts), the connection
+  // sharing started with, and the call that took the last offer back.
+  const sharedWith = useRef<Settings | null>(null);
+  const reporter = useRef<HostReporter | null>(null);
+  const withdrawn = useRef<Promise<unknown>>(Promise.resolve());
+
+  // A claim for a game not offered is turned down, unless the games are not read yet.
+  const offeredNow = useRef(offered);
+  offeredNow.current = offered;
   const share = useScreenShare({
+    acceptClaim: (claim) => offeredNow.current?.includes(claim.appid) ?? true,
+    onRtt: (ms) => reporter.current?.addRtt(ms),
+    onClaimRefused: (claim) => {
+      console.warn(`[swiff] turned down a claim for Steam app ${claim.appid}, which is not offered`);
+    },
     onClaimOver: () => {
       const done = after.current;
       if (done.notify && typeof Notification !== "undefined") {
@@ -133,6 +168,44 @@ export function useHost(): Host {
     setNote(`Sharing stopped at ${clock(until)}, as you chose.`);
   }, [now, until, share]);
 
+  // --- what the platform hears about this PC (report.ts)
+  const report = useMemo(
+    () => hostReport({ name: name.trim() || machineId.trim(), pc, offered }),
+    [name, machineId, pc, offered],
+  );
+  const [upMbps, setUpMbps] = useState<number | null>(null);
+  const latest = useRef({ report, until, claimed: false });
+  latest.current = { report, until, claimed: Boolean(claimId) };
+
+  // Sharing is the offer: from the capture starting to it stopping, for
+  // whatever reason (paused, past the share-until time, refused, ended).
+  useEffect(() => {
+    if (!share.stream || !sharedWith.current) return;
+    const mine = createHostReporter(sharedWith.current, {
+      report: latest.current.report,
+      onUpload: setUpMbps,
+      after: withdrawn.current,
+    });
+    mine.offer(latest.current.until);
+    reporter.current = mine;
+    return () => {
+      reporter.current = null;
+      withdrawn.current = mine.withdraw();
+    };
+  }, [share.stream]);
+  useEffect(() => reporter.current?.update(report), [report]);
+  useEffect(() => reporter.current?.setUntil(until), [until]);
+  useEffect(() => reporter.current?.setBusy(Boolean(claimId)), [claimId]);
+  // Quitting the app takes the PC back rather than leaving it to drop offline.
+  // A player's session is left to the platform: it ends when the PC goes silent.
+  useEffect(() => {
+    const quit = () => {
+      if (!latest.current.claimed) void reporter.current?.withdraw({ keepalive: true });
+    };
+    window.addEventListener("pagehide", quit);
+    return () => window.removeEventListener("pagehide", quit);
+  }, []);
+
   // Someone at the keyboard during a session is the owner: the app injects no input.
   useEffect(() => {
     const host = bridge();
@@ -158,6 +231,11 @@ export function useHost(): Host {
     setNote(null);
     setStopNew(false);
     setUntil(end);
+    sharedWith.current = {
+      url: toSocketUrl(settings.url),
+      machineId: settings.machineId.trim(),
+      machineKey: settings.machineKey.trim(),
+    };
     const ok = await share.start(settings.url, {
       machineId: settings.machineId.trim(),
       machineKey: settings.machineKey.trim(),
@@ -197,9 +275,10 @@ export function useHost(): Host {
     demo: false,
     now,
     machine,
-    pc: { reading, hardware: pc?.hardware ?? null, hardwareRate: null },
-    games: { installed, offered: null, demand: demand && demandRows(demand, installed), near: null },
+    pc: { reading, hardware: pc ? { ...pc.hardware, upMbps } : null, hardwareRate: null },
+    games: { installed, offered, demand: demand && demandRows(demand, installed), near: null },
     steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
+    rental: { reading: rental.reading, read: rental.read, target: rental.target, preview: rental.preview },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -207,7 +286,7 @@ export function useHost(): Host {
     live,
     plan,
     sessionsToday,
-    connection: { url, machineId, machineKey, notice: keyNote ?? share.error, preview: share.stream },
+    connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
     payoutSaved: false,
   };
 
@@ -243,14 +322,22 @@ export function useHost(): Host {
       retry: () => {
         if (live.kind === "offline") void share.restart();
       },
-      toggleOffer: null,
+      toggleOffer: (appid) =>
+        setNotOffered((was) => {
+          const next = new Set(was);
+          if (!next.delete(appid)) next.add(appid);
+          saveNotOffered(next);
+          return next;
+        }),
       saveConnection: async (next) => {
         const key = next.machineKey.trim();
         setUrl(next.url);
         setMachineId(next.machineId);
         setMachineKey(next.machineKey);
+        setName(next.name);
         saveUrl(next.url);
         saveMachineId(next.machineId.trim());
+        saveName(next.name.trim());
         const kept = key ? await saveMachineKey(key) : true;
         setKeyNote(kept ? null : "This system cannot encrypt the key, so it was not saved.");
         if (connectionReady(next)) await begin(next, live.kind === "off" ? plan : until);
@@ -259,6 +346,10 @@ export function useHost(): Host {
       savePayout: () => {},
       installSteam: steam.installSteam,
       askInstall: steam.askInstall,
+      checkRental: rental.check,
+      chooseRentalTarget: rental.choose,
+      previewRental: rental.plan,
+      closeRentalPreview: rental.close,
     },
   };
 }
