@@ -217,7 +217,9 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   port takes packets from anyone else. A frame the encoder cannot take yet is dropped,
   never queued. The encoder is picked at start: NVENC, then VA-API, then x264, the first
   that encodes a few test frames cleanly. A pipeline that stops (gamescope restarting) is
-  started again; the picture is ready before the renter connects.
+  started again; the picture is ready before the renter connects. If no picture has come
+  within 30 s of start (gamescope's node is missing), the streamer exits with 1 instead
+  of leaving the renter on a black screen.
 - **The renter's PipeWire.** The streamer connects to the renter's PipeWire socket
   (`--pipewire-remote`). `system/swiff-pipewire-grant` (a user unit in the renter's own
   manager) lets `swiff-stream` connect to that socket and pass through the renter's
