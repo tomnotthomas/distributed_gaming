@@ -197,7 +197,10 @@ def main():
            # hostd sends the game's app id; the streamer must take any value and ignore it.
            "SWIFF_APPID": "steam:not-a-number"}
     args = ["node", STREAMER, "--pipewire-remote", PIPEWIRE, "--size", "1280x720", "--fps", "30",
-            "--bitrate", "3000000"]
+            "--bitrate", "3000000",
+            # The harness's server is on the host, which QEMU puts at 10.0.2.2: ws:// off the
+            # VM, so the streamer has to be told this plain-text signaling is a test.
+            "--insecure-signaling"]
     started = time.time()
     # As swiff-hostd does it: the streamer's uid and gid, no supplementary groups, key on stdin.
     proc = subprocess.Popen(args, user=STREAM_UID, group=STREAM_UID, extra_groups=[], env=env, cwd="/",

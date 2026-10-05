@@ -51,6 +51,13 @@ describe("readConfig", () => {
   it.each([
     [{}, [], /SWIFF_SERVER_URL is not set/],
     [{ ...ENV, SWIFF_SERVER_URL: "https://swiff.example" }, [], /ws:\/\/ or wss:\/\//],
+    // The session key would cross the network in the clear.
+    [
+      { ...ENV, SWIFF_SERVER_URL: "ws://swiff.example" },
+      [],
+      /must be wss:\/\/ for a server off this machine/,
+    ],
+    [{ ...ENV, SWIFF_SERVER_URL: "ws://10.0.2.2:8080" }, [], /must be wss:\/\//],
     [{ SWIFF_SERVER_URL: "ws://x" }, [], /SWIFF_HOST_ID is not set/],
     [ENV, ["--video", "x11"], /--video must be one of/],
     [ENV, ["--size", "1921x1080"], /even/],
@@ -62,6 +69,22 @@ describe("readConfig", () => {
   ])("refuses %o %o", (env, argv, message) => {
     expect(() => readConfig(env, argv as string[], "/h")).toThrow(ConfigError);
     expect(() => readConfig(env, argv as string[], "/h")).toThrow(message);
+  });
+});
+
+describe("signaling encryption", () => {
+  it("takes plain ws:// only to this machine, or where a test asks for it", () => {
+    for (const url of [
+      "ws://127.0.0.1:8080",
+      "ws://localhost:8080",
+      "ws://[::1]:8080",
+      "wss://swiff.example",
+    ])
+      expect(readConfig({ ...ENV, SWIFF_SERVER_URL: url }, [], "/h").serverUrl).toBe(url);
+    expect(
+      readConfig({ ...ENV, SWIFF_SERVER_URL: "ws://10.0.2.2:8080" }, ["--insecure-signaling"], "/h")
+        .serverUrl,
+    ).toBe("ws://10.0.2.2:8080");
   });
 });
 

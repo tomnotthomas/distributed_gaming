@@ -70,7 +70,8 @@ const USAGE = `swiff-streamer [options] < grant.json
   --bitrate <bits/s>           video bitrate (10000000)
   --audio-bitrate <bits/s>     Opus bitrate (128000)
   --python <path>              python3 for the helpers
-  --helpers <dir>              directory of swiff-gst.py and swiff-uinput.py`;
+  --helpers <dir>              directory of swiff-gst.py and swiff-uinput.py
+  --insecure-signaling         allow ws:// to a server off this machine (tests only)`;
 
 /** Read the environment and the arguments. Throws ConfigError naming the bad setting. */
 export function readConfig(
@@ -81,6 +82,7 @@ export function readConfig(
   const serverUrl = required(env.SWIFF_SERVER_URL, "SWIFF_SERVER_URL");
   if (!/^wss?:\/\//.test(serverUrl)) throw new ConfigError("SWIFF_SERVER_URL must be ws:// or wss://");
   const hostId = required(env.SWIFF_HOST_ID, "SWIFF_HOST_ID");
+  let insecureSignaling = false;
 
   const config: StreamerConfig = {
     serverUrl,
@@ -144,13 +146,30 @@ export function readConfig(
       case "--helpers":
         config.helperDir = value();
         break;
+      case "--insecure-signaling":
+        insecureSignaling = true;
+        break;
       case "--help":
         throw new ConfigError(USAGE);
       default:
         throw new ConfigError(`unknown option ${flag}\n${USAGE}`);
     }
   }
+  // The session key rides on the register message: in the clear only to this
+  // machine, as swiff-hostd allows, or where a test says so explicitly.
+  if (serverUrl.startsWith("ws://") && !insecureSignaling && !isLoopback(serverUrl))
+    throw new ConfigError("SWIFF_SERVER_URL must be wss:// for a server off this machine");
   return config;
+}
+
+function isLoopback(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return host === "localhost" || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host);
 }
 
 /**

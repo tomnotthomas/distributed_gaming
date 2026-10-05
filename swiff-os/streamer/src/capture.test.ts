@@ -62,7 +62,7 @@ function fakeSpawn({ elements = [] as string[], working = [] as string[], hangCh
 }
 
 const config = (...argv: string[]) =>
-  readConfig({ SWIFF_SERVER_URL: "ws://x", SWIFF_HOST_ID: "pc" }, argv, "/helpers");
+  readConfig({ SWIFF_SERVER_URL: "ws://127.0.0.1:8080", SWIFF_HOST_ID: "pc" }, argv, "/helpers");
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 describe("startCapture", () => {
