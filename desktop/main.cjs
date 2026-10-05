@@ -29,7 +29,7 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
-const { bootTrail, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
+const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const {
   installPlan,
   keyRemovalPlan,
@@ -302,7 +302,7 @@ ipcMain.handle("rental:report", (event, report) => {
 });
 // The owner's word on the blue screen, which Windows cannot see.
 ipcMain.handle("rental:key-answer", (event, yes) => {
-  if (!fromApp(event) || keyOf(keys().read(), bootAt())?.state !== "ask") return false;
+  if (!fromApp(event) || !canAnswer(keyOf(keys().read(), bootAt()))) return false;
   keys().answer(yes === true);
   return true;
 });

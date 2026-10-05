@@ -11,6 +11,8 @@ export type BootTrail = { at: number } & import("./measured-boot.cjs").Trail;
 
 export function savedOf(raw: unknown): SavedKey | null;
 export function keyOf(saved: SavedKey | null, bootAt: number, trail?: BootTrail | null): KeyState | null;
+/** Whether the owner may answer the blue screen's question now (state ask, or nothing saved). */
+export function canAnswer(key: KeyState | null): boolean;
 export function bootTrail(dir?: string, files?: typeof import("node:fs")): BootTrail | null;
 export type KeyStore = {
   read(): SavedKey | null;

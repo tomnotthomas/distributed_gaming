@@ -59,6 +59,14 @@ function keyOf(saved, bootAt, trail = null) {
 }
 
 /**
+ * Whether the owner may answer the blue screen's question now: when the key's
+ * state is `ask`, and when nothing is saved at all (Swiff OS installed by
+ * another app version, or a key file this version cannot read), since the
+ * screen then asks too and must not leave the owner stuck on it.
+ */
+const canAnswer = (key) => key === null || key.state === "ask";
+
+/**
  * This start's boot trail (measured-boot.cjs trailOf), and when its log was
  * written. Null where there is no log to read (off Windows, or none written).
  */
@@ -115,4 +123,4 @@ function keyStep(store, plan, id, at) {
   else if (id === "mok-remove") store.answer(false);
 }
 
-module.exports = { savedOf, keyOf, keyStore, keyStep, bootTrail };
+module.exports = { savedOf, keyOf, canAnswer, keyStore, keyStep, bootTrail };

@@ -6,7 +6,7 @@
 // otherwise asks the owner.
 
 import { describe, expect, it } from "vitest";
-import { bootTrail, keyOf, keyStore, savedOf } from "../rental-key.cjs";
+import { bootTrail, canAnswer, keyOf, keyStore, savedOf } from "../rental-key.cjs";
 import { bootVariable, MOK_MANAGER, SHIM, started, tcgLog, WINDOWS } from "./test/tcgLog";
 
 /** A boot trail: what one power-on started, at `at`. */
@@ -94,6 +94,33 @@ const crypt = {
   seal: (text: string) => Buffer.from(Buffer.from(text).map((b) => b ^ 0x5a)),
   open: (sealed: Buffer) => Buffer.from(sealed.map((b) => b ^ 0x5a)).toString(),
 };
+
+describe("answering the blue screen's question", () => {
+  it("lets the owner answer when the screen asks, also when nothing is saved, so they are never stuck on it", () => {
+    expect(canAnswer({ state: "ask", code: null })).toBe(true);
+    // Installed by another app version, or a key file this version cannot read: the screen asks too.
+    expect(canAnswer(null)).toBe(true);
+    for (const key of [
+      { state: "queued" as const, code: "48217730" },
+      { state: "confirmed" as const, code: null },
+      { state: "missed" as const, code: null },
+      { state: "nokey" as const, code: null },
+    ])
+      expect(canAnswer(key)).toBe(false);
+  });
+
+  it("reads the earlier version's key file, with its code in the clear, as nothing saved: the screen asks", () => {
+    const files = memoryFs({
+      "/data/rental-key.json": JSON.stringify({ code: "23926942", queuedAt: 1000, answer: null }),
+    });
+    const crypt = { seal: (t: string) => Buffer.from(t), open: (b: Buffer) => b.toString() };
+    const store = keyStore("/data", crypt, files);
+    expect(store.read()).toBeNull();
+    expect(canAnswer(keyOf(store.read(), 2000))).toBe(true);
+    store.answer(false);
+    expect(keyOf(store.read(), 2000)).toEqual({ state: "missed", code: null });
+  });
+});
 
 describe("the key's file", () => {
   it("keeps the queued code encrypted, then the owner's answer, and forgets both", () => {
