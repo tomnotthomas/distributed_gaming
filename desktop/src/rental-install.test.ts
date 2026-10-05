@@ -13,7 +13,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
-import { MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
+import { testBuild } from "../build-kind.cjs";
+import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { clientOf, dryRun, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, type Windows } from "../rental-worker.cjs";
 import {
@@ -489,7 +490,7 @@ describe("the elevated worker", () => {
     ).resolves.toEqual({});
   });
 
-  it("trusts a developer's own key only in a development build", () => {
+  it("trusts the developer's key only in a test build, and refuses a tampered set in either", async () => {
     const dev = path.join(__dirname, "..", "image-trust.dev.json");
     const files = {
       readFileSync: (file: string) => {
@@ -498,15 +499,49 @@ describe("the elevated worker", () => {
         throw new Error("ENOENT");
       },
     } as unknown as typeof fs;
-    expect(trustOf({ dev: false }, files)).toEqual([]);
-    expect(trustOf({ dev: true }, files)).toEqual(TRUST);
-    imageSet(path.join(dir, "image"));
-    expect(readImageSet(path.join(dir, "image"), { trust: trustOf({ dev: true }, files) }).version).toBe(
-      "0.1.0",
-    );
-    expect(() => readImageSet(path.join(dir, "image"), { trust: trustOf({ dev: false }, files) })).toThrow(
-      /Swiff did not sign this image set/,
-    );
+    const image = path.join(dir, "image");
+    const pc = fakeWindows(path.join(dir, "state"));
+    const BAD = Buffer.from("3082010a0282010100badbad", "hex");
+    const builds = { release: {}, test: { swiffBuild: "test" } };
+    expect(testBuild({})).toBe(false);
+    expect(testBuild({ swiffBuild: "release" })).toBe(false);
+    for (const [kind, pkg] of Object.entries(builds)) {
+      const trust = trustOf({ dev: testBuild(pkg) }, files);
+      const check = async () =>
+        (await createWorker({ imageDir: image, trust, win: pc.win })).apply({ op: "image-check" });
+
+      imageSet(image);
+      if (kind === "test") {
+        expect(readImageSet(image, { trust }).version).toBe("0.1.0");
+        await expect(check()).resolves.toEqual({});
+      } else {
+        expect(() => readImageSet(image, { trust })).toThrow(/Swiff did not sign this image set/);
+        await expect(check()).rejects.toThrow(/Swiff did not sign this image set/);
+      }
+
+      const manifest = JSON.parse(fs.readFileSync(path.join(image, MANIFEST), "utf8"));
+      fs.writeFileSync(path.join(image, MANIFEST), JSON.stringify({ ...manifest, version: "0.1.1" }));
+      await expect(check(), `${kind}: manifest`).rejects.toThrow(/Swiff did not sign this image set/);
+
+      imageSet(image);
+      fs.writeFileSync(path.join(image, "swiffos-key.cer"), BAD);
+      await expect(check(), `${kind}: certificate`).rejects.toThrow(/image set/);
+
+      // An image file swapped after the set was signed: never copied where the worker writes from.
+      const good = Buffer.from("Swiff OS's root");
+      const from = path.join(image, "root.raw");
+      const to = path.join(dir, "state", "root.raw");
+      fs.writeFileSync(from, "Someone else's!");
+      await expect(
+        copyChecked(from, to, { bytes: good.length, sha256: sha256(good) }),
+        `${kind}: image`,
+      ).rejects.toThrow(/root\.raw is not the file its image set lists/);
+      expect(fs.existsSync(to)).toBe(false);
+      fs.writeFileSync(from, good);
+      await copyChecked(from, to, { bytes: good.length, sha256: sha256(good) });
+      expect(fs.readFileSync(to).equals(good)).toBe(true);
+      fs.rmSync(to);
+    }
   });
 
   it("adds only the image's own partitions, and writes only into the ones it added", async () => {

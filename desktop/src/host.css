@@ -367,6 +367,13 @@ body {
 .stand + .pfoot {
   margin-top: 0;
 }
+.build-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
 .demo-pick {
   display: flex;
   align-items: center;

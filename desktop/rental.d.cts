@@ -98,6 +98,8 @@ export type RentalRead = {
   installed: boolean;
   /** The version of Swiff OS's image set on this PC, which main adds to the read; null when there is none. */
   image?: string | null;
+  /** An image set is on this PC, but Swiff did not sign it (image-set.cjs): main adds it with `image`. */
+  imageRefused?: boolean;
   /** Where Swiff's key stands as far as the app knows (rental-key.cjs), which main adds; null when it knows nothing. */
   key?: KeyState | null;
   /** The last time the PC was live in Swiff OS, as swiff-hostd leaves it for Windows; null when there is none. */

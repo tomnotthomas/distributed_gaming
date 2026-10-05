@@ -597,7 +597,9 @@ function commandsOf(op) {
   if (shell) return shell;
   switch (op.op) {
     case "image-check":
-      return ["# Check every Swiff OS file against the SHA-256 its image set lists (swiffos.json)"];
+      return [
+        "# Check that Swiff signed Swiff OS's image set (swiffos.json) and that its certificate is Swiff's; each file is checked against its SHA-256 as it is written",
+      ];
     case "gpt-add":
       return [
         `# Swiff Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): types, ids, names and attributes as in the image`,

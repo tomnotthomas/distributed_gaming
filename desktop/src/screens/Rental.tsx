@@ -620,6 +620,24 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       below = <Strip tiles={biosTrip(s.bios, read)} label="In the BIOS" />;
       break;
     }
+    case "unsigned":
+      title = "Swiff OS's files didn't pass the check";
+      line =
+        "The Swiff OS files on this PC aren't the ones Swiff signed, so Swiff won't install them. Put Swiff's own files in their place, then check again.";
+      action = (
+        <Pill icon="refresh" onClick={actions.checkRental}>
+          Check again
+        </Pill>
+      );
+      plate = (
+        <SettingsPlate
+          where="This PC"
+          rows={[{ name: "Swiff OS", value: "Not signed by Swiff", wait: true }]}
+          checking={reading}
+          at={checkedAt}
+        />
+      );
+      break;
     case "almost": {
       const gpu = s.waiting.some((w) => w.id === "gpu");
       title = "Almost ready";

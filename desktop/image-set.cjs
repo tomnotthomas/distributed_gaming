@@ -18,9 +18,10 @@
 // The app ships the keys it trusts in image-trust.json, each with the SHA-256
 // of the certificate its sets must carry. The release key's private half is a
 // secret of the image release step (SWIFF_OS_SIGNING_KEY in
-// swiff-os/image-set.sh), never in the repository. A development build also
+// swiff-os/image-set.sh), never in the repository, and still to be made: until
+// then a release build refuses every set. A test build (build-kind.cjs) also
 // trusts image-trust.dev.json beside this file: the public half of a key pair
-// made on the developer's own machine, which no packaged build reads.
+// made on the developer's own machine.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -34,8 +35,8 @@ const BLOCK = 4 * 1024 * 1024;
 
 /**
  * The keys an image set may be signed with, each with the SHA-256 of the
- * certificate its sets carry: the release's, and in a development build
- * (`dev`) the developer's own.
+ * certificate its sets carry: the release's, and with `dev` (a test build, or
+ * the VM tests' console tools) the developer's own.
  */
 function trustOf({ dev }, files = fs) {
   const listed = (file) => {
@@ -167,6 +168,36 @@ async function hashOf(read, bytes, onProgress = () => {}) {
   return hash.digest("hex");
 }
 
+/**
+ * Copy the first `bytes` bytes of file `from` to `to`, hashed as they go: `to`
+ * is there afterwards only if they have the SHA-256 `sha256` the image set lists.
+ */
+async function copyChecked(from, to, { bytes, sha256 }, onProgress, files = fs) {
+  const part = `${to}.part`;
+  const src = files.openSync(from, "r");
+  const dst = files.openSync(part, "w");
+  let sha;
+  try {
+    sha = await hashOf(
+      async (buf, at) => {
+        const n = files.readSync(src, buf, 0, buf.length, at);
+        files.writeSync(dst, buf, 0, n, at);
+        return n;
+      },
+      bytes,
+      onProgress,
+    );
+  } finally {
+    files.closeSync(src);
+    files.closeSync(dst);
+  }
+  if (sha !== sha256) {
+    files.rmSync(part, { force: true });
+    throw new Error(`${path.basename(from)} is not the file its image set lists: its SHA-256 differs.`);
+  }
+  files.renameSync(part, to);
+}
+
 /** The first X.509 certificate (DER) in an authenticated variable file such as systemd-boot's db.auth. */
 function certFromAuth(auth) {
   const b = Buffer.from(auth);
@@ -253,6 +284,7 @@ module.exports = {
   fileOf,
   sourceOf,
   hashOf,
+  copyChecked,
   certFromAuth,
   signManifest,
   trustEntry,

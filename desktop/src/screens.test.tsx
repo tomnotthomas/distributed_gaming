@@ -927,6 +927,20 @@ describe("rental mode", () => {
     expect(screen.getByRole("button", { name: "Rental mode Not on NVIDIA yet" })).toBeInTheDocument();
   });
 
+  it("says Swiff OS's files on this PC were not signed by Swiff, and offers one thing: check again", () => {
+    const actions = renderReal(
+      "rental",
+      off,
+      rental({ read: { ...read(), image: null, imageRefused: true } }),
+    );
+    expect(h1()).toHaveTextContent("Swiff OS's files didn't pass the check");
+    expect(screen.getByText(/aren't the ones Swiff signed/)).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("Not signed by Swiff");
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(actions.checkRental).toHaveBeenCalled();
+  });
+
   it("shows the graphics card only as waiting beside the IOMMU on an NVIDIA PC", () => {
     renderReal(
       "rental",

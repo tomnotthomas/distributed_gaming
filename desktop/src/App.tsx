@@ -120,6 +120,9 @@ export function Shell({
   );
 }
 
+/** A build packaged by `npm run pack:test` (build-kind.cjs): main opens the window with build=test. */
+const TEST_BUILD = new URLSearchParams(location.search).get("build") === "test";
+
 /** The app on this PC's own data. The first run starts at reading the PC; later ones at Go live. */
 export function RealApp() {
   const host = useHost();
@@ -135,6 +138,7 @@ export function RealApp() {
         saveSetupDone();
         setSetupDone(true);
       }}
+      foot={TEST_BUILD ? <span className="build-tag">Test build</span> : undefined}
     />
   );
 }

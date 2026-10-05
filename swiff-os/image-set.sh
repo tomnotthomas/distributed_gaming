@@ -29,8 +29,8 @@
 # `node desktop/image-set.cjs trust <key> <swiffos-key.cer>` prints. Without
 # $SWIFF_OS_SIGNING_KEY the set is signed with this developer's own key,
 # made once in ${XDG_CONFIG_HOME:-~/.config}/swiff/image-dev-key.pem, and its
-# entry is written to desktop/image-trust.dev.json, which only development
-# builds (unpackaged, and the VM tests' console installer) trust.
+# entry is written to desktop/image-trust.dev.json, which only a test build
+# (`npm run pack:test` in desktop/) and the VM tests' console installer trust.
 #
 # Ubuntu's shim comes from the image's own pinned archive snapshot
 # (shim-signed, checked against SHIM_SHA256 below), or from $SHIM_DIR (a

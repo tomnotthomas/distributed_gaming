@@ -176,7 +176,9 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
         ? { value: read.installed ? "Installed" : "Not read", state: read.installed ? "ok" : "unread" }
         : read.image
           ? { value: `${read.image}, ready to install`, state: "ok" }
-          : { value: "Its files are not on this PC", state: "blocked" }),
+          : read.imageRefused
+            ? { value: "Not signed by Swiff", state: "blocked" }
+            : { value: "Its files are not on this PC", state: "blocked" }),
     },
     {
       id: "fast-startup",
@@ -442,6 +444,8 @@ export type RentalStage =
   | { kind: "resume"; bios: BiosId[]; todos: WindowsTodo[] }
   | { kind: "windows"; todos: WindowsTodo[]; bios: BiosId[]; waiting: Waiting[] }
   | { kind: "bios"; bios: BiosId[]; waiting: Waiting[] }
+  /** Swiff OS's files are on this PC, but Swiff did not sign them: they are not installed. */
+  | { kind: "unsigned" }
   /** Only what an update brings is left. */
   | { kind: "almost"; waiting: Waiting[] }
   | { kind: "ready" }
@@ -495,7 +499,7 @@ export function waitingFor(read: RentalRead, targetId: string | null): Waiting[]
   const waiting: Waiting[] = [];
   if (checks.some((c) => c.id === "gpu" && c.state === "blocked"))
     waiting.push({ id: "gpu", setting: ["Graphics card", "Update coming"] });
-  if (checks.some((c) => c.id === "image" && c.state === "blocked"))
+  if (!read.imageRefused && checks.some((c) => c.id === "image" && c.state === "blocked"))
     waiting.push({ id: "image", setting: ["Swiff OS", "Update coming"] });
   return waiting;
 }
@@ -526,6 +530,7 @@ export function rentalStage({
   if (read.facts.install) return { kind: "resume", bios, todos };
   if (todos.length) return { kind: "windows", todos, bios, waiting };
   if (bios.length) return { kind: "bios", bios, waiting };
+  if (read.imageRefused) return { kind: "unsigned" };
   if (waiting.length) return { kind: "almost", waiting };
   return { kind: "ready" };
 }
@@ -694,6 +699,8 @@ export function rentalLine(setup: RentalSetup): string {
       return "Not ready";
     case "bios":
       return s.bios.length === 1 ? "1 BIOS setting" : `${s.bios.length} BIOS settings`;
+    case "unsigned":
+      return "Files didn't check out";
     case "almost":
       return s.waiting.some((w) => w.id === "gpu") ? "Not on NVIDIA yet" : "Waiting for an update";
     case "ready":

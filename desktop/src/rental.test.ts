@@ -823,6 +823,23 @@ describe("what the screen says", () => {
     expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({ value: "RTX 4080: not yet" });
   });
 
+  it("tells Swiff OS's files Swiff did not sign from files not there, and leads to checking again", () => {
+    const missing = { ...pc(), image: null, imageRefused: false };
+    expect(pcChecks(missing, null).find((c) => c.id === "image")).toMatchObject({
+      value: "Its files are not on this PC",
+      state: "blocked",
+    });
+    expect(rentalStage(setupOf(missing)).kind).toBe("almost");
+    const refused = { ...pc(), image: null, imageRefused: true };
+    expect(pcChecks(refused, null).find((c) => c.id === "image")).toMatchObject({
+      value: "Not signed by Swiff",
+      state: "blocked",
+    });
+    expect(waitingFor(refused, null)).toEqual([]);
+    expect(rentalStage(setupOf(refused))).toEqual({ kind: "unsigned" });
+    expect(rentalLine(setupOf(refused))).toBe("Files didn't check out");
+  });
+
   it("holds a full disk against the PC as a to-do in Windows, named by what to free", () => {
     const read = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, free: 20 * GiB })) }));
     expect(windowsTodos(read, null)).toEqual([

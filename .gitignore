@@ -27,7 +27,7 @@ e2e/.results/
 # Electron build output
 desktop/release/
 
-# a developer's own image-set key (desktop/image-set.cjs), trusted only by development builds
+# a developer's own image-set key (desktop/image-set.cjs), trusted only by test builds
 desktop/image-trust.dev.json
 
 # Windows prototype build output

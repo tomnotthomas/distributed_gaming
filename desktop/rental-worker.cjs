@@ -10,10 +10,11 @@
 //                  Swiff OS's partitions added
 //                  with the image's ids and names, and removed again
 //   the image      the image set, signed by a key the app trusts (image-set.cjs),
-//                  copied into %ProgramData%\Swiff\swiff-os (writable by
-//                  administrators only) and checked as it is copied; each split
-//                  file written from there into its own partition, hashed as it
-//                  goes and read back, against the image set's SHA-256
+//                  kept in %ProgramData%\Swiff\swiff-os (writable by
+//                  administrators only); each split file copied there and checked
+//                  as it is copied at its write, written from there into its own
+//                  partition, hashed as it goes and read back, against the image
+//                  set's SHA-256, and its copy removed
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
 //
@@ -37,6 +38,7 @@ const {
   BLOCK,
   MANIFEST,
   SIGNATURE,
+  copyChecked,
   fileOf,
   hashOf,
   imageSetOf,
@@ -416,37 +418,6 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
     files.writeFileSync(path.join(home, SIGNATURE), signature);
     return (set = { ...checked, dir: home });
   };
-  const staged = new Set();
-  /** The file `name` of the set copied into `home`, hashed as it is copied: there only if it is the one listed. */
-  async function stage(name, progress) {
-    const file = fileOf(imageSet(), name);
-    if (staged.has(name)) return file;
-    const part = `${file.path}.part`;
-    const from = files.openSync(path.join(imageDir, name), "r");
-    const to = files.openSync(part, "w");
-    let sha;
-    try {
-      sha = await hashOf(
-        async (buf, at) => {
-          const n = files.readSync(from, buf, 0, buf.length, at);
-          files.writeSync(to, buf, 0, n, at);
-          return n;
-        },
-        file.bytes,
-        (done, total) => progress({ what: `Copying ${name}`, done, total }),
-      );
-    } finally {
-      files.closeSync(from);
-      files.closeSync(to);
-    }
-    if (sha !== file.sha256) {
-      files.rmSync(part, { force: true });
-      throw new Error(`${name} is not the file its image set lists: its SHA-256 differs.`);
-    }
-    files.renameSync(part, file.path);
-    staged.add(name);
-    return file;
-  }
   /** Swiff's certificate, read once: these very bytes are checked, kept in `home`, and used. */
   function certificate() {
     const file = fileOf(imageSet(), MOK_CERT);
@@ -615,12 +586,11 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         );
         return { warnings };
       }
-      case "image-check": {
-        for (const name of Object.keys(imageSet().files))
-          if (name === MOK_CERT) certificate();
-          else await stage(name, progress);
+      case "image-check":
+        // Signed, and its certificate Swiff's: each image is copied and checked only at its write,
+        // after C: has given Swiff OS its room.
+        certificate();
         return {};
-      }
       case "bitlocker-suspend":
         await run(op);
         state.save({ bitlocker: op.letter });
@@ -776,11 +746,17 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         );
         const source = sourceOf(imageSet(), op.source);
         must(source.bytes === op.bytes, "The file is not the size of its partition.");
-        await stage(path.basename(source.path), progress);
+        const what = path.basename(source.path);
+        await copyChecked(
+          path.join(imageDir, what),
+          source.path,
+          source,
+          (done, total) => progress({ what: `Copying ${what}`, done, total }),
+          files,
+        );
         const fd = files.openSync(source.path, "r");
         try {
           await withDisk(op.disk, async (disk) => {
-            const what = path.basename(source.path);
             // Hashed as it is written, so a file that changed since its check is caught.
             const written = await hashOf(
               async (buf, at) => {
@@ -807,7 +783,6 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         }
         // On the disk now: its copy gives C: its room back.
         files.rmSync(source.path);
-        staged.delete(path.basename(source.path));
         return {};
       }
       case "boot-entry": {

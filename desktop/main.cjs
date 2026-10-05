@@ -26,7 +26,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
-const { readImageSet, trustOf } = require("./image-set.cjs");
+const { testBuild } = require("./build-kind.cjs");
+const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { bootTrail, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const {
@@ -56,8 +57,14 @@ const DEMO = process.argv.includes("--demo");
 if (!app.requestSingleInstanceLock()) app.exit(0);
 else app.on("second-instance", () => showWindow());
 
-/** The app page's query string: `extra`, plus demo=1 in demo mode. */
-const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
+/** A build packaged by `npm run pack:test` (build-kind.cjs). */
+const TEST_BUILD = testBuild();
+/** The app page's query string: `extra`, plus demo=1 in demo mode and build=test in a test build. */
+const query = (extra = {}) => ({
+  ...extra,
+  ...(DEMO ? { demo: "1" } : {}),
+  ...(TEST_BUILD ? { build: "test" } : {}),
+});
 
 // The machine key, encrypted by the OS for the logged-in Windows user. Never
 // written in the clear: where encryption is unavailable it is not stored at
@@ -136,13 +143,16 @@ async function watchGames() {
 /** Where Swiff OS's image set is (image-set.cjs). */
 const imageDir = () => process.env.SWIFF_OS_IMAGE_DIR || path.join(app.getPath("userData"), "swiff-os");
 /** Swiff OS's image set, signed by a key this build trusts. */
-const imageSet = () => readImageSet(imageDir(), { trust: trustOf({ dev: !app.isPackaged }) });
-/** The image set's version, or null when it is not on this PC. */
-const imageVersion = () => {
+const imageSet = () => readImageSet(imageDir(), { trust: trustOf({ dev: TEST_BUILD }) });
+/**
+ * The image set's version, or null when there is none Swiff signed; `imageRefused` when there is one
+ * on this PC all the same.
+ */
+const imageRead = () => {
   try {
-    return imageSet().version;
+    return { image: imageSet().version, imageRefused: false };
   } catch {
-    return null;
+    return { image: null, imageRefused: fs.existsSync(path.join(imageDir(), MANIFEST)) };
   }
 };
 /**
@@ -177,7 +187,7 @@ ipcMain.handle("rental:read", async (event) => {
   if (!read) return null;
   // Swiff OS gone, or never there: an old code or answer means nothing any more.
   if (!read.facts.install) keys().forget();
-  return { ...read, image: imageVersion(), key: keyOf(keys().read(), bootAt(), bootTrail()) };
+  return { ...read, ...imageRead(), key: keyOf(keys().read(), bootAt(), bootTrail()) };
 });
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;

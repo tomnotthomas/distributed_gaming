@@ -32,6 +32,13 @@ export function hashOf(
   bytes: number,
   onProgress?: (done: number, total: number) => void,
 ): Promise<string>;
+export function copyChecked(
+  from: string,
+  to: string,
+  file: { bytes: number; sha256: string },
+  onProgress?: (done: number, total: number) => void,
+  files?: typeof import("node:fs"),
+): Promise<void>;
 export function certFromAuth(auth: Uint8Array): Buffer;
 export function signManifest(dir: string, key: string): void;
 export function trustEntry(key: string, cert: string): Trust;

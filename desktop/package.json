@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "start": "npm run build && electron .",
     "pack": "npm run build && electron-builder --win portable --x64",
+    "pack:test": "npm run build && electron-builder --win portable --x64 -c.extraMetadata.swiffBuild=test",
     "test": "vitest run",
     "demo": "npm run build && electron . --demo",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
@@ -51,11 +52,13 @@
       "tray-preload.cjs",
       "tray-icon.cjs",
       "share-gate.cjs",
+      "build-kind.cjs",
       "rental-exec.cjs",
       "rental-key.cjs",
       "rental-worker.cjs",
       "image-set.cjs",
       "image-trust.json",
+      "image-trust.dev.json",
       "efi.cjs",
       "measured-boot.cjs",
       "dist/**"
