@@ -748,7 +748,8 @@ export function createApi({
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
-      const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60);
+      // On a rental-mode PC the booked minutes run from the start, which may come as late as the claim's deadline.
+      const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60 * (claim.rentalMode ? 2 : 1));
       await platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
       const origin = originFrom(req.headers, fallbackOrigin);
       reply(res, 200, {

@@ -297,7 +297,8 @@ export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
 /**
  * A claimed booking's running session, for handing its ticket out again: the
- * room, the ticket id recorded at claim, and how long the session has left (ms).
+ * room, the ticket id recorded at claim, and how long the session may yet run
+ * (ms): on a rental-mode PC not yet started, its booked minutes run from the start.
  */
 export type RunningSession =
   | {
@@ -971,10 +972,7 @@ export class Platform {
       await this.#touch(machineId, now);
       const session = await this.#openSession(machineId, sessionId);
       if (!session) return false;
-      if (session.started_at === null) {
-        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", now, sessionId);
-        await this.#setBookingStatus(session.booking_id, "playing");
-      }
+      if (session.started_at === null) await this.#start(session, now);
       return true;
     });
   }
@@ -995,16 +993,29 @@ export class Platform {
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       // Past its deadline it is over, even while the timer that ends it is still to run.
       if (session.ended_at !== null || session.expires_at <= this.#now()) return "over";
-      if (session.started_at === null) {
-        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", this.#now(), sessionId);
-        await this.#setBookingStatus(session.booking_id, "playing");
-      }
+      if (session.started_at === null) await this.#start(session, this.#now());
       const { game_id } = (await this.#get<{ game_id: number }>(
         "SELECT game_id FROM bookings WHERE id = $1",
         session.booking_id,
       ))!;
       return { machineId: session.machine_id, gameId: game_id };
     });
+  }
+
+  /**
+   * Start the session at `now`. On a rental-mode PC the renter signs in to
+   * Steam between the claim and the start, so the booked minutes run from the
+   * start rather than the claim; until then the claim's deadline bounds it.
+   */
+  async #start(session: SessionRow, now: number): Promise<void> {
+    await this.#run(
+      `UPDATE sessions s SET started_at = $1,
+         expires_at = CASE WHEN m.rental_mode THEN $1::bigint + b.minutes * 60000 ELSE s.expires_at END
+         FROM bookings b, machines m WHERE s.id = $2 AND b.id = s.booking_id AND m.id = s.machine_id`,
+      now,
+      session.id,
+    );
+    await this.#setBookingStatus(session.booking_id, "playing");
   }
 
   /**
@@ -1441,7 +1452,8 @@ export class Platform {
         sessionId: session.id,
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
-        remainingMs: session.expires_at - now,
+        remainingMs:
+          session.expires_at - now + (rental_mode && session.started_at === null ? booking.minutes * 60_000 : 0),
         rentalMode: rental_mode,
       };
     });

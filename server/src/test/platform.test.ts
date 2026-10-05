@@ -320,6 +320,58 @@ describe("rental mode on the claim", () => {
   });
 });
 
+describe("the booked minutes on a rental-mode PC", () => {
+  /** A 15-minute booking claimed on pc-1, rental mode or not, with join ticket "ticket-1". */
+  const claimed = async (rentalMode: boolean) => {
+    await platform.hostConnected("pc-1", rentalMode);
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 15, "renter-1");
+    const claim = await platform.claim(bookingId, "renter-1");
+    assert.ok(claim.ok);
+    await platform.recordTicket(claim.sessionId, "ticket-1");
+    return { bookingId, sessionId: claim.sessionId };
+  };
+
+  for (const by of ["renter", "host"] as const) {
+    it(`run from the start the ${by} reports, not the claim, so Steam sign-in takes none of them`, async () => {
+      const { bookingId, sessionId } = await claimed(true);
+      now += 6 * 60_000; // signing in to Steam
+      if (by === "renter") assert.ok(typeof (await platform.renterStarted(sessionId, "ticket-1")) === "object");
+      else assert.ok(await platform.startSession("pc-1", sessionId));
+      const running = await platform.runningSession(bookingId, "renter-1");
+      assert.ok(running.ok);
+      assert.equal(running.remainingMs, 15 * 60_000);
+
+      await advance(15 * 60_000 - 1);
+      assert.equal((await platform.viewBooking(bookingId))!.status, "playing");
+      await advance(1);
+      const ended = (await platform.viewBooking(bookingId))!;
+      assert.equal(ended.status, "ended");
+      assert.equal(ended.endReason, "time_up");
+    });
+  }
+
+  it("still end a claim whose sign-in never completes at the claim's deadline", async () => {
+    const { bookingId } = await claimed(true);
+    const running = await platform.runningSession(bookingId, "renter-1");
+    assert.ok(running.ok);
+    assert.equal(running.remainingMs, 30 * 60_000); // the ticket outlives a start as late as the deadline
+    await advance(15 * 60_000);
+    const ended = (await platform.viewBooking(bookingId))!;
+    assert.equal(ended.status, "ended");
+    assert.equal(ended.endReason, "grace_expired");
+  });
+
+  it("run from the claim on any other PC", async () => {
+    const { bookingId, sessionId } = await claimed(false);
+    now += 60_000;
+    assert.ok(await platform.startSession("pc-1", sessionId));
+    const running = await platform.runningSession(bookingId, "renter-1");
+    assert.ok(running.ok);
+    assert.equal(running.remainingMs, 14 * 60_000);
+  });
+});
+
 describe("the claim clock of a renter away at the match", () => {
   /** A booking queued at its renter's last contact and matched to pc-1 `awayMs` later, with the tab closed. */
   const matchedAway = async (awayMs = 30_000) => {
