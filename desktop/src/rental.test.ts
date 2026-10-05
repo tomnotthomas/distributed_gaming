@@ -1107,6 +1107,7 @@ describe("when a step stops", () => {
       rail: "BIOS setting",
     });
     expect(rentalLine(setup)).toBe("BIOS setting");
+    expect(rentalStepAt(setup)).toBe(0);
     expect(
       checkBios("The firmware does not trust the Microsoft Corporation UEFI CA 2011, which signs the shim."),
     ).toBe("ca");

@@ -644,7 +644,8 @@ export function rentalStepAt(setup: RentalSetup): number {
       // The install's own restart is its last step; any later one is for the key alone.
       return s.plan?.kind === "install" ? 1 : 2;
     case "failed":
-      if (failureOf(setup, s).kind === "space") return 0;
+      // Space and a BIOS setting are the PC's to get ready, whatever step found them.
+      if (["space", "bios"].includes(failureOf(setup, s).kind)) return 0;
       return s.plan.kind === "mok" || s.plan.kind === "unkey" ? 2 : 1;
     case "preview":
     case "elevating":
