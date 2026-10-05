@@ -261,9 +261,10 @@ starts the streamer exactly as swiff-hostd does. It checks: the user separation
 PipeWire grant, x264 chosen with no GPU, picture and sound flowing, the renter decoding
 1280×720 and playing it, the renter's key, click and pointer arriving as kernel input
 events on the virtual devices, Ctrl+Alt+Delete, Ctrl+Alt+F3 and Alt+F4 never arriving
-while plain F2, Delete, Ctrl and Alt do, and the streamer exiting cleanly when the
-session ends. The run passes only when every check passes and the VM powers itself off
-within `$SWIFF_VM_TIMEOUT` seconds (default 600). In the last run all 24 checks passed:
+while plain F2, Delete, Ctrl and Alt do, the streamer exiting cleanly when the
+session ends, and the PipeWire grant applied again when `pipewire.socket` makes a new
+socket. The run passes only when every check passes and the VM powers itself off
+within `$SWIFF_VM_TIMEOUT` seconds (default 600). In the last run all 25 checks passed:
 the streamer was registered 1.2 s after start and the renter decoded the first frame
 1.6 s after pressing Connect (x264, 720p30, no GPU). The VM runs Node.js's own Linux
 build, pinned by version and checksum and downloaded once into the build directory. It waits while another VM runs or the PC has under 4 GB free, never touches the host's

@@ -103,6 +103,23 @@ def separation_checks():
     report("streamer cannot read the renter's home", stream_home.returncode != 0)
 
 
+def regrant_check():
+    """A new PipeWire socket (pipewire.socket restarted) gets the streamer's ACL again."""
+    before = os.stat(PIPEWIRE).st_ino
+    restart = as_user("renter", "systemctl", "--user", "restart", "pipewire.socket")
+    try:
+        def regranted():
+            if os.stat(PIPEWIRE).st_ino == before:
+                return False
+            acl = subprocess.run(["getfacl", "-p", PIPEWIRE], capture_output=True, text=True).stdout
+            return "user:swiff-stream:rw-" in acl
+        ok = wait_for(regranted, 30, "the grant on the new socket")
+    except TimeoutError:
+        ok = False
+    report("swiff-pipewire-grant runs again when pipewire.socket makes a new socket", ok,
+           f"restart exit {restart.returncode} {restart.stderr.strip()[-200:]}")
+
+
 def watch_input(stop):
     """Report every key, button and axis event the streamer's virtual devices emit."""
     opened = {}
@@ -197,6 +214,7 @@ def main():
     stop.set()
     # The session ended on the server, which puts the streamer out: a clean exit.
     report("streamer exits 0 when the session ends", code == 0, f"exit {code}")
+    regrant_check()
     call("/finished", {})
     return 0
 

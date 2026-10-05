@@ -75,6 +75,7 @@ const EXPECTED = [
   "renter's Ctrl+Alt+Delete, Ctrl+Alt+F3 and Alt+F4 never reach the virtual keyboard",
   "renter's Delete, Ctrl and Alt alone reach the virtual keyboard, down and up",
   "streamer exits 0 when the session ends",
+  "swiff-pipewire-grant runs again when pipewire.socket makes a new socket",
 ];
 
 const results = new Map();
