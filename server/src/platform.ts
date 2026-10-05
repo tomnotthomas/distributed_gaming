@@ -91,6 +91,8 @@ import { randomBytes } from "node:crypto";
 import {
   gpuScore,
   rank,
+  sessionSpanMs,
+  STEAM_SIGN_IN_MS,
   type Candidate,
   type Control,
   type Encoder,
@@ -345,6 +347,7 @@ type MachineRow = {
   reset_until: number | null;
   /** Offered only to its owner's crewmates (gate E7). */
   crew_only: boolean;
+  rental_mode: boolean;
 };
 type BookingRow = {
   id: string;
@@ -426,6 +429,7 @@ function hostProfileOf(
     fps120: (display?.refreshHz ?? 0) >= 120,
     priceCentsPerHour: machine.price,
     availableUntil: machine.available_until ?? Number.MAX_SAFE_INTEGER,
+    rentalMode: machine.rental_mode,
   };
 }
 
@@ -849,11 +853,17 @@ export class Platform {
       const backAt = new Map<string, number>();
       if (busy.length) {
         const backs = await this.#all<{ machine_id: string; at: number }>(
-          `SELECT machine_id, expires_at AS at FROM sessions WHERE machine_id = ANY ($1::text[]) AND ended_at IS NULL
+          `SELECT s.machine_id,
+               CASE WHEN m.rental_mode AND s.started_at IS NULL THEN s.expires_at + b.minutes * 60000
+                 ELSE s.expires_at END AS at
+             FROM sessions s JOIN bookings b ON b.id = s.booking_id JOIN machines m ON m.id = s.machine_id
+             WHERE s.machine_id = ANY ($1::text[]) AND s.ended_at IS NULL
            UNION ALL
-           SELECT r.machine_id, r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
+           SELECT r.machine_id, r.expires_at + CASE WHEN m.rental_mode THEN $2::bigint ELSE 0 END + b.minutes * 60000
+             FROM reservations r JOIN bookings b ON b.id = r.booking_id JOIN machines m ON m.id = r.machine_id
              WHERE r.machine_id = ANY ($1::text[])`,
           busy,
+          STEAM_SIGN_IN_MS,
         );
         for (const { machine_id, at } of backs) if (!backAt.has(machine_id)) backAt.set(machine_id, at);
       }
@@ -1005,7 +1015,7 @@ export class Platform {
   /**
    * Start the session at `now`. On a rental-mode PC the renter signs in to
    * Steam between the claim and the start, so the booked minutes run from the
-   * start rather than the claim; until then the claim's deadline bounds it.
+   * start rather than the claim; until then STEAM_SIGN_IN_MS from the claim bounds it.
    */
   async #start(session: SessionRow, now: number): Promise<void> {
     await this.#run(
@@ -1411,7 +1421,7 @@ export class Platform {
         sessionId,
         bookingId,
         reservation.machine_id,
-        now + booking.minutes * 60_000,
+        now + (rental_mode ? STEAM_SIGN_IN_MS : booking.minutes * 60_000),
       );
       await this.#setBookingStatus(bookingId, "claimed");
       await this.#setStatus(reservation.machine_id, "in_session");
@@ -1453,7 +1463,9 @@ export class Platform {
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
         remainingMs:
-          session.expires_at - now + (rental_mode && session.started_at === null ? booking.minutes * 60_000 : 0),
+          session.expires_at -
+          now +
+          (rental_mode && session.started_at === null ? booking.minutes * 60_000 : 0),
         rentalMode: rental_mode,
       };
     });
@@ -1853,7 +1865,7 @@ export class Platform {
    * The machine rank() puts first for the booking among `free`, or null when
    * none passes its gates: the game installed (E2), the hardware the game asks
    * for (E3), every control the booking asked for (E4), not the renter's own
-   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes is
+   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes (after a rental-mode PC's Steam sign-in) is
    * considered, and never the one a booking carrying on a lost session lost it on. The order is the renter's own list's: free all session, most
    * reliable, best response, then picture, lowest latency, lowest price.
    */
@@ -1865,11 +1877,11 @@ export class Platform {
     free: FreeMachine[],
     now: number,
   ): Promise<string | null> {
-    const until = now + booking.minutes * 60_000;
     const fits = free.filter(
       (m) =>
         m.row.id !== booking.avoid_machine_id &&
-        (m.row.available_until === null || m.row.available_until >= until),
+        (m.row.available_until === null ||
+          m.row.available_until >= now + sessionSpanMs({ rentalMode: m.row.rental_mode }, booking.minutes)),
     );
     if (!fits.length) return null;
     const game = await this.#requirements.lookup(booking.game_id);

@@ -62,6 +62,13 @@ describe("lasts", () => {
     expect(lasts(short, "evening")).toBe(false);
   });
 
+  it("reserves a rental-mode PC's Steam sign-in before the session", () => {
+    const hour = at("21:05"); // 65 minutes
+    expect(lasts(hour, "quick")).toBe(true);
+    expect(lasts({ ...hour, rentalMode: true }, "quick")).toBe(false);
+    expect(lasts({ ...at("21:10"), rentalMode: true }, "quick")).toBe(true);
+  });
+
   it("asks all night for six hours, since there is no end time to compare", () => {
     expect(lasts(at("02:00"), "night")).toBe(true);
     expect(lasts(at("00:30"), "night")).toBe(false);

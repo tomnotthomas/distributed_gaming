@@ -47,6 +47,8 @@ export type HostProfile = {
   priceCentsPerHour: number;
   /** When the owner wants it back, epoch ms. */
   availableUntil: number;
+  /** A rental-mode PC (Swiff OS), whose renter signs in to Steam before the booked minutes start. */
+  rentalMode?: boolean;
 };
 
 /** What a game asks of a host, as GPU scores (RTX 3060 = 100) and gigabytes. */

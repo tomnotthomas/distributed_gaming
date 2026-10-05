@@ -53,6 +53,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { sessionSpanMs } from "@swiff/rank";
 import { createIceSource } from "./ice.js";
 import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
@@ -285,10 +286,10 @@ const rooms = new Map<string, Room>();
 const revokedTickets = new Map<string, number>();
 
 /**
- * A booking's ticket runs for its minutes from the claim, twice that on a
- * rental-mode PC (api.ts), so none outlives its revocation by more.
+ * A booking's ticket runs for its minutes from the claim, and a rental-mode
+ * PC's Steam sign-in before them (api.ts), so none outlives its revocation by more.
  */
-const REVOCATION_KEPT_MS = 2 * MAX_MINUTES * 60_000;
+const REVOCATION_KEPT_MS = sessionSpanMs({ rentalMode: true }, MAX_MINUTES);
 
 /** Record that `ticketId` is revoked. */
 function revoke(ticketId: string): void {

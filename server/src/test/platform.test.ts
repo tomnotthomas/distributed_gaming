@@ -19,6 +19,7 @@ import {
   type MachineSpec,
   type PlatformOptions,
 } from "../platform.js";
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import { testDatabase, testSchema } from "./db.js";
 import { REPORT } from "./report.js";
 
@@ -336,7 +337,8 @@ describe("the booked minutes on a rental-mode PC", () => {
     it(`run from the start the ${by} reports, not the claim, so Steam sign-in takes none of them`, async () => {
       const { bookingId, sessionId } = await claimed(true);
       now += 6 * 60_000; // signing in to Steam
-      if (by === "renter") assert.ok(typeof (await platform.renterStarted(sessionId, "ticket-1")) === "object");
+      if (by === "renter")
+        assert.ok(typeof (await platform.renterStarted(sessionId, "ticket-1")) === "object");
       else assert.ok(await platform.startSession("pc-1", sessionId));
       const running = await platform.runningSession(bookingId, "renter-1");
       assert.ok(running.ok);
@@ -351,15 +353,51 @@ describe("the booked minutes on a rental-mode PC", () => {
     });
   }
 
-  it("still end a claim whose sign-in never completes at the claim's deadline", async () => {
-    const { bookingId } = await claimed(true);
+  it("still end a claim whose sign-in never completes once the sign-in allowance runs out", async () => {
+    const { bookingId, sessionId } = await claimed(true);
     const running = await platform.runningSession(bookingId, "renter-1");
     assert.ok(running.ok);
-    assert.equal(running.remainingMs, 30 * 60_000); // the ticket outlives a start as late as the deadline
-    await advance(15 * 60_000);
+    // The ticket outlives a start as late as the sign-in allows.
+    assert.equal(running.remainingMs, STEAM_SIGN_IN_MS + 15 * 60_000);
+    await advance(STEAM_SIGN_IN_MS - 1);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "claimed");
+    await advance(1);
     const ended = (await platform.viewBooking(bookingId))!;
     assert.equal(ended.status, "ended");
     assert.equal(ended.endReason, "grace_expired");
+    assert.equal(await platform.renterStarted(sessionId, "ticket-1"), "over");
+  });
+
+  it("match a rental-mode PC only when its offer covers the sign-in and the booked minutes", async () => {
+    await platform.hostConnected("pc-1", true);
+    await offer("pc-1", { availableUntil: now + 16 * 60_000 });
+    const { bookingId } = await platform.book(730, 15, "renter-1");
+    assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
+
+    await offer("pc-1", { availableUntil: now + STEAM_SIGN_IN_MS + 15 * 60_000 });
+    assert.equal((await platform.booking(bookingId, "renter-1"))!.status, "matched");
+  });
+
+  it("match any other PC whose offer covers the booked minutes alone", async () => {
+    await platform.hostConnected("pc-1", false);
+    await offer("pc-1", { availableUntil: now + 16 * 60_000 });
+    assert.equal((await platform.book(730, 15, "renter-1")).status, "matched");
+  });
+
+  it("say a rental-mode PC is back after the sign-in and the booked minutes, until the session starts", async () => {
+    await platform.hostConnected("pc-1", true);
+    await offer("pc-1");
+    const { bookingId } = await platform.book(730, 15, "renter-1");
+    const backAt = async () => (await platform.offeredMachines()).machines[0]!.backAt;
+    assert.equal(await backAt(), now + RESERVATION_MS + STEAM_SIGN_IN_MS + 15 * 60_000);
+
+    const claim = await platform.claim(bookingId, "renter-1");
+    assert.ok(claim.ok);
+    assert.equal(await backAt(), now + STEAM_SIGN_IN_MS + 15 * 60_000);
+
+    now += 6 * 60_000; // signing in to Steam
+    assert.ok(await platform.startSession("pc-1", claim.sessionId));
+    assert.equal(await backAt(), now + 15 * 60_000);
   });
 
   it("run from the claim on any other PC", async () => {

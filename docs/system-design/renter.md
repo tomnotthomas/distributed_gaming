@@ -321,10 +321,12 @@ POST /bookings/:id/claim
   Take the matched machine before the reservation expires (`claimBy`). Returns the room to
   join and the join ticket that opens it (see "Room access" below), valid for the
   booked minutes or until the session ends, whichever comes first. On a rental-mode PC
-  the booked minutes run from the session's start rather than the claim (the renter
-  signs in to Steam in between; a session not started by the claim's deadline of the
-  booked minutes ends as `grace_expired`), so its ticket is valid for twice the booked
-  minutes.
+  the booked minutes run from the session's start rather than the claim: the renter
+  signs in to Steam in between, within 10 minutes of the claim however often they try
+  again (`STEAM_SIGN_IN_MS` in `@swiff/rank`), or the session ends unstarted as
+  `grace_expired`. Its ticket is valid for those 10 minutes and the booked minutes, and
+  a rental-mode PC counts as free for a session (matching, `ready`, `coversSession`,
+  `backAt`) only for both.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
   is matched to the renter's own machine (the booking goes back to the queue).
   → 403 { error, code } as `POST /bookings`, checked again since the library, or whether
@@ -450,7 +452,7 @@ Matching runs in the server process on every change, with one timer armed for th
 deadline (a reservation lapsing, a machine's liveness, a queued booking timing out, a
 session running out) instead of a sweep: the oldest queued booking gets the machine
 `@swiff/rank`'s `rank()` puts first for it, among the live machines free for all of its
-minutes, and the machine is reserved for it. That is the order of the renter's own list
+minutes (and a rental-mode PC's Steam sign-in before them), and the machine is reserved for it. That is the order of the renter's own list
 (see "What can be played where"), not merely the cheapest: a machine must have the game
 installed and meet the game's minimum hardware (gates E2 and E3), take every control the
 renter turned on (E4), not be the renter's own (E5), be within 80 ms of the renter

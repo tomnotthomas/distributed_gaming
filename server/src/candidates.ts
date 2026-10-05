@@ -15,6 +15,7 @@
 
 import {
   rank,
+  sessionSpanMs,
   type Candidate,
   type Control,
   type Encoder,
@@ -133,10 +134,11 @@ function comingBack(
   byId: Map<string, OfferedMachine>,
   minutes: number,
 ): OfferedMachine[] {
-  const fits = (backAt: number, until: number) => backAt < until && backAt + minutes * 60_000 <= until;
+  const fits = (backAt: number, host: OfferedMachine["host"]) =>
+    backAt < host.availableUntil && backAt + sessionSpanMs(host, minutes) <= host.availableUntil;
   return later
     .map((c) => byId.get(c.host.id)!)
-    .filter((m) => m.backAt === null || fits(m.backAt, m.host.availableUntil))
+    .filter((m) => m.backAt === null || fits(m.backAt, m.host))
     .sort((a, b) => (a.backAt ?? Number.MAX_SAFE_INTEGER) - (b.backAt ?? Number.MAX_SAFE_INTEGER));
 }
 

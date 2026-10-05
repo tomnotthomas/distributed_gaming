@@ -75,7 +75,7 @@
 // to leave, and the crew's owner to remove them.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Control, PicturePref } from "@swiff/rank";
+import { sessionSpanMs, type Control, type PicturePref } from "@swiff/rank";
 import {
   inviteToken,
   mintTicket,
@@ -748,8 +748,12 @@ export function createApi({
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
-      // On a rental-mode PC the booked minutes run from the start, which may come as late as the claim's deadline.
-      const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60 * (claim.rentalMode ? 2 : 1));
+      // On a rental-mode PC the booked minutes run from the start, which may come as late as its sign-in allows.
+      const ticket = mintTicket(
+        access.secret,
+        claim.roomId,
+        sessionSpanMs({ rentalMode: claim.rentalMode }, claim.minutes) / 1000,
+      );
       await platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
       const origin = originFrom(req.headers, fallbackOrigin);
       reply(res, 200, {
