@@ -116,10 +116,14 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 const GRACE_MS = Number(process.env.SWIFF_RECONNECT_GRACE_MS) || RECONNECT_GRACE_S * 1000;
 const grace = createRenterGrace({
   graceMs: GRACE_MS,
-  onExpire: (_hostId, ticketId) => {
+  onExpire: (hostId, ticketId) => {
+    // A renter seated again on the same seat came back: their session stands,
+    // however the timer and their join crossed.
+    const back = () => rooms.get(hostId)?.client?.ticketId === ticketId;
+    if (back()) return;
     void (async () => {
       const sessionId = await platform.ticketSession(ticketId);
-      if (sessionId) await platform.leaveSession(sessionId, ticketId, "grace_expired");
+      if (sessionId && !back()) await platform.leaveSession(sessionId, ticketId, "grace_expired");
     })().catch((error: unknown) => {
       console.error("[swiff] grace expiry failed:", error instanceof Error ? error.name : typeof error);
     });
@@ -211,6 +215,11 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
+  /**
+   * A renter's ticket was handed out for a running session when they joined:
+   * dropping out of it starts the reconnect grace. A ticket minted by hand has none.
+   */
+  inSession: boolean;
   /**
    * When the last database read that found a renter's ticket not revoked began
    * (performance.now() ms): at join, before a relayed frame, and each reconcile.
@@ -321,15 +330,15 @@ function hostGone(hostId: string, dropped: boolean): void {
 // --- reconnect grace --------------------------------------------------------
 
 /**
- * What the host hears when renter `ws` leaves its seat. A renter on a ticket
- * not known to be revoked may be dropping out of a running session: its grace
- * starts now, and the host is told how long it lasts. Decided without the
- * database, so the host hears it before anything that renter's next join
- * says; a ticket with no running session (minted by hand, or revoked behind
- * the server's back) simply expires with nothing to end.
+ * What the host hears when renter `ws` leaves its seat. A renter seated on a
+ * running session's ticket (found at join) and not known to be revoked is
+ * dropping out of that session: its grace starts now, and the host is told how
+ * long it lasts. Decided without the database, so the host hears it before
+ * anything that renter's next join says; a session ended behind the server's
+ * back meanwhile simply expires with nothing to end.
  */
 function renterLeft(ws: PeerSocket): PeerLeftMessage {
-  if (!ws.hostId || !ws.ticketId || seatRevoked(ws)) return { type: "peer-left" };
+  if (!ws.hostId || !ws.ticketId || !ws.inSession || seatRevoked(ws)) return { type: "peer-left" };
   grace.start(ws.hostId, ws.ticketId);
   return { type: "peer-left", grace: GRACE_MS / 1000 };
 }
@@ -748,7 +757,10 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       const ticket = access.secret ? verifyTicket(access.secret, msg.ticket) : null;
       if (!ticket || revokedTickets.has(ticket.id)) return deny(ws, "bad-ticket");
       const began = performance.now();
-      const revoked = await platform.ticketRevoked(ticket.id);
+      const [revoked, running] = await Promise.all([
+        platform.ticketRevoked(ticket.id),
+        platform.ticketSession(ticket.id),
+      ]);
       if (revoked) revoke(ticket.id);
       // Revoked in the database, or by a notice while the database was asked.
       if (revokedTickets.has(ticket.id)) {
@@ -769,6 +781,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.hostId = ticket.room;
       ws.role = "client";
       ws.ticketId = ticket.id;
+      ws.inSession = running !== null;
       confirm(ws, began);
       room.client = ws;
       // A renter back within the reconnect grace keeps their session.
@@ -918,6 +931,7 @@ wss.on("connection", (socket) => {
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;
+  ws.inSession = false;
   ws.confirmedAt = 0;
   ws.sessionId = null;
   ws.tier = null;
