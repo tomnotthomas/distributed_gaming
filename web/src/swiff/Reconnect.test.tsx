@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Booking } from "./booking";
 import { GAMES, MACHINES } from "./data";
 import type { PlayState } from "./play";
-import { AwayDialog, minutesSeconds, QueueBackDialog, Reconnecting } from "./Reconnect";
+import { AwayDialog, MachineLost, minutesSeconds, QueueBackDialog, Reconnecting } from "./Reconnect";
 import { Session } from "./Session";
-import type { Swiff } from "./useSwiff";
+import type { Lost, Swiff } from "./useSwiff";
 
 const NOW = 1_000_000;
 const cs2 = GAMES.find((g) => g.id === "cs")!;
@@ -49,10 +49,12 @@ const swiffWith = (more: Partial<Swiff> = {}) =>
     away: null,
     rejoining: false,
     queueBack: false,
-    ownerDropped: false,
+    lost: null,
+    bookingFailed: false,
     attachVideo: vi.fn(),
     endSession: vi.fn(),
-    switchMachine: vi.fn(),
+    stopLost: vi.fn(),
+    chooseMachine: vi.fn(),
     reconnect: vi.fn(),
     endAway: vi.fn(),
     keepQueue: vi.fn(),
@@ -189,6 +191,73 @@ describe("C: a place in the queue kept", () => {
     const { container } = render(
       <QueueBackDialog swiff={swiffWith({ booking: booking({ status: "matched" }), queueBack: true })} />,
     );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("D: a machine lost mid-session", () => {
+  /** Glasshouse, lost NOW: gone offline unless `more` says its owner took it back. */
+  const lostOn = (more: Partial<Lost> = {}): Lost => ({
+    booking: booking({ status: "ended", endReason: "host_offline" }),
+    host: "Glasshouse",
+    taken: false,
+    at: NOW,
+    next: null,
+    failed: false,
+    ...more,
+  });
+
+  it("says the machine went offline and counts while the next is found, with Stop for now", () => {
+    const swiff = swiffWith({ lost: lostOn() });
+    render(<MachineLost swiff={swiff} />);
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Glasshouse went offline. Moving you to another machine",
+    });
+    expect(dialog).toHaveTextContent("Machine lost");
+    expect(dialog).toHaveTextContent("Counter-Strike 2");
+    expect(dialog).toHaveTextContent("Glasshouse went offline");
+    expect(dialog).toHaveTextContent("Finding another machine");
+    expect(dialog).not.toHaveTextContent(/save/i);
+    expect(screen.getByTestId("machine-lost-time")).toHaveTextContent("0:00");
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByTestId("machine-lost-time")).toHaveTextContent("0:03");
+    // Nothing to press to carry on: only the way out, and focus on the screen, not on it.
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(dialog).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop for now" }));
+    expect(swiff.stopLost).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the owner took it back, and that it waits for a machine when every one is busy", () => {
+    const next = booking({ bookingId: "b-2", status: "queued", machine: undefined });
+    render(<MachineLost swiff={swiffWith({ lost: lostOn({ taken: true, next }) })} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Taken back");
+    expect(dialog).toHaveTextContent("Glasshouse’s owner took it back");
+    expect(dialog).toHaveTextContent("Waiting for a machine");
+    expect(dialog).toHaveTextContent("starts by itself the moment one is free");
+  });
+
+  it("hands the choice back when no machine could carry it on", () => {
+    const swiff = swiffWith({ lost: lostOn({ failed: true }) });
+    render(<MachineLost swiff={swiff} />);
+    expect(screen.getByRole("dialog")).toHaveTextContent("Couldn't move you");
+    expect(screen.queryByTestId("machine-lost-time")).toBeNull();
+    expect(screen.getByRole("button", { name: "Choose a machine" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Choose a machine" }));
+    expect(swiff.chooseMachine).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands it back too when the next machine's claim was refused", () => {
+    const next = booking({ bookingId: "b-2", status: "matched" });
+    render(<MachineLost swiff={swiffWith({ lost: lostOn({ next }), bookingFailed: true })} />);
+    expect(screen.getByRole("button", { name: "Choose a machine" })).toBeInTheDocument();
+  });
+
+  it("is not there without a lost machine", () => {
+    const { container } = render(<MachineLost swiff={swiffWith()} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

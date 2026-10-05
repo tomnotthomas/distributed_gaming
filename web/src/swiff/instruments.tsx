@@ -182,7 +182,7 @@ export function useEased(target: number): number {
     let raf = 0;
     let last = performance.now();
     const tick = (t: number) => {
-      const dt = Math.min(64, t - last) / 1000;
+      const dt = Math.min(64, Math.max(0, t - last)) / 1000;
       last = t;
       const gap = target - current.current;
       current.current = Math.abs(gap) < 0.05 ? target : current.current + gap * Math.min(1, dt * 5);

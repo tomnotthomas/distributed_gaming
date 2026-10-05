@@ -43,7 +43,8 @@
 // booking takes at most MAX_STREAMS_PER_BOOKING streams, one signed-in renter
 // at most `maxStreamsPerRenter` of either kind and the server at most
 // `maxStreams` in all; a booking stream ends once the booking needs no more
-// watching, and a stream whose renter does not read what it is sent is
+// watching (once claimed, or with `to=end`, which a running session's page
+// opens to hear of its machine being lost, once over), and a stream whose renter does not read what it is sent is
 // dropped. The per-renter cap is keyed on the signed-in renter, not on an
 // address a request can claim in a header, so no renter can hold more than
 // their share.
@@ -61,6 +62,8 @@ export const MAX_STREAMS = 500;
 export const MAX_STREAMS_PER_RENTER = 10;
 /** Past these the renter has nothing left to wait for, so the stream ends (web/src/swiff/booking.ts stops at the same). */
 const DONE: readonly BookingStatus[] = ["claimed", "playing", "ended", "expired"];
+/** Past these a stream following a running session to its end has nothing left to say. */
+const OVER: readonly BookingStatus[] = ["ended", "expired"];
 
 /**
  * What open() did: answered with a stream, or answered nothing because the
@@ -74,9 +77,16 @@ export type RenterEvents = {
    * Answer GET /api/events for `bookingId` with a stream for the signed-in
    * `renterId`, unless the booking is unknown or not theirs, or a stream cap
    * is reached. The stream ends at `signedInUntil` (Unix ms), when the
-   * renter's session does.
+   * renter's session does. It ends once the booking is claimed, or, `toEnd`,
+   * only once it is over: how a running session hears its machine was lost.
    */
-  open(res: ServerResponse, bookingId: string, renterId: string, signedInUntil: number): Promise<OpenResult>;
+  open(
+    res: ServerResponse,
+    bookingId: string,
+    renterId: string,
+    signedInUntil: number,
+    toEnd?: boolean,
+  ): Promise<OpenResult>;
   /**
    * Answer GET /api/events with no booking: a stream of availability events
    * for the signed-in `renterId`, unless a stream cap is reached. It ends at
@@ -116,6 +126,8 @@ function write(res: ServerResponse, chunk: string): void {
 
 /** The last event each stream was sent. */
 const lastSent = new WeakMap<ServerResponse, string>();
+/** Streams that follow their booking past its claim, on to its end. */
+const toTheEnd = new WeakSet<ServerResponse>();
 
 /**
  * Send the booking, and end the stream once the booking needs no more watching.
@@ -127,7 +139,7 @@ function sendBooking(res: ServerResponse, booking: BookingView): void {
   if (lastSent.get(res) === event) return;
   lastSent.set(res, event);
   write(res, event);
-  if (DONE.includes(booking.status) && !res.destroyed) res.end();
+  if ((toTheEnd.has(res) ? OVER : DONE).includes(booking.status) && !res.destroyed) res.end();
 }
 
 /** The renter event streams over `platform`, holding each open one until its renter goes. */
@@ -206,7 +218,7 @@ export function createRenterEvents(
   }
 
   return {
-    async open(res, bookingId, renterId, until) {
+    async open(res, bookingId, renterId, until, toEnd = false) {
       // An unknown booking, or somebody else's, reads as not found before any
       // stream count is checked: a 429 would tell that it exists and is watched.
       const booking = await platform.booking(bookingId, renterId);
@@ -223,6 +235,7 @@ export function createRenterEvents(
         unwatch();
         if (!mine.size && streams.get(bookingId) === mine) streams.delete(bookingId);
       });
+      if (toEnd) toTheEnd.add(res);
       sendBooking(res, booking);
       return "opened";
     },
