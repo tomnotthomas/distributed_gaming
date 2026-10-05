@@ -246,7 +246,7 @@ access to `/dev/kvm`, QEMU is started through `sudo` and drops back to the user 
 VM starts.
 
 ```sh
-swiff-os/vm/run-test.sh             # build the test image, boot it seven times, check everything
+swiff-os/vm/run-test.sh             # build the test image, boot it ten times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again
 # the shipped image only, as swiffos.raw in the given output directory
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
@@ -261,7 +261,7 @@ throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs on
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
 `swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
 self-test, so sealing stays open, as it would until a game is launched. The test then boots the
-image seven times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
+image ten times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
 
 1. **Boot 1.** The firmware starts in setup mode. systemd-boot enrols the test certificate as PK, KEK
    and db, and resets the VM. The signed UKI then boots with Secure Boot enforcing. The owner
@@ -275,7 +275,13 @@ image seven times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure
 6. **Boot 5.** No other OS booted, so the check is quick, and both games stay blocked.
 7. **Boot 6.** The host damages the table key's credential, as if it no longer unsealed. Every game is
    blocked, the credential is kept, and the owner bootstraps one game, which seals a new key.
-8. **Boot 7.** The same disk with an ext4 library.
+8. **Boot 7.** The self-test rewrites the table with a newer version, as the other slot's OS would,
+   and the owner bootstraps one game. Nothing is promoted at shutdown.
+9. **Boot 8.** The newer table was kept as it was. The self-test replaces it with a directory, and
+   the owner bootstraps one game. Nothing is promoted at shutdown.
+10. **Boot 9.** The unreadable table was kept. The self-test replaces it with corrupt JSON. A
+    renter's seal is refused, and the owner's bootstrap replaces the table at shutdown.
+11. **Boot 10.** The same disk with an ext4 library.
 
 Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff-verify`'s decisions on
 plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a

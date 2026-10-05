@@ -15,10 +15,19 @@ SWIFF-SELFTEST lines, as in the Stage 1 self-test.
   still-blocked no other OS booted since: both games stay blocked
   key-locked    the table key no longer unseals: every game is blocked, the
                 key is kept, and the owner bootstraps 1002 again
+  table-newer   the table is rewritten with a newer version, as by the other
+                slot's OS; the owner bootstraps 1002, and nothing is promoted
+  table-unreadable  the newer table was kept; it is replaced with a directory,
+                the owner bootstraps 1002, and nothing is promoted
+  table-corrupt the unreadable table was kept; it is replaced with corrupt
+                JSON, a renter's seal is refused, and the owner's bootstrap of
+                1002 replaces the table
   ext4          the same with an ext4 library
 """
 
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import subprocess
@@ -227,11 +236,61 @@ def phase_key_locked():
     kept = open(f"{FIX}/key-sha256").read().split()[0]
     check("key-kept", sha(f"{VOLUME}/SwiffOS/table-key.cred") == kept, "the credential that does not unseal is not replaced")
     # The owner bootstraps Bravo again; promotion at shutdown seals a new key.
+    bootstrap_bravo()
+
+
+def bootstrap_bravo():
     rc, detail = verify("view", "--bootstrap")
     check("rebootstrap-view", rc == 0, detail)
     steam("bootstrap")
     rc, detail = verify("seal", "--bootstrap", "1002")
     check("rebootstrap-sealed", rc == 0, detail)
+
+
+def phase_table_newer():
+    rep = report()
+    check("table-ok", rep["table"] == "ok", rep["table"])
+    check("bravo-verified", rep["games"]["1002"]["state"] == "verified", rep["games"]["1002"]["state"])
+    # The other slot's newer OS rewrites the table, authenticated, with version 2.
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("swiff_verify", VERIFY)
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    key = mod.table_key(create=False)
+    table, problem = mod.load_table(key)
+    check("table-loads", key is not None and problem is None, str(problem))
+    table["version"] = 2
+    mod.save_table(key, table)
+    say("INFO", "table-sha256", sha(f"{VOLUME}/{mod.TABLE}"))
+    # The owner bootstraps Bravo; promotion at shutdown must keep the newer table.
+    bootstrap_bravo()
+
+
+def phase_table_unreadable():
+    rep = report()
+    check("table-unknown-kept", rep["table"] == "the verified table has an unknown version", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    kept = open(f"{FIX}/table-sha256").read().split()[0]
+    path = f"{VOLUME}/SwiffOS/verified-games.json"
+    check("newer-table-unchanged", sha(path) == kept, "neither the boot nor the bootstrap's promotion replaced it")
+    os.unlink(path)
+    os.mkdir(path)
+    bootstrap_bravo()
+
+
+def phase_table_corrupt():
+    rep = report()
+    check("table-unreadable-kept", rep["table"] == "the verified table is unreadable", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    path = f"{VOLUME}/SwiffOS/verified-games.json"
+    check("unreadable-table-kept", os.path.isdir(path) and not os.path.islink(path), "the directory was not replaced")
+    os.rmdir(path)
+    with open(path, "w") as f:
+        f.write("{")
+    rc, detail = verify("seal", "1002")
+    check("renter-seal-refused", rc != 0, detail)
+    # The owner's bootstrap replaces the corrupt table at shutdown.
+    bootstrap_bravo()
 
 
 def phase_ext4():
@@ -246,7 +305,8 @@ def phase_ext4():
 
 PHASES = {"bootstrap": phase_bootstrap, "update": phase_update, "after-update": phase_after_update,
           "tampered": phase_tampered, "still-blocked": phase_still_blocked, "key-locked": phase_key_locked,
-          "ext4": phase_ext4}
+          "table-newer": phase_table_newer, "table-unreadable": phase_table_unreadable,
+          "table-corrupt": phase_table_corrupt, "ext4": phase_ext4}
 
 if __name__ == "__main__":
     active = run("systemctl", "is-active", "swiff-games.service").stdout.strip()

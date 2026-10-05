@@ -19,7 +19,13 @@
 #   boot 5  no other OS booted: both games stay blocked.
 #   boot 6  the table key no longer unseals: every game is blocked and the
 #           key is kept until the owner bootstraps a game again.
-#   boot 7  the same disk with an ext4 library instead of NTFS.
+#   boot 7  the table is rewritten with a newer version, as by the other
+#           slot's OS, and the owner bootstraps a game: nothing is promoted.
+#   boot 8  the newer table was kept. It is replaced with a directory and the
+#           owner bootstraps a game: nothing is promoted.
+#   boot 9  the unreadable table was kept. It is replaced with corrupt JSON:
+#           a renter's seal is refused and the owner's bootstrap replaces it.
+#   boot 10 the same disk with an ext4 library instead of NTFS.
 #
 # vm/test_verify.py first runs swiff-verify's host-side tests.
 #
@@ -347,9 +353,18 @@ boot_vm 6
 key_after=$(ntfs_cat SwiffOS/table-key.cred | sha256sum)
 rebootstrap_apps=$(ntfs_cat SwiffOS/verified-games.json | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
+fixtures table-newer
+boot_vm 7
+sed -n 's/^.*SWIFF-SELFTEST INFO games-table-sha256 \(.*\)$/\1/p' "$run/serial-7.log" | tr -d '\r' | tail -n1 > "$run/games/fixtures/table-sha256"
+fixtures table-unreadable
+boot_vm 8
+fixtures table-corrupt
+boot_vm 9
+replaced_apps=$(ntfs_cat SwiffOS/verified-games.json | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
+
 games_img=$run/games-ext4.img
 fixtures ext4
-boot_vm 7
+boot_vm 10
 ext4_apps=$(debugfs -R "cat /SwiffOS/verified-games.json" "$games_img" 2> /dev/null |
 	python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
@@ -371,7 +386,7 @@ result() { # PASS|FAIL name detail
 	[ "$1" = PASS ] || fail=1
 }
 
-for n in 1 2 3 4 5 6 7; do
+for n in 1 2 3 4 5 6 7 8 9 10; do
 	while read -r status name detail; do
 		result "$status" "boot$n/$name" "$detail"
 	done < <(sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p' "$run/serial-$n.log" | tr -d '\r')
@@ -421,6 +436,11 @@ if [ "$rebootstrap_apps" = 1002 ] && [ "$key_after" != "$key_locked" ]; then
 	result PASS games-rebootstrap-new-key "the owner's bootstrap sealed a new table key; table apps: $rebootstrap_apps"
 else
 	result FAIL games-rebootstrap-new-key "table apps '${rebootstrap_apps}', key replaced: $([ "$key_after" != "$key_locked" ] && echo yes || echo no)"
+fi
+if [ "$replaced_apps" = 1002 ]; then
+	result PASS games-bootstrap-replaces-corrupt "the owner's bootstrap replaced the corrupt table; table apps: $replaced_apps"
+else
+	result FAIL games-bootstrap-replaces-corrupt "table apps '${replaced_apps}'"
 fi
 if [ "$ext4_apps" = "1001 1003" ]; then
 	result PASS games-bootstrap-on-ext4 "verified table on the ext4 library: $ext4_apps"
