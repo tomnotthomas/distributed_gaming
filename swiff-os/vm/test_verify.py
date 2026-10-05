@@ -244,8 +244,28 @@ class TableFile(Library):
         for doc in (b"[]", b'"x"', b'{"hmac": "00", "table": []}'):
             write(os.path.join(self.volume, verify.TABLE), doc)
             table, problem = verify.load_table(KEY)
-            self.assertEqual(problem, "the verified table failed its integrity check")
+            self.assertEqual(problem, verify.TABLE_TAMPERED)
             self.assertEqual(table["apps"], {})
+
+    def test_corrupt_bytes_are_not_kept(self):
+        write(os.path.join(self.volume, verify.TABLE), b"\xff{not json")
+        self.assertEqual(verify.load_table(KEY)[1], verify.TABLE_TAMPERED)
+
+    def test_a_bootstrap_does_not_replace_a_newer_table(self):
+        self.table["version"] = 2
+        verify.save_table(KEY, self.table)
+        path = os.path.join(self.volume, verify.TABLE)
+        before = read(path)
+        session = os.path.join(self.root, "session")
+        write(os.path.join(session, "upper/steamapps/common/Delta/d.pak"), b"d-1" * 1000)
+        with open(verify.SETUP, "w") as f:
+            json.dump({"writable": True, "library": self.lib, "session": session}, f)
+        with open(verify.REPORT, "w") as f:
+            json.dump({"table": verify.TABLE_UNKNOWN, "games": {"1004": {"state": "blocked"}}}, f)
+        write(os.path.join(verify.SEALED, "1004.json"), json.dumps({"bootstrap": True, "entry": self.entry}).encode())
+        with mock.patch.object(verify, "table_key", lambda create: KEY):
+            verify.cmd_stop([])
+        self.assertEqual(read(path), before)
 
 
 class StopCleansUp(Library):

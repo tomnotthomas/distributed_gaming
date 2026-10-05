@@ -79,6 +79,12 @@ CODE_SUFFIXES = (".dll", ".exe", ".so", ".sys", ".asi", ".bat", ".cmd", ".ps1", 
 TEMP_SUFFIX = ".swiff-new"
 KEY_LOCKED = ("the table key does not unseal on this PC's TPM and boot chain (after a Secure Boot update, for example); "
               "every game is blocked until the owner bootstraps the games again from the host app")
+TABLE_UNREADABLE = "the verified table is unreadable"
+TABLE_UNKNOWN = "the verified table has an unknown version"
+TABLE_TAMPERED = "the verified table failed its integrity check"
+# A table that is only unreadable (an I/O error) or newer than this OS (a
+# rollback to the other slot) is still the owner's: nothing replaces it.
+TABLE_KEPT = (TABLE_UNREADABLE, TABLE_UNKNOWN)
 # The session layer's share of the library's free space, in percent. The rest
 # stays free, so that an update the session layer holds fits onto the library.
 SESSION_SHARE = int(os.environ.get("SWIFF_GAMES_SESSION_SHARE", "50"))
@@ -412,15 +418,17 @@ def load_table(key):
         doc = json.loads(read_regular(os.path.join(VOLUME, TABLE), 1 << 30))
     except FileNotFoundError:
         return empty, "no verified table yet"
-    except (OSError, ValueError):
-        return empty, "the verified table is unreadable"
+    except OSError:
+        return empty, TABLE_UNREADABLE
+    except ValueError:
+        return empty, TABLE_TAMPERED
     if not isinstance(doc, dict) or not isinstance(doc.get("hmac"), str) or not isinstance(doc.get("table"), dict):
-        return empty, "the verified table failed its integrity check"
+        return empty, TABLE_TAMPERED
     table = doc["table"]
     if not hmac.compare_digest(mac(key, table), doc["hmac"]):
-        return empty, "the verified table failed its integrity check"
+        return empty, TABLE_TAMPERED
     if table.get("version") != 1:
-        return empty, "the verified table has an unknown version"
+        return empty, TABLE_UNKNOWN
     return table, None
 
 
@@ -739,11 +747,9 @@ def cmd_start(_):
         for game in games.values():
             game.update(state="blocked", reason=KEY_LOCKED)
     table["reset_count"], table["restart_count"] = clock or (None, None)
-    # A table that is only unreadable (an I/O error) or newer than this OS (a
-    # rollback to the other slot) is still the owner's: keep it. The next boot
-    # re-hashes in full, as its clock is not updated.
-    keep = table_problem in ("the verified table is unreadable", "the verified table has an unknown version")
-    if setup["writable"] and key and not keep:
+    # A kept table is not saved over: the next boot re-hashes in full, as its
+    # clock is not updated.
+    if setup["writable"] and key and table_problem not in TABLE_KEPT:
         save_table(key, table)
     write_report({
         "library": {k: setup[k] for k in ("fs", "writable")},
@@ -1081,6 +1087,9 @@ def promote_all(setup):
             key = new_table_key()
     if key:
         table, problem = load_table(key)
+        if problem in TABLE_KEPT:
+            log(f"nothing promoted: {problem}; it is kept as it is")
+            return
         for appid, cand in cands.items():
             if problem and not cand["bootstrap"]:
                 log(f"app {appid} not promoted: {problem}")
