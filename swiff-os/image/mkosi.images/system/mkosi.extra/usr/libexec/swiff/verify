@@ -238,6 +238,8 @@ def parse_vdf(text):
         return obj(0)[0]
     except IndexError as e:
         raise ValueError("truncated KeyValues") from e
+    except RecursionError as e:
+        raise ValueError("KeyValues nested too deeply") from e
 
 
 def protobuf(buf):
@@ -391,7 +393,17 @@ def table_key(create):
     A key is created only when there is none: one that does not unseal is kept."""
     path = os.path.join(VOLUME, KEY)
     if not os.path.lexists(path):
-        return new_table_key() if create else None
+        if not create:
+            return None
+        try:
+            return new_table_key()
+        except (OSError, subprocess.CalledProcessError) as e:
+            # No key, as without a TPM: every game stays unverified, and the
+            # games service still starts.
+            log(f"cannot seal a table key to the TPM: {e}")
+            with contextlib.suppress(OSError):
+                os.unlink(path + TEMP_SUFFIX)
+            return None
     for attempt in range(3):
         if attempt:
             time.sleep(2)

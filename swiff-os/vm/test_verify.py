@@ -326,5 +326,22 @@ class StopCleansUp(Library):
         self.assertEqual(calls[-1], ("umount", verify.VOLUME))
 
 
+class Robustness(Library):
+    """Bad input and a TPM that cannot seal leave the games service running."""
+
+    def test_deeply_nested_keyvalues_are_invalid_not_fatal(self):
+        """KeyValues nested past Python's recursion limit raise ValueError."""
+        with self.assertRaises(ValueError):
+            verify.parse_vdf('"a" {' * 5000 + "}" * 5000)
+
+    def test_a_key_that_cannot_be_sealed_means_no_key(self):
+        """A failed systemd-creds encrypt gives no key and leaves no file."""
+        failed = subprocess.CalledProcessError(1, ["systemd-creds", "encrypt"])
+        with mock.patch.object(verify, "run", side_effect=failed):
+            self.assertIsNone(verify.table_key(create=True))
+        self.assertFalse(os.path.lexists(os.path.join(self.volume, verify.KEY)))
+        self.assertEqual(verify.load_table(None)[1], "no table key")
+
+
 if __name__ == "__main__":
     unittest.main()
