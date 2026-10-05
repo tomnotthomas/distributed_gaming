@@ -149,7 +149,12 @@ wait_cad $((before + 10))
 sleep 2
 presses=$(($(cad_log | wc -l) - before))
 say INFO cad-log "$(cad_log | tail -n1)"
-check cad-refused "$presses Ctrl+Alt+Del presses reached PID 1" test "$presses" -ge 10
+# Seconds between the first and the last of the round's presses, from PID 1's
+# log timestamps: under 2 s is a burst systemd would otherwise reboot on.
+span=$(journalctl -b -q -o short-unix _PID=1 | grep ctrl-alt-del | tail -n "$presses" |
+	awk 'NR == 1 { first = $1 } { last = $1 } END { printf "%.2f", last - first }')
+check cad-refused "$presses Ctrl+Alt+Del presses reached PID 1 within ${span} s" \
+	awk -v n="$presses" -v s="$span" 'BEGIN { exit !(n >= 10 && s < 2) }'
 jobs=$(systemctl list-jobs --no-legend | awk '{ print $2 }' | grep -E '^(reboot|poweroff|halt|kexec|rescue|emergency|ctrl-alt-del|kbrequest)\.target$' | paste -sd' ' -)
 check cad-no-reboot "queued: ${jobs:-nothing} state=$(systemctl is-system-running)" \
 	bash -c "test -z '$jobs' && ! systemctl -q is-active reboot.target rescue.target emergency.target"
