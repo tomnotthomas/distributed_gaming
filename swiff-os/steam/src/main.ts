@@ -1,7 +1,8 @@
 // swiff-steam-login: the renter session's Steam, run by gamescope as its only
-// program (see ../session). It starts Steam at its sign-in window and serves
-// Plays on its local socket (serve.ts) until Steam exits, which ends the
-// session; the machine restarts clean before the next renter.
+// program (see ../session). It starts Steam at its sign-in window, set not to
+// remember the sign-in, and serves Plays on its local socket (serve.ts) until
+// Steam exits, which ends the session; the machine restarts clean before the
+// next renter.
 //
 //   SWIFF_STEAM_SOCKET  where to listen; default /run/swiff/steam/login.sock
 

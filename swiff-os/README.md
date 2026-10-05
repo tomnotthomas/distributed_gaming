@@ -482,8 +482,12 @@ or a desktop. Nobody types a password or a Steam Guard code.
   only copies the picture of Steam's code, the way a camera would. Each screen grab
   goes to a private temporary directory and is deleted as soon as it is read. Nothing
   logs a code: not the agent, not the server. Steam's own console output is kept out of
-  the journal. Whatever Steam keeps of the sign-in stays in the renter's home, which
-  goes when the PC restarts after each renter.
+  the journal.
+- **Steam does not remember the sign-in.** Before it starts Steam, the agent writes
+  Steam's settings (`~/.steam/registry.vdf`) with `RememberPassword` `0` and no
+  `AutoLoginUser`: the "Don't save account credentials on this computer" choice of
+  report 6.2. Whatever Steam still keeps of the sign-in stays in the renter's home,
+  which goes when the PC restarts after each renter.
 - **Then the game.** Steam logs each step of its sign-in in its own
   `logs/steamui_login.txt`. Once it logs `Success`, the agent runs
   `steam -applaunch <appid>`. It then waits for gamescope to put that game on screen

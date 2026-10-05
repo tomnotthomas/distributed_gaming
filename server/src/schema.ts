@@ -258,9 +258,10 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE machines ADD COLUMN crew_only BOOLEAN NOT NULL DEFAULT FALSE`,
   ],
   [
-    // Its hosting socket registered with an attested host certificate: a
-    // rental-mode PC (Swiff OS), whose renter signs in to Steam before the
-    // session starts (api.ts, claim).
+    // The PC service's hosting socket registered as rental mode (said
+    // rental: true, or holds an attested host certificate): a rental-mode PC
+    // (Swiff OS), whose renter signs in to Steam before the session starts
+    // (api.ts, claim).
     `ALTER TABLE machines ADD COLUMN rental_mode BOOLEAN NOT NULL DEFAULT false`,
   ],
 ];

@@ -4,15 +4,18 @@
 //
 //   steam -silent              start at the sign-in window; once signed in, no library window
 //   steam -applaunch <appid>   hand the running client a game to launch
+//   ~/.steam/registry.vdf      its settings; RememberPassword "0" leaves "Remember me"
+//                              unticked, so a sign-in is not kept for the next start
 //   ~/.steam/steam/logs/steamui_login.txt
 //                              each step of its sign-in, "SetLoginState: <state> - OK":
 //                              WaitingForCredentials, WaitingForServerResponse,
 //                              WaitingForLibraryReady, then Success once signed in
 //
-// The renter's home is wiped with the machine after every session, and with it
-// whatever Steam keeps of the sign-in.
+// Steam is told not to remember the sign-in, and the renter's home is wiped with
+// the machine after every session, and with it whatever Steam keeps of it.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -56,8 +59,33 @@ export function steamClient(home = homedir()): SteamClient {
   };
 }
 
-/** Start the Steam client at its sign-in window, without its library window. */
-export function startSteam(): ChildProcess {
+/** Steam's settings for the renter: no account to sign in to by itself, nothing remembered. */
+const REGISTRY = `"Registry"
+{
+	"HKCU"
+	{
+		"Software"
+		{
+			"Valve"
+			{
+				"Steam"
+				{
+					"AutoLoginUser"		""
+					"RememberPassword"		"0"
+				}
+			}
+		}
+	}
+}
+`;
+
+/**
+ * Start the Steam client at its sign-in window, without its library window,
+ * set not to remember the renter's sign-in.
+ */
+export function startSteam(home = homedir()): ChildProcess {
+  mkdirSync(join(home, ".steam"), { recursive: true });
+  writeFileSync(join(home, ".steam", "registry.vdf"), REGISTRY);
   // Its console output stays out of the journal: it can name the account.
-  return spawn("steam", ["-silent"], { stdio: "ignore" });
+  return spawn("steam", ["-silent"], { stdio: "ignore", env: { ...process.env, HOME: home } });
 }
