@@ -251,7 +251,7 @@ test_run() {
 	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
 	# The app's runtime: Electron as Node, which the worker it starts inherits. Electron is a
 	# windowed program: PowerShell waits for it and hands on its output only through a pipe.
-	local cli='function cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args | Write-Output }; cli'
+	local cli='function swiff-cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args | Write-Output }; swiff-cli'
 	local img='C:\swiff\image'
 	local fail=0
 
@@ -286,7 +286,7 @@ test_run() {
 	to_vm "$here/windows/disk-open-check.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
 
 	log "1. What the app reads, and its one elevation"
-	on_vm 'function check { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\disk-open-check.cjs | Write-Output }; check' | tr -d '\r' > "$run/disk-open.txt" || true
+	on_vm 'function swiff-check { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\disk-open-check.cjs | Write-Output }; swiff-check' | tr -d '\r' > "$run/disk-open.txt" || true
 	expect runtime-old-name-fails "the app's runtime cannot open \\.\PhysicalDrive0, the old disk name" grep -q '^ERR \\\\.\\PhysicalDrive0 ' "$run/disk-open.txt"
 	expect runtime-disk-opens "the app's runtime reads disk 0's GPT by the worker's name for it" grep -q '^OK .*GLOBALROOT.* EFI PART$' "$run/disk-open.txt"
 	on_vm "$cli read" | tr -d '\r' > "$run/read-before.json"
