@@ -152,7 +152,8 @@ GET  /machines/:id/demand
   What renters ask for, for the owner choosing what to install: per game, busiest first
   and at most 24, the renters who booked it in the last hour or still wait for it
   (`looking`), and its bookings in the queue now (`waiting`). Counts only, never who
-  asked. `name` is the catalogue's, null where it has none.
+  asked, and only games Swiff can run (`server/src/playable.ts`). `name` is the
+  catalogue's, null where it has none.
 
 POST /machines/:id/session
   { sessionId }
