@@ -104,20 +104,31 @@ def separation_checks():
 
 
 def regrant_check():
-    """A new PipeWire socket (pipewire.socket restarted) gets the streamer's ACL again."""
-    before = os.stat(PIPEWIRE).st_ino
-    restart = as_user("renter", "systemctl", "--user", "restart", "pipewire.socket")
-    try:
+    """Each new PipeWire socket gets the streamer's ACL again: after pipewire.socket
+    is restarted, and after it is stopped and later started."""
+    def new_socket_granted(before):
         def regranted():
             if os.stat(PIPEWIRE).st_ino == before:
                 return False
             acl = subprocess.run(["getfacl", "-p", PIPEWIRE], capture_output=True, text=True).stdout
             return "user:swiff-stream:rw-" in acl
-        ok = wait_for(regranted, 30, "the grant on the new socket")
-    except TimeoutError:
-        ok = False
-    report("swiff-pipewire-grant runs again when pipewire.socket makes a new socket", ok,
-           f"restart exit {restart.returncode} {restart.stderr.strip()[-200:]}")
+        try:
+            return wait_for(regranted, 30, "the grant on the new socket")
+        except TimeoutError:
+            return False
+
+    before = os.stat(PIPEWIRE).st_ino
+    restart = as_user("renter", "systemctl", "--user", "restart", "pipewire.socket")
+    restarted = new_socket_granted(before)
+    before = os.stat(PIPEWIRE).st_ino
+    stop = as_user("renter", "systemctl", "--user", "stop", "pipewire.socket")
+    start = as_user("renter", "systemctl", "--user", "start", "pipewire.socket")
+    restarted_after_stop = new_socket_granted(before)
+    report("swiff-pipewire-grant runs again when pipewire.socket makes a new socket",
+           restarted and restarted_after_stop,
+           f"restart exit {restart.returncode} granted {restarted}; stop exit {stop.returncode}, "
+           f"start exit {start.returncode} granted {restarted_after_stop} "
+           f"{(restart.stderr + stop.stderr + start.stderr).strip()[-200:]}")
 
 
 def watch_input(stop):
