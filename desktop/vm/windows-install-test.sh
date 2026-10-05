@@ -320,9 +320,14 @@ test_run() {
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
 	to_vm "$here/windows/disk-open-check.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	# The app's one elevation, as the logged-on user starts it: unelevated, Start-Process -Verb RunAs.
+	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null"
 	local base
 	base=$(pcr7 base)
 	echo "PCR 7 of a clean start: $base"
+	# From here each scenario says what failed in its results: a command that fails on the way
+	# (a VM restarting under it) must not end the whole run.
+	set +e
 
 	if want 1; then
 		scenario "1. Secure Boot already fine: what the app reads, and its one elevation"
@@ -335,14 +340,14 @@ test_run() {
 		expect read "Secure Boot on, the db trusts shim's CA (read from the boot log, no admin), room on C: ($seen)" test "$seen" = 'true true "shrink:C"'
 		expect clean-trail "this start went straight to Windows" test "$(json "$run/read-before.json" trail '.trail.shim')" = false
 		# From the logged-on user's own session, unelevated, as the app runs: Start-Process -Verb RunAs.
-		on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-uac | Out-Null; foreach (\$i in 1..60) { if (Select-String -Quiet elevated C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
+		on_vm "schtasks /run /tn swiff-uac | Out-Null; foreach (\$i in 1..60) { if (Select-String -Quiet elevated C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
 		expect elevation "the worker started through UAC's RunAs and said hello" grep -q '"elevated":true' "$run/uac.json"
 
 	fi
 	if want 2; then
 		scenario "2. Administrator declined"
 		# Windows' prompt on its secure desktop, answered No (Esc) at the VM's keyboard.
-		on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 2; Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\uac-out.txt; schtasks /run /tn swiff-uac | Out-Null"
+		on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 2; Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\uac-out.txt; schtasks /run /tn swiff-uac | Out-Null" || true
 		for _ in $(seq 8); do sleep 4; monitor "sendkey esc" || true; done
 		on_vm "foreach (\$i in 1..30) { if (Select-String -Quiet 'error' C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt; Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 0" | tr -d '\r' > "$run/uac-declined.json"
 		expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -q 'did not give Swiff Host administrator rights' "$run/uac-declined.json"
