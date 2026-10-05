@@ -67,7 +67,7 @@ import {
   type SignalMessage,
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
-import { createRenterGrace, RECONNECT_GRACE_S } from "./grace.js";
+import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
@@ -123,8 +123,8 @@ const serveSteamAuth = createSteamAuth({ origin: publicOrigin, sessionSecret });
 // A renter who drops mid-session has the grace to come back (grace.ts): the
 // session ends as grace_expired only once it runs out. Declared before the
 // platform, whose first settling may already end a session.
-// SWIFF_RECONNECT_GRACE_MS shortens it for tests.
-const GRACE_MS = Number(process.env.SWIFF_RECONNECT_GRACE_MS) || RECONNECT_GRACE_S * 1000;
+// SWIFF_RECONNECT_GRACE_MS shortens it for tests, never lengthens it.
+const GRACE_MS = graceMsFromEnv(process.env.SWIFF_RECONNECT_GRACE_MS);
 const grace = createRenterGrace({
   graceMs: GRACE_MS,
   onExpire: (hostId, ticketId) => {

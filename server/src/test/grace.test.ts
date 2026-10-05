@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createRenterGrace } from "../grace.js";
+import { createRenterGrace, graceMsFromEnv, RECONNECT_GRACE_S } from "../grace.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,5 +62,22 @@ describe("reconnect grace", () => {
       ["pc-2", "t-9"],
       ["pc-1", "t-1"],
     ]);
+  });
+});
+
+describe("the grace from the environment", () => {
+  const limit = RECONNECT_GRACE_S * 1000;
+
+  it("shortens the grace, as tests do, but never lengthens it", () => {
+    assert.equal(graceMsFromEnv("1500"), 1500);
+    assert.equal(graceMsFromEnv(String(limit)), limit);
+    assert.equal(graceMsFromEnv(String(limit + 1)), limit);
+    assert.equal(graceMsFromEnv("86400000"), limit);
+  });
+
+  it("keeps the full grace when unset or not a positive number", () => {
+    for (const value of [undefined, "", "0", "-5", "abc", "Infinity"]) {
+      assert.equal(graceMsFromEnv(value), limit, `for ${String(value)}`);
+    }
   });
 });

@@ -20,6 +20,16 @@
 /** How long a renter who dropped has to come back, in seconds. Sent to the host with peer-left. */
 export const RECONNECT_GRACE_S = 120;
 
+/**
+ * The grace in ms, from SWIFF_RECONNECT_GRACE_MS: a positive value shortens it
+ * (for tests), never past RECONNECT_GRACE_S; anything else leaves it as is.
+ */
+export function graceMsFromEnv(value: string | undefined): number {
+  const limit = RECONNECT_GRACE_S * 1000;
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, limit) : limit;
+}
+
 export type RenterGrace = {
   /** The renter holding `ticketId` dropped out of `hostId`'s room: start its clock, replacing any other. */
   start(hostId: string, ticketId: string): void;
