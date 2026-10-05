@@ -1,0 +1,9 @@
+#!/bin/sh
+# VM test build only: systemd-creds for a TPM that cannot seal. In the
+# seal-fails phases selftest-seal-fails puts it first on swiff-games.service's
+# PATH. Encrypting fails; everything else is the real systemd-creds.
+if [ "${1:-}" = encrypt ]; then
+	echo "systemd-creds: cannot seal to the TPM (VM self-test)" >&2
+	exit 1
+fi
+exec /usr/bin/systemd-creds "$@"

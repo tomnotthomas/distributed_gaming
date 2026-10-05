@@ -22,6 +22,10 @@ SWIFF-SELFTEST lines, as in the Stage 1 self-test.
   table-corrupt the unreadable table was kept; it is replaced with corrupt
                 JSON, a renter's seal is refused, and the owner's bootstrap of
                 1002 replaces the table
+  seal-fails-rebootstrap  the table key no longer unseals and the TPM cannot
+                seal: the owner bootstraps 1002, and nothing is promoted
+  seal-fails-first  no table key, and the TPM cannot seal one: the service
+                runs and every game stays unverified
   ext4          the same with an ext4 library
 """
 
@@ -38,6 +42,8 @@ VERIFY = "/usr/libexec/swiff/verify"
 GAMES = "/srv/games/steamapps"
 VOLUME = "/run/swiff/games/volume"
 STEAM_HOME = "/home/renter/.local/share/Steam"
+# The systemd-creds that cannot seal, on the games service's PATH (selftest-seal-fails).
+CREDS_STAND_IN = "/run/swiff-selftest/bin/systemd-creds"
 EXPECT = json.load(open(f"{FIX}/expect.json"))
 
 
@@ -314,6 +320,28 @@ def phase_table_corrupt():
     bootstrap_bravo()
 
 
+def seal_fails_check():
+    """Checks that sealing to the TPM fails for the games service this boot."""
+    check("seal-fails", os.path.islink(CREDS_STAND_IN), "the games service's systemd-creds cannot encrypt")
+
+
+def phase_seal_fails_rebootstrap():
+    """The table key is locked again and the TPM cannot seal: the owner's bootstrap promotes nothing at shutdown."""
+    seal_fails_check()
+    phase_key_locked()
+
+
+def phase_seal_fails_first():
+    """No table key and the TPM cannot seal one: the service runs, and every game stays unverified."""
+    seal_fails_check()
+    rep = report()
+    check("no-key-reported", rep["table"] == "no table key", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
+    left = sorted(n for n in os.listdir(f"{VOLUME}/SwiffOS") if n.startswith("table-key"))
+    check("no-key-left", not left, " ".join(left))
+
+
 def phase_ext4():
     """The same bootstrap on an ext4 library."""
     session_layer_checks("ext4")
@@ -328,7 +356,8 @@ def phase_ext4():
 PHASES = {"bootstrap": phase_bootstrap, "update": phase_update, "after-update": phase_after_update,
           "tampered": phase_tampered, "still-blocked": phase_still_blocked, "key-locked": phase_key_locked,
           "table-newer": phase_table_newer, "table-unreadable": phase_table_unreadable,
-          "table-corrupt": phase_table_corrupt, "ext4": phase_ext4}
+          "table-corrupt": phase_table_corrupt, "seal-fails-rebootstrap": phase_seal_fails_rebootstrap,
+          "seal-fails-first": phase_seal_fails_first, "ext4": phase_ext4}
 
 if __name__ == "__main__":
     active = run("systemctl", "is-active", "swiff-games.service").stdout.strip()

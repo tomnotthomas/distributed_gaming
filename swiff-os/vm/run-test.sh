@@ -25,7 +25,12 @@
 #           owner bootstraps a game: nothing is promoted.
 #   boot 9  the unreadable table was kept. It is replaced with corrupt JSON:
 #           a renter's seal is refused and the owner's bootstrap replaces it.
-#   boot 10 the same disk with an ext4 library instead of NTFS.
+#   boot 10 the table key no longer unseals and the TPM cannot seal: the
+#           owner bootstraps a game, and at shutdown nothing is promoted and
+#           the old key is kept.
+#   boot 11 the key and table are removed, and the TPM cannot seal a new key:
+#           the games service still starts and every game stays unverified.
+#   boot 12 the same disk with an ext4 library instead of NTFS.
 #
 # vm/test_verify.py first runs swiff-verify's host-side tests.
 #
@@ -338,16 +343,21 @@ fixtures still-blocked
 boot_vm 5
 
 # The table key stops unsealing, as after a Secure Boot update: one character
-# of its credential is changed in place.
-ntfs_cat SwiffOS/table-key.cred > "$run/key.cred"
-python3 -c 'import sys
+# of its credential is changed in place. Sets locked_sha to the credential's
+# sha256 and gives it to the self-test.
+lock_key() {
+	ntfs_cat SwiffOS/table-key.cred > "$run/key.cred"
+	python3 -c 'import sys
 data = bytearray(open(sys.argv[1], "rb").read())
 i = next(i for i in range(len(data) // 2, len(data)) if chr(data[i]).isalnum())
 data[i] = ord("A") if data[i] != ord("A") else ord("B")
 open(sys.argv[1], "wb").write(data)' "$run/key.cred"
-in_tools ntfscp -f "$games_img" "$run/key.cred" SwiffOS/table-key.cred > /dev/null
-key_locked=$(sha256sum < "$run/key.cred")
-echo "$key_locked" > "$run/games/fixtures/key-sha256"
+	in_tools ntfscp -f "$games_img" "$run/key.cred" SwiffOS/table-key.cred > /dev/null
+	locked_sha=$(sha256sum < "$run/key.cred")
+	echo "$locked_sha" > "$run/games/fixtures/key-sha256"
+}
+lock_key
+key_locked=$locked_sha
 fixtures key-locked
 boot_vm 6
 key_after=$(ntfs_cat SwiffOS/table-key.cred | sha256sum)
@@ -362,9 +372,27 @@ fixtures table-corrupt
 boot_vm 9
 replaced_apps=$(ntfs_cat SwiffOS/verified-games.json | python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
+# The key is locked again, and the TPM cannot seal a new one (the self-test's
+# systemd-creds): the owner's bootstrap must leave the key and table as they are.
+lock_key
+sealfail_key=$locked_sha
+sealfail_table=$(ntfs_cat SwiffOS/verified-games.json | sha256sum)
+fixtures seal-fails-rebootstrap
+boot_vm 10
+sealfail_key_after=$(ntfs_cat SwiffOS/table-key.cred | sha256sum)
+sealfail_table_after=$(ntfs_cat SwiffOS/verified-games.json | sha256sum)
+sealfail_tmp=$(in_tools ntfsls -p /SwiffOS "$games_img" 2> /dev/null | grep -c '^table-key\.cred\.' || true)
+sealfail_logged=$(grep -ac "nothing promoted: the owner's bootstrap could not seal a new table key" "$run/serial-10.log" || true)
+
+# A first boot for the table: no key and no table, and the TPM cannot seal a key.
+in_ntfs 'rm -f "$1/mnt/SwiffOS/table-key.cred" "$1/mnt/SwiffOS/verified-games.json"' || die "cannot remove the table key"
+fixtures seal-fails-first
+boot_vm 11
+firstfail_left=$(in_tools ntfsls -p /SwiffOS "$games_img" 2> /dev/null | grep -E '^(table-key\.cred|verified-games\.json)' | paste -sd' ' - || true)
+
 games_img=$run/games-ext4.img
 fixtures ext4
-boot_vm 10
+boot_vm 12
 ext4_apps=$(debugfs -R "cat /SwiffOS/verified-games.json" "$games_img" 2> /dev/null |
 	python3 -c 'import json,sys; print(" ".join(sorted(json.load(sys.stdin)["table"]["apps"])))' 2> /dev/null || true)
 
@@ -386,7 +414,7 @@ result() { # PASS|FAIL name detail
 	[ "$1" = PASS ] || fail=1
 }
 
-for n in 1 2 3 4 5 6 7 8 9 10; do
+for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
 	while read -r status name detail; do
 		result "$status" "boot$n/$name" "$detail"
 	done < <(sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p' "$run/serial-$n.log" | tr -d '\r')
@@ -441,6 +469,21 @@ if [ "$replaced_apps" = 1002 ]; then
 	result PASS games-bootstrap-replaces-corrupt "the owner's bootstrap replaced the corrupt table; table apps: $replaced_apps"
 else
 	result FAIL games-bootstrap-replaces-corrupt "table apps '${replaced_apps}'"
+fi
+if [ "$sealfail_logged" -ge 1 ] && [ "$sealfail_table_after" = "$sealfail_table" ]; then
+	result PASS games-seal-fails-nothing-promoted "the bootstrap's promotion logged 'nothing promoted'; the table is unchanged"
+else
+	result FAIL games-seal-fails-nothing-promoted "'nothing promoted' logged $sealfail_logged times, table unchanged: $([ "$sealfail_table_after" = "$sealfail_table" ] && echo yes || echo no)"
+fi
+if [ "$sealfail_key_after" = "$sealfail_key" ] && [ "$sealfail_tmp" = 0 ]; then
+	result PASS games-seal-fails-keeps-key "the old credential is kept byte for byte; no temporary credential left"
+else
+	result FAIL games-seal-fails-keeps-key "credential kept: $([ "$sealfail_key_after" = "$sealfail_key" ] && echo yes || echo no), temporary credentials left: $sealfail_tmp"
+fi
+if [ -z "$firstfail_left" ]; then
+	result PASS games-first-seal-fails-no-key "no table key, temporary credential or table on the library"
+else
+	result FAIL games-first-seal-fails-no-key "left on the library: $firstfail_left"
 fi
 if [ "$ext4_apps" = "1001 1003" ]; then
 	result PASS games-bootstrap-on-ext4 "verified table on the ext4 library: $ext4_apps"

@@ -269,7 +269,7 @@ throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs on
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
 `swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
 self-test, so sealing stays open, as it would until a game is launched. The test then boots the
-image ten times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
+image twelve times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
 
 1. **Boot 1.** The firmware starts in setup mode. systemd-boot enrols the test certificate as PK, KEK
    and db, and resets the VM. The signed UKI then boots with Secure Boot enforcing. The owner
@@ -289,7 +289,13 @@ image ten times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure B
    the owner bootstraps one game. Nothing is promoted at shutdown.
 10. **Boot 9.** The unreadable table was kept. The self-test replaces it with corrupt JSON. A
     renter's seal is refused, and the owner's bootstrap replaces the table at shutdown.
-11. **Boot 10.** The same disk with an ext4 library.
+11. **Boot 10.** The host damages the table key's credential again, and in this boot the TPM cannot
+    seal (the self-test's `systemd-creds` refuses to encrypt for the games service). The owner
+    bootstraps one game. At shutdown nothing is promoted, the old credential is kept byte for byte,
+    and no temporary credential or new table is left.
+12. **Boot 11.** The host removes the table key and the table, and the TPM still cannot seal. The
+    games service starts, every game stays unverified, and no credential is left on the library.
+13. **Boot 12.** The same disk with an ext4 library.
 
 Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff-verify`'s decisions on
 plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a
