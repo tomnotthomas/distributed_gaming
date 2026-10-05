@@ -68,14 +68,14 @@ import {
 } from "./protocol.js";
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { createRenterGrace, graceMsFromEnv } from "./grace.js";
-import { gamesMedia, popularGames } from "./catalog.js";
+import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
-import { everyGamePlayable, Playability } from "./playable.js";
+import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -632,12 +632,13 @@ async function answerSession(
  * The game catalog: Steam's most played games for the signed-out wall, with
  * which of the wall's own nine (`wall`, appids) the page may stand in when
  * Steam is down, and names plus trailers for any appids (a signed-in library),
- * only ever games Swiff can run (playable.ts). Keyless and cached in
- * catalog.ts; a Steam outage answers an empty list.
+ * only ever games Swiff can run (playable.ts), each with the launcher account
+ * it asks for at start. Keyless and cached in catalog.ts; a Steam outage
+ * answers an empty list.
  */
 async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSearchParams): Promise<boolean> {
   const playable = (appid: number) => playability.playable(appid);
-  let games: Promise<unknown[]>;
+  let games: Promise<CatalogGame[]>;
   let extra = {};
   if (urlPath === "/api/games/popular") {
     games = popularGames(undefined, playable);
@@ -646,7 +647,8 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
     games = gamesMedia((query.get("appids") ?? "").split(",").map(Number), playable);
   } else return false;
 
-  const body = JSON.stringify({ games: await games.catch(() => []), ...extra });
+  const listed = await games.catch(() => []);
+  const body = JSON.stringify({ games: withAccounts(listed, playability), ...extra });
   // Browsers may reuse it for a few minutes; the server's own cache does the rest.
   res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" });
   res.end(body);

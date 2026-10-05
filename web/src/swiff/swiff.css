@@ -1118,6 +1118,14 @@ button.band-tab:hover {
   margin: 0;
   font: 200 clamp(20px, 1.8vw, 26px) / 1.2 var(--f);
 }
+/* A launcher account the game asks for at start: "Needs your Ubisoft sign-in". */
+.menu-signin {
+  margin: 10px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
 .menu-reads {
   position: absolute;
   z-index: 5;

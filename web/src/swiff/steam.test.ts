@@ -55,6 +55,20 @@ describe("popularCards", () => {
     expect(bf).toMatchObject({ owned: false, f2p: false });
   });
 
+  it("tells a renter which launcher a game asks them to sign in to, and says nothing for the rest", () => {
+    const ubisoft = {
+      ...catalog[1]!,
+      appid: 2369390,
+      requiresAccount: { launcher: "ubisoft", name: "Ubisoft" },
+    };
+    const [cs, farCry] = popularCards([catalog[0]!, ubisoft], pool);
+    expect(farCry!.signIn).toBe("Needs your Ubisoft sign-in");
+    expect(cs!.signIn).toBeUndefined();
+    // A library card gets it from the art read too.
+    const [library] = withMedia([{ ...cs!, appid: 2369390 }], [ubisoft]);
+    expect(library!.signIn).toBe("Needs your Ubisoft sign-in");
+  });
+
   it("gives every card machines from the shared pool, so none reads as broken", () => {
     for (const card of popularCards(catalog, pool)) {
       expect(card.machines.length).toBeGreaterThan(0);

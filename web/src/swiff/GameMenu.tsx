@@ -133,6 +133,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
           <div className="mono menu-kicker">{game.personal}</div>
           <h1 className="menu-title">{game.title}</h1>
           <p className="menu-line">{game.promise}</p>
+          {game.signIn ? <p className="mono menu-signin">{game.signIn}</p> : null}
         </div>
 
         {picked && pickedMeters ? (

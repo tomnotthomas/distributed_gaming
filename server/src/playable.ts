@@ -3,8 +3,7 @@
 // public data. Nothing is guessed: the same answers always give the same verdict.
 //
 //   store      appdetails                          not a game, a native Mac build, Denuvo,
-//                                                  a third-party account at start, a
-//                                                  recommended GPU newer than any host's
+//                                                  a recommended GPU newer than any host's
 //   steamos    IStoreBrowseService/GetItems        Valve rates it unsupported on SteamOS
 //                                                  (its Deck rating where it has no SteamOS one)
 //   anticheat  AreWeAntiCheatYet's games.json      its anti-cheat is Denied or Broken on Linux
@@ -18,6 +17,11 @@
 // every source answered for is playable. Renters are shown, and may book, only
 // playable games: unknown counts as not playable. A game with a native Mac
 // build is left out too: a renter on a Mac can already play it there.
+//
+// A game that asks for an account besides Steam's at start (Ubisoft Connect,
+// the EA app, Battle.net, Rockstar and the like) is not left out for it: the
+// verdict names the launcher (`requiresAccount`), so the page can say the
+// renter will sign in to it.
 //
 // Checking: what renters are looking at now goes first, the newest ask ahead:
 // a signed-in renter's library, Steam's most played and the wall's own nine.
@@ -91,7 +95,6 @@ export const OBJECTIONS = [
   "not-a-game",
   "native-mac",
   "denuvo",
-  "third-party-account",
   "gpu-beyond-hosts",
   "anti-cheat-denied",
   "anti-cheat-broken",
@@ -106,8 +109,45 @@ export const GAPS = ["not-on-store", "steamos-unrated", "not-checked"] as const;
 export type Objection = (typeof OBJECTIONS)[number];
 export type Reason = Objection | (typeof GAPS)[number];
 
-/** A verdict and why: every objection when not playable, every gap when unknown, none when playable. */
-export type Judgement = { verdict: Verdict; reasons: Reason[] };
+/**
+ * An account the game asks the renter to sign in to at start, besides Steam's:
+ * `launcher` is a fixed id ("ubisoft", "ea", "battlenet", "rockstar", "psn",
+ * "xbox", "activision", "epic", "bethesda", or "other"), `name` what to call it.
+ */
+export type RequiresAccount = { launcher: string; name: string };
+
+/**
+ * A verdict and why: every objection when not playable, every gap when unknown,
+ * none when playable; `requiresAccount` when the game asks for a launcher account.
+ */
+export type Judgement = { verdict: Verdict; reasons: Reason[]; requiresAccount?: RequiresAccount };
+
+/** Launchers by what Steam's account notice says, first match wins. */
+const LAUNCHERS: [RegExp, string, string][] = [
+  [/ubisoft|uplay/i, "ubisoft", "Ubisoft"],
+  [/\bEA\b|electronic arts/, "ea", "EA"],
+  [/battle\.net|blizzard/i, "battlenet", "Battle.net"],
+  [/rockstar/i, "rockstar", "Rockstar Games"],
+  [/playstation/i, "psn", "PlayStation Network"],
+  [/xbox/i, "xbox", "Xbox"],
+  [/activision/i, "activision", "Activision"],
+  [/\bepic\b/i, "epic", "Epic Games"],
+  [/bethesda/i, "bethesda", "Bethesda.net"],
+];
+
+/**
+ * The launcher account a store's ext_user_account_notice names, e.g. "Ubisoft
+ * Account (Supports Linking to Steam Account)" to ubisoft; one it does not
+ * know is "other", named by the notice up to its parenthesis. Null when there
+ * is no notice.
+ */
+export function requiredAccount(notice: string | undefined): RequiresAccount | null {
+  const text = (notice ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const known = LAUNCHERS.find(([pattern]) => pattern.test(text));
+  if (known) return { launcher: known[1], name: known[2] };
+  return { launcher: "other", name: text.replace(/\s*\(.*$/, "").slice(0, 40) || text.slice(0, 40) };
+}
 
 /** Valve's ratings: SteamOS uses 0-2, the Deck 0-3. */
 export const STEAMOS_UNRATED = 0;
@@ -136,7 +176,6 @@ export function judge({ details, steamos, antiCheat, cloud, curatedRequirements 
     if (details.type !== "game") objections.push("not-a-game");
     if (details.platforms?.mac === true) objections.push("native-mac");
     if (/\bdenuvo\b/i.test(details.drm_notice ?? "")) objections.push("denuvo");
-    if ((details.ext_user_account_notice ?? "").trim()) objections.push("third-party-account");
     if (!curatedRequirements && recommendsBeyondTable(details.pc_requirements))
       objections.push("gpu-beyond-hosts");
   }
@@ -146,9 +185,11 @@ export function judge({ details, steamos, antiCheat, cloud, curatedRequirements 
   else if (steamos === null || steamos === STEAMOS_UNRATED) gaps.push("steamos-unrated");
   if (cloud === "deny") objections.push("cloud-denied");
 
-  if (objections.length) return { verdict: "not-playable", reasons: objections };
-  if (gaps.length) return { verdict: "unknown", reasons: gaps };
-  return { verdict: "playable", reasons: [] };
+  const account = requiredAccount(details?.ext_user_account_notice);
+  const attributes = account ? { requiresAccount: account } : {};
+  if (objections.length) return { verdict: "not-playable", reasons: objections, ...attributes };
+  if (gaps.length) return { verdict: "unknown", reasons: gaps, ...attributes };
+  return { verdict: "playable", reasons: [], ...attributes };
 }
 
 /** One game's started sessions in the failure window, and how many of them failed to launch. */
@@ -223,18 +264,44 @@ export const steamSources: Sources = {
 
 // --- the verdicts ------------------------------------------------------------------
 
-/** What the routes need: whether renters may be shown a game, and a way to have games checked. */
+/**
+ * What the routes need: whether renters may be shown a game, the launcher
+ * account it asks for, and a way to have games checked.
+ */
 export type PlayableGames = {
   playable: (appid: number) => boolean;
+  requiresAccount: (appid: number) => RequiresAccount | null;
   /** Have these games checked; `first` when a renter is looking at them now. */
   want: (appids: Iterable<number>, options?: { first?: boolean }) => void;
 };
 
 /** Every game playable and nothing checked: for tests and tools that are not about playability. */
-export const everyGamePlayable: PlayableGames = { playable: () => true, want: () => {} };
+export const everyGamePlayable: PlayableGames = {
+  playable: () => true,
+  requiresAccount: () => null,
+  want: () => {},
+};
+
+/**
+ * Catalog entries as the page is sent them: each with the launcher account its
+ * game asks for (`requiresAccount`, null for none), so the wall and the game
+ * page can say the renter will sign in to it.
+ */
+export function withAccounts<T extends { appid: number }>(
+  games: T[],
+  playability: Pick<PlayableGames, "requiresAccount">,
+): (T & { requiresAccount: RequiresAccount | null })[] {
+  return games.map((game) => ({ ...game, requiresAccount: playability.requiresAccount(game.appid) }));
+}
 
 type Known = Judgement & { checkedAt: number };
-type Row = { appid: number; verdict: Verdict; reasons: string; checked_at: number };
+type Row = {
+  appid: number;
+  verdict: Verdict;
+  reasons: string;
+  requires_account: string | null;
+  checked_at: number;
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (what: string) => (error: unknown) =>
@@ -289,17 +356,22 @@ export class Playability implements PlayableGames {
    */
   verdict(appid: number): Judgement {
     const known = this.#known.get(appid);
-    const judgement: Judgement =
-      known && this.#now() - known.checkedAt < MAX_AGE_MS
-        ? { verdict: known.verdict, reasons: known.reasons }
-        : { verdict: "unknown", reasons: ["not-checked"] };
+    const fresh = known && this.#now() - known.checkedAt < MAX_AGE_MS;
+    const attributes = fresh && known.requiresAccount ? { requiresAccount: known.requiresAccount } : {};
+    const judgement: Judgement = fresh
+      ? { verdict: known.verdict, reasons: known.reasons, ...attributes }
+      : { verdict: "unknown", reasons: ["not-checked"] };
     if (!this.#demoted.has(appid)) return judgement;
     const objections = judgement.reasons.filter((r) => (OBJECTIONS as readonly string[]).includes(r));
-    return { verdict: "not-playable", reasons: [...objections, "launch-failures"] };
+    return { verdict: "not-playable", reasons: [...objections, "launch-failures"], ...attributes };
   }
 
   playable(appid: number): boolean {
     return this.verdict(appid).verdict === "playable";
+  }
+
+  requiresAccount(appid: number): RequiresAccount | null {
+    return this.verdict(appid).requiresAccount ?? null;
   }
 
   /** Read every stored verdict, and the launch failures, from the database. */
@@ -309,6 +381,9 @@ export class Playability implements PlayableGames {
       this.#known.set(row.appid, {
         verdict: row.verdict,
         reasons: JSON.parse(row.reasons) as Reason[],
+        ...(row.requires_account
+          ? { requiresAccount: JSON.parse(row.requires_account) as RequiresAccount }
+          : {}),
         checkedAt: row.checked_at,
       });
     }
@@ -402,10 +477,18 @@ export class Playability implements PlayableGames {
     });
     const checkedAt = this.#now();
     await this.#db.query(
-      `INSERT INTO game_playability (appid, verdict, reasons, checked_at) VALUES ($1, $2, $3, $4)
+      `INSERT INTO game_playability (appid, verdict, reasons, requires_account, checked_at)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (appid) DO UPDATE SET
-         verdict = excluded.verdict, reasons = excluded.reasons, checked_at = excluded.checked_at`,
-      [appid, judgement.verdict, JSON.stringify(judgement.reasons), checkedAt],
+         verdict = excluded.verdict, reasons = excluded.reasons,
+         requires_account = excluded.requires_account, checked_at = excluded.checked_at`,
+      [
+        appid,
+        judgement.verdict,
+        JSON.stringify(judgement.reasons),
+        judgement.requiresAccount ? JSON.stringify(judgement.requiresAccount) : null,
+        checkedAt,
+      ],
     );
     this.#known.set(appid, { ...judgement, checkedAt });
   }

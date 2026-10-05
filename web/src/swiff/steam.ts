@@ -158,7 +158,13 @@ export type CatalogGame = {
   art: { hero: string | null; capsule: string | null };
   preview: string | null;
   trailer: string | null;
+  /** The account the game asks for at start besides Steam's (server/src/playable.ts); null or absent for none. */
+  requiresAccount?: { launcher: string; name: string } | null;
 };
+
+/** What the game page says about a launcher account the game asks for: "Needs your Ubisoft sign-in". */
+export const signInNote = (game: CatalogGame): string | undefined =>
+  game.requiresAccount ? `Needs your ${game.requiresAccount.name} sign-in` : undefined;
 
 const mediaOf = (game: CatalogGame): GameMedia => ({
   ...game.art,
@@ -180,6 +186,7 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
       f2p: game.free,
       save: game.free ? "Steam cloud save" : "New game",
       media: mediaOf(game),
+      signIn: signInNote(game),
     }),
   );
 
@@ -203,10 +210,13 @@ export const nextCatalog = (
 /** All the games the store data knows, art first, then the chart. */
 export const storeGames = (store: StoreData): CatalogGame[] => [...store.media, ...store.popular];
 
-/** Put the catalog's art and trailers onto games it knows. */
+/** Put the catalog's art, trailers and launcher sign-in note onto games it knows. */
 export function withMedia(games: Game[], catalog: CatalogGame[]): Game[] {
-  const media = new Map(catalog.map((g) => [g.appid, mediaOf(g)]));
-  return games.map((game) => (media.has(game.appid) ? { ...game, media: media.get(game.appid) } : game));
+  const known = new Map(catalog.map((g) => [g.appid, g]));
+  return games.map((game) => {
+    const entry = known.get(game.appid);
+    return entry ? { ...game, media: mediaOf(entry), signIn: signInNote(entry) } : game;
+  });
 }
 
 /** A curated title the renter owns, told with their real hours instead of the demo story. */
@@ -230,11 +240,12 @@ const freeCurated = (game: Game): Game => ({ ...game, ...FREE, last: undefined }
 /** A free-to-play game the renter does not own: playable by anyone, and marked Free. */
 function freeCard(game: CatalogGame, pool: string[]): Game {
   const curated = GAMES.find((g) => g.appid === game.appid);
-  if (curated) return { ...freeCurated(curated), media: mediaOf(game) };
+  if (curated) return { ...freeCurated(curated), media: mediaOf(game), signIn: signInNote(game) };
   return cardFor(game.appid, game.name, pool, {
     ...FREE,
     promise: "Free to play. No purchase needed.",
     media: mediaOf(game),
+    signIn: signInNote(game),
   });
 }
 

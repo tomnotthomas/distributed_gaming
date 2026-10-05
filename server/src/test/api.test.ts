@@ -108,6 +108,7 @@ describe("booking and host API", () => {
     };
     const playability = {
       playable: (appid: number) => !unplayable.has(appid),
+      requiresAccount: () => null,
       want: (appids: Iterable<number>, { first = false } = {}) => {
         wanted.push(...appids);
         wantedFirst = first;

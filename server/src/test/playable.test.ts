@@ -17,6 +17,8 @@ import {
   LAUNCH_FAILURE_MS,
   MAX_AGE_MS,
   Playability,
+  requiredAccount,
+  withAccounts,
   REQUESTED_WINDOW_MS,
   steamOsRatings,
   steamSources,
@@ -118,16 +120,42 @@ describe("the rule", () => {
     assert.deepEqual(await verdictOf(2246340), { verdict: "not-playable", reasons: ["denuvo"] });
   });
 
-  it("refuses a game that asks for a third-party account at start", async () => {
-    // Red Dead Redemption 2: a Rockstar Games account.
-    assert.deepEqual(await verdictOf(1174180), { verdict: "not-playable", reasons: ["third-party-account"] });
+  it("keeps a game that asks for a launcher account at start playable, naming the launcher", async () => {
+    // Red Dead Redemption 2: a Rockstar Games account, nothing against it.
+    assert.deepEqual(await verdictOf(1174180), {
+      verdict: "playable",
+      reasons: [],
+      requiresAccount: { launcher: "rockstar", name: "Rockstar Games" },
+    });
+    // Overwatch (Battle.net), HELLDIVERS 2 (PlayStation Network) and Warframe (its own account).
+    assert.deepEqual(await verdictOf(2357570), {
+      verdict: "playable",
+      reasons: [],
+      requiresAccount: { launcher: "battlenet", name: "Battle.net" },
+    });
+    assert.deepEqual((await verdictOf(553850)).requiresAccount, {
+      launcher: "psn",
+      name: "PlayStation Network",
+    });
+    assert.deepEqual(await verdictOf(230410), {
+      verdict: "playable",
+      reasons: [],
+      requiresAccount: { launcher: "other", name: "Warframe Account" },
+    });
+    // The other rules still decide: Rainbow Six Siege asks for Ubisoft Connect and is denied for its anti-cheat.
+    assert.deepEqual(await verdictOf(359550), {
+      verdict: "not-playable",
+      reasons: ["anti-cheat-denied", "steamos-unsupported"],
+      requiresAccount: { launcher: "ubisoft", name: "Ubisoft" },
+    });
   });
 
   it("refuses an anti-cheat that is Denied or Broken on Linux", async () => {
-    // Apex Legends: Denied, an EA account, and unsupported on SteamOS.
+    // Apex Legends: Denied and unsupported on SteamOS; its EA account is no objection.
     assert.deepEqual(await verdictOf(1172470), {
       verdict: "not-playable",
-      reasons: ["third-party-account", "anti-cheat-denied", "steamos-unsupported"],
+      reasons: ["anti-cheat-denied", "steamos-unsupported"],
+      requiresAccount: { launcher: "ea", name: "EA" },
     });
     // PUBG: Broken.
     assert.deepEqual(await verdictOf(578080), {
@@ -194,6 +222,44 @@ describe("the rule", () => {
   });
 });
 
+describe("naming the launcher", () => {
+  it("reads the launcher from Steam's account notice, and names one it does not know by the notice", () => {
+    for (const [notice, launcher] of [
+      ["Ubisoft Connect launcher (Supports Linking to Steam Account)", "ubisoft"],
+      ["Ubisoft Account required", "ubisoft"],
+      ["EA Account linking required (Supports Linking to Steam Account)", "ea"],
+      ["Battle.net Account ", "battlenet"],
+      ["Rockstar Games (Supports Linking to Steam Account)", "rockstar"],
+      ["PlayStation Network (Supports Linking to Steam Account)", "psn"],
+      ["Xbox Live ", "xbox"],
+      ["Activision Account (Supports Linking to Steam Account)", "activision"],
+      ["Epic Online Services (Supports Linking to Steam Account)", "epic"],
+    ] as const) {
+      assert.equal(requiredAccount(notice)?.launcher, launcher, notice);
+    }
+    assert.deepEqual(requiredAccount("LEVEL INFINITE PASS (Supports Linking to Steam Account)"), {
+      launcher: "other",
+      name: "LEVEL INFINITE PASS",
+    });
+    // "ea" inside a word is not EA.
+    assert.equal(requiredAccount("Wizards Account System")?.launcher, "other");
+    assert.equal(requiredAccount(""), null);
+    assert.equal(requiredAccount("  "), null);
+    assert.equal(requiredAccount(undefined), null);
+  });
+
+  it("puts the launcher on each catalog entry the page is sent", () => {
+    const accounts = new Map([[1174180, { launcher: "rockstar", name: "Rockstar Games" }]]);
+    const sent = withAccounts([{ appid: 1174180 }, { appid: 730 }], {
+      requiresAccount: (appid) => accounts.get(appid) ?? null,
+    });
+    assert.deepEqual(sent, [
+      { appid: 1174180, requiresAccount: { launcher: "rockstar", name: "Rockstar Games" } },
+      { appid: 730, requiresAccount: null },
+    ]);
+  });
+});
+
 describe("reading the sources", () => {
   it("takes Valve's SteamOS rating, its Deck rating where there is none, and null for no app, many at once", async () => {
     const urls = serveRecorded();
@@ -249,17 +315,23 @@ describe("the wall", () => {
     await playability.drained();
 
     const wall = (await popularGames(24, (appid) => playability.playable(appid))).map((g) => g.name);
+    // Overwatch, HELLDIVERS 2, Warframe and VRChat each ask for an account
+    // besides Steam's, which keeps none of them off.
     assert.deepEqual(wall, [
       "Counter-Strike 2",
       "The Witcher 3: Wild Hunt — Remastered",
+      "Overwatch®",
       "Marvel Rivals",
       "Aniimo",
       "How to Fish",
+      "HELLDIVERS™ 2",
       "Left 4 Dead 2",
       "Limbus Company",
       "Dead by Daylight",
       "The Outlast Trials",
+      "Warframe",
       "Team Fortress 2",
+      "VRChat",
     ]);
     // Of the chart as shown on 5 Oct: what cannot run on Swiff OS, and what has a Mac build.
     const unfiltered = (await popularGames(40)).map((g) => g.name);
@@ -314,20 +386,37 @@ describe("checking", () => {
   });
   afterEach(() => db.close());
 
-  it("stores each verdict with its reasons, for the next server to load", async () => {
+  it("stores each verdict with its reasons and launcher, for the next server to load", async () => {
     const first = open();
-    first.want([292030, 413150]);
+    first.want([292030, 413150, 1174180]);
     await first.drained();
     const { rows } = await db.query("SELECT * FROM game_playability ORDER BY appid");
+    const rockstar = { launcher: "rockstar", name: "Rockstar Games" };
     assert.deepEqual(rows, [
-      { appid: 292030, verdict: "playable", reasons: "[]", checked_at: now },
-      { appid: 413150, verdict: "not-playable", reasons: '["native-mac"]', checked_at: now },
+      { appid: 292030, verdict: "playable", reasons: "[]", requires_account: null, checked_at: now },
+      {
+        appid: 413150,
+        verdict: "not-playable",
+        reasons: '["native-mac"]',
+        requires_account: null,
+        checked_at: now,
+      },
+      {
+        appid: 1174180,
+        verdict: "playable",
+        reasons: "[]",
+        requires_account: JSON.stringify(rockstar),
+        checked_at: now,
+      },
     ]);
 
     const next = open();
     await next.load();
     assert.equal(next.playable(292030), true);
+    assert.equal(next.requiresAccount(292030), null);
     assert.deepEqual(next.verdict(413150), { verdict: "not-playable", reasons: ["native-mac"] });
+    assert.deepEqual(next.verdict(1174180), { verdict: "playable", reasons: [], requiresAccount: rockstar });
+    assert.deepEqual(next.requiresAccount(1174180), rockstar);
   });
 
   it("checks the games asked for first ahead of the rest, each once a day", async () => {

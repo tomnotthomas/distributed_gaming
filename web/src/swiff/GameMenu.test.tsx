@@ -151,6 +151,18 @@ describe("GameMenu", () => {
       expect(screen.getByText("No machine can play it right now.")).toBeInTheDocument();
     });
 
+    it("says which launcher the game asks the renter to sign in to, and nothing when it asks for none", () => {
+      const { unmount } = render(
+        <GameMenu
+          swiff={swiffWith("idle", true, { game: { ...bg3, signIn: "Needs your Ubisoft sign-in" } })}
+        />,
+      );
+      expect(screen.getByText("Needs your Ubisoft sign-in")).toBeInTheDocument();
+      unmount();
+      render(<GameMenu swiff={swiffWith("idle", true)} />);
+      expect(screen.queryByText(/sign-in$/)).toBeNull();
+    });
+
     it("says in plain words when the server refuses a game the renter does not own", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-owned" })} />);
       expect(screen.getByRole("alert")).toHaveTextContent(/You don't own this game on Steam/);
