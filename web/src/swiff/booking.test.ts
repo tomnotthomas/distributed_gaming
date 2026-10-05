@@ -8,8 +8,6 @@ import {
   fetchBooking,
   followBooking,
   forgetStoredTicket,
-  QUEUE_HOLD_MS,
-  queueHoldLeft,
   resumeBooking,
   resumeTicket,
   storedPlay,
@@ -849,34 +847,5 @@ describe("coming back to a game", () => {
     const over = routes({ "POST /api/bookings/b-1/rejoin": json(409, { status: "ended" }) });
     expect(await resumeTicket("b-1", { fetch: over.fetch })).toBeNull();
     expect(storedPlay()).toBeNull();
-  });
-
-  it("says how long the queue still keeps a stored booking, by when it was last heard of", async () => {
-    expect(queueHoldLeft()).toBeNull();
-    const before = Date.now();
-    await book(730, 30, { fetch: fakeServer(["queued"]).fetch });
-    const left = queueHoldLeft(localStorage, before + 30_000)!;
-    expect(left).toBeGreaterThan(QUEUE_HOLD_MS - 30_000 - 1_000);
-    expect(left).toBeLessThanOrEqual(QUEUE_HOLD_MS - 30_000 + 1_000);
-    expect(queueHoldLeft(localStorage, Date.now() + QUEUE_HOLD_MS + 1)).toBe(0);
-  });
-
-  it("counts the queue's hold from the latest answer about the booking", async () => {
-    const server = fakeServer(["queued"]);
-    await book(730, 30, { fetch: server.fetch });
-    localStorage.setItem("swiff.booking.seen", "1");
-    const stop = resumeBooking(() => {}, { fetch: server.fetch, intervalMs: 5, eventSource: null })!;
-    await settle();
-    stop();
-    expect(queueHoldLeft()).toBeGreaterThan(QUEUE_HOLD_MS - 5_000);
-  });
-
-  it("forgets when the booking was heard of together with the booking", async () => {
-    await book(730, 30, { fetch: fakeServer(["queued"]).fetch });
-    await endBooking("b-1", {
-      fetch: routes({ "POST /api/bookings/b-1/end": json(200, booking("ended")) }).fetch,
-    });
-    expect(localStorage.getItem("swiff.booking.seen")).toBeNull();
-    expect(queueHoldLeft()).toBeNull();
   });
 });

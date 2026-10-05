@@ -9,7 +9,6 @@ import {
   followBooking,
   forgetPlay,
   forgetStoredTicket,
-  queueHoldLeft,
   resumeTicket,
   storedBookingId,
   storedPlay,
@@ -70,8 +69,6 @@ export type Taken = { nextBest: NextBest | null };
  * missed the renter.
  */
 export type Away = { booking: Booking; heldUntil: number | null };
-/** A queued booking picked up on a page load: how long the queue had left to keep it then, in ms. */
-export type QueueBack = { leftMs: number };
 
 /** The demo's ignition: one 340 ms beat at a time; twelve of them reach a frame. */
 const IGNITION_MS = 340;
@@ -155,7 +152,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // Coming back: a session still running from before the page went away
   // (screen A), and a queued booking picked up where it was (screen C).
   const [away, setAway] = useState<Away | null>(null);
-  const [queueBack, setQueueBack] = useState<QueueBack | null>(null);
+  const [queueBack, setQueueBack] = useState(false);
   const [rejoining, setRejoining] = useState(false);
 
   // Real play: the stream's video element, where Ignition stands on the
@@ -380,7 +377,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       following.current = followBooking(first, {
         onUpdate: (next) => {
           setBooking(next);
-          if (next?.status !== "queued") setQueueBack(null);
+          if (next?.status !== "queued") setQueueBack(false);
           // Over or gone from view, the booking is no longer followed: the queue can be joined again.
           if (!next || next.status === "ended" || next.status === "expired") following.current = null;
         },
@@ -423,7 +420,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     liveSince.current = null;
     setElapsedMs(0);
     stopFollowing();
-    setQueueBack(null);
+    setQueueBack(false);
     const current = bookingNow.current;
     if (current && current.status !== "ended" && current.status !== "expired") {
       void endBooking(current.bookingId).catch(() => {});
@@ -516,8 +513,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     if (!steamId || demo) return;
     const stored = storedBookingId();
     if (!stored || following.current) return;
-    const leftMs = queueHoldLeft();
-    if (leftMs !== null) setQueueBack({ leftMs });
+    setQueueBack(true);
     follow(stored);
   }, [steamId, demo, follow]);
 
@@ -594,7 +590,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, [away]);
 
   /** Keep waiting in the queue (screen C). */
-  const keepQueue = useCallback(() => setQueueBack(null), []);
+  const keepQueue = useCallback(() => setQueueBack(false), []);
 
   // No join ticket stays on disk, even one kept before tickets stopped being stored.
   useEffect(() => forgetStoredTicket(), []);
