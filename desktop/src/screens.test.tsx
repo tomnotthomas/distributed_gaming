@@ -789,7 +789,7 @@ describe("rental mode", () => {
     expect(screen.queryByRole("button", { name: /Undo what was done/ })).not.toBeInTheDocument();
   });
 
-  it("offers to undo an install that stopped part way, and nothing else", () => {
+  it("offers to continue an install that stopped part way, or to undo it", () => {
     const acts = renderReal(
       "rental",
       off,
@@ -797,6 +797,8 @@ describe("rental mode", () => {
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("The install did not finish");
     expect(screen.queryByRole("button", { name: /Review the install/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Continue the install/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("install");
     fireEvent.click(screen.getByRole("button", { name: /Undo what was done/ }));
     expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
   });

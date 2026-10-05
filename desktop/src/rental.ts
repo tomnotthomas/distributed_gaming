@@ -243,7 +243,7 @@ export function rentalStatus(read: RentalRead, targetId: string | null): RentalS
   if (read.facts.install && !read.installed)
     return {
       title: "The install did not finish",
-      line: "Part of Swiff OS is on this PC. Undo what the install did, then install again.",
+      line: "Part of Swiff OS's install is on this PC. Continue it, or undo what it did.",
       ready,
       of: checks.length,
       bios,

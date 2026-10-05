@@ -467,13 +467,20 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           {read.facts.install && !read.installed ? (
             <>
               <p className="soft">
-                The install stopped before it finished. Undoing it takes back each step it got to: Windows and
-                your files stay as they are.
+                The install stopped before it finished. Continue it into the room it already made, or undo
+                each step it got to: either way Windows and your files stay as they are.
               </p>
               <div className="acts">
-                <Pill icon="undo" onClick={() => actions.previewRental("uninstall")}>
-                  Undo what was done
+                <Pill
+                  icon="arrow"
+                  onClick={() => actions.previewRental("install")}
+                  disabled={status.bios.length > 0 || status.fixes.length > 0}
+                >
+                  Continue the install
                 </Pill>
+                <button type="button" className="lnk" onClick={() => actions.previewRental("uninstall")}>
+                  Undo what was done
+                </button>
               </div>
             </>
           ) : read.installed ? (
