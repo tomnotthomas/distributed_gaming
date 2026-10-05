@@ -858,7 +858,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           {sent ? (
             <p className="msent">
               <Glyph name="check" size={14} />
-              Sent at {clock(run.reportedAt!)}. Swiff got the error, the step and this PC's checks.
+              Saved at {clock(run.reportedAt!)} for Swiff: the error, the step and this PC's checks.
             </p>
           ) : null}
         </>

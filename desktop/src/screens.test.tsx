@@ -1128,7 +1128,7 @@ describe("rental mode", () => {
         failedAt("fast-startup", "reg failed: exit code 1", { reportedAt: evening(21, 6) }),
       );
       expect(
-        screen.getByText(/Sent at 21:06\. Swiff got the error, the step and this PC's checks\./),
+        screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
     });
