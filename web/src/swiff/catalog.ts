@@ -1,7 +1,8 @@
 // The browser half of the game catalog (server/src/catalog.ts): Steam's most
 // played games for the signed-out wall, and trailers for a signed-in library.
 // The server sends only games Swiff can run (server/src/playable.ts). Both fail
-// soft — an empty list means "keep what you have".
+// soft: a read that failed answers null, "keep what you have", while an empty
+// list is the server's answer.
 
 import type { CatalogGame } from "./steam";
 
@@ -29,9 +30,10 @@ export const fetchPopular = (): Promise<Popular | null> =>
     }))
     .catch(() => null);
 
-export const fetchMedia = (appids: number[]) =>
+/** Art, trailers and launchers for these games, or null when the server did not answer. */
+export const fetchMedia = (appids: number[]): Promise<CatalogGame[] | null> =>
   appids.length
     ? getBody(`/api/games/media?appids=${appids.join(",")}`)
         .then(gamesOf)
-        .catch(() => [] as CatalogGame[])
+        .catch(() => null)
     : Promise.resolve([]);

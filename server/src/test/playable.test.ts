@@ -386,6 +386,79 @@ describe("checking", () => {
   });
   afterEach(() => db.close());
 
+  it("keeps a game Valve's ratings left out waiting, and checks it once they answer for it", async () => {
+    let skipped = true;
+    const playability = new Playability(db, {
+      sources: {
+        ...counted,
+        steamos: async (appids) => {
+          const ratings = await counted.steamos(appids);
+          if (skipped) ratings.delete(292030);
+          skipped = false;
+          return ratings;
+        },
+      },
+      now: () => now,
+      pauseMs: 0,
+      backoffMs: 0,
+    });
+    playability.want([292030, 413150]);
+    await playability.drained();
+    // Checked on the second batch, not dropped after the first.
+    assert.deepEqual(asked, [413150, 292030]);
+    assert.equal(playability.playable(292030), true);
+  });
+
+  it("gives a game the ratings never answer for one more try, then waits to be asked again", async () => {
+    let tries = 0;
+    const playability = new Playability(db, {
+      sources: {
+        ...counted,
+        steamos: async () => (tries++, new Map()),
+      },
+      now: () => now,
+      pauseMs: 0,
+      backoffMs: 0,
+    });
+    playability.want([292030]);
+    await playability.drained();
+    assert.equal(tries, 2);
+    assert.equal(playability.playable(292030), false);
+    playability.want([292030]);
+    await playability.drained();
+    assert.equal(tries, 4);
+  });
+
+  it("reads its stored verdicts again after a failed read at start, keeping any newer check", async () => {
+    const stored = open();
+    stored.want([292030]);
+    await stored.drained();
+    let reads = 0;
+    const flaky = {
+      query: (sql: string, params?: unknown[]) =>
+        sql.startsWith("SELECT * FROM game_playability") && ++reads === 1
+          ? Promise.reject(new Error("connection reset"))
+          : db.query(sql, params),
+    } as Database;
+    const restarted = new Playability(flaky, {
+      sources: { ...counted, chart: async () => [] },
+      now: () => now,
+      pauseMs: 0,
+      backoffMs: 5,
+    });
+    restarted.start();
+    try {
+      for (let waited = 0; !restarted.playable(292030) && waited < 2_000; waited += 5) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal(reads, 2);
+      assert.equal(restarted.playable(292030), true);
+    } finally {
+      restarted.stop();
+      await restarted.drained();
+    }
+  });
+
   it("stores each verdict with its reasons and launcher, for the next server to load", async () => {
     const first = open();
     first.want([292030, 413150, 1174180]);

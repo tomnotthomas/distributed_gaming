@@ -194,17 +194,18 @@ export const popularCards = (catalog: CatalogGame[], pool: string[]): Game[] =>
 export type StoreData = { media: CatalogGame[]; popular: CatalogGame[] };
 
 /**
- * The store data to keep after a new read. Each read fails soft to an empty
- * list, which means "keep what you have" (catalog.ts), so an outage of either
- * during a retry never takes the free-to-play games it found off the wall.
+ * The store data to keep after a new read. A read the server answered replaces
+ * what was kept, even with nothing, since the server sends only games Swiff
+ * can run now (server/src/playable.ts); only a read that failed (null) keeps
+ * the last answer.
  */
 export const nextCatalog = (
   previous: StoreData,
-  media: CatalogGame[],
-  popular: CatalogGame[],
+  media: CatalogGame[] | null,
+  popular: CatalogGame[] | null,
 ): StoreData => ({
-  media: media.length ? media : previous.media,
-  popular: popular.length ? popular : previous.popular,
+  media: media ?? previous.media,
+  popular: popular ?? previous.popular,
 });
 
 /** All the games the store data knows, art first, then the chart. */

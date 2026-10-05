@@ -768,7 +768,8 @@ export function createApi({
 
     if (resource === "machines" && id && action === "demand" && method === "GET") {
       // What renters ask for, for the owner deciding what to install: counts
-      // per game, never who asked. A game the catalogue cannot name has a null name.
+      // per game, never who asked, and only games Swiff can run. A game the
+      // catalogue cannot name has a null name.
       requireMachine(req, access, id);
       const [demand, catalogue] = await Promise.all([
         platform.demand(DEMAND_WINDOW_MS, DEMAND_LIMIT),
@@ -777,7 +778,9 @@ export function createApi({
       const names = new Map(catalogue.map((g) => [g.id, g.name]));
       reply(res, 200, {
         windowMinutes: DEMAND_WINDOW_MS / 60_000,
-        games: demand.map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
+        games: demand
+          .filter((d) => playable(d.appid))
+          .map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
       });
       return true;
     }

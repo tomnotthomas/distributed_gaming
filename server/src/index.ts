@@ -652,7 +652,13 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
     games = gamesMedia((query.get("appids") ?? "").split(",").map(Number), playable);
   } else return false;
 
-  const listed = await games.catch(() => []);
+  const listed = await games.catch(() => null);
+  if (!listed) {
+    // A failed read is not an empty catalogue: the page keeps what it has.
+    res.writeHead(503, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify({ error: "the catalogue cannot be read right now" }));
+    return true;
+  }
   const body = JSON.stringify({ games: withAccounts(listed, playability), ...extra });
   // Browsers may reuse it for a few minutes; the server's own cache does the rest.
   res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" });

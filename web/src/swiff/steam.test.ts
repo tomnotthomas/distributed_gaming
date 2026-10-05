@@ -138,7 +138,7 @@ describe("applySteam", () => {
   it("lets a refreshed art read that marks a game paid beat a kept chart entry that still says free", () => {
     const finals = store.find((g) => g.appid === 2073850)!;
     const kept = { media: [], popular: [finals] };
-    const next = nextCatalog(kept, [{ ...finals, free: false }], []);
+    const next = nextCatalog(kept, [{ ...finals, free: false }], null);
     expect(appids(applySteam(profile({ lib: false }), pool, storeGames(next)))).toEqual([]);
   });
 
@@ -182,17 +182,24 @@ describe("nextCatalog", () => {
   const previous = { media: [bf!], popular: [cs!] };
 
   it("keeps the store data it has when both store reads fail", () => {
-    expect(nextCatalog(previous, [], [])).toEqual(previous);
+    expect(nextCatalog(previous, null, null)).toEqual(previous);
   });
 
   it("keeps the last chart when only the chart read fails, so its free games stay up", () => {
-    const next = nextCatalog(previous, [cs!], []);
+    const next = nextCatalog(previous, [cs!], null);
     expect(next).toEqual({ media: [cs], popular: [cs] });
     expect(storeGames(next).filter((g) => g.free)).not.toHaveLength(0);
   });
 
   it("keeps the last art when only the art read fails", () => {
-    expect(nextCatalog(previous, [], [bf!])).toEqual({ media: [bf], popular: [bf] });
+    expect(nextCatalog(previous, null, [bf!])).toEqual({ media: [bf], popular: [bf] });
+  });
+
+  it("drops a kept game the server no longer sends, once it answers, even with nothing", () => {
+    // Counter-Strike 2 was free on the kept chart; the server now sends neither list any game.
+    const next = nextCatalog(previous, [], []);
+    expect(next).toEqual({ media: [], popular: [] });
+    expect(storeGames(next)).toHaveLength(0);
   });
 
   it("replaces each source with whatever its read brings back", () => {

@@ -302,7 +302,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         ([media, popular]) => {
           if (load !== libraryLoad.current) return;
           vouch(popular);
-          lastCatalog.current = nextCatalog(lastCatalog.current, media, popular?.games ?? []);
+          lastCatalog.current = nextCatalog(lastCatalog.current, media, popular ? popular.games : null);
           const catalog = storeGames(lastCatalog.current);
           setGames(withMedia(applySteam(next, sharedMachineIds, catalog, vouched.current), catalog));
         },

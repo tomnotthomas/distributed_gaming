@@ -324,6 +324,8 @@ export class Playability implements PlayableGames {
   /** Waiting to be checked: `first` (newest ask ahead) before `rest` (in the order asked). */
   #first = new Set<number>();
   readonly #rest = new Set<number>();
+  /** Games Valve's ratings left out once, waiting for their one more try. */
+  readonly #retried = new Set<number>();
   /** When a renter last asked about each game, for the daily rechecks. */
   readonly #requested = new Map<number, number>();
   #antiCheat: { at: number; value: Promise<Map<number, string>> } | null = null;
@@ -378,6 +380,8 @@ export class Playability implements PlayableGames {
   async load(): Promise<void> {
     const { rows } = await this.#db.query<Row>("SELECT * FROM game_playability");
     for (const row of rows) {
+      // A check made while this read was retried is newer than its row.
+      if ((this.#known.get(row.appid)?.checkedAt ?? -Infinity) > row.checked_at) continue;
       this.#known.set(row.appid, {
         verdict: row.verdict,
         reasons: JSON.parse(row.reasons) as Reason[],
@@ -449,17 +453,29 @@ export class Playability implements PlayableGames {
     const appids = [...this.#first, ...this.#rest].slice(0, BATCH);
     if (!appids.length) return;
     const ratings = await this.#sources.steamos(appids);
+    // A game Valve's answer left out waits at the back for one more try; left
+    // out again, it waits until it is asked about again, so an app the store
+    // never answers for cannot keep the queue busy.
+    const unanswered = appids.filter((appid) => !ratings.has(appid));
     for (const appid of appids) {
       this.#first.delete(appid);
       this.#rest.delete(appid);
     }
+    for (const appid of unanswered) {
+      if (this.#retried.delete(appid)) continue;
+      this.#retried.add(appid);
+      this.#rest.add(appid);
+    }
     for (const appid of appids) {
       if (this.#stopped) return;
+      if (!ratings.has(appid)) continue;
+      this.#retried.delete(appid);
       await this.#check(appid, antiCheat, ratings).catch((error: unknown) => {
         log("playability check")(error);
         this.#nextRequestAt = Date.now() + this.#backoffMs;
       });
     }
+    if (unanswered.length) this.#nextRequestAt = Date.now() + this.#backoffMs;
   }
 
   /** Check one game and store its verdict. Rejects, storing nothing, when any source fails to answer. */
@@ -495,14 +511,29 @@ export class Playability implements PlayableGames {
 
   /** Load what is stored, then keep it current: swept now and hourly, launch failures read every few minutes. */
   start(): void {
-    void this.load()
-      .catch(log("loading playability"))
-      .then(() => this.sweep());
+    void this.#loadUntilDone().then(() => this.sweep());
     this.#timers.push(
       setInterval(() => void this.sweep(), SWEEP_EVERY_MS),
       setInterval(() => void this.loadFailures().catch(log("reading launch failures")), FAILURES_EVERY_MS),
     );
     for (const timer of this.#timers) timer.unref?.();
+  }
+
+  /**
+   * load(), tried again BACKOFF_MS after each failure until it succeeds or
+   * checking stops: a database blip at start must not leave every stored
+   * verdict unread, hiding games until each is checked again.
+   */
+  async #loadUntilDone(): Promise<void> {
+    while (!this.#stopped) {
+      try {
+        await this.load();
+        return;
+      } catch (error) {
+        log("loading playability")(error);
+        await sleep(this.#backoffMs);
+      }
+    }
   }
 
   /** Stop checking. A check already under way finishes. */

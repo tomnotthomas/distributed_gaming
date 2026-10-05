@@ -194,6 +194,17 @@ describe("booking and host API", () => {
     assert.doesNotMatch(JSON.stringify(body), /7656119/);
   });
 
+  it("leaves out of demand a game demoted since renters asked for it", async () => {
+    await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+    await as(signedIn(OWNER))("POST", "/api/bookings", { gameId: 570, minutes: 30 });
+    unplayable.add(570);
+    const { body } = await call("GET", "/api/machines/pc-1/demand", undefined, MACHINE_KEY);
+    assert.deepEqual(
+      body.games.map((g: any) => g.appid),
+      [730],
+    );
+  });
+
   it("counts a booking that left the queue for an hour, then forgets it", async () => {
     const { body: booked } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     assert.equal((await renter("POST", `/api/bookings/${booked.bookingId}/end`)).status, 200);
