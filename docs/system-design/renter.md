@@ -65,7 +65,8 @@ one session per machine.
    the PC.
 6. The page joins the PC's room and plays its stream; on the first frame it starts the
    session (booking `playing`) and the PC launches the game.
-7. The renter plays, and ends the session with End.
+7. The renter plays, and ends the session with End. A renter whose connection drops
+   comes back to the same PC within 2 minutes; see "Coming back" below.
 
 Step 4 needs no click: the page claims a picked PC the moment it is booked, and a queued
 booking the moment it hears of the match, over its event stream or its fallback poll.
@@ -246,9 +247,13 @@ POST /bookings
   wall's curated free-to-play titles when the store does not answer within 3 s.
 
 GET  /bookings/:id
-  → 200 { bookingId, status, machine?, claimBy?, price? }
-  Check whether a machine has been found yet. `claimBy` is when the reservation
-  lapses; `price` (cents) is set once the session has ended. Checking also keeps a
+  → 200 { bookingId, status, machine?, claimBy?, startedAt?, price?, heldUntil? }
+  Check whether a machine has been found yet. `machine` names it too (`name`, the one
+  its owner gave it). `claimBy` is when the reservation lapses; `startedAt` (Unix ms) is
+  when a running session started, so a page coming back to it keeps its clock; `price`
+  (cents) is set once the session has ended. `heldUntil` (Unix ms) is set on a claimed or playing
+  booking whose renter dropped out of the room: until then the PC holds the session
+  for them (see "Coming back"). Checking also keeps a
   queued booking in the queue: one nobody has checked on for 2 minutes expires.
   → 404 for an unknown booking, and for one another renter made: a renter only ever
   sees their own.
@@ -302,12 +307,15 @@ POST /bookings/:id/claim
   the reservation is left unspent, and the page tries the claim again.
   → 404 for a booking another renter made.
 
-POST /bookings/:id/ticket
+POST /bookings/:id/rejoin
   → 200 { sessionId, roomId, signalingUrl, ticket }
-  The renter's running session's ticket again, for a page that no longer holds it: the
-  page never stores the ticket (see "Playing" below). It carries the id recorded at
-  claim, so ending the session revokes it with the first, and is valid only until the
-  session's deadline.
+  Come back to the booking's running session (claimed or playing), for a page that no
+  longer holds its ticket: the page never stores it (see "Playing" below). The ticket
+  carries the id recorded at claim, the same seat, so joining with it takes the seat
+  back, from a socket of the renter's that still hangs on too, rather than being
+  refused as `room-taken`, and ending the session revokes it with the first. It is valid
+  only until the session's deadline. Changes nothing on the server: the session, its
+  clock and its machine stay as they are; see "Coming back".
   → 409 { error, status } when the booking has no session running: not yet claimed,
   over, or past its deadline.
   → 503 when ROOM_SECRET is not set.
@@ -344,9 +352,11 @@ POST /sessions/:id/leave
   The renter is leaving: ends the session as `renter`, with the join ticket as bearer.
   → 403 for another session's ticket, → 409 once the session is over. With
   POST /bookings/:id/end, the only ways a session is recorded as the renter's own choice
-  to end it. A renter who just closes the
-  page leaves the host to end the session, which is recorded as `host_end` (or `time_up`
-  within 10 s of its expiry) and counts neither for nor against the machine's completion.
+  to end it, and the only ways it ends at once. A renter who just closes the page, or
+  whose connection drops, has the reconnect grace to come back (see "Coming back"); one
+  who does not is recorded as `grace_expired`, priced only up to the drop and counted
+  neither for nor against the machine's completion. One who ends it while that grace
+  runs is still recorded as `renter`, but priced only up to the drop.
 ```
 
 ### What can be played where
@@ -471,6 +481,7 @@ The wire format lives in `server/src/protocol.ts`.
 | `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                           |
 | `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                    |
 | `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started. |
+| `peer-left`                | server → either  | The other side left the room. To the PC, `grace` (seconds) says the renter dropped and may come back.                          |
 | `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                 |
 
 ### Room access
@@ -485,7 +496,8 @@ configured the server lets nobody in (`server/src/access.ts`).
 
 - **One renter at a time.** While a renter is in the room, a join with a different
   ticket is refused (`room-taken`). The same ticket again is the same renter
-  reloading the page and takes the seat back.
+  reloading the page and takes the seat back; the socket it had is refused
+  (`replaced`) and stops, rather than joining again to take the seat back in turn.
 - **The ticket travels in the URL fragment** (`/rtc#ticket=…`), which browsers never
   send to a server, proxy or `Referer` header.
 - **Sockets outside a room relay nothing**, and frames over 64 KB close the socket.
@@ -541,11 +553,13 @@ clock, each step with a timeout of its own:
 | Launching _the game_ | the first frame and `game-started`, both | 90 s: Ignition stays up, with Try another machine as above; the stream is never shown before `game-started` |
 
 The claim's session and room are kept in `localStorage` as the booking being played until
-it ends, for the reconnect step to come. Its join ticket is never stored: it is a bearer
-credential, held only in the page's memory, and the reconnect step asks for it again
-(POST /bookings/:id/ticket). A play kept with its ticket before then is dropped on page
-load. Reloading the page does not rejoin the stream
-yet: the booking stays active until the server ends it. The stream's video is on the page, under Ignition, from the claim on, so its
+it ends, to come back to (see "Coming back"). Its join ticket is never stored: it is a
+bearer credential, held only in the page's memory, and coming back asks for it again
+(POST /bookings/:id/rejoin). A play kept with its ticket from before is dropped on page
+load. While a page plays a session it holds a Web Lock named for it, released when the
+page goes: another tab of the same browser does not offer to come back to a session an
+open page still plays, and a page whose seat another took anyway (`replaced`) leaves the
+session to it without ending it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
 while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. Try another machine ends the
@@ -576,3 +590,39 @@ Ignition too once the session has started, after the PC left mid-session. A tick
 refused before the session started, or a session start the server refuses then (the
 session is already over, or the ticket is not its own), is a failed launch instead: the booking is ended and
 the page says the launch did not go through.
+
+### Coming back
+
+A connection that drops is not the end of the session. When the renter's socket leaves
+the room mid-session, the server tells the PC `peer-left` with `grace: 120` and starts
+a 2-minute clock (`server/src/grace.ts`): the game keeps running and the PC lets go of
+any input still held. On the PC, `@swiff/rtc`'s host session reports the grace
+(`onPeerLeft`) and keeps the session, its key and the game as they are. Only a renter
+seated on a ticket that a running session handed out gets the grace; one minted by hand
+(`npm run ticket`) leaves with a plain `peer-left`. A join with the same seat within those 2 minutes stops the clock,
+and the PC gets `peer-joined` and sends a new offer: no Ignition, no new launch. When
+the clock runs out the session ends as `grace_expired`, priced only up to the drop and
+neutral for the machine's stability: the ticket is revoked, the PC's
+host session ends and the machine goes back to its owner. Only End (POST
+/bookings/:id/end or /sessions/:id/leave) and the owner taking the machine back skip the
+2 minutes; one who ends it during them, still recorded as `renter`, is priced only up to
+the drop as well. A renter whose socket is half open (a laptop that died) is missed after the
+server's liveness sweep, up to 50 s, and the 2 minutes start then. The clocks live in
+memory; a server restart forgets them, and the session runs to its booked end as before.
+
+The page (`web/src/swiff/play.ts`, `useSwiff.ts`, `Reconnect.tsx`) shows three screens, each drawn in Ignition's layout (the game's art with the machine it is on, and the paper with one big number or word, its way back in under it and its way out where Ignition's Cancel is):
+
+| Screen           | When                                                                                    | What it says and does                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A, still yours   | a page load finds the booking being played still claimed or playing (GET /bookings/:id) | "Elden Ring is still yours", held _m:ss_ by `heldUntil` (or still running, before the PC has missed the renter). Reconnect asks for the seat again (POST /bookings/:id/rejoin) and goes straight back to the game; a session that had not got past Ignition goes through Ignition. End session ends it now.                                                                                                                       |
+| B, reconnecting  | the connection to the PC drops while the game is on screen (ICE disconnected or failed) | "Reconnecting to _the PC_… 0:12", counting up, over the stream. The page joins the room again with the same ticket after 2 s (at once when the connection failed), then every 4 s while the PC has not answered with an offer (one that has is left to finish), for 15 s; then "Can't reach _the PC_", how long the PC still holds it, counted from the first drop however often Reconnect is pressed, Reconnect and End session. |
+| C, still finding | a page load picks up a queued booking kept from before                                  | "Still finding a machine", the game, and "In the queue": the place is held while the page stays open, and kept 2 minutes after it closes. No time is shown, since the page knows no queue position or wait. Keep waiting, or Leave the queue; a match meanwhile is claimed by itself instead.                                                                                                                                     |
+
+Reconnecting ends when the same connection comes back by itself, or when a new one has
+a frame and a fresh `game-started`, as any new connection must (a new connection's
+first frames may be the PC's desktop). A page coming back to a session already playing
+joins with the rejoin ticket; its first frame starts the session again (POST
+/sessions/:id/start), as every new connection's first frame does, and the PC, which
+launched the game already, only answers `game-started` again (`launch-game` in
+`server/src/protocol.ts`). The ticket is never stored: the page keeps only the booking,
+session and room, and asks for the seat again.

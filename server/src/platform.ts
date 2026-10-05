@@ -202,8 +202,8 @@ export type BookingView = {
   status: BookingStatus;
   gameId: number;
   minutes: number;
-  /** The machine it was matched to, once there is one. */
-  machine?: { id: string; gpu: string | null; cpu: string | null; price: number };
+  /** The machine it was matched to, once there is one, by the name its owner gave it. */
+  machine?: { id: string; name: string | null; gpu: string | null; cpu: string | null; price: number };
   /**
    * Unix ms by which a matched booking must be claimed: RESERVATION_MS from the
    * renter's first contact since the match, or, until they are back, the end
@@ -211,6 +211,8 @@ export type BookingView = {
    */
   claimBy?: number;
   sessionId?: string;
+  /** Unix ms the session started (the renter arrived), while it runs. */
+  startedAt?: number;
   /** Cents charged for the time played, once the session has ended. */
   price?: number;
 };
@@ -445,6 +447,12 @@ export type PlatformOptions = {
    */
   offeredOnlyWhilePresent?: boolean;
   onSessionEnded?: (machineId: string, sessionId: string, ticketId: string | null) => void;
+  /**
+   * When the renter holding `ticketId` dropped out of `machineId`'s room and is
+   * still within the reconnect grace (grace.ts), or null: a renter who ends the
+   * session then pays only up to the drop.
+   */
+  droppedAt?: (machineId: string, ticketId: string) => number | null;
   onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   onBookingChanged?: (bookingId: string) => void;
   onAvailabilityChanged?: () => void;
@@ -456,6 +464,7 @@ export class Platform {
   /** What each game needs, on the same database: gate E3 compares a machine with it. */
   readonly #requirements: RequirementsTable;
   readonly #onSessionEnded: (machineId: string, sessionId: string, ticketId: string | null) => void;
+  readonly #droppedAt: (machineId: string, ticketId: string) => number | null;
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #onAvailabilityChanged: () => void;
@@ -488,6 +497,7 @@ export class Platform {
     owners = new Map(),
     offeredOnlyWhilePresent = false,
     onSessionEnded = () => {},
+    droppedAt = () => null,
     onSessionClaimed = () => {},
     onBookingChanged = () => {},
     onAvailabilityChanged = () => {},
@@ -497,6 +507,7 @@ export class Platform {
     this.#owners = owners;
     this.#offeredOnlyWhilePresent = offeredOnlyWhilePresent;
     this.#onSessionEnded = onSessionEnded;
+    this.#droppedAt = droppedAt;
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
     this.#onAvailabilityChanged = onAvailabilityChanged;
@@ -1161,16 +1172,19 @@ export class Platform {
 
   /**
    * The renter left, ending the session as renter. Only the join ticket handed
-   * out for this session may do it, and only while the session runs.
+   * out for this session may do it, and only while the session runs. A renter
+   * who dropped at `droppedAt` and did not come back within the reconnect grace
+   * (grace.ts) leaves the same way, as grace_expired, priced only up to the drop.
    */
-  leaveSession(sessionId: string, ticketId: string): Promise<QosResult> {
+  leaveSession(sessionId: string, ticketId: string, droppedAt?: number): Promise<QosResult> {
     return this.#transaction(async (): Promise<QosResult> => {
       const now = this.#now();
       const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       if (session.ended_at !== null) return "over";
-      await this.#renterEnds(session, now);
+      if (droppedAt === undefined) await this.#renterEnds(session, now);
+      else await this.#renterEnds(session, Math.min(droppedAt, now), "grace_expired");
       await this.#tick(now);
       return "ok";
     });
@@ -1229,6 +1243,17 @@ export class Platform {
       const machine = await this.#machineRow(machineId);
       const histories = await this.#stabilities(machine ? [machine] : [], this.#now(), [machineId]);
       return histories.get(machineId)!;
+    });
+  }
+
+  /** The running session the ticket was handed out for, or null. A ticket minted by hand has none. */
+  ticketSession(ticketId: string): Promise<string | null> {
+    return this.#read(async () => {
+      const row = await this.#get<{ id: string }>(
+        "SELECT id FROM sessions WHERE ticket_id = $1 AND ended_at IS NULL",
+        ticketId,
+      );
+      return row?.id ?? null;
     });
   }
 
@@ -1556,9 +1581,20 @@ export class Platform {
     await this.#setStatus(machineId, held ? "idle" : "available");
   }
 
-  /** The renter ended the session: closed as `renter`, its machine free again. */
-  async #renterEnds(session: SessionRow, now: number): Promise<void> {
-    await this.#endSession(session, Math.max(now, session.started_at ?? now), "renter");
+  /**
+   * The renter ended the session at `now`, or never came back after dropping
+   * then: closed for `reason`, its machine free again. One who ends it while
+   * within the reconnect grace is priced only up to the drop.
+   */
+  async #renterEnds(
+    session: SessionRow,
+    now: number,
+    reason: "renter" | "grace_expired" = "renter",
+  ): Promise<void> {
+    const dropped =
+      session.ticket_id === null ? null : this.#droppedAt(session.machine_id, session.ticket_id);
+    const end = dropped === null ? now : Math.min(dropped, now);
+    await this.#endSession(session, Math.max(end, session.started_at ?? end), reason);
     const machine = (await this.#get<{ status: MachineStatus }>(
       "SELECT status FROM machines WHERE id = $1",
       session.machine_id,
@@ -1897,10 +1933,11 @@ export class Platform {
     const machineId = reservation?.machine_id ?? session?.machine_id;
     if (machineId) {
       const m = (await this.#machineRow(machineId))!;
-      view.machine = { id: m.id, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
+      view.machine = { id: m.id, name: m.name, gpu: m.gpu_model, cpu: m.cpu_model, price: m.price };
     }
     if (reservation) view.claimBy = reservation.expires_at;
     if (session) view.sessionId = session.id;
+    if (session?.started_at != null && session.ended_at === null) view.startedAt = session.started_at;
     if (session?.price != null) view.price = session.price;
     return view;
   }

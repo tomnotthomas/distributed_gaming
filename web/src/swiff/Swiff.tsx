@@ -4,6 +4,7 @@ import { Chrome } from "./Chrome";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { Profile } from "./Profile";
+import { AwayDialog, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
@@ -24,10 +25,12 @@ export function Swiff() {
   // behind it can be focused or pressed: a second hold must not start the
   // launch over.
   const sheet = screen === "share" && swiff.estimateOpen;
+  // Coming back to a session still running, or to a place in the queue, is asked first.
+  const back = phase === "idle" && (swiff.away !== null || swiff.queueBack);
   const behind = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    behind.current?.toggleAttribute("inert", phase !== "idle" || sheet);
-  }, [phase, sheet]);
+    behind.current?.toggleAttribute("inert", phase !== "idle" || sheet || back);
+  }, [phase, sheet, back]);
   useEffect(() => {
     page.current?.scrollTo(0, 0);
   }, [screen, swiff.game?.id]);
@@ -59,6 +62,8 @@ export function Swiff() {
           {screen === "share" ? <SharePC swiff={swiff} /> : null}
         </div>
         {sheet ? <EstimateSheet swiff={swiff} /> : null}
+        {phase === "idle" ? <AwayDialog swiff={swiff} /> : null}
+        {phase === "idle" && !swiff.away ? <QueueBackDialog swiff={swiff} /> : null}
         {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
         {/* A claimed launch's stream plays behind Ignition until its game is on screen. */}
         {phase === "live" || (phase === "connecting" && swiff.claim && !swiff.demo) ? (

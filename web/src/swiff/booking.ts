@@ -29,8 +29,11 @@
 // call, and onClaimFailed's argument from a claim.
 //
 // A claimed booking is kept as the one being played, with its session and
-// room, for the later resume step until it is ended. Its join ticket is a
-// bearer credential and is never stored: resuming asks for a fresh one.
+// room, until it is ended. Its join ticket is a bearer credential and is never
+// stored: a page that comes back to it (a reload, a laptop that died) asks for
+// its seat again with POST /api/bookings/:id/rejoin, which hands out the
+// claim's ticket id again while the PC holds the session for a renter who
+// dropped (two minutes, server/src/grace.ts).
 
 import type { Control, PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
@@ -42,11 +45,18 @@ export type Booking = {
   status: BookingStatus;
   gameId: number;
   minutes: number;
-  machine?: { id: string; gpu: string | null; cpu: string | null; price: number };
+  machine?: { id: string; name?: string | null; gpu: string | null; cpu: string | null; price: number };
   claimBy?: number;
   sessionId?: string;
+  /** Unix ms the session started, while it runs. */
+  startedAt?: number;
   /** Cents charged for the time played, once the session has ended. */
   price?: number;
+  /**
+   * Unix ms until which the PC holds a running session for a renter who
+   * dropped out of it; absent while they are connected, or not yet missed.
+   */
+  heldUntil?: number;
 };
 
 /**
@@ -101,7 +111,7 @@ export type BookMachineResult =
 export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
 
 const KEY = "swiff.booking";
-/** The claimed booking being played, with its session and room (never its ticket), kept for the later resume step. */
+/** The claimed booking being played, with its session and room (never its ticket), kept to come back to. */
 const PLAY_KEY = "swiff.play";
 /** The fallback poll while the stream is down: well inside the two minutes, slower than a stream. */
 const SLOW_POLL_MS = 5_000;
@@ -200,17 +210,34 @@ export async function claim(bookingId: string, options: BookingOptions = {}): Pr
 }
 
 /**
- * The renter's running session's ticket again, for a page that no longer holds
- * it (it is never stored): the same room and session, and a ticket valid until
- * the session's deadline. Null when the server refuses it (4xx: the booking has
- * no session running, or it is not the renter's).
+ * Come back to the renter's running session, for a page that no longer holds
+ * its ticket (it is never stored): the same room and session, and a ticket for
+ * the same seat, valid until the session's deadline. Null when the server
+ * refuses it (4xx: the booking has no session running, or it is not the
+ * renter's), and then it is forgotten as the one being played.
  */
 export async function resumeTicket(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
-  const { fetch: get = fetch } = options;
-  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/ticket`);
-  if (response.status >= 400 && response.status < 500) return null;
-  if (!response.ok) throw new Error(`ticket failed: ${response.status}`);
+  const { storage = localStorage, fetch: get = fetch } = options;
+  const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/rejoin`);
+  if (response.status >= 400 && response.status < 500) {
+    forgetPlay(bookingId, storage);
+    return null;
+  }
+  if (!response.ok) throw new Error(`rejoining failed: ${response.status}`);
   return (await response.json()) as Claim;
+}
+
+/**
+ * The booking as it stands, read once, with until when the PC holds its
+ * session for a renter who dropped. Null when it is gone from view (over long
+ * ago, not the renter's, or signed out).
+ */
+export async function fetchBooking(bookingId: string, options: BookingOptions = {}): Promise<Booking | null> {
+  const { fetch: get = fetch } = options;
+  const response = await get(`/api/bookings/${encodeURIComponent(bookingId)}`);
+  if (response.status === 404 || response.status === 401) return null;
+  if (!response.ok) throw new Error(`reading the booking failed: ${response.status}`);
+  return (await response.json()) as Booking;
 }
 
 /**
@@ -369,7 +396,7 @@ export function watchBooking(
 /** A claimed booking being played: the booking, and the session and room its claim handed out. */
 export type StoredPlay = { bookingId: string; sessionId: string; roomId: string };
 
-/** The claimed booking this browser is playing, kept for the later resume step; null when there is none. */
+/** The claimed booking this browser is playing, kept to come back to; null when there is none. */
 export function storedPlay(storage: Storage = localStorage): StoredPlay | null {
   try {
     const play = JSON.parse(storage.getItem(PLAY_KEY) ?? "null") as StoredPlay | null;
@@ -397,8 +424,36 @@ export function forgetStoredTicket(storage: Storage = localStorage): void {
 }
 
 /** Forget `bookingId` as the booking being played: it ended, expired or is gone. */
-function forgetPlay(bookingId: string, storage: Storage) {
+export function forgetPlay(bookingId: string, storage: Storage = localStorage) {
   if (storedPlay(storage)?.bookingId === bookingId) storage.removeItem(PLAY_KEY);
+}
+
+/** The browser's Web Locks, where it has them (not over plain http). */
+const browserLocks = (): LockManager | undefined => globalThis.navigator?.locks;
+
+/** The lock an open page holds while it plays `sessionId`: released when it stops, or the page goes. */
+const playLock = (sessionId: string) => `swiff.play.${sessionId}`;
+
+/**
+ * Hold the lock saying this page plays `sessionId`, so no other page of this
+ * browser offers to go back to it (playedElsewhere). Returns its release.
+ */
+export function holdPlay(sessionId: string, locks: LockManager | undefined = browserLocks()): () => void {
+  if (!locks) return () => {};
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  void locks.request(playLock(sessionId), () => held).catch(() => {});
+  return release;
+}
+
+/** Whether another open page of this browser plays `sessionId` now (holdPlay). */
+export async function playedElsewhere(
+  sessionId: string,
+  locks: LockManager | undefined = browserLocks(),
+): Promise<boolean> {
+  if (!locks) return false;
+  const { held = [], pending = [] } = await locks.query();
+  return [...held, ...pending].some((lock) => lock.name === playLock(sessionId));
 }
 
 /** The booking this browser made and kept, if any, for a page load to pick up. */
@@ -525,7 +580,7 @@ export function followBooking(
     const claimed = answer.claim;
     stop();
     if (storage.getItem(KEY) === bookingId) storage.removeItem(KEY);
-    // Kept for the resume step only: storage that refuses it (full, or switched
+    // Kept to come back to only: storage that refuses it (full, or switched
     // off) must not keep the renter from the machine they just claimed.
     try {
       const play: StoredPlay = { bookingId, sessionId: claimed.sessionId, roomId: claimed.roomId };

@@ -821,7 +821,7 @@ describe("booking and host API", () => {
   it("hands the renter their running session's ticket again, the same one, only until its deadline", async () => {
     await offer();
     const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
-    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    const ticketOf = `/api/bookings/${body.bookingId}/rejoin`;
     // Nothing to hand out before the claim, nor to anyone but the renter.
     const early = await renter("POST", ticketOf);
     assert.equal(early.status, 409);
@@ -830,7 +830,7 @@ describe("booking and host API", () => {
     const claimed = verifyTicket(SECRET, claim.body.ticket)!;
     assert.equal((await as(signedIn(OTHER))("POST", ticketOf)).status, 404);
     assert.equal((await call("POST", ticketOf)).status, 401);
-    assert.equal((await renter("POST", "/api/bookings/nope/ticket")).status, 404);
+    assert.equal((await renter("POST", "/api/bookings/nope/rejoin")).status, 404);
 
     for (let beat = 0; beat < 60; beat++) {
       now += 10_000;
@@ -870,7 +870,7 @@ describe("booking and host API", () => {
     await offer();
     const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });
     await renter("POST", `/api/bookings/${body.bookingId}/claim`);
-    const ticketOf = `/api/bookings/${body.bookingId}/ticket`;
+    const ticketOf = `/api/bookings/${body.bookingId}/rejoin`;
     access.secret = null;
     assert.equal((await renter("POST", ticketOf)).status, 503);
     access.secret = SECRET;

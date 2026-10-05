@@ -2,9 +2,9 @@ import { act, render, renderHook, screen, waitFor } from "@testing-library/react
 import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { storedPlay } from "./booking";
+import { holdPlay, storedPlay } from "./booking";
 import { GAMES } from "./data";
-import { WAKE_TIMEOUT_MS } from "./play";
+import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
@@ -137,6 +137,27 @@ const NO_MACHINES = { minutes: 180, machines: [], reason: null, busy: [] };
 /** The paths fetched so far. */
 const fetched = () => vi.mocked(fetch).mock.calls.map(([path]) => String(path));
 
+/**
+ * The browser's Web Locks, shared by every page of the test as by every tab of
+ * one browser: the names held now, granted one at a time.
+ */
+function locks() {
+  const held = new Set<string>();
+  const manager = {
+    async request(name: string, callback: () => Promise<void>) {
+      held.add(name);
+      try {
+        await callback();
+      } finally {
+        held.delete(name);
+      }
+    },
+    query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
+  } as unknown as LockManager;
+  Object.defineProperty(navigator, "locks", { value: manager, configurable: true });
+  return { held, manager };
+}
+
 /** A free-to-play game with a machine free tonight, so only sign-in can stand in its way. */
 const cs2 = GAMES.find((game) => game.id === "cs")!;
 
@@ -173,6 +194,7 @@ describe("useSwiff", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     rtc.sessions = [];
+    delete (navigator as { locks?: LockManager }).locks;
   });
 
   it("is the demo only at ?demo=1", () => {
@@ -891,6 +913,192 @@ describe("useSwiff", () => {
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       expect(result.current.game?.appid).toBe(cs2.appid);
       expect(result.current.phase).toBe("connecting");
+    });
+  });
+
+  describe("coming back to a game", () => {
+    const AGAIN = { ...TICKET, ticket: "t-again" };
+    const keepPlaying = () =>
+      localStorage.setItem(
+        "swiff.play",
+        JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+      );
+    const playing = (heldUntil?: number, startedAt?: number) => ({
+      ...booked("playing"),
+      machine: { id: "h1", name: "Glasshouse", gpu: null, cpu: null, price: 0 },
+      sessionId: "s-1",
+      ...(heldUntil === undefined ? {} : { heldUntil }),
+      ...(startedAt === undefined ? {} : { startedAt }),
+    });
+
+    it("offers the session the page left, held by its PC, and goes straight back to the game", async () => {
+      keepPlaying();
+      const heldUntil = Date.now() + 100_000;
+      const startedAt = Date.now() - 30 * 60_000;
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing(heldUntil, startedAt)),
+        "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+      expect(result.current.away!.heldUntil).toBeGreaterThan(Date.now());
+
+      act(() => result.current.reconnect());
+      await waitFor(() => expect(result.current.claim).toEqual(AGAIN));
+      expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/rejoin");
+      expect(result.current.away).toBeNull();
+      expect(result.current.phase).toBe("live");
+      expect(result.current.game?.appid).toBe(cs2.appid);
+      // The session clock runs on from when the session started.
+      expect(result.current.elapsedMs).toBeGreaterThanOrEqual(30 * 60_000);
+      // The ticket stays in memory only.
+      expect(localStorage.getItem("swiff.play")).not.toContain("t-again");
+
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      expect(session.options).toMatchObject({ ticket: "t-again" });
+      expect(result.current.play?.lostAt).not.toBeNull();
+      // The PC's hold counts down from when it missed the renter, not from the reconnect.
+      expect(result.current.play?.droppedAt).toBe(heldUntil - RECONNECT_GRACE_MS);
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.play?.lostAt).toBeNull();
+      expect(result.current.phase).toBe("live");
+    });
+
+    it("does not offer a session another open page still plays, and does once that page is gone", async () => {
+      keepPlaying();
+      const { manager } = locks();
+      const otherPage = holdPlay("s-1", manager);
+      const calls = serve(unnamed, LIVE, { "GET /api/bookings/b-1": json(200, playing()) });
+      const first = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("GET /api/bookings/b-1"));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(first.result.current.away).toBeNull();
+      expect(storedPlay()).not.toBeNull();
+      first.unmount();
+
+      otherPage();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+    });
+
+    it("does not take the seat of a page that went back to the session meanwhile", async () => {
+      keepPlaying();
+      const { manager } = locks();
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing()),
+        "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away).not.toBeNull());
+
+      holdPlay("s-1", manager);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      act(() => result.current.reconnect());
+      await waitFor(() => expect(result.current.away).toBeNull());
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/rejoin");
+      expect(result.current.claim).toBeNull();
+    });
+
+    it("lets the session go to the page that took its seat, without ending it", async () => {
+      const { held } = locks();
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      await waitFor(() => expect(held.has("swiff.play.s-1")).toBe(true));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+      act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
+
+      act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "replaced" }));
+      expect(result.current.claim).toBeNull();
+      expect(result.current.phase).toBe("idle");
+      expect(rtc.sessions[0]!.ended).toBe(true);
+      await waitFor(() => expect(held.has("swiff.play.s-1")).toBe(false));
+      expect(calls.map((c) => c.call)).not.toContain("POST /api/bookings/b-1/end");
+      expect(storedPlay()).toEqual({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" });
+      expect(rtc.sessions).toHaveLength(1);
+    });
+
+    it("lets the left session go when the renter ends it from there", async () => {
+      keepPlaying();
+      const calls = serve(unnamed, LIVE, {
+        "GET /api/bookings/b-1": json(200, playing()),
+        "POST /api/bookings/b-1/end": json(200, booked("ended")),
+      });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.away?.heldUntil).toBeNull());
+      act(() => result.current.endAway());
+      expect(result.current.away).toBeNull();
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
+      expect(storedPlay()).toBeNull();
+    });
+
+    it("forgets a session that is over by the time the page is back, and offers nothing", async () => {
+      keepPlaying();
+      const calls = serve(unnamed, LIVE, { "GET /api/bookings/b-1": json(200, booked("ended")) });
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(calls.map((c) => c.call)).toContain("GET /api/bookings/b-1"));
+      await waitFor(() => expect(storedPlay()).toBeNull());
+      expect(result.current.away).toBeNull();
+    });
+
+    it("says the queue kept the renter's place, and claims a match by itself all the same", async () => {
+      localStorage.setItem("swiff.booking", "b-1");
+      serve(unnamed, LIVE, { "POST /api/bookings/b-1/claim": json(200, TICKET) });
+      const opened = streams();
+      const { result } = renderHook(() => useSwiff({ demo: false }));
+      await waitFor(() => expect(result.current.queueBack).toBe(true));
+      await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      const stream = opened.find((o) => o.url === "/api/events?booking=b-1")!;
+
+      act(() => stream.push(booked("queued")));
+      expect(result.current.queueBack).toBe(true);
+      act(() => stream.push(booked("matched", 1_000)));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      expect(result.current.queueBack).toBe(false);
+    });
+
+    it("puts the reconnect up when the connection drops mid-session, and retries on the renter's word", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        serve(unnamed, LIVE, {
+          "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+          "POST /api/bookings/b-1/claim": json(200, TICKET),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        streams();
+        const result = await openLive();
+        act(() => result.current.launch());
+        await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+        act(() => result.current.attachVideo(document.createElement("video")));
+        act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+        act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+        expect(result.current.phase).toBe("live");
+
+        act(() => rtc.sessions[0]!.emit({ type: "disconnected", failed: false }));
+        expect(result.current.play?.lostAt).not.toBeNull();
+        expect(result.current.phase).toBe("live");
+        await act(() => vi.advanceTimersByTimeAsync(15_000));
+        expect(result.current.play?.gaveUp).toBe(true);
+        const joins = rtc.sessions.length;
+        act(() => result.current.retryConnection());
+        expect(rtc.sessions).toHaveLength(joins + 1);
+        expect(result.current.play?.gaveUp).toBe(false);
+        expect(result.current.phase).toBe("live");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

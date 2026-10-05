@@ -5,9 +5,15 @@ import {
   book,
   BookingRefused,
   endBooking,
+  fetchBooking,
   followBooking,
+  forgetPlay,
   forgetStoredTicket,
+  holdPlay,
+  playedElsewhere,
+  resumeTicket,
   storedBookingId,
+  storedPlay,
   type Booking,
   type Claim,
   type NextBest,
@@ -26,7 +32,15 @@ import {
 import { demoNow, machinesFor, readyFor, reason, seedSpots, sessionMinutes } from "./derive";
 import { DEFAULT_WEEK, type Week } from "./estimate";
 import { askOf, machinesOf, spotOf } from "./live";
-import { IGNITION_STEPS, ignitionLabels, ignitionProgress, startPlay, type PlayState } from "./play";
+import {
+  IGNITION_STEPS,
+  ignitionLabels,
+  ignitionProgress,
+  RECONNECT_GRACE_MS,
+  startPlay,
+  type Play,
+  type PlayState,
+} from "./play";
 import { questionOf, useLive } from "./useLive";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular } from "./catalog";
@@ -51,6 +65,12 @@ export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";
 /** A machine picked to launch on that was taken first, and the server's next best instead. */
 export type Taken = { nextBest: NextBest | null };
+/**
+ * A session this browser was playing when it went away, still running on the
+ * PC: the booking, and until when the PC holds it (Unix ms) once it has
+ * missed the renter.
+ */
+export type Away = { booking: Booking; heldUntil: number | null };
 
 /** The demo's ignition: one 340 ms beat at a time; twelve of them reach a frame. */
 const IGNITION_MS = 340;
@@ -131,6 +151,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [taken, setTaken] = useState<Taken | null>(null);
   const [bookingFailed, setBookingFailed] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
+  // Coming back: a session still running from before the page went away
+  // (screen A), and a queued booking picked up where it was (screen C).
+  const [away, setAway] = useState<Away | null>(null);
+  const [queueBack, setQueueBack] = useState(false);
+  const [rejoining, setRejoining] = useState(false);
 
   // Real play: the stream's video element, where Ignition stands on the
   // connection (play.ts), when the launch began, and the clock its dial creeps on.
@@ -354,6 +379,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       following.current = followBooking(first, {
         onUpdate: (next) => {
           setBooking(next);
+          if (next?.status !== "queued") setQueueBack(false);
           // Over or gone from view, the booking is no longer followed: the queue can be joined again.
           if (!next || next.status === "ended" || next.status === "expired") following.current = null;
         },
@@ -396,6 +422,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     liveSince.current = null;
     setElapsedMs(0);
     stopFollowing();
+    setQueueBack(false);
     const current = bookingNow.current;
     if (current && current.status !== "ended" && current.status !== "expired") {
       void endBooking(current.bookingId).catch(() => {});
@@ -482,13 +509,95 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // A renter who comes back within the server's two minutes picks up their
   // booking where it was, and a match waiting for them is claimed the moment
   // the page hears of it again.
+  // Screen C says so while it is still queued; matched meanwhile, it is
+  // claimed by itself instead.
   useEffect(() => {
     if (!steamId || demo) return;
     const stored = storedBookingId();
-    if (stored && !following.current) follow(stored);
+    if (!stored || following.current) return;
+    setQueueBack(true);
+    follow(stored);
   }, [steamId, demo, follow]);
 
+  // A session this browser was playing when the page went away (closed, a
+  // reload, a laptop that died) may still run on the PC, which holds it for
+  // two minutes once it misses the renter: screen A offers to go back to it.
+  // One another open page of this browser still plays is that page's, and is
+  // not offered: going back to it would take its seat.
+  useEffect(() => {
+    if (!steamId || demo) return;
+    const stored = storedPlay();
+    if (!stored) return;
+    let current = true;
+    Promise.all([fetchBooking(stored.bookingId), playedElsewhere(stored.sessionId)]).then(
+      ([found, elsewhere]) => {
+        if (!current || elsewhere) return;
+        if (found && (found.status === "claimed" || found.status === "playing")) {
+          setAway({ booking: found, heldUntil: found.heldUntil ?? null });
+        } else forgetPlay(stored.bookingId);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [steamId, demo]);
+
   useEffect(() => stopFollowing, [stopFollowing]);
+
+  // A play that comes back to a session already on screen before: no Ignition.
+  // When its connection dropped, if the PC said.
+  const resumeNext = useRef<{ droppedAt?: number } | null>(null);
+
+  /**
+   * Go back to the session the page left (screen A): its seat again, then
+   * straight to the game, reconnecting, when it was playing, or through
+   * Ignition when it had not got that far. One that is over by now is let go.
+   */
+  const reconnect = useCallback(() => {
+    const current = away;
+    if (!current || rejoining) return;
+    const { booking: was, heldUntil } = current;
+    setRejoining(true);
+    track("session_rejoined", { game: was.gameId });
+    // Another page that took the session up meanwhile keeps it.
+    const seat = async () =>
+      was.sessionId && (await playedElsewhere(was.sessionId)) ? null : resumeTicket(was.bookingId);
+    seat().then(
+      (claimed) => {
+        setRejoining(false);
+        setAway(null);
+        if (!claimed) return;
+        const resumed = was.status === "playing";
+        resumeNext.current = resumed
+          ? { droppedAt: heldUntil === null ? undefined : heldUntil - RECONNECT_GRACE_MS }
+          : null;
+        // Its clock runs on from when the session started, not from now.
+        if (resumed && was.startedAt !== undefined) liveSince.current = was.startedAt;
+        setBooking(was);
+        setClaim(claimed);
+        const claimedGame = gamesNow.current.find((g) => g.appid === was.gameId);
+        if (claimedGame) setGameId(claimedGame.id);
+        if (was.machine) setMachineId(was.machine.id);
+        setScreen("game");
+        setLaunchedAt(Date.now());
+        setPhase(resumed ? "live" : "connecting");
+      },
+      () => setRejoining(false),
+    );
+  }, [away, rejoining]);
+
+  /** Let the session the page left go (screen A): it ends now, rather than when the PC stops holding it. */
+  const endAway = useCallback(() => {
+    const current = away;
+    if (!current) return;
+    track("session_ended", { away: true });
+    setAway(null);
+    void endBooking(current.booking.bookingId).catch(() => {});
+  }, [away]);
+
+  /** Keep waiting in the queue (screen C). */
+  const keepQueue = useCallback(() => setQueueBack(false), []);
 
   // No join ticket stays on disk, even one kept before tickets stopped being stored.
   useEffect(() => forgetStoredTicket(), []);
@@ -549,23 +658,40 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // The claimed room is joined once its video is on the page, and left when
   // the claim goes (the booking ended, or the page closed).
+  const playNow = useRef<Play | null>(null);
   const funnel = useRef({ gameId, machineId });
   funnel.current = { gameId, machineId };
   useEffect(() => {
     if (demo || !claim || !video) return;
+    const resume = resumeNext.current;
+    resumeNext.current = null;
     const current = startPlay({
       claim,
       video,
+      resume: resume !== null,
+      droppedAt: resume?.droppedAt,
       onChange: setPlay,
       // The funnel counts a session from its first frame.
       onFirstFrame: () =>
         track("session_started", { game: funnel.current.gameId, machine: funnel.current.machineId }),
     });
+    playNow.current = current;
     return () => {
       current.stop();
+      if (playNow.current === current) playNow.current = null;
       setPlay(null);
     };
   }, [demo, claim, video]);
+
+  // While this page plays a session, no other page of this browser offers to go back to it.
+  const playingSession = claim?.sessionId ?? null;
+  useEffect(() => (playingSession ? holdPlay(playingSession) : undefined), [playingSession]);
+
+  /** Reconnect now, after the page gave up reconnecting by itself (screen B). */
+  const retryConnection = useCallback(() => {
+    track("session_reconnect_retried");
+    playNow.current?.retry();
+  }, []);
 
   // Live once the game is on screen; back behind Ignition when the PC leaves
   // mid-session, until its new connection shows the game again. The session
@@ -723,6 +849,21 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setPhase("idle");
   }, [play?.denied, endCurrentBooking, endSession]);
 
+  // Another page of this renter's took the session's seat: it plays on there,
+  // so this page lets it go without ending it.
+  useEffect(() => {
+    if (!play?.replaced) return;
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    launchRun.current += 1;
+    liveSince.current = null;
+    stopFollowing();
+    setBooking(null);
+    setClaim(null);
+    setElapsedMs(0);
+    setPhase("idle");
+    setBeat(0);
+  }, [play?.replaced, stopFollowing]);
+
   /**
    * The owner took their machine back mid-session. Nothing drives this yet: the
    * stream plays through @swiff/rtc now, but a PC lost mid-session (its
@@ -846,6 +987,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     taken,
     bookingFailed,
     refusal,
+    away,
+    rejoining,
+    queueBack,
     games,
     game,
     machines,
@@ -886,6 +1030,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     launchNextBest,
     joinQueue,
     leaveQueue,
+    reconnect,
+    endAway,
+    keepQueue,
+    retryConnection,
     endSession,
     tryAnother,
     attachVideo: setVideo,

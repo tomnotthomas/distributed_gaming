@@ -5,6 +5,7 @@ import {
   BookingRefused,
   claim,
   endBooking,
+  fetchBooking,
   followBooking,
   forgetStoredTicket,
   resumeBooking,
@@ -784,15 +785,15 @@ describe("the ticket, never stored", () => {
   beforeEach(() => localStorage.clear());
 
   it("asks the server for the running session's ticket again", async () => {
-    const server = routes({ "POST /api/bookings/b-1/ticket": json(200, TICKET) });
+    const server = routes({ "POST /api/bookings/b-1/rejoin": json(200, TICKET) });
     expect(await resumeTicket("b-1", { fetch: server.fetch })).toEqual(TICKET);
-    expect(server.made()).toEqual(["POST /api/bookings/b-1/ticket"]);
+    expect(server.made()).toEqual(["POST /api/bookings/b-1/rejoin"]);
   });
 
   it("gets none for a booking with no session running, and fails on a server error", async () => {
     const server = routes({
-      "POST /api/bookings/b-1/ticket": json(409, { status: "ended" }),
-      "POST /api/bookings/b-2/ticket": json(500, {}),
+      "POST /api/bookings/b-1/rejoin": json(409, { status: "ended" }),
+      "POST /api/bookings/b-2/rejoin": json(500, {}),
     });
     expect(await resumeTicket("b-1", { fetch: server.fetch })).toBeNull();
     expect(await resumeTicket("nope", { fetch: server.fetch })).toBeNull();
@@ -817,5 +818,34 @@ describe("the ticket, never stored", () => {
       },
     });
     expect(() => forgetStoredTicket(off)).not.toThrow();
+  });
+});
+
+describe("coming back to a game", () => {
+  beforeEach(() => localStorage.clear());
+
+  const PLAY = { bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" };
+
+  it("reads the booking once, with until when its PC holds it, and null when it is gone", async () => {
+    const held = { ...booking("playing"), heldUntil: 1_234 };
+    expect(
+      await fetchBooking("b-1", { fetch: routes({ "GET /api/bookings/b-1": json(200, held) }).fetch }),
+    ).toEqual(held);
+    const gone = routes({});
+    expect(await fetchBooking("b 1", { fetch: gone.fetch })).toBeNull();
+    expect(gone.made()).toEqual(["GET /api/bookings/b%201"]);
+    await expect(
+      fetchBooking("b-1", { fetch: routes({ "GET /api/bookings/b-1": json(500, {}) }).fetch }),
+    ).rejects.toThrow();
+  });
+
+  it("forgets the play when there is no session to rejoin, and keeps it through a server failure", async () => {
+    localStorage.setItem("swiff.play", JSON.stringify(PLAY));
+    const failing = routes({ "POST /api/bookings/b-1/rejoin": json(503, {}) });
+    await expect(resumeTicket("b-1", { fetch: failing.fetch })).rejects.toThrow();
+    expect(storedPlay()).toEqual(PLAY);
+    const over = routes({ "POST /api/bookings/b-1/rejoin": json(409, { status: "ended" }) });
+    expect(await resumeTicket("b-1", { fetch: over.fetch })).toBeNull();
+    expect(storedPlay()).toBeNull();
   });
 });
