@@ -223,7 +223,10 @@ desktop PC behaves as before.
 
 swiff-hostd (`swiff-os/hostd/src/agent.ts`) sends `reset: true` on every off-offer call it
 makes before a restart between renters, including the one where its heartbeat already
-names a new session, and serves the session the answer names once it is back. It sends
+names a new session, and serves the session the answer names once it is back. When its
+heartbeat still names the session it served itself (it crashed, or ending it failed), it
+makes no off-offer call, so that session ends as `host_end` or `host_offline`, never as
+`owner_kill`. It sends
 it too when the owner asks for the PC back while it is offered: a claim that lands after
 its heartbeat is then kept, and served, rather than ended as `owner_kill`, and the owner
 is told a session is live. Its other off-offer calls (going back to Windows when the owner
