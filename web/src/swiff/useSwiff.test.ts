@@ -558,8 +558,9 @@ describe("useSwiff", () => {
       it("ends a session the server ended behind Ignition as a session end, not a failed launch", async () => {
         const { result, calls, session } = await dropped();
 
+        // The page reads the booking first, to tell a lost machine from any other end.
         act(() => session.emit({ type: "denied", reason: "bad-ticket" }));
-        expect(result.current.phase).toBe("idle");
+        await waitFor(() => expect(result.current.phase).toBe("idle"));
         expect(result.current.bookingFailed).toBe(false);
         expect(track).toHaveBeenCalledWith("session_ended", { seconds: expect.any(Number) });
         expect(

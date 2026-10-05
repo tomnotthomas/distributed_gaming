@@ -152,7 +152,10 @@ describe("watching a booking over the event stream", () => {
   });
 
   it("follows a running session's booking on to its end with toEnd", () => {
-    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: { ticket: "t" } }));
+    localStorage.setItem(
+      "swiff.play",
+      JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+    );
     const { stream, open } = fakeStream();
     const updates: (BookingStatus | null)[] = [];
     watchBooking("b-1", (b) => updates.push(b?.status ?? null), { eventSource: open, toEnd: true });
@@ -832,16 +835,24 @@ describe("the ticket, never stored", () => {
   });
 
   it("carries a lost session on as a new booking, remembered to pick up, and null when there is none", async () => {
-    localStorage.setItem("swiff.play", JSON.stringify({ bookingId: "b-1", claim: CLAIMED }));
+    localStorage.setItem(
+      "swiff.play",
+      JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+    );
     const next = { ...booking("matched", 1_000), bookingId: "b-2" };
-    const server = answering(202, next);
+    const carry = "POST /api/bookings/b-1/continue";
+    const server = routes({ [carry]: json(202, next) });
     expect(await continueBooking("b-1", { fetch: server.fetch })).toEqual(next);
-    expect(server.calls).toEqual(["POST /api/bookings/b-1/continue"]);
+    expect(server.made()).toEqual([carry]);
     expect(localStorage.getItem("swiff.booking")).toBe("b-2");
     expect(storedPlay()).toBeNull();
 
-    expect(await continueBooking("b-1", { fetch: answering(409, { status: "ended" }).fetch })).toBeNull();
-    await expect(continueBooking("b-1", { fetch: answering(503).fetch })).rejects.toThrow();
+    expect(
+      await continueBooking("b-1", { fetch: routes({ [carry]: json(409, { status: "ended" }) }).fetch }),
+    ).toBeNull();
+    await expect(
+      continueBooking("b-1", { fetch: routes({ [carry]: json(503, {}) }).fetch }),
+    ).rejects.toThrow();
   });
 
   it("drops a kept play that still holds a ticket, and keeps one that does not", () => {
