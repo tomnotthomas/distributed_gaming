@@ -695,13 +695,20 @@ describe("rental mode", () => {
   });
 
   it("counts only BIOS changes in the headline, and says what else blocks rental mode beside them", () => {
-    const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
+    const nvidia = { name: "NVIDIA GeForce GTX 1080", pnp: "PCI\\VEN_10DE&DEV_1B80" };
     renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0, gpus: [nvidia] })) }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
     expect(screen.getByText("Turn on Secure Boot.").closest("li")).toBeInTheDocument();
+    expect(screen.getByText(/does not run the GTX 1080/).closest(".hnote")).toBeInTheDocument();
+  });
+
+  it("shows the graphics card with the driver Swiff OS runs it on, under its row", () => {
+    const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" };
+    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, gpus: [nvidia] })) }));
+    expect(screen.getByText("RTX 4080", { selector: ".rck" })).toBeInTheDocument();
     expect(
-      screen.getByText("NVIDIA graphics cards come in a later Swiff OS update.").closest(".hnote"),
-    ).toBeInTheDocument();
+      screen.getByText("Supported: Swiff OS runs it on NVIDIA's 595 driver, Windows on 560.94."),
+    ).toHaveClass("rck-note");
   });
 
   it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {

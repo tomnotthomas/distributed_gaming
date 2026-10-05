@@ -12,6 +12,7 @@ import {
   factsOf,
   freeSpans,
   gamesDriveOf,
+  gpuDevice,
   gpuVendor,
   imageLayout,
   installPlan,
@@ -30,7 +31,7 @@ import {
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
-import { codeGroups, firmwareChecks, isReady, pcChecks, rentalStatus } from "./rental";
+import { codeGroups, firmwareChecks, isReady, nvidiaVersion, pcChecks, rentalStatus } from "./rental";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -49,7 +50,7 @@ describe("reading the PC", () => {
       tpm: { present: true, maker: "AMD", firmware: true },
       iommu: true,
       fastStartup: true,
-      gpus: [{ name: "AMD Radeon(TM) Graphics", vendor: "amd" }],
+      gpus: [{ name: "AMD Radeon(TM) Graphics", vendor: "amd", device: 0x1681, driver: null }],
       bootEntry: null,
     });
     expect(facts.partitions.map((p) => p.letter)).toEqual([null, null, "C", null]);
@@ -71,6 +72,17 @@ describe("reading the PC", () => {
     expect(gpuVendor("PCI\\VEN_1002&DEV_744C")).toBe("amd");
     expect(gpuVendor("PCI\\VEN_8086&DEV_A780")).toBe("intel");
     expect(gpuVendor("ROOT\\BasicDisplay")).toBe("other");
+  });
+
+  it("reads a card's PCI device number, which tells its generation", () => {
+    expect(gpuDevice("PCI\\VEN_10DE&DEV_2704&SUBSYS_51111458&REV_A1")).toBe(0x2704);
+    expect(gpuDevice("ROOT\\BasicDisplay")).toBeNull();
+  });
+
+  it("says an NVIDIA driver's version as NVIDIA numbers it, not as Windows does", () => {
+    expect(nvidiaVersion("32.0.15.6094")).toBe("560.94");
+    expect(nvidiaVersion("31.0.15.3623")).toBe("536.23");
+    expect(nvidiaVersion("")).toBeNull();
   });
 
   it("reads BitLocker from the shell's protection state", () => {
@@ -517,16 +529,80 @@ describe("what the screen says", () => {
     });
   });
 
-  it("holds a BitLocker games drive, an NVIDIA card and a full disk against the PC, in Windows", () => {
+  it("holds a BitLocker games drive, an NVIDIA card too old for Swiff OS and a full disk against the PC, in Windows", () => {
     const read = pc((raw) => ({
       ...raw,
-      gpus: [{ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" }],
+      gpus: [{ name: "NVIDIA GeForce GTX 1080", pnp: "PCI\\VEN_10DE&DEV_1B80" }],
       volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1, free: 20 * GiB })),
     }));
     const s = status(read);
     expect(s.title).toBe("3 things to change first");
     expect(s.fixes).toHaveLength(3);
     expect(s.canInstall).toBe(false);
+  });
+
+  describe("the graphics card", () => {
+    const gpu = (...gpus: { name: string; pnp: string; driver?: string }[]) =>
+      pcChecks(
+        pc((raw) => ({ ...raw, gpus })),
+        null,
+      ).find((c) => c.id === "gpu");
+
+    it("takes an NVIDIA card from the GTX 16 and RTX 20 series on, and names the driver on each side", () => {
+      expect(
+        gpu({ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" }),
+      ).toEqual({
+        id: "gpu",
+        label: "Graphics",
+        value: "RTX 4080",
+        state: "ok",
+        detail: "Supported: Swiff OS runs it on NVIDIA's 595 driver, Windows on 560.94.",
+      });
+      expect(gpu({ name: "NVIDIA GeForce RTX 2060", pnp: "PCI\\VEN_10DE&DEV_1F08" })?.state).toBe("ok");
+      expect(gpu({ name: "NVIDIA GeForce GTX 1660 Ti", pnp: "PCI\\VEN_10DE&DEV_2182" })?.state).toBe("ok");
+      expect(gpu({ name: "NVIDIA GeForce RTX 5090", pnp: "PCI\\VEN_10DE&DEV_2B85" })?.state).toBe("ok");
+    });
+
+    it("holds an older NVIDIA card against the PC, and says what the owner can do", () => {
+      const read = pc((raw) => ({
+        ...raw,
+        gpus: [{ name: "NVIDIA GeForce GTX 1080", pnp: "PCI\\VEN_10DE&DEV_1B80" }],
+      }));
+      expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({
+        value: "GTX 1080: too old",
+        state: "blocked",
+        detail: "Swiff OS's NVIDIA 595 driver runs GeForce GTX 16 and RTX 20 series cards and newer.",
+      });
+      expect(status(read).fixes).toEqual([
+        "Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the GTX 1080. Sharing from Windows works as before.",
+      ]);
+    });
+
+    it("judges the NVIDIA card Swiff OS can run, not an older one beside it", () => {
+      expect(
+        gpu(
+          { name: "NVIDIA GeForce GTX 1080", pnp: "PCI\\VEN_10DE&DEV_1B80" },
+          { name: "NVIDIA GeForce RTX 3080", pnp: "PCI\\VEN_10DE&DEV_2206" },
+        ),
+      ).toMatchObject({ value: "RTX 3080", state: "ok" });
+    });
+
+    it("does not hold an NVIDIA card against the PC when its model was not read", () => {
+      expect(gpu({ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE" })).toMatchObject({
+        value: "RTX 4080: model not read",
+        state: "unread",
+      });
+    });
+
+    it("runs AMD and Intel graphics on Mesa", () => {
+      expect(
+        gpu({ name: "AMD Radeon RX 7800 XT", pnp: "PCI\\VEN_1002&DEV_747E", driver: "32.0.11037.4004" }),
+      ).toMatchObject({
+        value: "Radeon RX 7800 XT",
+        state: "ok",
+        detail: "Swiff OS runs it on the open Mesa driver, Windows on 32.0.11037.4004.",
+      });
+    });
   });
 
   it("never counts the Secure Boot db or the TPM certificate as ready: they are not checked yet", () => {

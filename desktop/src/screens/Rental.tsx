@@ -26,16 +26,19 @@ import { Notice } from "../ui/Notice";
 import { Pill } from "../ui/Pill";
 import type { ScreenProps } from "./types";
 
-/** One check as a ruled row, with a mark where it is not ready yet. */
+/** One check as a ruled row, with a mark where it is not ready yet, and its detail under it. */
 function CheckRow({ check }: { check: RentalCheck }) {
   const mark = check.state === "bios" || check.state === "blocked";
   return (
-    <Kv label={check.label}>
-      <span className={mark ? "rck warn" : "rck"}>
-        {mark ? <Glyph name="warning" size={14} /> : null}
-        {check.value}
-      </span>
-    </Kv>
+    <>
+      <Kv label={check.label}>
+        <span className={mark ? "rck warn" : "rck"}>
+          {mark ? <Glyph name="warning" size={14} /> : null}
+          {check.value}
+        </span>
+      </Kv>
+      {check.detail ? <p className="rck-note">{check.detail}</p> : null}
+    </>
   );
 }
 

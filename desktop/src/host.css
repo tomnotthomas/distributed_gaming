@@ -1558,6 +1558,13 @@ button.inst {
   align-items: center;
   gap: 6px;
 }
+/* What a check found, under its row: the card and its drivers. */
+.rck-note {
+  margin: -2px 0 6px;
+  color: var(--t3);
+  font-size: 12px;
+  line-height: 1.45;
+}
 /* The changes to make first, under the statement. */
 .legend.rfix {
   max-width: 560px;

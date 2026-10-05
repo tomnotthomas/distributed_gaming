@@ -8,7 +8,7 @@
 // TPM 2.0 with an endorsement key certificate and an IOMMU, with a TPM on
 // its own chip accepted at a lower trust tier. Change it here and there.
 
-import type { RentalRead, RentalTarget } from "../rental.cjs";
+import type { RentalFacts, RentalRead, RentalTarget } from "../rental.cjs";
 import { shortGpu } from "./format";
 
 /**
@@ -21,7 +21,15 @@ import { shortGpu } from "./format";
  */
 export type CheckState = "ok" | "swiff" | "unchecked" | "bios" | "blocked" | "unread";
 
-export type RentalCheck = { id: string; label: string; value: string; state: CheckState; bios?: string };
+/** `detail` is a line under the row that says more about it: what was found, and what it means. */
+export type RentalCheck = {
+  id: string;
+  label: string;
+  value: string;
+  state: CheckState;
+  bios?: string;
+  detail?: string;
+};
 
 /** Ready, or ready once installing has done its part. */
 export const isReady = (state: CheckState): boolean =>
@@ -133,12 +141,84 @@ export const MOK_SCREENS: readonly { screen: string; act: string }[] = [
 /** "48217730" → "4821 7730": read in two halves, typed without the space. */
 export const codeGroups = (code: string): string => code.replace(/(\d{4})(?=\d)/g, "$1 ");
 
+/**
+ * The NVIDIA driver series Swiff OS ships: Canonical's signed open kernel
+ * modules (swiff-os/image/mkosi.images/system/mkosi.conf). Change it here and
+ * there. It runs Turing and newer, the GeForce GTX 16 and RTX 20 series on:
+ * PCI device numbers from 0x1E00, the first Turing chip. NVIDIA moved every
+ * older card to its legacy driver branches.
+ */
+export const SWIFF_OS_NVIDIA = "595";
+const NVIDIA_FIRST_SUPPORTED = 0x1e00;
+
+type Gpu = RentalFacts["gpus"][number];
+
+/** Whether Swiff OS's NVIDIA driver runs this card; null when its model was not read. */
+export const nvidiaSupported = (gpu: Gpu): boolean | null =>
+  gpu.device === null ? null : gpu.device >= NVIDIA_FIRST_SUPPORTED;
+
+/** Windows' number for an NVIDIA driver as NVIDIA says it: "32.0.15.6094" → "560.94". */
+export function nvidiaVersion(windows: string): string | null {
+  const digits = windows.split(".").slice(-2).join("");
+  if (!/^\d{5,}$/.test(digits)) return null;
+  const last = digits.slice(-5);
+  return `${Number(last.slice(0, 3))}.${last.slice(3)}`;
+}
+
+/** The card rental mode would run on: an NVIDIA card Swiff OS runs, else any NVIDIA, else AMD or Intel. */
+function rentalGpu(gpus: Gpu[]): Gpu | undefined {
+  const nvidia = gpus.filter((g) => g.vendor === "nvidia");
+  return (
+    nvidia.find((g) => nvidiaSupported(g)) ?? nvidia[0] ?? gpus.find((g) => g.vendor !== "other") ?? gpus[0]
+  );
+}
+
+/** The graphics card, the driver Swiff OS runs it on, and whether it can. */
+function gpuCheck(gpu: Gpu | undefined): RentalCheck {
+  const check = { id: "gpu", label: "Graphics" };
+  if (!gpu) return { ...check, value: "Not read", state: "unread" };
+  const name = shortGpu(gpu.name);
+  // Windows' own driver, beside Swiff OS's: what the owner can check against NVIDIA's or AMD's numbers.
+  const windows = gpu.driver
+    ? `, Windows on ${(gpu.vendor === "nvidia" && nvidiaVersion(gpu.driver)) || gpu.driver}`
+    : "";
+  if (gpu.vendor !== "nvidia")
+    return {
+      ...check,
+      value: name,
+      state: "ok",
+      detail: `Swiff OS runs it on the open Mesa driver${windows}.`,
+    };
+  const series = "GeForce GTX 16 and RTX 20 series cards and newer";
+  switch (nvidiaSupported(gpu)) {
+    case true:
+      return {
+        ...check,
+        value: name,
+        state: "ok",
+        detail: `Supported: Swiff OS runs it on NVIDIA's ${SWIFF_OS_NVIDIA} driver${windows}.`,
+      };
+    case false:
+      return {
+        ...check,
+        value: `${name}: too old`,
+        state: "blocked",
+        detail: `Swiff OS's NVIDIA ${SWIFF_OS_NVIDIA} driver runs ${series}.`,
+      };
+    default:
+      return {
+        ...check,
+        value: `${name}: model not read`,
+        state: "unread",
+        detail: `Swiff OS's NVIDIA ${SWIFF_OS_NVIDIA} driver runs ${series}.`,
+      };
+  }
+}
+
 /** The Windows-side checks: space, the games drive, the graphics card, Fast Startup. */
 export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck[] {
   const { facts, games, need } = read;
   const target = chosenTarget(read, targetId);
-  const nvidia = facts.gpus.find((g) => g.vendor === "nvidia");
-  const gpu = nvidia ?? facts.gpus.find((g) => g.vendor !== "other") ?? facts.gpus[0];
   return [
     {
       id: "space",
@@ -162,15 +242,7 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
             ? { value: `${games.letter}:, BitLocker off`, state: "ok" }
             : { value: `${games.letter}:, BitLocker not read`, state: "unread" }),
     },
-    {
-      id: "gpu",
-      label: "Graphics",
-      ...(!gpu
-        ? { value: "Not read", state: "unread" }
-        : gpu.vendor === "nvidia"
-          ? { value: `${shortGpu(gpu.name)}: not yet`, state: "blocked" }
-          : { value: shortGpu(gpu.name), state: "ok" }),
-    },
+    gpuCheck(rentalGpu(facts.gpus)),
     {
       id: "fast-startup",
       label: "Fast Startup",
@@ -198,7 +270,10 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
       fixes.push(
         `Turn off BitLocker on ${read.games?.letter}:, or move your Steam library to a drive without it: Swiff OS cannot read an encrypted drive.`,
       );
-    if (check.id === "gpu") fixes.push("NVIDIA graphics cards come in a later Swiff OS update.");
+    if (check.id === "gpu")
+      fixes.push(
+        `Fit a GeForce RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(rentalGpu(read.facts.gpus)!.name)}. Sharing from Windows works as before.`,
+      );
   }
   return fixes;
 }

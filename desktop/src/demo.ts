@@ -83,8 +83,8 @@ export const DEMO_STEAM: SteamSetup = {
 };
 
 /**
- * Rental mode on Nova-01: its IOMMU is off in the BIOS, and its NVIDIA card
- * waits for a later Swiff OS. C: (Windows) or D: (games) can make room.
+ * Rental mode on Nova-01: its IOMMU is off in the BIOS, and its RTX 4080 runs
+ * on Swiff OS's NVIDIA driver. C: (Windows) or D: (games) can make room.
  */
 export const DEMO_RENTAL_READ: RentalRead = {
   facts: {
@@ -93,7 +93,7 @@ export const DEMO_RENTAL_READ: RentalRead = {
     tpm: { present: true, maker: "AMD", firmware: true },
     iommu: false,
     fastStartup: true,
-    gpus: [{ name: "NVIDIA GeForce RTX 4080", vendor: "nvidia" }],
+    gpus: [{ name: "NVIDIA GeForce RTX 4080", vendor: "nvidia", device: 0x2704, driver: "32.0.15.6094" }],
     disks: [],
     partitions: [],
     volumes: [],

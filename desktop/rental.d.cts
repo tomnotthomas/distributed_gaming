@@ -11,7 +11,8 @@ export type RentalFacts = {
   tpm: { present: boolean | null; maker: string | null; firmware: boolean | null };
   iommu: boolean | null;
   fastStartup: boolean | null;
-  gpus: { name: string; vendor: GpuVendor }[];
+  /** Each graphics card: its PCI device number (null if unread) and Windows driver version (null if unread). */
+  gpus: { name: string; vendor: GpuVendor; device: number | null; driver: string | null }[];
   disks: { number: number; gpt: boolean; size: number; sector: number; usb: boolean; system: boolean }[];
   partitions: {
     disk: number;
@@ -124,6 +125,7 @@ export const MOK_CERT: string;
 export const SHIM_LOCK: string;
 export const SCRIPT: string;
 export function gpuVendor(pnp: string): GpuVendor;
+export function gpuDevice(pnp: string): number | null;
 export function bitlockerState(value: unknown): "on" | "off" | null;
 export function tpmMaker(info: unknown): { maker: string | null; firmware: boolean | null };
 export function factsOf(raw: unknown): RentalFacts;

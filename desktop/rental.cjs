@@ -159,7 +159,7 @@ $shell = New-Object -ComObject Shell.Application
   tpmInfo = Read-Or { (tpmtool getdeviceinformation) -join [Environment]::NewLine }
   securityProperties = @(Read-Or { (Get-CimInstance -Namespace root/Microsoft/Windows/DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Stop).AvailableSecurityProperties })
   fastStartup = Read-Or { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction Stop).HiberbootEnabled }
-  gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [pscustomobject]@{ name = $_.Name; pnp = $_.PNPDeviceID } })
+  gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [pscustomobject]@{ name = $_.Name; pnp = $_.PNPDeviceID; driver = $_.DriverVersion } })
   disks = @(Get-Disk | ForEach-Object { [pscustomobject]@{ number = $_.Number; style = [string]$_.PartitionStyle; size = $_.Size; sector = $_.LogicalSectorSize; bus = [string]$_.BusType; system = $_.IsSystem } })
   partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
@@ -187,6 +187,12 @@ const guidOf = (v) => str(v).replace(/[{}]/g, "").toLowerCase();
 function gpuVendor(pnp) {
   const vendor = /VEN_([0-9A-F]{4})/i.exec(str(pnp))?.[1]?.toUpperCase();
   return { "10DE": "nvidia", 1002: "amd", 8086: "intel" }[vendor] ?? "other";
+}
+
+/** The card's PCI device number from its device id, which tells a card's generation; null if absent. */
+function gpuDevice(pnp) {
+  const device = /DEV_([0-9A-F]{4})/i.exec(str(pnp))?.[1];
+  return device ? parseInt(device, 16) : null;
 }
 
 /**
@@ -225,7 +231,12 @@ function factsOf(raw) {
     fastStartup: fastStartup === null ? null : fastStartup === 1,
     gpus: list(r.gpus)
       .filter((g) => str(g?.name))
-      .map((g) => ({ name: str(g.name), vendor: gpuVendor(g.pnp) })),
+      .map((g) => ({
+        name: str(g.name),
+        vendor: gpuVendor(g.pnp),
+        device: gpuDevice(g.pnp),
+        driver: str(g.driver) || null,
+      })),
     disks: list(r.disks)
       .filter((d) => num(d?.number) !== null && num(d?.size))
       .map((d) => ({
@@ -680,6 +691,7 @@ module.exports = {
   SHIM_LOCK,
   SCRIPT,
   gpuVendor,
+  gpuDevice,
   bitlockerState,
   tpmMaker,
   factsOf,
