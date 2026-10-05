@@ -271,8 +271,6 @@ function useSince(from: number | null): number {
   return from === null ? 0 : Math.max(0, (now - from) / 1000);
 }
 
-/** 4,123,456,789 → "4.1". */
-
 /** The plan's steps as they run: done, running (with its bar and clock or bytes), next, or where it stopped. */
 function RunList({
   plan,
