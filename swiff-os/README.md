@@ -282,7 +282,7 @@ hibernated OS, the session layer's size, an update that does not fit on the libr
 cut short, a block that must survive the next quick check, and a table key that does not unseal. Run
 them alone with `python3 swiff-os/vm/test_verify.py`.
 
-The games library comes from `vm/games-fixture.py`. It writes a 512 MiB NTFS library through
+The games library comes from `vm/games-fixture.py`. It writes a 1 GiB NTFS library through
 `ntfs-3g` from the build's tools tree, and the ext4 copy. Its five games carry Steam-format depot
 manifests, one with encrypted file names. A small fixture disk tells the self-test which boot it is
 in and what Steam would write; `vm/selftest/usr/libexec/swiff/selftest-games` plays Steam's part as

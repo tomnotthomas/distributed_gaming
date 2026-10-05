@@ -140,7 +140,7 @@ mkdir -p "$run/tpm"
 # The shared games library (vm/games-fixture.py): the owner's Steam library on
 # NTFS, as their Windows writes it, and the same on ext4 for the last boot.
 python3 "$here/games-fixture.py" "$run/games"
-truncate -s 512M "$run/games-ntfs.img"
+truncate -s 1G "$run/games-ntfs.img"
 in_tools mkntfs -q -F -f -L SWIFFGAMES "$run/games-ntfs.img" > /dev/null
 mkdir -p "$run/mnt"
 # Runs a shell script with the NTFS library mounted at $1/mnt ($1 is the run
@@ -156,7 +156,7 @@ in_ntfs() { # script
 			sh -c "$2" sh "$1" && umount "$1/mnt" && wait $pid' sh "$run" "$1"
 }
 in_ntfs 'cp -r "$1/games/library/." "$1/mnt/"' || die "cannot fill the NTFS games library"
-mkfs.ext4 -q -L SWIFFGAMES -E root_owner=1000:1000 -d "$run/games/library" "$run/games-ext4.img" 512M
+mkfs.ext4 -q -L SWIFFGAMES -E root_owner=1000:1000 -d "$run/games/library" "$run/games-ext4.img" 1G
 # Owned by the renter's uid (1000) whatever the host user's uid is.
 (cd "$run/games/library" && find . -mindepth 1 -printf 'set_inode_field "/%P" uid 1000\nset_inode_field "/%P" gid 1000\n') |
 	debugfs -w -f - "$run/games-ext4.img" > /dev/null 2>&1
