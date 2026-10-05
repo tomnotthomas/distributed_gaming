@@ -4,7 +4,8 @@
 // itself is faked: the reboot and the hardware floor.
 //
 // The agent tests drive a platform kept in memory; this one makes sure the
-// server and the agent still agree on the host API and the session-key contract.
+// server and the agent still agree on the host API, the session-key contract
+// and the state key, attested by the server's insecure-dev verifier.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -22,6 +23,14 @@ import { createAgent, type Outcome } from "./agent.ts";
 import { createHostApi } from "./api.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
+import {
+  StateKeyRefused,
+  stateKeyApi,
+  stateUnlock,
+  type HostCertificate,
+  type LocalShare,
+  type StateDisk,
+} from "./state-key.ts";
 import type { LaunchStreamer } from "./streamer.ts";
 
 const PORT = 8900 + Math.floor(Math.random() * 400);
@@ -32,6 +41,8 @@ const SESSION_SECRET = "hostd-integration-session-secret-long-enough";
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "hostd-integration-machine-key";
 const MACHINE = "rental-pc-1";
+/** Machines for the state key, one per test: each has its own budget of state-key calls. */
+const STATE_MACHINES = ["state-pc-1", "state-pc-2", "state-pc-3"] as const;
 const HOUR = 3_600_000;
 
 const REPO_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
@@ -55,7 +66,11 @@ beforeAll(async () => {
       PORT: String(PORT),
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
-      MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`,
+      MACHINE_KEYS: [MACHINE, ...STATE_MACHINES]
+        .map((id) => `${id}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`)
+        .join(","),
+      ATTESTATION_VERIFIER: "insecure-dev",
+      STATE_KEY_SECRET: "hostd-integration-state-key-secret-long-enough",
       DATABASE_URL: "",
     },
     stdio: "ignore",
@@ -262,4 +277,144 @@ describe("swiff-hostd against the server", () => {
       expect(await machine()).toMatchObject({ status: "idle", until: shareUntil });
     },
   );
+});
+
+/** Platform facts the insecure-dev verifier believes (PlatformFacts in server/src/attestation.ts). */
+const GOOD = { uefi: true, secureBoot: true, tpm: "firmware", ekCertificate: true, iommu: true };
+
+/** Attest `machine` at the boot the TPM counts as `boot`, as the attestation client will. */
+async function attest(machine: string, boot: number): Promise<HostCertificate> {
+  const challenge = await call("POST", `/api/machines/${machine}/attest-challenge`, {});
+  expect(challenge.status).toBe(200);
+  const attested = await call(
+    "POST",
+    `/api/machines/${machine}/attest`,
+    {},
+    {
+      nonce: challenge.body!.nonce,
+      evidence: { machineKey: MACHINE_KEY, facts: GOOD, resetCount: boot },
+    },
+  );
+  expect(attested.status).toBe(200);
+  return { hostCert: attested.body!.hostCert as string, expiresAt: attested.body!.expiresAt as number };
+}
+
+/** This PC's TPM-sealed U and its LUKS2 partition, kept in memory; `boot()` is a restart. */
+function machineState() {
+  const sealed = { keyId: null as string | null, u: null as Buffer | null };
+  const disk = { key: null as Buffer | null, open: false, formats: 0, opens: 0 };
+  const local: LocalShare = {
+    keyId: async () => sealed.keyId,
+    unseal: async () => Buffer.from(sealed.u!),
+    seal: async (keyId, u) => void Object.assign(sealed, { keyId, u: Buffer.from(u) }),
+  };
+  const partition: StateDisk = {
+    opened: async () => disk.open,
+    open: async (key) => {
+      if (!disk.key?.equals(key)) throw new Error("no key slot opens with that key");
+      disk.opens++;
+      disk.open = true;
+    },
+    format: async (key) => {
+      disk.formats++;
+      disk.key = Buffer.from(key);
+      disk.open = true;
+    },
+  };
+  return { sealed, disk, local, partition, boot: () => void (disk.open = false) };
+}
+
+/** The state unlock wired to the real server, attesting with `certs` in turn. */
+function unlockOn(
+  machine: string,
+  pc: ReturnType<typeof machineState>,
+  certs: () => Promise<HostCertificate>,
+) {
+  return stateUnlock({
+    attest: certs,
+    api: stateKeyApi(SERVER_URL, machine),
+    local: pc.local,
+    disk: pc.partition,
+  });
+}
+
+/** The code a promise is refused with by the server. */
+async function refusal(promise: Promise<unknown>): Promise<string | null> {
+  const error = await promise.then(
+    () => null,
+    (cause: unknown) => cause,
+  );
+  expect(error).toBeInstanceOf(StateKeyRefused);
+  return (error as StateKeyRefused).code;
+}
+
+describe("swiff-hostd's state key against the server", () => {
+  it("makes the state on the first boot, opens it with U XOR V on the next, and formats it anew after a gap", async () => {
+    const [id] = STATE_MACHINES;
+    const pc = machineState();
+
+    // First boot: no state key yet, so a PUT on the same certificate, and a fresh format.
+    await unlockOn(id, pc, () => attest(id, 1)).unlock();
+    expect(pc.disk).toMatchObject({ formats: 1, open: true });
+    const first = { keyId: pc.sealed.keyId, key: Buffer.from(pc.disk.key!) };
+    expect(first.keyId).toBeTruthy();
+
+    // The next boot: the server's share with the sealed U opens the same partition.
+    pc.boot();
+    await unlockOn(id, pc, () => attest(id, 2)).unlock();
+    expect(pc.disk).toMatchObject({ formats: 1, opens: 1, open: true });
+    expect(pc.sealed.keyId).toBe(first.keyId);
+
+    // Something else booted in between (the TPM counted boots this PC never attested):
+    // the share is withheld, and the state is made anew under a new one.
+    pc.boot();
+    await unlockOn(id, pc, () => attest(id, 5)).unlock();
+    expect(pc.disk).toMatchObject({ formats: 2, opens: 1, open: true });
+    expect(pc.sealed.keyId).not.toBe(first.keyId);
+    expect(pc.disk.key!.equals(first.key)).toBe(false);
+  });
+
+  it("is refused V on a used or an earlier boot's certificate, and attests again once to open", async () => {
+    const [, id] = STATE_MACHINES;
+    const api = stateKeyApi(SERVER_URL, id);
+    const pc = machineState();
+    const used = await attest(id, 1);
+    await unlockOn(id, pc, async () => used).unlock();
+    expect(pc.disk.formats).toBe(1);
+
+    // The certificate that got the share gets nothing more.
+    expect(await refusal(api.release(used.hostCert))).toBe("stale-host-cert");
+
+    // A certificate from boot 2, once boot 3 attested, is for an earlier boot.
+    const earlier = await attest(id, 2);
+    const latest = await attest(id, 3);
+    expect(await refusal(api.release(earlier.hostCert))).toBe("stale-host-cert");
+
+    // Handed the stale one first, the unlock attests again and opens with the latest.
+    pc.boot();
+    const certs = [earlier, latest];
+    await unlockOn(id, pc, async () => certs.shift()!).unlock();
+    expect(certs).toHaveLength(0);
+    expect(pc.disk).toMatchObject({ formats: 1, opens: 1, open: true });
+  });
+
+  it("leaves the state shut on a credential that is no host certificate, or with the server unreachable", async () => {
+    const [, , id] = STATE_MACHINES;
+    const pc = machineState();
+    const certs = (hostCert: string) => async () => ({ hostCert, expiresAt: 0 });
+
+    // The machine key may host unattested, but never gets V.
+    expect(await refusal(unlockOn(id, pc, certs(MACHINE_KEY)).unlock())).toBe("attestation-required");
+    expect(await refusal(unlockOn(id, pc, certs("not-a-certificate")).unlock())).toBe("bad-host-cert");
+
+    const unreachable = stateUnlock({
+      attest: () => attest(id, 1),
+      api: stateKeyApi("ws://127.0.0.1:9", id),
+      local: pc.local,
+      disk: pc.partition,
+    });
+    await expect(unreachable.unlock()).rejects.not.toBeInstanceOf(StateKeyRefused);
+    expect(pc.disk).toMatchObject({ formats: 0, opens: 0, open: false });
+    expect(pc.sealed.keyId).toBeNull();
+  });
 });

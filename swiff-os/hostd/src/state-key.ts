@@ -47,7 +47,12 @@ export class StateKeyRefused extends Error {
   readonly code: StateKeyError["error"] | null;
   /** The server's retry-after, for `rate-limited`. */
   readonly retryAfterMs: number | null;
-  constructor(call: string, status: number, code: StateKeyError["error"] | null, retryAfterMs: number | null) {
+  constructor(
+    call: string,
+    status: number,
+    code: StateKeyError["error"] | null,
+    retryAfterMs: number | null,
+  ) {
     super(`${call} answered ${status}${code ? ` ${code}` : ""}`);
     this.status = status;
     this.code = code;
@@ -338,7 +343,9 @@ const runWithInput: RunWithInput = (command, args, input) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "ignore", "inherit"] });
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`))));
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`)),
+    );
     child.stdin.end(input);
   });
 

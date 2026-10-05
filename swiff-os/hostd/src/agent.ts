@@ -43,6 +43,7 @@ import { HostApiError } from "./api.ts";
 import type { FloorCheck, OwnerTakeover } from "./config.ts";
 import type { ResumeStore } from "./resume.ts";
 import type { MachineSocket, SessionClaim, SocketEvent } from "./socket.ts";
+import type { StateKeyError } from "../../../server/src/protocol.ts";
 import { StateKeyRefused, type StateUnlock } from "./state-key.ts";
 import type { LaunchStreamer, Streamer } from "./streamer.ts";
 import type { System } from "./system.ts";
@@ -53,7 +54,13 @@ export type Phase =
 /** How a run ended: the machine is restarting into rental mode, or into Windows. */
 export type Outcome = "reset" | "windows";
 
-export type AgentStatus = { phase: Phase; sessionId: string | null; unmet: FloorCheck[] };
+export type AgentStatus = {
+  phase: Phase;
+  sessionId: string | null;
+  unmet: FloorCheck[];
+  /** While `locked`: why the server keeps its share back (`revoked`, `firmware-cooldown`...); null when it did not answer. */
+  locked?: StateKeyError["error"] | null;
+};
 
 /** The answer to the owner asking for the PC back. */
 export type ReturnReply = { ok: true } | { ok: false; reason: "session-live" | "busy" };
@@ -117,6 +124,7 @@ export function createAgent(deps: AgentDeps): Agent {
   const log = deps.log ?? ((message: string) => console.log(`[swiff-hostd] ${message}`));
 
   let phase: Phase = "starting";
+  let lockedBy: StateKeyError["error"] | null = null;
   let sessionId: string | null = null;
   let unmet: FloorCheck[] = [];
   /** The owner's request in hand, answered by the loop that holds the machine now. */
@@ -230,6 +238,7 @@ export function createAgent(deps: AgentDeps): Agent {
         return true;
       } catch (cause) {
         phase = "locked";
+        lockedBy = cause instanceof StateKeyRefused ? cause.code : null;
         log(`not offered: the persistent state did not open (${describe(cause)})`);
         // The server's own retry-after, when it says to wait longer.
         if (cause instanceof StateKeyRefused && cause.retryAfterMs) wait = Math.max(wait, cause.retryAfterMs);
@@ -488,7 +497,7 @@ export function createAgent(deps: AgentDeps): Agent {
 
   return {
     run,
-    status: () => ({ phase, sessionId, unmet }),
+    status: () => ({ phase, sessionId, unmet, ...(phase === "locked" && { locked: lockedBy }) }),
     requestReturnToWindows: async () => {
       if (phase === "returning") return { ok: true };
       if (phase === "starting" || phase === "resetting" || asked) return { ok: false, reason: "busy" };

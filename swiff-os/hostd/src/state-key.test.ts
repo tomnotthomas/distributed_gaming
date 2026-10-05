@@ -59,7 +59,8 @@ async function fakeStateKeyServer() {
       return refuse(503, "not-configured");
     }
     if (!state.issued.includes(cert)) return refuse(401, "bad-host-cert");
-    if (state.rateLimited !== null) return refuse(429, "rate-limited", { "retry-after": String(state.rateLimited) });
+    if (state.rateLimited !== null)
+      return refuse(429, "rate-limited", { "retry-after": String(state.rateLimited) });
     if (state.used.has(cert) || cert !== state.issued.at(-1)) return refuse(401, "stale-host-cert");
     if (state.revoked) return refuse(403, "revoked");
     if (state.cooldown) return refuse(403, "firmware-cooldown");
@@ -307,7 +308,9 @@ describe("the server keeping V back", () => {
 
   it("takes a refusal for a certificate it does not know as bad-host-cert", async () => {
     const server = await fakeStateKeyServer();
-    const refused = await refusal(fakeMachine().unlock(server, async () => ({ hostCert: "forged", expiresAt: 0 })));
+    const refused = await refusal(
+      fakeMachine().unlock(server, async () => ({ hostCert: "forged", expiresAt: 0 })),
+    );
     expect([refused.status, refused.code]).toEqual([401, "bad-host-cert"]);
   });
 
@@ -324,7 +327,9 @@ type FakeState = Awaited<ReturnType<typeof fakeStateKeyServer>>["state"];
 
 describe("combineShares", () => {
   it("is U XOR V", () => {
-    expect(combineShares(Buffer.alloc(32, 0b1010), Buffer.alloc(32, 0b0110))).toEqual(Buffer.alloc(32, 0b1100));
+    expect(combineShares(Buffer.alloc(32, 0b1010), Buffer.alloc(32, 0b0110))).toEqual(
+      Buffer.alloc(32, 0b1100),
+    );
   });
 
   it("refuses shares that are not 32 bytes", () => {
@@ -364,7 +369,15 @@ describe("the machine's side", () => {
     await d.state.open(key);
     expect(d.fed).toEqual([
       {
-        args: ["cryptsetup", "open", "--type", "luks2", "--key-file=-", "/dev/disk/by-partlabel/swiff-state", STATE_MAPPER],
+        args: [
+          "cryptsetup",
+          "open",
+          "--type",
+          "luks2",
+          "--key-file=-",
+          "/dev/disk/by-partlabel/swiff-state",
+          STATE_MAPPER,
+        ],
         input: key,
       },
     ]);

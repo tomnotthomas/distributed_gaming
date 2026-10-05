@@ -370,19 +370,24 @@ host protocol the desktop app already speaks, with no new messages
   is served at once, with a new key.
 - **Opens the persistent state only for an untouched system** (report §5.3, the U/V split),
   before anything else on boot. The state is a LUKS2 partition whose key is U XOR V: U is
-  sealed to this PC's TPM under Swiff's signed PCR policy (a `systemd-creds` credential),
-  and V is released by the server (`POST /api/machines/:id/state-key`) only to a fresh,
-  unused host certificate from this machine's latest attested boot. Every try attests
-  afresh; a certificate refused as `stale` or `replayed` is replaced by a new attestation
-  at once, once. Refused for any reason (`gap`, `cooldown`, `revoked`, or a certificate
-  again), or with the server unreachable, the agent keeps the PC off the market (no
-  socket, no heartbeat, no offer) and tries again after 5 s, 15 s, 30 s, 1 min, 2 min, then
-  every 5 min; the owner can still take it back to Windows at the PC. The combined key
-  reaches `cryptsetup` only on its stdin and is never written anywhere; it and both shares
-  are zeroed once the state is open. The config's `state` names the partition (`device`,
-  `mountpoint`), U's credential (`localShare`) and `attestCommand`, the attestation client
-  that prints a fresh host certificate as JSON, until attesting is part of the agent. A
-  machine whose config has no `state` has no such partition, and skips this.
+  sealed to this PC's TPM under Swiff's signed PCR policy (a `systemd-creds` credential,
+  with the id of the V it pairs with beside it), and V is the server's share, released
+  (`POST /api/machines/:id/state-key`, see `docs/system-design/session-keys.md`) only to a
+  fresh, unused host certificate from this machine's latest attested boot. Every try
+  attests afresh. `404 no-state-key` or `409 continuity-gap` (something else booted since)
+  takes a new V on the same certificate (`PUT`) and formats the partition anew with a fresh
+  U; a V whose id is not the sealed U's (a format cut short) is renewed the same way on a
+  new certificate; `401 stale-host-cert` attests again at once, once. Refused otherwise
+  (`revoked`, `firmware-cooldown`, ...) or with the server unreachable, the agent keeps the
+  PC off the market (no socket, no heartbeat, no offer), shows the refusal on the status
+  page (`locked`), and tries again after 5 s, 15 s, 30 s, 1 min, 2 min, then every 5 min,
+  or after the server's `retry-after` when longer; the owner can still take it back to
+  Windows at the PC. The combined key reaches `cryptsetup` only on its stdin and is never
+  written anywhere; it and both shares are zeroed once the state is open. The config's
+  `state` names the partition (`device`, `mountpoint`), U's credential (`localShare`) and
+  `attestCommand`, the attestation client that prints a fresh host certificate as JSON,
+  until attesting is part of the agent. A machine whose config has no `state` has no such
+  partition, and skips this.
 
 Two open decisions are each one setting in `hostd/src/config.ts`, with provisional
 defaults:

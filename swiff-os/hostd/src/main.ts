@@ -12,13 +12,7 @@ import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMa
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
-import {
-  commandAttestation,
-  linuxStateDisk,
-  stateKeyApi,
-  stateUnlock,
-  tpmLocalShare,
-} from "./state-key.ts";
+import { commandAttestation, linuxStateDisk, stateKeyApi, stateUnlock, tpmLocalShare } from "./state-key.ts";
 import { streamerLauncher } from "./streamer.ts";
 import { linuxSystem, run } from "./system.ts";
 

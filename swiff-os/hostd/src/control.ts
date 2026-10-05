@@ -3,6 +3,8 @@
 // connection, one JSON line back:
 //
 //   status             → { "phase": "offered", "sessionId": null, "unmet": [] }
+//                        while the state is shut, also "locked": the server's refusal
+//                        ("revoked", "firmware-cooldown", ...), or null when it did not answer
 //   return-to-windows  → { "ok": true } | { "ok": false, "reason": "session-live" | "busy" }
 //
 // The socket is root's alone (mode 600) until the status page has a user of its own.

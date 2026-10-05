@@ -743,7 +743,8 @@ describe("a machine whose persistent state stays shut", () => {
       tries,
       unlock: async () => {
         tries.count++;
-        if (tries.count <= failures) throw new StateKeyRefused(403, "cooldown", "state-key-refused");
+        if (tries.count <= failures)
+          throw new StateKeyRefused("state key release", 403, "firmware-cooldown", null);
       },
     };
   };
@@ -752,11 +753,14 @@ describe("a machine whose persistent state stays shut", () => {
     const s = state(2);
     const h = harness(fakeServer(), { state: s, timing: { ...FAST, unlockRetryMs: [40] } });
     await until(() => phase(h.agent) === "locked", "locked");
+    // The status page says why.
+    expect(h.agent.status()).toMatchObject({ phase: "locked", locked: "firmware-cooldown" });
     // No socket, no heartbeat, no offer: nothing tells the server this PC may host.
     expect(h.server.calls).toEqual([]);
     expect(h.sockets).toHaveLength(0);
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(s.tries.count).toBe(3);
+    expect(h.agent.status()).not.toHaveProperty("locked");
   });
 
   it("waits longer after each refused try", async () => {
