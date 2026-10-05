@@ -148,9 +148,10 @@ def main(log, mode, *rest):
             # Still waiting after the time the countdown would have given.
             vm.quiet(["Booting in", "grubx64.efi"], int(rest[0]))
             # Continue boot, the first item: the request is gone, and shim goes on
-            # to its next stage, which this ESP lacks.
+            # to its next stage (which this ESP lacks, or which Swiff's key, not
+            # enrolled, cannot verify).
             vm.press(ENTER)
-            vm.expect("grubx64.efi", 60)
+            screen("grubx64.efi", 60)
             return
         action = "Enroll" if mode == "confirm" else "Delete"
         screen(f"{action} MOK")

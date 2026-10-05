@@ -217,7 +217,7 @@ export const BIOS_ASKS: Record<BiosId, BiosAsk> = {
     hint: "Usually under Boot or Security.",
   },
   ca: {
-    setting: "3rd-party UEFI CA",
+    setting: "3rd-party CA",
     value: "Allowed",
     title: "Allow the 3rd-party UEFI CA",
     hint: "In the Secure Boot settings. No such switch? Restore the factory Secure Boot keys.",

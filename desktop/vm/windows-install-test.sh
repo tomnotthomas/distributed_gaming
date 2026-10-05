@@ -256,12 +256,14 @@ test_run() {
 	local fail=0
 
 	# Prints one result row; a FAIL fails the test.
-	result() { printf '%-4s  %-28s %s\n' "$1" "$2" "$3" | tee -a "$run/results.txt"; [ "$1" = PASS ] || fail=1; }
+	result() { printf '%-4s  %-30s %s\n' "$1" "$2" "$3" | tee -a "$run/results.txt"; [ "$1" = PASS ] || fail=1; }
 	expect() { # name detail command...
 		local name=$1 detail=$2
 		shift 2
 		if "$@" > /dev/null 2>&1; then result PASS "$name" "$detail"; else result FAIL "$name" "$detail"; fi
 	}
+	# A section of the results: one scenario.
+	scenario() { log "$*"; printf '\n## %s\n' "$*" >> "$run/results.txt"; }
 	# A value from the last JSON line of a file that has KEY: node's view of it.
 	json() { node -e 'const fs=require("fs"); const lines=fs.readFileSync(process.argv[1],"utf8").trim().split(/\r?\n/).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean); const hit=lines.reverse().find(l=>process.argv[2] in l); console.log(JSON.stringify(eval("hit"+process.argv[3])))' "$@"; }
 	# Waits for Windows after a restart: the firmware has to start it, and BitLocker must not ask.
@@ -270,6 +272,26 @@ test_run() {
 			result FAIL "$1" "Windows did not come back (screens in $run)"
 			return 1
 		fi
+	}
+	# What the app reads now, with this start's boot trail, into $run/read-NAME.json.
+	read_as() { on_vm "$cli read" | tr -d '\r' > "$run/read-$1.json"; }
+	# PCR 7 as this start's TCG log replays it: what Windows Hello's PIN and BitLocker are sealed to.
+	pcr7() { # name
+		local log
+		log=$(on_vm '(Get-ChildItem C:\Windows\Logs\MeasuredBoot\*.log | Sort-Object LastWriteTime | Select-Object -Last 1).FullName' | tr -d '\r\n')
+		scp -q "${opts[@]}" -P "$port" "swiff@127.0.0.1:${log//\\//}" "$run/mb-$1.log"
+		python3 "$here/pcr7.py" "$run/mb-$1.log"
+	}
+	# Where the app would put the key now: rental-key.cjs on this start, for a request queued before it.
+	key_state() {
+		on_vm '$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe -e "const k = require(''C:/swiff/desktop/rental-key.cjs''); const boot = Date.now() - require(''os'').uptime() * 1000; console.log(k.keyOf({ code: ''12345678'', queuedAt: boot - 60000, answer: null }, boot, k.bootTrail())?.state)" | Write-Output' | tr -d '\r\n'
+	}
+	# The serve console, fed through a file: one elevated worker for several commands.
+	serve() { # name commands...
+		local name=$1
+		shift
+		printf '%s\n' "$@" quit | on_vm "Set-Content C:\\swiff\\cmd-$name.txt -Value (\$input | Out-String).Trim()"
+		on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-$name.txt" | tr -d '\r' > "$run/serve-$name.json"
 	}
 
 	log "Windows"
@@ -287,39 +309,114 @@ test_run() {
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
 	to_vm "$here/windows/disk-open-check.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	local base
+	base=$(pcr7 base)
+	echo "PCR 7 of a clean start: $base"
 
-	log "1. What the app reads, and its one elevation"
+	scenario "1. Secure Boot already fine: what the app reads, and its one elevation"
 	on_vm 'function swiff-check { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\disk-open-check.cjs | Write-Output }; swiff-check' | tr -d '\r' > "$run/disk-open.txt" || true
 	expect runtime-old-name-fails "the app's runtime cannot open \\.\PhysicalDrive0, the old disk name" grep -q '^ERR \\\\.\\PhysicalDrive0 ' "$run/disk-open.txt"
 	expect runtime-disk-opens "the app's runtime reads disk 0's GPT by the worker's name for it" grep -q '^OK .*GLOBALROOT.* EFI PART$' "$run/disk-open.txt"
-	on_vm "$cli read" | tr -d '\r' > "$run/read-before.json"
+	read_as before
 	local seen
-	seen="$(json "$run/read-before.json" read '.read.facts.secureBoot' || true) $(json "$run/read-before.json" read '.read.targets[0].id' || true)"
-	expect read "the app reads Secure Boot on and room on C: ($seen)" test "$seen" = 'true "shrink:C"'
+	seen="$(json "$run/read-before.json" read '.read.facts.secureBoot' || true) $(json "$run/read-before.json" read '.read.facts.db' || true) $(json "$run/read-before.json" read '.read.targets[0].id' || true)"
+	expect read "Secure Boot on, the db trusts shim's CA (read from the boot log, no admin), room on C: ($seen)" test "$seen" = 'true true "shrink:C"'
+	expect clean-trail "this start went straight to Windows" test "$(json "$run/read-before.json" trail '.trail.shim')" = false
 	# From the logged-on user's own session, unelevated, as the app runs: Start-Process -Verb RunAs.
 	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-uac | Out-Null; foreach (\$i in 1..60) { if (Select-String -Quiet elevated C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
 	expect elevation "the worker started through UAC's RunAs and said hello" grep -q '"elevated":true' "$run/uac.json"
 
-	log "2. Install"
+	scenario "2. Administrator declined"
+	# Windows' prompt on its secure desktop, answered No (Esc) at the VM's keyboard.
+	on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 2; Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\uac-out.txt; schtasks /run /tn swiff-uac | Out-Null"
+	for _ in $(seq 8); do sleep 4; monitor "sendkey esc" || true; done
+	on_vm "foreach (\$i in 1..30) { if (Select-String -Quiet 'error' C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt; Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 0" | tr -d '\r' > "$run/uac-declined.json"
+	expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -qi 'cancel' "$run/uac-declined.json"
+	read_as declined
+	expect declined-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-declined.json" read '.read.facts.install')" = null
+
+	scenario "3. Not enough space"
+	local free
+	free=$(on_vm '(Get-Volume -DriveLetter C).SizeRemaining' | tr -d '\r\n')
+	# C: keeps 30 GB free: less than Swiff OS's 24 GB and the 16 GB Windows keeps.
+	on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null"
+	read_as full
+	expect space-none "no drive offered for Swiff OS: the screen says Free up 24 GB" test "$(json "$run/read-full.json" read '.read.targets.length')" = 0
+	on_vm 'Remove-Item -Force C:\swiff-fill.bin'
+	# Files added after the check: the install's own check finds the room gone.
+	serve space "plan install" "run check"
+	on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null"
+	serve space2 "plan install shrink:C" "run check"
+	on_vm 'Remove-Item -Force C:\swiff-fill.bin'
+	expect space-race "the check stops before any change: $(json "$run/serve-space2.json" outcome '.outcome.failed.error' || true)" grep -q 'cannot shrink by' "$run/serve-space2.json"
+	read_as after-space
+	expect space-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-after-space.json" read '.read.facts.install')" = null
+
+	scenario "4. Removal after a partial install"
+	serve partial "plan install" "run check bitlocker fast-startup room partitions"
+	expect partial "the install ran up to its partitions" grep -q '"done":\["check","bitlocker","fast-startup","room","partitions"\]' "$run/serve-partial.json"
+	read_as partial
+	expect partial-record "the app sees an install that did not finish (Continue or Undo)" test "$(json "$run/read-partial.json" read '.read.facts.install.complete') $(json "$run/read-partial.json" read '.read.installed')" = 'false false'
+	serve undo "plan uninstall" "run partitions room fast-startup bitlocker forget"
+	expect undo "every step that undoes it ran" grep -q '"status":"done"' "$run/serve-undo.json"
+	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-undone"
+	expect undo-c "C: is its size again" cmp -s "$run/c-before" "$run/c-undone"
+	expect undo-partitions "Windows' 4 partitions, and no others" test "$(on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n')" = 4
+	read_as undone
+	expect undo-record "the install record is gone" test "$(json "$run/read-undone.json" read '.read.facts.install')" = null
+	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-undone.txt"
+	expect undo-bitlocker-on "BitLocker protection is on" grep -q 'Protection On' "$run/bitlocker-undone.txt"
+
+	scenario "5. Fresh install, key screen left waiting, then Continue boot (the wrong choice)"
 	on_vm "$cli run install --image $img" | tr -d '\r' | tee "$run/install.json" | grep -E '"(outcome|error)"' || true
 	expect install "every install step ran" grep -q '"outcome":{"status":"done"' "$run/install.json"
-	local code
-	code=$(json "$run/install.json" plan '.plan.mok.code' | tr -d '"' || true)
+	read_as installed-1
+	expect record-by-loader "the record keeps the boot entry by partition id and path, no Boot#### number" test "$(json "$run/read-installed-1.json" read '.read.facts.install.bootEntry.path')" = '"\\EFI\\swiff\\shimx64.efi"'
+	expect mok-waits "MokManager's menu came at once and was still waiting after 150 s; then Continue boot" \
+		"$python" "$here/mok-drive.py" "$run/mok-miss.log" miss 150 --loose --socket "$run/serial.sock"
+	windows_back windows-after-continue
+	read_as continued
+	expect fallthrough-seen "the boot log shows shim, MokManager and Windows in one power-on, no Swiff loader" \
+		test "$(json "$run/read-continued.json" trail '.trail.shim') $(json "$run/read-continued.json" trail '.trail.windowsAfterShim') $(json "$run/read-continued.json" trail '.trail.loader')" = 'true true false'
+	expect nokey "the app says the key didn't go in, with the PIN warning (state $(key_state))" test "$(key_state)" = nokey
+	local after
+	after=$(pcr7 continued)
+	expect pcr7-changed "PCR 7 differs from a clean start: the case that cost the PIN, now named on screen" test "$after" != "$base"
 
-	log "3. MokManager: confirm Swiff's key with $code"
+	scenario "6. Restart into Windows without the key (powered off at the key screen)"
+	on_vm "$cli run mok --image $img" | tr -d '\r' | tee "$run/mok-1.json" | grep -E '"(outcome|error)"' || true
+	expect mok-1 "BitLocker paused, a new request queued, the PC restarting" grep -q '"outcome":{"status":"done"' "$run/mok-1.json"
+	expect mok-1-bitlocker "the key's restart paused BitLocker on C: first" grep -q '"id":"bitlocker","state":"done"' "$run/mok-1.json"
+	expect mok-menu "MokManager's menu came, and waited" \
+		"$python" "$here/mok-drive.py" "$run/mok-wait.log" wait "Perform MOK management" 300 --socket "$run/serial.sock"
+	sleep 20
+	vm_kill
+	sleep 3
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	windows_back windows-after-poweroff
+	read_as poweroff
+	expect poweroff-clean "a clean start: nothing of shim in this power-on" test "$(json "$run/read-poweroff.json" trail '.trail.shim')" = false
+	expect poweroff-ask "the app asks the owner whether the code went in (state $(key_state))" test "$(key_state)" = ask
+	expect pcr7-poweroff "PCR 7 is a clean start's: no PIN reset" test "$(pcr7 poweroff)" = "$base"
+
+	scenario "7. Key confirmed (Enroll MOK, the code, Reboot)"
+	on_vm "$cli run mok --image $img" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
+	local code
+	code=$(json "$run/mok-2.json" plan '.plan.mok.code' | tr -d '"' || true)
 	expect mok-confirmed "the owner's confirmation at MokManager went through" \
 		"$python" "$here/mok-drive.py" "$run/mok-confirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 	windows_back windows-after-mok
+	read_as confirmed
+	expect confirmed-clean "MokManager's Reboot: a clean start into Windows" test "$(json "$run/read-confirmed.json" trail '.trail.shim')" = false
+	expect pcr7-confirmed "PCR 7 is a clean start's: Windows Hello's PIN and BitLocker unaffected" test "$(pcr7 confirmed)" = "$base"
 	on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-1"
 	expect files-kept-1 "C: holds its file after the install" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-1"
-	on_vm "$cli read" | tr -d '\r' > "$run/read-installed.json"
-	expect installed "the app reads Swiff OS as installed" test "$(json "$run/read-installed.json" read '.read.installed' || true)" = true
+	expect installed "the app reads Swiff OS as installed" test "$(json "$run/read-confirmed.json" read '.read.installed' || true)" = true
 	on_vm 'Get-Partition -DiskNumber 0 | Select-Object PartitionNumber, Offset, Size, GptType, Guid | ConvertTo-Json -Compress' | tr -d '\r' > "$run/partitions-installed.json"
 	expect partitions "Windows sees Swiff OS's 6 partitions after its 4" \
 		test "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).length)' "$run/partitions-installed.json")" = 10
-	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-installed.txt"
 
-	log "4. Swiff OS once"
+	scenario "8. Swiff OS once"
 	on_vm "$cli run once --image $img" | tr -d '\r' > "$run/once.json"
 	expect once "BootNext set and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/once.json"
 	expect swiffos-booted "shim, systemd-boot and the UKI started Swiff OS's self-test" \
@@ -330,19 +427,20 @@ test_run() {
 	expect swiffos-verity-root "Swiff OS's root is its verity device" grep -q 'SWIFF-SELFTEST PASS root-is-verity' "$run/selftest.txt"
 	"$run/boot-vars" show "$run/vars.fd" > "$run/vars-swiffos.txt"
 	expect mok-enrolled "MokList holds Swiff's key, as the confirmation left it" grep -q "^MokList: .*$cert_hex" "$run/vars-swiffos.txt"
-	# Windows has run twice beside Swiff OS's ESP: it must still be a sound FAT, untouched by chkdsk.
+	# Windows has run beside Swiff OS's ESP: it must still be a sound FAT, untouched by chkdsk.
 	local esp_at esp_bytes
-	read -r esp_at esp_bytes < <(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8").trim().split(/\r?\n/).pop()).read; const p=r.facts.install.partitions.find(p=>p.role==="esp"); console.log(p.offset, p.bytes)' "$run/read-installed.json")
+	read -r esp_at esp_bytes < <(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8").trim().split(/\r?\n/).pop()).read; const p=r.facts.install.partitions.find(p=>p.role==="esp"); console.log(p.offset, p.bytes)' "$run/read-confirmed.json")
 	qemu-img convert -O raw "json:{\"driver\":\"raw\",\"offset\":$esp_at,\"size\":$esp_bytes,\"file\":{\"driver\":\"qcow2\",\"file\":{\"driver\":\"file\",\"filename\":\"$run/disk.qcow2\"}}}" "$run/esp.raw"
 	expect esp-sound "Swiff OS's ESP passes fsck.fat after Windows ran beside it" "$fsck_fat" -n "$run/esp.raw"
 	expect esp-no-chkdsk "no FOUND.000 from Windows' chkdsk on it" bash -c "! MTOOLS_SKIP_CHECK=1 mdir -i '$run/esp.raw' ::/ | grep -q FOUND"
 	rm -f "$run/esp.raw"
 	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
 	windows_back windows-after-swiffos
+	expect pcr7-swiffos "PCR 7 is a clean start's after Swiff OS ran" test "$(pcr7 swiffos)" = "$base"
 	on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-2"
 	expect files-kept-2 "C: holds its file after Swiff OS ran" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-2"
 
-	log "5. Swiff's key removed, then the uninstall"
+	scenario "9. Removal after a full install"
 	# The key first: MokManager, which removes it, is on Swiff OS's boot partition.
 	on_vm "$cli run unkey --image $img" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
 	expect unkey "the key's removal queued and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/unkey.json"
@@ -350,6 +448,7 @@ test_run() {
 	expect mok-removed "the owner's removal at MokManager went through" \
 		"$python" "$here/mok-drive.py" "$run/mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 	windows_back windows-after-unkey
+	expect pcr7-unkey "PCR 7 is a clean start's after the key's removal" test "$(pcr7 unkey)" = "$base"
 	on_vm "$cli run uninstall --image $img" | tr -d '\r' | tee "$run/uninstall.json" | grep -E '"(outcome|error)"' || true
 	expect uninstall "every uninstall step ran" grep -q '"outcome":{"status":"done"' "$run/uninstall.json"
 	# Windows starts as before, from the firmware's own entry, without its recovery key.
@@ -358,9 +457,8 @@ test_run() {
 	windows_back windows-after-uninstall
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-after"
 	expect c-grown "C: is its size again: $(cat "$run/c-after") bytes" cmp -s "$run/c-before" "$run/c-after"
-	on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n' > "$run/partitions-after"
-	expect partitions-gone "Windows' 4 partitions, and no others" test "$(cat "$run/partitions-after")" = 4
-	on_vm "$cli read" | tr -d '\r' > "$run/read-after.json"
+	expect partitions-gone "Windows' 4 partitions, and no others" test "$(on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n')" = 4
+	read_as after
 	expect forgotten "the app reads Swiff OS as not installed" test "$(json "$run/read-after.json" read '.read.facts.install' || true)" = null
 	on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-3"
 	expect files-kept-3 "C: holds its file after the uninstall" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-3"
@@ -370,8 +468,54 @@ test_run() {
 	vm_wait_off 300 || vm_kill
 	"$run/boot-vars" show "$run/vars.fd" | tee "$run/vars-after.txt"
 	expect no-boot-entry "the firmware has no Swiff OS entry" bash -c "! grep -q 'Swiff OS' '$run/vars-after.txt'"
-	expect key-removed "MokList no longer holds Swiff's key" \
-		bash -c "! grep -q '$cert_hex' '$run/vars-after.txt'"
+	expect key-removed "MokList no longer holds Swiff's key" bash -c "! grep -q '$cert_hex' '$run/vars-after.txt'"
+	expect no-wait-left "no MokTimeout left behind" grep -q '^MokTimeout: none$' "$run/vars-after.txt"
+
+	scenario "10. Reinstall after removal"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	windows_back windows-before-reinstall
+	on_vm "$cli run install --image $img" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
+	expect reinstall "every install step ran again" grep -q '"outcome":{"status":"done"' "$run/reinstall.json"
+	code=$(json "$run/reinstall.json" plan '.plan.mok.code' | tr -d '"' || true)
+	expect reinstall-mok "the key confirmed again at MokManager" \
+		"$python" "$here/mok-drive.py" "$run/mok-reconfirm.log" confirm "$code" --loose --socket "$run/serial.sock"
+	windows_back windows-after-reinstall
+	expect pcr7-reinstall "PCR 7 is a clean start's" test "$(pcr7 reinstall)" = "$base"
+	on_vm "$cli run once --image $img" | tr -d '\r' > "$run/once-2.json"
+	expect swiffos-again "Swiff OS's self-test ran again after the reinstall" \
+		"$python" "$here/mok-drive.py" "$run/swiffos-2.log" wait "SWIFF-SELFTEST DONE" 900 --socket "$run/serial.sock"
+	vm_wait_off 300 || vm_kill
+
+	scenario "11. Second app instance"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	windows_back windows-before-instances
+	if [ -n "${SWIFF_HOST_EXE:-}" ] && [ -s "$SWIFF_HOST_EXE" ]; then
+		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
+		on_vm "schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 60; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 45; @(Get-Process | Where-Object { \$_.MainWindowHandle -ne 0 -and \$_.Path -like '*Swiff*' }).Count" | tr -d '\r' > "$run/instances.txt"
+		expect one-instance "the second start brought the first forward: $(tail -1 "$run/instances.txt") window(s)" test "$(tail -1 "$run/instances.txt")" = 1
+	else
+		result SKIP one-instance "no \$SWIFF_HOST_EXE given"
+	fi
+
+	scenario "12. Secure Boot off"
+	on_vm 'manage-bde -protectors -disable C: -RebootCount 2 | Out-Null; Stop-Computer -Force' || true
+	vm_wait_off 300 || vm_kill
+	"$python" "$here/boot-vars.py" secure-boot "$run/vars.fd" off
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	windows_back windows-secure-boot-off
+	read_as sb-off
+	expect sb-off-read "the app reads Secure Boot off: the BIOS to-do, Turn on Secure Boot" test "$(json "$run/read-sb-off.json" read '.read.facts.secureBoot')" = false
+	serve sb-off "plan install" "run check"
+	expect sb-off-check "the install's own check stops on it too, before any change" grep -q 'Secure Boot is off' "$run/serve-sb-off.json"
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 300 || vm_kill
+	"$python" "$here/boot-vars.py" secure-boot "$run/vars.fd" on
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	windows_back windows-secure-boot-on
+	read_as sb-on
+	expect sb-on-read "turned back on, the app reads it on" test "$(json "$run/read-sb-on.json" read '.read.facts.secureBoot')" = true
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 300 || vm_kill
 
 	echo
 	if [ "$fail" = 0 ]; then echo "Windows install VM test: PASS"; else

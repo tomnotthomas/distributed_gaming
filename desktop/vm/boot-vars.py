@@ -19,6 +19,8 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
                                      MokNew, MokAuth (and MokTimeout) from the files NEW, AUTH
                                      (and TIMEOUT), as mokutil --import --timeout -1 queues
                                      Swiff's key for MokManager
+  boot-vars.py secure-boot VARS on|off
+                                     OVMF's Secure Boot switch, as its setup screen flips it
   boot-vars.py cert DB_AUTH OUT      the certificate in DB_AUTH, as DER, to OUT
   boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request, MokTimeout
                                      and MokList
@@ -32,6 +34,9 @@ from virt.firmware.efi import devpath, efivar, guids, siglist, ucs16
 from virt.firmware.varstore import autodetect
 
 WINDOWS_PATH = "\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+
+# OVMF's Secure Boot switch (gEfiSecureBootEnableDisableGuid), which its setup screen flips.
+SECURE_BOOT_ENABLE = "SecureBootEnable"
 
 # Non-volatile, boot service and runtime access: what mokutil sets on MokNew and MokAuth.
 NV_BS_RT = 7
@@ -138,6 +143,15 @@ def main(cmd, vars_path, *args):
         store, varlist = load(vars_path)
         for name, path in zip(names, args):
             varlist[name] = efivar.EfiVar(name, guid=guids.Shim, attr=NV_BS_RT, data=open(path, "rb").read())
+        save(store, varlist, vars_path)
+    elif cmd == "secure-boot":
+        (state,) = args
+        store, varlist = load(vars_path)
+        if state == "on":
+            varlist.enable_secureboot()
+        else:
+            # OVMF's own switch, as its setup screen sets it: the keys stay enrolled.
+            varlist[SECURE_BOOT_ENABLE].data = b"\x00"
         save(store, varlist, vars_path)
     elif cmd == "cert":
         (out,) = args

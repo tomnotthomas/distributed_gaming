@@ -54,23 +54,30 @@ runs by itself up to the restart, which waits for the owner's Restart now. The i
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
 7. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
-   one-time code and sets BootNext; on Restart now the PC restarts into MokManager's blue screen
+   one-time code and `MokTimeout` -1, and sets BootNext; on Restart now the PC restarts into
+   MokManager's blue screen, whose menu then waits for the owner instead of counting down
 
 The worker trusts nothing it is sent: it adds only the image's own partitions, writes only
 into partitions it added, and removes only what it added. What it changed goes into
 `%ProgramData%\Swiff\rental-install.json` (writable by administrators only), which the
-uninstall works from: boot entry, partitions, C:'s space back, the drive names, Fast Startup
-and BitLocker. An install that stops part way is undone the same way. Swiff's key is removed
+uninstall works from: boot entry (kept by what it starts, its partition's GPT id and shim's
+path, since firmware renumbers `Boot####`), partitions, C:'s space back, the drive names, Fast
+Startup and BitLocker. An install that stops part way is undone the same way. Swiff's key is removed
 on its own, before the uninstall: MokManager, which the owner confirms the removal at with a
 new code, lives on Swiff OS's boot partition. Once installed, going live sets only BootNext
 for now, so the next restart is Windows again; Swiff OS first in BootOrder waits until Swiff
-OS can hand the PC back. A missed blue screen enrols nothing: MokManager's 10 seconds pass,
-shim fails to verify the next stage and opens MokManager's menu, and Continue boot there falls
-through into Windows in the same power-on, which changes PCR7 (Windows Hello then asks for a
-new PIN), so the app tells the owner to turn the PC off instead. Back in Windows the app finds
-such a fall-through in Windows' measured-boot log and offers Confirm the key, which queues the
-request with a new code. Whether the key is enrolled cannot be read from Windows (shim
-publishes MokListRT only to what it starts), so otherwise the app asks the owner.
+OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
+the request; shim then fails to verify the next stage and falls through into Windows in the
+same power-on, which changes PCR 7 (Windows Hello then asks for a new PIN, and BitLocker for its
+recovery key), as Continue boot does at MokManager's menu. So every request and every Swiff OS
+start sets `MokTimeout` -1, the app tells the owner never to choose Continue boot, and the key's
+restarts suspend BitLocker. Back in Windows the app reads Windows' measured-boot log (TCG,
+readable without administrator rights): shim starting Swiff's `grubx64.efi` means the key
+works; shim, MokManager and Windows in one power-on means it did not go in, and the app offers
+Confirm the key with a new code. The same log holds the Secure Boot db the firmware measured,
+so whether it trusts the CA that signs shim is read without a trip to the BIOS. After a clean
+restart, whether the key is enrolled cannot be read from Windows (shim publishes MokListRT only
+to what it starts), so the app asks the owner.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk
@@ -83,9 +90,12 @@ from the image's own archive snapshot, MokManager, and the build's signed system
 
 **Tests.** `desktop/vm/windows-install-test.sh` runs the installer, unchanged, on Microsoft's
 Windows 11 Enterprise evaluation in QEMU/KVM, with OVMF and Microsoft's Secure Boot keys, a
-software TPM and BitLocker on: install, MokManager confirmed over the serial console, Windows
-back without its recovery key, Swiff OS started once through shim, its ESP still sound after
-Windows ran beside it, then the key's removal and the uninstall. `desktop/rental-cli.cjs`
+software TPM and BitLocker on, scenario by scenario: Secure Boot already fine, the
+administrator prompt declined, not enough space, an install stopped part way and undone, a
+fresh install whose key screen is left waiting and then Continue boot, a power-off at the key
+screen, the key confirmed (PCR 7 as a clean start's each time, as `vm/pcr7.py` replays it),
+Swiff OS started once through shim with its ESP still sound, the key's removal and the
+uninstall, a reinstall, a second app instance, and Secure Boot off. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
 time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with
 `apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with

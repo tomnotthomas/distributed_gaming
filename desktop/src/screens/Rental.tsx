@@ -108,7 +108,7 @@ function blueScreen(remove = false): Tile[] {
   return [
     {
       title: `Choose ${verb} MOK`,
-      text: "The blue screen waits for you. Arrow down, then Enter. Not Continue boot.",
+      text: "The blue screen waits for you. Arrow down, then Enter.",
       visual: { screen: `Perform MOK management\n  Continue boot\n> ${verb} MOK` },
     },
     { title: "Choose Continue", text: "", visual: { screen: `[${verb} MOK]\n> Continue` } },
