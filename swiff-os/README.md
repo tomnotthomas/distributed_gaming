@@ -161,6 +161,12 @@ update changed PCR 7, rental mode tries three times, then keeps the credential a
 The report's `table` field tells the host app that the owner must bootstrap the games again. That
 bootstrap is the only thing that seals a new key: the new table then holds just the games it validated.
 
+A table that cannot be read (an I/O error, or not a regular file) or that has a newer version than
+this OS, as after a rollback to the other slot, is kept as it is: every game shows as not
+bootstrapped, nothing is promoted, not even the owner's bootstrap, and the next boot hashes in full.
+A table that fails its integrity check, including corrupt JSON, is not kept: a renter's update is
+refused, and the owner's bootstrap replaces it with a table of just the games it validated.
+
 ### At every boot
 
 - **The check.** Every TPM power-up adds one to `resetCount`. If it is exactly one more than at the
@@ -286,7 +292,8 @@ image ten times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure B
 Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff-verify`'s decisions on
 plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a
 hibernated OS, the session layer's size, an update that does not fit on the library or whose copy is
-cut short, a block that must survive the next quick check, and a table key that does not unseal. Run
+cut short, a block that must survive the next quick check, a table key that does not unseal, and a
+newer table that a bootstrap must not replace. Run
 them alone with `python3 swiff-os/vm/test_verify.py`.
 
 The games library comes from `vm/games-fixture.py`. It writes a 1 GiB NTFS library through
@@ -336,6 +343,8 @@ host's view. Together they cover:
   - The session layer leaves at least as much of the library free as it can hold.
   - A table key that does not unseal blocks every game and is kept, until the owner's bootstrap
     seals a new one.
+  - A newer or unreadable table is kept through the owner's bootstrap, and a corrupt one is
+    refused for a renter's update and replaced by the owner's bootstrap.
 - The disk image fits the 24 GiB budget.
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
