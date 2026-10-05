@@ -447,14 +447,14 @@ describe("useSwiff", () => {
       act(() => session.emit({ type: "connected" }));
       act(() => session.emit({ type: "first-frame" }));
       act(() => session.emit({ type: "steam-login", state: "failed" }));
-      expect(result.current.steamSignInFailed).toBe(true);
+      expect(result.current.steamSignInFailed).toBe("sign-in-timeout");
       expect(result.current.steamLogin).toBeNull();
 
       act(() => result.current.retrySignIn());
       // The same PC is asked for a new code: the booking is neither ended nor made again.
       expect(session.retries).toBe(1);
       expect(rtc.sessions).toHaveLength(1);
-      expect(result.current.steamSignInFailed).toBe(false);
+      expect(result.current.steamSignInFailed).toBeNull();
       expect(calls.map((c) => c.call).filter((c) => c.startsWith("POST /api/bookings"))).toEqual([
         "POST /api/bookings",
         "POST /api/bookings/b-1/claim",

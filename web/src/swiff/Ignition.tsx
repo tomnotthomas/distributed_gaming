@@ -3,7 +3,7 @@ import { Backdrop } from "@swiff/ui";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
-import { isSteamSignInUrl, SteamSignIn, SteamSignInFailed } from "./SteamSignIn";
+import { isSteamSignInUrl, signInFailedTitle, SteamSignIn, SteamSignInFailed } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
 
 /**
@@ -20,7 +20,8 @@ import type { Swiff } from "./useSwiff";
  * On a rental-mode PC, Steam's sign-in code takes the dial's place until the
  * renter has approved it from the Steam app: the one sign-in step there is.
  * If the PC says that sign-in stopped short, Ignition says so instead and
- * offers to try again; it never goes live on it.
+ * offers to try again, or another machine when the game never came up after
+ * sign-in; it never goes live on it.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow } = swiff;
@@ -97,7 +98,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
           {signInFailed
-            ? "Sign-in didn't work"
+            ? signInFailedTitle(signInFailed)
             : signIn
               ? "Sign in to Steam"
               : slow
@@ -119,7 +120,11 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         ) : null}
 
         {signInFailed ? (
-          <SteamSignInFailed onRetry={swiff.retrySignIn} />
+          <SteamSignInFailed
+            reason={signInFailed}
+            onRetry={swiff.retrySignIn}
+            onTryAnother={swiff.tryAnother}
+          />
         ) : signIn ? (
           <SteamSignIn url={signIn} />
         ) : (

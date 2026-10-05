@@ -151,11 +151,11 @@ describe("Ignition", () => {
   it("says a failed Steam sign-in in the code's place, stops its step, and offers to try again", () => {
     const retrySignIn = vi.fn();
     const goHome = vi.fn();
-    const at = (steamSignInFailed: boolean) =>
-      swiffAt(0.75, 3, { ...qr(), steamSignInFailed, retrySignIn, goHome, slow: steamSignInFailed });
+    const at = (steamSignInFailed: "sign-in-timeout" | null) =>
+      swiffAt(0.75, 3, { ...qr(), steamSignInFailed, retrySignIn, goHome, slow: steamSignInFailed !== null });
     // Ignition is up on the code first; the failure comes after.
-    const { rerender } = render(<Ignition swiff={at(false)} />);
-    rerender(<Ignition swiff={at(true)} />);
+    const { rerender } = render(<Ignition swiff={at(null)} />);
+    rerender(<Ignition swiff={at("sign-in-timeout")} />);
 
     const panel = screen.getByRole("region", { name: "Sign-in didn't work" });
     expect(screen.queryByRole("img", { name: "Steam sign-in QR code" })).toBeNull();
@@ -176,5 +176,29 @@ describe("Ignition", () => {
     expect(held).toHaveTextContent("Launching Elden Ring");
     expect(held).toHaveTextContent("Stopped");
     expect(document.querySelector('.ig-legend [data-state="now"]')).toBeNull();
+  });
+
+  it("says the game didn't start when it never came up after sign-in, and offers another machine, not a new code", () => {
+    const retrySignIn = vi.fn();
+    const tryAnother = vi.fn();
+    const at = (steamSignInFailed: "launch-timeout" | null) =>
+      swiffAt(0.75, 3, { steamSignInFailed, retrySignIn, tryAnother, slow: steamSignInFailed !== null });
+    // Ignition is up first; the failure comes after.
+    const { rerender } = render(<Ignition swiff={at(null)} />);
+    rerender(<Ignition swiff={at("launch-timeout")} />);
+
+    const panel = screen.getByRole("region", { name: "Your game didn't start" });
+    expect(panel).not.toHaveTextContent("new code");
+    expect(panel.textContent).not.toMatch(/\u2014/);
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("Your game didn't start");
+    expect(screen.queryByTestId("ignition-slow")).toBeNull();
+    const another = within(panel).getByRole("button", { name: "Try another machine" });
+    expect(another).toHaveFocus();
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+
+    fireEvent.click(another);
+    expect(tryAnother).toHaveBeenCalledOnce();
+    expect(retrySignIn).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 });

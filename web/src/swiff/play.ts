@@ -80,9 +80,15 @@ export type PlayState = {
   started: boolean;
   /** Rental mode: Steam's sign-in code for the renter to scan, or their approval of it. */
   steamLogin: SteamLogin | null;
-  /** Rental mode: the PC's Steam sign-in or launch stopped short. Never live on it. */
-  signInFailed: boolean;
+  /**
+   * Rental mode: the PC's Steam sign-in (its code was never approved) or the
+   * game's launch after it stopped short, or null. Never live on it.
+   */
+  signInFailed: SignInFailure | null;
 };
+
+/** Why a rental-mode PC's Steam sign-in stopped short; a PC that does not say counts as the sign-in. */
+export type SignInFailure = NonNullable<Extract<SteamLogin, { state: "failed" }>["reason"]>;
 
 export type PlayOptions = {
   claim: Claim;
@@ -130,7 +136,7 @@ export function startPlay(opts: PlayOptions): Play {
     denied: false,
     started: false,
     steamLogin: null,
-    signInFailed: false,
+    signInFailed: null,
   };
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -259,9 +265,9 @@ export function startPlay(opts: PlayOptions): Play {
           if (event.state === "failed") {
             // The sign-in or the launch stopped short: no game-started is coming.
             if (state.step === "launching") clearTimeout(timer);
-            set({ steamLogin: null, signInFailed: true, slow: false });
+            set({ steamLogin: null, signInFailed: event.reason ?? "sign-in-timeout", slow: false });
           } else {
-            set({ steamLogin: event, signInFailed: false });
+            set({ steamLogin: event, signInFailed: null });
             if (state.step !== "launching") break;
             if (event.state === "qr") {
               clearTimeout(timer);
@@ -303,7 +309,7 @@ export function startPlay(opts: PlayOptions): Play {
     retrySignIn() {
       if (stopped || !state.signInFailed) return;
       session?.retrySteamLogin();
-      set({ signInFailed: false });
+      set({ signInFailed: null });
       // A PC that never answers with a new code is slow like any other launch.
       if (state.step === "launching") armLaunch();
     },

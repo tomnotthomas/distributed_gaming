@@ -1,7 +1,7 @@
 // The platform's HTTP API, over the state in platform.ts.
 //
 //   Booking API (renter, signed in)        Host API (gaming PC)
-//   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability  either
+//   GET  /api/games          (signed out)  PUT  /api/machines/:id/availability  control
 //   GET  /api/availability?appids=         POST /api/machines/:id/heartbeat     either
 //   GET  /api/games/:appid/machines?minutes=  GET  /api/machines/:id/demand     control
 //   GET  /api/me                           POST /api/machines/:id/attest-challenge
@@ -632,7 +632,7 @@ export function createApi({
     // --- Host API ------------------------------------------------------------
 
     if (resource === "machines" && id && action === "availability" && method === "PUT") {
-      const credential = requireMachineOrHost(req, attestation, id);
+      requireMachine(req, access, id);
       const body = await readJson(req, MAX_HOST_BODY_BYTES);
       if (typeof body.available !== "boolean") throw new HttpError(400, "available must be true or false");
       if (body.reset !== undefined && typeof body.reset !== "boolean") {
@@ -645,7 +645,7 @@ export function createApi({
         id,
         body.available,
         { ...hostReport(body), price, availableUntil: optionalTime(body.until, "until") },
-        { reset: body.reset === true, rentalMode: credential.kind === "host-cert" },
+        { reset: body.reset === true },
       );
       reply(res, 200, machine);
       return true;

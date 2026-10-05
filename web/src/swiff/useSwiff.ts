@@ -897,8 +897,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     goHome,
     /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
     steamLogin: play?.steamLogin ?? null,
-    /** The PC's Steam sign-in stopped short: Ignition offers to try again (a fresh code on the same claim). */
-    steamSignInFailed: play?.signInFailed ?? false,
+    /**
+     * The PC's Steam sign-in stopped short, and why: Ignition offers a fresh
+     * code on the same claim, or another machine when the game never came up.
+     */
+    steamSignInFailed: play?.signInFailed ?? null,
     retrySignIn,
     openShare,
     setWeek,

@@ -441,14 +441,14 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
     expect(handle.state()).toMatchObject({
       step: "launching",
       slow: false,
-      signInFailed: true,
+      signInFailed: "sign-in-timeout",
       steamLogin: null,
     });
 
     handle.retrySignIn();
     expect(latest().retries).toBe(1);
     expect(sessions).toHaveLength(1);
-    expect(handle.state().signInFailed).toBe(false);
+    expect(handle.state().signInFailed).toBeNull();
 
     latest().emit({ ...QR, url: "https://s.team/q/1/43" });
     expect(handle.state().steamLogin).toEqual({ ...QR, url: "https://s.team/q/1/43" });
@@ -555,6 +555,15 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
 
     latest().emit({ type: "steam-login", state: "signed-in" });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps why the sign-in stopped short: the game never coming up after it, or the code by default", () => {
+    const { handle } = play();
+    latest().emit({ type: "steam-login", state: "failed", reason: "launch-timeout" });
+    expect(handle.state().signInFailed).toBe("launch-timeout");
+    handle.retrySignIn();
+    latest().emit({ type: "steam-login", state: "failed" });
+    expect(handle.state().signInFailed).toBe("sign-in-timeout");
   });
 
   it("asks for a retry only after a failed sign-in", () => {

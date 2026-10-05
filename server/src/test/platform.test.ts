@@ -289,6 +289,30 @@ describe("queue timeout", () => {
   });
 });
 
+describe("rental mode on the claim", () => {
+  const claimed = async () => {
+    const { bookingId } = await platform.book(730, 30);
+    const claim = await platform.claim(bookingId);
+    assert.ok(claim.ok);
+    assert.ok((await platform.endBooking(bookingId)).ok);
+    return claim.rentalMode;
+  };
+
+  it("follows the hosting socket's registration, and the streamer's leaves it", async () => {
+    await offer("pc-1");
+    await platform.hostConnected("pc-1", false);
+    assert.equal(await claimed(), false);
+
+    await platform.hostConnected("pc-1", true);
+    await platform.hostConnected("pc-1"); // the streamer registers
+    await offer("pc-1");
+    assert.equal(await claimed(), true);
+
+    await platform.hostConnected("pc-1", false);
+    assert.equal(await claimed(), false);
+  });
+});
+
 describe("the claim clock of a renter away at the match", () => {
   /** A booking queued at its renter's last contact and matched to pc-1 `awayMs` later, with the tab closed. */
   const matchedAway = async (awayMs = 30_000) => {

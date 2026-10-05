@@ -85,7 +85,11 @@ export function steamLoginForwarder({
     if (finished || stopped) return;
     finished = true;
     log(`[swiff-streamer] Steam sign-in failed (${why})`);
-    tell({ type: "steam-login", state: "failed" });
+    tell(
+      why === "sign-in-timeout" || why === "launch-timeout"
+        ? { type: "steam-login", state: "failed", reason: why }
+        : { type: "steam-login", state: "failed" },
+    );
   };
 
   const onEvent = (line: string) => {

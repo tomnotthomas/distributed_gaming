@@ -2,7 +2,6 @@
 // signaling, asks for a Play and hears how it goes. One command per
 // connection:
 //
-//   status        → { "steam": "starting" | "sign-in" | "signed-in" }, then closed
 //   play <appid>  → one PlayEvent per line (login.ts) until game-on-screen or failed, then closed
 //
 // A `qr` event carries a live sign-in code: whoever reads this socket passes it
@@ -13,17 +12,8 @@
 import { chmod, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { play, type PlayOptions } from "./login.ts";
-import { isSignInUrl } from "./steam.ts";
 
 const MAX_COMMAND_BYTES = 64;
-
-export type SteamState = "starting" | "sign-in" | "signed-in";
-
-/** Where Steam stands: signed in, showing its sign-in code (ready for a renter), or neither yet. */
-export async function steamState(opts: Pick<PlayOptions, "steam" | "display">): Promise<SteamState> {
-  if (await opts.steam.signedIn()) return "signed-in";
-  return (await opts.display.qrCodes()).some(isSignInUrl) ? "sign-in" : "starting";
-}
 
 /**
  * Listen at `path`. The socket is for the agent's user and its group (mode
@@ -53,9 +43,7 @@ export async function serveLogin(path: string, opts: Omit<PlayOptions, "emit" | 
         if (!conn.destroyed) conn.write(`${JSON.stringify(reply)}\n`);
       };
 
-      if (command === "status") {
-        write({ steam: await steamState(opts).catch(() => "starting") });
-      } else if (command === "play" && arg !== undefined && /^[1-9][0-9]{0,9}$/.test(arg)) {
+      if (command === "play" && arg !== undefined && /^[1-9][0-9]{0,9}$/.test(arg)) {
         if (playing) {
           write({ event: "failed", reason: "busy", atMs: 0 });
         } else {

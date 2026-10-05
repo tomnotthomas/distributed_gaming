@@ -25,7 +25,7 @@ const playing = (more: Partial<PlayState> = {}): PlayState => ({
   denied: false,
   started: true,
   steamLogin: null,
-  signInFailed: false,
+  signInFailed: null,
   ...more,
 });
 

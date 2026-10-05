@@ -109,20 +109,23 @@ export type LaunchGameMessage = { type: "launch-game"; sessionId: string; appid:
  * captured, never the desktop or Steam.
  */
 export type GameStartedMessage = { type: "game-started"; sessionId: string };
+/** Why a rental-mode PC's Steam sign-in or launch stopped short. */
+export type SteamLoginFailure = "sign-in-timeout" | "launch-timeout";
 /**
  * Rental mode's Steam sign-in, sent by the PC to its renter and relayed like
  * the handshake, never the other way. `qr` is the link Steam's own sign-in QR
  * code encodes, for the renter's page to draw as a QR code they scan with the
  * Steam app; the PC sends it again whenever Steam shows a new code.
  * `signed-in` says the renter approved it and the game is being launched.
- * `failed` says the sign-in or the launch stopped short (Steam's code timed
- * out, the game never came up): the renter is not signed in and nothing is
- * starting. The server never logs any of them.
+ * `failed` says the sign-in or the launch stopped short: the renter is not
+ * signed in and nothing is starting. Its `reason`, when the PC knows it, is
+ * `sign-in-timeout` (Steam's code was never approved) or `launch-timeout` (the
+ * game never came up after sign-in). The server never logs any of them.
  */
 export type SteamLoginMessage =
   | { type: "steam-login"; state: "qr"; url: string }
   | { type: "steam-login"; state: "signed-in" }
-  | { type: "steam-login"; state: "failed" };
+  | { type: "steam-login"; state: "failed"; reason?: SteamLoginFailure };
 /**
  * The one Steam sign-in message the other way: the renter asks the PC for a
  * fresh sign-in code after a `failed`, on the same claim. The renter keeps the

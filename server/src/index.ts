@@ -686,7 +686,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         ws.certTimer.unref?.();
       }
       // The PC is there for as long as this socket stays open.
-      await platform.hostConnected(msg.hostId);
+      await platform.hostConnected(msg.hostId, tier === null ? undefined : tier !== "unattested");
       // A newer host took the seat meanwhile: this one is being hung up on.
       if (room.host !== ws) return;
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
