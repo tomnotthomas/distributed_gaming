@@ -1,0 +1,3032 @@
+{
+  "recordedAt": "2026-10-05",
+  "charts": {
+    "response": {
+      "rollup_date": 1791072000,
+      "ranks": [
+        {
+          "rank": 1,
+          "appid": 730,
+          "last_week_rank": 1,
+          "peak_in_game": 1293425
+        },
+        {
+          "rank": 2,
+          "appid": 570,
+          "last_week_rank": 2,
+          "peak_in_game": 895069
+        },
+        {
+          "rank": 3,
+          "appid": 578080,
+          "last_week_rank": 3,
+          "peak_in_game": 637522
+        },
+        {
+          "rank": 4,
+          "appid": 431960,
+          "last_week_rank": 4,
+          "peak_in_game": 112749
+        },
+        {
+          "rank": 5,
+          "appid": 1172470,
+          "last_week_rank": 6,
+          "peak_in_game": 211580
+        },
+        {
+          "rank": 6,
+          "appid": 1867240,
+          "last_week_rank": 5,
+          "peak_in_game": 263722
+        },
+        {
+          "rank": 7,
+          "appid": 1422450,
+          "last_week_rank": 21,
+          "peak_in_game": 188155
+        },
+        {
+          "rank": 8,
+          "appid": 892970,
+          "last_week_rank": 7,
+          "peak_in_game": 224091
+        },
+        {
+          "rank": 9,
+          "appid": 292030,
+          "last_week_rank": 91,
+          "peak_in_game": 137724
+        },
+        {
+          "rank": 10,
+          "appid": 271590,
+          "last_week_rank": 8,
+          "peak_in_game": 74192
+        },
+        {
+          "rank": 11,
+          "appid": 2676230,
+          "last_week_rank": 11,
+          "peak_in_game": 204078
+        },
+        {
+          "rank": 12,
+          "appid": 2868840,
+          "last_week_rank": 10,
+          "peak_in_game": 92733
+        },
+        {
+          "rank": 13,
+          "appid": 2357570,
+          "last_week_rank": 13,
+          "peak_in_game": 84601
+        },
+        {
+          "rank": 14,
+          "appid": 359550,
+          "last_week_rank": 12,
+          "peak_in_game": 96161
+        },
+        {
+          "rank": 15,
+          "appid": 236390,
+          "last_week_rank": 15,
+          "peak_in_game": 91327
+        },
+        {
+          "rank": 16,
+          "appid": 250900,
+          "last_week_rank": 17,
+          "peak_in_game": 70823
+        },
+        {
+          "rank": 17,
+          "appid": 2767030,
+          "last_week_rank": 14,
+          "peak_in_game": 78270
+        },
+        {
+          "rank": 18,
+          "appid": 4126040,
+          "last_week_rank": 9,
+          "peak_in_game": 109595
+        },
+        {
+          "rank": 19,
+          "appid": 322170,
+          "last_week_rank": 18,
+          "peak_in_game": 63016
+        },
+        {
+          "rank": 20,
+          "appid": 4001890,
+          "last_week_rank": 52,
+          "peak_in_game": 82158
+        },
+        {
+          "rank": 21,
+          "appid": 553850,
+          "last_week_rank": 16,
+          "peak_in_game": 61000
+        },
+        {
+          "rank": 22,
+          "appid": 550,
+          "last_week_rank": 33,
+          "peak_in_game": 49848
+        },
+        {
+          "rank": 23,
+          "appid": 1973530,
+          "last_week_rank": 24,
+          "peak_in_game": 81281
+        },
+        {
+          "rank": 24,
+          "appid": 413150,
+          "last_week_rank": 25,
+          "peak_in_game": 97685
+        },
+        {
+          "rank": 25,
+          "appid": 381210,
+          "last_week_rank": 19,
+          "peak_in_game": 62103
+        },
+        {
+          "rank": 26,
+          "appid": 1304930,
+          "last_week_rank": -1,
+          "peak_in_game": 94507
+        },
+        {
+          "rank": 27,
+          "appid": 252490,
+          "last_week_rank": 27,
+          "peak_in_game": 149781
+        },
+        {
+          "rank": 28,
+          "appid": 105600,
+          "last_week_rank": 23,
+          "peak_in_game": 55418
+        },
+        {
+          "rank": 29,
+          "appid": 2507950,
+          "last_week_rank": 22,
+          "peak_in_game": 129275
+        },
+        {
+          "rank": 30,
+          "appid": 230410,
+          "last_week_rank": 20,
+          "peak_in_game": 79027
+        },
+        {
+          "rank": 31,
+          "appid": 108600,
+          "last_week_rank": 32,
+          "peak_in_game": 82316
+        },
+        {
+          "rank": 32,
+          "appid": 3240220,
+          "last_week_rank": 26,
+          "peak_in_game": 78391
+        },
+        {
+          "rank": 33,
+          "appid": 440,
+          "last_week_rank": 34,
+          "peak_in_game": 85974
+        },
+        {
+          "rank": 34,
+          "appid": 227300,
+          "last_week_rank": 30,
+          "peak_in_game": 57553
+        },
+        {
+          "rank": 35,
+          "appid": 2807960,
+          "last_week_rank": 29,
+          "peak_in_game": 44800
+        },
+        {
+          "rank": 36,
+          "appid": 1142710,
+          "last_week_rank": 28,
+          "peak_in_game": 84700
+        },
+        {
+          "rank": 37,
+          "appid": 438100,
+          "last_week_rank": 35,
+          "peak_in_game": 61352
+        },
+        {
+          "rank": 38,
+          "appid": 4080220,
+          "last_week_rank": 38,
+          "peak_in_game": 96232
+        },
+        {
+          "rank": 39,
+          "appid": 1091500,
+          "last_week_rank": 45,
+          "peak_in_game": 60209
+        },
+        {
+          "rank": 40,
+          "appid": 1086940,
+          "last_week_rank": 37,
+          "peak_in_game": 71319
+        }
+      ]
+    }
+  },
+  "items": {
+    "response": {
+      "store_items": [
+        {
+          "appid": 730,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Counter-Strike 2",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/730/${FILENAME}?t=1789251637",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "6328493f4cc4a8fb83e1149be1cac5a7823fe588/capsule_616x353.jpg",
+            "main_capsule_2x": "6328493f4cc4a8fb83e1149be1cac5a7823fe588/capsule_616x353_2x.jpg",
+            "header": "162664aa5da85f418105350c5d67ca565f6c3713/header.jpg",
+            "header_2x": "162664aa5da85f418105350c5d67ca565f6c3713/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "730/612468/aa5a28c78f12232e6b6839034550c28b162fad3e/1748810724/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "730/612468/aa5a28c78f12232e6b6839034550c28b162fad3e/1748810724/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 570,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Dota 2",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/570/${FILENAME}?t=1769535998",
+            "library_hero": "06918d1009cc79ffdee853f1ef789cddf8014226/library_hero.jpg",
+            "library_hero_2x": "06918d1009cc79ffdee853f1ef789cddf8014226/library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg",
+            "header_2x": "header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "570/116737/313addee2092d0bd6f538d164610061ea8bbe79c/1749859757/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "570/116737/313addee2092d0bd6f538d164610061ea8bbe79c/1749859757/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 578080,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "PUBG: BATTLEGROUNDS",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/578080/${FILENAME}?t=1786493086",
+            "library_hero": "a14b88ee69f55d5354d3efc1f725eddf40650869/library_hero.jpg",
+            "library_hero_2x": "a14b88ee69f55d5354d3efc1f725eddf40650869/library_hero_2x.jpg",
+            "main_capsule": "3c8895a8ff87fb18d50ff17842511514d4200437/capsule_616x353.jpg",
+            "main_capsule_2x": "3c8895a8ff87fb18d50ff17842511514d4200437/capsule_616x353_2x.jpg",
+            "header": "841ea38bc58cabb70aef65365cf50bc2d79329d9/header.jpg",
+            "header_2x": "841ea38bc58cabb70aef65365cf50bc2d79329d9/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "578080/149606980/a6802ac8a3cb9f85eab879f3875c8924e6fab09d/1786492554/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "578080/149606980/a6802ac8a3cb9f85eab879f3875c8924e6fab09d/1786492554/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 431960,
+          "success": 1,
+          "visible": true,
+          "type": 6,
+          "name": "Wallpaper Engine",
+          "assets": {
+            "asset_url_format": "steam/apps/431960/${FILENAME}?t=1779452230",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "431960/196034/4f589f0c2fd3411f08cd487919145ff67d9245df/1750530225/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "431960/196034/4f589f0c2fd3411f08cd487919145ff67d9245df/1750530225/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1172470,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Apex Legends™",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/1172470/${FILENAME}?t=1790164440",
+            "library_hero": "8172a927a16a54bf8e8a21bce045f8304672c788/library_hero.jpg",
+            "library_hero_2x": "8172a927a16a54bf8e8a21bce045f8304672c788/library_hero_2x.jpg",
+            "main_capsule": "996dae567d63b6773b02cd7dbcaabced6c5b2db0/capsule_616x353_alt_assets_5.jpg",
+            "main_capsule_2x": "996dae567d63b6773b02cd7dbcaabced6c5b2db0/capsule_616x353_alt_assets_5_2x.jpg",
+            "header": "60fcaedb88ccf94df30281533d828b86c6ffb9b6/header_alt_assets_5.jpg",
+            "header_2x": "60fcaedb88ccf94df30281533d828b86c6ffb9b6/header_alt_assets_5_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1172470/343063211/62821b5e8c30fe0232997e3a83b36292aea323af/1789580842/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1172470/343063211/62821b5e8c30fe0232997e3a83b36292aea323af/1789580842/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1867240,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "WARDOGS",
+          "assets": {
+            "asset_url_format": "steam/apps/1867240/${FILENAME}?t=1790774170",
+            "library_hero": "9e3d0dba457f3d33734990866160be80c399f67c/library_hero.jpg",
+            "library_hero_2x": "9e3d0dba457f3d33734990866160be80c399f67c/library_hero_2x.jpg",
+            "main_capsule": "24c0b6c0621560e922fbed18545921e7eaa9036e/capsule_616x353.jpg",
+            "main_capsule_2x": "24c0b6c0621560e922fbed18545921e7eaa9036e/capsule_616x353_2x.jpg",
+            "header": "59d4daf753bd5d982e6675f7eee363bc817c574e/header.jpg",
+            "header_2x": "59d4daf753bd5d982e6675f7eee363bc817c574e/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1867240/575341225/15786b3bb86e18b28ff64169f9dd628db62002b3/1780764715/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1867240/575341225/15786b3bb86e18b28ff64169f9dd628db62002b3/1780764715/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1422450,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Deadlock",
+          "assets": {
+            "asset_url_format": "steam/apps/1422450/${FILENAME}?t=1790716179",
+            "library_hero": "e38dad54f59519e592896c889bbfa7c90fd52270/library_hero.jpg",
+            "library_hero_2x": "e38dad54f59519e592896c889bbfa7c90fd52270/library_hero_2x.jpg",
+            "main_capsule": "bb234ef2fd0409fffbd0e0d0c470c05167d18535/capsule_616x353.jpg",
+            "main_capsule_2x": "bb234ef2fd0409fffbd0e0d0c470c05167d18535/capsule_616x353_2x.jpg",
+            "header": "aa249c5e8cc8f90941bd1dbdc311773cd1afe065/header.jpg",
+            "header_2x": "aa249c5e8cc8f90941bd1dbdc311773cd1afe065/header_2x.jpg"
+          }
+        },
+        {
+          "appid": 892970,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Valheim",
+          "assets": {
+            "asset_url_format": "steam/apps/892970/${FILENAME}?t=1790220314",
+            "library_hero": "54c41f4233adb74762d722e5b34cfb014402b55e/library_hero.jpg",
+            "library_hero_2x": "54c41f4233adb74762d722e5b34cfb014402b55e/library_hero_2x.jpg",
+            "main_capsule": "22457bf860fd3e08b5aff23eef3afc7c97e2b9e7/capsule_616x353_alt_assets_6.jpg",
+            "main_capsule_2x": "22457bf860fd3e08b5aff23eef3afc7c97e2b9e7/capsule_616x353_alt_assets_6_2x.jpg",
+            "header": "1888731b59362fca6c026cdbafa3dfffd45c3146/header_alt_assets_6.jpg",
+            "header_2x": "1888731b59362fca6c026cdbafa3dfffd45c3146/header_alt_assets_6_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "892970/1773403435/2417a8f159c3b08912ee0c08e6a78d70452a083f/1788934690/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "892970/1773403435/2417a8f159c3b08912ee0c08e6a78d70452a083f/1788934690/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 292030,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "The Witcher 3: Wild Hunt — Remastered",
+          "assets": {
+            "asset_url_format": "steam/apps/292030/${FILENAME}?t=1790845156",
+            "library_hero": "2dbca4868f3a9912aad6966bb0b6ab2d270f6da6/library_hero.jpg",
+            "library_hero_2x": "2dbca4868f3a9912aad6966bb0b6ab2d270f6da6/library_hero_2x.jpg",
+            "main_capsule": "c9efb37645a3ee09eb131c7febd471f29fbea587/capsule_616x353_alt_assets_1.jpg",
+            "main_capsule_2x": "c9efb37645a3ee09eb131c7febd471f29fbea587/capsule_616x353_alt_assets_1_2x.jpg",
+            "header": "e8afc4252e3fee8ed2525ab2fd7675cca39aa38d/header_alt_assets_1.jpg",
+            "header_2x": "e8afc4252e3fee8ed2525ab2fd7675cca39aa38d/header_alt_assets_1_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "292030/511051216/5bbe135e5caf9dce45b1fb09a9d76373fb8977b8/1790683068/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "292030/511051216/5bbe135e5caf9dce45b1fb09a9d76373fb8977b8/1790683068/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 271590,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Grand Theft Auto V Legacy",
+          "assets": {
+            "asset_url_format": "steam/apps/271590/${FILENAME}?t=1765387725",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "271590/844218/973b531959db4e15682893543d6a27a70e7e1eb3/1751269402/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "271590/844218/973b531959db4e15682893543d6a27a70e7e1eb3/1751269402/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 2676230,
+          "success": 1,
+          "visible": true,
+          "type": 14,
+          "name": "FiveM",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/2676230/${FILENAME}?t=1778609608",
+            "main_capsule": "fbbd1de9c0273fe266a7a9c19fcabcd95dd14c21/capsule_616x353.jpg",
+            "main_capsule_2x": "fbbd1de9c0273fe266a7a9c19fcabcd95dd14c21/capsule_616x353_2x.jpg",
+            "header": "9e8a2df18bfdd24267aefa6d3e14778c2ecb1708/header.jpg",
+            "header_2x": "9e8a2df18bfdd24267aefa6d3e14778c2ecb1708/header_2x.jpg"
+          }
+        },
+        {
+          "appid": 2868840,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Slay the Spire 2",
+          "assets": {
+            "asset_url_format": "steam/apps/2868840/${FILENAME}?t=1787169309",
+            "library_hero": "142685c713492a21940cf2c01e50f85aca5780c8/library_hero.jpg",
+            "library_hero_2x": "142685c713492a21940cf2c01e50f85aca5780c8/library_hero_2x.jpg",
+            "main_capsule": "6a19172e7bc3045dd4625018ca82dce8a18ed0ab/capsule_616x353.jpg",
+            "main_capsule_2x": "6a19172e7bc3045dd4625018ca82dce8a18ed0ab/capsule_616x353_2x.jpg",
+            "header": "b0958d387dc366211e0f353443710cfcf9fdb020/header.jpg",
+            "header_2x": "b0958d387dc366211e0f353443710cfcf9fdb020/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "2868840/1627257579/a83072d3f9fb135618cc17b8390a50a19656a00d/1771464864/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "2868840/1627257579/a83072d3f9fb135618cc17b8390a50a19656a00d/1771464864/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 2357570,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Overwatch®",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/2357570/${FILENAME}?t=1788890347",
+            "library_hero": "a65d981a8253682e6ee0eb72aeb64b12ef2dc860/library_hero.jpg",
+            "library_hero_2x": "a65d981a8253682e6ee0eb72aeb64b12ef2dc860/library_hero_2x.jpg",
+            "main_capsule": "69b0899c4ba393b9b5648012524dc2bc98a5cc42/capsule_616x353_alt_assets_22.jpg",
+            "main_capsule_2x": "69b0899c4ba393b9b5648012524dc2bc98a5cc42/capsule_616x353_alt_assets_22_2x.jpg",
+            "header": "7baa151c768868f1fe1d3aeea2467fa1a35fb531/header_alt_assets_22.jpg",
+            "header_2x": "7baa151c768868f1fe1d3aeea2467fa1a35fb531/header_alt_assets_22_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "2357570/770379714/208ec2d105551b7a5ef6c2c62b5be607a618b24b/1785544865/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "2357570/770379714/208ec2d105551b7a5ef6c2c62b5be607a618b24b/1785544865/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 359550,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Tom Clancy's Rainbow Six Siege",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/359550/${FILENAME}?t=1790952963",
+            "library_hero": "6a17af1cb99e9822a54b6b80f8186ac932b88d3d/library_hero.jpg",
+            "library_hero_2x": "6a17af1cb99e9822a54b6b80f8186ac932b88d3d/library_hero_2x.jpg",
+            "main_capsule": "45a6cd9ff8ec0491f61ad5799423800314b0c881/capsule_616x353_alt_assets_25.jpg",
+            "main_capsule_2x": "45a6cd9ff8ec0491f61ad5799423800314b0c881/capsule_616x353_alt_assets_25_2x.jpg",
+            "header": "6b69a8d5ac8d0542bba5c735a8bcc5bb33cda42e/header_alt_assets_25.jpg",
+            "header_2x": "6b69a8d5ac8d0542bba5c735a8bcc5bb33cda42e/header_alt_assets_25_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "359550/1888613436/b543c846a1f5bd39e4b790745ee5426f0b9b1423/1788250020/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "359550/1888613436/b543c846a1f5bd39e4b790745ee5426f0b9b1423/1788250020/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 236390,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "War Thunder",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/236390/${FILENAME}?t=1790873564",
+            "library_hero": "efd77bd37117ea968184726b4f65b4abab59889f/library_hero.jpg",
+            "library_hero_2x": "efd77bd37117ea968184726b4f65b4abab59889f/library_hero_2x.jpg",
+            "main_capsule": "34080813e94ef5a2cefc45fd57c3c09df4f490b1/capsule_616x353.jpg",
+            "main_capsule_2x": "34080813e94ef5a2cefc45fd57c3c09df4f490b1/capsule_616x353_2x.jpg",
+            "header": "38881c549e623fe432af4e7b4bc3952b443906f5/header.jpg",
+            "header_2x": "38881c549e623fe432af4e7b4bc3952b443906f5/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "236390/1458941247/f42f2933d2c2d27c6458d69f9a6a25052c418507/1789547571/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "236390/1458941247/f42f2933d2c2d27c6458d69f9a6a25052c418507/1789547571/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 250900,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "The Binding of Isaac: Rebirth",
+          "assets": {
+            "asset_url_format": "steam/apps/250900/${FILENAME}?t=1731977365",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "250900/24525/9792b630ba0f19aae9c9a814b16b15b4e04ef2dc/1750497097/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "250900/24525/9792b630ba0f19aae9c9a814b16b15b4e04ef2dc/1750497097/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 2767030,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Marvel Rivals",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/2767030/${FILENAME}?t=1789119923",
+            "library_hero": "dc035da29a842c3f0a4d57dd44b2c8fa8a92f32f/library_hero.jpg",
+            "library_hero_2x": "dc035da29a842c3f0a4d57dd44b2c8fa8a92f32f/library_hero_2x.jpg",
+            "main_capsule": "25b6ac0d0d85740ee9bf38462a19243e50c70648/capsule_616x353.jpg",
+            "main_capsule_2x": "25b6ac0d0d85740ee9bf38462a19243e50c70648/capsule_616x353_2x.jpg",
+            "header": "088fc787d8513a6f9782d03968e5ac1a01840087/header.jpg",
+            "header_2x": "088fc787d8513a6f9782d03968e5ac1a01840087/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "2767030/928852697/63c5517ad25d8b7da1fbfcfbb7f825c96e0dba66/1789112624/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "2767030/928852697/63c5517ad25d8b7da1fbfcfbb7f825c96e0dba66/1789112624/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 4126040,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Aniimo",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/4126040/${FILENAME}?t=1790849962",
+            "library_hero": "7094df909e85f427f636aa077d6701c79b838459/library_hero.jpg",
+            "library_hero_2x": "7094df909e85f427f636aa077d6701c79b838459/library_hero_2x.jpg",
+            "main_capsule": "0acdc54dbcb7326bd8777ee25ff168efef004fd1/capsule_616x353.jpg",
+            "main_capsule_2x": "0acdc54dbcb7326bd8777ee25ff168efef004fd1/capsule_616x353_2x.jpg",
+            "header": "bf9b76d25ac135baf8f313d9a095e754fd2e950b/header.jpg",
+            "header_2x": "bf9b76d25ac135baf8f313d9a095e754fd2e950b/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "4126040/1500363181/cc4e9b3a4c023fec6a8c119809407fdf8cd4ea2d/1789567371/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "4126040/1500363181/cc4e9b3a4c023fec6a8c119809407fdf8cd4ea2d/1789567371/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 322170,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Geometry Dash",
+          "assets": {
+            "asset_url_format": "steam/apps/322170/${FILENAME}?t=1775300400",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "322170/29035/284ed61dccab2abafb237feefd9c67217532899a/1750507867/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "322170/29035/284ed61dccab2abafb237feefd9c67217532899a/1750507867/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 4001890,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "How to Fish",
+          "assets": {
+            "asset_url_format": "steam/apps/4001890/${FILENAME}?t=1788788717",
+            "library_hero": "3f394793c83684fdc214de2bc28a754d8f4a293e/library_hero.jpg",
+            "library_hero_2x": "3f394793c83684fdc214de2bc28a754d8f4a293e/library_hero_2x.jpg",
+            "main_capsule": "c5ccd85d2910a21019adb2581011ac186741d030/capsule_616x353.jpg",
+            "main_capsule_2x": "c5ccd85d2910a21019adb2581011ac186741d030/capsule_616x353_2x.jpg",
+            "header": "45c4ddff4901e32c4b8b643e1b97d0d01898d299/header.jpg",
+            "header_2x": "45c4ddff4901e32c4b8b643e1b97d0d01898d299/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "4001890/1509866700/0a2d65236b13d187ce8d7d8eca946a501b7fad47/1786614175/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "4001890/1509866700/0a2d65236b13d187ce8d7d8eca946a501b7fad47/1786614175/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 553850,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "HELLDIVERS™ 2",
+          "assets": {
+            "asset_url_format": "steam/apps/553850/${FILENAME}?t=1789585784",
+            "library_hero": "6cb2177e422438e35b0cd1f1111a468130a83a11/library_hero.jpg",
+            "library_hero_2x": "6cb2177e422438e35b0cd1f1111a468130a83a11/library_hero_2x.jpg",
+            "main_capsule": "5dca2c120a87aeee02bbe8ed58711b4255c26228/capsule_616x353.jpg",
+            "main_capsule_2x": "5dca2c120a87aeee02bbe8ed58711b4255c26228/capsule_616x353_2x.jpg",
+            "header": "850e2f9e5bb15c5706bb9a1edc832f4f782e8be5/header.jpg",
+            "header_2x": "850e2f9e5bb15c5706bb9a1edc832f4f782e8be5/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "553850/97059895/43cbd15ee5e1bd1be5aef57dd4a093d448e2d7f5/1788431043/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "553850/97059895/43cbd15ee5e1bd1be5aef57dd4a093d448e2d7f5/1788431043/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 550,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Left 4 Dead 2",
+          "assets": {
+            "asset_url_format": "steam/apps/550/${FILENAME}?t=1772742214",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          }
+        },
+        {
+          "appid": 1973530,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Limbus Company",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/1973530/${FILENAME}?t=1790559030",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1973530/1377178256/3fd1baaf2c7a02ae039595d35c5f308b60ff8500/1790558536/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1973530/1377178256/3fd1baaf2c7a02ae039595d35c5f308b60ff8500/1790558536/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 413150,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Stardew Valley",
+          "assets": {
+            "asset_url_format": "steam/apps/413150/${FILENAME}?t=1786554168",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "413150/336433/0058de516bf7c46986ba1e81172ffd3c2ca6cad7/1750527541/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "413150/336433/0058de516bf7c46986ba1e81172ffd3c2ca6cad7/1750527541/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 381210,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Dead by Daylight",
+          "assets": {
+            "asset_url_format": "steam/apps/381210/${FILENAME}?t=1787769494",
+            "library_hero": "70ff2323e5f79b23aa1a36d7231c75bedb149331/library_hero.jpg",
+            "library_hero_2x": "70ff2323e5f79b23aa1a36d7231c75bedb149331/library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "381210/2023277386/529a037c508a565473e058ae680d112fa643cb90/1778680125/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "381210/2023277386/529a037c508a565473e058ae680d112fa643cb90/1778680125/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1304930,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "The Outlast Trials",
+          "assets": {
+            "asset_url_format": "steam/apps/1304930/${FILENAME}?t=1784123708",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "4aaf4d66ab40042a48a69cc8c96c142efc35aa57/capsule_616x353_alt_assets_3.jpg",
+            "main_capsule_2x": "4aaf4d66ab40042a48a69cc8c96c142efc35aa57/capsule_616x353_alt_assets_3_2x.jpg",
+            "header": "65fbdba4ad0f1a7ed7a362a086c87042fa40fadc/header_alt_assets_3.jpg",
+            "header_2x": "65fbdba4ad0f1a7ed7a362a086c87042fa40fadc/header_alt_assets_3_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1304930/652862718/0c8922ff5de45cd40b1a164133f29937b70758f4/1784061974/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1304930/652862718/0c8922ff5de45cd40b1a164133f29937b70758f4/1784061974/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 252490,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Rust",
+          "assets": {
+            "asset_url_format": "steam/apps/252490/${FILENAME}?t=1781536981",
+            "library_hero": "810d28529f0c40e9a283f74cea09583f501c57e2/library_hero.jpg",
+            "library_hero_2x": "810d28529f0c40e9a283f74cea09583f501c57e2/library_hero_2x.jpg",
+            "main_capsule": "c05e66e166b0fc5fc2a06711d7bfa1b4cb2f45f6/capsule_616x353.jpg",
+            "main_capsule_2x": "c05e66e166b0fc5fc2a06711d7bfa1b4cb2f45f6/capsule_616x353_2x.jpg",
+            "header": "header.jpg",
+            "header_2x": "header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "252490/102019/c573f5b01317174c7ae20a0abbcc3a39ccad32c2/1750487766/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "252490/102019/c573f5b01317174c7ae20a0abbcc3a39ccad32c2/1750487766/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 105600,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Terraria",
+          "assets": {
+            "asset_url_format": "steam/apps/105600/${FILENAME}?t=1769844435",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "105600/1114648825/03d62ed8c2a353ea17f36caf492d053746655032/1769541214/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "105600/1114648825/03d62ed8c2a353ea17f36caf492d053746655032/1769541214/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 2507950,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Delta Force",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/2507950/${FILENAME}?t=1790238079",
+            "library_hero": "4715032bc269bb82d96905ea4b6c2b85cdcd679b/library_hero.jpg",
+            "library_hero_2x": "4715032bc269bb82d96905ea4b6c2b85cdcd679b/library_hero_2x.jpg",
+            "main_capsule": "794cbc5d9373c109e9c136541b3b35e885b026ea/capsule_616x353_alt_assets_14.jpg",
+            "main_capsule_2x": "794cbc5d9373c109e9c136541b3b35e885b026ea/capsule_616x353_alt_assets_14_2x.jpg",
+            "header": "09ef134458549352e5b5a06ed7f97cf00d729b62/header_alt_assets_14.jpg",
+            "header_2x": "09ef134458549352e5b5a06ed7f97cf00d729b62/header_alt_assets_14_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "2507950/822863803/5c9a5df222ba770a7c005a004f3436df71414198/1788403592/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "2507950/822863803/5c9a5df222ba770a7c005a004f3436df71414198/1788403592/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 230410,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Warframe",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/230410/${FILENAME}?t=1790176468",
+            "library_hero": "eff9f1a6e0b38ff6287f1fcc57e9eacfd3be27b1/library_hero.jpg",
+            "library_hero_2x": "eff9f1a6e0b38ff6287f1fcc57e9eacfd3be27b1/library_hero_2x.jpg",
+            "main_capsule": "df441460af0c94dbb68b886381ffef015509cfeb/capsule_616x353.jpg",
+            "main_capsule_2x": "df441460af0c94dbb68b886381ffef015509cfeb/capsule_616x353_2x.jpg",
+            "header": "1a3e7c2a05ce4e5cad5ac4c7e858cf5b0934704e/header.jpg",
+            "header_2x": "1a3e7c2a05ce4e5cad5ac4c7e858cf5b0934704e/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "230410/348086520/d6e17c3aee1de563dbecba09123fcb67e2022218/1790103841/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "230410/348086520/d6e17c3aee1de563dbecba09123fcb67e2022218/1790103841/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 108600,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Project Zomboid",
+          "assets": {
+            "asset_url_format": "steam/apps/108600/${FILENAME}?t=1787740093",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "108600/619982392/141cfd121ea068a87c023951bdbfee87ca524de1/1785320937/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "108600/619982392/141cfd121ea068a87c023951bdbfee87ca524de1/1785320937/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 3240220,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Grand Theft Auto V Enhanced",
+          "assets": {
+            "asset_url_format": "steam/apps/3240220/${FILENAME}?t=1781187782",
+            "library_hero": "156530620aa0b27bc9c73f78c3ca64f7d8fed03d/library_hero.jpg",
+            "library_hero_2x": "156530620aa0b27bc9c73f78c3ca64f7d8fed03d/library_hero_2x.jpg",
+            "main_capsule": "4c8d7ce5142a528bdac68c093bd1bcc720e2baee/capsule_616x353.jpg",
+            "main_capsule_2x": "4c8d7ce5142a528bdac68c093bd1bcc720e2baee/capsule_616x353_2x.jpg",
+            "header": "header.jpg",
+            "header_2x": "header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "3240220/208073939/d61bc1dd4d822b890ff453501daf280979a71ed8/1765478586/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "3240220/208073939/d61bc1dd4d822b890ff453501daf280979a71ed8/1765478586/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 440,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Team Fortress 2",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/440/${FILENAME}?t=1757348372",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "440/129304/a9d97ffaf28cac468369400c12abe442a7b688b2/1749861261/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "440/129304/a9d97ffaf28cac468369400c12abe442a7b688b2/1749861261/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 227300,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Euro Truck Simulator 2",
+          "assets": {
+            "asset_url_format": "steam/apps/227300/${FILENAME}?t=1790001194",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "fddcd44b7c48fd86faccb09125514a6f5d57e36e/capsule_616x353_alt_assets_8.jpg",
+            "main_capsule_2x": "fddcd44b7c48fd86faccb09125514a6f5d57e36e/capsule_616x353_alt_assets_8_2x.jpg",
+            "header": "4f6ff00d3732ed0da2e28a4e7182f0036df8ab90/header_alt_assets_8.jpg",
+            "header_2x": "4f6ff00d3732ed0da2e28a4e7182f0036df8ab90/header_alt_assets_8_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "227300/455253/f717b44f949ed6c824778b30d516147bdaaad95a/1750482436/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "227300/455253/f717b44f949ed6c824778b30d516147bdaaad95a/1750482436/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 2807960,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Battlefield™ 6",
+          "assets": {
+            "asset_url_format": "steam/apps/2807960/${FILENAME}?t=1790375732",
+            "library_hero": "38bc66fe214422bb28e98fbd50e834c51bed85c7/library_hero.jpg",
+            "library_hero_2x": "38bc66fe214422bb28e98fbd50e834c51bed85c7/library_hero_2x.jpg",
+            "main_capsule": "92359619c2aa832e3423cebb27a5f921b1a30a67/capsule_616x353_alt_assets_23.jpg",
+            "main_capsule_2x": "92359619c2aa832e3423cebb27a5f921b1a30a67/capsule_616x353_alt_assets_23_2x.jpg",
+            "header": "c12d12ce3c7d217398d3fcad77427bfc9d57c570/header.jpg",
+            "header_2x": "c12d12ce3c7d217398d3fcad77427bfc9d57c570/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "2807960/876749856/0d4ecdb8563497074150e91df10e5f095fc7ac60/1784732416/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "2807960/876749856/0d4ecdb8563497074150e91df10e5f095fc7ac60/1784732416/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1142710,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Total War: WARHAMMER III",
+          "assets": {
+            "asset_url_format": "steam/apps/1142710/${FILENAME}?t=1790321531",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1142710/539677/e598079c9bc92ad089825060102465987d361027/1750627141/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1142710/539677/e598079c9bc92ad089825060102465987d361027/1750627141/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 438100,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "VRChat",
+          "is_free": true,
+          "assets": {
+            "asset_url_format": "steam/apps/438100/${FILENAME}?t=1762366454",
+            "library_hero": "library_hero.jpg",
+            "main_capsule": "capsule_616x353.jpg",
+            "header": "header.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "438100/1996256566/994584d17c30577a83cbdb10be28086f2014ede4/1762366133/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "438100/1996256566/994584d17c30577a83cbdb10be28086f2014ede4/1762366133/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 4080220,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "EA SPORTS FC™ 27",
+          "assets": {
+            "asset_url_format": "steam/apps/4080220/${FILENAME}?t=1790973254",
+            "library_hero": "98909665528dc40a7d43fd3dd6edc8088ed98c44/library_hero.jpg",
+            "library_hero_2x": "98909665528dc40a7d43fd3dd6edc8088ed98c44/library_hero_2x.jpg",
+            "main_capsule": "d3e9a412983e68c39b5751a5fc9480129ce745b3/capsule_616x353.jpg",
+            "main_capsule_2x": "d3e9a412983e68c39b5751a5fc9480129ce745b3/capsule_616x353_2x.jpg",
+            "header": "ff6a3779f1ca83aae8ad3878454f6c11008ea24d/header.jpg",
+            "header_2x": "ff6a3779f1ca83aae8ad3878454f6c11008ea24d/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "4080220/1900282602/3682a522ac27a81f43ccbd532a56c76a1d3f2425/1790352546/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "4080220/1900282602/3682a522ac27a81f43ccbd532a56c76a1d3f2425/1790352546/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1091500,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Cyberpunk 2077",
+          "assets": {
+            "asset_url_format": "steam/apps/1091500/${FILENAME}?t=1784714077",
+            "library_hero": "cf8cec802dc47d0f24b75f9eee135e96812e2652/library_hero.jpg",
+            "library_hero_2x": "cf8cec802dc47d0f24b75f9eee135e96812e2652/library_hero_2x.jpg",
+            "main_capsule": "a757b56d2078be8b09a04e2ad531f1fefafaa129/capsule_616x353.jpg",
+            "main_capsule_2x": "a757b56d2078be8b09a04e2ad531f1fefafaa129/capsule_616x353_2x.jpg",
+            "header": "e9047d8ec47ae3d94bb8b464fb0fc9e9972b4ac7/header.jpg",
+            "header_2x": "e9047d8ec47ae3d94bb8b464fb0fc9e9972b4ac7/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1091500/801198/1b8aa4d59e19e69218c59bf1a6d9d23daedb01ab/1750617889/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1091500/801198/1b8aa4d59e19e69218c59bf1a6d9d23daedb01ab/1750617889/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "appid": 1086940,
+          "success": 1,
+          "visible": true,
+          "type": 0,
+          "name": "Baldur's Gate 3",
+          "assets": {
+            "asset_url_format": "steam/apps/1086940/${FILENAME}?t=1777363040",
+            "library_hero": "library_hero.jpg",
+            "library_hero_2x": "library_hero_2x.jpg",
+            "main_capsule": "59827b3d0abf2f29adacfe72fdfd11059d6974e2/capsule_616x353.jpg",
+            "main_capsule_2x": "59827b3d0abf2f29adacfe72fdfd11059d6974e2/capsule_616x353_2x.jpg",
+            "header": "48a2fcbda8565bb45025e98fd8ebde8a7203f6a0/header.jpg",
+            "header_2x": "48a2fcbda8565bb45025e98fd8ebde8a7203f6a0/header_2x.jpg"
+          },
+          "trailers": {
+            "highlights": [
+              {
+                "microtrailer": [
+                  {
+                    "filename": "1086940/521182/53c2be911d121fc8ebda8bc9183e0fb55dbd53b7/1750614929/microtrailer.mp4",
+                    "type": "video/mp4"
+                  }
+                ],
+                "adaptive_trailers": [
+                  {
+                    "cdn_path": "1086940/521182/53c2be911d121fc8ebda8bc9183e0fb55dbd53b7/1750614929/hls_264_master.m3u8",
+                    "encoding": "hls_h264"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "appdetails": {
+    "730": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Counter-Strike 2",
+        "steam_appid": 730,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows® 10<br></li><li><strong>Processor:</strong> 4 hardware CPU threads - Intel® Core™ i5 750 or higher<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Video card must be 1 GB or more and should be a DirectX 11-compatible with support for Shader Model 5.0<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 85 GB available space</li></ul>"
+        }
+      }
+    },
+    "570": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Dota 2",
+        "steam_appid": 570,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows 7 or newer<br></li><li><strong>Processor:</strong> Dual core from Intel or AMD at 2.8 GHz<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce 8600/9600GT, ATI/AMD Radeon HD2600/3600<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 60 GB available space<br></li><li><strong>Sound Card:</strong> DirectX Compatible</li></ul>"
+        }
+      }
+    },
+    "578080": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "PUBG: BATTLEGROUNDS",
+        "steam_appid": 578080,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> Intel Core i5-4430 / AMD FX-6300<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 960 2GB / AMD Radeon R7 370 2GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 40 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> Intel Core i5-6600K / AMD Ryzen 5 1600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 1060 3GB / AMD Radeon RX 580 4GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space</li></ul>"
+        }
+      }
+    },
+    "431960": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Wallpaper Engine",
+        "steam_appid": 431960,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10, Windows 11<br></li><li><strong>Processor:</strong> 1.66 GHz Intel i5 or equivalent<br></li><li><strong>Memory:</strong> 1024 MB RAM<br></li><li><strong>Graphics:</strong> HD Graphics 4000 or above<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 512 MB available space<br></li><li><strong>Additional Notes:</strong> Windows N versions require the 'Media Feature Pack' from Microsoft.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10, Windows 11<br></li><li><strong>Processor:</strong> 2.0 GHz Intel i7 or equivalent<br></li><li><strong>Memory:</strong> 2048 MB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 660, AMD HD7870, 2 GB VRAM or above<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 1024 MB available space<br></li><li><strong>Additional Notes:</strong> Mobile App requires Android 10 or newer</li></ul>"
+        }
+      }
+    },
+    "1172470": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Apex Legends™",
+        "steam_appid": 1172470,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "EA Account (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> AMD FX 4350 or Equivalent, Intel Core i3 6300 or Equivalent<br></li><li><strong>Memory:</strong> 6 GB RAM<br></li><li><strong>Graphics:</strong> AMD Radeon™ HD 7790 (2 GB), NVIDIA GeForce® GTX 950<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 75 GB available space<br></li><li><strong>Additional Notes:</strong> ~3.8GB for 1 localized language</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> Ryzen 5 CPU or Equivalent<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> AMD Radeon™ R9 290, NVIDIA GeForce® GTX 970<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 75 GB available space<br></li><li><strong>Additional Notes:</strong> ~3.8GB for 1 localized language</li></ul>"
+        }
+      }
+    },
+    "1867240": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "WARDOGS",
+        "steam_appid": 1867240,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel® Core i5 8600, AMD Ryzen 5 3500<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong>  Nvidia GTX 1660, Radeon RX 590<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space<br></li><li><strong>Additional Notes:</strong> 1080p Low @ 60fps (Upscaled)</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 11<br></li><li><strong>Processor:</strong> Intel® Core i7 12700k, AMD Ryzen 7 5700x<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia RTX 3070, AMD Radeon RX 6700 XT<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space<br></li><li><strong>Additional Notes:</strong> 1440p Medium @ 70fps+ (Native) or 4k Medium @ 60fps+ (Upscaled)</li></ul>"
+        }
+      }
+    },
+    "1422450": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Deadlock",
+        "steam_appid": 1422450,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> TBD<br></li><li><strong>Processor:</strong> TBD<br></li><li><strong>Graphics:</strong> TBD<br></li><li><strong>Sound Card:</strong> TBD</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system</li></ul>"
+        }
+      }
+    },
+    "892970": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Valheim",
+        "steam_appid": 892970,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 or later<br></li><li><strong>Processor:</strong> 2.6 GHz Quad Core or similar<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GTX 950 or Radeon HD 7970<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 1 GB available space<br></li><li><strong>Additional Notes:</strong> The following languages have been partially translated by the community: Svenska, Italiano, Romanian, български, македонски, Suomi, Dansk, íslenska, Lietuvių kalba, čeština, Magyar nyelv, Português europeu, 한국어 (불완전한), Norsk, ภาษาไทย, ქართული ენა, Abenaki, Slovenčina</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 or later<br></li><li><strong>Processor:</strong> i5 3GHz or Ryzen 5 3GHz<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GTX 1060 or Radeon RX 580<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 1 GB available space</li></ul>"
+        }
+      }
+    },
+    "292030": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "The Witcher 3: Wild Hunt — Remastered",
+        "steam_appid": 292030,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> 64-bit Windows 11<br></li><li><strong>Processor:</strong> Core i5-8400 / Ryzen 5 2600<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GTX 1660 / Radeon RX 5500 XT 8GB / Arc A580<br></li><li><strong>Storage:</strong> 60 SSD GB available space<br></li><li><strong>Additional Notes:</strong> VRAM 6 GB</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> 64-bit Windows 11<br></li><li><strong>Processor:</strong> Intel Core i7 8700K / AMD Ryzen 5 3600X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> RTX 2060 Super / AMD Radeon RX 6600 XT / Intel Arc B580<br></li><li><strong>Storage:</strong> 60 SSD GB available space<br></li><li><strong>Additional Notes:</strong> VRAM 8 GB</li></ul>"
+        }
+      }
+    },
+    "271590": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Grand Theft Auto V Legacy",
+        "steam_appid": 271590,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Rockstar Games (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64 Bit<br></li><li><strong>Processor:</strong> Intel Core 2 Quad CPU Q6600 @ 2.40GHz (4 CPUs) / AMD Phenom 9850 Quad-Core Processor (4 CPUs) @ 2.5GHz<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA 9800 GT 1GB / AMD HD 4870 1GB (DX 10, 10.1, 11)<br></li><li><strong>Storage:</strong> 125 GB available space<br></li><li><strong>Sound Card:</strong> 100% DirectX 10 compatible<br></li><li><strong>Additional Notes:</strong> Over time downloadable content and programming changes will change the system requirements for this game.  Please refer to your hardware manufacturer and  for current compatibility information. Some system components such as mobile chipsets, integrated, and AGP graphics cards may be incompatible. Unlisted specifications may not be supported by publisher.     Other requirements:  Installation and online play requires log-in to Rockstar Games Social Club (13+) network; internet connection required for activation, online play, and periodic entitlement verification; software installations required including Rockstar Games Social Club platform, DirectX , Chromium, and Microsoft Visual C++ 2008 sp1 Redistributable Package, and authentication software that recognizes certain hardware attributes for entitlement, digital rights management, system, and other support purposes.     SINGLE USE SERIAL CODE REGISTRATION VIA INTERNET REQUIRED; REGISTRATION IS LIMITED TO ONE ROCKSTAR GAMES SOCIAL CLUB ACCOUNT (13+) PER SERIAL CODE; ONLY ONE PC LOG-IN ALLOWED PER SOCIAL CLUB ACCOUNT AT ANY TIME; SERIAL CODE(S) ARE NON-TRANSFERABLE ONCE USED; SOCIAL CLUB ACCOUNTS ARE NON-TRANSFERABLE.  Partner Requirements:  Please check the terms of service of this site before purchasing this software.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64 Bit<br></li><li><strong>Processor:</strong> Intel Core i5 3470 @ 3.2GHz (4 CPUs) / AMD X8 FX-8350 @ 4GHz (8 CPUs)<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GTX 660 2GB / AMD HD 7870 2GB<br></li><li><strong>Storage:</strong> 125 GB available space<br></li><li><strong>Sound Card:</strong> 100% DirectX 10 compatible</li></ul>"
+        }
+      }
+    },
+    "2676230": {
+      "success": true,
+      "data": {
+        "type": "advertising",
+        "name": "FiveM",
+        "steam_appid": 2676230,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": []
+      }
+    },
+    "2868840": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Slay the Spire 2",
+        "steam_appid": 2868840,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 (64-bit)<br></li><li><strong>Processor:</strong> Dual-core 2.0 GHz<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> DirectX 12 or Vulkan compatible, 1 GB VRAM<br></li><li><strong>Storage:</strong> 4 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 (64-bit)<br></li><li><strong>Processor:</strong> Quad-core 3.0 GHz<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> DirectX 12 or Vulkan compatible, 2 GB VRAM<br></li><li><strong>Storage:</strong> 4 GB available space</li></ul>"
+        }
+      }
+    },
+    "2357570": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Overwatch®",
+        "steam_appid": 2357570,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Battle.net Account ",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows® 10 64-bit (latest Service Pack)<br></li><li><strong>Processor:</strong> Intel® Core™ i3 or AMD Phenom™ X3 8650<br></li><li><strong>Memory:</strong> 6 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA® GeForce® GTX 600 series, AMD Radeon™ HD 7000 series<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows® 10 64-bit (latest Service Pack)<br></li><li><strong>Processor:</strong> Intel® Core™ i7 or AMD Ryzen™ 5<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA® GeForce® GTX 1060/ GeForce® GTX 1650 or AMD R9 380/AMD RX 6400 or Intel® Arc™ A770<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space</li></ul>"
+        }
+      }
+    },
+    "359550": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Tom Clancy's Rainbow Six Siege",
+        "steam_appid": 359550,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Ubisoft Connect launcher (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10, Windows 11 (64-bit versions)<br></li><li><strong>Processor:</strong> AMD Ryzen 3 3100 / Intel i3-8100<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GTX 1650 4GB / AMD RX 5500XT 4GB / Intel ARC A380 6GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 65 GB available space<br></li><li><strong>Sound Card:</strong> DirectX® 9.0c compatible sound card with latest drivers<br></li><li><strong>Additional Notes:</strong> For an up-to-date list of supported chipsets, please visit the FAQ for this game on our support website. Game contains BattleEye anti-cheat technology.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 11 (64-bit versions)<br></li><li><strong>Processor:</strong> AMD Ryzen5 3600 / Intel i5-10400<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA RTX 2060 6GB / AMD RX 6600 8GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 65 GB available space<br></li><li><strong>Sound Card:</strong> DirectX® 9.0c compatible sound card 5.1 with latest drivers<br></li><li><strong>Additional Notes:</strong> For an up-to-date list of supported chipsets, please visit the FAQ for this game on our support website. Game contains BattleEye anti-cheat technology.</li></ul>"
+        }
+      }
+    },
+    "236390": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "War Thunder",
+        "steam_appid": 236390,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 (64bit)<br></li><li><strong>Processor:</strong> Dual-Core 2.2 GHz<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> DirectX 11 level video card: AMD Radeon 77XX / NVIDIA GeForce GTX 660. The minimum supported resolution for the game is 720p.<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 70 GB available space<br></li><li><strong>VR Support:</strong> SteamVR. Keyboard or gamepad required</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10/11 (64bit)<br></li><li><strong>Processor:</strong> Intel Core i5 or Ryzen 5 3600 or better<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> DirectX 11 level video card or higher and drivers: Nvidia GeForce 1060 and higher, Radeon RX 570 and higher<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 95 GB available space</li></ul>"
+        }
+      }
+    },
+    "250900": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "The Binding of Isaac: Rebirth",
+        "steam_appid": 250900,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> XP<br></li><li><strong>Processor:</strong> Core 2 Duo<br></li><li><strong>Memory:</strong> 2 GB RAM<br></li><li><strong>Graphics:</strong> Discreet video card<br></li><li><strong>Storage:</strong> 449 MB available space<br></li><li><strong>Sound Card:</strong> Yes</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows 8 / 7 / Vista / XP<br></li><li><strong>Processor:</strong> 2.4 GHz Quad Core 2.0 (or higher)<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Intel HD Graphics 4000 and higher, ATI Radeon HD-Series 4650 and higher, Nvidia GeForce 2xx-Series and up<br></li><li><strong>Storage:</strong> 449 MB available space<br></li><li><strong>Sound Card:</strong> Yes</li></ul>"
+        }
+      }
+    },
+    "2767030": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Marvel Rivals",
+        "steam_appid": 2767030,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 64-bit (1909 or newer)<br></li><li><strong>Processor:</strong> Intel Core i5-6600K or AMD Ryzen 5 1600X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 1060 / AMD RX 580 / Intel Arc A380<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 70 GB available space<br></li><li><strong>Additional Notes:</strong> We recommend you install the game on SSD drive for better experience.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 64-bit (1909 or newer)<br></li><li><strong>Processor:</strong> Intel Core i5-10400 or AMD Ryzen 5 5600X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce RTX 2060 (Super) / AMD RX 5700-XT / Intel Arc A750<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 70 GB available space<br></li><li><strong>Additional Notes:</strong> We recommend you install the game on SSD drive for better experience.</li></ul>"
+        }
+      }
+    },
+    "4126040": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Aniimo",
+        "steam_appid": 4126040,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows10<br></li><li><strong>Processor:</strong> Intel Core i7-4770 / AMD Ryzen 7 2700<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 970 / AMD Radeon RX 5600<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 40 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows10 or above<br></li><li><strong>Processor:</strong> Intel Core i7-10700 / AMD Ryzen 5 5600 or better<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce RTX 3060 / AMD Radeon RX 6700 or better<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 40 GB available space</li></ul>"
+        }
+      }
+    },
+    "322170": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Geometry Dash",
+        "steam_appid": 322170,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows XP<br></li><li><strong>Processor:</strong> 2.0+ GHz<br></li><li><strong>Memory:</strong> 512 MB RAM<br></li><li><strong>Graphics:</strong> OpenGL 2.0 support<br></li><li><strong>Storage:</strong> 100 MB available space</li></ul>"
+        }
+      }
+    },
+    "4001890": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "How to Fish",
+        "steam_appid": 4001890,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10+<br></li><li><strong>Processor:</strong> Intel Core i5-5257U, AMD Ryzen 3 1200 or equivalent<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GTX 1050, AMD RX 460 or equivalent<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 1 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system</li></ul>"
+        }
+      }
+    },
+    "553850": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "HELLDIVERS™ 2",
+        "steam_appid": 553850,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "PlayStation Network (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i7-4790K or AMD Ryzen 5 1500X<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 1050 Ti or AMD Radeon RX 470<br></li><li><strong>Storage:</strong> 135 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i7-9700K or AMD Ryzen 7 3700X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce RTX 2060 or AMD Radeon RX 6600XT<br></li><li><strong>Storage:</strong> 40 GB available space<br></li><li><strong>Additional Notes:</strong> SSD Recommended</li></ul>"
+        }
+      }
+    },
+    "550": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Left 4 Dead 2",
+        "steam_appid": 550,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows® 7 32/64-bit / Vista 32/64 / XP<br></li><li><strong>Processor:</strong> Pentium 4 3.0GHz<br></li><li><strong>Memory:</strong> 2 GB RAM<br></li><li><strong>Graphics:</strong> Video card with 128 MB, Shader model 2.0. ATI X800, NVidia 6600 or better<br></li><li><strong>DirectX:</strong> Version 9.0c<br></li><li><strong>Storage:</strong> 13 GB available space<br></li><li><strong>Sound Card:</strong> DirectX 9.0c compatible sound card</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows® 7 32/64-bit / Vista 32/64 / XP<br></li><li><strong>Processor:</strong> Intel core 2 duo 2.4GHz<br></li><li><strong>Memory:</strong> 2 GB RAM<br></li><li><strong>Graphics:</strong> Video Card Shader model 3.0. NVidia 7600, ATI X1600 or better<br></li><li><strong>DirectX:</strong> Version 9.0c<br></li><li><strong>Storage:</strong> 13 GB available space<br></li><li><strong>Sound Card:</strong> DirectX 9.0c compatible sound card</li></ul>"
+        }
+      }
+    },
+    "1973530": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Limbus Company",
+        "steam_appid": 1973530,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i5<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GT 1030<br></li><li><strong>DirectX:</strong> Version 10<br></li><li><strong>Storage:</strong> 10 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i5<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GT 1030<br></li><li><strong>DirectX:</strong> Version 10<br></li><li><strong>Storage:</strong> 10 GB available space</li></ul>"
+        }
+      }
+    },
+    "413150": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Stardew Valley",
+        "steam_appid": 413150,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows Vista or greater<br></li><li><strong>Processor:</strong> 2 Ghz<br></li><li><strong>Memory:</strong> 2 GB RAM<br></li><li><strong>Graphics:</strong> 256 mb video memory, shader model 3.0+<br></li><li><strong>DirectX:</strong> Version 10<br></li><li><strong>Storage:</strong> 500 MB available space</li></ul>"
+        }
+      }
+    },
+    "381210": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Dead by Daylight",
+        "steam_appid": 381210,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64-bit Operating System<br></li><li><strong>Processor:</strong> Intel Core i3-4170 or AMD FX-8120<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> DX11 Compatible GeForce GTX 460 1GB or AMD HD 6850 1GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space<br></li><li><strong>Sound Card:</strong> DX11 compatible<br></li><li><strong>Additional Notes:</strong> With these requirements, it is recommended that the game is played on Low quality settings.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64-bit Operating System<br></li><li><strong>Processor:</strong> Intel Core i3-4170 or AMD FX-8300 or higher<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> DX11 Compatible GeForce 760 or AMD HD 8800 or higher with 4GB of RAM<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 50 GB available space<br></li><li><strong>Sound Card:</strong> DX11 compatible</li></ul>"
+        }
+      }
+    },
+    "1304930": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "The Outlast Trials",
+        "steam_appid": 1304930,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i7-3770 or AMD Ryzen 5 1400<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 650 Ti, 2 GB or Radeon R7 360, 2 GB or Intel Arc A310, 4GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 40 GB available space<br></li><li><strong>Additional Notes:</strong> Low 720p @ 30 FPS, DX11, Ray Tracing OFF</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> WIndows 10<br></li><li><strong>Processor:</strong> Intel Core i7-6700K or AMD Ryzen 5 2600X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 1660, 6 GB or AMD Radeon RX Vega 56, 8 GB or Intel Arc A580, 8GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 40 GB available space<br></li><li><strong>Additional Notes:</strong> High 1080p @ 60 FPS, DX12, Ray Tracing OFF</li></ul>"
+        }
+      }
+    },
+    "252490": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Rust",
+        "steam_appid": 252490,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 11 64bit<br></li><li><strong>Processor:</strong> AMD Ryzen 5 1400 or Intel Core i5-6600<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> AMD Radeon RX 470, NVIDIA GeForce GTX 1060, Intel® Arc™ A580<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 45 GB available space<br></li><li><strong>Additional Notes:</strong> SSD is highly recommended or expect longer than average load times.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 11 64bit<br></li><li><strong>Processor:</strong> AMD Ryzen 7 3700X or Intel® Core i7-6700K<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> AMD Radeon RX 6600XT, NVIDIA GeForce RTX 3060, Intel Arc B580<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 45 GB available space<br></li><li><strong>Additional Notes:</strong> SSD Required</li></ul>"
+        }
+      }
+    },
+    "105600": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Terraria",
+        "steam_appid": 105600,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<h2 class=\"bb_tag\" ><strong>REQUIRED</strong></h2><ul class=\"bb_ul\"><li><strong>OS: Windows Xp, Vista, 7, 8/8.1, 10</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Processor: 2.0 Ghz</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Memory: 2.5GB</strong><br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Hard Disk Space: 200MB </strong> \t<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Video Card: 128mb Video Memory, capable of Shader Model 2.0+</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>DirectX®: 9.0c or Greater</strong> \t<br>\t\t\t\t\t\t\t\t\t</li></ul>",
+          "recommended": "<h2 class=\"bb_tag\" ><strong>RECOMMENDED</strong></h2><ul class=\"bb_ul\"><li><strong>OS: Windows 7, 8/8.1, 10</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Processor: Dual Core 3.0 Ghz</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Memory: 4GB</strong><br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Hard Disk Space: 200MB </strong> \t<br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>Video Card: 256mb Video Memory, capable of Shader Model 2.0+</strong> <br>\t\t\t\t\t\t\t\t\t\t</li><li><strong>DirectX®: 9.0c or Greater</strong> \t<br>\t\t\t\t\t\t\t\t\t</li></ul>"
+        }
+      }
+    },
+    "2507950": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Delta Force",
+        "steam_appid": 2507950,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "LEVEL INFINITE PASS (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64 bit<br></li><li><strong>Processor:</strong> Intel Core i3-4150 / AMD FX-6300<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia Geforce GTX 660 / AMD HD 7870 / Intel Arc A380<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 88 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64 bit<br></li><li><strong>Processor:</strong> Intel Core i5-6500 / AMD Ryzen 5 1500x<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia Geforce GTX 1060 5G / AMD RX5500 XT / Intel Arc A580<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 88 GB available space</li></ul>"
+        }
+      }
+    },
+    "230410": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Warframe",
+        "steam_appid": 230410,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Warframe Account (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong>Windows 7 64-Bit (32-bit not supported)<br>\t</li><li><strong>Processor:</strong>Intel Core i7 860, Intel Core i5 750, or AMD FX-4100 (SSE 4.2 support required)<br>        </li><li><strong>Video:</strong>DirectX 11+ capable Graphics Card<br>\t</li><li><strong>Memory:</strong>4 GB RAM<br>\t</li><li><strong>Storage:</strong>75 GB available HD space<br>\t</li><li><strong>Internet:</strong>Broadband Internet Connection Required</li></ul><br>Note: There is no Mac or Linux client currently available.<br><br>DirectX 12 support requires at least Windows 10 20H2 (released in 2020) or Windows 11"
+        }
+      }
+    },
+    "108600": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Project Zomboid",
+        "steam_appid": 108600,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 / 11 - 64 Bit<br>\t</li><li>64bit OS required<br>\t</li><li><strong>Processor:</strong> Intel 2.77GHz Quad-core<br>\t</li><li><strong>Memory:</strong> 8Gb Ram<br>\t</li><li><strong>Hard Disk Space:</strong> 10Gb<br>\t</li><li><strong>Video Card:</strong> Dedicated graphics card with 4 GB of VRAM minimum, OpenGL 2.1 and GLSL 1.2 support (generally 2012 or newer)<br>        </li><li><strong>Sound:</strong> FMOD compatible sound card\t</li></ul>"
+        }
+      }
+    },
+    "3240220": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Grand Theft Auto V Enhanced",
+        "steam_appid": 3240220,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Rockstar Games (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 (latest service pack)<br></li><li><strong>Processor:</strong> Intel® Core™ i7-4770 | AMD FX™-9590<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce® GTX 1630 (4GB VRAM) | AMD Radeon™ RX 6400 (4GB VRAM)<br></li><li><strong>Storage:</strong> 105 GB available space<br></li><li><strong>Sound Card:</strong> DirectX 10 Compatible<br></li><li><strong>Additional Notes:</strong> SSD Required  |  Over time downloadable content and programming changes will change the system requirements for this game. Please refer to your hardware manufacturer and  for current compatibility information. Some system components such as mobile chipsets, integrated, and AGP graphics cards may be incompatible. Unlisted specifications may not be supported by publisher.  Other requirements: Installation and online play requires log-in to Rockstar Games account (minimum age varies) network; internet connection required for activation, online play, and periodic entitlement verification; software installations required including Rockstar Games Launcher, DirectX, Chromium, and Microsoft Visual C++ 2008 sp1 Redistributable Package, and authentication and verification software that recognizes certain hardware attributes for entitlement, digital rights management, anti-cheat and moderation software, system, and other support purposes.  *Compatible PC and/or device required. 3D Audio via Windows Spatial Sound compatible audio systems</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 11<br></li><li><strong>Processor:</strong> Intel® Core™ i5-9600K | AMD Ryzen™ 5 3600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce® RTX 3060 (8GB VRAM) | AMD Radeon™ RX 6600XT (8GB VRAM)<br></li><li><strong>Storage:</strong> 105 GB available space<br></li><li><strong>Sound Card:</strong> Windows Spatial Sound-compatible audio system; solution containing Dolby Atmos® support required for a Dolby Atmos® experience<br></li><li><strong>Additional Notes:</strong> SSD with DirectStorage-compatibility</li></ul>"
+        }
+      }
+    },
+    "440": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Team Fortress 2",
+        "steam_appid": 440,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows® 7 (32/64-bit)/Vista/XP<br></li><li><strong>Processor:</strong> 1.7 GHz Processor or better<br></li><li><strong>Memory:</strong> 512 MB RAM<br></li><li><strong>DirectX:</strong> Version 8.1<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 15 GB available space</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows® 7 (32/64-bit)<br></li><li><strong>Processor:</strong> Pentium 4 processor (3.0GHz, or better)<br></li><li><strong>Memory:</strong> 1 GB RAM<br></li><li><strong>DirectX:</strong> Version 9.0c<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 15 GB available space</li></ul>"
+        }
+      }
+    },
+    "227300": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Euro Truck Simulator 2",
+        "steam_appid": 227300,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel Core i5-6400 or AMD Ryzen 3 1200 or similar<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 660 or AMD Radeon RX 460 or Intel HD 630 (2GB VRAM)<br></li><li><strong>Hard Drive:</strong> 25 GB available space (Euro Truck Simulator 2 base game)</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel Core i5-9600 or AMD Ryzen 5 3600 or similar<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce GTX 1660 or AMD Radeon RX 590 (2GB VRAM)<br></li><li><strong>Hard Drive:</strong> 25 GB available space (Euro Truck Simulator 2 base game)</li></ul>"
+        }
+      }
+    },
+    "2807960": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Battlefield™ 6",
+        "steam_appid": 2807960,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "EA Account linking required (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10<br></li><li><strong>Processor:</strong> Intel Core i5-8400, AMD Ryzen 5 2600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia RTX 2060, AMD Radeon RX 5600 XT 6GB, Intel Arc A380<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 55 GB available space<br></li><li><strong>Sound Card:</strong> No Recommendation<br></li><li><strong>VR Support:</strong> Not Supported<br></li><li><strong>Additional Notes:</strong> TPM 2.0 Enabled UEFI SECURE BOOT Enabled HVCI Capable VBS Capable</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 11<br></li><li><strong>Processor:</strong> Intel Core i7-10700, AMD Ryzen 7 3700X<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia RTX 3060Ti, AMD Radeon RX 6700-XT, Intel Arc B580<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 80 GB available space<br></li><li><strong>Sound Card:</strong> No Recommendation<br></li><li><strong>VR Support:</strong> Not Supported<br></li><li><strong>Additional Notes:</strong> TPM 2.0 Enabled UEFI SECURE BOOT Enabled HVCI Capable VBS Capable</li></ul>"
+        }
+      }
+    },
+    "1142710": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Total War: WARHAMMER III",
+        "steam_appid": 1142710,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": true
+        },
+        "drm_notice": "Denuvo Anti-tamper",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS *:</strong> Windows 7 64-bit<br></li><li><strong>Processor:</strong> Intel i3/Ryzen 3 series<br></li><li><strong>Memory:</strong> 6 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GTX 900/AMD RX 400 series | Intel Iris Xe Graphics<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 120 GB available space<br></li><li><strong>Additional Notes:</strong> This game may be updated over time and have paid for and free. additional content released for it. Please be aware that this may increase the minimum requirements for running the game above the specification stated here. Microsoft no longer supports Windows 10 or older versions.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel i5/Ryzen 5 series<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GeForce GTX 1660 Ti/AMD RX 5600-XT/Intel Arc A750<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 120 GB available space<br></li><li><strong>Additional Notes:</strong> 8GB Memory if using integrated GPU. Microsoft no longer supports Windows 10 or older versions.</li></ul>"
+        }
+      }
+    },
+    "438100": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "VRChat",
+        "steam_appid": 438100,
+        "is_free": true,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "VRChat ",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10/11<br></li><li><strong>Processor:</strong> Intel® i5-4590 / AMD FX 8350 equivalent or greater<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GeForce® GTX 970 / AMD Radeon™ R9 290 equivalent or greater<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 1 GB available space<br></li><li><strong>VR Support:</strong> SteamVR</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system</li></ul>"
+        }
+      }
+    },
+    "4080220": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "EA SPORTS FC™ 27",
+        "steam_appid": 4080220,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "drm_notice": "EA online activation and EA app software installation and background use required. Denuvo Anti-tamper",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10/11 - 64-Bit (Latest Update).<br></li><li><strong>Processor:</strong> AMD Ryzen 5 1600 or Intel Core i5 6600k<br></li><li><strong>Memory:</strong> DDR4 Dual Channel 8 GB RAM<br></li><li><strong>Graphics:</strong> AMD RX 570 or Nvidia GTX 1050 Ti<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 100 GB available space<br></li><li><strong>Additional Notes:</strong> Estimated performance when set to &quot;&quot;Low&quot;&quot; preset: 1280x720 @ 60 FPS SSD Recommended</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li><strong>OS:</strong> Windows 10/11 - 64-Bit (Latest Update).<br></li><li><strong>Processor:</strong> AMD Ryzen 7 2700X or Intel Core i7 6700<br></li><li><strong>Memory:</strong> Dual Channel 12 GB RAM<br></li><li><strong>Graphics:</strong> AMD RX 5600 XT or Nvidia GTX 1660<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 100 GB available space<br></li><li><strong>Additional Notes:</strong> Estimated performance when set to &quot;&quot;Medium&quot;&quot; preset: 1920x1080 @ 60 FPS SSD Required</li></ul>"
+        }
+      }
+    },
+    "1091500": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Cyberpunk 2077",
+        "steam_appid": 1091500,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> Core i7-6700 or Ryzen 5 1600<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> GeForce GTX 1060 6GB or Radeon RX 580 8GB or Arc A380<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 70 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required. Attention: In this game you will encounter a variety of visual effects that may provide seizures or loss of consciousness in a minority of people. If you or someone you know experiences any of the above symptoms while playing, stop and seek medical attention immediately.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> 64-bit Windows 10<br></li><li><strong>Processor:</strong> Core i7-12700 or Ryzen 7 7800X3D<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> GeForce RTX 2060 SUPER or Radeon RX 5700 XT or Arc A770<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 70 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required.</li></ul>"
+        }
+      }
+    },
+    "1086940": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Baldur's Gate 3",
+        "steam_appid": 1086940,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": true,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel I5 4690 / AMD FX 8350 / Snapdragon X Elite<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GTX 970 / RX 480 / Intel Arc A380 / Qualcomm Adreno X1 (4GB+ of VRAM)<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 150 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel i7 8700K / AMD r5 3600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia 2060 Super / RX 5700 XT / Intel Arc A580 (8GB+ of VRAM)<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Storage:</strong> 150 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required</li></ul>"
+        }
+      }
+    },
+    "2246340": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Monster Hunter Wilds",
+        "steam_appid": 2246340,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "drm_notice": "Denuvo Anti-tamper<br>5 different PC within a day machine activation limit",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows®10 (64-bit Required)/Windows®11 (64-bit Required)<br></li><li><strong>Processor:</strong> Intel® Core™ i5-10400 or Intel® Core™ i3-12100 or AMD Ryzen™ 5 3600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA® GeForce® GTX 1660(VRAM 6GB) or AMD Radeon™ RX 5500 XT(VRAM 8GB)<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 75 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required. This game is expected to run at 1080p (upscaled from 720 native resolution) / 30 fps under the &quot;Lowest&quot; graphics setting. DirectStorage supported.</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows®10 (64-bit Required)/Windows®11 (64-bit Required)<br></li><li><strong>Processor:</strong> Intel® Core™ i5-10400 or Intel® Core™ i3-12100 or AMD Ryzen™ 5 3600<br></li><li><strong>Memory:</strong> 16 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA® GeForce® RTX 2060 Super(VRAM 8GB) or　AMD Radeon™  RX 6600(VRAM 8GB)<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 75 GB available space<br></li><li><strong>Additional Notes:</strong> SSD required. This game is expected to run at 1080p / 60 fps (with Frame Generation enabled) under the &quot;Medium&quot; graphics setting. DirectStorage supported.</li></ul>"
+        }
+      }
+    },
+    "1174180": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "Red Dead Redemption 2",
+        "steam_appid": 1174180,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "ext_user_account_notice": "Rockstar Games (Supports Linking to Steam Account)",
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 - 64-bit<br></li><li><strong>Processor:</strong> Intel® Core™ i5-2500K / AMD FX-6300<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GeForce GTX 770 2GB / AMD Radeon R9 280 3GB<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 150 GB available space<br></li><li><strong>Sound Card:</strong> Direct X Compatible</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS:</strong> Windows 10 - 64-bit<br></li><li><strong>Processor:</strong> Intel® Core™ i7-4770K / AMD Ryzen 5 1500X<br></li><li><strong>Memory:</strong> 12 GB RAM<br></li><li><strong>Graphics:</strong> Nvidia GeForce GTX 1060 6GB / AMD Radeon RX 480 4GB<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 150 GB available space<br></li><li><strong>Sound Card:</strong> Direct X Compatible</li></ul>"
+        }
+      }
+    },
+    "678950": {
+      "success": true,
+      "data": {
+        "type": "game",
+        "name": "DRAGON BALL FighterZ",
+        "steam_appid": 678950,
+        "is_free": false,
+        "platforms": {
+          "windows": true,
+          "mac": false,
+          "linux": false
+        },
+        "pc_requirements": {
+          "minimum": "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS *:</strong> Windows 7/8/10 (64-bit OS required)<br></li><li><strong>Processor:</strong> AMD FX-4350, 4.2 GHz / Intel Core i5-3470, 3.20 GHz<br></li><li><strong>Memory:</strong> 4 GB RAM<br></li><li><strong>Graphics:</strong> Radeon HD 6870, 1 GB / GeForce GTX 650 Ti, 1 GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 6 GB available space<br></li><li><strong>Sound Card:</strong> DirectX compatible soundcard or onboard chipset</li></ul>",
+          "recommended": "<strong>Recommended:</strong><br><ul class=\"bb_ul\"><li>Requires a 64-bit processor and operating system<br></li><li><strong>OS *:</strong> Windows 7/8/10 (64-bit OS required)<br></li><li><strong>Processor:</strong> AMD Ryzen 5 1400, 3.2 GHz / Intel Core i7-3770, 3.40 GHz<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> Radeon HD 7870, 2 GB / GeForce GTX 660, 2 GB<br></li><li><strong>DirectX:</strong> Version 11<br></li><li><strong>Network:</strong> Broadband Internet connection<br></li><li><strong>Storage:</strong> 6 GB available space<br></li><li><strong>Sound Card:</strong> DirectX compatible soundcard or onboard chipset</li></ul>"
+        }
+      }
+    },
+    "999999999": {
+      "success": false
+    }
+  },
+  "deck": {
+    "730": {
+      "success": 1,
+      "results": {
+        "appid": 730,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "570": {
+      "success": 1,
+      "results": {
+        "appid": 570,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "578080": {
+      "success": 1,
+      "results": {
+        "appid": 578080,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "431960": {
+      "success": 1,
+      "results": {
+        "appid": 431960,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "1172470": {
+      "success": 1,
+      "results": {
+        "appid": 1172470,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "1867240": {
+      "success": 1,
+      "results": {
+        "appid": 1867240,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "1422450": {
+      "success": 1,
+      "results": {
+        "appid": 1422450,
+        "resolved_category": 0,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 0,
+        "machine_resolved_category": 0,
+        "frame_resolved_category": 0
+      }
+    },
+    "892970": {
+      "success": 1,
+      "results": {
+        "appid": 892970,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "292030": {
+      "success": 1,
+      "results": {
+        "appid": 292030,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "271590": {
+      "success": 1,
+      "results": {
+        "appid": 271590,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "https://steamcommunity.com/games/271590/announcements/detail/6356356787200715685?snr=2___",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "2676230": {
+      "success": 1,
+      "results": {
+        "appid": 2676230,
+        "resolved_category": 0,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 0,
+        "machine_resolved_category": 0,
+        "frame_resolved_category": 0
+      }
+    },
+    "2868840": {
+      "success": 1,
+      "results": {
+        "appid": 2868840,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "2357570": {
+      "success": 1,
+      "results": {
+        "appid": 2357570,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "359550": {
+      "success": 1,
+      "results": {
+        "appid": 359550,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "236390": {
+      "success": 1,
+      "results": {
+        "appid": 236390,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "250900": {
+      "success": 1,
+      "results": {
+        "appid": 250900,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": 1
+      }
+    },
+    "2767030": {
+      "success": 1,
+      "results": {
+        "appid": 2767030,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "4126040": {
+      "success": 1,
+      "results": {
+        "appid": 4126040,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "322170": {
+      "success": 1,
+      "results": {
+        "appid": 322170,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": 2
+      }
+    },
+    "4001890": {
+      "success": 1,
+      "results": {
+        "appid": 4001890,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "553850": {
+      "success": 1,
+      "results": {
+        "appid": 553850,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "550": {
+      "success": 1,
+      "results": {
+        "appid": 550,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "1973530": {
+      "success": 1,
+      "results": {
+        "appid": 1973530,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "413150": {
+      "success": 1,
+      "results": {
+        "appid": 413150,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "381210": {
+      "success": 1,
+      "results": {
+        "appid": 381210,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "1304930": {
+      "success": 1,
+      "results": {
+        "appid": 1304930,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "252490": {
+      "success": 1,
+      "results": {
+        "appid": 252490,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "105600": {
+      "success": 1,
+      "results": {
+        "appid": 105600,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "2507950": {
+      "success": 1,
+      "results": {
+        "appid": 2507950,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "230410": {
+      "success": 1,
+      "results": {
+        "appid": 230410,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "108600": {
+      "success": 1,
+      "results": {
+        "appid": 108600,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "3240220": {
+      "success": 1,
+      "results": {
+        "appid": 3240220,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "440": {
+      "success": 1,
+      "results": {
+        "appid": 440,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "227300": {
+      "success": 1,
+      "results": {
+        "appid": 227300,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "2807960": {
+      "success": 1,
+      "results": {
+        "appid": 2807960,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "1142710": {
+      "success": 1,
+      "results": {
+        "appid": 1142710,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "438100": {
+      "success": 1,
+      "results": {
+        "appid": 438100,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "4080220": {
+      "success": 1,
+      "results": {
+        "appid": 4080220,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "1091500": {
+      "success": 1,
+      "results": {
+        "appid": 1091500,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": 2
+      }
+    },
+    "1086940": {
+      "success": 1,
+      "results": {
+        "appid": 1086940,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "2246340": {
+      "success": 1,
+      "results": {
+        "appid": 2246340,
+        "resolved_category": 3,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 3,
+        "frame_resolved_category": null
+      }
+    },
+    "1174180": {
+      "success": 1,
+      "results": {
+        "appid": 1174180,
+        "resolved_category": 2,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 2,
+        "machine_resolved_category": 2,
+        "frame_resolved_category": null
+      }
+    },
+    "678950": {
+      "success": 1,
+      "results": {
+        "appid": 678950,
+        "resolved_category": 1,
+        "steam_deck_blog_url": "",
+        "search_id": null,
+        "steamos_resolved_category": 1,
+        "machine_resolved_category": 1,
+        "frame_resolved_category": null
+      }
+    },
+    "999999999": {
+      "success": 1,
+      "results": []
+    }
+  },
+  "antiCheat": [
+    {
+      "name": "Apex Legends",
+      "status": "Denied",
+      "anticheats": ["Easy Anti-Cheat", "Hyperion"],
+      "storeIds": {
+        "steam": "1172470"
+      }
+    },
+    {
+      "name": "PUBG: Battlegrounds",
+      "status": "Broken",
+      "anticheats": ["Zakynthos", "BattlEye", "UNCHEATER"],
+      "storeIds": {
+        "steam": "578080",
+        "epic": {
+          "namespace": "9361c8c6d2f34b42b5f2f61093eedf48",
+          "slug": "pubg-59c1d9"
+        }
+      }
+    },
+    {
+      "name": "Tom Clancy's Rainbow Six® Siege",
+      "status": "Denied",
+      "anticheats": ["FairFight", "BattlEye"],
+      "storeIds": {
+        "steam": "359550",
+        "epic": {
+          "namespace": "carnation",
+          "slug": "rainbow-six-siege"
+        }
+      }
+    },
+    {
+      "name": "Dead By Daylight",
+      "status": "Supported",
+      "anticheats": ["Easy Anti-Cheat"],
+      "storeIds": {
+        "steam": "381210",
+        "epic": {
+          "namespace": "611482b8586142cda48a0786eb8a127c",
+          "slug": "dead-by-daylight"
+        }
+      }
+    },
+    {
+      "name": "Rust",
+      "status": "Denied",
+      "anticheats": ["Easy Anti-Cheat", "VAC"],
+      "storeIds": {
+        "steam": "252490"
+      }
+    },
+    {
+      "name": "War Thunder",
+      "status": "Supported",
+      "anticheats": ["BattlEye"],
+      "storeIds": {
+        "steam": "236390"
+      }
+    },
+    {
+      "name": "DRAGON BALL FighterZ",
+      "status": "Broken",
+      "anticheats": ["Easy Anti-Cheat"],
+      "storeIds": {
+        "steam": "678950"
+      }
+    },
+    {
+      "name": "Counter-Strike: Global Offensive",
+      "status": "Supported",
+      "anticheats": ["VAC"],
+      "storeIds": {
+        "steam": "730"
+      }
+    },
+    {
+      "name": "Team Fortress 2",
+      "status": "Supported",
+      "anticheats": ["VAC"],
+      "storeIds": {
+        "steam": "440"
+      }
+    },
+    {
+      "name": "DotA 2",
+      "status": "Supported",
+      "anticheats": ["VAC"],
+      "storeIds": {
+        "steam": "570"
+      }
+    },
+    {
+      "name": "Left 4 Dead 2",
+      "status": "Supported",
+      "anticheats": ["VAC"],
+      "storeIds": {
+        "steam": "550"
+      }
+    },
+    {
+      "name": "Warframe",
+      "status": "Supported",
+      "anticheats": ["Unknown (Custom)"],
+      "storeIds": {
+        "steam": "230410",
+        "epic": {
+          "namespace": "244aaaa06bfa49d088205b13b9d2d115",
+          "slug": "warframe"
+        }
+      }
+    },
+    {
+      "name": "Grand Theft Auto V",
+      "status": "Denied",
+      "anticheats": ["BattlEye"],
+      "storeIds": {
+        "steam": "271590",
+        "epic": {
+          "namespace": "0584d2013f0149a791e7b9bad0eec102",
+          "slug": "grand-theft-auto-v"
+        }
+      }
+    },
+    {
+      "name": "Overwatch 2",
+      "status": "Supported",
+      "anticheats": ["Warden"],
+      "storeIds": {
+        "steam": "2357570"
+      }
+    },
+    {
+      "name": "VRChat",
+      "status": "Supported",
+      "anticheats": ["Easy Anti-Cheat"],
+      "storeIds": {
+        "steam": "438100"
+      }
+    },
+    {
+      "name": "Helldivers 2",
+      "status": "Running",
+      "anticheats": ["nProtect GameGuard"],
+      "storeIds": {
+        "steam": "553850"
+      }
+    },
+    {
+      "name": "Marvel Rivals",
+      "status": "Running",
+      "anticheats": ["NetEase Game Security"],
+      "storeIds": {
+        "steam": "2767030"
+      }
+    },
+    {
+      "name": "Deadlock",
+      "status": "Supported",
+      "anticheats": ["VAC"],
+      "storeIds": {
+        "steam": "1422450"
+      }
+    },
+    {
+      "name": "Battlefield 6",
+      "status": "Denied",
+      "anticheats": ["EA anticheat"],
+      "storeIds": {
+        "steam": "2807960"
+      }
+    },
+    {
+      "name": "Tom Clancy's Rainbow Six® Siege X",
+      "status": "Denied",
+      "anticheats": ["FairFight", "BattlEye", "R6 ShieldGuard"],
+      "storeIds": {
+        "steam": "359550",
+        "epic": {
+          "namespace": "carnation",
+          "slug": "rainbow-six-siege"
+        }
+      }
+    }
+  ]
+}

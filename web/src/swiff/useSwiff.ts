@@ -46,7 +46,7 @@ import {
 } from "./play";
 import { questionOf, useLive } from "./useLive";
 import { pathOf, screenAt } from "./route";
-import { fetchMedia, fetchPopular } from "./catalog";
+import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
   applySteam,
   endSignIn,
@@ -137,7 +137,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [machineId, setMachineId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  const [games, setGames] = useState<Game[]>(GAMES);
+  // Outside the demo, a game reaches the wall only once the server says Swiff
+  // can run it (server/src/playable.ts): until it answers, the wall is empty.
+  const [games, setGames] = useState<Game[]>(demo ? GAMES : []);
   // Who the session cookie signs in. The profile can be empty (no Steam Web API
   // key, or Steam did not answer), so being signed in is read from this alone.
   const [steamId, setSteamId] = useState<string | null>(null);
@@ -270,6 +272,16 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // The last store data read, so a retry swaps games in place rather than
   // blanking the free-to-play tiles until the store answers again.
   const lastCatalog = useRef<StoreData>({ media: [], popular: [] });
+  // Which of the hand-authored nine the server says Swiff can run; null in the
+  // demo, where all nine stand in.
+  const vouched = useRef<ReadonlySet<number> | null>(demo ? null : new Set());
+  /** Take the server's word on the hand-authored nine from a popular read. */
+  const vouch = useCallback(
+    (popular: Popular | null) => {
+      if (popular && !demo) vouched.current = new Set(popular.wall);
+    },
+    [demo],
+  );
   /**
    * Put a signed-in renter's wall up: their own games at once, beside whatever
    * free-to-play games the last store read found, then, once Steam's store data
@@ -282,19 +294,20 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       setSteamId(steamId);
       setProfile(next);
       const kept = storeGames(lastCatalog.current);
-      const library = applySteam(next, sharedMachineIds, kept);
+      const library = applySteam(next, sharedMachineIds, kept, vouched.current);
       setGames(withMedia(library, kept));
       const curated = GAMES.map((g) => g.appid);
       void Promise.all([fetchMedia([...library.map((g) => g.appid), ...curated]), fetchPopular()]).then(
         ([media, popular]) => {
           if (load !== libraryLoad.current) return;
-          lastCatalog.current = nextCatalog(lastCatalog.current, media, popular);
+          vouch(popular);
+          lastCatalog.current = nextCatalog(lastCatalog.current, media, popular?.games ?? []);
           const catalog = storeGames(lastCatalog.current);
-          setGames(withMedia(applySteam(next, sharedMachineIds, catalog), catalog));
+          setGames(withMedia(applySteam(next, sharedMachineIds, catalog, vouched.current), catalog));
         },
       );
     },
-    [sharedMachineIds],
+    [sharedMachineIds, vouch],
   );
 
   /** Read the renter's library from Steam again, after they have made it public. */
@@ -316,11 +329,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     // The session cookie, not the URL, says who is signed in.
     void fetchRenter().then((renter) => {
       if (!renter) {
-        // Signed out: lead with what people are actually playing on Steam. Until
-        // it arrives, or if Steam is down, the hand-authored nine stay up.
-        void fetchPopular().then((catalog) => {
-          if (!catalog.length) return;
-          const cards = popularCards(catalog, sharedMachineIds);
+        // Signed out: lead with what people are actually playing on Steam that
+        // Swiff can run. If Steam is down, the hand-authored nine the server
+        // vouches for stand in; in the demo they are up until it arrives.
+        void fetchPopular().then((popular) => {
+          vouch(popular);
+          const catalog = popular?.games ?? [];
+          const curated = GAMES.filter((g) => !vouched.current || vouched.current.has(g.appid));
+          if (!catalog.length && (demo || !popular)) return;
+          const cards = catalog.length ? popularCards(catalog, sharedMachineIds) : curated;
           setGames((prev) => {
             const open = prev.find((g) => g.id === openGameId.current);
             return open && !cards.some((c) => c.id === open.id) ? [...cards, open] : cards;

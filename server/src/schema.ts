@@ -204,6 +204,19 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE bookings ADD COLUMN avoid_machine_id TEXT`,
     `CREATE INDEX bookings_continues ON bookings (continues) WHERE continues IS NOT NULL`,
   ],
+  [
+    // Whether Swiff can run each game (playable.ts), next to what it needs in
+    // game_requirements: the verdict from the last complete check, its
+    // reasons as a JSON list, and when that check was.
+    `CREATE TABLE game_playability (
+      appid      BIGINT PRIMARY KEY,
+      verdict    TEXT NOT NULL CHECK (verdict IN ('playable', 'not-playable', 'unknown')),
+      reasons    TEXT NOT NULL,
+      checked_at BIGINT NOT NULL
+    )`,
+    // Launches that keep failing are read from the sessions that ended recently.
+    `CREATE INDEX sessions_by_end ON sessions (ended_at)`,
+  ],
 ];
 
 /**

@@ -48,6 +48,9 @@
 // takes their seat back and ending the session still revokes every copy.
 // A renter books and claims only games in their own Steam library or free to
 // play (licence.ts); anything else answers 403 with a `code` the page explains.
+// Every list of games a renter is sent, their library included, holds only
+// games Swiff can run (playable.ts), and booking any other answers 403
+// not-playable.
 // The renter's page starts the session on its first frame, reports stream
 // quality, and says it is leaving, with that ticket as its bearer. Starting it
 // is what tells the PC to launch the game. A renter who dropped has the
@@ -65,6 +68,7 @@ import { createAttestation, looksLikeHostCert, type Attestation, type Credential
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
+import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
 import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
 import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
@@ -73,7 +77,14 @@ import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
-import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
+import {
+  emptyProfile,
+  originFrom,
+  pageProfile,
+  readProfile,
+  type ProfileReader,
+  type SteamProfile,
+} from "./steam.js";
 
 /** A host report can list up to MAX_GAMES installed appids (profile.ts). */
 const MAX_HOST_BODY_BYTES = 32 * 1024;
@@ -109,7 +120,7 @@ export type ApiOptions = {
   publicOrigin: string | null;
   /** Used when the request carries no host header. */
   fallbackOrigin: string;
-  /** The games that can be booked. Defaults to Steam's most played (catalog.ts). */
+  /** The games that can be booked, before playability. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
   /** The renter event streams. Without them GET /api/events is not served. */
   events?: RenterEvents;
@@ -123,6 +134,8 @@ export type ApiOptions = {
   attestation?: Attestation;
   /** Rental-mode PCs' state keys (state-key.ts). Defaults to none: every call answers 503 not-configured. */
   stateKeys?: StateKeys;
+  /** Which games Swiff can run (playable.ts). Defaults to every game, checking none. */
+  playability?: PlayableGames;
   /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
   onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
   /**
@@ -137,6 +150,9 @@ const UNLICENSED_MESSAGE = {
   "not-owned": "the game is not in your Steam library and is not free to play",
   "library-unreadable": "your Steam library cannot be read, so only free-to-play games can be played",
 } as const;
+
+/** What a game Swiff cannot run (playable.ts) answers, with code not-playable. */
+const NOT_PLAYABLE = { error: "Swiff cannot run this game", code: "not-playable" } as const;
 
 /** Answer with a JSON body that no cache keeps. */
 function reply(
@@ -348,8 +364,23 @@ function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
   return { steamId, rttMs, ...renterPrefs(controls, query.get("picture") ?? "best") };
 }
 
-const defaultGames = async () =>
-  (await popularGames()).map((g) => ({ id: g.appid, name: g.name, image: g.art.capsule ?? g.art.hero }));
+/** Steam's most played games that `keep` lets through, as the games that can be booked. */
+const popularBookable = async (keep: (appid: number) => boolean) =>
+  (await popularGames(undefined, keep)).map((g) => ({
+    id: g.appid,
+    name: g.name,
+    image: g.art.capsule ?? g.art.hero,
+  }));
+
+/** The renter's profile as the page is sent it: only the games Swiff can run, of theirs. */
+function shownProfile(read: SteamProfile, playable: (appid: number) => boolean) {
+  const page = pageProfile(read);
+  return {
+    ...page,
+    owned: page.owned.filter(([appid]) => playable(appid)),
+    games: page.games.filter(([appid]) => playable(appid)),
+  };
+}
 
 /**
  * Serve any request under /api/ (an unknown route is a 404 JSON answer, not
@@ -363,16 +394,26 @@ export function createApi({
   sessionSecret,
   publicOrigin,
   fallbackOrigin,
-  games = defaultGames,
+  games,
   profile = (steamId) => readProfile(undefined, steamId),
   events,
   discovery = new RequestBudget(),
   isFree = storeFreeToPlay(),
   attestation = createAttestation({ access }),
   stateKeys = createStateKeys({ store: memoryStateKeyStore(), secret: null }),
+  playability = everyGamePlayable,
   onRenterStarted,
   heldUntil = () => null,
 }: ApiOptions) {
+  const playable = (appid: number) => playability.playable(appid);
+  const bookable = games ?? (() => popularBookable(playable));
+
+  /** The page's copy of the renter's profile; their library is checked for games not checked yet. */
+  function profileReply(steamId: string, read: SteamProfile) {
+    playability.want(read.library);
+    return { steamId, profile: shownProfile(read, playable) };
+  }
+
   /**
    * Answer 403 and true when the renter may not play `gameId`: not in their
    * library and not free to play. A profile Steam fails to give reads as a
@@ -450,7 +491,12 @@ export function createApi({
     }
 
     if (resource === "games" && !id && method === "GET") {
-      reply(res, 200, await games().catch(() => []));
+      const listed = await bookable().catch(() => []);
+      reply(
+        res,
+        200,
+        listed.filter((game) => playable(game.id)),
+      );
       return true;
     }
 
@@ -464,7 +510,8 @@ export function createApi({
       }
       // Repeats are answered once, however they are spelled ("730" and "0730").
       const parsed = new Set(appids.map((a) => wholeParam(a, "appids[]", MAX_APPID)));
-      const games = await platform.requirements([...parsed]);
+      // A game Swiff cannot run is answered for nowhere: it has no machines to offer.
+      const games = await platform.requirements([...parsed].filter(playable));
       const ask = renterAsk(steamId, query);
       // Optional: how long the renter means to play, for `ready` and `best`. It never changes `free`.
       const minutes = query.has("minutes") ? wholeParam(query.get("minutes"), "minutes", MAX_MINUTES) : 0;
@@ -480,6 +527,10 @@ export function createApi({
       const appid = wholeParam(id, "appid", MAX_APPID);
       const minutes = wholeParam(query.get("minutes"), "minutes", MAX_MINUTES);
       const ask = renterAsk(steamId, query);
+      if (!playable(appid)) {
+        reply(res, 404, NOT_PLAYABLE);
+        return true;
+      }
       const [game] = await platform.requirements([appid]);
       const { at, machines } = await platform.offeredMachines();
       reply(res, 200, machinesFor(game!, minutes, ask, machines, at));
@@ -512,7 +563,7 @@ export function createApi({
       const steamId = requireRenter(req, sessionSecret);
       // A Steam outage must not read as signed out: the session stands.
       const read = await profile(steamId).catch(() => emptyProfile(steamId));
-      reply(res, 200, { steamId, profile: pageProfile(read) });
+      reply(res, 200, profileReply(steamId, read));
       return true;
     }
 
@@ -521,7 +572,7 @@ export function createApi({
     if (resource === "me" && id === "refresh" && !action && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const fresh = await profile(steamId, { fresh: true }).catch(() => emptyProfile(steamId));
-      reply(res, 200, { steamId, profile: pageProfile(fresh) });
+      reply(res, 200, profileReply(steamId, fresh));
       return true;
     }
 
@@ -543,6 +594,10 @@ export function createApi({
       const machineId = optionalMachineId(body.machineId);
       const rtts = bookingRtts(body.rtts);
       const prefs = bookingPrefs(body);
+      if (!playable(gameId)) {
+        reply(res, 403, NOT_PLAYABLE);
+        return true;
+      }
       if (await refuseUnlicensed(res, renter, gameId)) return true;
       if (machineId === undefined) {
         reply(res, 202, await platform.book(gameId, minutes, renter, rtts, prefs));
@@ -712,7 +767,7 @@ export function createApi({
       requireMachine(req, access, id);
       const [demand, catalogue] = await Promise.all([
         platform.demand(DEMAND_WINDOW_MS, DEMAND_LIMIT),
-        games().catch(() => []),
+        bookable().catch(() => []),
       ]);
       const names = new Map(catalogue.map((g) => [g.id, g.name]));
       reply(res, 200, {

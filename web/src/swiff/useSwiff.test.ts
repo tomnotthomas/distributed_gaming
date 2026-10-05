@@ -61,7 +61,8 @@ type Hosts = {
  * The server: /api/me answers `renter` (404 when null), /api/ping answers, the
  * availability reads answer from `hosts` for a signed-in renter (401 signed
  * out), each "METHOD path" in `booking` answers as it says, and every catalog
- * read comes back empty. Returns every call made, with its JSON body.
+ * read comes back empty but for the wall's two free-to-play games, which the
+ * popular read says Swiff can run. Returns every call made, with its JSON body.
  */
 function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string, () => Response> = {}) {
   const calls: { call: string; body: unknown }[] = [];
@@ -75,6 +76,7 @@ function serve(renter: Renter | null, hosts: Hosts = {}, booking: Record<string,
       const url = new URL(path, "http://localhost");
       if (url.pathname === "/api/me") return renter ? json(renter) : json({}, 404);
       if (url.pathname === "/api/ping") return new Response(null, { status: 204 });
+      if (url.pathname === "/api/games/popular") return json({ games: [], wall: [730, 2073850] });
       if (url.pathname === "/api/availability") {
         if (!renter) return json({ error: "sign in with Steam first" }, 401);
         const appids = url.searchParams.get("appids")!.split(",").map(Number);
@@ -184,6 +186,8 @@ const LIVE: Hosts = {
 async function openLive() {
   const { result } = renderHook(() => useSwiff({ demo: false }));
   await waitFor(() => expect(result.current.signedIn).toBe(true));
+  // The server vouches for Counter-Strike 2 once its popular read is in.
+  await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
   act(() => result.current.openGame(result.current.games.find((g) => g.appid === cs2.appid)!));
   await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
   return result;
@@ -242,6 +246,45 @@ describe("useSwiff", () => {
 
   describe("on the real hosts", () => {
     // jsdom has no EventSource, so the hook falls back to its slow poll here.
+
+    describe("shows only games the server says Swiff can run", () => {
+      const appidsOf = (games: { appid: number }[]) => games.map((g) => g.appid).sort((a, b) => a - b);
+      const chart = { appid: 292030, name: "The Witcher 3", free: false, art: { hero: null, capsule: null } };
+
+      it("shows a signed-out visitor nothing until the server answers, then the chart it sent", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(200, { games: [chart], wall: [730] }) });
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        expect(result.current.games).toEqual([]);
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([292030]));
+      });
+
+      it("stands in only the hand-authored games it vouches for when the chart is empty", async () => {
+        serve(null);
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([730, 2073850]));
+      });
+
+      it("shows nothing it has not heard about from the server", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(503, {}) });
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(fetched()).toContain("/api/games/popular"));
+        await act(() => Promise.resolve());
+        expect(result.current.games).toEqual([]);
+      });
+
+      it("keeps the hand-authored nine in the demo", async () => {
+        serve(null, {}, { "GET /api/games/popular": json(503, {}) });
+        const { result } = renderHook(() => useSwiff({ demo: true }));
+        await waitFor(() => expect(fetched()).toContain("/api/games/popular"));
+        expect(result.current.games).toHaveLength(GAMES.length);
+      });
+
+      it("leaves a free-to-play game it does not vouch for off a signed-in renter's wall", async () => {
+        serve(unnamed, {}, { "GET /api/games/popular": json(200, { games: [], wall: [2073850] }) });
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(appidsOf(result.current.games)).toEqual([2073850]));
+      });
+    });
 
     it("never asks a signed-out visitor's availability, and lists no invented machine", async () => {
       serve(null);
@@ -314,6 +357,8 @@ describe("useSwiff", () => {
       });
       const { result } = renderHook(() => useSwiff({ demo: false }));
       await waitFor(() => expect(result.current.signedIn).toBe(true));
+      // The server vouches for Counter-Strike 2 once its popular read is in.
+      await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
       const game = result.current.games.find((g) => g.appid === cs2.appid)!;
       act(() => result.current.openGame(game));
       expect(result.current.machinesLoading).toBe(true);
@@ -358,6 +403,8 @@ describe("useSwiff", () => {
       try {
         const { result } = renderHook(() => useSwiff({ demo: false }));
         await waitFor(() => expect(result.current.signedIn).toBe(true));
+        // The server vouches for Counter-Strike 2 once its popular read is in.
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
         const game = result.current.games.find((g) => g.appid === cs2.appid)!;
         act(() => result.current.openGame(game));
         await waitFor(() => expect(result.current.picked?.id).toBe("h1"));
@@ -911,6 +958,7 @@ describe("useSwiff", () => {
       const opened = streams();
       const { result } = renderHook(() => useSwiff({ demo: false }));
       await waitFor(() => expect(opened.some((o) => o.url === "/api/events?booking=b-1")).toBe(true));
+      await waitFor(() => expect(result.current.games.some((g) => g.appid === cs2.appid)).toBe(true));
 
       act(() => opened.find((o) => o.url === "/api/events?booking=b-1")!.push(booked("matched", 1_000)));
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));

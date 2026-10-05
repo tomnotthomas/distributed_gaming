@@ -112,6 +112,8 @@ before(async () => {
       SESSION_SECRET,
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
       DATABASE_URL: database.url,
+      // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+      SWIFF_PLAYABILITY: "off",
       HOSTING_ATTESTATION: "required",
       ATTESTATION_VERIFIER: "insecure-dev",
       TURN_URLS: TURN,

@@ -108,6 +108,8 @@ before(async () => {
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
       DATABASE_URL: database.url,
       SWIFF_RECONNECT_GRACE_MS: String(GRACE_MS),
+      // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+      SWIFF_PLAYABILITY: "off",
     },
     stdio: "ignore",
   });

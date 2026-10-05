@@ -94,10 +94,13 @@ export type NextBest = {
   latency: { rttMs: number };
 };
 
-/** Why the server refused a game: not in the renter's Steam library, or their library cannot be read. */
-export type Refusal = "not-owned" | "library-unreadable";
+/**
+ * Why the server refused a game: not in the renter's Steam library, their
+ * library cannot be read, or Swiff cannot run it (server/src/playable.ts).
+ */
+export type Refusal = "not-owned" | "library-unreadable" | "not-playable";
 
-const REFUSALS: readonly Refusal[] = ["not-owned", "library-unreadable"];
+const REFUSALS: readonly Refusal[] = ["not-owned", "library-unreadable", "not-playable"];
 
 /** A booking the server refused because the renter may not play the game (403). */
 export class BookingRefused extends Error {

@@ -242,13 +242,15 @@ function freeCard(game: CatalogGame, pool: string[]): Game {
  * The signed-in wall: only games the renter owns, plus free-to-play games
  * anyone can start, which `catalog` (Steam's store data) marks free. With no
  * catalog (not read yet, or the store is down) the curated games marked f2p
- * stand in. A paid game the renter does not own is never on it, whether or not
- * Steam let us read the library.
+ * stand in, only those in `vouched` (the ones the server says Swiff can run)
+ * when it is given. A paid game the renter does not own is never on it,
+ * whether or not Steam let us read the library.
  */
 export function applySteam(
   profile: SteamProfile,
   sharedMachineIds: string[],
   catalog: CatalogGame[] = [],
+  vouched: ReadonlySet<number> | null = null,
 ): Game[] {
   const owned = new Map(profile.owned);
   const curated = GAMES.filter((game) => owned.has(game.appid)).map((game) =>
@@ -269,7 +271,7 @@ export function applySteam(
     ? [...byApp.values()]
         .filter((g) => g.free && !mine.has(g.appid))
         .map((g) => freeCard(g, sharedMachineIds))
-    : GAMES.filter((g) => g.f2p && !mine.has(g.appid)).map(freeCurated);
+    : GAMES.filter((g) => g.f2p && !mine.has(g.appid) && (!vouched || vouched.has(g.appid))).map(freeCurated);
 
   return [...curated, ...extra, ...free];
 }

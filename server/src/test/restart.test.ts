@@ -37,6 +37,8 @@ async function startServer(): Promise<void> {
       SESSION_SECRET,
       MACHINE_KEYS: `pc-1:${HASH}`,
       DATABASE_URL: database.url,
+      // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+      SWIFF_PLAYABILITY: "off",
     },
     stdio: "ignore",
   });

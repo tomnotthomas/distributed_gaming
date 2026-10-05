@@ -111,6 +111,11 @@ describe("applySteam", () => {
     expect(libraryState(profile({ lib: false }))).toBe("unreadable");
   });
 
+  it("falls back only to the curated free-to-play games the server says Swiff can run, when it says", () => {
+    expect(appids(applySteam(profile({ lib: false }), pool, [], new Set([730])))).toEqual([730]);
+    expect(applySteam(profile({ lib: false }), pool, [], new Set())).toEqual([]);
+  });
+
   it("lets the store data, when there is any, say what is free over the curated set", () => {
     const paid = store.map((g) => (g.appid === 730 ? { ...g, free: false } : g));
     expect(appids(applySteam(profile({ lib: false }), pool, paid))).toEqual([2073850]);

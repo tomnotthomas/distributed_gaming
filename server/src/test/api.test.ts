@@ -21,7 +21,7 @@ import {
 import { createApi } from "../api.js";
 import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
 import { Platform, QUEUE_TIMEOUT_MS, RESET_HOLD_MS } from "../platform.js";
-import { emptyProfile } from "../steam.js";
+import { emptyProfile, type SteamProfile } from "../steam.js";
 import type { SignalMessage } from "../protocol.js";
 import { MAX_GAMES } from "../profile.js";
 import { REPORT } from "./report.js";
@@ -77,6 +77,12 @@ describe("booking and host API", () => {
   // has their library hidden. Renters in `unreachable` cannot be read at all.
   let libraries: Map<string, number[]>;
   let unreachable: Set<string>;
+  /** The rest of each renter's profile as Steam shows it, beyond their library. */
+  let shown: Map<string, Partial<SteamProfile>>;
+  /** Games Swiff cannot run (playable.ts); every other game it can. */
+  let unplayable: Set<number>;
+  /** Every game the API asked to have checked, in order. */
+  let wanted: number[];
   /** Each launch the API asked for: machine, session, game. */
   let launches: [string, string, number, string][];
 
@@ -96,7 +102,12 @@ describe("booking and host API", () => {
         persona: "kai_nx",
         lib: fresh || library !== undefined,
         library: Uint32Array.from(library ?? []).sort(),
+        ...shown.get(steamId),
       };
+    };
+    const playability = {
+      playable: (appid: number) => !unplayable.has(appid),
+      want: (appids: Iterable<number>) => void wanted.push(...appids),
     };
     // Counter-Strike 2 and Dota 2 are free to play; every other game is paid.
     const isFree = async (appid: number) => appid === 730 || appid === 570;
@@ -112,6 +123,7 @@ describe("booking and host API", () => {
         profile,
         discovery,
         isFree,
+        playability,
         onRenterStarted: (...launch) => launches.push(launch),
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -133,6 +145,9 @@ describe("booking and host API", () => {
     access.secret = SECRET;
     libraries = new Map();
     unreachable = new Set();
+    shown = new Map();
+    unplayable = new Set();
+    wanted = [];
     launches = [];
   });
 
@@ -706,6 +721,65 @@ describe("booking and host API", () => {
     assert.equal(claim.body.roomId, "pc-2");
   });
 
+  describe("only games Swiff can run", () => {
+    it("lists only those as the games that can be booked", async () => {
+      unplayable.add(730);
+      assert.deepEqual((await call("GET", "/api/games")).body, []);
+    });
+
+    it("sends the page only those of the renter's games, and has the whole library checked", async () => {
+      libraries.set(RENTER, [440, 570, 730, 1245620]);
+      shown.set(RENTER, {
+        owned: [
+          [730, 400],
+          [1245620, 61],
+        ],
+        games: [
+          [440, "Team Fortress 2", 3],
+          [570, "Dota 2", 12],
+        ],
+      });
+      unplayable = new Set([570, 1245620]);
+      for (const read of [() => renter("GET", "/api/me"), () => renter("POST", "/api/me/refresh")]) {
+        wanted = [];
+        const { profile } = (await read()).body;
+        assert.deepEqual(profile.owned, [[730, 400]]);
+        assert.deepEqual(profile.games, [[440, "Team Fortress 2", 3]]);
+        assert.deepEqual(wanted, [440, 570, 730, 1245620]);
+      }
+    });
+
+    it("answers nothing for the others when asked what is free, and lists no machines for them", async () => {
+      await offer();
+      unplayable.add(570);
+      const { body } = await renter("GET", "/api/availability?appids=570,730&rtt=0");
+      assert.deepEqual(
+        body.map((game: any) => game.appid),
+        [730],
+      );
+      const machines = await renter("GET", "/api/games/570/machines?minutes=60&rtt=0");
+      assert.equal(machines.status, 404);
+      assert.deepEqual(machines.body, { error: "Swiff cannot run this game", code: "not-playable" });
+    });
+
+    it("refuses to book the others, queued or picked, and books nothing", async () => {
+      await offer();
+      unplayable.add(730);
+      for (const ask of [
+        { gameId: 730, minutes: 30 },
+        { gameId: 730, minutes: 30, machineId: "pc-1" },
+      ]) {
+        const refused = await renter("POST", "/api/bookings", ask);
+        assert.equal(refused.status, 403);
+        assert.equal(refused.body.code, "not-playable");
+        assert.equal(refused.body.bookingId, undefined);
+      }
+      unplayable.clear();
+      const booked = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30, machineId: "pc-1" });
+      assert.equal(booked.status, 202);
+    });
+  });
+
   it("tells the page who is signed in, and signs them out", async () => {
     const me = await renter("GET", "/api/me");
     assert.equal(me.status, 200);
@@ -1254,6 +1328,8 @@ describe("the real server", () => {
         SESSION_SECRET: SESSION,
         MACHINE_KEYS,
         DATABASE_URL: database.url,
+        // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+        SWIFF_PLAYABILITY: "off",
       },
       stdio: "ignore",
     });

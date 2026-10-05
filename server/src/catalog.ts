@@ -153,16 +153,28 @@ export async function catalogGames(appids: number[], now = Date.now()): Promise<
   return games.filter((g): g is CatalogGame => g !== null);
 }
 
-/** The most played games on Steam, with art and trailers. Empty if Steam is unreachable. */
-export async function popularGames(limit = POPULAR_LIMIT): Promise<CatalogGame[]> {
-  const appids = await mostPlayed().catch(() => [] as number[]);
+/**
+ * The most played games on Steam that `keep` lets through (playable.ts), with
+ * art and trailers. Empty if Steam is unreachable.
+ */
+export async function popularGames(
+  limit = POPULAR_LIMIT,
+  keep: (appid: number) => boolean = () => true,
+): Promise<CatalogGame[]> {
+  const appids = (await mostPlayed().catch(() => [] as number[])).filter(keep);
   // Ask for a margin over the limit: some charting apps are software, not games.
   const games = await catalogGames(appids.slice(0, Math.ceil(limit * 1.5)));
   return games.slice(0, limit);
 }
 
-/** Art and trailers for specific games, e.g. a signed-in player's library. */
-export function gamesMedia(appids: number[]): Promise<CatalogGame[]> {
-  const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, MEDIA_LIMIT);
+/** Art and trailers for specific games that `keep` lets through, e.g. a signed-in player's library. */
+export function gamesMedia(
+  appids: number[],
+  keep: (appid: number) => boolean = () => true,
+): Promise<CatalogGame[]> {
+  const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0 && keep(id)))].slice(
+    0,
+    MEDIA_LIMIT,
+  );
   return catalogGames(unique);
 }

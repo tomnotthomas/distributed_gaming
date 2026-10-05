@@ -69,12 +69,13 @@ import {
 import { createHostSessions, type HostSessions } from "./sessions.js";
 import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames } from "./catalog.js";
-import { cachedProfiles, publicOriginFromEnv, readProfile } from "./steam.js";
+import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
 import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
+import { everyGamePlayable, Playability } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -176,6 +177,15 @@ const renterEvents = createRenterEvents(platform, {
   maxStreamsPerRenter: Number(process.env.MAX_EVENT_STREAMS_PER_RENTER) || undefined,
 });
 
+// Which games Swiff can run (playable.ts): renters are shown, and may book,
+// only those. Checked against Steam in the background, a game at a time, from
+// the verdicts the database already holds.
+// SWIFF_PLAYABILITY=off, for tests that start the real server, makes every
+// game playable and checks nothing, so they never wait on or call Steam.
+const playability = process.env.SWIFF_PLAYABILITY === "off" ? everyGamePlayable : new Playability(database);
+if (playability instanceof Playability) playability.start();
+else console.warn("[swiff] SWIFF_PLAYABILITY=off — every game is shown as playable, unchecked");
+
 // Session keys are signed with ROOM_SECRET too, so without it no session can
 // start and the machine key is the only way to register. Live sessions are kept
 // in the platform database, so they and their keys survive a restart.
@@ -190,6 +200,7 @@ const serveApi = createApi({
   events: renterEvents,
   attestation,
   stateKeys,
+  playability,
   onRenterStarted: pushLaunch,
   heldUntil: (machineId) => grace.until(machineId),
 });
@@ -618,19 +629,24 @@ async function answerSession(
 // --- static files -----------------------------------------------------------
 
 /**
- * The game catalog: Steam's most played games for the signed-out wall, and
- * names plus trailers for any appids (a signed-in library). Keyless and cached
- * in catalog.ts; a Steam outage answers an empty list and the client falls back
- * to its own nine.
+ * The game catalog: Steam's most played games for the signed-out wall, with
+ * which of the wall's own nine (`wall`, appids) the page may stand in when
+ * Steam is down, and names plus trailers for any appids (a signed-in library),
+ * only ever games Swiff can run (playable.ts). Keyless and cached in
+ * catalog.ts; a Steam outage answers an empty list.
  */
 async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSearchParams): Promise<boolean> {
+  const playable = (appid: number) => playability.playable(appid);
   let games: Promise<unknown[]>;
-  if (urlPath === "/api/games/popular") games = popularGames();
-  else if (urlPath === "/api/games/media") {
-    games = gamesMedia((query.get("appids") ?? "").split(",").map(Number));
+  let extra = {};
+  if (urlPath === "/api/games/popular") {
+    games = popularGames(undefined, playable);
+    extra = { wall: WALL_APPIDS.filter(playable) };
+  } else if (urlPath === "/api/games/media") {
+    games = gamesMedia((query.get("appids") ?? "").split(",").map(Number), playable);
   } else return false;
 
-  const body = JSON.stringify({ games: await games.catch(() => []) });
+  const body = JSON.stringify({ games: await games.catch(() => []), ...extra });
   // Browsers may reuse it for a few minutes; the server's own cache does the rest.
   res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" });
   res.end(body);

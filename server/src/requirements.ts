@@ -45,15 +45,25 @@ export type RequirementsRow = {
 
 type Stored = Omit<RequirementsRow, "appid" | "updatedAt">;
 
-/** A curated entry: cards by name, so every number traces back to the GPU score table. */
+/**
+ * A curated entry. Requirements name cards, so every number traces back to the
+ * GPU score table. `cloud` is whether the publisher allows its game to be
+ * played on rented PCs (playable.ts), which no API says, with `cloudWhy` the
+ * evidence; an entry may carry either part, or both.
+ */
 type Override = {
   name: string;
-  minGpu: string;
-  recGpu: string;
-  minRamGb: number;
-  minVramGb: number;
-  why: string;
+  minGpu?: string;
+  recGpu?: string;
+  minRamGb?: number;
+  minVramGb?: number;
+  why?: string;
+  cloud?: CloudPermission;
+  cloudWhy?: string;
 };
+
+/** A publisher's stance on its game being played on rented PCs: allowed, or objected to. */
+export type CloudPermission = "allow" | "deny";
 
 const MB_PER_GB = 1024;
 
@@ -145,6 +155,14 @@ function sizesMb(text: string): number[] {
  * and a bare "Nvidia 2060 Super" or "GeForce 1070 Ti" with no GTX or RTX.
  */
 export function cardScore(text: string): number | null {
+  const padded = ` ${cardName(text)} `;
+  const found = GPU_NAMES.find((known) => padded.includes(` ${known} `));
+  if (found !== undefined) return gpuScore(found);
+  return OLDER_THAN_TABLE.some((older) => older.test(padded)) ? FLOOR_SCORE : null;
+}
+
+/** One alternative in a Graphics line in the GPU table's spelling, its model numbers spelled out. */
+function cardName(text: string): string {
   let name = normalizeGpu(text.replace(/[®™]/g, " "))
     .replace(/\b(GTX|RTX|RX|GT)(?=\d)/g, "$1 ")
     .replace(/(\d)(TI|SUPER|XTX|XT)\b/g, "$1 $2");
@@ -158,10 +176,7 @@ export function cardScore(text: string): number | null {
       );
     else if (/\b(?:AMD|RADEON)\b/i.test(text)) name = name.replace(/\b([45][0-9]0|[5-7][0-9]00)\b/, "RX $1");
   }
-  const padded = ` ${name} `;
-  const found = GPU_NAMES.find((known) => padded.includes(` ${known} `));
-  if (found !== undefined) return gpuScore(found);
-  return OLDER_THAN_TABLE.some((older) => older.test(name)) ? FLOOR_SCORE : null;
+  return name;
 }
 
 /**
@@ -194,6 +209,33 @@ export function parseTier(html: unknown): ParsedTier {
   };
 }
 
+/** Cards newer and stronger than the table's strongest: GeForce RTX 50 and Radeon RX 9000 series. */
+const NEWER_THAN_TABLE = [/\bRTX 50[5-9]0\b/, /\bRX 90[6-9]0\b/];
+
+/**
+ * Whether Steam's pc_requirements recommend more GPU than any host can have:
+ * the recommended tier's Graphics line (the minimum's, where the store states
+ * no recommended one) names only cards newer than the GPU table. Hosts are
+ * scored by that table, so no host could run such a game as recommended. A
+ * line naming any card the table knows, or no card at all, asks for nothing
+ * beyond it.
+ */
+export function recommendsBeyondTable(pcRequirements: unknown): boolean {
+  const tiers = (pcRequirements && typeof pcRequirements === "object" ? pcRequirements : {}) as {
+    minimum?: unknown;
+    recommended?: unknown;
+  };
+  const graphicsOf = (html: unknown) =>
+    typeof html === "string" ? field(textLines(html), GRAPHICS_LABEL) : null;
+  const graphics = graphicsOf(tiers.recommended) ?? graphicsOf(tiers.minimum);
+  if (graphics === null) return false;
+  const cards = graphics.replace(OR_BETTER, " ").split(ALTERNATIVES);
+  return (
+    cards.every((card) => cardScore(card) === null) &&
+    cards.some((card) => NEWER_THAN_TABLE.some((newer) => newer.test(cardName(card))))
+  );
+}
+
 /**
  * Steam's pc_requirements ({ minimum, recommended } HTML, or [] when the store
  * page has none) to a row's values. A game whose text names no recognised card
@@ -220,19 +262,34 @@ export function requirementsFromSteam(pcRequirements: unknown): Stored {
 
 // --- curated overrides -----------------------------------------------------------
 
-/** The checked-in overrides as row values, by appid. */
+/** The checked-in overrides that state requirements, as row values, by appid. */
 export function curatedRequirements(): Map<number, Stored> {
   return new Map(
-    Object.entries(overrides as Record<string, Override>).map(([appid, o]) => [
-      Number(appid),
-      {
-        minGpuScore: gpuScore(o.minGpu),
-        recGpuScore: gpuScore(o.recGpu),
-        minRamMb: Math.round(o.minRamGb * MB_PER_GB),
-        minVramMb: Math.round(o.minVramGb * MB_PER_GB),
-        source: "curated",
-      },
-    ]),
+    Object.entries(overrides as Record<string, Override>).flatMap(([appid, o]) =>
+      o.minGpu === undefined || o.recGpu === undefined
+        ? []
+        : [
+            [
+              Number(appid),
+              {
+                minGpuScore: gpuScore(o.minGpu),
+                recGpuScore: gpuScore(o.recGpu),
+                minRamMb: Math.round((o.minRamGb ?? 0) * MB_PER_GB),
+                minVramMb: Math.round((o.minVramGb ?? 0) * MB_PER_GB),
+                source: "curated" as const,
+              },
+            ] as const,
+          ],
+    ),
+  );
+}
+
+/** The checked-in cloud permissions, by appid: the only hand-kept input to playable.ts. */
+export function curatedCloud(): Map<number, CloudPermission> {
+  return new Map(
+    Object.entries(overrides as Record<string, Override>).flatMap(([appid, o]) =>
+      o.cloud === undefined ? [] : [[Number(appid), o.cloud] as const],
+    ),
   );
 }
 
@@ -331,17 +388,35 @@ const APPDETAILS_URL = "https://store.steampowered.com/api/appdetails";
 /** Between appdetails requests: the store allows roughly 200 per 5 minutes per IP. */
 const SEED_PAUSE_MS = 1500;
 
-/** The parts of a store appdetails answer the seeder reads; null when Steam has no such app. */
-export type AppDetails = { type?: string; pc_requirements?: unknown } | null;
+/**
+ * The parts of a store appdetails answer the seeder and playable.ts read; null
+ * when Steam has no such app. `drm_notice` names third-party DRM such as
+ * Denuvo, and `ext_user_account_notice` an account the game asks for besides
+ * Steam's.
+ */
+export type AppDetails = {
+  type?: string;
+  name?: string;
+  platforms?: { windows?: boolean; mac?: boolean; linux?: boolean };
+  drm_notice?: string;
+  ext_user_account_notice?: string;
+  pc_requirements?: unknown;
+} | null;
 
-/** One app's store details from Steam's keyless appdetails endpoint (one appid per request). */
+/**
+ * One app's store details from Steam's keyless appdetails endpoint (one appid
+ * per request). Throws when the store answers nothing about the app.
+ */
 export async function fetchAppDetails(appid: number): Promise<AppDetails> {
   const url = new URL(APPDETAILS_URL);
   url.searchParams.set("appids", String(appid));
   url.searchParams.set("l", "english");
   const body = await getJson(url);
   const entry = body?.[String(appid)];
-  const data = entry?.success ? entry.data : null;
+  // A store that is shedding load answers 200 with no entry at all: that is
+  // no answer, not an app that does not exist.
+  if (!entry || typeof entry !== "object") throw new Error(`appdetails ${appid}: no answer`);
+  const data = entry.success ? entry.data : null;
   return data && typeof data === "object" && !Array.isArray(data) ? data : null;
 }
 

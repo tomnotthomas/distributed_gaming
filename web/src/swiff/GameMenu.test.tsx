@@ -166,6 +166,12 @@ describe("GameMenu", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/Game details to Public/);
     });
 
+    it("tells the renter when Swiff cannot run the game", () => {
+      render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-playable" })} />);
+      expect(screen.getByRole("alert")).toHaveTextContent(/can't run on Swiff/);
+      expect(screen.queryByText(/Try again/)).toBeNull();
+    });
+
     it("keeps the plain retry for a booking call that failed for any other reason", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: null })} />);
       expect(screen.getByRole("alert")).toHaveTextContent("That didn't go through. Try again.");

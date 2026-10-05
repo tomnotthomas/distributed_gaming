@@ -367,6 +367,13 @@ describe("booking a picked machine", () => {
     await expect(book(1245620, 30, { fetch: unread.fetch })).rejects.toMatchObject({
       refusal: "library-unreadable",
     });
+
+    const unplayable = routes({
+      "POST /api/bookings": json(403, { error: "Swiff cannot run this game", code: "not-playable" }),
+    });
+    await expect(book(578080, 30, { fetch: unplayable.fetch })).rejects.toMatchObject({
+      refusal: "not-playable",
+    });
     expect(localStorage.getItem("swiff.booking")).toBeNull();
   });
 
