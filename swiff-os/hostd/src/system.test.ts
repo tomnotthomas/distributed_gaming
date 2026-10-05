@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { linuxSystem, windowsFirst, type Run } from "./system.ts";
+import { linuxSystem, runWithin, windowsFirst, type Run } from "./system.ts";
 
 const ALL = { uefi: true, secureBoot: true, tpm2: true, iommu: true };
 
@@ -91,5 +91,12 @@ describe("going back to Windows", () => {
       /Windows/,
     );
     expect(ran).toEqual(["efibootmgr"]);
+  });
+});
+
+describe("a command with a time limit", () => {
+  it("gives its output when it finishes in time, and fails once it runs too long", async () => {
+    expect(await runWithin(5_000)("echo", ["done"])).toBe("done\n");
+    await expect(runWithin(50)("sleep", ["5"])).rejects.toThrow();
   });
 });

@@ -12,9 +12,16 @@ import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMa
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
-import { commandAttestation, linuxStateDisk, stateKeyApi, stateUnlock, tpmLocalShare } from "./state-key.ts";
+import {
+  ATTEST_TIMEOUT_MS,
+  commandAttestation,
+  linuxStateDisk,
+  stateKeyApi,
+  stateUnlock,
+  tpmLocalShare,
+} from "./state-key.ts";
 import { streamerLauncher } from "./streamer.ts";
-import { linuxSystem, run } from "./system.ts";
+import { linuxSystem, run, runWithin } from "./system.ts";
 
 const config = await loadConfig(process.env.SWIFF_HOSTD_CONFIG ?? DEFAULT_CONFIG_PATH);
 const command = process.argv[2];
@@ -36,7 +43,7 @@ if (command !== undefined) {
     resume: fileResumeStore(config.stateDir),
     ...(config.state && {
       state: stateUnlock({
-        attest: commandAttestation(config.state.attestCommand, run),
+        attest: commandAttestation(config.state.attestCommand, runWithin(ATTEST_TIMEOUT_MS)),
         api: stateKeyApi(config.serverUrl, config.machineId),
         local: tpmLocalShare(config.state.localShare),
         disk: linuxStateDisk(config.state, run),

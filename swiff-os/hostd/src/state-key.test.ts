@@ -18,6 +18,7 @@ import {
   STATE_MAPPER,
   StateKeyRefused,
   stateKeyApi,
+  UnsealFailed,
   stateUnlock,
   tpmLocalShare,
   type LocalShare,
@@ -139,6 +140,7 @@ function fakeMachine() {
       pc.contents = [];
       pc.open = true;
     },
+    close: async () => void (pc.open = false),
   };
   return {
     pc,
@@ -200,7 +202,7 @@ describe("opening the persistent state", () => {
     expect(m.wiped()).toBe(true);
   });
 
-  it("renews, on a fresh certificate, when a renewal was cut short before U was sealed", async () => {
+  it("closes the state again, and renews it on a fresh certificate, when sealing U failed", async () => {
     const server = await fakeStateKeyServer();
     const m = fakeMachine();
     await m.unlock(server);
@@ -210,7 +212,8 @@ describe("opening the persistent state", () => {
     await expect(m.unlock(server)).rejects.toThrow(/systemd-creds/);
     // The server holds key-2 now; the PC still has key-1's U beside a partition formatted for key-2.
     expect(m.pc.keyId).toBe("key-1");
-    m.reboot();
+    // Not left open: the next try in this same boot renews rather than taking the state as open.
+    expect(m.pc.open).toBe(false);
     m.pc.sealFails = false;
     await m.unlock(server);
     expect(server.state.calls.slice(4)).toEqual(["POST cert-3", "PUT cert-4"]);
@@ -264,15 +267,68 @@ describe("opening the persistent state", () => {
     expect(m.pc.open).toBe(false);
   });
 
-  it("wipes V when U cannot be unsealed", async () => {
+  it("enrols anew, on a fresh certificate, when U does not unseal, rather than trying it again", async () => {
+    const server = await fakeStateKeyServer();
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.pc.contents.push("state");
+    m.reboot();
+    m.pc.sealed = null;
+    await m.unlock(server);
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-2", "PUT cert-3"]);
+    expect(m.pc.keyId).toBe("key-2");
+    expect(m.pc.contents).toEqual([]);
+    expect(m.pc.luksKey).toEqual(combineShares(m.pc.sealed!, server.state.share!.v));
+    expect(m.pc.open).toBe(true);
+    expect(m.wiped()).toBe(true);
+    m.reboot();
+    await m.unlock(server);
+    expect(server.state.calls.slice(4)).toEqual(["POST cert-4"]);
+  });
+
+  it("enrols anew when U XOR V does not open the state", async () => {
+    const server = await fakeStateKeyServer();
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    m.pc.sealed = randomBytes(32);
+    await m.unlock(server);
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-2", "PUT cert-3"]);
+    expect(m.pc.keyId).toBe("key-2");
+    expect(m.pc.open).toBe(true);
+  });
+
+  it("takes a refused renewal after a failed unseal as the server's refusal", async () => {
     const server = await fakeStateKeyServer();
     const m = fakeMachine();
     await m.unlock(server);
     m.reboot();
     m.pc.sealed = null;
-    await expect(m.unlock(server)).rejects.toThrow(/no credential/);
+    let tries = 0;
+    // The renewal's certificate is one used already.
+    const refused = await refusal(
+      m.unlock(server, async () => (tries++ ? { hostCert: "cert-2", expiresAt: 0 } : server.attest())),
+    );
+    expect([refused.status, refused.code]).toEqual([401, "stale-host-cert"]);
+    expect(m.pc.keyId).toBe("key-1");
     expect(m.pc.open).toBe(false);
     expect(m.wiped()).toBe(true);
+  });
+
+  it("fails as unseal-failed when U does not unseal and the renewal fails otherwise", async () => {
+    const server = await fakeStateKeyServer();
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    m.pc.sealed = null;
+    let tries = 0;
+    const failed = m.unlock(server, async () => {
+      if (tries++) throw new Error("the TPM did not answer");
+      return server.attest();
+    });
+    await expect(failed).rejects.toBeInstanceOf(UnsealFailed);
+    await expect(failed).rejects.toThrow(/the TPM did not answer/);
+    expect(m.pc.open).toBe(false);
   });
 });
 
@@ -408,9 +464,21 @@ describe("the machine's side", () => {
     ]);
   });
 
-  it("seals U with systemd-creds and writes its key id after it, and unseals it again", async () => {
+  it("closes the partition: unmounts it, then closes the mapping", async () => {
+    const d = await disk();
+    await d.state.open(Buffer.alloc(32));
+    d.runs.length = 0;
+    await d.state.close();
+    expect(d.runs.filter(([command]) => command !== "mountpoint")).toEqual([
+      ["umount", "/var/lib/swiff/state"],
+      ["cryptsetup", "close", STATE_MAPPER],
+    ]);
+  });
+
+  it("seals U with systemd-creds under the signed PCR policy, writes its key id after it, and unseals it again", async () => {
     const dir = await mkdtemp(join(tmpdir(), "swiff-u-"));
     const credential = join(dir, "state-u.cred");
+    const policy = { publicKey: join(dir, "pcr-public-key.pem"), signature: join(dir, "pcr-signature.json") };
     const calls: string[][] = [];
     const local = tpmLocalShare(
       credential,
@@ -424,14 +492,30 @@ describe("the machine's side", () => {
         expect(await local.keyId()).toBeNull();
         await writeFile(args.at(-1)!, input);
       },
+      policy,
     );
     expect(await local.keyId()).toBeNull();
     await local.seal("key-1", Buffer.alloc(32, 3));
     expect(await local.keyId()).toBe("key-1");
     expect(await local.unseal()).toEqual(Buffer.alloc(32, 3));
     expect(calls).toEqual([
-      ["systemd-creds", "encrypt", "--name=swiff-state-u", "--with-key=tpm2", "-", `${credential}.tmp`],
-      ["systemd-creds", "decrypt", "--name=swiff-state-u", credential, "-"],
+      [
+        "systemd-creds",
+        "encrypt",
+        "--name=swiff-state-u",
+        "--with-key=tpm2-with-public-key",
+        `--tpm2-public-key=${policy.publicKey}`,
+        "-",
+        `${credential}.tmp`,
+      ],
+      [
+        "systemd-creds",
+        "decrypt",
+        "--name=swiff-state-u",
+        `--tpm2-signature=${policy.signature}`,
+        credential,
+        "-",
+      ],
     ]);
   });
 
@@ -439,5 +523,15 @@ describe("the machine's side", () => {
     const attest = (stdout: string) => commandAttestation("/usr/libexec/swiff/attest", async () => stdout);
     expect(await attest('{"hostCert":"c","expiresAt":5}')()).toEqual({ hostCert: "c", expiresAt: 5 });
     await expect(attest('{"hostCert":""}')()).rejects.toThrow(/no host certificate/);
+  });
+
+  it("does not quote the attestation client's output when it is not JSON", async () => {
+    const attest = commandAttestation(
+      "/usr/libexec/swiff/attest",
+      async () => '{"hostCert":eyJhbGciOiJFUzI1NiJ9}',
+    );
+    const failed = attest();
+    await expect(failed).rejects.toThrow("/usr/libexec/swiff/attest printed no host certificate");
+    await expect(failed).rejects.not.toThrow(/eyJ/);
   });
 });

@@ -44,12 +44,14 @@ import type { FloorCheck, OwnerTakeover } from "./config.ts";
 import type { ResumeStore } from "./resume.ts";
 import type { MachineSocket, SessionClaim, SocketEvent } from "./socket.ts";
 import type { StateKeyError } from "../../../server/src/protocol.ts";
-import { StateKeyRefused, type StateUnlock } from "./state-key.ts";
+import { StateKeyRefused, UnsealFailed, type StateUnlock } from "./state-key.ts";
 import type { LaunchStreamer, Streamer } from "./streamer.ts";
 import type { System } from "./system.ts";
 
 export type Phase =
   "starting" | "unfit" | "locked" | "refused" | "offered" | "serving" | "resetting" | "returning";
+
+export type LockReason = StateKeyError["error"] | "unseal-failed";
 
 /** How a run ended: the machine is restarting into rental mode, or into Windows. */
 export type Outcome = "reset" | "windows";
@@ -58,8 +60,12 @@ export type AgentStatus = {
   phase: Phase;
   sessionId: string | null;
   unmet: FloorCheck[];
-  /** While `locked`: why the server keeps its share back (`revoked`, `firmware-cooldown`...); null when it did not answer. */
-  locked?: StateKeyError["error"] | null;
+  /**
+   * While `locked`: why the server keeps its share back (`revoked`, `firmware-cooldown`...),
+   * `unseal-failed` when this PC's own share did not open the state and it could not be
+   * renewed; null when the server has not answered.
+   */
+  locked?: LockReason | null;
 };
 
 /** The answer to the owner asking for the PC back. */
@@ -124,7 +130,7 @@ export function createAgent(deps: AgentDeps): Agent {
   const log = deps.log ?? ((message: string) => console.log(`[swiff-hostd] ${message}`));
 
   let phase: Phase = "starting";
-  let lockedBy: StateKeyError["error"] | null = null;
+  let lockedBy: LockReason | null = null;
   let sessionId: string | null = null;
   let unmet: FloorCheck[] = [];
   /** The owner's request in hand, answered by the loop that holds the machine now. */
@@ -225,24 +231,44 @@ export function createAgent(deps: AgentDeps): Agent {
 
   /**
    * Open the persistent state, tried until it opens, waiting longer each time.
-   * False when the owner asked for the PC back meanwhile.
+   * False when the owner asked for the PC back meanwhile, even mid-try.
    */
   async function unlockState(): Promise<boolean> {
-    if (!deps.state) return true;
+    const { state } = deps;
+    if (!state) return true;
+    // Shut until it opens: the owner may take the PC back from the first try on.
+    phase = "locked";
     for (let tries = 0; ; tries++) {
       let wait = timing.unlockRetryMs[Math.min(tries, timing.unlockRetryMs.length - 1)]!;
-      try {
-        await deps.state.unlock();
+      const tried: { result?: { ok: true } | { ok: false; cause: unknown } } = {};
+      void state
+        .unlock()
+        .then(
+          () => ({ ok: true as const }),
+          (cause: unknown) => ({ ok: false as const, cause }),
+        )
+        .then((result) => {
+          tried.result = result;
+          inbox.push({ type: "wake" });
+        });
+      while (!tried.result && !asked) await inbox.next(null);
+      if (asked) return false;
+      const result = tried.result!;
+      if (result.ok) {
         if (tries) log("the persistent state is open");
         phase = "starting";
         return true;
-      } catch (cause) {
-        phase = "locked";
-        lockedBy = cause instanceof StateKeyRefused ? cause.code : null;
-        log(`not offered: the persistent state did not open (${describe(cause)})`);
-        // The server's own retry-after, when it says to wait longer.
-        if (cause instanceof StateKeyRefused && cause.retryAfterMs) wait = Math.max(wait, cause.retryAfterMs);
       }
+      const { cause } = result;
+      lockedBy =
+        cause instanceof StateKeyRefused
+          ? cause.code
+          : cause instanceof UnsealFailed
+            ? "unseal-failed"
+            : null;
+      log(`not offered: the persistent state did not open (${describe(cause)})`);
+      // The server's own retry-after, when it says to wait longer.
+      if (cause instanceof StateKeyRefused && cause.retryAfterMs) wait = Math.max(wait, cause.retryAfterMs);
       if (!asked) await inbox.next(wait);
       if (asked) return false;
     }

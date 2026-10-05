@@ -320,6 +320,7 @@ function machineState() {
       disk.key = Buffer.from(key);
       disk.open = true;
     },
+    close: async () => void (disk.open = false),
   };
   return { sealed, disk, local, partition, boot: () => void (disk.open = false) };
 }

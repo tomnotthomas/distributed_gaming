@@ -4,14 +4,18 @@
 // U XOR V:
 //
 //   U  32 random bytes made here when the partition is formatted, sealed to
-//      this PC's TPM (systemd-creds), so only a Swiff OS boot of this PC can
-//      unseal it. The id of the V it pairs with is kept beside it.
+//      this PC's TPM (systemd-creds) under Swiff's signed PCR 11 policy, so only
+//      a signed Swiff OS boot of this PC can unseal it. The id of the V it pairs
+//      with is kept beside it.
 //   V  the server's share, released only to a fresh, unused host certificate
 //      from this machine's latest attested boot.
 //
 // Once per boot, before anything market-facing:
 //
-//   attest ──► POST state-key ──► 200 { keyId, share }  keyId is U's: open with U XOR V
+//   attest ──► POST state-key ──► 200 { keyId, share }  keyId is U's: open with U XOR V;
+//                                                       if U does not unseal or the key
+//                                                       does not open, renew on a fresh
+//                                                       certificate
 //                                                       another: a format cut short, so
 //                                                       renew on a fresh certificate
 //                             ──► 404 no-state-key      renew: PUT state-key with the
@@ -23,7 +27,8 @@
 //
 // A renewal formats first and seals U last, with its key id written after it:
 // the key id is what says the format finished, so one cut short is renewed
-// again rather than opened with a U that does not match.
+// again rather than opened with a U that does not match. A seal that fails
+// closes the partition again, so the next try renews rather than finding it open.
 //
 // The combined key lives only in memory, for the cryptsetup calls that format
 // or open the state, and is zeroed after them, as are both shares. It is never
@@ -37,6 +42,10 @@ import type { Run } from "./system.ts";
 
 /** Bytes in each share, and in the key. */
 export const SHARE_BYTES = 32;
+
+/** How long the attestation client, and each state-key call, may take. */
+export const ATTEST_TIMEOUT_MS = 60_000;
+export const CALL_TIMEOUT_MS = 30_000;
 
 /** A host certificate from an attestation of this boot. */
 export type HostCertificate = { hostCert: string; expiresAt: number };
@@ -59,6 +68,9 @@ export class StateKeyRefused extends Error {
     this.retryAfterMs = retryAfterMs;
   }
 }
+
+/** U did not unseal, or U XOR V did not open the state, and renewing it failed too. */
+export class UnsealFailed extends Error {}
 
 /** The server's state-key calls, each made with a host certificate. */
 export type StateKeyApi = {
@@ -85,6 +97,8 @@ export type StateDisk = {
   open(key: Uint8Array): Promise<void>;
   /** Format it anew for `key`, then open and mount it: whatever it held is gone. */
   format(key: Uint8Array): Promise<void>;
+  /** Unmount and close it. */
+  close(): Promise<void>;
 };
 
 export type StateKeyDeps = {
@@ -132,7 +146,12 @@ export function stateUnlock({ attest, api, local, disk, log = () => {} }: StateK
     try {
       key = combineShares(u, v.bytes);
       await disk.format(key);
-      await local.seal(v.keyId, u);
+      try {
+        await local.seal(v.keyId, u);
+      } catch (cause) {
+        await disk.close();
+        throw cause;
+      }
     } finally {
       v.bytes.fill(0);
       u.fill(0);
@@ -149,25 +168,40 @@ export function stateUnlock({ attest, api, local, disk, log = () => {} }: StateK
       const v = share(released.grant);
       let u: Buffer | null = null;
       let key: Buffer | null = null;
+      let unsealFailed = false;
       try {
         if ((await local.keyId()) !== v.keyId) {
-          // U is for another V (a renewal cut short before it sealed U): renew,
-          // on a fresh certificate, since this one got its share.
+          // U is for another V (a renewal cut short before it sealed U).
           log("the state's sealed share is not for the server's: it is formatted anew");
-          v.bytes.fill(0);
-          return await renew(await fresh());
+        } else {
+          try {
+            u = await local.unseal();
+            key = combineShares(u, v.bytes);
+            await disk.open(key);
+            return;
+          } catch (cause) {
+            // The same unseal would fail again: enrol anew rather than retry it.
+            log(`the state's sealed share did not open it (${message(cause)}): it is formatted anew`);
+            unsealFailed = true;
+          }
         }
-        u = await local.unseal();
-        key = combineShares(u, v.bytes);
-        await disk.open(key);
       } finally {
         v.bytes.fill(0);
         u?.fill(0);
         key?.fill(0);
       }
+      // Renewed on a fresh certificate, since this one got its share.
+      try {
+        await renew(await fresh());
+      } catch (cause) {
+        if (!unsealFailed || cause instanceof StateKeyRefused) throw cause;
+        throw new UnsealFailed(`the state did not open, nor could it be renewed (${message(cause)})`);
+      }
     },
   };
 }
+
+const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 /** A grant's share, decoded. */
 function share(grant: StateKeyGrant): { keyId: string; bytes: Buffer } {
@@ -200,7 +234,11 @@ export function stateKeyApi(serverUrl: string, machineId: string): StateKeyApi {
 
   async function call(method: "POST" | "PUT", expected: number, hostCert: string): Promise<StateKeyGrant> {
     const name = `state key ${method === "POST" ? "release" : "replace"}`;
-    const res = await fetch(url, { method, headers: { authorization: `Bearer ${hostCert}` } });
+    const res = await fetch(url, {
+      method,
+      headers: { authorization: `Bearer ${hostCert}` },
+      signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+    });
     let body: Partial<StateKeyGrant & StateKeyError> = {};
     try {
       body = (await res.json()) as typeof body;
@@ -228,10 +266,18 @@ export function stateKeyApi(serverUrl: string, machineId: string): StateKeyApi {
 /**
  * Attestation by the attestation client, until it is part of the agent: a
  * command that attests this boot and prints `{ "hostCert": ..., "expiresAt": ... }`.
+ * `exec` should give up after ATTEST_TIMEOUT_MS.
  */
 export function commandAttestation(command: string, exec: Run): () => Promise<HostCertificate> {
   return async () => {
-    const { hostCert, expiresAt } = JSON.parse(await exec(command, [])) as Partial<HostCertificate>;
+    const printed = await exec(command, []);
+    let parsed: Partial<HostCertificate> = {};
+    try {
+      parsed = JSON.parse(printed) as Partial<HostCertificate>;
+    } catch {
+      // Not JSON: the parser's message would quote the output, certificate and all.
+    }
+    const { hostCert, expiresAt } = parsed ?? {};
     if (typeof hostCert !== "string" || !hostCert || typeof expiresAt !== "number") {
       throw new Error(`${command} printed no host certificate`);
     }
@@ -256,20 +302,47 @@ export const STATE_MAPPER = "swiff-state";
 /** The name U's credential is sealed under. */
 const CREDENTIAL_NAME = "swiff-state-u";
 
-/** U in a systemd-creds credential sealed to the TPM, and its key id in a file beside it. */
+/**
+ * Where systemd puts the booted UKI's .pcrpkey and .pcrsig: the public key of
+ * Swiff's PCR 11 policy, and its signatures over this image's PCR 11 values.
+ */
+export const PCR_POLICY = {
+  publicKey: "/run/systemd/tpm2-pcr-public-key.pem",
+  signature: "/run/systemd/tpm2-pcr-signature.json",
+};
+
+/**
+ * U in a systemd-creds credential sealed to the TPM under Swiff's signed PCR 11
+ * policy, and its key id in a file beside it.
+ */
 export function tpmLocalShare(
   credential: string,
   exec: RunBytes = runBytes,
   feed: RunWithInput = runWithInput,
+  policy: typeof PCR_POLICY = PCR_POLICY,
 ): LocalShare {
   const keyIdFile = `${credential}.key-id`;
   return {
     keyId: async () => (await readFile(keyIdFile, "utf8").catch(() => "")).trim() || null,
-    unseal: () => exec("systemd-creds", ["decrypt", `--name=${CREDENTIAL_NAME}`, credential, "-"]),
+    unseal: () =>
+      exec("systemd-creds", [
+        "decrypt",
+        `--name=${CREDENTIAL_NAME}`,
+        `--tpm2-signature=${policy.signature}`,
+        credential,
+        "-",
+      ]),
     seal: async (keyId, u) => {
       await feed(
         "systemd-creds",
-        ["encrypt", `--name=${CREDENTIAL_NAME}`, "--with-key=tpm2", "-", `${credential}.tmp`],
+        [
+          "encrypt",
+          `--name=${CREDENTIAL_NAME}`,
+          "--with-key=tpm2-with-public-key",
+          `--tpm2-public-key=${policy.publicKey}`,
+          "-",
+          `${credential}.tmp`,
+        ],
         u,
       );
       await rename(`${credential}.tmp`, credential);
@@ -295,6 +368,10 @@ export function linuxStateDisk(
     );
   const openWith = (key: Uint8Array) =>
     feed("cryptsetup", ["open", "--type", "luks2", "--key-file=-", config.device, STATE_MAPPER], key);
+  const close = async () => {
+    if (await mounted()) await exec("umount", [config.mountpoint]);
+    if (await exists(mapped)) await exec("cryptsetup", ["close", STATE_MAPPER]);
+  };
   return {
     opened: async () => (await exists(mapped)) && (await mounted()),
     open: async (key) => {
@@ -302,8 +379,7 @@ export function linuxStateDisk(
       if (!(await mounted())) await exec("mount", [mapped, config.mountpoint]);
     },
     format: async (key) => {
-      if (await mounted()) await exec("umount", [config.mountpoint]);
-      if (await exists(mapped)) await exec("cryptsetup", ["close", STATE_MAPPER]);
+      await close();
       await feed(
         "cryptsetup",
         ["luksFormat", "--type", "luks2", "--batch-mode", "--key-file=-", config.device],
@@ -313,6 +389,7 @@ export function linuxStateDisk(
       await exec("mkfs.ext4", ["-q", mapped]);
       await exec("mount", [mapped, config.mountpoint]);
     },
+    close,
   };
 }
 
