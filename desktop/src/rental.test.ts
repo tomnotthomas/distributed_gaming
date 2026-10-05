@@ -151,7 +151,6 @@ describe("reading the PC", () => {
         { letter: "?", from: "x" },
       ],
       mok: true,
-      checked: { ek: false, at: 5 },
     });
     expect(install).toEqual({
       complete: true,
@@ -164,7 +163,6 @@ describe("reading the PC", () => {
       windowsEntry: null,
       labels: [{ letter: "C", from: "Windows" }],
       mok: true,
-      checked: { ek: false },
     });
     // A record from before kept numbers: still an entry, until the worker turns it into what it starts.
     expect(installOf({ bootEntry: 3, windowsEntry: 0 })).toMatchObject({
@@ -849,13 +847,13 @@ describe("what the screen says", () => {
 
   it("shows the TPM certificate as the install's check recorded it, and never as a to-do", () => {
     const ek = (checked: unknown) =>
-      firmwareChecks(
-        pc((raw) => ({ ...raw, install: { complete: false, disk: 0, partitions: [], checked } })),
-      ).find((c) => c.id === "ek");
+      firmwareChecks(pc((raw) => ({ ...raw, check: checked }))).find((c) => c.id === "ek");
     expect(ek(null)).toMatchObject({ value: "Read when you install", state: "unread" });
     expect(ek({ ek: true })).toMatchObject({ value: "Present", state: "ok" });
     expect(ek({ ek: false })).toMatchObject({ value: "None: lower tier", state: "ok" });
     expect(firmwareChecks(pc()).some((c) => !isReady(c.state) && c.state !== "bios")).toBe(false);
+    // A check alone leaves no install record: the screen does not say an install stopped.
+    expect(rentalStage(setupOf(pc((raw) => ({ ...raw, check: { ek: true } })))).kind).toBe("ready");
   });
 
   it("names the BIOS key and menu path for the PC's firmware: AMI on the GEEKOM, the maker's own on a Lenovo", () => {

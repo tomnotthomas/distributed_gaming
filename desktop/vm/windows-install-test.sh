@@ -39,6 +39,8 @@
 # run on Electron's own Node, as in Swiff Host, whose Node differs from a
 # console's (it took \\.\PhysicalDrive0 for a share root).
 # The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB) and up to ~60 GB of disk under $SWIFF_WIN_VM_DIR.
+# Set $SWIFF_VM_CGROUP to a cgroup v2 folder with memory.swap.max 0 (sudo to move QEMU in) when
+# the host swaps under the image's copy.
 # Nothing here touches the host's disks, boot entries or firmware variables.
 set -euo pipefail
 
@@ -120,7 +122,7 @@ vm_start() { # disk vars tpm-dir [qemu args...]
 		-drive if=pflash,format=raw,unit=1,file="$vars" \
 		-chardev socket,id=chrtpm,path="$run/tpm.sock" -tpmdev emulator,id=tpm0,chardev=chrtpm \
 		-device tpm-crb,tpmdev=tpm0 \
-		-drive if=none,id=hd,format=qcow2,file="$disk" -device ide-hd,drive=hd,bus=ide.0 \
+		-drive if=none,id=hd,format=qcow2,file="$disk",cache=none -device ide-hd,drive=hd,bus=ide.0 \
 		-netdev user,id=n0,hostfwd=tcp:127.0.0.1:"$port"-:22 -device e1000e,netdev=n0,romfile= \
 		-usb -device usb-tablet -vga std -display none \
 		-monitor unix:"$run/monitor.sock",server=on,wait=off \
@@ -128,6 +130,12 @@ vm_start() { # disk vars tpm-dir [qemu args...]
 		-serial chardev:ser0 \
 		"$@" > "$run/qemu.log" 2>&1 9>&- &
 	vm_pid=$!
+	# Out of swap: copying gigabytes into the guest fills the host's page cache, and a guest
+	# whose memory the host swaps out stalls until its network driver gives up. A cgroup
+	# (v2) with memory.swap.max 0, made beforehand, keeps it in memory: $SWIFF_VM_CGROUP.
+	if [ -n "${SWIFF_VM_CGROUP:-}" ]; then
+		echo "$vm_pid" | sudo -n tee "$SWIFF_VM_CGROUP/cgroup.procs" > /dev/null || die "cannot move QEMU into $SWIFF_VM_CGROUP"
+	fi
 	for _ in $(seq 100); do [ -S "$run/monitor.sock" ] && [ -S "$run/serial.sock" ] && break; sleep 0.1; done
 	# QEMU made its sockets before it dropped root (sudo ... -runas): hand them to this user.
 	[ -O "$run/monitor.sock" ] || sudo -n chown "$(id -u):$(id -g)" "$run/monitor.sock" "$run/serial.sock" "$run/serial.log"
@@ -331,7 +339,7 @@ test_run() {
 	on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 2; Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\uac-out.txt; schtasks /run /tn swiff-uac | Out-Null"
 	for _ in $(seq 8); do sleep 4; monitor "sendkey esc" || true; done
 	on_vm "foreach (\$i in 1..30) { if (Select-String -Quiet 'error' C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt; Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 0" | tr -d '\r' > "$run/uac-declined.json"
-	expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -qi 'cancel' "$run/uac-declined.json"
+	expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -q 'did not give Swiff Host administrator rights' "$run/uac-declined.json"
 	read_as declined
 	expect declined-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-declined.json" read '.read.facts.install')" = null
 
@@ -343,12 +351,15 @@ test_run() {
 	read_as full
 	expect space-none "no drive offered for Swiff OS: the screen says Free up 24 GB" test "$(json "$run/read-full.json" read '.read.targets.length')" = 0
 	on_vm 'Remove-Item -Force C:\swiff-fill.bin'
-	# Files added after the check: the install's own check finds the room gone.
-	serve space "plan install" "run check"
-	on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null"
-	serve space2 "plan install shrink:C" "run check"
+	# Files added between the plan on screen and its run: the install's own check finds the room gone.
+	on_vm "Set-Content C:\\swiff\\cmd-race.txt 'plan install'"
+	on_vm "$cli serve --image $img --commands C:\\swiff\\cmd-race.txt" | tr -d '\r' > "$run/serve-race.json" &
+	local race=$!
+	for _ in $(seq 60); do grep -q '"plan"' "$run/serve-race.json" 2> /dev/null && break; sleep 5; done
+	on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null; Add-Content C:\\swiff\\cmd-race.txt 'run check','quit'"
+	wait "$race" || true
 	on_vm 'Remove-Item -Force C:\swiff-fill.bin'
-	expect space-race "the check stops before any change: $(json "$run/serve-space2.json" outcome '.outcome.failed.error' || true)" grep -q 'cannot shrink by' "$run/serve-space2.json"
+	expect space-race "the check stops before any change: $(json "$run/serve-race.json" outcome '.outcome.failed.error' || true)" grep -q 'cannot shrink by' "$run/serve-race.json"
 	read_as after-space
 	expect space-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-after-space.json" read '.read.facts.install')" = null
 

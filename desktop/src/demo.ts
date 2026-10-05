@@ -107,6 +107,7 @@ export const DEMO_RENTAL_READ: RentalRead = {
     partitions: [],
     volumes: [],
     install: null,
+    checked: null,
   },
   need: 25_367_150_592,
   targets: [

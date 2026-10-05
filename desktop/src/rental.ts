@@ -119,8 +119,8 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
     {
       id: "ek",
       label: "TPM certificate",
-      ...(facts.install?.checked
-        ? facts.install.checked.ek
+      ...(facts.checked
+        ? facts.checked.ek
           ? { value: "Present", state: "ok" }
           : { value: "None: lower tier", state: "ok" }
         : { value: "Read when you install", state: "unread" }),

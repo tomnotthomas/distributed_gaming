@@ -37,6 +37,8 @@ export type RentalFacts = {
     bitlocker: "on" | "off" | null;
   }[];
   install: InstallRecord | null;
+  /** What the install's first step last read as administrator: whether the TPM has an endorsement key certificate. */
+  checked: { ek: boolean } | null;
 };
 
 /** What an install recorded so far (rental-install.json): what it changed, for the uninstall to put back. */
@@ -57,8 +59,6 @@ export type InstallRecord = {
   windowsEntry: BootLoader | null;
   labels: { letter: string; from: string }[];
   mok: boolean;
-  /** What the install's first step read as administrator: whether the TPM has an endorsement key certificate. */
-  checked: { ek: boolean } | null;
 };
 
 /** A boot entry by what it starts: the file, on the partition with this GPT id. */

@@ -255,7 +255,6 @@ const EMPTY = () => ({
   windowsEntry: null,
   labels: [],
   mok: false,
-  checked: null,
 });
 
 /**
@@ -538,8 +537,12 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
           .split(/\r?\n/)
           .filter((l) => l.startsWith("warning: "))
           .map((l) => l.slice(9));
-        // Kept for the app, which reads the record without administrator rights.
-        state.save({ checked: { at: Date.now(), ek: !warnings.some((w) => /endorsement key/i.test(w)) } });
+        // Kept for the app, which reads it without administrator rights, beside the install's record but
+        // not in it: a check changes nothing on the PC, so it must not read as an install begun.
+        files.writeFileSync(
+          path.join(win.stateDir, "rental-check.json"),
+          `${JSON.stringify({ at: Date.now(), ek: !warnings.some((w) => /endorsement key/i.test(w)) })}\n`,
+        );
         return { warnings };
       }
       case "image-check": {

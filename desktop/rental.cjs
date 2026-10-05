@@ -171,6 +171,7 @@ $shell = New-Object -ComObject Shell.Application
   model = Read-Or { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Model }
   cpu = Read-Or { @(Get-CimInstance Win32_Processor -ErrorAction Stop)[0].Manufacturer }
   install = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-install.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
+  check = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\rental-check.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
   lastLive = Read-Or { Get-Content -LiteralPath "$env:ProgramData\Swiff\last-live.json" -Raw -ErrorAction Stop | ConvertFrom-Json }
 } | ConvertTo-Json -Compress -Depth 6
 `;
@@ -257,11 +258,7 @@ function installOf(raw) {
       .map((p) => ({ role: str(p.role), id: guidOrNull(p.id), offset: p.offset, bytes: p.bytes })),
     bootEntry: loaderOf(raw.bootEntry),
     windowsEntry: loaderOf(raw.windowsEntry),
-    // What the install's first step read as administrator.
-    checked:
-      raw.checked && typeof raw.checked === "object" && typeof raw.checked.ek === "boolean"
-        ? { ek: raw.checked.ek }
-        : null,
+
     labels: list(raw.labels)
       .filter((l) => letterOf(l?.letter) && typeof l.from === "string")
       .map((l) => ({ letter: letterOf(l.letter), from: l.from })),
@@ -322,6 +319,9 @@ function factsOf(raw) {
         bitlocker: bitlockerState(v.bitlocker),
       })),
     install: installOf(r.install),
+    // What the install's first step last read as administrator (rental-check.json).
+    checked:
+      r.check && typeof r.check === "object" && typeof r.check.ek === "boolean" ? { ek: r.check.ek } : null,
   };
 }
 

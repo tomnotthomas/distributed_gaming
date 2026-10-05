@@ -390,8 +390,12 @@ describe("the elevated worker", () => {
       bitlocker: "C",
       fastStartup: true,
       mok: true,
-      checked: { ek: true },
     });
+    // The check's findings sit beside the record, not in it: a check alone is no install begun.
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject({
+      ek: true,
+    });
+    expect(worker.state()).not.toHaveProperty("checked");
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
