@@ -11,22 +11,35 @@
 #             OpenSSH and Node.js to drive it; then, on a boot without the
 #             install discs, BitLocker encrypting C: with the TPM. Kept as the
 #             base every test starts from; an interrupted prepare resumes.
-#   test      from a copy of the base:
-#               1. the app's read of the PC, and its one elevation (UAC's
-#                  Start-Process -Verb RunAs, from the logged-on user)
-#               2. install: BitLocker suspended, C: shrunk, Swiff OS's
-#                  partitions added and written, its boot entry, the MOK
-#                  request, BootNext, restart
-#               3. MokManager: the owner's confirmation with the code
-#                  (mok-drive.py on the serial console), then Windows again
-#               4. Swiff OS once (BootNext): shim, Swiff's systemd-boot, the
-#                  UKI, Swiff OS's self-test; then Windows again
-#               5. Swiff's key removed at MokManager (while its boot partition
-#                  is still there), then the uninstall: boot entry,
-#                  partitions, C:'s space, Fast Startup, BitLocker, the
-#                  record; then Windows again
+#   test      from a copy of the base, scenario by scenario (PASS/FAIL per check in
+#             results.txt; $SWIFF_SCENARIOS="2 3" runs only those):
+#               1. Secure Boot already fine: the app's read (the db from the boot
+#                  log, without administrator rights) and its one elevation
+#               2. the administrator prompt declined (Esc at Windows' prompt)
+#               3. not enough space, also when files fill C: after the plan
+#               4. an install stopped after its partitions, then undone
+#               5. a fresh install; MokManager's menu waits (MokTimeout -1), then
+#                  Continue boot: the app says what the firmware did after it
+#               6. the PC powered off at the key's screen: a clean start, the app asks
+#               7. the key confirmed: PCR 7 a clean start's (Windows Hello's PIN and
+#                  BitLocker unaffected, as vm/pcr7.py replays the TCG log)
+#               8. Swiff OS once through shim; its ESP still sound after Windows
+#               9. the key removed, then the uninstall: all back as it was
+#              10. a reinstall after the removal
+#              11. the packaged app ($SWIFF_HOST_EXE): its window, no error box, one
+#                  app after a second start ($SWIFF_HOST_EXE_CONTROL: a build known
+#                  not to start, which the check must catch)
+#              12. Secure Boot off (needs Swiff OS not installed: run it alone)
+#              13. the packaged TEST build (npm run pack:test) through its own
+#                  screens, over Electron's remote debugging (vm/ui-drive.mjs):
+#                  rental mode's BIOS step and Check again, tampered image sets
+#                  refused, the administrator prompt declined and Ask again, the
+#                  key's restart to MokManager, Go live, and removal. Needs the
+#                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
+#                  trusts) and Playwright from the repository's node_modules
 #             Windows must come back after each restart without asking for its
-#             BitLocker recovery key, with its files.
+#             BitLocker recovery key, with its files. The one-time key codes go
+#             through a file read once and deleted, never into the logs.
 #
 # Usage: vm/windows-install-test.sh prepare|test     ($SWIFF_SCENARIOS="2 3" runs only those)
 #
@@ -300,6 +313,10 @@ test_run() {
 		on_vm '$env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\key-state.cjs | Write-Output' | tr -d '\r\n'
 	}
 
+	# A run's one-time key code: rental-cli.cjs writes it to this file only (never to its answers,
+	# which are logged); read once into a variable, and the file deleted.
+	local codefile='C:\swiff\code.txt'
+	take_code() { on_vm "Get-Content $codefile; Remove-Item -Force $codefile" | tr -d '\r\n'; }
 	# The serve console, fed through a file: one elevated worker for several commands.
 	serve() { # name commands...
 		local name=$1
@@ -318,11 +335,12 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
-	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
+	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	# Scenario 11 alone needs no image set.
+	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
-	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" "$here/windows/app-windows.ps1" swiff@127.0.0.1:'C:/swiff/vm/'
 	# The app's one elevation, as the logged-on user starts it: unelevated, Start-Process -Verb RunAs.
 	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null"
 	local base
@@ -399,7 +417,8 @@ test_run() {
 	fi
 	if want 5; then
 		scenario "5. Fresh install, key screen left waiting, then Continue boot (the wrong choice)"
-		on_vm "$cli run install --image $img" | tr -d '\r' | tee "$run/install.json" | grep -E '"(outcome|error)"' || true
+		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' | tee "$run/install.json" | grep -E '"(outcome|error)"' || true
+		take_code > /dev/null
 		expect install "every install step ran" grep -q '"outcome":{"status":"done"' "$run/install.json"
 		expect mok-waits "MokManager's menu came at once and was still waiting after 150 s; then Continue boot" \
 			"$python" "$here/mok-drive.py" "$run/mok-miss.log" miss 150 --loose --socket "$run/serial.sock"
@@ -425,7 +444,8 @@ test_run() {
 	fi
 	if want 6; then
 		scenario "6. Restart into Windows without the key (powered off at the key screen)"
-		on_vm "$cli run mok --image $img" | tr -d '\r' | tee "$run/mok-1.json" | grep -E '"(outcome|error)"' || true
+		on_vm "$cli run mok --image $img --code-file $codefile" | tr -d '\r' | tee "$run/mok-1.json" | grep -E '"(outcome|error)"' || true
+		take_code > /dev/null
 		expect mok-1 "BitLocker paused, a new request queued, the PC restarting" grep -q '"outcome":{"status":"done"' "$run/mok-1.json"
 		expect mok-1-bitlocker "the key's restart paused BitLocker on C: first" grep -q '"id":"bitlocker","state":"done"' "$run/mok-1.json"
 		expect mok-menu "MokManager's menu came, and waited" \
@@ -443,9 +463,9 @@ test_run() {
 	fi
 	if want 7; then
 		scenario "7. Key confirmed (Enroll MOK, the code, Reboot)"
-		on_vm "$cli run mok --image $img" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
+		on_vm "$cli run mok --image $img --code-file $codefile" | tr -d '\r' | tee "$run/mok-2.json" | grep -E '"(outcome|error)"' || true
 		local code
-		code=$(json "$run/mok-2.json" plan '.plan.mok.code' | tr -d '"' || true)
+		code=$(take_code)
 		expect mok-confirmed "the owner's confirmation at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-confirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-mok
@@ -489,9 +509,9 @@ test_run() {
 	if want 9; then
 		scenario "9. Removal after a full install"
 		# The key first: MokManager, which removes it, is on Swiff OS's boot partition.
-		on_vm "$cli run unkey --image $img" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
+		on_vm "$cli run unkey --image $img --code-file $codefile" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
 		expect unkey "the key's removal queued and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/unkey.json"
-		code=$(json "$run/unkey.json" plan '.plan.mok.code' | tr -d '"' || true)
+		code=$(take_code)
 		expect mok-removed "the owner's removal at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-unkey
@@ -523,9 +543,9 @@ test_run() {
 		scenario "10. Reinstall after removal"
 		vm_up
 		windows_back windows-before-reinstall
-		on_vm "$cli run install --image $img" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
+		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
 		expect reinstall "every install step ran again" grep -q '"outcome":{"status":"done"' "$run/reinstall.json"
-		code=$(json "$run/reinstall.json" plan '.plan.mok.code' | tr -d '"' || true)
+		code=$(take_code)
 		expect reinstall-mok "the key confirmed again at MokManager" \
 			"$python" "$here/mok-drive.py" "$run/mok-reconfirm.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-reinstall
@@ -541,15 +561,43 @@ test_run() {
 		vm_up
 		windows_back windows-before-instances
 		if [ -n "${SWIFF_HOST_EXE:-}" ] && [ -s "$SWIFF_HOST_EXE" ]; then
+			# What the owner runs: the packaged portable exe, started in the logged-on user's session.
+			# Its windows are read from inside that session (app-windows.ps1): the main window must be
+			# the app's own, and no other window (an error box) may show.
+			on_vm "schtasks /create /tn swiff-windows /tr 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\\swiff\\vm\\app-windows.ps1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null"
+			windows() { # name: the app's main processes and visible windows now
+				on_vm "Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\windows.txt; schtasks /run /tn swiff-windows | Out-Null; foreach (\$i in 1..30) { if (Test-Path C:\\swiff\\windows.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\windows.txt" | tr -d '\r' > "$run/windows-$1.txt"
+				screenshot "windows-$1"
+			}
+			mains() { sed -n 's/^mains\t//p' "$run/windows-$1.txt"; }
+			titled() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -cx "$2"; }
+			others() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -vx 'Swiff Host' | grep -c .; }
+			launch() { # exe-on-vm
+				on_vm "schtasks /create /tn swiff-app /tr '$1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null"
+			}
+			if [ -n "${SWIFF_HOST_EXE_CONTROL:-}" ] && [ -s "$SWIFF_HOST_EXE_CONTROL" ]; then
+				# A build known not to start: the check must catch it.
+				on_vm 'New-Item -ItemType Directory -Force C:\swiff\control | Out-Null'
+				to_vm "$SWIFF_HOST_EXE_CONTROL" swiff@127.0.0.1:'C:/swiff/control/SwiffHost.exe'
+				launch 'C:\swiff\control\SwiffHost.exe'
+				sleep 120
+				windows control
+				expect control-caught "a build that cannot start fails the check: $(others control) other window(s), $(titled control 'Swiff Host') app window(s)" \
+					test "$(titled control 'Swiff Host') $(others control)" != "1 0"
+				on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff Host*' } | Stop-Process -Force" || true
+				sleep 5
+			fi
 			to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
-			# The portable exe unpacks the app and starts it; the second start must hand over to the
-			# first and quit. Counted as the app's main processes (Electron's without --type=), which an
-			# SSH session sees, unlike their windows.
-			local mains='@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*Swiff Host*.exe" -and $_.CommandLine -notmatch "--type=" }).Count'
-			on_vm "schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null; Start-Sleep 120; $mains" | tr -d '\r' > "$run/instances-1.txt"
-			on_vm "schtasks /run /tn swiff-app | Out-Null; Start-Sleep 90; $mains; Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '*Swiff*' } | ForEach-Object { '{0} {1}' -f \$_.ProcessId, \$_.CommandLine }" | tr -d '\r' > "$run/instances-2.txt"
-			expect app-started "the app started: $(head -1 "$run/instances-1.txt") main process" test "$(head -1 "$run/instances-1.txt")" = 1
-			expect one-instance "a second start left one app running: $(head -1 "$run/instances-2.txt") main process" test "$(head -1 "$run/instances-2.txt")" = 1
+			launch 'C:\swiff\SwiffHost.exe'
+			sleep 120
+			windows first
+			expect app-first-screen "the packaged app opened its window, and no error box: $(cat "$run/windows-first.txt" | tr '\n\t' '; ')" \
+				test "$(mains first) $(titled first 'Swiff Host') $(others first)" = "1 1 0"
+			launch 'C:\swiff\SwiffHost.exe'
+			sleep 90
+			windows second
+			expect one-instance "a second start left one app and one window, no error box: $(cat "$run/windows-second.txt" | tr '\n\t' '; ')" \
+				test "$(mains second) $(titled second 'Swiff Host') $(others second)" = "1 1 0"
 		else
 			result SKIP one-instance "no \$SWIFF_HOST_EXE given"
 		fi
@@ -577,6 +625,116 @@ test_run() {
 		on_vm 'Stop-Computer -Force' || true
 		vm_wait_off 300 || vm_kill
 
+	fi
+	if want 13; then
+		scenario "13. The packaged app, through its own screens"
+		# The TEST build (npm run pack:test), driven over Electron's remote debugging: its window,
+		# its rental screens, its own elevation, its guided failures, its restart to MokManager.
+		# The VM has no IOMMU with DMA protection, so the app stops at that BIOS step before
+		# Install: Swiff OS is installed by the installer modules for the key's screens.
+		[ -s "${SWIFF_HOST_EXE:-}" ] || die "scenario 13 needs \$SWIFF_HOST_EXE (a pack:test build)"
+		local appdata='C:\Users\swiff\AppData\Roaming\@swiff\desktop\swiff-os'
+		local ui="node $here/ui-drive.mjs"
+		step() { # name detail command...: one UI step's result
+			local name=$1 detail=$2
+			shift 2
+			if "$@" > "$run/ui-$name.json" 2>&1 && grep -q '"ok":true' "$run/ui-$name.json"; then result PASS "$name" "$detail"; else
+				result FAIL "$name" "$detail: $(head -c 400 "$run/ui-$name.json")"
+			fi
+		}
+		ui_has() { # name regex: the last UI answer's text matches
+			grep -Eq "$2" "$run/ui-$1.json"
+		}
+		tunnel() {
+			[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
+			ssh "${opts[@]}" -N -L 9222:127.0.0.1:9222 -p "$port" swiff@127.0.0.1 &
+			tunnel_pid=$!
+			sleep 3
+		}
+		app() { # start the app as the logged-on user, with remote debugging, and wait for its window
+			on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff Host*' } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
+			tunnel
+			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+			sleep 10
+		}
+		uac() { # 0: elevate without a prompt; 2: Windows' consent prompt on its secure desktop
+			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
+		}
+		on_vm "New-Item -ItemType Directory -Force '$appdata' | Out-Null" || true
+		to_vm "$SWIFF_SIGNED_SET"/* swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
+
+		# --- before any install ---
+		app
+		step ui-first-screen "the packaged app's first screen" $ui wait-h1 'your pc' 120
+		step ui-test-build "it says it is a test build, and Go live and Get paid wait for rental mode" $ui screen
+		ui_has ui-test-build 'TEST BUILD|Test build' && ui_has ui-test-build 'GO LIVE After rental mode' || result FAIL ui-test-build-text "no test-build tag or a step not locked"
+		step ui-rental "Rental mode names the one BIOS setting this PC lacks" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'turn on iommu' 120"
+		ui_has ui-rental 'In the BIOS' || result FAIL ui-rental-strip "no BIOS strip"
+		step ui-check-again "Check again reads the PC again and stays on the BIOS step" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui wait-h1 'turn on iommu' 120"
+		# A manifest that is not the signed one, and a certificate that is not Swiff's: refused before anything.
+		on_vm "Add-Content -LiteralPath '$appdata\\swiffos.json' ' '" || true
+		step ui-tampered-manifest "a changed manifest reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui click 'What Swiff checked'"
+		ui_has ui-tampered-manifest 'Not signed by Swiff' || result FAIL ui-tampered-manifest-text "the check did not say so"
+		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		on_vm "Set-Content -LiteralPath '$appdata\\swiffos-key.cer' -Value 'not swiff' -Encoding Byte -ErrorAction SilentlyContinue; [IO.File]::WriteAllBytes('$appdata\\swiffos-key.cer', [byte[]](48,130,1,10))" || true
+		step ui-swapped-cert "a swapped certificate reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui screen"
+		$ui click 'What Swiff checked' > "$run/ui-swapped-cert-checks.json" 2>&1 || true
+		ui_has ui-swapped-cert-checks 'Not signed by Swiff' || result FAIL ui-swapped-cert-text "the check did not say so"
+		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		$ui click 'Check again' > /dev/null 2>&1 || true
+
+		# --- a tampered image: refused by the install's own check, before any disk or key change ---
+		on_vm "Copy-Item -Recurse -Force '$appdata' C:\\swiff\\tampered; \$f = [IO.File]::Open('C:\\swiff\\tampered\\swiffos_0.1.0.esp.raw', 'Open', 'ReadWrite'); \$f.Seek(1048576, 'Begin') | Out-Null; \$f.WriteByte(0x5A); \$f.Close()" || true
+		serve tampered "plan install" "run check"
+		expect tampered-image "the install's check refuses a changed image before any change: $(json "$run/serve-tampered.json" outcome '.outcome.failed.error' || true)" grep -q '"failed"' "$run/serve-tampered.json"
+		on_vm "Remove-Item -Recurse -Force C:\\swiff\\tampered" || true
+		read_as after-tamper
+		expect tampered-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-after-tamper.json" read '.read.facts.install')" = null
+
+		# --- installed by the installer modules; the key's screens in the app ---
+		on_vm "$cli run install --image $img --code-file $codefile" | tr -d '\r' > "$run/ui-install.json" || true
+		expect ui-installed "the installer modules installed Swiff OS for the key's screens" grep -q '"outcome":{"status":"done"' "$run/ui-install.json"
+		code=$(take_code)
+		"$python" "$here/mok-drive.py" "$run/ui-mok-0.log" confirm "$code" --loose --socket "$run/serial.sock" || true
+		windows_back ui-windows-after-install
+		app
+		step ui-ask "the app asks whether the code went in" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120"
+		step ui-no "No, or I'm not sure leads to confirming the key with a new code" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'confirm swiff' 60"
+		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click 'Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 60"
+		# Administrator declined, through the app's own elevation.
+		uac 2
+		$ui click '^Confirm the key' > "$run/ui-elevate.json" 2>&1 || true
+		for _ in $(seq 8); do sleep 4; monitor "sendkey esc" || true; done
+		step ui-declined "the prompt declined: a plain sentence and Ask again" $ui wait-h1 "windows didn't give permission" 120
+		uac 0
+		# A certificate swapped before the run: the app's administrator side refuses it.
+		on_vm "[IO.File]::WriteAllBytes('$appdata\\swiffos-key.cer', [byte[]](48,130,1,10))" || true
+		$ui click 'Ask again' > /dev/null 2>&1 || true
+		step ui-refused-cert "the administrator side refuses a swapped certificate, guided" $ui wait-h1 "files didn't pass the check|not signed|didn't pass" 180
+		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		$ui click 'Try again|Check again|Send details' > /dev/null 2>&1 || true
+		$ui screen > "$run/ui-after-refusal.json" 2>&1 || true
+		# The key's run through the app: then Restart now, up to MokManager waiting.
+		bash -c "$ui click '^Confirm the key' > /dev/null" 2> /dev/null || true
+		step ui-restart "the key's run ends at Restart now" $ui wait-h1 'restart to confirm the key' 300
+		code=$($ui code)
+		$ui click 'Restart now' > "$run/ui-restart-click.json" 2>&1 || true
+		expect ui-mokmanager "the app's restart reached MokManager, and it waits" \
+			"$python" "$here/mok-drive.py" "$run/ui-mok-wait.log" wait "Perform MOK management" 600 --socket "$run/serial.sock"
+		expect ui-mok-confirmed "the key confirmed with the code the app showed" \
+			"$python" "$here/mok-drive.py" "$run/ui-mok-1.log" confirm "$code" --loose --socket "$run/serial.sock"
+		windows_back ui-windows-after-key
+		expect ui-pcr7 "PCR 7 is a clean start's after the app's key restart" test "$(pcr7 ui-key)" = "$base"
+		app
+		step ui-yes "the app asks; Yes, it did" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120 > /dev/null; $ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
+		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
+		# Removal through the app.
+		step ui-remove-preview "Remove rental mode shows what removing does" bash -c "$ui click '^Rental mode' > /dev/null; $ui click 'Remove rental mode' > /dev/null; $ui wait-h1 'remove rental mode' 60"
+		step ui-removed "removing ran through the app's elevation, and rental mode starts over" bash -c "$ui click '^Remove rental mode' > /dev/null; sleep 60; $ui wait-h1 'turn on iommu' 600"
+		read_as ui-after-remove
+		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
+		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
 	fi
 	echo
 	if [ "$fail" = 0 ]; then echo "Windows install VM test: PASS"; else

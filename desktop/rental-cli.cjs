@@ -6,9 +6,9 @@
 //   node rental-cli.cjs read
 //       what the app reads from this PC, and what an install recorded
 //   node rental-cli.cjs run <install|uninstall|unkey|mok|once|start|stop> --image <dir>
-//           [--target <id>] [--dry-run]
+//           [--target <id>] [--dry-run] [--code-file <file>]
 //       plan it and run every step: typing this command is the confirmation
-//   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run]
+//   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run] [--code-file <file>]
 //       one elevated worker (one UAC prompt, on `elevate` or the first `run`),
 //       then commands one per line, on stdin or appended to <file> (which
 //       works where a pipe into a Windows process does not, as from WSL), each
@@ -20,6 +20,11 @@
 //
 // Every answer is one JSON line. The worker refuses whatever does not match
 // the image set and the install's record, whatever this console asks.
+//
+// A plan's one-time key code is never in an answer: it lets whoever has it
+// enrol or remove a key at the PC's blue screen, and answers end up in logs.
+// With --code-file it is written to that file alone, for its owner to read
+// and delete; the answer says only that it is there.
 
 const path = require("node:path");
 const fs = require("node:fs");
@@ -76,12 +81,23 @@ const worker = (image, dry) =>
         }),
       });
 
-const shown = (p) => ({
-  kind: p.kind,
-  target: p.target,
-  mok: p.mok,
-  steps: p.steps.map(({ id, title, confirm, commands }) => ({ id, title, confirm, commands })),
-});
+/**
+ * A plan as an answer shows it: its key code, if it has one, only in
+ * `codeFile` (written readable by its owner alone), never in the answer.
+ */
+function shown(p, codeFile = null, files = fs) {
+  if (p.mok && codeFile) files.writeFileSync(codeFile, p.mok.code, { mode: 0o600 });
+  return {
+    kind: p.kind,
+    target: p.target,
+    ...(p.mok ? { mok: { codeFile: codeFile ?? null } } : {}),
+    steps: p.steps.map(({ id, title, confirm, commands }) => ({ id, title, confirm, commands })),
+  };
+}
+
+/** A dry run's operations as an answer shows them: without any key code. */
+const unkeyed = (ops) =>
+  ops.map(({ code, ...op }) => (code === undefined ? op : { ...op, code: "(hidden)" }));
 
 /** The lines appended to `file`, as they come: the file is read again every half second. */
 async function* follow(file) {
@@ -109,11 +125,11 @@ async function main([cmd, ...rest]) {
   if (cmd === "read") return say({ read: await readRental(), trail: bootTrail() });
   if (cmd === "run") {
     const p = await plan(opts._[0], { image: opts.image, target: opts.target });
-    say({ plan: shown(p) });
+    say({ plan: shown(p, opts["code-file"] ?? null) });
     const w = await worker(opts.image, opts["dry-run"]);
     try {
       const outcome = await runPlan(p, { apply: w.apply, onEvent: (event) => say({ event }) });
-      say({ outcome, ...(w.ops ? { ops: w.ops } : {}) });
+      say({ outcome, ...(w.ops ? { ops: unkeyed(w.ops) } : {}) });
       process.exitCode = outcome.status === "done" ? 0 : 1;
     } finally {
       w.close();
@@ -133,7 +149,7 @@ async function main([cmd, ...rest]) {
         if (verb === "read") say({ read: await readRental() });
         else if (verb === "plan") {
           current = await plan(args[0], { image: opts.image, target: args[1] ?? null });
-          say({ plan: shown(current) });
+          say({ plan: shown(current, opts["code-file"] ?? null) });
         } else if (verb === "elevate" || verb === "run") {
           w ??= await worker(opts.image, opts["dry-run"]);
           if (verb === "elevate") say({ elevated: true });
@@ -162,7 +178,10 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  say({ error: error.message });
-  process.exitCode = 1;
-});
+module.exports = { shown, unkeyed };
+
+if (require.main === module)
+  main(process.argv.slice(2)).catch((error) => {
+    say({ error: error.message });
+    process.exitCode = 1;
+  });
