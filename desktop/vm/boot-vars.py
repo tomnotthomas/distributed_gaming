@@ -113,7 +113,7 @@ def set_order(varlist, indexes):
 
 
 def main(cmd, vars_path, *args):
-    """Run one command from the usage above on the store at `vars_path`."""
+    """Run one command from the usage above; `vars_path` is its first argument (VARS, or DB_AUTH for cert)."""
     if cmd == "init":
         template, db_auth, part, start, size, uuid = args
         store, varlist = load(template)
