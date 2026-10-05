@@ -211,6 +211,12 @@ export type OffOffer = {
   reset?: boolean;
 };
 
+/** How the host offers the machine, or takes it off offer. */
+export type OfferOptions = OffOffer & {
+  /** Offered with an attested host certificate: a rental-mode PC (Swiff OS). The machine key's offers are not. */
+  rentalMode?: boolean;
+};
+
 /** A machine's stored report, as its host last sent it. */
 export type MachineProfile = {
   id: string;
@@ -264,7 +270,7 @@ export type BookingView = {
 export type ClaimedSession = { sessionId: string; gameId: number; minutes: number };
 
 export type ClaimResult =
-  | ({ ok: true; roomId: string } & ClaimedSession)
+  | ({ ok: true; roomId: string; rentalMode: boolean } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
 /**
@@ -300,7 +306,14 @@ export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
  * room, the ticket id recorded at claim, and how long the session has left (ms).
  */
 export type RunningSession =
-  | { ok: true; sessionId: string; roomId: string; ticketId: string; remainingMs: number }
+  | {
+      ok: true;
+      sessionId: string;
+      roomId: string;
+      ticketId: string;
+      remainingMs: number;
+      rentalMode: boolean;
+    }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "not-running"; status: BookingStatus };
 
@@ -648,7 +661,7 @@ export class Platform {
     machineId: string,
     available: boolean,
     spec: MachineSpec = {},
-    { reset = false }: OffOffer = {},
+    { reset = false, rentalMode = false }: OfferOptions = {},
   ): Promise<MachineView> {
     return this.#transaction(async () => {
       const now = this.#now();
@@ -656,10 +669,11 @@ export class Platform {
       await this.#saveReport(machineId, spec);
       await this.#run(
         `UPDATE machines SET price = coalesce($1, price), available_until = $2,
-           crew_only = coalesce($3, crew_only) WHERE id = $4`,
+           crew_only = coalesce($3, crew_only), rental_mode = $4 WHERE id = $5`,
         spec.price ?? null,
         spec.availableUntil ?? null,
         spec.crewOnly ?? null,
+        rentalMode,
         machineId,
       );
       // Its terms (price, until when) are what renters see, whether or not its status moves.
@@ -1360,8 +1374,8 @@ export class Platform {
       }
       // Never the renter's own machine, even when the reservation predates its
       // owner being known (configured since, the machine not yet checked in).
-      const { owner_id } = (await this.#get<{ owner_id: string | null }>(
-        "SELECT owner_id FROM machines WHERE id = $1",
+      const { owner_id, rental_mode } = (await this.#get<{ owner_id: string | null; rental_mode: boolean }>(
+        "SELECT owner_id, rental_mode FROM machines WHERE id = $1",
         reservation.machine_id,
       ))!;
       const owner = this.#owners.get(reservation.machine_id) ?? owner_id;
@@ -1389,7 +1403,7 @@ export class Platform {
       await this.#setStatus(reservation.machine_id, "in_session");
       const claimed = { sessionId, gameId: booking.game_id, minutes: booking.minutes };
       this.#notices.push(() => this.#onSessionClaimed(reservation.machine_id, claimed));
-      return { ok: true, roomId: reservation.machine_id, ...claimed };
+      return { ok: true, roomId: reservation.machine_id, rentalMode: rental_mode, ...claimed };
     });
   }
 
@@ -1415,12 +1429,17 @@ export class Platform {
         session?.ticket_id != null &&
         session.expires_at > now;
       if (!running) return { ok: false, reason: "not-running", status: booking.status };
+      const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+        "SELECT rental_mode FROM machines WHERE id = $1",
+        session.machine_id,
+      ))!;
       return {
         ok: true,
         sessionId: session.id,
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
         remainingMs: session.expires_at - now,
+        rentalMode: rental_mode,
       };
     });
   }

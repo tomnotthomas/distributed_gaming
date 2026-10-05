@@ -130,16 +130,15 @@ export type BookMachineResult =
   { kind: "booked"; booking: Booking } | { kind: "taken"; nextBest: NextBest | null };
 
 /**
- * What a claim hands back: the room to join, where, and the ticket that opens it.
- * `rentalMode` marks a Swiff OS PC, which signs the renter in to Steam by QR
- * during Ignition; nothing sets it until those PCs register as such.
+ * What a claim hands back: the room to join, where, and the ticket that opens
+ * it; `rentalMode` for a rental-mode PC, whose renter signs in to Steam first.
  */
 export type Claim = {
   sessionId: string;
   roomId: string;
   signalingUrl: string;
   ticket: string;
-  rentalMode?: boolean;
+  rentalMode: boolean;
 };
 
 const KEY = "swiff.booking";

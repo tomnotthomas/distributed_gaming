@@ -10,7 +10,9 @@
 //   (hosting)         minted after attestation    socket, which hears session-claimed and
 //                                                 gets TURN; start a host session, which
 //                                                 mints the streamer's session keys; also
-//                                                 heartbeat and end a session
+//                                                 heartbeat, end a session, and set
+//                                                 availability, which marks the machine
+//                                                 a rental-mode PC for its claims
 //
 // HOSTING_ATTESTATION picks the policy per environment:
 //
