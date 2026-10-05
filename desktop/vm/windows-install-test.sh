@@ -284,6 +284,8 @@ test_run() {
 			return 1
 		fi
 	}
+	# Starts the VM unless it runs already: a scenario run on its own finds it on.
+	vm_up() { [ -d "/proc/${vm_pid:-0}" ] || vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"; }
 	# What the app reads now, with this start's boot trail, into $run/read-NAME.json.
 	read_as() { on_vm "$cli read" | tr -d '\r' > "$run/read-$1.json" || true; }
 	# PCR 7 as this start's TCG log replays it: what Windows Hello's PIN and BitLocker are sealed to.
@@ -519,7 +521,7 @@ test_run() {
 	fi
 	if want 10; then
 		scenario "10. Reinstall after removal"
-		vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+		vm_up
 		windows_back windows-before-reinstall
 		on_vm "$cli run install --image $img" | tr -d '\r' | tee "$run/reinstall.json" | grep -E '"(outcome|error)"' || true
 		expect reinstall "every install step ran again" grep -q '"outcome":{"status":"done"' "$run/reinstall.json"
@@ -536,7 +538,7 @@ test_run() {
 	fi
 	if want 11; then
 		scenario "11. Second app instance"
-		vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+		vm_up
 		windows_back windows-before-instances
 		if [ -n "${SWIFF_HOST_EXE:-}" ] && [ -s "$SWIFF_HOST_EXE" ]; then
 			to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
