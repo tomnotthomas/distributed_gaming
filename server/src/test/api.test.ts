@@ -640,6 +640,36 @@ describe("booking and host API", () => {
       assert.equal((await renter("POST", `/api/bookings/${body.bookingId}/claim`)).status, 404);
     });
 
+    it("carries a lost session on only while the game is still the renter's, books nothing otherwise", async () => {
+      libraries.set(RENTER, [PAID]);
+      await offerPaid();
+      const { body } = await renter("POST", "/api/bookings", {
+        gameId: PAID,
+        minutes: 30,
+        machineId: "pc-1",
+      });
+      await renter("POST", `/api/bookings/${body.bookingId}/claim`);
+      await call("PUT", "/api/machines/pc-1/availability", { available: false }, MACHINE_KEY);
+      await offer("pc-2", { available: true, ...REPORT, games: [...REPORT.games, PAID] });
+      const carry = `/api/bookings/${body.bookingId}/continue`;
+
+      libraries.set(RENTER, []);
+      const refused = await renter("POST", carry);
+      assert.equal(refused.status, 403);
+      assert.equal(refused.body.code, "not-owned");
+      assert.equal(refused.body.bookingId, undefined);
+
+      unreachable.add(RENTER);
+      assert.equal((await renter("POST", carry)).status, 503);
+      unreachable.delete(RENTER);
+
+      libraries.set(RENTER, [PAID]);
+      const continued = await renter("POST", carry);
+      assert.equal(continued.status, 202);
+      assert.equal(continued.body.machine.id, "pc-2");
+      assert.equal(continued.body.gameId, PAID);
+    });
+
     it("never sends the page the full library", async () => {
       libraries.set(RENTER, [PAID]);
       const me = await renter("GET", "/api/me");

@@ -640,7 +640,12 @@ export function createApi({
     if (resource === "bookings" && id && action === "continue" && method === "POST") {
       // The session's machine was lost: carry on elsewhere, on the best machine
       // free for the same game and the time left, or in the queue for one.
-      const continued = await platform.continueBooking(id, requireRenter(req, sessionSecret));
+      // The game must still be the renter's to play, checked as at claim.
+      const renter = requireRenter(req, sessionSecret);
+      const lost = await platform.booking(id, renter);
+      if (!lost) throw new HttpError(404, "no such booking");
+      if (await refuseUnlicensed(res, renter, lost.gameId, { claim: true })) return true;
+      const continued = await platform.continueBooking(id, renter);
       if (!continued.ok) {
         if (continued.reason === "not-found") throw new HttpError(404, "no such booking");
         reply(res, 409, { error: "the booking has no lost session to carry on", status: continued.status });
