@@ -1149,6 +1149,21 @@ describe("host sessions", () => {
       assert.ok(ended(host), "ended at once, not after the grace");
     });
 
+    it("gives no grace to a renter whose ticket has no session, as one minted by hand", async () => {
+      const room = nextRoom();
+      const host = await open();
+      send(host, register(room));
+      await handled(host);
+      const renter = await open();
+      send(renter, join(room));
+      await handled(renter);
+      assert.ok(types(host).includes("peer-joined"));
+      renter.close();
+      await handled(host);
+      assert.deepEqual(peerLefts(host), [{ type: "peer-left" }]);
+      host.close();
+    });
+
     it("refuses a rejoin of a booking that is not the renter's or has no session", async () => {
       assert.equal((await call("POST", "/api/bookings/nope/rejoin")).status, 404);
       const queued = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });

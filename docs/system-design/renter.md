@@ -591,7 +591,10 @@ the page says the launch did not go through.
 A connection that drops is not the end of the session. When the renter's socket leaves
 the room mid-session, the server tells the PC `peer-left` with `grace: 120` and starts
 a 2-minute clock (`server/src/grace.ts`): the game keeps running and the PC lets go of
-any input still held. A join with the same seat within those 2 minutes stops the clock,
+any input still held. On the PC, `@swiff/rtc`'s host session reports the grace
+(`onPeerLeft`) and keeps the session, its key and the game as they are. Only a renter
+seated on a ticket that a running session handed out gets the grace; one minted by hand
+(`npm run ticket`) leaves with a plain `peer-left`. A join with the same seat within those 2 minutes stops the clock,
 and the PC gets `peer-joined` and sends a new offer: no Ignition, no new launch. When
 the clock runs out the session ends as `grace_expired`: the ticket is revoked, the PC's
 host session ends and the machine goes back to its owner. Only End (POST
