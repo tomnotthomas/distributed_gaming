@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { encode } from "uqr";
 import { Glyph } from "./Glyph";
+import type { SignInFailure } from "./play";
 
 /** Steam's sign-in QR codes encode a link like https://s.team/q/1/1234567890123456789. */
 const SIGN_IN_URL = /^https:\/\/s\.team\/q\/[0-9]+\/[0-9]+$/;
@@ -52,25 +53,43 @@ export function SteamSignIn({ url }: { url: string }) {
   );
 }
 
+/** The failed panel's title, which Ignition also announces. */
+export const signInFailedTitle = (reason: SignInFailure): string =>
+  reason === "launch-timeout" ? "Your game didn't start" : "Sign-in didn't work";
+
 /**
- * The PC's Steam sign-in stopped short (its code timed out, or the game never
- * came up), in the code's place: the game is not starting. Trying again
- * asks the same PC for a new code, keeping the machine; Ignition's own Cancel
- * is the way out, so there is no second one here. Focus moves to Try again so
- * the way on is one key away.
+ * The PC's Steam sign-in stopped short, in the code's place: the game is not
+ * starting. When the code was never approved, trying again asks the same PC
+ * for a new code, keeping the machine. When the game never came up after
+ * sign-in, a new code would not help, so it offers another machine instead.
+ * Ignition's own Cancel is the way out, so there is no second one here. Focus
+ * moves to the way on so it is one key away.
  */
-export function SteamSignInFailed({ onRetry }: { onRetry: () => void }) {
-  const retry = useRef<HTMLButtonElement>(null);
-  useEffect(() => retry.current?.focus(), []);
+export function SteamSignInFailed({
+  reason,
+  onRetry,
+  onTryAnother,
+}: {
+  reason: SignInFailure;
+  onRetry: () => void;
+  onTryAnother: () => void;
+}) {
+  const action = useRef<HTMLButtonElement>(null);
+  useEffect(() => action.current?.focus(), []);
+  const launch = reason === "launch-timeout";
 
   return (
     <section className="ig-qr" aria-labelledby="ig-qr-failed-title" data-testid="steam-sign-in-failed">
       <div className="ig-qr-copy">
-        <h2 id="ig-qr-failed-title">Sign-in didn't work</h2>
-        <p>Steam didn't finish signing you in, so your game hasn't started. Try again for a new code.</p>
+        <h2 id="ig-qr-failed-title">{signInFailedTitle(reason)}</h2>
+        <p>
+          {launch
+            ? "Steam signed you in, but your game didn't come up on this machine."
+            : "Steam didn't finish signing you in, so your game hasn't started. Try again for a new code."}
+        </p>
         <div className="ig-qr-actions">
-          <button type="button" className="lpill" onClick={onRetry} ref={retry}>
-            Try again
+          <button type="button" className="lpill" onClick={launch ? onTryAnother : onRetry} ref={action}>
+            {launch ? "Try another machine" : "Try again"}
             <span className="lpill-c">
               <Glyph name="arrow" size={18} />
             </span>

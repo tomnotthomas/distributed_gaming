@@ -131,9 +131,27 @@ describe("steamLoginForwarder", () => {
     );
     conns[0]!.end();
 
-    await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "steam-login", state: "failed" }));
+    await vi.waitFor(() =>
+      expect(sent.at(-1)).toEqual({ type: "steam-login", state: "failed", reason: "sign-in-timeout" }),
+    );
     await new Promise((r) => setTimeout(r, 50));
     expect(sent.filter((m) => m.type === "steam-login" && m.state === "failed")).toHaveLength(1);
+  });
+
+  it("passes on why the game never came up, and no reason for a failure the page has no copy for", async () => {
+    start();
+    const sent: SignalMessage[] = [];
+    forwarder!.renterJoined((m) => sent.push(m));
+    await vi.waitFor(() => expect(conns).toHaveLength(1));
+    agentSays({ event: "signed-in", atMs: 10 }, { event: "failed", reason: "launch-timeout", atMs: 90_000 });
+    await vi.waitFor(() =>
+      expect(sent.at(-1)).toEqual({ type: "steam-login", state: "failed", reason: "launch-timeout" }),
+    );
+
+    forwarder!.retry((m) => sent.push(m));
+    await vi.waitFor(() => expect(conns).toHaveLength(2));
+    agentSays({ event: "failed", reason: "busy", atMs: 0 });
+    await vi.waitFor(() => expect(sent.at(-1)).toEqual({ type: "steam-login", state: "failed" }));
   });
 
   it("starts a fresh Play when the renter retries after a failure, and relays its new code", async () => {
@@ -143,7 +161,9 @@ describe("steamLoginForwarder", () => {
     await vi.waitFor(() => expect(conns).toHaveLength(1));
     agentSays({ event: "failed", reason: "sign-in-timeout", atMs: 600_000 });
     conns[0]!.end();
-    await vi.waitFor(() => expect(sent).toEqual([{ type: "steam-login", state: "failed" }]));
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ type: "steam-login", state: "failed", reason: "sign-in-timeout" }]),
+    );
 
     forwarder!.retry((m) => sent.push(m));
     await vi.waitFor(() => expect(conns).toHaveLength(2));

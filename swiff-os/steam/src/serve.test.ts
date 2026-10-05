@@ -102,16 +102,6 @@ describe("serveLogin", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o660);
   });
 
-  it("says whether Steam is ready for a renter", async () => {
-    const path = join(dir, "login.sock");
-    const at = steamAt();
-    server = await serveLogin(path, { ...at, ...fast });
-
-    expect(await ask(path, "status")).toEqual([{ steam: "sign-in" }]);
-    at.signIn();
-    expect(await ask(path, "status")).toEqual([{ steam: "signed-in" }]);
-  });
-
   it("runs one play at a time, and hanging up stops it", async () => {
     const path = join(dir, "login.sock");
     server = await serveLogin(path, { ...steamAt(), ...fast });
@@ -130,11 +120,11 @@ describe("serveLogin", () => {
     expect(JSON.parse(line)).toMatchObject({ event: "qr" });
   }, 1_000);
 
-  it("refuses anything but status and play with an app id", async () => {
+  it("refuses anything but play with an app id", async () => {
     const path = join(dir, "login.sock");
     server = await serveLogin(path, { ...steamAt(), ...fast });
 
-    for (const command of ["play", "play abc", "play 0", "play 570; reboot", "launch 570"])
+    for (const command of ["status", "play", "play abc", "play 0", "play 570; reboot", "launch 570"])
       expect(await ask(path, command)).toEqual([{ error: "unknown-command" }]);
   });
 });

@@ -464,8 +464,6 @@ or a desktop. Nobody types a password or a Steam Guard code.
   Steam opens only its sign-in window. The agent serves Plays on a local socket
   (`src/serve.ts`, default `/run/swiff/steam/login.sock`).
 - **Ready before the renter comes.** Steam sits at its sign-in window from boot.
-  `status` on the socket answers `sign-in` once Steam's QR code can be read, so the PC
-  can be offered only from then on.
 - **Play** is `play <appid>` on the socket. The streamer sends it as the renter joins
   (`streamer/src/steamLogin.ts`), since it carries the renter's signaling. The agent reads Steam's QR code off the screen with the stock X
   tools and zbar (`src/x11.ts`) and sends the link it encodes as a `qr` event. Steam
@@ -487,8 +485,10 @@ or a desktop. Nobody types a password or a Steam Guard code.
 - **On the page.** Ignition shows the code in the dial's place while the play's own
   renter session (`web/src/swiff/play.ts`) carries it. The launch is not called slow
   while a code is up, and the stream shows only on `game-started`, once the game is on
-  screen. On `failed` it offers Try again, which sends `steam-login retry` to the PC for
-  a new code on the same claim, beside Ignition's Cancel. A retry made while the room is
+  screen. On `failed` (reason `sign-in-timeout`, or none) it offers Try again, which
+  sends `steam-login retry` to the PC for a new code on the same claim, beside
+  Ignition's Cancel. On `launch-timeout` (the game never came up after sign-in) it says
+  the game didn't start and offers Try another machine instead. A retry made while the room is
   reconnecting or the PC is away is held and sent once the PC is back, until it answers.
 
 ```bash

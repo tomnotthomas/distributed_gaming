@@ -218,7 +218,7 @@ describe("hosting requires attestation", () => {
       body: { error: "bad-host-cert" },
     });
     assert.equal(
-      (await call("PUT", "/api/machines/pc-3/availability", { available: false }, other)).status,
+      (await call("PUT", "/api/machines/pc-4/availability", { available: false }, other)).status,
       401,
     );
   });
@@ -300,20 +300,34 @@ describe("hosting requires attestation", () => {
     service.ws.close();
   });
 
-  it("says rentalMode on the claim of a machine offered with an attested host certificate, not the machine key", async () => {
+  it("says rentalMode on the claim once Swiff OS registers with its host certificate, after the owner shared with the machine key", async () => {
     const room = "pc-7";
+    // The owner shares from Windows with the machine key.
+    const shared = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(shared.status, 200);
+    // The PC reboots into Swiff OS: swiff-hostd attests and registers its hosting socket.
     const grant = await attest(room);
     const service = await host(room, { hostCert: grant.hostCert });
     assert.equal(service.received[0]?.type, "registered");
+    // The host certificate has no owner control rights.
+    assert.equal(
+      (
+        await call(
+          "PUT",
+          `/api/machines/${room}/availability`,
+          { available: true, ...REPORT },
+          grant.hostCert,
+        )
+      ).status,
+      401,
+    );
 
-    const claimOffered = async (credential: string) => {
-      const offered = await call(
-        "PUT",
-        `/api/machines/${room}/availability`,
-        { available: true, ...REPORT },
-        credential,
-      );
-      assert.equal(offered.status, 200, `availability answered ${offered.status}`);
+    const claimed = async () => {
       const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
       const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
       assert.equal(claim.status, 200, `claim answered ${claim.status}`);
@@ -323,10 +337,17 @@ describe("hosting requires attestation", () => {
       assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
       return [claim.body.rentalMode, ticket.body.rentalMode];
     };
+    assert.deepEqual(await claimed(), [true, true]);
 
-    assert.deepEqual(await claimOffered(MACHINE_KEY), [false, false]);
-    assert.deepEqual(await claimOffered(grant.hostCert), [true, true]);
-    assert.deepEqual(await claimOffered(MACHINE_KEY), [false, false]);
+    // The owner's machine-key availability calls never clear it.
+    const repriced = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, price: 150, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(repriced.status, 200);
+    assert.deepEqual(await claimed(), [true, true]);
     service.ws.close();
   });
 

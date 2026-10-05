@@ -211,12 +211,6 @@ export type OffOffer = {
   reset?: boolean;
 };
 
-/** How the host offers the machine, or takes it off offer. */
-export type OfferOptions = OffOffer & {
-  /** Offered with an attested host certificate: a rental-mode PC (Swiff OS). The machine key's offers are not. */
-  rentalMode?: boolean;
-};
-
 /** A machine's stored report, as its host last sent it. */
 export type MachineProfile = {
   id: string;
@@ -661,7 +655,7 @@ export class Platform {
     machineId: string,
     available: boolean,
     spec: MachineSpec = {},
-    { reset = false, rentalMode = false }: OfferOptions = {},
+    { reset = false }: OffOffer = {},
   ): Promise<MachineView> {
     return this.#transaction(async () => {
       const now = this.#now();
@@ -669,11 +663,10 @@ export class Platform {
       await this.#saveReport(machineId, spec);
       await this.#run(
         `UPDATE machines SET price = coalesce($1, price), available_until = $2,
-           crew_only = coalesce($3, crew_only), rental_mode = $4 WHERE id = $5`,
+           crew_only = coalesce($3, crew_only) WHERE id = $4`,
         spec.price ?? null,
         spec.availableUntil ?? null,
         spec.crewOnly ?? null,
-        rentalMode,
         machineId,
       );
       // Its terms (price, until when) are what renters see, whether or not its status moves.
@@ -732,13 +725,18 @@ export class Platform {
    * it stays open, with no heartbeat needed. A machine dropped as offline comes
    * back as it was offered. Nothing is stored for a machine never heard from.
    * The time before the socket opened is counted first, as seen only up to its
-   * last contact.
+   * last contact. `rentalMode`, for the PC service's hosting socket: whether
+   * it registered with an attested host certificate (a rental-mode PC, Swiff
+   * OS), which its claims carry. Left as it was for the streamer's socket.
    */
-  hostConnected(machineId: string): Promise<void> {
+  hostConnected(machineId: string, rentalMode?: boolean): Promise<void> {
     return this.#transaction(async () => {
       const now = this.#now();
       const machine = await this.#machineRow(machineId);
       if (machine) await this.#touch(machineId, now);
+      if (machine && rentalMode !== undefined) {
+        await this.#run("UPDATE machines SET rental_mode = $1 WHERE id = $2", rentalMode, machineId);
+      }
       if (this.#offeredOnlyWhilePresent && !this.#present.has(machineId)) this.#offerChanged = true;
       this.#present.add(machineId);
       if (!machine) return;
