@@ -59,7 +59,8 @@ type Rig = {
   events: StateKeySecurityEvent[];
   cooldown: Set<string>;
   /** A host certificate from attesting `room` at the boot `boot` counts (undefined: not counted). */
-  attest(boot: number | undefined, room?: string, now?: number): Promise<string>;
+  /** `restarted`: the quote is the first since the TPM's counts started again (a cleared TPM). */
+  attest(boot: number | undefined, room?: string, now?: number, restarted?: boolean): Promise<string>;
   release(cert: string | null, room?: string, now?: number): ReturnType<StateKeys["release"]>;
   replace(cert: string | null, room?: string, now?: number): ReturnType<StateKeys["replace"]>;
 };
@@ -92,10 +93,15 @@ function rig({
     store,
     events,
     cooldown,
-    async attest(boot, room = "pc-1", now = Date.now()) {
+    async attest(boot, room = "pc-1", now = Date.now(), restarted = false) {
       const challenge = attestation.challenge(room, now);
       assert.ok(challenge.ok, "challenge refused");
-      const evidence = { machineKey: KEY, facts: GOOD, ...(boot === undefined ? {} : { resetCount: boot }) };
+      const evidence = {
+        machineKey: KEY,
+        facts: GOOD,
+        ...(boot === undefined ? {} : { resetCount: boot }),
+        ...(restarted ? { countersRestarted: true } : {}),
+      };
       const attested = await attestation.attest(room, challenge.grant.nonce, evidence, now);
       assert.ok(attested.ok, `attestation refused: ${JSON.stringify(!attested.ok && attested.body)}`);
       return attested.grant.hostCert;
@@ -247,11 +253,73 @@ describe("continuity", () => {
     assert.deepEqual(shareOf(await r.release(await r.attest(12))), fresh);
   });
 
-  it("counts a boot that went back (the TPM was cleared) as a gap", async () => {
+  it("counts a boot that went back because the TPM was cleared as a gap", async () => {
     const r = rig();
     await provisioned(r, 40);
-    refusal(await r.release(await r.attest(2)), 409, "continuity-gap");
+    const cert = await r.attest(2, "pc-1", Date.now(), true);
+    refusal(await r.release(cert), 409, "continuity-gap");
+    shareOf(await r.replace(cert), 201);
+    assert.equal((await r.store.get("pc-1"))?.lastBoot, 2);
   });
+
+  for (const kind of ["memory", "database"] as const) {
+    it(`never lets an earlier boot recorded late, by another server, take over from a later one, in ${kind}`, async () => {
+      const db = kind === "database" ? await testDatabase() : null;
+      try {
+        if (db) await migrate(db);
+        const store = db ? databaseStateKeyStore(db) : memoryStateKeyStore();
+        const r = rig({ store });
+        const made = await provisioned(r, 7);
+        // Another server, with turns of its own, records boot 8 first ...
+        const other = createStateKeys({ store, secret: STATE_SECRET, securityLog: () => {} });
+        await other.observe("pc-1", 8);
+        const later = await r.attest(9);
+        // ... and this one records boot 8 again, late, after boot 9.
+        await r.stateKeys.observe("pc-1", 8);
+        const record = await store.get("pc-1");
+        assert.equal(record?.lastBoot, 9);
+        assert.equal(record?.withheld, false);
+        // A certificate for boot 8 is stale; boot 9's gets the share.
+        const early = mintHostCert(ROOM_SECRET, "pc-1", "attested", 600, Date.now(), 8);
+        refusal(await r.release(early), 401, "stale-host-cert");
+        refusal(await r.replace(early), 401, "stale-host-cert");
+        assert.deepEqual(shareOf(await r.release(later)), made);
+      } finally {
+        await db?.close();
+      }
+    });
+
+    it(`makes no new share for a boot another server has since recorded a later one over, in ${kind}`, async () => {
+      const db = kind === "database" ? await testDatabase() : null;
+      try {
+        if (db) await migrate(db);
+        const shared = db ? databaseStateKeyStore(db) : memoryStateKeyStore();
+        const other = createStateKeys({ store: shared, secret: STATE_SECRET, securityLog: () => {} });
+        let laterOnRead = false;
+        const store: StateKeyStore = {
+          ...shared,
+          async get(room) {
+            const record = await shared.get(room);
+            if (laterOnRead) {
+              laterOnRead = false;
+              await other.observe(room, 9);
+            }
+            return record;
+          },
+        };
+        const r = rig({ store });
+        const made = await provisioned(r, 7);
+        const cert = await r.attest(8);
+        laterOnRead = true;
+        refusal(await r.replace(cert), 401, "stale-host-cert");
+        const record = await shared.get("pc-1");
+        assert.equal(record?.keyId, made.keyId);
+        assert.equal(record?.lastBoot, 9);
+      } finally {
+        await db?.close();
+      }
+    });
+  }
 
   it("counts a boot the verifier could not count as a gap", async () => {
     const r = rig();
@@ -396,7 +464,11 @@ describe("refusals for the machine's standing", () => {
     const one = (await store.get("pc-1"))!;
     const two = (await store.get("pc-2"))!;
     assert.ok(
-      await store.putShare("pc-2", { keyId: two.keyId!, sealed: one.sealed!, createdAt: Date.now() }),
+      await store.putShare(
+        "pc-2",
+        { keyId: two.keyId!, sealed: one.sealed!, createdAt: Date.now() },
+        two.lastBoot,
+      ),
     );
     refusal(await r.release(await r.attest(8, "pc-2"), "pc-2"), 500, "internal-error");
   });

@@ -162,14 +162,18 @@ describe("the TPM verifier accepts", () => {
   it("an untouched Swiff OS boot quoted by a firmware TPM with an RSA EK", async () => {
     const verifier = await verifierFor("pc-rsa");
     const { boot, ...verdict } = (await judge(verifier, "pc-rsa", "first")) as { boot?: number };
-    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS });
+    // Its first quote: the verifier had no counters for it before.
+    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS, restarted: true });
     assert.ok(Number.isSafeInteger(boot), "reports the boot the quote counted");
+    const next = await judge(verifier, "pc-rsa", "next-boot");
+    assert.ok(next.ok);
+    assert.equal(next.restarted, false);
   });
 
   it("the same with an ECC P-256 EK and AK", async () => {
     const verifier = await verifierFor("pc-ecc");
     const { boot, ...verdict } = (await judge(verifier, "pc-ecc", "first")) as { boot?: number };
-    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS });
+    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS, restarted: true });
     assert.ok(Number.isSafeInteger(boot));
   });
 

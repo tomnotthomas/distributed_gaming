@@ -93,15 +93,40 @@ export type StateKeyRecord = {
  */
 export type StateKeyStore = {
   get(room: string): Promise<StateKeyRecord | null>;
-  /** The machine's latest attested boot, and withhold its share when `withhold`; the share and revocation untouched. */
-  recordBoot(room: string, boot: number | null, withhold: boolean): Promise<void>;
-  /** Make this the machine's share, no longer withheld, unless it is revoked or has no record: whether it did. */
-  putShare(room: string, share: { keyId: string; sealed: Buffer; createdAt: number }): Promise<boolean>;
+  /**
+   * Record attested boot `boot` of the machine in one step: its share is
+   * withheld unless `boot` follows the latest recorded one. A boot earlier
+   * than the latest changes nothing (an attestation recorded late, by another
+   * server), unless `restarted` (the TPM's counts started again). Whether the
+   * share is withheld now. The share and revocation are untouched.
+   */
+  recordBoot(room: string, boot: number | null, restarted: boolean): Promise<{ withheld: boolean }>;
+  /**
+   * Make this the machine's share, no longer withheld, only while it is not
+   * revoked and `boot` is still its latest recorded boot: whether it did.
+   */
+  putShare(
+    room: string,
+    share: { keyId: string; sealed: Buffer; createdAt: number },
+    boot: number | null,
+  ): Promise<boolean>;
   /** Destroy the machine's share and mark it revoked at `now`. */
   revoke(room: string, now: number): Promise<void>;
   /** Clear the machine's revocation: whether it was revoked. */
   reinstate(room: string): Promise<boolean>;
 };
+
+/** Whether a boot counted `boot` follows one counted `last`: the same boot again, or the next. */
+const follows = (last: number | null, boot: number | null) =>
+  last !== null && boot !== null && (boot === last || boot === last + 1);
+
+/**
+ * Whether boot `boot` is earlier than the latest recorded, `last`: an
+ * attestation recorded late, by another server, which must never take over
+ * from a later boot. Not when the TPM's counts started again (`restarted`).
+ */
+const late = (last: number | null, boot: number | null, restarted: boolean) =>
+  !restarted && last !== null && boot !== null && boot < last;
 
 /** A copy of `record` that shares no buffer with it. */
 const copy = (record: StateKeyRecord): StateKeyRecord => ({
@@ -127,13 +152,16 @@ export function memoryStateKeyStore(): StateKeyStore {
       const record = records.get(room);
       return record ? copy(record) : null;
     },
-    async recordBoot(room, boot, withhold) {
+    async recordBoot(room, boot, restarted) {
       const record = records.get(room) ?? empty();
-      records.set(room, { ...record, lastBoot: boot, withheld: record.withheld || withhold });
+      if (late(record.lastBoot, boot, restarted)) return { withheld: record.withheld };
+      const withheld = record.withheld || (Boolean(record.keyId) && !follows(record.lastBoot, boot));
+      records.set(room, { ...record, lastBoot: boot, withheld });
+      return { withheld };
     },
-    async putShare(room, { keyId, sealed, createdAt }) {
+    async putShare(room, { keyId, sealed, createdAt }, boot) {
       const record = records.get(room);
-      if (!record || record.revokedAt !== null) return false;
+      if (!record || record.revokedAt !== null || record.lastBoot !== boot) return false;
       records.set(room, { ...record, keyId, sealed: Buffer.from(sealed), createdAt, withheld: false });
       return true;
     },
@@ -178,20 +206,35 @@ export function databaseStateKeyStore(db: Queryable): StateKeyStore {
         revokedAt: numberOrNull(row.revoked_at),
       };
     },
-    async recordBoot(room, boot, withhold) {
-      await db.query(
-        `INSERT INTO machine_state_keys (machine_id, last_boot, withheld, updated_at)
-         VALUES ($1, $2, $3, $4)
+    async recordBoot(room, boot, restarted) {
+      // One statement, so servers recording boots of one machine at once take
+      // turns on its row: the rules of late() and follows(). A late boot
+      // updates nothing, so it returns no row.
+      const { rows } = await db.query<{ withheld: boolean }>(
+        `INSERT INTO machine_state_keys AS k (machine_id, last_boot, withheld, updated_at)
+         VALUES ($1, $2, FALSE, $4)
          ON CONFLICT (machine_id) DO UPDATE SET
-           last_boot = $2, withheld = machine_state_keys.withheld OR $3, updated_at = $4`,
-        [room, boot, withhold, Date.now()],
+           withheld = k.withheld OR (k.key_id IS NOT NULL AND NOT (
+             k.last_boot IS NOT NULL AND $2::bigint IS NOT NULL
+             AND ($2::bigint = k.last_boot OR $2::bigint = k.last_boot + 1))),
+           last_boot = $2,
+           updated_at = $4
+         WHERE $3::boolean OR k.last_boot IS NULL OR $2::bigint IS NULL OR $2::bigint >= k.last_boot
+         RETURNING withheld`,
+        [room, boot, restarted, Date.now()],
       );
+      if (rows[0]) return { withheld: rows[0].withheld };
+      const { rows: current } = await db.query<{ withheld: boolean }>(
+        "SELECT withheld FROM machine_state_keys WHERE machine_id = $1",
+        [room],
+      );
+      return { withheld: current[0]?.withheld ?? false };
     },
-    async putShare(room, { keyId, sealed, createdAt }) {
+    async putShare(room, { keyId, sealed, createdAt }, boot) {
       const { rowCount } = await db.query(
         `UPDATE machine_state_keys SET key_id = $2, sealed = $3, created_at = $4, withheld = FALSE, updated_at = $5
-         WHERE machine_id = $1 AND revoked_at IS NULL`,
-        [room, keyId, sealed.toString("base64"), createdAt, Date.now()],
+         WHERE machine_id = $1 AND revoked_at IS NULL AND last_boot IS NOT DISTINCT FROM $6::bigint`,
+        [room, keyId, sealed.toString("base64"), createdAt, Date.now(), boot],
       );
       return rowCount > 0;
     },
@@ -281,7 +324,7 @@ export type StateKeys = {
    * not counted). Withholds its share when that boot does not follow the last
    * one. Rejects only when the store fails; attestation then mints nothing.
    */
-  observe(room: string, boot: number | null, now?: number): Promise<void>;
+  observe(room: string, boot: number | null, now?: number, restarted?: boolean): Promise<void>;
   /** POST: the machine's current share, for `credential` (attestation.credential). */
   release(room: string, credential: Credential | null, now?: number): Promise<StateKeyResult>;
   /** PUT: a new share for the machine, replacing any it had. */
@@ -303,10 +346,6 @@ export type StateKeyOptions = {
   freshSeconds?: number;
   securityLog?: (event: StateKeySecurityEvent) => void;
 };
-
-/** Whether a boot counted `boot` follows one counted `last`: the same boot again, or the next. */
-const follows = (last: number | null, boot: number | null) =>
-  last !== null && boot !== null && (boot === last || boot === last + 1);
 
 /**
  * The state keys of every machine, kept in `store` and sealed with `secret`.
@@ -388,22 +427,22 @@ export function createStateKeys({
   };
 
   return {
-    observe: (room, boot) =>
+    observe: (room, boot, _now, restarted = false) =>
       inTurn(room, async () => {
-        const existing = await store.get(room);
-        const record = existing ?? empty();
-        const gap = Boolean(record.keyId) && !record.withheld && !follows(record.lastBoot, boot);
-        if (gap) {
+        // Read only to skip a write that changes nothing and to name the
+        // previous boot in the log: the store decides in one step.
+        const before = await store.get(room);
+        if (before && boot !== null && before.lastBoot === boot) return;
+        const { withheld } = await store.recordBoot(room, boot, restarted);
+        if (withheld && before?.keyId && !before.withheld) {
           securityLog({
             event: "state-key-withheld",
             machine: room,
-            keyId: record.keyId!,
-            lastBoot: record.lastBoot,
+            keyId: before.keyId,
+            lastBoot: before.lastBoot,
             boot,
           });
         }
-        if (existing && !gap && existing.lastBoot === boot) return;
-        await store.recordBoot(room, boot, gap);
       }),
 
     release: (room, credential, now = Date.now()) =>
@@ -437,7 +476,12 @@ export function createStateKeys({
           const share = randomBytes(STATE_KEY_BYTES);
           const keyId = randomBytes(12).toString("base64url");
           const sealed = seal(key!, room, keyId, share);
-          if (!(await store.putShare(room, { keyId, sealed, createdAt: now }))) return refuse(403, "revoked");
+          if (!(await store.putShare(room, { keyId, sealed, createdAt: now }, record.lastBoot))) {
+            // Revoked, or another server recorded a later boot since admit read the row.
+            return (await store.get(room))?.revokedAt != null
+              ? refuse(403, "revoked")
+              : refuse(401, "stale-host-cert");
+          }
           used.set(cert.id, cert.exp * 1000);
           securityLog({
             event: "state-key-replaced",

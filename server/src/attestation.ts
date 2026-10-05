@@ -143,8 +143,15 @@ export function tierFor(
  * could not, and why when it can say.
  */
 export type Verdict =
-  /** `boot`: the quote's TPM resetCount, which counts the machine's boots, when the verifier reads one. */
-  { ok: true; facts: PlatformFacts; boot?: number } | { ok: false; reason?: AttestRefusalDetail };
+  /**
+   * `boot`: the quote's TPM resetCount, which counts the machine's boots, when
+   * the verifier reads one. `restarted`: the verifier had no counters for the
+   * machine before this quote (its first, or its first since its EK was
+   * registered again, as after the TPM was cleared), so `boot` may be lower
+   * than any it counted before.
+   */
+  | { ok: true; facts: PlatformFacts; boot?: number; restarted?: boolean }
+  | { ok: false; reason?: AttestRefusalDetail };
 
 /** Judges a machine's attestation evidence. Keylime, Swiff's own, or the insecure dev stub. */
 export type AttestationVerifier = {
@@ -205,7 +212,7 @@ function platformFacts(value: unknown): PlatformFacts | null {
 
 /**
  * The development stub for the machines in `machines`: evidence
- * `{ machineKey, facts: PlatformFacts, resetCount? }` passes when `machineKey`
+ * `{ machineKey, facts: PlatformFacts, resetCount?, countersRestarted? }` passes when `machineKey`
  * is that machine's own key, and its facts and boot count are believed. A real verifier proves who is
  * asking with the TPM's endorsement key registered for the machine; the stub
  * has no TPM, so the machine key stands in for that proof, and only its holder
@@ -221,9 +228,12 @@ export function insecureDevVerifier(machines: Map<string, Buffer>): AttestationV
       if (!verifyMachineKey(machines, room, claim.machineKey)) return { ok: false };
       const facts = platformFacts(claim.facts);
       if (!facts) return { ok: false };
-      const boot = (claim as { resetCount?: unknown }).resetCount;
+      const { resetCount: boot, countersRestarted } = claim as {
+        resetCount?: unknown;
+        countersRestarted?: unknown;
+      };
       return Number.isSafeInteger(boot) && (boot as number) >= 0
-        ? { ok: true, facts, boot: boot as number }
+        ? { ok: true, facts, boot: boot as number, restarted: countersRestarted === true }
         : { ok: true, facts };
     },
   };
@@ -417,7 +427,7 @@ export function createAttestation({
   attestedOnly?: boolean;
   floor?: HardwareFloor;
   ttlSeconds?: number;
-  onAttested?: (room: string, boot: number | null, now: number) => Promise<void>;
+  onAttested?: (room: string, boot: number | null, now: number, restarted: boolean) => Promise<void>;
 }): Attestation {
   /** Per machine, challenge id being judged or spent → when it expires (Unix ms). */
   const spent = new Map<string, Map<string, number>>();
@@ -519,7 +529,7 @@ export function createAttestation({
         return release(refuse(403, { error: "attestation-refused", reason: "below-hardware-floor" }));
       const boot = verdict.boot ?? null;
       try {
-        await onAttested?.(room, boot, now);
+        await onAttested?.(room, boot, now, verdict.restarted ?? false);
       } catch (error) {
         return release(failed(error));
       }

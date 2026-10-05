@@ -409,7 +409,12 @@ between (the owner's Windows, a live USB) and had the disk, so it may have been 
 share is withheld from then on (`409 continuity-gap`), through restarts and any number of
 attestations, and only a `PUT` opens rental mode again, on a freshly formatted partition. A
 rental-mode boot that attested but never asked for the share counts as a boot, so an
-interrupted boot costs no state. Returning to Swiff OS after the owner used Windows is such a
+interrupted boot costs no state. The decision and the record of the boot are one database
+statement, and the latest boot never goes back: an attestation of an earlier boot recorded late
+(by another server process) changes nothing, and its certificate is stale. Only a TPM whose
+counts started again (its EK registered again, as after the TPM was cleared) may count lower,
+and that is a gap. A new share is written only while the boot it was asked for is still the
+latest. Returning to Swiff OS after the owner used Windows is such a
 gap: the state partition is formatted anew, and the games drive fully verified again.
 
 **`swiff-hostd`, in order.** Attest. `POST` state-key. On `200`, open the partition with U XOR
