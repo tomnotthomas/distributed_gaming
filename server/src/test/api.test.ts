@@ -1392,6 +1392,14 @@ describe("the real server", () => {
     await database.close();
   });
 
+  it("lets no browser reuse a catalogue answer, since it follows the verdicts", async () => {
+    // No appids: answered without asking Steam.
+    const { status, body, headers } = await call("GET", "/api/games/media?appids=");
+    assert.equal(status, 200);
+    assert.deepEqual(body, { games: [] });
+    assert.equal(headers.get("cache-control"), "no-store");
+  });
+
   it("hands out a ticket that opens the matched room", async () => {
     await call("PUT", "/api/machines/pc-2/availability", { available: true, ...REPORT }, MACHINE_KEY);
     const { body } = await renter("POST", "/api/bookings", { gameId: 730, minutes: 30 });

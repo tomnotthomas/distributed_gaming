@@ -660,8 +660,9 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
     return true;
   }
   const body = JSON.stringify({ games: withAccounts(listed, playability), ...extra });
-  // Browsers may reuse it for a few minutes; the server's own cache does the rest.
-  res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" });
+  // Never reused by a browser: it follows the verdicts, which may change at any
+  // check. The server's own cache spares Steam.
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(body);
   return true;
 }
