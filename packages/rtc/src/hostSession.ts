@@ -4,6 +4,7 @@
 //
 //   register ──► peer-joined ──► addTrack ──► tune encoder ──► input channels ──► offer ──► answer
 //   launch-game (the renter's first frame) ──► launchGame(appid) ──► game-started
+//   peer-left { grace } ──► held: the session, its key and the game stay; peer-joined ──► offer again
 //
 // With `serveClaims`, it also stands in for the PC service of
 // docs/system-design/session-keys.md: on `session-claimed` it starts that
@@ -72,6 +73,15 @@ export type HostSessionOptions = IceConfig & {
   stream: MediaStream;
   capture?: CaptureSettings;
   onPeerHere: (here: boolean) => void;
+  /**
+   * The renter left the room. `grace` (seconds, from the server's peer-left)
+   * says they dropped mid-session and have that long to come back with the
+   * same seat: the session is held, so keep the game running and its session
+   * key registered; their held input is already let go with the connection.
+   * Null when they are not coming back, or a server sends no grace. Either
+   * way the session ends only when the platform ends it.
+   */
+  onPeerLeft?: (grace: number | null) => void;
   onPeerConnection: (pc: RTCPeerConnection | null) => void;
   /** The server refused the machine key or host certificate. Final: the session does not retry. */
   onDenied?: () => void;
@@ -399,8 +409,12 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         if (msg.candidate) inbox?.add(msg.candidate);
         break;
       case "peer-left":
+        // Closing the connection lets go of any input the renter held. A
+        // renter with grace may come back: their session, its key and the
+        // game stay as they are, and their next peer-joined gets a new offer.
         opts.onPeerHere(false);
         teardown();
+        opts.onPeerLeft?.(typeof msg.grace === "number" && msg.grace > 0 ? msg.grace : null);
         break;
     }
   };

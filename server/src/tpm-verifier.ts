@@ -587,6 +587,7 @@ export function tpmVerifier({
         return {
           ok: true,
           boot: resetCount,
+          restarted: last === null,
           facts: {
             uefi: boot.uefi,
             secureBoot: trusted,

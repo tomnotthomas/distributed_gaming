@@ -295,6 +295,7 @@ export function verifyHostCert(secret: string, token: unknown, now = Date.now())
   if (typeof cert.tier !== "string" || !ATTESTED_TIERS.includes(cert.tier)) return null;
   if (typeof cert.id !== "string" || !cert.id) return null;
   if (typeof cert.exp !== "number" || cert.exp * 1000 <= now) return null;
+  /** A non-negative whole number, or null. */
   const count = (value: unknown) =>
     Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : null;
   return {

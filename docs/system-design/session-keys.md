@@ -334,10 +334,10 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
 Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
 replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.
 
-**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts }`. The
-machine's own key stands in for the proof of who is asking, which the TPM verifier gets from the
-machine's registered EK, so only its holder earns a certificate. The facts are believed as
-claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
+**`insecure-dev`** takes evidence of the form `{ machineKey, facts: PlatformFacts, resetCount?,
+countersRestarted? }`. The machine's own key stands in for the proof of who is asking, which the
+TPM verifier gets from the machine's registered EK, so only its holder earns a certificate. The
+facts, and the boot count for the state key, are believed as claimed. It is for VMs and tests, and the server warns at startup whenever it is set.
 
 **Hardware floor (D3, open, provisional).** `HARDWARE_FLOOR` in `attestation.ts` is the one
 setting. It requires UEFI, Secure Boot, a TPM 2.0 with an EK certificate and an IOMMU. A
@@ -409,7 +409,12 @@ between (the owner's Windows, a live USB) and had the disk, so it may have been 
 share is withheld from then on (`409 continuity-gap`), through restarts and any number of
 attestations, and only a `PUT` opens rental mode again, on a freshly formatted partition. A
 rental-mode boot that attested but never asked for the share counts as a boot, so an
-interrupted boot costs no state. Returning to Swiff OS after the owner used Windows is such a
+interrupted boot costs no state. The decision and the record of the boot are one database
+statement, and the latest boot never goes back: an attestation of an earlier boot recorded late
+(by another server process) changes nothing, and its certificate is stale. Only a TPM whose
+counts started again (its EK registered again, as after the TPM was cleared) may count lower,
+and that is a gap. A new share is written only while the boot it was asked for is still the
+latest. Returning to Swiff OS after the owner used Windows is such a
 gap: the state partition is formatted anew, and the games drive fully verified again.
 
 **`swiff-hostd`, in order.** Attest. `POST` state-key. On `200`, open the partition with U XOR
@@ -423,6 +428,12 @@ backoff.
 destroys the machine's share at once, so its partition never opens again, and refuses it any
 until `npm run state-key -- reinstate <machine-id>`, after which it may `PUT` a new one.
 Taking the machine out of `MACHINE_KEYS` also refuses it (`401 bad-host-cert`).
+A revocation takes effect at the database write: every call that reads the machine's row after
+it is refused, and no write the server makes afterwards brings the share back. A `POST` that
+had already read the row when the revocation landed may still answer with the share it read,
+exactly as if it had come a moment earlier; no lock could recall a share already sent, so a
+machine suspected of having its share is also taken out of `MACHINE_KEYS` and its partition
+treated as compromised.
 
 **Secrets.** `STATE_KEY_SECRET` (at least 32 characters, not `ROOM_SECRET`; for example
 `openssl rand -base64 48`) derives the AES-256-GCM key each share is sealed with, bound to its

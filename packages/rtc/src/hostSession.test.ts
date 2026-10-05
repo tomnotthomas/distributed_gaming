@@ -343,6 +343,54 @@ describe("startHostSession", () => {
     session.stop();
   });
 
+  it("holds a session whose renter dropped with grace, and offers again when they come back", async () => {
+    const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
+    const { stream, offered } = fakePeer();
+    const left: (number | null)[] = [];
+    const here: boolean[] = [];
+    const connections: (RTCPeerConnection | null)[] = [];
+    const { session, socket, claimOver } = start(true, {
+      stream,
+      onPeerLeft: (grace) => left.push(grace),
+      onPeerHere: (h) => here.push(h),
+      onPeerConnection: (pc) => connections.push(pc),
+    });
+    socket.deliver(CLAIM);
+    await settle();
+    const streamer = FakeSocket.instances[1]!;
+    streamer.accept();
+    streamer.deliver({ type: "registered", hostId: "pc-1" });
+    streamer.deliver({ type: "peer-joined" });
+    await settle();
+    expect(offered).toHaveBeenCalledTimes(1);
+
+    streamer.deliver({ type: "peer-left", grace: 120 });
+    expect(left).toEqual([120]);
+    expect(here.at(-1)).toBe(false);
+    expect(connections.at(-1)).toBeNull(); // the connection, and the input it carried, let go
+    // Held: no session end, no new register, the session key's socket stays.
+    await settleRetries();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(claimOver).not.toHaveBeenCalled();
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(streamer.closeCalls).toBe(0);
+
+    streamer.deliver({ type: "peer-joined" });
+    await settle();
+    expect(offered).toHaveBeenCalledTimes(2);
+    expect(here.at(-1)).toBe(true);
+    session.stop();
+  });
+
+  it("reports a renter who left with no grace as not coming back", () => {
+    const left: (number | null)[] = [];
+    const { session, socket } = start(false, { onPeerLeft: (grace) => left.push(grace) });
+    socket.deliver({ type: "peer-left" });
+    socket.deliver({ type: "peer-left", grace: 0 });
+    expect(left).toEqual([null, null]);
+    session.stop();
+  });
+
   it("starts the claimed session by its id and registers again with its session key", async () => {
     const fetch = fakeFetch(201, { sessionKey: "test-session-key" });
     const { session, socket, claims } = start(true);

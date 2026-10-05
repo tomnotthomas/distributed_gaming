@@ -1536,6 +1536,40 @@ button.band-tab:hover {
   border-color: var(--on-paper-3);
 }
 
+/* — coming back (Reconnect.tsx): Ignition's layout, one number on the paper — */
+.comeback {
+  /* Over a session whose HUD may have hidden the pointer. */
+  cursor: auto;
+}
+.comeback:focus {
+  outline: none;
+}
+.cb-paper {
+  gap: 10px;
+}
+.cb-time {
+  font-size: clamp(64px, 6.2vw, 104px);
+  line-height: 1;
+}
+/* The reading never runs under the way-out pill at the top right. */
+.cb-paper > .ig-step,
+.cb-paper > .cb-time {
+  padding-right: 220px;
+}
+.cb-line {
+  max-width: 34ch;
+  margin: 10px 0 0;
+  color: var(--on-paper-2);
+}
+.cb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 28px;
+  color: var(--on-paper);
+}
+
 /* — live session (the HUD keeps its own look) — */
 .session {
   position: fixed;
@@ -2371,6 +2405,20 @@ button.band-tab:hover {
   }
   .ig-pct {
     font-size: 48px;
+  }
+  .cb-paper {
+    min-height: 0;
+  }
+  .cb-paper > .ig-step,
+  .cb-paper > .cb-time {
+    padding-right: 0;
+  }
+  .cb-paper > .ig-step {
+    /* Clear of the way-out pill, which sits beside it here. */
+    min-height: 56px;
+  }
+  .cb-time {
+    font-size: 64px;
   }
   .ig-cancel {
     top: 30px;

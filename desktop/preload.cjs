@@ -8,7 +8,7 @@
 //   installSteam                      download Valve's installer and open it for the owner
 //   onGamesChanged                    the installed games, again, whenever they change
 //   readRental                        what rental mode needs from this PC, and whether it is installed
-//   planRental                        the steps that would install rental mode or switch to it, as a preview
+//   planRental                        the steps that would install rental mode, confirm its key again or switch to it, as a preview
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back

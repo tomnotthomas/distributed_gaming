@@ -1,0 +1,90 @@
+// Reconnect grace: a renter whose socket drops in the middle of a session gets
+// RECONNECT_GRACE_S to come back before the session ends.
+//
+//   renter socket drops ──► host: peer-left { grace: 120 } ──► timer
+//        │                                                       │
+//   join, same ticket ──► timer cancelled, host: peer-joined     │
+//                                                     120 s ──► session ends as grace_expired
+//
+// A session that ends as grace_expired is priced only up to the drop, never
+// through the grace, and counts neither for nor against the machine. One the
+// renter ends during the grace is priced only up to the drop as well.
+//
+// The PC keeps the game running meanwhile and lets go of whatever the renter
+// was holding. The renter's page comes back with POST /api/bookings/:id/rejoin,
+// which hands out the same seat (the claim's ticket id) again, so its join takes
+// the seat back rather than being refused as somebody else. Only the renter's
+// explicit End (POST /api/bookings/:id/end, or /api/sessions/:id/leave) and the
+// owner taking the machine back skip the grace: both end the session at once,
+// which cancels the timer here.
+//
+// The timers live in memory. A server restart forgets them; the renter's
+// ticket still runs out at the booked end, as before this existed.
+
+/** How long a renter who dropped has to come back, in seconds. Sent to the host with peer-left. */
+export const RECONNECT_GRACE_S = 120;
+
+/**
+ * The grace in ms, from SWIFF_RECONNECT_GRACE_MS: a positive value shortens it
+ * (for tests), never past RECONNECT_GRACE_S; anything else leaves it as is.
+ */
+export function graceMsFromEnv(value: string | undefined): number {
+  const limit = RECONNECT_GRACE_S * 1000;
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, limit) : limit;
+}
+
+export type RenterGrace = {
+  /** The renter holding `ticketId` dropped out of `hostId`'s room: start its clock, replacing any other. */
+  start(hostId: string, ticketId: string): void;
+  /**
+   * Stop `hostId`'s clock: when the renter with `ticketId` came back, or, with
+   * no ticket, whenever its session ended. True when a clock was stopped.
+   */
+  cancel(hostId: string, ticketId?: string): boolean;
+  /** When the renter with `ticketId` dropped out of `hostId`'s room (Unix ms), while its clock runs; else null. */
+  droppedAt(hostId: string, ticketId: string): number | null;
+  /** When `hostId`'s clock runs out (Unix ms), or null when none runs. */
+  until(hostId: string): number | null;
+};
+
+export type RenterGraceOptions = {
+  graceMs: number;
+  /** The renter with `ticketId`, who dropped out of `hostId`'s room at `droppedAt` (Unix ms), did not come back in time. */
+  onExpire: (hostId: string, ticketId: string, droppedAt: number) => void;
+};
+
+export function createRenterGrace({ graceMs, onExpire }: RenterGraceOptions): RenterGrace {
+  const clocks = new Map<
+    string,
+    { ticketId: string; droppedAt: number; until: number; timer: NodeJS.Timeout }
+  >();
+
+  const cancel = (hostId: string, ticketId?: string) => {
+    const clock = clocks.get(hostId);
+    if (!clock || (ticketId !== undefined && clock.ticketId !== ticketId)) return false;
+    clearTimeout(clock.timer);
+    clocks.delete(hostId);
+    return true;
+  };
+
+  return {
+    start(hostId, ticketId) {
+      cancel(hostId);
+      const droppedAt = Date.now();
+      const timer = setTimeout(() => {
+        if (clocks.get(hostId)?.timer !== timer) return;
+        clocks.delete(hostId);
+        onExpire(hostId, ticketId, droppedAt);
+      }, graceMs);
+      timer.unref();
+      clocks.set(hostId, { ticketId, droppedAt, until: droppedAt + graceMs, timer });
+    },
+    cancel,
+    droppedAt(hostId, ticketId) {
+      const clock = clocks.get(hostId);
+      return clock?.ticketId === ticketId ? clock.droppedAt : null;
+    },
+    until: (hostId) => clocks.get(hostId)?.until ?? null,
+  };
+}

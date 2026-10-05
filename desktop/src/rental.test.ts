@@ -4,6 +4,7 @@
 // real host PC: a Ryzen laptop with a 1 TB NVMe disk, C: and a recovery
 // partition after it.
 
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
 import {
@@ -15,6 +16,11 @@ import {
   imageLayout,
   installPlan,
   libraryDrives,
+  MOK_CERT,
+  mokCode,
+  mokPlan,
+  mokRequest,
+  mokSteps,
   readRental,
   rentalOf,
   SWIFF_OS,
@@ -24,7 +30,7 @@ import {
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
-import { firmwareChecks, isReady, pcChecks, rentalStatus } from "./rental";
+import { codeGroups, firmwareChecks, isReady, pcChecks, rentalStatus } from "./rental";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -255,6 +261,8 @@ describe("the install plan", () => {
       "write",
       "boot-entry",
       "games",
+      "mok",
+      "mok-restart",
     ]);
     for (const step of plan.steps) {
       expect(step.ops.length).toBeGreaterThan(0);
@@ -325,6 +333,8 @@ describe("the install plan", () => {
       "partitions",
       "write",
       "boot-entry",
+      "mok",
+      "mok-restart",
     ]);
   });
 
@@ -342,7 +352,7 @@ describe("the install plan", () => {
     const plan = installPlan(
       pc((raw) => ({ ...raw, volumes: [...raw.volumes, d, e] }), [{ letter: "E", games: 9 }]),
     );
-    expect(plan.steps.map((s) => s.id).slice(-2)).toEqual(["games-clear", "games"]);
+    expect(plan.steps.map((s) => s.id).slice(-4, -2)).toEqual(["games-clear", "games"]);
     const clear = plan.steps.find((s) => s.id === "games-clear")!;
     expect(clear.ops).toEqual([{ op: "label", letter: "D", label: "" }]);
     expect(clear.commands).toEqual(["Set-Volume -DriveLetter D -NewFileSystemLabel ''"]);
@@ -398,6 +408,64 @@ describe("the install plan", () => {
     const add = installPlan(pc(), { layout }).steps.find((s) => s.id === "partitions")!.ops[0]!;
     expect(add.op === "gpt-add" && add.partitions[1]!.id).toBe("00000000-0000-4000-8000-000000000001");
     expect(() => imageLayout({ ...gpt, entries: gpt.entries.slice(1) })).toThrow(/unexpected/);
+  });
+});
+
+describe("Swiff's key, enrolled once as a MOK", () => {
+  it("queues the key with a one-time code, then restarts once into Swiff OS for the owner to confirm it", () => {
+    const plan = installPlan(pc(), { code: "48217730" });
+    expect(plan.mok).toEqual({ code: "48217730" });
+    const [mok, restart] = plan.steps.slice(-2);
+    expect(mok!.ops).toEqual([{ op: "mok-import", cert: MOK_CERT, code: "48217730" }]);
+    expect(mok!.commands.join("\n")).toMatch(/mokutil --import swiffos-key\.cer --simple-hash/);
+    expect(mok!.commands.join("\n")).toMatch(/MokNew-605dab50-e046-4300-abb6-3dd810dd8b23/);
+    expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the one-time code/);
+    expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("48217730");
+    expect(restart!.ops).toEqual([{ op: "boot-next", entry: "swiff" }, { op: "restart" }]);
+    expect(restart!.commands).toContain("bcdedit /set '{fwbootmgr}' bootsequence $entry");
+  });
+
+  it("confirms the key again after a missed screen: the same request with a new code, and one restart", () => {
+    const plan = mokPlan("11112222");
+    expect(plan).toMatchObject({ kind: "mok", dryRun: true, mok: { code: "11112222" } });
+    expect(plan.steps).toEqual(mokSteps("11112222"));
+    expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "mok-import", cert: MOK_CERT, code: "11112222" },
+      { op: "boot-next", entry: "swiff" },
+      { op: "restart" },
+    ]);
+    expect(mokPlan().mok!.code).toMatch(/^\d{8}$/);
+  });
+
+  it("makes a new 8-digit code for each plan", () => {
+    expect(installPlan(pc()).mok!.code).toMatch(/^\d{8}$/);
+    let n = 0;
+    expect(mokCode(() => n++ % 10)).toBe("01234567");
+  });
+
+  it("writes MokNew as one X.509 signature list owned by shim, and MokAuth as mokutil --simple-hash does", () => {
+    const cert = Buffer.from("308201", "hex");
+    const { guid, attributes, MokNew, MokAuth } = mokRequest(cert, "1234");
+    expect(guid).toBe("605dab50-e046-4300-abb6-3dd810dd8b23");
+    // Non-volatile, boot service and runtime access.
+    expect(attributes).toBe(7);
+    expect(MokNew.toString("hex")).toBe(
+      [
+        "a159c0a5e494a74a87b5ab155c2bf072", // EFI_CERT_X509_GUID
+        "2f000000", // SignatureListSize: 28 + 16 + 3
+        "00000000", // SignatureHeaderSize
+        "13000000", // SignatureSize: 16 + 3
+        "50ab5d6046e00043abb63dd810dd8b23", // SignatureOwner: SHIM_LOCK_GUID
+        "308201",
+      ].join(""),
+    );
+    // MokManager's compute_pw_hash: SHA-256 over MokNew, then the code as CHAR16s.
+    const want = createHash("sha256").update(MokNew).update(Buffer.from("3100320033003400", "hex")).digest();
+    expect(MokAuth.equals(want)).toBe(true);
+  });
+
+  it("shows the code in two halves of four", () => {
+    expect(codeGroups("48217730")).toBe("4821 7730");
   });
 });
 

@@ -286,6 +286,24 @@ describe("startRenterSession", () => {
     expect(types().filter((t) => t === "first-frame")).toHaveLength(1);
   });
 
+  it("reports the connection dropping, and coming back by itself", async () => {
+    const { events } = start();
+    const pc = await answered();
+
+    pc.setState("connected");
+    pc.setState("disconnected");
+    pc.setState("connected");
+    pc.setState("failed");
+
+    const changes = events.filter((e) => e.type === "connected" || e.type === "disconnected");
+    expect(changes).toEqual([
+      { type: "connected" },
+      { type: "disconnected", failed: false },
+      { type: "connected" },
+      { type: "disconnected", failed: true },
+    ]);
+  });
+
   it("reports the PC saying the game runs", async () => {
     const { types } = start();
     await answered();

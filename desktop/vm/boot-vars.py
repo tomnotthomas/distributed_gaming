@@ -14,17 +14,23 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
       (bcdedit /copy {bootmgr}, /set device and path, displayorder /addlast)
   boot-vars.py first VARS TITLE      move the entry to the front of BootOrder (displayorder /addfirst)
   boot-vars.py next VARS TITLE       BootNext (bootsequence)
-  boot-vars.py show VARS             print BootOrder, BootNext and the entries
+  boot-vars.py mok VARS NEW AUTH     MokNew and MokAuth from the files NEW and AUTH, as
+                                     mokutil --import queues Swiff's key for MokManager
+  boot-vars.py cert DB_AUTH OUT      the certificate in DB_AUTH, as DER, to OUT
+  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request and MokList
 """
 
 import struct
 import sys
 import tempfile
 
-from virt.firmware.efi import devpath, guids, siglist, ucs16
+from virt.firmware.efi import devpath, efivar, guids, siglist, ucs16
 from virt.firmware.varstore import autodetect
 
 WINDOWS_PATH = "\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+
+# Non-volatile, boot service and runtime access: what mokutil sets on MokNew and MokAuth.
+NV_BS_RT = 7
 
 
 def load(path):
@@ -122,6 +128,16 @@ def main(cmd, vars_path, *args):
         store, varlist = load(vars_path)
         varlist.set_boot_next(index_of(varlist, title))
         save(store, varlist, vars_path)
+    elif cmd == "mok":
+        new, auth = args
+        store, varlist = load(vars_path)
+        for name, path in (("MokNew", new), ("MokAuth", auth)):
+            varlist[name] = efivar.EfiVar(name, guid=guids.Shim, attr=NV_BS_RT, data=open(path, "rb").read())
+        save(store, varlist, vars_path)
+    elif cmd == "cert":
+        (out,) = args
+        with open(out, "wb") as f:
+            f.write(cert_from_auth(vars_path))
     elif cmd == "show":
         _, varlist = load(vars_path)
         titles = entries(varlist)
@@ -132,6 +148,13 @@ def main(cmd, vars_path, *args):
             print(f"BootNext: Boot{index:04X} {titles.get(index, '?')!r}")
         else:
             print("BootNext: none")
+        new, auth = varlist.get("MokNew"), varlist.get("MokAuth")
+        if new or auth:
+            print(f"MOK request: MokNew {len(new.data) if new else 0} bytes, MokAuth {len(auth.data) if auth else 0} bytes")
+        else:
+            print("MOK request: none")
+        mok = varlist.get("MokList")
+        print(f"MokList: {mok.data.hex() if mok else 'none'}")
     else:
         sys.exit(__doc__)
 

@@ -1,6 +1,8 @@
 // Rental mode: what Swiff OS needs from this PC, what the owner changes in the
-// BIOS (Swiff cannot), and the steps that install it and switch to it. The
-// steps show as a preview: nothing on the PC is changed from this screen yet.
+// BIOS (Swiff cannot), and the steps that install it and switch to it, with
+// the one confirmation at the PC the install needs: Swiff's key, enrolled as a
+// MOK with a one-time code. The steps show as a preview: nothing on the PC is
+// changed from this screen yet.
 
 import { useEffect, useRef, useState } from "react";
 import type { RentalPlan, RentalRead } from "../../rental.cjs";
@@ -8,8 +10,10 @@ import {
   BIOS_STEPS,
   choiceGone,
   chosenTarget,
+  codeGroups,
   firmwareChecks,
   gb,
+  MOK_SCREENS,
   pcChecks,
   rentalStatus,
   targetLine,
@@ -17,7 +21,7 @@ import {
 } from "../rental";
 import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
-import { Kv, Plate, Zone } from "../ui/parts";
+import { Figure, Kv, Plate, Zone } from "../ui/parts";
 import { Notice } from "../ui/Notice";
 import { Pill } from "../ui/Pill";
 import type { ScreenProps } from "./types";
@@ -37,6 +41,7 @@ function CheckRow({ check }: { check: RentalCheck }) {
 
 const PREVIEW_TITLE: Record<RentalPlan["kind"], string> = {
   install: "Installing rental mode",
+  mok: "Confirming Swiff's key again",
   start: "Going live in rental mode",
   stop: "Back to Windows",
 };
@@ -80,7 +85,67 @@ function Preview({ plan, onClose }: { plan: RentalPlan; onClose: () => void }) {
           update.
         </Notice>
       </Zone>
+      {plan.mok ? <MokGuide code={plan.mok.code} /> : null}
     </div>
+  );
+}
+
+/**
+ * The install's one confirmation at the PC: after its restart, shim's blue
+ * MokManager screen asks the owner to enrol Swiff's key with the code shown
+ * here. The code stays on this screen, large, for reading off at the PC.
+ */
+function MokGuide({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  // "Copied" stands for a moment, then the link offers to copy again.
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const copy = () =>
+    void navigator.clipboard?.writeText(code).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
+  return (
+    <Zone
+      title="After the restart: confirm Swiff's key"
+      action={
+        navigator.clipboard ? (
+          <button type="button" className="lnk" onClick={copy} aria-live="polite">
+            {copied ? "Copied" : "Copy the code"}
+          </button>
+        ) : null
+      }
+    >
+      <div className="rmok">
+        <div className="rcode">
+          <Figure unit="one-time code">
+            <span className="rcv">{codeGroups(code)}</span>
+          </Figure>
+          <p className="soft">
+            The PC restarts once to a blue screen. Confirm Swiff's key there, at the PC's own keyboard, so
+            Swiff OS can start under Secure Boot. Type the code with the number keys, without the space.
+          </p>
+        </div>
+        <ol className="ladder rplan rmoks">
+          {MOK_SCREENS.map((s, i) => (
+            <li key={i} className="next">
+              <span className="pd" />
+              <b>{s.act}</b>
+              <span className="mono">{String(i + 1).padStart(2, "0")}</span>
+              <small className="mono">{s.screen}</small>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <Notice icon="refresh">
+        Missed the blue screen? It waits 10 seconds, then the PC shows a security error and falls back to
+        Windows, with the key not enrolled. Come back to Rental mode and choose Confirm the security key
+        again: the PC restarts once more, with a new code.
+      </Notice>
+    </Zone>
   );
 }
 
@@ -224,6 +289,15 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
                   Preview back to Windows
                 </button>
               </div>
+              {/* Whether the key is enrolled is not read yet (MokListRT): the owner says they missed it. */}
+              <p className="soft ragain">
+                Missed the blue screen after installing? Swiff OS cannot start until its key is confirmed.
+              </p>
+              <div className="acts">
+                <button type="button" className="lnk" onClick={() => actions.previewRental("mok")}>
+                  Confirm the security key again
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -233,7 +307,9 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
               <p className="soft">
                 {where
                   ? `Swiff OS takes ${targetLine(where, read.need)}, a fixed size. Windows and your files stay as they are.`
-                  : `Swiff OS needs ${gb(read.need)} of its own.`}
+                  : `Swiff OS needs ${gb(read.need)} of its own.`}{" "}
+                Then the PC restarts once, for you to confirm Swiff's key at its screen with a code shown
+                here.
               </p>
               <div className="acts">
                 <Pill

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Backdrop, Button, Dialog, StatusDot, Tag, TopBar } from "@swiff/ui";
 import type { RenterStats } from "@swiff/rtc";
+import { Reconnecting } from "./Reconnect";
 import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
@@ -107,6 +108,8 @@ export function Session({ swiff }: { swiff: Swiff }) {
 
   const fallback = machines.find((m) => !m.busy && m.id !== picked?.id);
   const real = !demo;
+  // A session come back to may be on a machine the open game's list no longer shows.
+  const host = picked?.name ?? swiff.booking?.machine?.name ?? "your machine";
   // The demo has no connection to read, so it shows what its machine would.
   const readings = real
     ? hudReadings(play?.stats ?? null)
@@ -156,7 +159,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
           <>
             <StatusDot />
             <strong className="hud-title">{game.title}</strong>
-            <span className="hud-on">on {picked?.name ?? "your machine"}</span>
+            <span className="hud-on">on {host}</span>
           </>
         }
         end={
@@ -185,6 +188,8 @@ export function Session({ swiff }: { swiff: Swiff }) {
           End session
         </Button>
       </div>
+
+      {real ? <Reconnecting swiff={swiff} host={host} /> : null}
 
       {swiff.ownerDropped && fallback ? (
         <Dialog

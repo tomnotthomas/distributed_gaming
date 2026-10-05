@@ -8,7 +8,9 @@
 //                Fast Startup, and whether Swiff OS is installed.
 //   installPlan  the exact steps that install Swiff OS next to Windows: shrink
 //                a drive (or use free space), add Swiff OS's partitions, write
-//                it, add its UEFI boot entry, name the games drive.
+//                it, add its UEFI boot entry, name the games drive, then queue
+//                Swiff's key for the owner to confirm once at the PC (MOK) and
+//                restart into that confirmation.
 //   switchPlan   the exact steps that start sharing (Swiff OS first in the
 //                boot order, BootNext, restart) and stop it (Windows first).
 //
@@ -17,6 +19,7 @@
 // stand for. Nothing in this app runs them on a PC yet.
 
 const { execFile } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -71,8 +74,68 @@ const GAMES_LABEL = "SWIFFGAMES";
 /** Where the install leaves the firmware boot entry's id, for the switch to find. */
 const BOOT_ENTRY_FILE = String.raw`$env:ProgramData\Swiff\boot-entry.txt`;
 
-/** The path systemd-boot (later, Swiff's shim) has on Swiff OS's own ESP. */
+/**
+ * What the firmware starts on Swiff OS's own ESP. On a PC that is a Linux
+ * distribution's shim, which Microsoft's 3rd-party UEFI CA signs, and which
+ * starts Swiff's systemd-boot once Swiff's key is enrolled as a MOK; in the VM
+ * test, systemd-boot itself.
+ */
 const BOOT_PATH = String.raw`\EFI\BOOT\BOOTX64.EFI`;
+
+// --- Swiff's key, enrolled once as a MOK ----------------------------------------------
+//
+// shim boots only what Microsoft's db or its MOK list trusts, and Swiff's key
+// is in neither until the owner confirms it once, at the PC. Windows queues the
+// request as `mokutil --import --simple-hash` would on Linux: Swiff's
+// certificate in MokNew, and in MokAuth the SHA-256 of MokNew followed by a
+// one-time code in UTF-16. On the next start shim opens MokManager, a blue
+// screen where the owner chooses Enroll MOK and types the code; MokManager
+// clears the request whether or not they did, so a missed screen is queued
+// again with a new code.
+
+/** Swiff's Secure Boot certificate (DER), shipped beside the image: the key that signs systemd-boot and the UKI. */
+const MOK_CERT = "swiffos-key.cer";
+
+/** shim's variables' GUID (SHIM_LOCK_GUID). */
+const SHIM_LOCK = "605dab50-e046-4300-abb6-3dd810dd8b23";
+
+/** EFI_CERT_X509_GUID: a signature list entry that holds an X.509 certificate. */
+const CERT_X509 = "a5c059a1-94e4-4aa7-87b5-ab155c2bf072";
+
+/** Digits only: the keys least likely to move between keyboard layouts at the firmware's screen. */
+const MOK_CODE_DIGITS = 8;
+
+/** A one-time code for the confirmation: 8 random digits. */
+const mokCode = (random = crypto.randomInt) =>
+  Array.from({ length: MOK_CODE_DIGITS }, () => String(random(10))).join("");
+
+/** A GUID's 16 bytes as UEFI stores them: the first three fields little-endian. */
+function guidBytes(guid) {
+  const hex = guid.replace(/-/g, "");
+  const b = Buffer.from(hex, "hex");
+  return Buffer.concat([
+    b.subarray(0, 4).reverse(),
+    b.subarray(4, 6).reverse(),
+    b.subarray(6, 8).reverse(),
+    b.subarray(8),
+  ]);
+}
+
+/**
+ * The two variables that queue `cert` (DER) for enrolment with `code`, as
+ * `mokutil --import --simple-hash` writes them: MokNew, an EFI_SIGNATURE_LIST
+ * of the one certificate owned by shim, and MokAuth, SHA-256 of MokNew then
+ * the code as UTF-16LE. Both non-volatile, with boot and runtime access.
+ */
+function mokRequest(cert, code) {
+  const head = Buffer.alloc(12);
+  head.writeUInt32LE(28 + 16 + cert.length, 0); // SignatureListSize
+  head.writeUInt32LE(0, 4); // SignatureHeaderSize
+  head.writeUInt32LE(16 + cert.length, 8); // SignatureSize: the owner, then the certificate
+  const mokNew = Buffer.concat([guidBytes(CERT_X509), head, guidBytes(SHIM_LOCK), cert]);
+  const mokAuth = crypto.createHash("sha256").update(mokNew).update(Buffer.from(code, "utf16le")).digest();
+  return { guid: SHIM_LOCK, attributes: 7, MokNew: mokNew, MokAuth: mokAuth };
+}
 
 const alignUp = (n, to) => Math.ceil(n / to) * to;
 const alignDown = (n, to) => Math.floor(n / to) * to;
@@ -393,7 +456,7 @@ function placed(layout, start) {
  * chose (an id from targetsOf). `layout` is imageLayout of the image being
  * installed; without it the ids and names show as the image's.
  */
-function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {}) {
+function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code = mokCode() } = {}) {
   const { facts, games } = rental;
   // A target the owner chose that is no longer there is refused, never swapped for another drive.
   const target = targetId ? rental.targets.find((t) => t.id === targetId) : rental.targets[0];
@@ -514,7 +577,51 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT } = {})
       commands: [`Set-Volume -DriveLetter ${games.letter} -NewFileSystemLabel ${q(GAMES_LABEL)}`],
     });
   }
-  return { kind: "install", dryRun: true, target, steps };
+  steps.push(...mokSteps(code));
+  return { kind: "install", dryRun: true, target, steps, mok: { code } };
+}
+
+/** The firmware variable's PowerShell name: MokNew-605dab50-…. */
+const mokVar = (name) => `${name}-${SHIM_LOCK}`;
+
+/**
+ * Queue Swiff's key with a one-time code, then restart once into Swiff OS,
+ * where shim shows the confirmation. After it the PC starts Windows again,
+ * still first in the boot order. Also what the owner runs again after missing
+ * the screen, with a new code.
+ */
+function mokSteps(code) {
+  return [
+    {
+      id: "mok",
+      title: "Ask the PC to trust Swiff's key, with a one-time code",
+      ops: [{ op: "mok-import", cert: MOK_CERT, code }],
+      commands: [
+        `# Swiff Host's firmware-variable writer, as administrator: mokutil --import ${MOK_CERT} --simple-hash, from Windows`,
+        `#   ${mokVar("MokNew")}: ${MOK_CERT} as an EFI_SIGNATURE_LIST (X.509, owner shim), non-volatile, boot and runtime access`,
+        `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the one-time code in UTF-16LE, the same attributes`,
+      ],
+    },
+    {
+      id: "mok-restart",
+      title: "Restart once into Swiff OS, to confirm its key",
+      ops: [{ op: "boot-next", entry: "swiff" }, { op: "restart" }],
+      commands: [
+        `$entry = (Get-Content ${BOOT_ENTRY_FILE} -TotalCount 1).Trim()`,
+        "bcdedit /set '{fwbootmgr}' bootsequence $entry",
+        "shutdown /r /t 0",
+      ],
+    },
+  ];
+}
+
+/**
+ * Confirm Swiff's key again, once installed: after a missed blue screen, the
+ * same request with a new code. Whether the key is enrolled is not read yet:
+ * reading MokListRT for it is a follow-up for the install executor.
+ */
+function mokPlan(code = mokCode()) {
+  return { kind: "mok", dryRun: true, steps: mokSteps(code), mok: { code } };
 }
 
 /**
@@ -569,6 +676,8 @@ module.exports = {
   SWIFF_OS_BYTES,
   KEEP_FREE,
   GAMES_LABEL,
+  MOK_CERT,
+  SHIM_LOCK,
   SCRIPT,
   gpuVendor,
   bitlockerState,
@@ -582,6 +691,10 @@ module.exports = {
   readRental,
   imageLayout,
   splitFile,
+  mokCode,
+  mokRequest,
+  mokSteps,
+  mokPlan,
   installPlan,
   switchPlan,
 };

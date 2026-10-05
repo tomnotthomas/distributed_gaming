@@ -32,6 +32,9 @@ export function Host() {
   // browser's storage is not a place for a machine's credential.
   const [machineKey, setMachineKey] = useState("");
   const [peerHere, setPeerHere] = useState(false);
+  // How long the server holds the session of a renter who dropped (seconds),
+  // until they come back or the next one joins; null when nobody dropped.
+  const [graceS, setGraceS] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldInput | null>(null);
   const [claim, setClaim] = useState<SessionClaim | null>(null);
@@ -81,12 +84,21 @@ export function Host() {
       hostId: HOST_ID,
       machineKey: machineKey.trim(),
       stream,
-      onPeerHere: setPeerHere,
+      onPeerHere: (here) => {
+        setPeerHere(here);
+        if (here) setGraceS(null);
+      },
+      // A renter who dropped mid-session may come back: the session is held,
+      // and the shared screen (the game) keeps running meanwhile.
+      onPeerLeft: setGraceS,
       // Stands in for the PC service: a claimed session is started here and
       // served with its session key, then the page waits for the next claim.
       serveClaims: true,
       onSessionClaimed: setClaim,
-      onClaimOver: () => setClaim(null),
+      onClaimOver: () => {
+        setClaim(null);
+        setGraceS(null);
+      },
       // The screen being shared stands in for the game, so it is running at once.
       launchGame: () => {},
       onPeerConnection: (next) => {
@@ -140,7 +152,13 @@ export function Host() {
             Start sharing
           </Button>
         ) : (
-          <p className="muted">{peerHere ? "A renter is connected." : "Waiting for a renter…"}</p>
+          <p className="muted">
+            {peerHere
+              ? "A renter is connected."
+              : graceS !== null
+                ? `The renter dropped. Their session is held for ${graceS} s while they come back.`
+                : "Waiting for a renter…"}
+          </p>
         )}
       </div>
 
