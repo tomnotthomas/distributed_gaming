@@ -69,7 +69,7 @@ const start = (options: RenterSessionOptions): RenterSession => {
 const latest = () => sessions[sessions.length - 1]!;
 
 /** Start playing CLAIM with the fakes, recording every state and every start call. */
-function play(resume = false) {
+function play(resume = false, droppedAt?: number) {
   const states: PlayState[] = [];
   const fetch = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
   const onFirstFrame = vi.fn();
@@ -81,6 +81,7 @@ function play(resume = false) {
     start,
     fetch,
     resume,
+    droppedAt,
   });
   return { handle, states, fetch, onFirstFrame, step: () => handle.state().step };
 }
@@ -110,6 +111,23 @@ describe("reconnecting", () => {
     expect(sessions[0]!.ended).toBe(true);
     expect(latest().options).toMatchObject({ ticket: "t-1", forceRelay: false });
 
+    await vi.advanceTimersByTimeAsync(RECONNECT_EVERY_MS);
+    expect(sessions).toHaveLength(3);
+  });
+
+  it("lets a join the PC answered finish, and joins again only once it fails", async () => {
+    live();
+    latest().emit({ type: "disconnected", failed: false });
+    await vi.advanceTimersByTimeAsync(RECONNECT_WAIT_MS);
+    expect(sessions).toHaveLength(2);
+
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    await vi.advanceTimersByTimeAsync(RECONNECT_EVERY_MS * 2);
+    expect(sessions).toHaveLength(2);
+    expect(latest().ended).toBe(false);
+
+    latest().emit({ type: "disconnected", failed: true });
     await vi.advanceTimersByTimeAsync(RECONNECT_EVERY_MS);
     expect(sessions).toHaveLength(3);
   });
@@ -150,6 +168,7 @@ describe("reconnecting", () => {
 
   it("gives up reconnecting by itself after 15 s, and tries again when the renter asks", async () => {
     const { handle } = live();
+    const dropped = Date.now();
     latest().emit({ type: "disconnected", failed: false });
     await vi.advanceTimersByTimeAsync(RECONNECT_AUTO_MS);
     expect(handle.state()).toMatchObject({ gaveUp: true });
@@ -160,12 +179,13 @@ describe("reconnecting", () => {
 
     vi.setSystemTime(90_000);
     handle.retry();
-    expect(handle.state()).toMatchObject({ lostAt: 90_000, gaveUp: false });
+    // Reconnecting counts from the retry; the PC's hold still from the drop.
+    expect(handle.state()).toMatchObject({ lostAt: 90_000, droppedAt: dropped, gaveUp: false });
     expect(sessions).toHaveLength(joins + 1);
     latest().emit({ type: "first-frame" });
     expect(handle.state().lostAt).not.toBeNull();
     latest().emit({ type: "game-started" });
-    expect(handle.state().lostAt).toBeNull();
+    expect(handle.state()).toMatchObject({ lostAt: null, droppedAt: null });
   });
 
   it("stops reconnecting when the server refuses the ticket", async () => {
@@ -189,8 +209,14 @@ describe("reconnecting", () => {
 
   it("comes back to a session already playing with no Ignition, live once the game shows", async () => {
     vi.setSystemTime(10_000);
-    const { handle, fetch } = play(true);
-    expect(handle.state()).toMatchObject({ step: "live", lostAt: 10_000, gaveUp: false, started: true });
+    const { handle, fetch } = play(true, 4_000);
+    expect(handle.state()).toMatchObject({
+      step: "live",
+      lostAt: 10_000,
+      droppedAt: 4_000,
+      gaveUp: false,
+      started: true,
+    });
     expect(sessions).toHaveLength(1);
 
     latest().emit({ type: "peer-connection", pc: PC });

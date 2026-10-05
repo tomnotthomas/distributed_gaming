@@ -35,6 +35,7 @@ import {
   IGNITION_STEPS,
   ignitionLabels,
   ignitionProgress,
+  RECONNECT_GRACE_MS,
   startPlay,
   type Play,
   type PlayState,
@@ -545,7 +546,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   useEffect(() => stopFollowing, [stopFollowing]);
 
   // A play that comes back to a session already on screen before: no Ignition.
-  const resumeNext = useRef(false);
+  // When its connection dropped, if the PC said.
+  const resumeNext = useRef<{ droppedAt?: number } | null>(null);
 
   /**
    * Go back to the session the page left (screen A): its seat again, then
@@ -555,7 +557,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const reconnect = useCallback(() => {
     const current = away;
     if (!current || rejoining) return;
-    const { booking: was } = current;
+    const { booking: was, heldUntil } = current;
     setRejoining(true);
     track("session_rejoined", { game: was.gameId });
     resumeTicket(was.bookingId).then(
@@ -564,7 +566,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         setAway(null);
         if (!claimed) return;
         const resumed = was.status === "playing";
-        resumeNext.current = resumed;
+        resumeNext.current = resumed
+          ? { droppedAt: heldUntil === null ? undefined : heldUntil - RECONNECT_GRACE_MS }
+          : null;
+        // Its clock runs on from when the session started, not from now.
+        if (resumed && was.startedAt !== undefined) liveSince.current = was.startedAt;
         setBooking(was);
         setClaim(claimed);
         const claimedGame = gamesNow.current.find((g) => g.appid === was.gameId);
@@ -655,11 +661,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   useEffect(() => {
     if (demo || !claim || !video) return;
     const resume = resumeNext.current;
-    resumeNext.current = false;
+    resumeNext.current = null;
     const current = startPlay({
       claim,
       video,
-      resume,
+      resume: resume !== null,
+      droppedAt: resume?.droppedAt,
       onChange: setPlay,
       // The funnel counts a session from its first frame.
       onFirstFrame: () =>

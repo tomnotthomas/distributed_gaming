@@ -211,6 +211,8 @@ export type BookingView = {
    */
   claimBy?: number;
   sessionId?: string;
+  /** Unix ms the session started (the renter arrived), while it runs. */
+  startedAt?: number;
   /** Cents charged for the time played, once the session has ended. */
   price?: number;
 };
@@ -1922,6 +1924,7 @@ export class Platform {
     }
     if (reservation) view.claimBy = reservation.expires_at;
     if (session) view.sessionId = session.id;
+    if (session?.started_at != null && session.ended_at === null) view.startedAt = session.started_at;
     if (session?.price != null) view.price = session.price;
     return view;
   }

@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { storedPlay } from "./booking";
 import { GAMES } from "./data";
-import { WAKE_TIMEOUT_MS } from "./play";
+import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import type { Renter } from "./steam";
@@ -901,17 +901,20 @@ describe("useSwiff", () => {
         "swiff.play",
         JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
       );
-    const playing = (heldUntil?: number) => ({
+    const playing = (heldUntil?: number, startedAt?: number) => ({
       ...booked("playing"),
       machine: { id: "h1", name: "Glasshouse", gpu: null, cpu: null, price: 0 },
       sessionId: "s-1",
       ...(heldUntil === undefined ? {} : { heldUntil }),
+      ...(startedAt === undefined ? {} : { startedAt }),
     });
 
     it("offers the session the page left, held by its PC, and goes straight back to the game", async () => {
       keepPlaying();
+      const heldUntil = Date.now() + 100_000;
+      const startedAt = Date.now() - 30 * 60_000;
       const calls = serve(unnamed, LIVE, {
-        "GET /api/bookings/b-1": json(200, playing(Date.now() + 100_000)),
+        "GET /api/bookings/b-1": json(200, playing(heldUntil, startedAt)),
         "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
         "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
       });
@@ -925,6 +928,8 @@ describe("useSwiff", () => {
       expect(result.current.away).toBeNull();
       expect(result.current.phase).toBe("live");
       expect(result.current.game?.appid).toBe(cs2.appid);
+      // The session clock runs on from when the session started.
+      expect(result.current.elapsedMs).toBeGreaterThanOrEqual(30 * 60_000);
       // The ticket stays in memory only.
       expect(localStorage.getItem("swiff.play")).not.toContain("t-again");
 
@@ -932,6 +937,8 @@ describe("useSwiff", () => {
       const session = rtc.sessions[0]!;
       expect(session.options).toMatchObject({ ticket: "t-again" });
       expect(result.current.play?.lostAt).not.toBeNull();
+      // The PC's hold counts down from when it missed the renter, not from the reconnect.
+      expect(result.current.play?.droppedAt).toBe(heldUntil - RECONNECT_GRACE_MS);
       act(() => session.emit({ type: "first-frame" }));
       act(() => session.emit({ type: "game-started" }));
       expect(result.current.play?.lostAt).toBeNull();

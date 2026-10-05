@@ -48,6 +48,8 @@ export type Booking = {
   machine?: { id: string; name?: string | null; gpu: string | null; cpu: string | null; price: number };
   claimBy?: number;
   sessionId?: string;
+  /** Unix ms the session started, while it runs. */
+  startedAt?: number;
   /** Cents charged for the time played, once the session has ended. */
   price?: number;
   /**

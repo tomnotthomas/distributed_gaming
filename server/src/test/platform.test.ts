@@ -1033,6 +1033,16 @@ describe("a renter's running session", () => {
     });
   });
 
+  it("tells the booking when its session started, while it runs", async () => {
+    const { bookingId, sessionId } = await claimed();
+    assert.equal((await platform.viewBooking(bookingId))!.startedAt, undefined);
+    const started = now;
+    assert.ok(await platform.startSession("pc-1", sessionId));
+    assert.equal((await platform.viewBooking(bookingId))!.startedAt, started);
+    assert.ok((await platform.endBooking(bookingId, "renter-1")).ok);
+    assert.equal((await platform.viewBooking(bookingId))!.startedAt, undefined);
+  });
+
   it("reads anyone else's booking as not found", async () => {
     const { bookingId } = await claimed();
     assert.deepEqual(await platform.runningSession(bookingId, "renter-2"), {
