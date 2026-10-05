@@ -275,6 +275,9 @@ test_run() {
 	log "Windows"
 	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
 	ssh_wait 1800 || die "Windows did not answer on SSH"
+	# The test's own folder only: Defender scanning 10 GB of image and Electron as they land
+	# slows the VM so much that the app's 30 s read of the PC times out.
+	on_vm 'Add-MpPreference -ExclusionPath C:\swiff' || true
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\desktop | Out-Null; $m = [guid]::NewGuid().ToString(); Set-Content C:\swiff-marker.txt $m; $m' | tr -d '\r' > "$run/marker"
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
@@ -294,7 +297,7 @@ test_run() {
 	seen="$(json "$run/read-before.json" read '.read.facts.secureBoot' || true) $(json "$run/read-before.json" read '.read.targets[0].id' || true)"
 	expect read "the app reads Secure Boot on and room on C: ($seen)" test "$seen" = 'true "shrink:C"'
 	# From the logged-on user's own session, unelevated, as the app runs: Start-Process -Verb RunAs.
-	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-uac | Out-Null; Start-Sleep 30; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
+	on_vm "Set-Content C:\\swiff\\uac-in.txt 'elevate','quit'; schtasks /create /tn swiff-uac /tr 'cmd /c C:\\node\\node.exe C:\\swiff\\desktop\\rental-cli.cjs serve --image $img < C:\\swiff\\uac-in.txt > C:\\swiff\\uac-out.txt 2>&1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-uac | Out-Null; foreach (\$i in 1..60) { if (Select-String -Quiet elevated C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt" | tr -d '\r' > "$run/uac.json"
 	expect elevation "the worker started through UAC's RunAs and said hello" grep -q '"elevated":true' "$run/uac.json"
 
 	log "2. Install"
