@@ -10,6 +10,7 @@ import type { Resume, Served } from "./resume.ts";
 import type { SocketEvent } from "./socket.ts";
 import type { Streamer } from "./streamer.ts";
 import type { FloorCheck } from "./config.ts";
+import { StateKeyRefused } from "./state-key.ts";
 
 const FAST = { sessionBeatMs: 10, offeredBeatMs: 10, offlineBeatMs: 10 };
 const HOUR = 3_600_000;
@@ -731,6 +732,58 @@ describe("the owner taking the PC back (D8)", () => {
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(await h.running).toBe("windows");
     expect(h.server.state.status).toBe("idle");
+  });
+});
+
+describe("a machine whose persistent state stays shut", () => {
+  /** A state that opens after `failures` refused tries. */
+  const state = (failures: number) => {
+    const tries = { count: 0 };
+    return {
+      tries,
+      unlock: async () => {
+        tries.count++;
+        if (tries.count <= failures) throw new StateKeyRefused(403, "cooldown", "state-key-refused");
+      },
+    };
+  };
+
+  it("is kept off the market while the server keeps its share back, and offered once the state opens", async () => {
+    const s = state(2);
+    const h = harness(fakeServer(), { state: s, timing: { ...FAST, unlockRetryMs: [40] } });
+    await until(() => phase(h.agent) === "locked", "locked");
+    // No socket, no heartbeat, no offer: nothing tells the server this PC may host.
+    expect(h.server.calls).toEqual([]);
+    expect(h.sockets).toHaveLength(0);
+    await until(() => phase(h.agent) === "offered", "the offer");
+    expect(s.tries.count).toBe(3);
+  });
+
+  it("waits longer after each refused try", async () => {
+    const s = state(Infinity);
+    const h = harness(fakeServer(), { state: s, timing: { ...FAST, unlockRetryMs: [10, 300] } });
+    await until(() => s.tries.count === 2, "the second try");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(s.tries.count).toBe(2);
+    expect(h.sockets).toHaveLength(0);
+  });
+
+  it("goes back to Windows when the owner asks while it is shut", async () => {
+    const h = harness(fakeServer(), { state: state(Infinity), timing: { ...FAST, unlockRetryMs: [60_000] } });
+    await until(() => phase(h.agent) === "locked", "locked");
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.running).toBe("windows");
+    expect(h.sockets).toHaveLength(0);
+  });
+
+  it("serves a held renter only once the state is open", async () => {
+    const server = fakeServer();
+    server.claim("held");
+    const s = state(1);
+    const h = harness(server, { state: s, timing: { ...FAST, unlockRetryMs: [20] } });
+    await until(() => h.streamers.length === 1, "the streamer");
+    expect(s.tries.count).toBe(2);
+    expect(h.server.calls[0]).toBe("session end");
   });
 });
 

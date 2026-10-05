@@ -26,7 +26,7 @@ export type System = {
 /** Runs a command and resolves with its stdout. */
 export type Run = (command: string, args: string[]) => Promise<string>;
 
-const run: Run = async (command, args) => (await promisify(execFile)(command, args)).stdout;
+export const run: Run = async (command, args) => (await promisify(execFile)(command, args)).stdout;
 
 /** The EFI global variable that says whether Secure Boot is enforcing. */
 const SECURE_BOOT_VAR = "sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";

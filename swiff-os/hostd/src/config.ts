@@ -2,6 +2,7 @@
 // two rental-mode policies that are still open decisions, one setting each.
 
 import { readFile, stat } from "node:fs/promises";
+import type { StateConfig } from "./state-key.ts";
 
 /**
  * D8, open (provisional): when the owner may take the PC back to Windows while
@@ -48,6 +49,8 @@ export type Config = {
   /** The Unix socket the local status page asks the agent through. */
   controlSocket: string;
   streamer: StreamerConfig;
+  /** The persistent state partition, opened at boot with the key the server shares; none: no such partition. */
+  state: StateConfig | null;
 };
 
 /** A config file that is missing a field, has a wrong one, or a key file others can read. */
@@ -88,6 +91,16 @@ export function parseConfig(raw: unknown): Config {
       uid: id(s.uid, "streamer.uid"),
       gid: id(s.gid, "streamer.gid"),
     },
+    state: c.state === undefined ? null : stateConfig(record(c.state, "state")),
+  };
+}
+
+function stateConfig(s: Record<string, unknown>): StateConfig {
+  return {
+    device: text(s.device, "state.device"),
+    mountpoint: text(s.mountpoint, "state.mountpoint"),
+    localShare: text(s.localShare, "state.localShare"),
+    attestCommand: text(s.attestCommand, "state.attestCommand"),
   };
 }
 

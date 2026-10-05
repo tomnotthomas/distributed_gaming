@@ -20,7 +20,20 @@ describe("config", () => {
       stateDir: "/var/lib/swiff/hostd",
       controlSocket: "/run/swiff-hostd/control.sock",
       streamer: { ...VALID.streamer, args: [] },
+      state: null,
     });
+  });
+
+  it("reads the persistent state partition, and names its field that is missing", () => {
+    const state = {
+      device: "/dev/disk/by-partlabel/swiff-state",
+      mountpoint: "/var/lib/swiff/state",
+      localShare: "/var/lib/swiff/state-u.cred",
+      attestCommand: "/usr/libexec/swiff/attest",
+    };
+    expect(parseConfig({ ...VALID, state }).state).toEqual(state);
+    expect(() => parseConfig({ ...VALID, state: { ...state, localShare: "" } })).toThrow(/state.localShare/);
+    expect(() => parseConfig({ ...VALID, state: "yes" })).toThrow(/state must be an object/);
   });
 
   it("names the field that is wrong", () => {

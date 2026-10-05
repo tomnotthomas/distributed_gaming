@@ -356,6 +356,21 @@ host protocol the desktop app already speaks, with no new messages
   the firmware boot order and reboots.
 - **On boot**, it first ends any host session a crash left behind. A session still live
   is served at once, with a new key.
+- **Opens the persistent state only for an untouched system** (report §5.3, the U/V split),
+  before anything else on boot. The state is a LUKS2 partition whose key is U XOR V: U is
+  sealed to this PC's TPM under Swiff's signed PCR policy (a `systemd-creds` credential),
+  and V is released by the server (`POST /api/machines/:id/state-key`) only to a fresh,
+  unused host certificate from this machine's latest attested boot. Every try attests
+  afresh; a certificate refused as `stale` or `replayed` is replaced by a new attestation
+  at once, once. Refused for any reason (`gap`, `cooldown`, `revoked`, or a certificate
+  again), or with the server unreachable, the agent keeps the PC off the market (no
+  socket, no heartbeat, no offer) and tries again after 5 s, 15 s, 30 s, 1 min, 2 min, then
+  every 5 min; the owner can still take it back to Windows at the PC. The combined key
+  reaches `cryptsetup` only on its stdin and is never written anywhere; it and both shares
+  are zeroed once the state is open. The config's `state` names the partition (`device`,
+  `mountpoint`), U's credential (`localShare`) and `attestCommand`, the attestation client
+  that prints a fresh host certificate as JSON, until attesting is part of the agent. A
+  machine whose config has no `state` has no such partition, and skips this.
 
 Two open decisions are each one setting in `hostd/src/config.ts`, with provisional
 defaults:
@@ -392,6 +407,8 @@ can use.
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
+- The persistent state partition in the image, and enrolling its key (sealing U, giving
+  the server V) at the first rental-mode boot.
 - Attesting, and hosting on the host certificate it earns in place of the machine key
   (the server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at
   the `unattested` tier meanwhile), then re-attesting before each session.

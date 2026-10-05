@@ -12,8 +12,15 @@ import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMa
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
+import {
+  commandAttestation,
+  linuxStateDisk,
+  stateKeyRelease,
+  stateUnlock,
+  tpmLocalShare,
+} from "./state-key.ts";
 import { streamerLauncher } from "./streamer.ts";
-import { linuxSystem } from "./system.ts";
+import { linuxSystem, run } from "./system.ts";
 
 const config = await loadConfig(process.env.SWIFF_HOSTD_CONFIG ?? DEFAULT_CONFIG_PATH);
 const command = process.argv[2];
@@ -33,6 +40,14 @@ if (command !== undefined) {
     launchStreamer: streamerLauncher(config.streamer, config.serverUrl, config.machineId),
     system: linuxSystem(HARDWARE_FLOOR),
     resume: fileResumeStore(config.stateDir),
+    ...(config.state && {
+      state: stateUnlock({
+        attest: commandAttestation(config.state.attestCommand, run),
+        releaseShare: stateKeyRelease(config.serverUrl, config.machineId),
+        unsealLocalShare: tpmLocalShare(config.state.localShare),
+        disk: linuxStateDisk(config.state, run),
+      }),
+    }),
     ownerTakeover: OWNER_TAKEOVER,
   });
   const control = await serveControl(config.controlSocket, agent);
