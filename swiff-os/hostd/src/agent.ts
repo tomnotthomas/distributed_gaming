@@ -43,7 +43,7 @@ import { HostApiError } from "./api.ts";
 import type { FloorCheck, OwnerTakeover } from "./config.ts";
 import type { ResumeStore } from "./resume.ts";
 import type { MachineSocket, SessionClaim, SocketEvent } from "./socket.ts";
-import type { StateUnlock } from "./state-key.ts";
+import { StateKeyRefused, type StateUnlock } from "./state-key.ts";
 import type { LaunchStreamer, Streamer } from "./streamer.ts";
 import type { System } from "./system.ts";
 
@@ -222,6 +222,7 @@ export function createAgent(deps: AgentDeps): Agent {
   async function unlockState(): Promise<boolean> {
     if (!deps.state) return true;
     for (let tries = 0; ; tries++) {
+      let wait = timing.unlockRetryMs[Math.min(tries, timing.unlockRetryMs.length - 1)]!;
       try {
         await deps.state.unlock();
         if (tries) log("the persistent state is open");
@@ -230,9 +231,10 @@ export function createAgent(deps: AgentDeps): Agent {
       } catch (cause) {
         phase = "locked";
         log(`not offered: the persistent state did not open (${describe(cause)})`);
+        // The server's own retry-after, when it says to wait longer.
+        if (cause instanceof StateKeyRefused && cause.retryAfterMs) wait = Math.max(wait, cause.retryAfterMs);
       }
-      const waits = timing.unlockRetryMs;
-      if (!asked) await inbox.next(waits[Math.min(tries, waits.length - 1)]!);
+      if (!asked) await inbox.next(wait);
       if (asked) return false;
     }
   }

@@ -15,7 +15,7 @@ import { openMachineSocket } from "./socket.ts";
 import {
   commandAttestation,
   linuxStateDisk,
-  stateKeyRelease,
+  stateKeyApi,
   stateUnlock,
   tpmLocalShare,
 } from "./state-key.ts";
@@ -43,9 +43,10 @@ if (command !== undefined) {
     ...(config.state && {
       state: stateUnlock({
         attest: commandAttestation(config.state.attestCommand, run),
-        releaseShare: stateKeyRelease(config.serverUrl, config.machineId),
-        unsealLocalShare: tpmLocalShare(config.state.localShare),
+        api: stateKeyApi(config.serverUrl, config.machineId),
+        local: tpmLocalShare(config.state.localShare),
         disk: linuxStateDisk(config.state, run),
+        log: (message) => console.log(`[swiff-hostd] ${message}`),
       }),
     }),
     ownerTakeover: OWNER_TAKEOVER,

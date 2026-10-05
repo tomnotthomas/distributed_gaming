@@ -1,89 +1,162 @@
 // The key to the persistent rental state, split in two (rental-mode report §5.3,
-// Keylime's U/V pattern). The state is a LUKS2 partition holding what must
-// outlive a reboot; its key is U XOR V:
+// Keylime's U/V pattern; the server's side is server/src/state-key.ts). The
+// state is a LUKS2 partition holding what must outlive a reboot; its key is
+// U XOR V:
 //
-//   U  sealed to this PC's TPM under Swiff's signed PCR policy (systemd-creds),
-//      so only a Swiff OS boot of this PC can unseal it;
-//   V  held by the server, sealed with its STATE_KEY_SECRET, and released
-//      (POST /api/machines/:id/state-key) only to a fresh, unused host
-//      certificate from this machine's latest attested boot.
+//   U  32 random bytes made here when the partition is formatted, sealed to
+//      this PC's TPM (systemd-creds), so only a Swiff OS boot of this PC can
+//      unseal it. The id of the V it pairs with is kept beside it.
+//   V  the server's share, released only to a fresh, unused host certificate
+//      from this machine's latest attested boot.
 //
-// Neither share opens the state alone: a disk taken away lacks V, and a host
-// that is tampered with, revoked or booted something else in between is never
-// sent V. Each try attests afresh for its certificate; a certificate refused as
-// stale or replayed is replaced by a new attestation at once, once.
+// Once per boot, before anything market-facing:
 //
-// The combined key lives only in memory, for the one cryptsetup call that opens
-// the state, and is zeroed after it, as are both shares. It is never written to
-// disk, a log or the environment.
+//   attest ──► POST state-key ──► 200 { keyId, share }  keyId is U's: open with U XOR V
+//                                                       another: a format cut short, so
+//                                                       renew on a fresh certificate
+//                             ──► 404 no-state-key      renew: PUT state-key with the
+//                             ──► 409 continuity-gap    same certificate, and format
+//                                                       the partition anew with a fresh U
+//                             ──► 401 stale-host-cert   attest again at once, once
+//                             ──► anything else         this try fails; the agent tries
+//                                                       again later, off the market
+//
+// A renewal formats first and seals U last, with its key id written after it:
+// the key id is what says the format finished, so one cut short is renewed
+// again rather than opened with a U that does not match.
+//
+// The combined key lives only in memory, for the cryptsetup calls that format
+// or open the state, and is zeroed after them, as are both shares. It is never
+// written to disk, a log or the environment.
 
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import type { StateKeyError, StateKeyGrant } from "../../../server/src/protocol.ts";
 import type { Run } from "./system.ts";
 
-/** Why the server keeps V back (session-keys.md, the state key). */
-export const STATE_KEY_REFUSALS = ["gap", "cooldown", "revoked", "stale", "replayed"] as const;
-export type StateKeyRefusal = (typeof STATE_KEY_REFUSALS)[number];
+/** Bytes in each share, and in the key. */
+export const SHARE_BYTES = 32;
 
 /** A host certificate from an attestation of this boot. */
 export type HostCertificate = { hostCert: string; expiresAt: number };
 
-/** The server refused V. `reason` is null for a refusal it did not name. */
+/** A state-key call the server refused. */
 export class StateKeyRefused extends Error {
   readonly status: number;
-  readonly reason: StateKeyRefusal | null;
-  constructor(status: number, reason: StateKeyRefusal | null, code: string | null) {
-    super(`the state key was refused: ${status} ${reason ?? code ?? "with no reason"}`);
+  readonly code: StateKeyError["error"] | null;
+  /** The server's retry-after, for `rate-limited`. */
+  readonly retryAfterMs: number | null;
+  constructor(call: string, status: number, code: StateKeyError["error"] | null, retryAfterMs: number | null) {
+    super(`${call} answered ${status}${code ? ` ${code}` : ""}`);
     this.status = status;
-    this.reason = reason;
+    this.code = code;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
-/** The state partition: open it with a key, and whether this boot opened it already. */
+/** The server's state-key calls, each made with a host certificate. */
+export type StateKeyApi = {
+  /** POST: the machine's current V. */
+  release(hostCert: string): Promise<StateKeyGrant>;
+  /** PUT: a new V; the old one is gone. */
+  replace(hostCert: string): Promise<StateKeyGrant>;
+};
+
+/** U, sealed to the TPM, with the id of the V it pairs with. */
+export type LocalShare = {
+  /** The id of the V that U pairs with; null when no format has finished. */
+  keyId(): Promise<string | null>;
+  unseal(): Promise<Buffer>;
+  /** Seal `u` for the V named `keyId`, replacing any U before. */
+  seal(keyId: string, u: Uint8Array): Promise<void>;
+};
+
+/** The state partition. */
 export type StateDisk = {
+  /** Open and mounted in this boot already. */
   opened(): Promise<boolean>;
-  /** Open and mount it with `key`, which never leaves memory but for cryptsetup's stdin. */
+  /** Open and mount it with `key`. */
   open(key: Uint8Array): Promise<void>;
+  /** Format it anew for `key`, then open and mount it: whatever it held is gone. */
+  format(key: Uint8Array): Promise<void>;
 };
 
 export type StateKeyDeps = {
   /** Attest this boot and get a fresh host certificate. */
   attest(): Promise<HostCertificate>;
-  /** V, released to `hostCert`; StateKeyRefused when the server keeps it back. */
-  releaseShare(hostCert: string): Promise<Buffer>;
-  /** U, unsealed by the TPM. */
-  unsealLocalShare(): Promise<Buffer>;
+  api: StateKeyApi;
+  local: LocalShare;
   disk: StateDisk;
+  log?: (message: string) => void;
 };
 
 /** One try to open the state: resolves once it is open, throws why not. */
 export type StateUnlock = { unlock(): Promise<void> };
 
-export function stateUnlock(deps: StateKeyDeps): StateUnlock {
-  async function release(): Promise<Buffer> {
+export function stateUnlock({ attest, api, local, disk, log = () => {} }: StateKeyDeps): StateUnlock {
+  const fresh = async () => (await attest()).hostCert;
+
+  /** V for this certificate, attesting again once when it is stale; or the certificate to renew the state on. */
+  async function release(hostCert: string): Promise<{ grant: StateKeyGrant } | { renew: string }> {
+    for (let again = false; ; again = true) {
+      try {
+        return { grant: await api.release(hostCert) };
+      } catch (cause) {
+        if (!(cause instanceof StateKeyRefused)) throw cause;
+        if (cause.code === "no-state-key" || cause.code === "continuity-gap") {
+          log(
+            cause.code === "no-state-key"
+              ? "the server has no state key for this PC yet: making one"
+              : "something else booted since this PC last attested: its state is formatted anew",
+          );
+          // The refusal did not spend the certificate: the PUT goes on it.
+          return { renew: hostCert };
+        }
+        if (cause.code !== "stale-host-cert" || again) throw cause;
+        hostCert = await fresh();
+      }
+    }
+  }
+
+  /** A new V, and the partition formatted anew for it with a fresh U. */
+  async function renew(hostCert: string): Promise<void> {
+    const v = share(await api.replace(hostCert));
+    const u = randomBytes(SHARE_BYTES);
+    let key: Buffer | null = null;
     try {
-      return await deps.releaseShare((await deps.attest()).hostCert);
-    } catch (cause) {
-      if (!(cause instanceof StateKeyRefused) || (cause.reason !== "stale" && cause.reason !== "replayed"))
-        throw cause;
-      // The certificate was not this boot's latest, or was used already: attest again.
-      return deps.releaseShare((await deps.attest()).hostCert);
+      key = combineShares(u, v.bytes);
+      await disk.format(key);
+      await local.seal(v.keyId, u);
+    } finally {
+      v.bytes.fill(0);
+      u.fill(0);
+      key?.fill(0);
     }
   }
 
   return {
     unlock: async () => {
       // The agent restarted within this boot: the state is open already, and V is not asked for again.
-      if (await deps.disk.opened()) return;
-      const v = await release();
+      if (await disk.opened()) return;
+      const released = await release(await fresh());
+      if ("renew" in released) return renew(released.renew);
+      const v = share(released.grant);
       let u: Buffer | null = null;
       let key: Buffer | null = null;
       try {
-        u = await deps.unsealLocalShare();
-        key = combineShares(u, v);
-        await deps.disk.open(key);
+        if ((await local.keyId()) !== v.keyId) {
+          // U is for another V (a renewal cut short before it sealed U): renew,
+          // on a fresh certificate, since this one got its share.
+          log("the state's sealed share is not for the server's: it is formatted anew");
+          v.bytes.fill(0);
+          return await renew(await fresh());
+        }
+        u = await local.unseal();
+        key = combineShares(u, v.bytes);
+        await disk.open(key);
       } finally {
-        v.fill(0);
+        v.bytes.fill(0);
         u?.fill(0);
         key?.fill(0);
       }
@@ -91,46 +164,59 @@ export function stateUnlock(deps: StateKeyDeps): StateUnlock {
   };
 }
 
-/** U XOR V, in a new buffer. Shares of different or too short a length are refused. */
+/** A grant's share, decoded. */
+function share(grant: StateKeyGrant): { keyId: string; bytes: Buffer } {
+  const bytes = Buffer.from(grant.share, "base64");
+  if (bytes.length !== SHARE_BYTES || typeof grant.keyId !== "string" || !grant.keyId) {
+    bytes.fill(0);
+    throw new Error("the server's state key share is malformed");
+  }
+  return { keyId: grant.keyId, bytes };
+}
+
+/** U XOR V, in a new buffer. */
 export function combineShares(u: Uint8Array, v: Uint8Array): Buffer {
-  if (u.length !== v.length) throw new Error("the state key's shares differ in length");
-  if (u.length < 32) throw new Error("the state key's shares are shorter than 32 bytes");
-  const key = Buffer.alloc(u.length);
-  for (let i = 0; i < u.length; i++) key[i] = u[i]! ^ v[i]!;
+  if (u.length !== SHARE_BYTES || v.length !== SHARE_BYTES) {
+    throw new Error(`the state key's shares must be ${SHARE_BYTES} bytes each`);
+  }
+  const key = Buffer.alloc(SHARE_BYTES);
+  for (let i = 0; i < SHARE_BYTES; i++) key[i] = u[i]! ^ v[i]!;
   return key;
 }
 
 /**
- * The server's state-key release, asked with the host certificate as
- * `Authorization: Bearer`. One try: the agent tries again with a fresh attestation.
+ * The server's state-key calls, over HTTPS to its own origin. One try each: the
+ * agent tries again later, on a fresh attestation.
  */
-export function stateKeyRelease(serverUrl: string, machineId: string): (hostCert: string) => Promise<Buffer> {
+export function stateKeyApi(serverUrl: string, machineId: string): StateKeyApi {
   const origin = new URL(serverUrl);
   origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
   const url = new URL(`/api/machines/${encodeURIComponent(machineId)}/state-key`, origin);
-  return async (hostCert) => {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { authorization: `Bearer ${hostCert}`, "content-type": "application/json" },
-      body: "{}",
-    });
-    let body: { share?: unknown; error?: unknown; reason?: unknown } = {};
+
+  async function call(method: "POST" | "PUT", expected: number, hostCert: string): Promise<StateKeyGrant> {
+    const name = `state key ${method === "POST" ? "release" : "replace"}`;
+    const res = await fetch(url, { method, headers: { authorization: `Bearer ${hostCert}` } });
+    let body: Partial<StateKeyGrant & StateKeyError> = {};
     try {
       body = (await res.json()) as typeof body;
     } catch {
       // No JSON body: the status says enough.
     }
-    if (res.status === 200 && typeof body.share === "string" && body.share) {
-      return Buffer.from(body.share, "base64");
+    if (res.status === expected && typeof body.share === "string" && typeof body.keyId === "string") {
+      return { keyId: body.keyId, share: body.share };
     }
-    const code = typeof body.error === "string" ? body.error : null;
-    const named = [body.reason, body.error].find((r): r is StateKeyRefusal =>
-      (STATE_KEY_REFUSALS as readonly unknown[]).includes(r),
+    const retryAfter = Number(res.headers.get("retry-after"));
+    throw new StateKeyRefused(
+      name,
+      res.status,
+      typeof body.error === "string" ? body.error : null,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : null,
     );
-    if (res.status === 200) throw new Error("the state key's release carried no share");
-    if (res.status >= 500)
-      throw new Error(`the state key's release answered ${res.status}${code ? ` ${code}` : ""}`);
-    throw new StateKeyRefused(res.status, named ?? null, code);
+  }
+
+  return {
+    release: (hostCert) => call("POST", 200, hostCert),
+    replace: (hostCert) => call("PUT", 201, hostCert),
   };
 }
 
@@ -153,7 +239,7 @@ export type StateConfig = {
   device: string;
   /** Where it is mounted once open. */
   mountpoint: string;
-  /** U: a systemd-creds credential sealed to the TPM under Swiff's signed PCR policy. */
+  /** U: a systemd-creds credential sealed to the TPM; its key id is kept beside it, in `<localShare>.key-id`. */
   localShare: string;
   /** The attestation client: attests this boot and prints a fresh host certificate. */
   attestCommand: string;
@@ -162,12 +248,34 @@ export type StateConfig = {
 /** The device-mapper name the open state gets. */
 export const STATE_MAPPER = "swiff-state";
 
-/** U, unsealed from its credential by the TPM, as raw bytes on stdout. */
-export function tpmLocalShare(credential: string, exec: RunBytes = runBytes): () => Promise<Buffer> {
-  return () => exec("systemd-creds", ["decrypt", "--name=swiff-state-u", credential, "-"]);
+/** The name U's credential is sealed under. */
+const CREDENTIAL_NAME = "swiff-state-u";
+
+/** U in a systemd-creds credential sealed to the TPM, and its key id in a file beside it. */
+export function tpmLocalShare(
+  credential: string,
+  exec: RunBytes = runBytes,
+  feed: RunWithInput = runWithInput,
+): LocalShare {
+  const keyIdFile = `${credential}.key-id`;
+  return {
+    keyId: async () => (await readFile(keyIdFile, "utf8").catch(() => "")).trim() || null,
+    unseal: () => exec("systemd-creds", ["decrypt", `--name=${CREDENTIAL_NAME}`, credential, "-"]),
+    seal: async (keyId, u) => {
+      await feed(
+        "systemd-creds",
+        ["encrypt", `--name=${CREDENTIAL_NAME}`, "--with-key=tpm2", "-", `${credential}.tmp`],
+        u,
+      );
+      await rename(`${credential}.tmp`, credential);
+      // Written last: the key id says the U beside it is the one for that V.
+      await writeFile(`${keyIdFile}.tmp`, `${keyId}\n`, { mode: 0o600 });
+      await rename(`${keyIdFile}.tmp`, keyIdFile);
+    },
+  };
 }
 
-/** The state partition on this machine: cryptsetup takes the key on stdin, never from a file. */
+/** The state partition on this machine: cryptsetup takes the key on stdin, never from a file or its arguments. */
 export function linuxStateDisk(
   config: Pick<StateConfig, "device" | "mountpoint">,
   exec: Run,
@@ -180,17 +288,25 @@ export function linuxStateDisk(
       () => true,
       () => false,
     );
+  const openWith = (key: Uint8Array) =>
+    feed("cryptsetup", ["open", "--type", "luks2", "--key-file=-", config.device, STATE_MAPPER], key);
   return {
     opened: async () => (await exists(mapped)) && (await mounted()),
     open: async (key) => {
-      if (!(await exists(mapped))) {
-        await feed(
-          "cryptsetup",
-          ["open", "--type", "luks2", "--key-file=-", config.device, STATE_MAPPER],
-          key,
-        );
-      }
+      if (!(await exists(mapped))) await openWith(key);
       if (!(await mounted())) await exec("mount", [mapped, config.mountpoint]);
+    },
+    format: async (key) => {
+      if (await mounted()) await exec("umount", [config.mountpoint]);
+      if (await exists(mapped)) await exec("cryptsetup", ["close", STATE_MAPPER]);
+      await feed(
+        "cryptsetup",
+        ["luksFormat", "--type", "luks2", "--batch-mode", "--key-file=-", config.device],
+        key,
+      );
+      await openWith(key);
+      await exec("mkfs.ext4", ["-q", mapped]);
+      await exec("mount", [mapped, config.mountpoint]);
     },
   };
 }
@@ -222,9 +338,7 @@ const runWithInput: RunWithInput = (command, args, input) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "ignore", "inherit"] });
     child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`)),
-    );
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`))));
     child.stdin.end(input);
   });
 

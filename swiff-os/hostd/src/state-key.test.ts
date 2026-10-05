@@ -1,69 +1,87 @@
 // Opening the persistent state with the key split between this PC's TPM and the
-// server, against a state-key endpoint kept in memory: it releases V only to
-// the latest host certificate, once, and refuses as the server does otherwise.
+// server, against a state-key endpoint kept in memory that answers as
+// server/src/state-key.ts does: V only to the latest boot's certificate, once,
+// and each refusal by its code. integration.test.ts runs it against the real server.
 
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { StateKeyError } from "../../../server/src/protocol.ts";
 import {
   combineShares,
   commandAttestation,
   linuxStateDisk,
-  STATE_KEY_REFUSALS,
   STATE_MAPPER,
   StateKeyRefused,
-  stateKeyRelease,
+  stateKeyApi,
   stateUnlock,
   tpmLocalShare,
+  type LocalShare,
   type StateDisk,
-  type StateKeyRefusal,
 } from "./state-key.ts";
 
 const MACHINE = "pc-1";
 
-/** The server's state-key release for one machine, over real HTTP. */
+/** The server's state-key calls for one machine, over real HTTP. */
 async function fakeStateKeyServer() {
-  const v = randomBytes(32);
   const state = {
-    /** Host certificates attestation has issued, in order; only the last is fresh. */
-    issued: [] as string[],
-    used: new Set<string>(),
-    /** A refusal the server gives every request, whatever the certificate. */
-    refuse: null as Exclude<StateKeyRefusal, "stale" | "replayed"> | null,
+    share: null as { keyId: string; v: Buffer } | null,
+    /** Something else booted since the share was made. */
+    withheld: false,
+    revoked: false,
+    cooldown: false,
+    /** Seconds to answer rate-limited with, while set. */
+    rateLimited: null as number | null,
     /** Answers to give as 503 before working again. */
     failing: 0,
-    requests: [] as { path: string; authorization: string | undefined }[],
+    /** Host certificates attestation has issued, in order; only the last is the latest boot's. */
+    issued: [] as string[],
+    used: new Set<string>(),
+    calls: [] as string[],
+    shares: 0,
   };
   const server: Server = createServer((req, res) => {
-    state.requests.push({ path: req.url ?? "", authorization: req.headers.authorization });
-    const answer = (status: number, body: unknown) => {
-      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+    const cert = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+    state.calls.push(`${req.method} ${cert}`);
+    const answer = (status: number, body: unknown, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
       res.end(JSON.stringify(body));
     };
-    if (req.method !== "POST" || req.url !== `/api/machines/${MACHINE}/state-key`) return answer(404, {});
+    const refuse = (status: number, error: StateKeyError["error"], headers = {}) =>
+      answer(status, { error }, headers);
+    if (req.url !== `/api/machines/${MACHINE}/state-key`) return answer(404, {});
     if (state.failing > 0) {
       state.failing--;
-      return answer(503, { error: "not-configured" });
+      return refuse(503, "not-configured");
     }
-    const cert = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
-    if (!state.issued.includes(cert)) return answer(401, { error: "bad-host-cert" });
-    if (state.refuse) return answer(403, { error: "state-key-refused", reason: state.refuse });
-    if (state.used.has(cert)) return answer(403, { error: "state-key-refused", reason: "replayed" });
-    if (cert !== state.issued.at(-1)) return answer(403, { error: "state-key-refused", reason: "stale" });
-    state.used.add(cert);
-    answer(200, { share: v.toString("base64") });
+    if (!state.issued.includes(cert)) return refuse(401, "bad-host-cert");
+    if (state.rateLimited !== null) return refuse(429, "rate-limited", { "retry-after": String(state.rateLimited) });
+    if (state.used.has(cert) || cert !== state.issued.at(-1)) return refuse(401, "stale-host-cert");
+    if (state.revoked) return refuse(403, "revoked");
+    if (state.cooldown) return refuse(403, "firmware-cooldown");
+    if (req.method === "POST") {
+      if (!state.share) return refuse(404, "no-state-key");
+      if (state.withheld) return refuse(409, "continuity-gap");
+      state.used.add(cert);
+      return answer(200, { keyId: state.share.keyId, share: state.share.v.toString("base64") });
+    }
+    if (req.method === "PUT") {
+      state.share = { keyId: `key-${++state.shares}`, v: randomBytes(32) };
+      state.withheld = false;
+      state.used.add(cert);
+      return answer(201, { keyId: state.share.keyId, share: state.share.v.toString("base64") });
+    }
+    answer(405, {});
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   servers.push(server);
-  const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
-    v,
     state,
-    url,
+    url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
     attest: async () => {
       const hostCert = `cert-${state.issued.length + 1}`;
       state.issued.push(hostCert);
@@ -77,205 +95,252 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await new Promise((resolve) => server.close(resolve));
 });
 
-/** A state partition that remembers the key it was opened with (a copy) and the buffer it was handed. */
-function fakeDisk(open = false) {
-  const disk = {
-    open,
-    keys: [] as Buffer[],
+/** One PC: its TPM-sealed U and the state partition, kept across its boots. */
+function fakeMachine() {
+  const pc = {
+    /** U as sealed, and the key id written beside it. */
+    sealed: null as Buffer | null,
+    keyId: null as string | null,
+    /** The key the partition was last formatted for; what it holds. */
+    luksKey: null as Buffer | null,
+    contents: [] as string[],
+    open: false,
+    /** Every buffer the PC was handed: each must be zeroed once the try is over. */
     handed: [] as Uint8Array[],
+    /** A seal that fails: a renewal cut short after it formatted. */
+    sealFails: false,
   };
-  const stateDisk: StateDisk = {
-    opened: async () => disk.open,
-    open: async (key) => {
-      disk.handed.push(key);
-      disk.keys.push(Buffer.from(key));
-      disk.open = true;
+  const local: LocalShare = {
+    keyId: async () => pc.keyId,
+    unseal: async () => {
+      if (!pc.sealed) throw new Error("no credential");
+      const u = Buffer.from(pc.sealed);
+      pc.handed.push(u);
+      return u;
+    },
+    seal: async (keyId, u) => {
+      pc.handed.push(u);
+      if (pc.sealFails) throw new Error("systemd-creds exited with 1");
+      pc.sealed = Buffer.from(u);
+      pc.keyId = keyId;
     },
   };
-  return { disk, stateDisk };
+  const disk: StateDisk = {
+    opened: async () => pc.open,
+    open: async (key) => {
+      pc.handed.push(key);
+      if (!pc.luksKey || !pc.luksKey.equals(key)) throw new Error("cryptsetup exited with 2");
+      pc.open = true;
+    },
+    format: async (key) => {
+      pc.handed.push(key);
+      pc.luksKey = Buffer.from(key);
+      pc.contents = [];
+      pc.open = true;
+    },
+  };
+  return {
+    pc,
+    /** A new boot: the partition closed, the TPM and the disk as they were. */
+    reboot: () => void (pc.open = false),
+    unlock: (server: Awaited<ReturnType<typeof fakeStateKeyServer>>, attest = server.attest) =>
+      stateUnlock({ attest, api: stateKeyApi(server.url, MACHINE), local, disk }).unlock(),
+    wiped: () => pc.handed.every((buffer) => buffer.every((byte) => byte === 0)),
+  };
 }
 
-function setup(
-  server: Awaited<ReturnType<typeof fakeStateKeyServer>>,
-  { opened = false, attest = server.attest } = {},
-) {
-  const u = randomBytes(32);
-  const unsealed: Buffer[] = [];
-  const { disk, stateDisk } = fakeDisk(opened);
-  const release = stateKeyRelease(server.url, MACHINE);
-  const released: Buffer[] = [];
-  const unlock = stateUnlock({
-    attest,
-    releaseShare: async (cert) => {
-      const v = await release(cert);
-      released.push(v);
-      return v;
+const refusal = (promise: Promise<unknown>) =>
+  promise.then(
+    () => {
+      throw new Error("expected a refusal");
     },
-    unsealLocalShare: async () => {
-      const copy = Buffer.from(u);
-      unsealed.push(copy);
-      return copy;
-    },
-    disk: stateDisk,
-  });
-  return { u, unsealed, released, disk, unlock };
-}
+    (cause: unknown) => cause as StateKeyRefused,
+  );
 
 describe("opening the persistent state", () => {
-  it("opens it with U XOR V, V released to a fresh certificate, and wipes every share and the key", async () => {
+  it("makes a state key on the first boot, then opens the same state with U XOR V on the next", async () => {
     const server = await fakeStateKeyServer();
-    const s = setup(server);
-    await s.unlock.unlock();
-    expect(s.disk.keys).toEqual([combineShares(s.u, server.v)]);
-    expect(server.state.requests).toEqual([
-      { path: `/api/machines/${MACHINE}/state-key`, authorization: "Bearer cert-1" },
-    ]);
-    // Nothing of the key is left in the buffers the agent held.
-    for (const buffer of [...s.disk.handed, ...s.released, ...s.unsealed]) {
-      expect(buffer.every((byte) => byte === 0)).toBe(true);
-    }
+    const m = fakeMachine();
+    await m.unlock(server);
+    // No share yet: the PUT goes on the same certificate, and the partition is formatted for U XOR V.
+    expect(server.state.calls).toEqual(["POST cert-1", "PUT cert-1"]);
+    expect(m.pc.keyId).toBe("key-1");
+    expect(m.pc.luksKey).toEqual(combineShares(m.pc.sealed!, server.state.share!.v));
+    m.pc.contents.push("verified-file table");
+
+    m.reboot();
+    await m.unlock(server);
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-2"]);
+    expect(m.pc.open).toBe(true);
+    expect(m.pc.contents).toEqual(["verified-file table"]);
+    expect(m.wiped()).toBe(true);
   });
 
   it("asks for nothing when this boot opened the state already", async () => {
     const server = await fakeStateKeyServer();
-    const s = setup(server, { opened: true });
-    await s.unlock.unlock();
-    expect(server.state.issued).toEqual([]);
-    expect(server.state.requests).toEqual([]);
+    const m = fakeMachine();
+    await m.unlock(server);
+    await m.unlock(server);
+    expect(server.state.issued).toHaveLength(1);
   });
 
-  it("attests again for every try: a certificate is never sent twice", async () => {
+  it("formats the state anew on a continuity gap, and the old share is never used again", async () => {
     const server = await fakeStateKeyServer();
-    server.state.failing = 1;
-    const s = setup(server);
-    await expect(s.unlock.unlock()).rejects.toThrow(/503/);
-    await s.unlock.unlock();
-    expect(server.state.requests.map((r) => r.authorization)).toEqual(["Bearer cert-1", "Bearer cert-2"]);
-    expect(s.disk.open).toBe(true);
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.pc.contents.push("planted by whatever booted in between");
+    m.reboot();
+    server.state.withheld = true;
+    await m.unlock(server);
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-2", "PUT cert-2"]);
+    expect(m.pc.keyId).toBe("key-2");
+    expect(m.pc.contents).toEqual([]);
+    expect(m.pc.luksKey).toEqual(combineShares(m.pc.sealed!, server.state.share!.v));
+    expect(m.wiped()).toBe(true);
   });
 
-  it("wipes V when U cannot be unsealed", async () => {
+  it("renews, on a fresh certificate, when a renewal was cut short before U was sealed", async () => {
     const server = await fakeStateKeyServer();
-    const { disk, stateDisk } = fakeDisk();
-    const v: Buffer[] = [];
-    const unlock = stateUnlock({
-      attest: server.attest,
-      releaseShare: async (cert) => {
-        const share = await stateKeyRelease(server.url, MACHINE)(cert);
-        v.push(share);
-        return share;
-      },
-      unsealLocalShare: async () => {
-        throw new Error("systemd-creds exited with 1");
-      },
-      disk: stateDisk,
-    });
-    await expect(unlock.unlock()).rejects.toThrow(/systemd-creds/);
-    expect(v).toHaveLength(1);
-    expect(v[0]!.every((byte) => byte === 0)).toBe(true);
-    expect(disk.open).toBe(false);
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    server.state.withheld = true;
+    m.pc.sealFails = true;
+    await expect(m.unlock(server)).rejects.toThrow(/systemd-creds/);
+    // The server holds key-2 now; the PC still has key-1's U beside a partition formatted for key-2.
+    expect(m.pc.keyId).toBe("key-1");
+    m.reboot();
+    m.pc.sealFails = false;
+    await m.unlock(server);
+    expect(server.state.calls.slice(4)).toEqual(["POST cert-3", "PUT cert-4"]);
+    expect(m.pc.keyId).toBe("key-3");
+    expect(m.pc.open).toBe(true);
+    m.reboot();
+    await m.unlock(server);
+    expect(m.pc.open).toBe(true);
+    expect(m.wiped()).toBe(true);
   });
-});
-
-describe("the server keeping V back", () => {
-  it("covers every refusal the contract names", () => {
-    expect([...STATE_KEY_REFUSALS].sort()).toEqual(["cooldown", "gap", "replayed", "revoked", "stale"]);
-  });
-
-  for (const reason of ["gap", "cooldown", "revoked"] as const) {
-    it(`leaves the state shut when refused as ${reason}, and says why`, async () => {
-      const server = await fakeStateKeyServer();
-      server.state.refuse = reason;
-      const s = setup(server);
-      const refused = await s.unlock.unlock().catch((cause: unknown) => cause);
-      expect(refused).toBeInstanceOf(StateKeyRefused);
-      expect((refused as StateKeyRefused).reason).toBe(reason);
-      expect(s.disk.keys).toEqual([]);
-      expect(s.unsealed).toEqual([]);
-      // Not a certificate's fault: no second attestation for it.
-      expect(server.state.issued).toHaveLength(1);
-    });
-  }
 
   it("attests again at once when its certificate is stale, and opens on the fresh one", async () => {
     const server = await fakeStateKeyServer();
-    // Attestation hands out a certificate, then another one supersedes it before it is used.
-    const attest = async () => {
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    // Attestation hands out a certificate, then another supersedes it before it is used.
+    let tries = 0;
+    await m.unlock(server, async () => {
+      if (tries++) return server.attest();
+      const first = await server.attest();
+      await server.attest();
+      return first;
+    });
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-2", "POST cert-4"]);
+    expect(m.pc.open).toBe(true);
+  });
+
+  it("attests again at once when its certificate was used already", async () => {
+    const server = await fakeStateKeyServer();
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    let tries = 0;
+    await m.unlock(server, async () => (tries++ ? server.attest() : { hostCert: "cert-1", expiresAt: 0 }));
+    expect(server.state.calls.slice(2)).toEqual(["POST cert-1", "POST cert-2"]);
+    expect(m.pc.open).toBe(true);
+  });
+
+  it("attests again only once: a second stale certificate fails the try", async () => {
+    const server = await fakeStateKeyServer();
+    const m = fakeMachine();
+    const stale = async () => {
       const first = await server.attest();
       await server.attest();
       return first;
     };
-    let tries = 0;
-    const s = setup(server, { attest: async () => (tries++ ? server.attest() : attest()) });
-    await s.unlock.unlock();
-    expect(server.state.requests.map((r) => r.authorization)).toEqual(["Bearer cert-1", "Bearer cert-3"]);
-    expect(s.disk.keys).toEqual([combineShares(s.u, server.v)]);
+    const refused = await refusal(m.unlock(server, stale));
+    expect(refused.code).toBe("stale-host-cert");
+    expect(server.state.calls).toHaveLength(2);
+    expect(m.pc.open).toBe(false);
   });
 
-  it("attests again at once when its certificate was used already, and opens on the fresh one", async () => {
+  it("wipes V when U cannot be unsealed", async () => {
     const server = await fakeStateKeyServer();
-    const { hostCert } = await server.attest();
-    server.state.used.add(hostCert);
-    let tries = 0;
-    const s = setup(server, { attest: async () => (tries++ ? server.attest() : { hostCert, expiresAt: 0 }) });
-    await s.unlock.unlock();
-    expect(server.state.requests.map((r) => r.authorization)).toEqual(["Bearer cert-1", "Bearer cert-2"]);
-    expect(s.disk.open).toBe(true);
+    const m = fakeMachine();
+    await m.unlock(server);
+    m.reboot();
+    m.pc.sealed = null;
+    await expect(m.unlock(server)).rejects.toThrow(/no credential/);
+    expect(m.pc.open).toBe(false);
+    expect(m.wiped()).toBe(true);
   });
+});
 
-  it("attests again only once: a second stale certificate is the try's refusal", async () => {
-    const server = await fakeStateKeyServer();
-    const s = setup(server, {
-      attest: async () => {
-        const first = await server.attest();
-        await server.attest();
-        return first;
-      },
+describe("the server keeping V back", () => {
+  for (const [code, status, set] of [
+    ["revoked", 403, (s) => (s.revoked = true)],
+    ["firmware-cooldown", 403, (s) => (s.cooldown = true)],
+    ["not-configured", 503, (s) => (s.failing = 1)],
+  ] as const satisfies readonly (readonly [string, number, (s: FakeState) => void])[]) {
+    it(`leaves the state shut, and the partition as it was, when refused as ${code}`, async () => {
+      const server = await fakeStateKeyServer();
+      const m = fakeMachine();
+      await m.unlock(server);
+      m.pc.contents.push("state");
+      m.reboot();
+      set(server.state);
+      const refused = await refusal(m.unlock(server));
+      expect(refused).toBeInstanceOf(StateKeyRefused);
+      expect([refused.status, refused.code]).toEqual([status, code]);
+      expect(m.pc.open).toBe(false);
+      expect(m.pc.contents).toEqual(["state"]);
+      // Not the certificate's fault: no second attestation for it.
+      expect(server.state.issued).toHaveLength(2);
     });
-    const refused = await s.unlock.unlock().catch((cause: unknown) => cause);
-    expect((refused as StateKeyRefused).reason).toBe("stale");
-    expect(server.state.requests).toHaveLength(2);
-    expect(s.disk.open).toBe(false);
+  }
+
+  it("carries the server's retry-after when rate-limited", async () => {
+    const server = await fakeStateKeyServer();
+    server.state.rateLimited = 42;
+    const refused = await refusal(fakeMachine().unlock(server));
+    expect([refused.code, refused.retryAfterMs]).toEqual(["rate-limited", 42_000]);
   });
 
-  it("takes a refusal with no reason it knows as unnamed", async () => {
+  it("takes a refusal for a certificate it does not know as bad-host-cert", async () => {
     const server = await fakeStateKeyServer();
-    const s = setup(server, { attest: async () => ({ hostCert: "forged", expiresAt: 0 }) });
-    const refused = await s.unlock.unlock().catch((cause: unknown) => cause);
-    expect(refused).toBeInstanceOf(StateKeyRefused);
-    expect((refused as StateKeyRefused).reason).toBeNull();
-    expect((refused as StateKeyRefused).status).toBe(401);
+    const refused = await refusal(fakeMachine().unlock(server, async () => ({ hostCert: "forged", expiresAt: 0 })));
+    expect([refused.status, refused.code]).toEqual([401, "bad-host-cert"]);
   });
 
   it("fails on the network without opening anything", async () => {
     const server = await fakeStateKeyServer();
     await new Promise((resolve) => servers.pop()!.close(resolve));
-    const s = setup(server);
-    await expect(s.unlock.unlock()).rejects.toThrow();
-    expect(s.disk.open).toBe(false);
+    const m = fakeMachine();
+    await expect(m.unlock(server)).rejects.toThrow();
+    expect(m.pc.open).toBe(false);
   });
 });
 
+type FakeState = Awaited<ReturnType<typeof fakeStateKeyServer>>["state"];
+
 describe("combineShares", () => {
   it("is U XOR V", () => {
-    const u = Buffer.alloc(32, 0b1010);
-    const v = Buffer.alloc(32, 0b0110);
-    expect(combineShares(u, v)).toEqual(Buffer.alloc(32, 0b1100));
+    expect(combineShares(Buffer.alloc(32, 0b1010), Buffer.alloc(32, 0b0110))).toEqual(Buffer.alloc(32, 0b1100));
   });
 
-  it("refuses shares of different or too short a length", () => {
-    expect(() => combineShares(Buffer.alloc(32), Buffer.alloc(31))).toThrow(/length/);
-    expect(() => combineShares(Buffer.alloc(16), Buffer.alloc(16))).toThrow(/32 bytes/);
+  it("refuses shares that are not 32 bytes", () => {
+    expect(() => combineShares(Buffer.alloc(32), Buffer.alloc(31))).toThrow(/32 bytes/);
   });
 });
 
 describe("the machine's side", () => {
-  it("opens the partition with the key on cryptsetup's stdin, never on its command line, and mounts it", async () => {
+  /** A partition behind fake cryptsetup and mount, under a mapper directory of its own. */
+  async function disk(mappedAlready = false) {
     const mapper = await mkdtemp(join(tmpdir(), "swiff-mapper-"));
+    if (mappedAlready) await writeFile(join(mapper, STATE_MAPPER), "");
     const runs: string[][] = [];
     const fed: { args: string[]; input: Buffer }[] = [];
     let mounted = false;
-    const disk = linuxStateDisk(
+    const state = linuxStateDisk(
       { device: "/dev/disk/by-partlabel/swiff-state", mountpoint: "/var/lib/swiff/state" },
       async (command, args) => {
         runs.push([command, ...args]);
@@ -285,62 +350,76 @@ describe("the machine's side", () => {
       },
       async (command, args, input) => {
         fed.push({ args: [command, ...args], input: Buffer.from(input) });
-        await writeFile(join(mapper, STATE_MAPPER), "");
+        if (args[0] === "open") await writeFile(join(mapper, STATE_MAPPER), "");
       },
       mapper,
     );
-    expect(await disk.opened()).toBe(false);
+    return { state, runs, fed, mapped: join(mapper, STATE_MAPPER) };
+  }
+
+  it("opens the partition with the key on cryptsetup's stdin, never on its command line, and mounts it", async () => {
+    const d = await disk();
+    expect(await d.state.opened()).toBe(false);
     const key = Buffer.alloc(32, 7);
-    await disk.open(key);
-    expect(fed).toEqual([
+    await d.state.open(key);
+    expect(d.fed).toEqual([
       {
-        args: [
-          "cryptsetup",
-          "open",
-          "--type",
-          "luks2",
-          "--key-file=-",
-          "/dev/disk/by-partlabel/swiff-state",
-          STATE_MAPPER,
-        ],
+        args: ["cryptsetup", "open", "--type", "luks2", "--key-file=-", "/dev/disk/by-partlabel/swiff-state", STATE_MAPPER],
         input: key,
       },
     ]);
-    expect(runs).toContainEqual(["mount", join(mapper, STATE_MAPPER), "/var/lib/swiff/state"]);
-    expect(await disk.opened()).toBe(true);
+    expect(d.runs).toContainEqual(["mount", d.mapped, "/var/lib/swiff/state"]);
+    expect(await d.state.opened()).toBe(true);
   });
 
   it("mounts a partition this boot opened already without asking cryptsetup again", async () => {
-    const mapper = await mkdtemp(join(tmpdir(), "swiff-mapper-"));
-    await writeFile(join(mapper, STATE_MAPPER), "");
-    const runs: string[][] = [];
-    const disk = linuxStateDisk(
-      { device: "/dev/sda9", mountpoint: "/mnt/state" },
-      async (command, args) => {
-        runs.push([command, ...args]);
-        if (command === "mountpoint") throw new Error("not a mountpoint");
-        return "";
-      },
-      async () => {
-        throw new Error("cryptsetup must not run");
-      },
-      mapper,
-    );
-    expect(await disk.opened()).toBe(false);
-    await disk.open(Buffer.alloc(32));
-    expect(runs.at(-1)).toEqual(["mount", join(mapper, STATE_MAPPER), "/mnt/state"]);
+    const d = await disk(true);
+    await d.state.open(Buffer.alloc(32));
+    expect(d.fed).toEqual([]);
+    expect(d.runs.at(-1)).toEqual(["mount", d.mapped, "/var/lib/swiff/state"]);
   });
 
-  it("unseals U with systemd-creds from its credential", async () => {
-    const calls: string[][] = [];
-    const u = await tpmLocalShare("/var/lib/swiff/state-u.cred", async (command, args) => {
-      calls.push([command, ...args]);
-      return Buffer.alloc(32, 1);
-    })();
-    expect(calls).toEqual([
-      ["systemd-creds", "decrypt", "--name=swiff-state-u", "/var/lib/swiff/state-u.cred", "-"],
+  it("formats the partition with the key on stdin, then opens, makes a filesystem and mounts it", async () => {
+    const d = await disk(true);
+    const key = Buffer.alloc(32, 9);
+    await d.state.format(key);
+    expect(d.runs).toContainEqual(["cryptsetup", "close", STATE_MAPPER]);
+    expect(d.fed.map((f) => f.args.slice(0, 2))).toEqual([
+      ["cryptsetup", "luksFormat"],
+      ["cryptsetup", "open"],
     ]);
-    expect(u).toEqual(Buffer.alloc(32, 1));
+    expect(d.fed.every((f) => f.input.equals(key) && f.args.includes("--key-file=-"))).toBe(true);
+    expect(d.runs.slice(-2)).toEqual([
+      ["mkfs.ext4", "-q", d.mapped],
+      ["mount", d.mapped, "/var/lib/swiff/state"],
+    ]);
+  });
+
+  it("seals U with systemd-creds and writes its key id after it, and unseals it again", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "swiff-u-"));
+    const credential = join(dir, "state-u.cred");
+    const calls: string[][] = [];
+    const local = tpmLocalShare(
+      credential,
+      async (command, args) => {
+        calls.push([command, ...args]);
+        return readFile(credential);
+      },
+      async (command, args, input) => {
+        calls.push([command, ...args]);
+        // The key id is not written yet while U is being sealed.
+        expect(await local.keyId()).toBeNull();
+        await writeFile(args.at(-1)!, input);
+      },
+    );
+    expect(await local.keyId()).toBeNull();
+    await local.seal("key-1", Buffer.alloc(32, 3));
+    expect(await local.keyId()).toBe("key-1");
+    expect(await local.unseal()).toEqual(Buffer.alloc(32, 3));
+    expect(calls).toEqual([
+      ["systemd-creds", "encrypt", "--name=swiff-state-u", "--with-key=tpm2", "-", `${credential}.tmp`],
+      ["systemd-creds", "decrypt", "--name=swiff-state-u", credential, "-"],
+    ]);
   });
 
   it("takes the host certificate the attestation client prints, and refuses anything else", async () => {
