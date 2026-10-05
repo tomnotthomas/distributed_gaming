@@ -540,6 +540,42 @@ describe("useSwiff", () => {
       }
     });
 
+    it("leaves none of the renter's games on the wall once signed out, even when the popular read fails", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let signedOut = false;
+      const me = () => {
+        if (signedOut) return new Response("{}", { status: 401 });
+        const profile = {
+          ...unnamed.profile,
+          lib: true,
+          size: 3,
+          games: [[440, "Team Fortress 2", 3]],
+          checking: 1,
+        };
+        return new Response(JSON.stringify({ steamId: unnamed.steamId, profile }));
+      };
+      serve(unnamed, {}, { "GET /api/me": me });
+      const server = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (path, init) =>
+        signedOut && String(path) === "/api/games/popular"
+          ? new Response("{}", { status: 503 })
+          : server(path, init),
+      );
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.games.some((g) => g.appid === 440)).toBe(true));
+
+        signedOut = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(result.current.signedIn).toBe(false));
+        await act(() => vi.advanceTimersByTimeAsync(1_000));
+        expect(result.current.profile).toBeNull();
+        expect(result.current.games).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const host = {

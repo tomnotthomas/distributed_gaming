@@ -322,10 +322,15 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   /**
    * The signed-out wall: what people are actually playing on Steam that Swiff
    * can run. If Steam is down, the hand-authored nine the server vouches for
-   * stand in; in the demo they are up until it arrives.
+   * stand in; in the demo they are up until it arrives. Nothing of a renter
+   * signed in before is kept: outside the demo the wall stays empty when the
+   * server cannot say what to show.
    */
   const showSignedOut = useCallback(() => {
     ++libraryLoad.current;
+    setSteamId(null);
+    setProfile(null);
+    if (!demo) setGames([]);
     void fetchPopular().then((popular) => {
       vouch(popular);
       const catalog = popular?.games ?? [];
@@ -353,11 +358,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     const timer = setTimeout(() => {
       checkingReads.current++;
       void fetchRenter().then((renter) => {
-        if (renter === "signed-out") {
-          setSteamId(null);
-          setProfile(null);
-          showSignedOut();
-        }
+        if (renter === "signed-out") showSignedOut();
         // An unanswered read keeps the profile, and tries again on the next turn.
         else if (!renter) setProfile({ ...profile });
         else if (sameGames(renter.profile, profile)) setProfile(renter.profile);
