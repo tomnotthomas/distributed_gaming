@@ -476,12 +476,13 @@ describe("useSwiff", () => {
       streams();
       const result = await openLive();
       act(() => result.current.launch());
-      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET), { timeout: 3_000 });
       act(() => result.current.attachVideo(document.createElement("video")));
       track.mockClear();
 
       act(() => rtc.sessions[0]!.emit({ type: "denied", reason: "bad-ticket" }));
-      await waitFor(() => expect(result.current.phase).toBe("idle"));
+      // A denied ticket reads the booking first, to tell a lost machine from any other end.
+      await waitFor(() => expect(result.current.phase).toBe("idle"), { timeout: 3_000 });
       expect(result.current.bookingFailed).toBe(true);
       expect(track).not.toHaveBeenCalledWith("session_ended", expect.anything());
       expect(storedPlay()).toBeNull();

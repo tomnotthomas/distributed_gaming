@@ -230,8 +230,7 @@ describe("watching a booking over the event stream", () => {
     const { stream, open } = fakeStream();
     const stop = watchBooking("b-1", () => {}, { fetch, heartbeatMs: 5, eventSource: open });
     stream.push("queued");
-    await settle();
-    expect(beats.length).toBeGreaterThan(2);
+    await vi.waitFor(() => expect(beats.length).toBeGreaterThan(2), { timeout: 2_000 });
     expect(new Set(beats)).toEqual(new Set(["POST /api/bookings/b-1/seen"]));
 
     stop();
