@@ -839,6 +839,22 @@ describe("the ticket, never stored", () => {
     expect(server.made()).toEqual(["POST /api/bookings/b-1/rejoin"]);
   });
 
+  it("keeps the Steam sign-in deadline of a rental-mode claim not yet started, counted from when it was asked", async () => {
+    vi.useFakeTimers({ now: 50_000 });
+    try {
+      const server = routes({
+        "POST /api/bookings/b-1/rejoin": json(200, { ...TICKET, rentalMode: true, signInMs: 4 * 60_000 }),
+      });
+      expect(await resumeTicket("b-1", { fetch: server.fetch })).toEqual({
+        ...TICKET,
+        rentalMode: true,
+        signInBy: 50_000 + 4 * 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gets none for a booking with no session running, and fails on a server error", async () => {
     const server = routes({
       "POST /api/bookings/b-1/rejoin": json(409, { status: "ended" }),

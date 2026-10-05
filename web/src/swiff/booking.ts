@@ -265,13 +265,15 @@ export async function claim(bookingId: string, options: BookingOptions = {}): Pr
  */
 export async function resumeTicket(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
   const { storage = localStorage, fetch: get = fetch } = options;
+  const asked = Date.now();
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/rejoin`);
   if (response.status >= 400 && response.status < 500) {
     forgetPlay(bookingId, storage);
     return null;
   }
   if (!response.ok) throw new Error(`rejoining failed: ${response.status}`);
-  return (await response.json()) as Claim;
+  const { signInMs, ...rejoined } = (await response.json()) as Claim & { signInMs?: number };
+  return signInMs === undefined ? rejoined : { ...rejoined, signInBy: asked + signInMs };
 }
 
 /**

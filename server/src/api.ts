@@ -784,6 +784,7 @@ export function createApi({
         signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
         ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
         rentalMode: session.rentalMode,
+        ...(session.signInMs === undefined ? {} : { signInMs: session.signInMs }),
       });
       return true;
     }

@@ -300,7 +300,8 @@ export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 /**
  * A claimed booking's running session, for handing its ticket out again: the
  * room, the ticket id recorded at claim, and how long the session may yet run
- * (ms): on a rental-mode PC not yet started, its booked minutes run from the start.
+ * (ms): on a rental-mode PC not yet started, its booked minutes run from the start,
+ * and `signInMs` is what is left of its Steam sign-in time.
  */
 export type RunningSession =
   | {
@@ -310,6 +311,7 @@ export type RunningSession =
       ticketId: string;
       remainingMs: number;
       rentalMode: boolean;
+      signInMs?: number;
     }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "not-running"; status: BookingStatus };
@@ -1457,16 +1459,15 @@ export class Platform {
         "SELECT rental_mode FROM machines WHERE id = $1",
         session.machine_id,
       ))!;
+      const signingIn = rental_mode && session.started_at === null;
       return {
         ok: true,
         sessionId: session.id,
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
-        remainingMs:
-          session.expires_at -
-          now +
-          (rental_mode && session.started_at === null ? booking.minutes * 60_000 : 0),
+        remainingMs: session.expires_at - now + (signingIn ? booking.minutes * 60_000 : 0),
         rentalMode: rental_mode,
+        ...(signingIn ? { signInMs: session.expires_at - now } : {}),
       };
     });
   }

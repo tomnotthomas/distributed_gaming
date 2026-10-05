@@ -359,6 +359,7 @@ describe("the booked minutes on a rental-mode PC", () => {
     assert.ok(running.ok);
     // The ticket outlives a start as late as the sign-in allows.
     assert.equal(running.remainingMs, STEAM_SIGN_IN_MS + 15 * 60_000);
+    assert.equal(running.signInMs, STEAM_SIGN_IN_MS);
     await advance(STEAM_SIGN_IN_MS - 1);
     assert.equal((await platform.viewBooking(bookingId))!.status, "claimed");
     await advance(1);
