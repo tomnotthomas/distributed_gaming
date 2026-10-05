@@ -1548,8 +1548,13 @@ button.band-tab:hover {
   gap: 10px;
 }
 .cb-time {
-  font-size: clamp(64px, 9vw, 120px);
+  font-size: clamp(64px, 6.2vw, 104px);
   line-height: 1;
+}
+/* The reading never runs under the way-out pill at the top right. */
+.cb-paper > .ig-step,
+.cb-paper > .cb-time {
+  padding-right: 220px;
 }
 .cb-line {
   max-width: 34ch;
@@ -2403,6 +2408,14 @@ button.band-tab:hover {
   }
   .cb-paper {
     min-height: 0;
+  }
+  .cb-paper > .ig-step,
+  .cb-paper > .cb-time {
+    padding-right: 0;
+  }
+  .cb-paper > .ig-step {
+    /* Clear of the way-out pill, which sits beside it here. */
+    min-height: 56px;
   }
   .cb-time {
     font-size: 64px;
