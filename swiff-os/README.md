@@ -418,7 +418,7 @@ defaults:
   for a discrete TPM.
 
 ```bash
-npm test -w @swiff/hostd                  # unit tests, and two against the real server (build it first)
+npm test -w @swiff/hostd                  # unit tests, and some against the real server (build it first)
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts      # the agent
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts status
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
@@ -435,8 +435,8 @@ can use.
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
-- The persistent state partition in the image, and enrolling its key (sealing U, giving
-  the server V) at the first rental-mode boot.
+- The persistent state partition in the image (the agent already formats it and enrols
+  its key, sealing U and taking V, the first time the server has no V for the machine).
 - Attesting, and hosting on the host certificate it earns in place of the machine key
   (the server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at
   the `unattested` tier meanwhile), then re-attesting before each session.
