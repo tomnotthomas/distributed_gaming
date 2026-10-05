@@ -102,7 +102,11 @@ describe("stability bucket from the raw history", () => {
   });
 
   it("leaves a renter who never arrived or never came back out of completion, but counts it as a session", () => {
-    const ended = [...sessions(19, "renter"), ...sessions(1, "host_offline"), ...sessions(10, "grace_expired")];
+    const ended = [
+      ...sessions(19, "renter"),
+      ...sessions(1, "host_offline"),
+      ...sessions(10, "grace_expired"),
+    ];
     const stats = stabilityStats(UPTIME, ended);
     assert.equal(stats.sessionCompletion, 0.95);
     assert.equal(stats.sessions, 30);
