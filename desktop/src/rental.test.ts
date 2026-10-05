@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
+import { keyOf, keyStep, keyStore } from "../rental-key.cjs";
 import {
   bitlockerState,
   factsOf,
@@ -984,6 +985,35 @@ describe("Swiff's key, after the install", () => {
     expect(stepLocked("live", { rental: installed(null), live: { kind: "waiting" } })).toBe(false);
     // Development builds that share this Windows desktop go live without rental mode.
     expect(stepLocked("live", { rental: installed(null), live: off }, true)).toBe(false);
+  });
+
+  it("goes back to the key step, Go live locked, once Swiff's key is taken off", () => {
+    const disk = new Map<string, string>();
+    const files = {
+      readFileSync: (file: string) => {
+        if (!disk.has(file)) throw new Error("ENOENT");
+        return disk.get(file)!;
+      },
+      writeFileSync: (file: string, data: string) => void disk.set(file, data),
+      mkdirSync: () => undefined,
+      rmSync: (file: string) => void disk.delete(file),
+    } as unknown as typeof import("node:fs");
+    const crypt = {
+      seal: (text: string) => Buffer.from(text).reverse(),
+      open: (sealed: Buffer) => Buffer.from(sealed).reverse().toString(),
+    };
+    const store = keyStore("/data", crypt, files);
+    const at = (state: ReturnType<typeof keyOf>) => installed(state);
+    const off = { kind: "off" };
+    keyStep(store, mokPlan("48217730"), "mok", 1000);
+    store.answer(true);
+    expect(rentalStage(at(keyOf(store.read(), 2000)))).toEqual({ kind: "installed" });
+    expect(stepLocked("live", { rental: at(keyOf(store.read(), 2000)), live: off })).toBe(false);
+    const unkey = keyRemovalPlan("51234870");
+    for (const s of unkey.steps) keyStep(store, unkey, s.id, 3000);
+    const removed = at(keyOf(store.read(), 4000));
+    expect(rentalStage(removed)).toEqual({ kind: "key" });
+    expect(stepLocked("live", { rental: removed, live: off })).toBe(true);
   });
 
   it("sums up the last live run once, back in Windows, until the owner has seen it", () => {

@@ -85,8 +85,18 @@ wrecks the build's 4,096-byte-sector FAT on the 512-byte-sector disks nearly eve
 the installer offers only those disks), with `\EFI\swiff\` added (Ubuntu's Microsoft-signed shim
 from the image's own archive snapshot, MokManager, and the build's signed systemd-boot as
 `grubx64.efi`, the name shim starts), slot A and its verity hashes, Swiff's certificate, and
-`swiffos.json` with the layout and each file's SHA-256. The app looks for it in
-`$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder.
+`swiffos.json` with the layout and each file's SHA-256, signed (`swiffos.json.sig`, Ed25519).
+The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder, and
+reads no manifest that a key in `desktop/image-trust.json` did not sign, nor a set whose
+certificate is not the one that key's sets carry. The installer's administrator side copies the
+set into `%ProgramData%\Swiff\swiff-os`, which only administrators can write, checking each file
+as it copies, and works only from that copy. The release signs with the private key in
+`$SWIFF_OS_SIGNING_KEY`, a file the release step writes from its secret store: it never enters
+the repository, and its public half and certificate go into `desktop/image-trust.json` as
+`node desktop/image-set.cjs trust <key> <swiffos-key.cer>` prints them. Without it, `image-set.sh`
+signs with the developer's own key (`~/.config/swiff/image-dev-key.pem`, made on first use) and
+writes `desktop/image-trust.dev.json`, which only development builds (unpackaged, and the
+console installer the VM tests use) trust.
 
 **Tests.** `desktop/vm/windows-install-test.sh` runs the installer, unchanged, on Microsoft's
 Windows 11 Enterprise evaluation in QEMU/KVM, with OVMF and Microsoft's Secure Boot keys, a

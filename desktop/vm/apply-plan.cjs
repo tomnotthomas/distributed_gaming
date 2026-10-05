@@ -30,7 +30,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
-const { fileOf, readImageSet, sourceOf } = require("../image-set.cjs");
+const { fileOf, readImageSet, sourceOf, trustOf } = require("../image-set.cjs");
 const { MOK_CERT, TYPE, installPlan, mokRequest, mokSteps, rentalOf, switchPlan } = require("../rental.cjs");
 
 const MiB = 1024 * 1024;
@@ -325,7 +325,7 @@ if (cmd === "windows") windows(args[0], Number(args[1]));
 else if (cmd === "facts") facts(args[0]);
 else if (cmd === "install") {
   const [file, dir, factsFile, vars] = args;
-  const set = readImageSet(dir);
+  const set = readImageSet(dir, { trust: trustOf({ dev: true }) });
   const rental = rentalOf(JSON.parse(fs.readFileSync(factsFile, "utf8")), [{ letter: "C", games: 1 }]);
   const plan = installPlan(rental, {
     layout: set.layout,

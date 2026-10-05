@@ -19,6 +19,18 @@
 #   swiffos-key.cer              the certificate that signed systemd-boot and
 #                                the UKI (from the ESP's db.auth): the MOK
 #   swiffos.json                 the layout, and each file's size and SHA-256
+#   swiffos.json.sig             its Ed25519 signature: the app reads no
+#                                manifest that a key it trusts did not sign
+#
+# The release signs with the private key in the file $SWIFF_OS_SIGNING_KEY,
+# which the release step writes from its secret store: it is never in the
+# repository. The app ships the release key's public half, with the SHA-256 of
+# the certificate its sets carry, in desktop/image-trust.json: the entry
+# `node desktop/image-set.cjs trust <key> <swiffos-key.cer>` prints. Without
+# $SWIFF_OS_SIGNING_KEY the set is signed with this developer's own key,
+# made once in ${XDG_CONFIG_HOME:-~/.config}/swiff/image-dev-key.pem, and its
+# entry is written to desktop/image-trust.dev.json, which only development
+# builds (unpackaged, and the VM tests' console installer) trust.
 #
 # Ubuntu's shim comes from the image's own pinned archive snapshot
 # (shim-signed, checked against SHIM_SHA256 below), or from $SHIM_DIR (a
@@ -31,7 +43,8 @@
 # 512-byte sectors, as every dual-boot Linux ESP has, and the installer offers
 # only disks with 512-byte sectors.
 #
-# Needs node, mtools, mkfs.fat and curl or $SHIM_DIR. Writes only into <out-dir>.
+# Needs node, mtools, mkfs.fat and curl or $SHIM_DIR. Writes only into <out-dir>,
+# and with the developer's key into its folder and desktop/image-trust.dev.json.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -92,4 +105,14 @@ for split in root-x86-64 root-x86-64-verity; do
 	cp --sparse=always "$build/$name.$split.raw" "$out/swiffos_$version.$split.raw"
 done
 node "$desktop/image-set.cjs" manifest "$out" "$build/$name.raw" "$version"
+key=${SWIFF_OS_SIGNING_KEY:-}
+if [ -z "$key" ]; then
+	key=${XDG_CONFIG_HOME:-$HOME/.config}/swiff/image-dev-key.pem
+	if [ ! -s "$key" ]; then
+		mkdir -p "$(dirname "$key")"
+		(umask 077 && node -e 'process.stdout.write(require("node:crypto").generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }))' > "$key")
+	fi
+	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$desktop/image-trust.dev.json"
+fi
+node "$desktop/image-set.cjs" sign "$out" "$key"
 echo "Swiff OS $version image set in $out"

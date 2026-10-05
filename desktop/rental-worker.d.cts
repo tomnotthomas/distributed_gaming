@@ -1,5 +1,6 @@
 // Types for rental-worker.cjs, so the installer's tests can drive it with a stand-in for Windows.
 
+import type { Trust } from "./image-set.cjs";
 import type { PlanOp } from "./rental.cjs";
 
 export type WindowsDisk = {
@@ -23,6 +24,7 @@ export const WINDOWS: Windows;
 export function checkOp(op: unknown): void;
 export function createWorker(options: {
   imageDir: string;
+  trust?: Trust[];
   win?: Windows;
   files?: typeof import("node:fs");
 }): Promise<{
@@ -34,4 +36,4 @@ export function createWorker(options: {
 }>;
 export function diskPath(number: number): string;
 export function diskOf(fd: number, bytes: number, sector: number): WindowsDisk;
-export function serve(pipe: string, token: string, imageDir: string): Promise<void>;
+export function serve(pipe: string, token: string, imageDir: string, trust: Trust[]): Promise<void>;

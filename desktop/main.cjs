@@ -26,9 +26,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
-const { readImageSet } = require("./image-set.cjs");
+const { readImageSet, trustOf } = require("./image-set.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
-const { bootTrail, keyOf, keyStore } = require("./rental-key.cjs");
+const { bootTrail, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const {
   installPlan,
   keyRemovalPlan,
@@ -135,16 +135,30 @@ async function watchGames() {
 
 /** Where Swiff OS's image set is (image-set.cjs). */
 const imageDir = () => process.env.SWIFF_OS_IMAGE_DIR || path.join(app.getPath("userData"), "swiff-os");
+/** Swiff OS's image set, signed by a key this build trusts. */
+const imageSet = () => readImageSet(imageDir(), { trust: trustOf({ dev: !app.isPackaged }) });
 /** The image set's version, or null when it is not on this PC. */
 const imageVersion = () => {
   try {
-    return readImageSet(imageDir()).version;
+    return imageSet().version;
   } catch {
     return null;
   }
 };
-/** What the app queued for Swiff's key, and what the owner said about its blue screen (rental-key.cjs). */
-const keys = () => keyStore(app.getPath("userData"));
+/**
+ * What the app queued for Swiff's key, and what the owner said about its blue screen (rental-key.cjs).
+ * Its code is encrypted by the OS for the logged-in Windows user, as the machine key is.
+ */
+const keys = () =>
+  keyStore(
+    app.getPath("userData"),
+    safeStorage.isEncryptionAvailable()
+      ? {
+          seal: (text) => safeStorage.encryptString(text),
+          open: (sealed) => safeStorage.decryptString(sealed),
+        }
+      : null,
+  );
 /** When this PC last started: a key request queued before it has met its blue screen. */
 const bootAt = () => Date.now() - os.uptime() * 1000;
 
@@ -182,7 +196,7 @@ ipcMain.handle("rental:plan", async (event, ask) => {
           ? uninstallPlan(rental)
           : installPlan(rental, {
               target: typeof ask.target === "string" ? ask.target : null,
-              layout: readImageSet(imageDir()).layout,
+              layout: imageSet().layout,
             });
     }
   } catch {
@@ -225,9 +239,8 @@ ipcMain.handle("rental:run", async (event) => {
       confirm: async () => true,
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),
       onEvent: (e) => {
-        // The key's request is in the firmware: its code must outlive this window.
-        if (e.type === "step" && e.state === "done" && e.id === "mok" && plan.mok)
-          keys().queued(plan.mok.code, Date.now());
+        // The key's request is in the firmware, or its removal: the key's file must outlive this window.
+        if (e.type === "step" && e.state === "done") keyStep(keys(), plan, e.id, Date.now());
         tell(e);
       },
     });

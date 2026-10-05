@@ -12,12 +12,15 @@ export type BootTrail = { at: number } & import("./measured-boot.cjs").Trail;
 export function savedOf(raw: unknown): SavedKey | null;
 export function keyOf(saved: SavedKey | null, bootAt: number, trail?: BootTrail | null): KeyState | null;
 export function bootTrail(dir?: string, files?: typeof import("node:fs")): BootTrail | null;
-export function keyStore(
-  dir: string,
-  files?: typeof import("node:fs"),
-): {
+export type KeyStore = {
   read(): SavedKey | null;
   queued(code: string, at: number): void;
   answer(yes: boolean): void;
   forget(): void;
 };
+export function keyStore(
+  dir: string,
+  crypt: { seal(text: string): Buffer; open(sealed: Buffer): string } | null,
+  files?: typeof import("node:fs"),
+): KeyStore;
+export function keyStep(store: KeyStore, plan: { mok?: { code: string } }, id: string, at: number): void;

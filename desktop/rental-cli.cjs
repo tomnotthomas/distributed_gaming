@@ -25,7 +25,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const readline = require("node:readline");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
-const { readImageSet } = require("./image-set.cjs");
+const { readImageSet, trustOf } = require("./image-set.cjs");
 const { bootTrail } = require("./rental-key.cjs");
 const {
   installPlan,
@@ -56,7 +56,11 @@ async function plan(kind, { image, target = null }) {
   const rental = await readRental();
   if (!rental) throw new Error("This PC could not be read.");
   if (kind === "uninstall") return uninstallPlan(rental);
-  if (kind === "install") return installPlan(rental, { target, layout: readImageSet(image).layout });
+  if (kind === "install")
+    return installPlan(rental, {
+      target,
+      layout: readImageSet(image, { trust: trustOf({ dev: true }) }).layout,
+    });
   throw new Error(`No plan ${kind}.`);
 }
 

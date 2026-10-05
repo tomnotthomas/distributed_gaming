@@ -9,7 +9,10 @@
 //   partitions     gpt.cjs on disk N (\\.\GLOBALROOT\Device\HarddiskN\Partition0):
 //                  Swiff OS's partitions added
 //                  with the image's ids and names, and removed again
-//   the image      each split file written into its own partition, hashed as it
+//   the image      the image set, signed by a key the app trusts (image-set.cjs),
+//                  copied into %ProgramData%\Swiff\swiff-os (writable by
+//                  administrators only) and checked as it is copied; each split
+//                  file written from there into its own partition, hashed as it
 //                  goes and read back, against the image set's SHA-256
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
@@ -30,7 +33,17 @@ const net = require("node:net");
 const path = require("node:path");
 const efi = require("./efi.cjs");
 const { gptWrites, readGpt, withPartitions, withRemoved, withRetyped } = require("./gpt.cjs");
-const { BLOCK, fileOf, hashOf, readImageSet, sourceOf, verifyFile } = require("./image-set.cjs");
+const {
+  BLOCK,
+  MANIFEST,
+  SIGNATURE,
+  fileOf,
+  hashOf,
+  imageSetOf,
+  readSigned,
+  sourceOf,
+  trustOf,
+} = require("./image-set.cjs");
 const { BOOT_PATH, BOOT_TITLE, GAMES_LABEL, MOK_CERT, TYPE, shellOf } = require("./rental.cjs");
 
 /** The partition types Swiff OS's partitions have: the only ones this worker adds or removes. */
@@ -384,10 +397,67 @@ function checkOp(op) {
  * with what it reports (warnings, the boot entry it made). `win` is Windows
  * (WINDOWS), or a stand-in in tests.
  */
-async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
-  const set = readImageSet(imageDir, files);
+async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = WINDOWS, files = fs }) {
   const state = await openState(win, files);
   const run = (op) => win.powershell(shellOf(op));
+
+  // The image set as this worker uses it: in the record's folder, so only administrators can change
+  // it, and only what was checked there. Emptied on every start: nothing in it is from before.
+  const home = path.join(win.stateDir, "swiff-os");
+  files.rmSync(home, { recursive: true, force: true });
+  files.mkdirSync(home);
+  let set = null;
+  /** The image set in `imageDir`, read once, signed by a key in `trust`, and kept in `home`. */
+  const imageSet = () => {
+    if (set) return set;
+    const { manifest, signature } = readSigned(imageDir, files);
+    const checked = imageSetOf(manifest, signature, trust);
+    files.writeFileSync(path.join(home, MANIFEST), manifest);
+    files.writeFileSync(path.join(home, SIGNATURE), signature);
+    return (set = { ...checked, dir: home });
+  };
+  const staged = new Set();
+  /** The file `name` of the set copied into `home`, hashed as it is copied: there only if it is the one listed. */
+  async function stage(name, progress) {
+    const file = fileOf(imageSet(), name);
+    if (staged.has(name)) return file;
+    const part = `${file.path}.part`;
+    const from = files.openSync(path.join(imageDir, name), "r");
+    const to = files.openSync(part, "w");
+    let sha;
+    try {
+      sha = await hashOf(
+        async (buf, at) => {
+          const n = files.readSync(from, buf, 0, buf.length, at);
+          files.writeSync(to, buf, 0, n, at);
+          return n;
+        },
+        file.bytes,
+        (done, total) => progress({ what: `Copying ${name}`, done, total }),
+      );
+    } finally {
+      files.closeSync(from);
+      files.closeSync(to);
+    }
+    if (sha !== file.sha256) {
+      files.rmSync(part, { force: true });
+      throw new Error(`${name} is not the file its image set lists: its SHA-256 differs.`);
+    }
+    files.renameSync(part, file.path);
+    staged.add(name);
+    return file;
+  }
+  /** Swiff's certificate, read once: these very bytes are checked, kept in `home`, and used. */
+  function certificate() {
+    const file = fileOf(imageSet(), MOK_CERT);
+    const cert = files.readFileSync(path.join(imageDir, MOK_CERT));
+    must(
+      cert.length === file.bytes && crypto.createHash("sha256").update(cert).digest("hex") === file.sha256,
+      `${MOK_CERT} is not the file its image set lists.`,
+    );
+    files.writeFileSync(file.path, cert);
+    return cert;
+  }
 
   /** The disk's GPT, read fresh. */
   const withDisk = async (number, use) => {
@@ -546,8 +616,9 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
         return { warnings };
       }
       case "image-check": {
-        for (const name of Object.keys(set.files))
-          await verifyFile(set, name, (done, total) => progress({ what: name, done, total }));
+        for (const name of Object.keys(imageSet().files))
+          if (name === MOK_CERT) certificate();
+          else await stage(name, progress);
         return {};
       }
       case "bitlocker-suspend":
@@ -614,9 +685,10 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
         must(!s.partitions.length, "Swiff OS's partitions are already there.");
         must(s.disk === null || s.disk === op.disk, "Swiff OS's room is on another disk.");
         // Exactly the image's partitions, back to back: nothing else may be added.
-        must(op.partitions.length === set.layout.length, "Those are not Swiff OS's partitions.");
+        const { layout } = imageSet();
+        must(op.partitions.length === layout.length, "Those are not Swiff OS's partitions.");
         op.partitions.forEach((p, i) => {
-          const want = set.layout[i];
+          const want = layout[i];
           must(
             p.role === want.role &&
               p.type === want.type &&
@@ -697,13 +769,14 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       }
       case "write": {
         const part = s.partitions.find((p) => p.offset === op.offset && p.bytes === op.bytes);
-        const layout = part && set.layout.find((p) => p.role === part.role);
+        const layout = part && imageSet().layout.find((p) => p.role === part.role);
         must(
           s.disk === op.disk && layout && layout.split === op.source,
           "That is not one of Swiff OS's partitions.",
         );
-        const source = sourceOf(set, op.source);
+        const source = sourceOf(imageSet(), op.source);
         must(source.bytes === op.bytes, "The file is not the size of its partition.");
+        await stage(path.basename(source.path), progress);
         const fd = files.openSync(source.path, "r");
         try {
           await withDisk(op.disk, async (disk) => {
@@ -732,6 +805,9 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
         } finally {
           files.closeSync(fd);
         }
+        // On the disk now: its copy gives C: its room back.
+        files.rmSync(source.path);
+        staged.delete(path.basename(source.path));
         return {};
       }
       case "boot-entry": {
@@ -803,9 +879,7 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
       }
       case "mok-import":
       case "mok-delete": {
-        const cert = fileOf(set, MOK_CERT);
-        await verifyFile(set, MOK_CERT);
-        const vars = efi.mokVariables(files.readFileSync(cert.path), op.code, {
+        const vars = efi.mokVariables(certificate(), op.code, {
           remove: op.op === "mok-delete",
         });
         await win.firmware(
@@ -862,19 +936,20 @@ async function createWorker({ imageDir, win = WINDOWS, files = fs }) {
 // --- talking to the app ---------------------------------------------------------------
 
 /**
- * Serve the app on `pipe`: say hello with `token` (which only the app knows,
+ * Serve the app on `pipe`, for the image set in `imageDir` signed by a key in
+ * `trust`: say hello with `token` (which only the app knows,
  * from this process's command line), then carry out each operation it sends,
  * one at a time, as newline-delimited JSON: `{ id, op }` in, `{ id, progress }`
  * while it runs, then `{ id, ok, result }` or `{ id, ok: false, error }`. Exits
  * when the app hangs up.
  */
-async function serve(pipe, token, imageDir) {
+async function serve(pipe, token, imageDir, trust) {
   const socket = net.connect(pipe);
   await new Promise((resolve, reject) => socket.once("connect", resolve).once("error", reject));
   const send = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
   let worker;
   try {
-    worker = await createWorker({ imageDir });
+    worker = await createWorker({ imageDir, trust });
     send({ hello: token, ok: true });
   } catch (error) {
     send({ hello: token, ok: false, error: error.message });
@@ -922,7 +997,7 @@ module.exports = {
 
 if (require.main === module) {
   const [pipe, token, imageDir] = process.argv.slice(2);
-  serve(pipe, token, imageDir).then(
+  serve(pipe, token, imageDir, trustOf({ dev: true })).then(
     () => process.exit(0),
     () => process.exit(1),
   );

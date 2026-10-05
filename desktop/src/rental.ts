@@ -729,7 +729,7 @@ export function rentalLine(setup: RentalSetup): string {
 // different on the PC so far (from the steps that finished), and the one thing
 // to do next. Windows' own words wait behind "What happened, in detail".
 
-export type FailureKind = "admin" | "bios" | "write" | "space" | "removal" | "restart" | "unknown";
+export type FailureKind = "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "unknown";
 
 export type Failure = {
   kind: FailureKind;
@@ -843,6 +843,18 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       at: "Not started",
       far: "not started",
     };
+  const sent = run.reportedAt !== null;
+  // The administrator side refused Swiff OS's files (image-set.cjs): not signed by Swiff, or not the ones listed.
+  if (/image set/i.test(error))
+    return stopped(installing ? "Install" : "Key", {
+      kind: "image",
+      title: "Swiff OS's files didn't pass the check",
+      why: "The Swiff OS files on this PC aren't the ones Swiff signed, so Swiff didn't use them.",
+      changed: changedSoFar(plan, run),
+      action: sent ? "again" : "send",
+      label: sent ? "Try again" : "Send details to Swiff",
+      rail: "Files didn't check out",
+    });
   const bios = step?.id === "check" ? checkBios(error) : null;
   if (bios)
     return {
@@ -915,7 +927,6 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
   const running = (RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "working").replace(/^\w/, (c) =>
     c.toLowerCase(),
   );
-  const sent = run.reportedAt !== null;
   return stopped(installing ? "Install" : "Key", {
     kind: "unknown",
     title: installing

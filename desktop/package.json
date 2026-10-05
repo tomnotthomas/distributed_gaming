@@ -55,7 +55,9 @@
       "rental-key.cjs",
       "rental-worker.cjs",
       "image-set.cjs",
+      "image-trust.json",
       "efi.cjs",
+      "measured-boot.cjs",
       "dist/**"
     ],
     "win": {

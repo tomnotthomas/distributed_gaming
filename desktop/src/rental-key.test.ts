@@ -89,19 +89,41 @@ describe("Swiff's key, as the app knows it", () => {
   });
 });
 
+/** Encryption as safeStorage's, for the tests: the code comes back only through `open`. */
+const crypt = {
+  seal: (text: string) => Buffer.from(Buffer.from(text).map((b) => b ^ 0x5a)),
+  open: (sealed: Buffer) => Buffer.from(sealed.map((b) => b ^ 0x5a)).toString(),
+};
+
 describe("the key's file", () => {
-  it("keeps the queued code, then the owner's answer, and forgets both", () => {
+  it("keeps the queued code encrypted, then the owner's answer, and forgets both", () => {
     const files = memoryFs();
-    const store = keyStore("/data", files);
+    const store = keyStore("/data", crypt, files);
     expect(store.read()).toBeNull();
     store.queued("48217730", 1000);
     expect(store.read()).toEqual({ code: "48217730", queuedAt: 1000, answer: null });
+    expect(files.map.get("/data/rental-key.json")!.toString()).not.toContain("48217730");
     store.answer(true);
     expect(store.read()).toEqual({ code: null, queuedAt: null, answer: "yes" });
     // The answer replaces the code: it is used up.
     expect(files.map.get("/data/rental-key.json")!.toString()).not.toContain("48217730");
     store.forget();
     expect(store.read()).toBeNull();
+  });
+
+  it("keeps no code where nothing can encrypt it, and none it cannot decrypt", () => {
+    const files = memoryFs();
+    keyStore("/data", null, files).queued("48217730", 1000);
+    expect(files.map.get("/data/rental-key.json")!.toString()).not.toContain("48217730");
+    expect(keyStore("/data", null, files).read()).toBeNull();
+    keyStore("/data", crypt, files).queued("48217730", 1000);
+    const broken = {
+      ...crypt,
+      open: (): string => {
+        throw new Error("not this user's");
+      },
+    };
+    expect(keyStore("/data", broken, files).read()).toBeNull();
   });
 });
 

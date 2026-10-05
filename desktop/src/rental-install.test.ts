@@ -5,7 +5,7 @@
 // uninstall on a stand-in for Windows: a disk in memory, firmware variables
 // in a map, and PowerShell answering the few things it is asked.
 
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -13,7 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
-import { MANIFEST } from "../image-set.cjs";
+import { MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { clientOf, dryRun, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, type Windows } from "../rental-worker.cjs";
 import {
@@ -40,16 +40,28 @@ const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
 const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
 const NAMES = ["esp", "swiffos_0.1.0", "swiffos_0.1.0", "_empty", "_empty", "swiff-scratch"];
+const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
-/** An image set with its manifest and certificate, but no split files: what every op but `write` reads. */
-function imageSet(dir: string) {
+/** Swiff's signing key, for the tests, and what the app trusts of it. */
+const SIGNER = generateKeyPairSync("ed25519");
+const TRUST = [
+  { publicKey: SIGNER.publicKey.export({ type: "spki", format: "pem" }) as string, certSha256: sha256(CERT) },
+];
+
+/**
+ * An image set with its manifest, signed by `key`, and certificate `cert`, but
+ * no split files: what every op but `write` reads.
+ */
+function imageSet(dir: string, { key = SIGNER.privateKey, cert = CERT } = {}) {
   const layout = SWIFF_OS.partitions.map((p, i) => ({ ...p, id: ID(i), name: NAMES[i]! }));
   const files: Record<string, { bytes: number; sha256: string }> = {};
   for (const p of layout.filter((p) => p.split))
     files[splitFile(p.split!)] = { bytes: p.bytes, sha256: "0".repeat(64) };
-  files["swiffos-key.cer"] = { bytes: CERT.length, sha256: createHash("sha256").update(CERT).digest("hex") };
-  fs.writeFileSync(path.join(dir, MANIFEST), JSON.stringify({ version: "0.1.0", layout, files }));
-  fs.writeFileSync(path.join(dir, "swiffos-key.cer"), CERT);
+  files["swiffos-key.cer"] = { bytes: cert.length, sha256: sha256(cert) };
+  const manifest = Buffer.from(JSON.stringify({ version: "0.1.0", layout, files }));
+  fs.writeFileSync(path.join(dir, MANIFEST), manifest);
+  fs.writeFileSync(path.join(dir, SIGNATURE), sign(null, manifest, key));
+  fs.writeFileSync(path.join(dir, "swiffos-key.cer"), cert);
   return layout;
 }
 
@@ -209,7 +221,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 async function setup() {
   const layout = imageSet(path.join(dir, "image"));
   const pc = fakeWindows(path.join(dir, "state"));
-  const worker = await createWorker({ imageDir: path.join(dir, "image"), win: pc.win });
+  const worker = await createWorker({ imageDir: path.join(dir, "image"), trust: TRUST, win: pc.win });
   return { pc, worker, layout };
 }
 
@@ -432,6 +444,71 @@ describe("the elevated worker", () => {
     expect(rentalOf(pc.facts()).facts.install).toBeNull();
   });
 
+  it("uses only an image set Swiff signed, carrying the certificate Swiff's key's sets carry", async () => {
+    const image = path.join(dir, "image");
+    const pc = fakeWindows(path.join(dir, "state"));
+    const mok = { op: "mok-import", cert: "swiffos-key.cer", code: "48217730" } as const;
+    const worker = async () => createWorker({ imageDir: image, trust: TRUST, win: pc.win });
+
+    imageSet(image, { key: generateKeyPairSync("ed25519").privateKey });
+    await expect((await worker()).apply(mok)).rejects.toThrow(/Swiff did not sign this image set/);
+    imageSet(image);
+    const manifest = JSON.parse(fs.readFileSync(path.join(image, MANIFEST), "utf8"));
+    fs.writeFileSync(path.join(image, MANIFEST), JSON.stringify({ ...manifest, version: "0.1.1" }));
+    await expect((await worker()).apply(mok)).rejects.toThrow(/Swiff did not sign this image set/);
+    // Signed, but with another certificate than the one the app knows for this key.
+    imageSet(image, { cert: Buffer.from("3082010a0282010100badbad", "hex") });
+    await expect((await worker()).apply(mok)).rejects.toThrow(/certificate is not Swiff's/);
+    // Swapped after the manifest was signed.
+    imageSet(image);
+    fs.writeFileSync(path.join(image, "swiffos-key.cer"), Buffer.from("3082010a0282010100badbad", "hex"));
+    await expect((await worker()).apply(mok)).rejects.toThrow(/is not the file its image set lists/);
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokNew"))).toBe(false);
+    // Nothing of what was refused stays in the administrators' folder.
+    expect(fs.readdirSync(path.join(dir, "state", "swiff-os"))).not.toContain("swiffos-key.cer");
+  });
+
+  it("keeps the image set it uses in the administrators' folder, emptied on every start", async () => {
+    const image = path.join(dir, "image");
+    imageSet(image);
+    const pc = fakeWindows(path.join(dir, "state"));
+    const home = path.join(dir, "state", "swiff-os");
+    fs.mkdirSync(home);
+    fs.writeFileSync(path.join(home, "swiffos-key.cer"), "left by someone else");
+    const worker = await createWorker({ imageDir: image, trust: TRUST, win: pc.win });
+    expect(fs.readdirSync(home)).toEqual([]);
+    await worker.apply({ op: "mok-import", cert: "swiffos-key.cer", code: "48217730" });
+    expect(fs.readFileSync(path.join(home, "swiffos-key.cer")).equals(CERT)).toBe(true);
+    expect(
+      fs.readFileSync(path.join(home, MANIFEST)).equals(fs.readFileSync(path.join(image, MANIFEST))),
+    ).toBe(true);
+    // Changed in the owner's folder after it was read: the worker goes on with what it checked.
+    fs.writeFileSync(path.join(image, MANIFEST), "{}");
+    await expect(
+      worker.apply({ op: "mok-delete", cert: "swiffos-key.cer", code: "48217730" }),
+    ).resolves.toEqual({});
+  });
+
+  it("trusts a developer's own key only in a development build", () => {
+    const dev = path.join(__dirname, "..", "image-trust.dev.json");
+    const files = {
+      readFileSync: (file: string) => {
+        if (file === dev) return JSON.stringify(TRUST);
+        if (file.endsWith("image-trust.json")) return "[]";
+        throw new Error("ENOENT");
+      },
+    } as unknown as typeof fs;
+    expect(trustOf({ dev: false }, files)).toEqual([]);
+    expect(trustOf({ dev: true }, files)).toEqual(TRUST);
+    imageSet(path.join(dir, "image"));
+    expect(readImageSet(path.join(dir, "image"), { trust: trustOf({ dev: true }, files) }).version).toBe(
+      "0.1.0",
+    );
+    expect(() => readImageSet(path.join(dir, "image"), { trust: trustOf({ dev: false }, files) })).toThrow(
+      /Swiff did not sign this image set/,
+    );
+  });
+
   it("adds only the image's own partitions, and writes only into the ones it added", async () => {
     const { pc, worker, layout } = await setup();
     const rental = rentalOf(pc.facts(), []);
@@ -567,14 +644,14 @@ describe("the elevated worker", () => {
   it("turns a record from before, with Boot#### numbers, into what each entry starts", async () => {
     const { pc, layout } = await setup();
     const plan = installPlan(rentalOf(pc.facts(), []), { layout });
-    const first = await createWorker({ imageDir: path.join(dir, "image"), win: pc.win });
+    const first = await createWorker({ imageDir: path.join(dir, "image"), trust: TRUST, win: pc.win });
     await runPlan(plan, { apply: skipping(first.apply), only: ["room", "partitions", "boot-entry"] });
     // As the GEEKOM's record was written: numbers, version 1.
     const file = path.join(dir, "state", "rental-install.json");
     const old = { ...JSON.parse(fs.readFileSync(file, "utf8")), version: 1, bootEntry: 1, windowsEntry: 0 };
     fs.writeFileSync(file, JSON.stringify(old));
     expect(installOf(old)!.bootEntry).toEqual({ partition: null, path: null });
-    const worker = await createWorker({ imageDir: path.join(dir, "image"), win: pc.win });
+    const worker = await createWorker({ imageDir: path.join(dir, "image"), trust: TRUST, win: pc.win });
     expect(worker.state()).toMatchObject({
       version: 2,
       bootEntry: { partition: ID(0), path: "\\EFI\\swiff\\shimx64.efi" },

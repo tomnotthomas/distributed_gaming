@@ -11,9 +11,16 @@
 //   swiffos_<version>.root-x86-64.raw   the system, and its dm-verity hashes
 //   swiffos_<version>.root-x86-64-verity.raw
 //   swiffos-key.cer                     Swiff's certificate, enrolled as a MOK
+//   swiffos.json.sig                    Swiff's Ed25519 signature of swiffos.json
 //
 // Nothing is written from a file whose size or SHA-256 differs from the
-// manifest's.
+// manifest's, and no manifest is read that a key the app trusts did not sign.
+// The app ships the keys it trusts in image-trust.json, each with the SHA-256
+// of the certificate its sets must carry. The release key's private half is a
+// secret of the image release step (SWIFF_OS_SIGNING_KEY in
+// swiff-os/image-set.sh), never in the repository. A development build also
+// trusts image-trust.dev.json beside this file: the public half of a key pair
+// made on the developer's own machine, which no packaged build reads.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -21,21 +28,69 @@ const path = require("node:path");
 const { MOK_CERT, SWIFF_OS, splitFile } = require("./rental.cjs");
 
 const MANIFEST = "swiffos.json";
+const SIGNATURE = "swiffos.json.sig";
 const GUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const BLOCK = 4 * 1024 * 1024;
 
 /**
- * The image set in `dir`, from its manifest: throws unless the manifest lays
- * out exactly Swiff OS's partitions and lists every file the install needs.
+ * The keys an image set may be signed with, each with the SHA-256 of the
+ * certificate its sets carry: the release's, and in a development build
+ * (`dev`) the developer's own.
  */
-function readImageSet(dir, files = fs) {
-  let manifest;
+function trustOf({ dev }, files = fs) {
+  const listed = (file) => {
+    try {
+      const list = JSON.parse(files.readFileSync(file, "utf8"));
+      return Array.isArray(list)
+        ? list.filter((t) => typeof t?.publicKey === "string" && /^[0-9a-f]{64}$/.test(t.certSha256))
+        : [];
+    } catch {
+      return [];
+    }
+  };
+  return [
+    ...listed(path.join(__dirname, "image-trust.json")),
+    ...(dev ? listed(path.join(__dirname, "image-trust.dev.json")) : []),
+  ];
+}
+
+/** The manifest of the image set in `dir` and its signature, as they are on disk. */
+function readSigned(dir, files = fs) {
   try {
-    manifest = JSON.parse(files.readFileSync(path.join(dir, MANIFEST), "utf8"));
+    return {
+      manifest: files.readFileSync(path.join(dir, MANIFEST)),
+      signature: files.readFileSync(path.join(dir, SIGNATURE)),
+    };
   } catch {
-    throw new Error(`No Swiff OS image set in ${dir}.`);
+    throw new Error(`No signed Swiff OS image set in ${dir}.`);
   }
-  const { version, layout, files: listed } = manifest ?? {};
+}
+
+/** Whether `trusted`'s key signed `manifest`. */
+function signedBy(trusted, manifest, signature) {
+  try {
+    return crypto.verify(null, manifest, crypto.createPublicKey(trusted.publicKey), signature);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The image set `manifest` describes, once a key in `trust` is found to have
+ * signed it: throws unless it lays out exactly Swiff OS's partitions, lists
+ * every file the install needs, and carries the certificate that key's sets
+ * carry.
+ */
+function imageSetOf(manifest, signature, trust) {
+  const signer = trust.find((t) => signedBy(t, manifest, signature));
+  if (!signer) throw new Error("Swiff did not sign this image set.");
+  let parsed;
+  try {
+    parsed = JSON.parse(manifest.toString("utf8"));
+  } catch {
+    throw new Error("The image set's manifest cannot be read.");
+  }
+  const { version, layout, files: listed } = parsed ?? {};
   if (typeof version !== "string" || !/^[\w.+-]+$/.test(version))
     throw new Error("The image set has no version.");
   if (!Array.isArray(layout) || layout.length !== SWIFF_OS.partitions.length)
@@ -63,8 +118,9 @@ function readImageSet(dir, files = fs) {
   for (const p of layout.filter((p) => p.split))
     if (listed[splitFile(p.split, version)].bytes !== p.bytes)
       throw new Error(`The image set's ${p.role} is not the size of its partition.`);
+  if (listed[MOK_CERT].sha256 !== signer.certSha256)
+    throw new Error("The image set's certificate is not Swiff's.");
   return {
-    dir,
     version,
     layout: layout.map(({ role, type, bytes, split, id, name, attrs }) => ({
       role,
@@ -77,6 +133,12 @@ function readImageSet(dir, files = fs) {
     })),
     files: Object.fromEntries(need.map((name) => [name, { ...listed[name] }])),
   };
+}
+
+/** The image set in `dir`, signed by a key in `trust` (imageSetOf). */
+function readImageSet(dir, { trust, files = fs }) {
+  const { manifest, signature } = readSigned(dir, files);
+  return { ...imageSetOf(manifest, signature, trust), dir };
 }
 
 /** A file of the set, by name: only the names its manifest lists. */
@@ -105,26 +167,6 @@ async function hashOf(read, bytes, onProgress = () => {}) {
   return hash.digest("hex");
 }
 
-/** Throws unless the file `name` of the set has the size and SHA-256 its manifest lists. */
-async function verifyFile(set, name, onProgress) {
-  const file = fileOf(set, name);
-  const handle = await fs.promises.open(file.path, "r");
-  try {
-    const { size } = await handle.stat();
-    if (size !== file.bytes)
-      throw new Error(`${name} is ${size} bytes, not the ${file.bytes} its image set lists.`);
-    const sha = await hashOf(
-      async (buf, at) => (await handle.read(buf, 0, buf.length, at)).bytesRead,
-      size,
-      onProgress,
-    );
-    if (sha !== file.sha256)
-      throw new Error(`${name} is not the file its image set lists: its SHA-256 differs.`);
-  } finally {
-    await handle.close();
-  }
-}
-
 /** The first X.509 certificate (DER) in an authenticated variable file such as systemd-boot's db.auth. */
 function certFromAuth(auth) {
   const b = Buffer.from(auth);
@@ -142,6 +184,25 @@ function certFromAuth(auth) {
 }
 
 const X509 = Buffer.from("a159c0a5e494a74a87b5ab155c2bf072", "hex");
+
+/** Sign the manifest of the image set in `dir` with the Ed25519 private key in PEM file `key`. */
+function signManifest(dir, key) {
+  const manifest = fs.readFileSync(path.join(dir, MANIFEST));
+  fs.writeFileSync(
+    path.join(dir, SIGNATURE),
+    crypto.sign(null, manifest, crypto.createPrivateKey(fs.readFileSync(key))),
+  );
+}
+
+/** What the app must trust for sets signed with the private key in PEM file `key` that carry certificate file `cert`. */
+function trustEntry(key, cert) {
+  return {
+    publicKey: crypto
+      .createPublicKey(crypto.createPrivateKey(fs.readFileSync(key)))
+      .export({ type: "spki", format: "pem" }),
+    certSha256: crypto.createHash("sha256").update(fs.readFileSync(cert)).digest("hex"),
+  };
+}
 
 /**
  * Write the manifest of the image set in `dir`: the layout of the full disk
@@ -183,28 +244,39 @@ async function writeManifest(dir, image, version) {
 
 module.exports = {
   MANIFEST,
+  SIGNATURE,
   BLOCK,
+  trustOf,
+  readSigned,
+  imageSetOf,
   readImageSet,
   fileOf,
   sourceOf,
   hashOf,
-  verifyFile,
   certFromAuth,
+  signManifest,
+  trustEntry,
   writeManifest,
 };
 
 //   node image-set.cjs cert <db.auth> <out.cer>
 //   node image-set.cjs manifest <dir> <full-image.raw> <version>
+//   node image-set.cjs sign <dir> <private-key.pem>
+//   node image-set.cjs trust <private-key.pem> <swiffos-key.cer>     the image-trust.json entry, as JSON
 if (require.main === module) {
   const [cmd, a, b, c] = process.argv.slice(2);
   if (cmd === "cert") fs.writeFileSync(b, certFromAuth(fs.readFileSync(a)));
+  else if (cmd === "sign") signManifest(a, b);
+  else if (cmd === "trust") console.log(JSON.stringify([trustEntry(a, b)], null, 2));
   else if (cmd === "manifest")
     writeManifest(a, b, c).catch((error) => {
       console.error(error.message);
       process.exit(1);
     });
   else {
-    console.error("usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version>");
+    console.error(
+      "usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version> | sign <dir> <key.pem> | trust <key.pem> <cert>",
+    );
     process.exit(2);
   }
 }

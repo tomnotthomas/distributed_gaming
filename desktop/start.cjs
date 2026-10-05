@@ -7,8 +7,9 @@ const at = process.argv.indexOf("--swiff-rental-worker");
 if (at >= 0) {
   const { app } = require("electron");
   const [pipe, token, imageDir] = process.argv.slice(at + 1);
+  const { trustOf } = require("./image-set.cjs");
   require("./rental-worker.cjs")
-    .serve(pipe, token, imageDir)
+    .serve(pipe, token, imageDir, trustOf({ dev: !app.isPackaged }))
     .then(
       () => app.exit(0),
       () => app.exit(1),

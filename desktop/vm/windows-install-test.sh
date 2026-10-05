@@ -246,7 +246,7 @@ if ((Get-BitLockerVolume -MountPoint C:).ProtectionStatus -ne "On") { exit 1 }' 
 
 test_run() {
 	[ -s "$dir/base.qcow2" ] || die "no Windows base: run prepare first"
-	[ -s "$image_set/swiffos.json" ] || die "no image set in $image_set: run swiff-os/image-set.sh"
+	[ -s "$image_set/swiffos.json.sig" ] || die "no signed image set in $image_set: run swiff-os/image-set.sh"
 	rm -rf "$run" && mkdir -p "$run"
 	qemu-img create -q -f qcow2 -b "$dir/base.qcow2" -F qcow2 "$run/disk.qcow2"
 	cp "$dir/base-vars.fd" "$run/vars.fd"
@@ -318,7 +318,7 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe}.cjs swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'

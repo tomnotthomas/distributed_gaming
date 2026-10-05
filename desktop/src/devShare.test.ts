@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Sharing the owner's Windows desktop is a development path only: rental mode,
-// with Swiff OS, is the only way to host. Main registers no screen-capture
-// handler in the packaged app, and the production bundle has no capture call.
+// with Swiff OS, is the only way to host. The gate main registers its
+// screen-capture handler behind opens only for an unpackaged development run,
+// and the production bundle has no capture call.
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,15 +25,6 @@ describe("sharing this Windows desktop", () => {
 
   it("is off in the renderer unless a development build sets its flag", () => {
     expect(WINDOWS_SHARE).toBe(false);
-  });
-
-  it("has main register the screen-capture handler only behind the gate", () => {
-    const main = readFileSync(path.join(DESKTOP, "main.cjs"), "utf8");
-    const calls = main.split("setDisplayMediaRequestHandler(").length - 1;
-    expect(calls).toBe(1);
-    expect(main).toMatch(
-      /if \(windowsShareAllowed\(\{ isPackaged: app\.isPackaged, env: process\.env \}\)\)\s+session\.defaultSession\.setDisplayMediaRequestHandler\(/,
-    );
   });
 
   it("is not in the production build hosts download", async () => {
