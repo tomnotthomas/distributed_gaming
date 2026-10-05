@@ -8,6 +8,9 @@
 [Unit]
 Description=Swiff games library (verify, then mount the renter's view)
 After=home.mount systemd-tmpfiles-setup.service tpm2.target
+# The mounts the service makes itself: at shutdown it stops (and promotes)
+# before systemd unmounts them.
+After=srv-games.mount run-swiff-games-view.mount run-swiff-games-session.mount run-swiff-games-volume.mount
 Requires=home.mount
 
 [Service]

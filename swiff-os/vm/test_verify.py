@@ -239,5 +239,28 @@ class LockedKey(Library):
         self.assertFalse(os.path.exists(os.path.join(self.volume, verify.TABLE)))
 
 
+class TableFile(Library):
+    def test_a_table_that_is_not_an_object_is_refused_not_fatal(self):
+        for doc in (b"[]", b'"x"', b'{"hmac": "00", "table": []}'):
+            write(os.path.join(self.volume, verify.TABLE), doc)
+            table, problem = verify.load_table(KEY)
+            self.assertEqual(problem, "the verified table failed its integrity check")
+            self.assertEqual(table["apps"], {})
+
+
+class StopCleansUp(Library):
+    def test_the_session_layer_goes_even_when_promotion_fails(self):
+        with open(verify.SETUP, "w") as f:
+            json.dump({"writable": True, "library": self.lib, "session": verify.SESSION}, f)
+        calls = []
+        with mock.patch.object(verify, "umount", lambda path: calls.append(("umount", path))), \
+                mock.patch.object(verify, "close_container", lambda: calls.append(("close",))), \
+                mock.patch.object(verify, "promote_all", side_effect=OSError("promotion failed")):
+            with self.assertRaises(OSError):
+                verify.cmd_stop([])
+        self.assertIn(("close",), calls)
+        self.assertEqual(calls[-1], ("umount", verify.VOLUME))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -75,14 +75,14 @@ not itself measured, so the PCR 11 prediction is the same.
 The layout is a fixed 23.6 GiB, inside the ~24 GB budget of decision D6. The owner is not offered a
 size choice.
 
-| Partition      | Size    | Contents                                                           |
-| -------------- | ------- | ------------------------------------------------------------------ |
-| ESP            | 1 GiB   | systemd-boot and the signed UKI                                    |
-| root, slot A   | 8 GiB   | read-only erofs root under dm-verity, labelled `swiffos_<version>` |
-| root-verity, A | 128 MiB | its dm-verity hash tree                                            |
-| root, slot B   | 8 GiB   | empty (`_empty`), for the next version                             |
-| root-verity, B | 128 MiB | empty (`_empty`)                                                   |
-| scratch        | 6.4 GiB | per-boot encrypted scratch: `/home` and the games overlay's writes |
+| Partition      | Size    | Contents                                                                                       |
+| -------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| ESP            | 1 GiB   | systemd-boot and the signed UKI                                                                |
+| root, slot A   | 8 GiB   | read-only erofs root under dm-verity, labelled `swiffos_<version>`                             |
+| root-verity, A | 128 MiB | its dm-verity hash tree                                                                        |
+| root, slot B   | 8 GiB   | empty (`_empty`), for the next version                                                         |
+| root-verity, B | 128 MiB | empty (`_empty`)                                                                               |
+| scratch        | 6.4 GiB | per-boot encrypted scratch: `/home`, and the games view's writes when the library is read-only |
 
 The A/B slots follow systemd-sysupdate's conventions. A UKI finds its own root by UUID, because
 systemd-repart derives the root and hash partition UUIDs from the root hash. An update writes a new

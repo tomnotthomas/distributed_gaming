@@ -414,8 +414,10 @@ def load_table(key):
         return empty, "no verified table yet"
     except (OSError, ValueError):
         return empty, "the verified table is unreadable"
-    table = doc.get("table") if isinstance(doc, dict) else None
-    if not isinstance(doc.get("hmac"), str) or not hmac.compare_digest(mac(key, table), doc["hmac"]):
+    if not isinstance(doc, dict) or not isinstance(doc.get("hmac"), str) or not isinstance(doc.get("table"), dict):
+        return empty, "the verified table failed its integrity check"
+    table = doc["table"]
+    if not hmac.compare_digest(mac(key, table), doc["hmac"]):
         return empty, "the verified table failed its integrity check"
     if table.get("version") != 1:
         return empty, "the verified table has an unknown version"
@@ -737,7 +739,11 @@ def cmd_start(_):
         for game in games.values():
             game.update(state="blocked", reason=KEY_LOCKED)
     table["reset_count"], table["restart_count"] = clock or (None, None)
-    if setup["writable"] and key:
+    # A table that is only unreadable (an I/O error) or newer than this OS (a
+    # rollback to the other slot) is still the owner's: keep it. The next boot
+    # re-hashes in full, as its clock is not updated.
+    keep = table_problem in ("the verified table is unreadable", "the verified table has an unknown version")
+    if setup["writable"] and key and not keep:
         save_table(key, table)
     write_report({
         "library": {k: setup[k] for k in ("fs", "writable")},
@@ -1046,8 +1052,19 @@ def cmd_stop(_):
         setup = load_setup()
     except FileNotFoundError:
         return
-    umount(GAMES)
-    umount(VIEW)
+    try:
+        umount(GAMES)
+        umount(VIEW)
+        promote_all(setup)
+    finally:
+        # Whatever happened above, the session layer is erased and its space
+        # given back to the owner.
+        if setup["session"] == SESSION:
+            close_container()
+        umount(VOLUME)
+
+
+def promote_all(setup):
     cands = {}
     if setup["writable"] and os.path.isdir(SEALED):
         for name in sorted(os.listdir(SEALED)):
@@ -1073,9 +1090,6 @@ def cmd_stop(_):
                 log(f"app {appid} ({cand['entry']['name']}) promoted: {n} files written to the library")
             except (Refused, OSError) as e:
                 log(f"app {appid} not promoted: {e}")
-    if setup["session"] == SESSION:
-        close_container()
-    umount(VOLUME)
 
 
 def cmd_report(_):

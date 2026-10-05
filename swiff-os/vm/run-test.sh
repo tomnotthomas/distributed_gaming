@@ -153,7 +153,8 @@ in_ntfs() { # script
 		--bind "$run" "$run" --proc /proc --dev-bind /dev /dev --tmpfs /tmp \
 		sh -c 'ntfs-3g -o no_detach "$1/games-ntfs.img" "$1/mnt" & pid=$!
 			for _ in $(seq 100); do mountpoint -q "$1/mnt" && break; sleep 0.1; done
-			sh -c "$2" sh "$1" && umount "$1/mnt" && wait $pid' sh "$run" "$1"
+			sh -c "$2" sh "$1"; rc=$?
+			umount "$1/mnt"; wait $pid; exit $rc' sh "$run" "$1"
 }
 in_ntfs 'cp -r "$1/games/library/." "$1/mnt/"' || die "cannot fill the NTFS games library"
 mkfs.ext4 -q -L SWIFFGAMES -E root_owner=1000:1000 -d "$run/games/library" "$run/games-ext4.img" 1G
