@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
 import type { Glance, TrayAction } from "./model";
 
@@ -15,6 +16,10 @@ export type HostBridge = {
   /** Resolves with why the installer could not be opened, or null once it is open. */
   installSteam(): Promise<string | null>;
   onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
+  /** Null where rental mode cannot be read (off Windows). */
+  readRental(): Promise<RentalRead | null>;
+  /** A preview of the steps; null when there is no plan to show. */
+  planRental(ask: { kind: RentalPlan["kind"]; target?: string | null }): Promise<RentalPlan | null>;
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;

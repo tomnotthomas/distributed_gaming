@@ -1,5 +1,5 @@
 /* The host app in the design of prototypes/Swiff Host.dc.html: mid greys, a
-   rail of the four PC steps, a tall top zone with one statement and its
+   rail of the six PC steps (This PC to Get paid), a tall top zone with one statement and its
    instrument plate, and a supporting zone under it. Colour comes in three
    restrained ways: lime as a mark, an olive family for standing and progress,
    and full-colour art where a game is the subject. A muted brick is for costs
@@ -385,6 +385,8 @@ body {
   grid-template-columns: minmax(0, 1fr) 400px;
   gap: 40px;
   align-items: stretch;
+  /* Never squeezed below its content: the step scrolls instead. */
+  flex-shrink: 0;
   min-height: 440px;
   padding-bottom: 28px;
   border-bottom: 1px solid var(--ln);
@@ -1540,6 +1542,48 @@ button.inst {
   grid-column: 2 / -1;
   color: var(--t2);
   font-size: 12px;
+}
+
+/* --- rental mode -------------------------------------------------------------- */
+
+/* A check's value, with a hairline warning where the owner has something to change.
+   Brick stays for costs: the glyph carries the warning. */
+.rck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The changes to make first, under the statement. */
+.legend.rfix {
+  max-width: 560px;
+  margin-top: 18px;
+}
+.rtg {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  margin: 0 0 14px;
+}
+.rpa {
+  display: inline-flex;
+  gap: 20px;
+}
+/* The plan: the level ladder's rule and dots, one step per rung. */
+.rplan li {
+  padding: 6px 0;
+}
+.rplan b {
+  text-transform: none;
+  letter-spacing: 0;
+  font: 400 14.5px/1.35 var(--f);
+}
+.rcmd {
+  grid-column: 2 / -1;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: #dedfdc;
+  color: var(--t1);
+  font: 400 11.5px/1.55 var(--mono);
+  white-space: pre;
 }
 
 /* --- settings ------------------------------------------------------------------ */

@@ -23,6 +23,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
+const { installPlan, readRental, switchPlan } = require("./rental.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 
@@ -103,6 +104,23 @@ async function watchGames() {
     { steamPath },
   );
 }
+
+// Rental mode (rental.cjs): what Swiff OS needs from this PC, read fresh and
+// without administrator rights, and the steps that would install it or switch
+// to and from it. The steps are previews: nothing here runs them.
+ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRental() : null));
+ipcMain.handle("rental:plan", async (event, ask) => {
+  if (!fromApp(event) || !ask || typeof ask !== "object") return null;
+  if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
+  if (ask.kind !== "install") return null;
+  const rental = await readRental();
+  if (!rental) return null;
+  try {
+    return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });
+  } catch {
+    return null;
+  }
+});
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
 // input of its own, so during a session this is the owner sitting down.

@@ -30,6 +30,7 @@ function realView(live: Live): HostView {
     pc: { reading: false, hardware: null, hardwareRate: null },
     games: { installed: [], offered: [], demand: null, near: null },
     steam: { status: null, installer: { kind: "idle" }, installs: [], asked: [] },
+    rental: { reading: false, read: null, target: null, preview: null },
     standing: null,
     earlyEnd: null,
     rate: null,

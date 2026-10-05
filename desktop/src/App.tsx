@@ -7,6 +7,7 @@ import { GetPaid } from "./screens/GetPaid";
 import { GoLive } from "./screens/GoLive";
 import { Ending, InUse, Offline, Paused, Streaming, Waiting } from "./screens/Live";
 import { Settings } from "./screens/Settings";
+import { RentalSetupScreen } from "./screens/Rental";
 import { Games, ReadPc } from "./screens/Setup";
 import { SteamSetup } from "./screens/Steam";
 import { TrayDesk } from "./screens/Tray";
@@ -96,6 +97,8 @@ export function Shell({
         return <SteamSetup {...props} />;
       case "games":
         return <Games {...props} finishSetup={finishSetup} />;
+      case "rental":
+        return <RentalSetupScreen {...props} />;
       case "live":
         return <LiveStep {...props} />;
       case "paid":

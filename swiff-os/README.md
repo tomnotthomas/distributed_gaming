@@ -26,6 +26,19 @@ stub for VMs and tests. The contract is in
 [`docs/system-design/session-keys.md`](../docs/system-design/session-keys.md), "Control and
 hosting credentials".
 
+## Host app: preflight, install and switch
+
+The owner's side lives in `desktop/`: `desktop/rental.cjs` reads, without administrator
+rights, what Swiff OS needs from the PC (UEFI, Secure Boot, TPM 2.0, IOMMU, disk space,
+BitLocker, graphics card, Fast Startup), and the Rental mode screen
+(`desktop/src/screens/Rental.tsx`) shows it with the BIOS steps the owner must take by hand.
+The Secure Boot db and the TPM's endorsement certificate need administrator rights, so they
+show as not checked yet. The install (shrink a drive or use free space, add the partitions,
+write the ESP, add the boot entry, name the games drive `SWIFFGAMES`) and the start/stop
+sharing switch (BootOrder and BootNext) are previews: the app plans them and runs nothing on
+a PC. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image and boots it
+under OVMF with Secure Boot and a software TPM.
+
 ## Stage 1: the image
 
 `image/` builds a bootable disk image with mkosi 20. It is Ubuntu 26.04 LTS ("resolute"), pinned to a
