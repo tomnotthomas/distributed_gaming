@@ -57,6 +57,8 @@ beforeAll(async () => {
       SESSION_SECRET,
       MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`,
       DATABASE_URL: "",
+      // Every game playable, so nothing here waits on or calls Steam (server/src/playable.ts).
+      SWIFF_PLAYABILITY: "off",
     },
     stdio: "ignore",
   });
