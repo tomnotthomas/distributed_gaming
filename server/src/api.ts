@@ -8,6 +8,8 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
 //   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
 //   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//                                          POST /api/machines/:id/state-key  attested boot
+//                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
 //                                          POST /api/sessions/:id/end          either
 //                                          POST /api/machines/:id/upload-test   control
@@ -62,6 +64,7 @@ import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
+import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import { emptyProfile, originFrom, pageProfile, readProfile, type ProfileReader } from "./steam.js";
 
@@ -111,6 +114,8 @@ export type ApiOptions = {
   isFree?: FreeToPlay;
   /** Who may host, and how a machine attests. Defaults to the machine key hosting, with no verifier. */
   attestation?: Attestation;
+  /** Rental-mode PCs' state keys (state-key.ts). Defaults to none: every call answers 503 not-configured. */
+  stateKeys?: StateKeys;
   /** The renter's page started session `sessionId` on `machineId` with ticket `ticketId`: the PC launches `gameId`. */
   onRenterStarted?: (machineId: string, sessionId: string, gameId: number, ticketId: string) => void;
 };
@@ -352,6 +357,7 @@ export function createApi({
   discovery = new RequestBudget(),
   isFree = storeFreeToPlay(),
   attestation = createAttestation({ access }),
+  stateKeys = createStateKeys({ store: memoryStateKeyStore(), secret: null }),
   onRenterStarted,
 }: ApiOptions) {
   /**
@@ -734,6 +740,30 @@ export function createApi({
       }
       const attested = await attestation.attest(id, body.nonce, body.evidence);
       reply(res, attested.ok ? 200 : attested.status, attested.ok ? attested.grant : attested.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "state-key" && (method === "POST" || method === "PUT")) {
+      // swiff-hostd, right after attesting: the server's share of its state
+      // partition key. Nothing is read from the body.
+      try {
+        await discardBody(req, MAX_HOST_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        reply(res, 413, { error: "bad-request" });
+        return true;
+      }
+      const credential = attestation.credential(id, bearer(req));
+      const answer =
+        method === "POST" ? await stateKeys.release(id, credential) : await stateKeys.replace(id, credential);
+      if (answer.ok) reply(res, answer.status, answer.grant);
+      else
+        reply(
+          res,
+          answer.status,
+          answer.body,
+          answer.retryAfterSeconds === undefined ? {} : { "retry-after": String(answer.retryAfterSeconds) },
+        );
       return true;
     }
 

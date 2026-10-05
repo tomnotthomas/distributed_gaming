@@ -333,6 +333,54 @@ export type AttestRefusal = {
   detail?: AttestRefusalDetail;
 };
 
+// --- State key API (HTTP) ----------------------------------------------------
+//
+// Called by swiff-hostd in Swiff OS once per boot, right after attest, with
+// `Authorization: Bearer <host certificate>` and no body. See state-key.ts.
+//
+//   POST /api/machines/:id/state-key  → 200 StateKeyGrant   the machine's share
+//   PUT  /api/machines/:id/state-key  → 201 StateKeyGrant   a new share: the old one is gone
+//
+//   Either refuses with a StateKeyError:
+//     401 bad-host-cert         not a host certificate for this machine, expired, or the
+//                               machine is no longer configured
+//     401 stale-host-cert       minted over STATE_KEY_FRESH_SECONDS ago, already used for a
+//                               share, or not for the machine's latest attested boot: attest again
+//     403 attestation-required  a machine key: the share goes only to an attested boot
+//     403 revoked               the machine's state key is revoked
+//     403 firmware-cooldown     the machine is waiting out a firmware cooldown
+//     413 bad-request           a body over 32 KB (none is read)
+//     429 rate-limited          with retry-after (seconds)
+//     503 not-configured        no STATE_KEY_SECRET on the server
+//     500 internal-error
+//   POST alone:
+//     404 no-state-key          none made yet: PUT
+//     409 continuity-gap        something else booted since the last attested boot: PUT,
+//                               and format the partition anew; the old share is never released
+
+/** The server's share (V) of a machine's state partition key: it opens with U XOR share. */
+export type StateKeyGrant = {
+  /** Names the share; a new one has a new id. Keep it beside the sealed U to tell them apart. */
+  keyId: string;
+  /** Base64, 32 bytes. Held in memory only, never written or logged. */
+  share: string;
+};
+
+export type StateKeyError = {
+  error:
+    | "bad-request"
+    | "bad-host-cert"
+    | "stale-host-cert"
+    | "attestation-required"
+    | "revoked"
+    | "firmware-cooldown"
+    | "no-state-key"
+    | "continuity-gap"
+    | "rate-limited"
+    | "not-configured"
+    | "internal-error";
+};
+
 /**
  * Close code after `denied`. Clients stop reconnecting when they see `denied`:
  * retrying with the same credential gets the same answer, forever.

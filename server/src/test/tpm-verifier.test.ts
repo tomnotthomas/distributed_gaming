@@ -19,6 +19,7 @@ import { BootPolicyError, readBootPolicy, signBootPolicy, type BootPolicy } from
 import { bootFacts, parseEventLog, replay } from "../eventlog.js";
 import { trustStore, verifyEkCertificate, type TpmKind } from "../ek.js";
 import { migrate } from "../schema.js";
+import { createStateKeys, memoryStateKeyStore } from "../state-key.js";
 import {
   databaseStore,
   FIRMWARE_COOLDOWN_SECONDS,
@@ -160,12 +161,16 @@ const GOOD_FACTS = { uefi: true, secureBoot: true, tpm: "firmware", ekCertificat
 describe("the TPM verifier accepts", () => {
   it("an untouched Swiff OS boot quoted by a firmware TPM with an RSA EK", async () => {
     const verifier = await verifierFor("pc-rsa");
-    assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: true, facts: GOOD_FACTS });
+    const { boot, ...verdict } = (await judge(verifier, "pc-rsa", "first")) as { boot?: number };
+    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS });
+    assert.ok(Number.isSafeInteger(boot), "reports the boot the quote counted");
   });
 
   it("the same with an ECC P-256 EK and AK", async () => {
     const verifier = await verifierFor("pc-ecc");
-    assert.deepEqual(await judge(verifier, "pc-ecc", "first"), { ok: true, facts: GOOD_FACTS });
+    const { boot, ...verdict } = (await judge(verifier, "pc-ecc", "first")) as { boot?: number };
+    assert.deepEqual(verdict, { ok: true, facts: GOOD_FACTS });
+    assert.ok(Number.isSafeInteger(boot));
   });
 
   it("a TPM whose vendor is a discrete-chip vendor as a discrete TPM", async () => {
@@ -177,10 +182,19 @@ describe("the TPM verifier accepts", () => {
 
   it("quotes whose TPM counters go forward: the same boot, the next boot, and after a gap", async () => {
     const verifier = await verifierFor("pc-rsa");
+    const boots = new Map<string, number | undefined>();
     for (const label of ["first", "same-boot", "replay-later", "next-boot", "gap"]) {
       const verdict = await judge(verifier, "pc-rsa", label);
       assert.ok(verdict.ok, `${label}: ${JSON.stringify(verdict)}`);
+      boots.set(label, verdict.boot);
     }
+    // The boot each quote counted (its resetCount), which the state key's continuity reads.
+    const first = boots.get("first")!;
+    assert.equal(boots.get("same-boot"), first);
+    assert.equal(boots.get("replay-later"), first + 1);
+    assert.equal(boots.get("next-boot"), first + 2);
+    // One boot between attested nothing.
+    assert.equal(boots.get("gap"), first + 4);
   });
 
   it("states what the event log says: Secure Boot off, pre-boot DMA protection off", async () => {
@@ -581,12 +595,15 @@ describe("firmware trust on first use", () => {
     const store = memoryStore();
     const verifier = await verifierFor("pc-rsa", { store, securityLog: (event) => events.push(event) });
     assert.ok((await judge(verifier, "pc-rsa", "first")).ok);
+    assert.equal(await verifier.inCooldown("pc-rsa"), false);
     const baseline = (await store.get("pc-rsa"))!.firmware!;
     const later = (seconds: number) => ({ now: NOW + seconds * 1000 });
     assert.deepEqual(await judge(verifier, "pc-rsa", "firmware-v2"), {
       ok: false,
       reason: "firmware-changed",
     });
+    // The state key is not released meanwhile (state-key.ts).
+    assert.equal(await verifier.inCooldown("pc-rsa"), true);
     assert.deepEqual(
       await judge(verifier, "pc-rsa", "firmware-v2-again", later(FIRMWARE_COOLDOWN_SECONDS - 1)),
       {
@@ -596,6 +613,7 @@ describe("firmware trust on first use", () => {
     );
     const cooled = await judge(verifier, "pc-rsa", "firmware-v2-again", later(FIRMWARE_COOLDOWN_SECONDS));
     assert.ok(cooled.ok);
+    assert.equal(await verifier.inCooldown("pc-rsa"), false);
     const presented = (await store.get("pc-rsa"))!.firmware!;
     assert.notDeepEqual(presented, baseline);
     const changed = { event: "firmware-changed", machine: "pc-rsa", baseline, presented, secureBoot: true };
@@ -661,9 +679,11 @@ describe("firmware trust on first use", () => {
     // A cleared TPM's counters are back below the last accepted quote's.
     assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: false, reason: "counter-rollback" });
     assert.deepEqual(await enroll(verifier, "pc-rsa"), { ok: true });
+    assert.equal(await verifier.inCooldown("pc-rsa"), true);
     assert.deepEqual(await judge(verifier, "pc-rsa", "first"), { ok: false, reason: "firmware-changed" });
     const later = { now: NOW + FIRMWARE_COOLDOWN_SECONDS * 1000 };
     assert.ok((await judge(verifier, "pc-rsa", "same-boot", later)).ok);
+    assert.equal(await verifier.inCooldown("pc-rsa"), false);
     assert.deepEqual(await judge(verifier, "pc-rsa", "first", later), {
       ok: false,
       reason: "replayed-quote",
@@ -780,6 +800,60 @@ describe("attestation with the TPM verifier", () => {
     const discrete = await (await attestation("discrete")).attest("pc-rsa", quote.nonce, quote.evidence, NOW);
     assert.ok(discrete.ok);
     assert.equal(discrete.grant.tier, "attested-discrete-tpm");
+  });
+
+  it("releases the state key to boots that follow on, and withholds it after a gap", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    const stateKeys = createStateKeys({
+      store: memoryStateKeyStore(),
+      secret: "a-state-key-secret-of-at-least-32-characters",
+      verifier,
+      securityLog: () => {},
+    });
+    const a = createAttestation({ access, verifier, attestedOnly: true, onAttested: stateKeys.observe });
+    const certFor = async (label: string) => {
+      const quote = recorded("pc-rsa", label);
+      const attested = await a.attest("pc-rsa", quote.nonce, quote.evidence, NOW);
+      assert.ok(attested.ok, label);
+      return a.credential("pc-rsa", attested.grant.hostCert, NOW);
+    };
+    const made = await stateKeys.replace("pc-rsa", await certFor("first"), NOW);
+    assert.ok(made.ok);
+    for (const label of ["replay-later", "next-boot"]) {
+      const released = await stateKeys.release("pc-rsa", await certFor(label), NOW);
+      assert.deepEqual(released.ok && released.grant, made.grant, label);
+    }
+    // A boot that attested nothing came between next-boot and gap.
+    const withheld = await stateKeys.release("pc-rsa", await certFor("gap"), NOW);
+    assert.deepEqual(withheld.ok ? null : withheld.body, { error: "continuity-gap" });
+  });
+
+  it("refuses the state key once the EK is registered again after the certificate was minted", async () => {
+    const verifier = await verifierFor("pc-rsa");
+    const stateKeys = createStateKeys({
+      store: memoryStateKeyStore(),
+      secret: "a-state-key-secret-of-at-least-32-characters",
+      verifier,
+      securityLog: () => {},
+    });
+    const a = createAttestation({ access, verifier, attestedOnly: true, onAttested: stateKeys.observe });
+    const quote = recorded("pc-rsa", "first");
+    const attested = await a.attest("pc-rsa", quote.nonce, quote.evidence, NOW);
+    assert.ok(attested.ok);
+    const cert = a.credential("pc-rsa", attested.grant.hostCert, NOW);
+    const reenrolled = await verifier.enroll({
+      room: "pc-rsa",
+      certificate: fixture.machines["pc-rsa"].ekCertificate,
+      now: NOW,
+    });
+    assert.deepEqual(reenrolled, { ok: true });
+    for (const call of [stateKeys.release, stateKeys.replace]) {
+      const refused = await call("pc-rsa", cert, NOW);
+      assert.deepEqual(refused.ok ? null : [refused.status, refused.body], [
+        403,
+        { error: "firmware-cooldown" },
+      ]);
+    }
   });
 
   it("names the verifier's reason, and holds a machine with Secure Boot off below the floor", async () => {
