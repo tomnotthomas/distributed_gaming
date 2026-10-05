@@ -113,6 +113,7 @@ export type StateKeyDeps = {
 /** One try to open the state: resolves once it is open, throws why not. */
 export type StateUnlock = { unlock(): Promise<void> };
 
+/** Opens the state with U XOR V: V from the server for a fresh certificate, U sealed in the TPM; the combined key is never stored. */
 export function stateUnlock({ attest, api, local, disk, log = () => {} }: StateKeyDeps): StateUnlock {
   const fresh = async () => (await attest()).hostCert;
 
@@ -232,6 +233,7 @@ export function stateKeyApi(serverUrl: string, machineId: string): StateKeyApi {
   origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
   const url = new URL(`/api/machines/${encodeURIComponent(machineId)}/state-key`, origin);
 
+  /** One request on the host certificate; anything but a grant with status `expected` is thrown as the refusal. */
   async function call(method: "POST" | "PUT", expected: number, hostCert: string): Promise<StateKeyGrant> {
     const name = `state key ${method === "POST" ? "release" : "replace"}`;
     const res = await fetch(url, {
@@ -385,9 +387,15 @@ export function linuxStateDisk(
         ["luksFormat", "--type", "luks2", "--batch-mode", "--key-file=-", config.device],
         key,
       );
-      await openWith(key);
-      await exec("mkfs.ext4", ["-q", mapped]);
-      await exec("mount", [mapped, config.mountpoint]);
+      try {
+        await openWith(key);
+        await exec("mkfs.ext4", ["-q", mapped]);
+        await exec("mount", [mapped, config.mountpoint]);
+      } catch (cause) {
+        // A mapping left open would let the next try mount a device with no filesystem on it.
+        await close().catch(() => {});
+        throw cause;
+      }
     },
     close,
   };
@@ -399,6 +407,7 @@ export type RunBytes = (command: string, args: string[]) => Promise<Buffer>;
 /** Runs a command with `input` on its stdin; resolves once it exits 0. */
 export type RunWithInput = (command: string, args: string[], input: Uint8Array) => Promise<void>;
 
+/** `RunBytes` on a child process; its stdout is zeroed once copied out. */
 const runBytes: RunBytes = (command, args) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
@@ -416,6 +425,7 @@ const runBytes: RunBytes = (command, args) =>
     });
   });
 
+/** `RunWithInput` on a child process. */
 const runWithInput: RunWithInput = (command, args, input) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "ignore", "inherit"] });
@@ -426,6 +436,7 @@ const runWithInput: RunWithInput = (command, args, input) =>
     child.stdin.end(input);
   });
 
+/** Whether `path` is there. */
 async function exists(path: string): Promise<boolean> {
   return stat(path).then(
     () => true,

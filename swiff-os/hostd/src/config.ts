@@ -95,6 +95,7 @@ export function parseConfig(raw: unknown): Config {
   };
 }
 
+/** The state partition's settings, each one checked. */
 function stateConfig(s: Record<string, unknown>): StateConfig {
   return {
     device: text(s.device, "state.device"),

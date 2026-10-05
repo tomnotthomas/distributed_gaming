@@ -26,6 +26,7 @@ export type System = {
 /** Runs a command and resolves with its stdout. */
 export type Run = (command: string, args: string[]) => Promise<string>;
 
+/** `Run` on a child process. */
 export const run: Run = async (command, args) => (await promisify(execFile)(command, args)).stdout;
 
 /** `run`, killing the command once it has run `timeoutMs`. */

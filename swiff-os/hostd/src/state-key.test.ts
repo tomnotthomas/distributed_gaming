@@ -395,7 +395,7 @@ describe("combineShares", () => {
 
 describe("the machine's side", () => {
   /** A partition behind fake cryptsetup and mount, under a mapper directory of its own. */
-  async function disk(mappedAlready = false) {
+  async function disk(mappedAlready = false, failing?: string) {
     const mapper = await mkdtemp(join(tmpdir(), "swiff-mapper-"));
     if (mappedAlready) await writeFile(join(mapper, STATE_MAPPER), "");
     const runs: string[][] = [];
@@ -405,6 +405,7 @@ describe("the machine's side", () => {
       { device: "/dev/disk/by-partlabel/swiff-state", mountpoint: "/var/lib/swiff/state" },
       async (command, args) => {
         runs.push([command, ...args]);
+        if (command === failing) throw new Error(`${command} failed`);
         if (command === "mountpoint" && !mounted) throw new Error("not a mountpoint");
         if (command === "mount") mounted = true;
         return "";
@@ -462,6 +463,12 @@ describe("the machine's side", () => {
       ["mkfs.ext4", "-q", d.mapped],
       ["mount", d.mapped, "/var/lib/swiff/state"],
     ]);
+  });
+
+  it("closes the mapping again when formatting fails after opening it", async () => {
+    const d = await disk(false, "mkfs.ext4");
+    await expect(d.state.format(Buffer.alloc(32, 9))).rejects.toThrow(/mkfs.ext4 failed/);
+    expect(d.runs.at(-1)).toEqual(["cryptsetup", "close", STATE_MAPPER]);
   });
 
   it("closes the partition: unmounts it, then closes the mapping", async () => {
