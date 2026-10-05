@@ -1,0 +1,8 @@
+{
+  "serverUrl": "wss://swiff.example",
+  "machineId": "gaming-pc-1",
+  "machineKeyFile": "/var/lib/swiff/machine-key",
+  "stateDir": "/var/lib/swiff/hostd",
+  "controlSocket": "/run/swiff-hostd/control.sock",
+  "streamer": { "command": "/usr/lib/swiff/swiff-streamer", "args": [], "uid": 961, "gid": 961 }
+}

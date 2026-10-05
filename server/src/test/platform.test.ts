@@ -544,6 +544,16 @@ describe("availability notice", () => {
 });
 
 describe("machine liveness", () => {
+  it("tells the host the share-until it is offered with, so it can offer it again on the same terms", async () => {
+    const until = now + 2 * 3_600_000;
+    assert.equal((await offer("pc-1", { availableUntil: until })).until, until);
+    assert.equal((await platform.heartbeat("pc-1")).until, until);
+    const paused = await platform.setAvailability("pc-1", false, { availableUntil: until });
+    assert.equal(paused.until, until);
+    assert.equal((await offer("pc-1", { availableUntil: until })).status, "available");
+    assert.equal("until" in (await offer("pc-1")), false, "no share-until: none is told");
+  });
+
   it("stops offering a machine within seconds of its heartbeats stopping", async () => {
     await offer("pc-1");
     await beatFor("pc-1", 60_000);

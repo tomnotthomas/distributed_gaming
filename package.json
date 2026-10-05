@@ -6,6 +6,7 @@
     "server",
     "web",
     "desktop",
+    "swiff-os/hostd",
     "swiff-os/streamer"
   ],
   "scripts": {

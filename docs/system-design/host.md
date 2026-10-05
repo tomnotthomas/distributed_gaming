@@ -126,15 +126,17 @@ can call them from its `file://` page: the bearer credential is the only one.
 PUT  /machines/:id/availability
   { available: true, until?, price?, ...report }
   { available: false, reset?: true, until?, price?, ...report }
-  → 200 { id, status, gpu, cpu, price, session?, resetUntil? }
+  → 200 { id, status, gpu, cpu, price, until?, session?, resetUntil? }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
-  `until` is an ISO date; `price` is cents per hour. `report` is below.
+  `until` is an ISO date or Unix ms; `price` is cents per hour. `report` is below. Every
+  call replaces `until`, so one that leaves it out clears it; the answer's `until` (Unix ms,
+  when set) is what to send back to offer the PC again on the same terms.
   `reset: true` is the rental-mode PC taking itself off offer to restart between
   renters (the reset hold, below); only with `available: false`, else 400.
 
 POST /machines/:id/heartbeat
   { ...report }
-  → 200 { id, status, gpu, cpu, price, session? }
+  → 200 { id, status, gpu, cpu, price, until?, session? }
   Carries the parts of the report that changed. Liveness is the PC's socket (below):
   while the socket is open the machine needs no heartbeat. The host app beats every 5 s
   all the same while the PC is offered (`desktop/src/report.ts`), most often with an
@@ -219,11 +221,16 @@ PC is back (the renter leaves), the machine goes `idle`, as a reset with no sess
 leaves it, until the PC offers it again. The owner's host app never sends `reset`, so a
 desktop PC behaves as before.
 
-swiff-hostd should send `reset: true` on every off-offer call it makes before a restart
-between renters, including the one where its heartbeat already names a new session. That
-is a follow-up. As first written, it takes the machine off offer with a plain
-`available: false` when it sees no session, and with a session it sends nothing, so a
-restart longer than 15 s ends that session as `host_offline`.
+swiff-hostd (`swiff-os/hostd/src/agent.ts`) sends `reset: true` on every off-offer call it
+makes before a restart between renters, including the one where its heartbeat already
+names a new session, and serves the session the answer names once it is back. When its
+heartbeat still names the session it served itself (it crashed, or ending it failed), it
+makes no off-offer call, so that session ends as `host_end` or `host_offline`, never as
+`owner_kill`. It sends
+it too when the owner asks for the PC back while it is offered: a claim that lands after
+its heartbeat is then kept, and served, rather than ended as `owner_kill`, and the owner
+is told a session is live. Its other off-offer calls (going back to Windows when the owner
+stopped sharing, the share-until passed, or takeover is set to `always`) are plain.
 
 Whenever the platform session ends — the host ends it, the booked time runs out, the
 machine goes silent or the owner takes it back — the server also ends the PC's host

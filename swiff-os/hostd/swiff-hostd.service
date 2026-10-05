@@ -1,0 +1,21 @@
+# swiff-hostd, the rental-mode agent. Runs as root: it holds the machine key,
+# starts the streamer as its own user, and restarts the machine. The image
+# stage installs it; the paths below are where that stage puts things.
+[Unit]
+Description=Swiff rental-mode agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=SWIFF_HOSTD_CONFIG=/var/lib/swiff/hostd.json
+ExecStart=/usr/bin/node /usr/lib/swiff/hostd/src/main.ts
+Restart=on-failure
+RestartSec=5
+# The control socket's directory: root's alone.
+RuntimeDirectory=swiff-hostd
+RuntimeDirectoryMode=0700
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
