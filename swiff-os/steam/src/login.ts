@@ -58,6 +58,7 @@ export async function play(appid: number, opts: PlayOptions): Promise<PlayEvent>
   };
 
   let shown: string | null = null;
+  if (signal?.aborted) return emit({ event: "failed", reason: "stopped", atMs: at() });
   while (!(await steam.signedIn())) {
     if (signal?.aborted) return emit({ event: "failed", reason: "stopped", atMs: at() });
     if (at() >= SIGN_IN_TIMEOUT_MS) return emit({ event: "failed", reason: "sign-in-timeout", atMs: at() });
@@ -69,7 +70,8 @@ export async function play(appid: number, opts: PlayOptions): Promise<PlayEvent>
     await sleep(POLL_MS);
   }
   emit({ event: "signed-in", atMs: at() });
-
+  // A renter who left while signing in gets no game launched for them.
+  if (signal?.aborted) return emit({ event: "failed", reason: "stopped", atMs: at() });
   await steam.launch(appid);
   const launched = at();
   emit({ event: "launching", appid, atMs: launched });

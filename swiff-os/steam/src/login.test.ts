@@ -140,8 +140,39 @@ describe("play", () => {
     });
     expect(before.events).toHaveLength(1);
 
-    const after = fake({ signedInAfter: 0 });
-    expect(await play(570, { ...after.opts, signal: stop.signal })).toMatchObject({ reason: "stopped" });
-    expect(after.launched).toEqual([570]);
+    const signedIn = fake({ signedInAfter: 0 });
+    expect(await play(570, { ...signedIn.opts, signal: stop.signal })).toMatchObject({ reason: "stopped" });
+    expect(signedIn.launched).toEqual([]);
+
+    const launching = fake({ signedInAfter: 0 });
+    const later = new AbortController();
+    expect(
+      await play(570, {
+        ...launching.opts,
+        signal: later.signal,
+        emit: (e) => {
+          launching.events.push(e);
+          if (e.event === "launching") later.abort();
+        },
+      }),
+    ).toMatchObject({ reason: "stopped" });
+    expect(launching.launched).toEqual([570]);
+  });
+
+  it("launches nothing for a renter who left while signing in", async () => {
+    const left = new AbortController();
+    const { events, launched, opts } = fake({ codes: [[QR_A]], signedInAfter: 2 });
+
+    const last = await play(570, {
+      ...opts,
+      signal: left.signal,
+      emit: (event) => {
+        events.push(event);
+        if (event.event === "signed-in") left.abort();
+      },
+    });
+
+    expect(last).toMatchObject({ event: "failed", reason: "stopped" });
+    expect(launched).toEqual([]);
   });
 });
