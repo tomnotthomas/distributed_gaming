@@ -24,7 +24,7 @@
 // renter will sign in to it.
 //
 // Checking: what renters are looking at now goes first, the newest ask ahead:
-// a signed-in renter's library, Steam's most played and the wall's own nine.
+// the games a signed-in renter's page can show, Steam's most played and the wall's own nine.
 // Behind it, the daily rechecks, which cover only the wall, the curated games
 // and what a renter asked about within REQUESTED_WINDOW_MS, so they stay well
 // inside a day's checks. Valve's ratings come BATCH games per GetItems request,
@@ -270,6 +270,8 @@ export const steamSources: Sources = {
  */
 export type PlayableGames = {
   playable: (appid: number) => boolean;
+  /** Whether the game has a verdict to go by: false until it is checked, and once its verdict is too old. */
+  checked: (appid: number) => boolean;
   requiresAccount: (appid: number) => RequiresAccount | null;
   /** Have these games checked; `first` when a renter is looking at them now. */
   want: (appids: Iterable<number>, options?: { first?: boolean }) => void;
@@ -278,6 +280,7 @@ export type PlayableGames = {
 /** Every game playable and nothing checked: for tests and tools that are not about playability. */
 export const everyGamePlayable: PlayableGames = {
   playable: () => true,
+  checked: () => true,
   requiresAccount: () => null,
   want: () => {},
 };
@@ -370,6 +373,10 @@ export class Playability implements PlayableGames {
 
   playable(appid: number): boolean {
     return this.verdict(appid).verdict === "playable";
+  }
+
+  checked(appid: number): boolean {
+    return !this.verdict(appid).reasons.includes("not-checked");
   }
 
   requiresAccount(appid: number): RequiresAccount | null {

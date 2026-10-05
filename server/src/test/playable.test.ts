@@ -597,8 +597,10 @@ describe("checking", () => {
       now - CHECK_TTL_MS,
     );
 
+    assert.equal(playability.checked(292030), true);
     now += MAX_AGE_MS - CHECK_TTL_MS;
     assert.deepEqual(playability.verdict(292030), { verdict: "unknown", reasons: ["not-checked"] });
+    assert.equal(playability.checked(292030), false);
   });
 
   it("waits between store requests", async () => {

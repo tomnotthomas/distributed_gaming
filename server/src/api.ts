@@ -79,9 +79,11 @@ import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-ke
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
   emptyProfile,
+  LIBRARY_CAP,
   originFrom,
   pageProfile,
   readProfile,
+  type LibraryEntry,
   type ProfileReader,
   type SteamProfile,
 } from "./steam.js";
@@ -372,14 +374,21 @@ const popularBookable = async (keep: (appid: number) => boolean) =>
     image: g.art.capsule ?? g.art.hero,
   }));
 
-/** The renter's profile as the page is sent it: only the games Swiff can run, of theirs. */
-function shownProfile(read: SteamProfile, playable: (appid: number) => boolean) {
+/**
+ * The renter's profile as the page is sent it: only the games Swiff can run, of
+ * theirs, the first LIBRARY_CAP of their most-played, and how many of the games
+ * it could still show (`checking`) have no verdict yet.
+ */
+function shownProfile(read: SteamProfile, playability: Pick<PlayableGames, "playable" | "checked">) {
   const page = pageProfile(read);
-  return {
-    ...page,
-    owned: page.owned.filter(([appid]) => playable(appid)),
-    games: page.games.filter(([appid]) => playable(appid)),
-  };
+  let checking = page.owned.filter(([appid]) => !playability.checked(appid)).length;
+  const games: LibraryEntry[] = [];
+  for (const entry of page.games) {
+    if (games.length === LIBRARY_CAP) break;
+    if (playability.playable(entry[0])) games.push(entry);
+    else if (!playability.checked(entry[0])) checking++;
+  }
+  return { ...page, owned: page.owned.filter(([appid]) => playability.playable(appid)), games, checking };
 }
 
 /**
@@ -408,10 +417,12 @@ export function createApi({
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
 
-  /** The page's copy of the renter's profile; their library is checked ahead of background rechecks. */
+  /** The page's copy of the renter's profile; the games it can show are checked ahead of background rechecks. */
   function profileReply(steamId: string, read: SteamProfile) {
-    playability.want(read.library, { first: true });
-    return { steamId, profile: shownProfile(read, playable) };
+    playability.want([...read.owned.map(([appid]) => appid), ...read.games.map(([appid]) => appid)], {
+      first: true,
+    });
+    return { steamId, profile: shownProfile(read, playability) };
   }
 
   /**

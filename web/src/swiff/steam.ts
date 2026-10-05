@@ -18,6 +18,8 @@ export type SteamProfile = {
   /** [appid, name, hours] for everything else. */
   games: [number, string, number][];
   lib: boolean;
+  /** How many of the games the wall could show the server has yet to check. */
+  checking?: number;
 };
 
 export const STEAM_LOGIN_URL = "/auth/steam/login";
@@ -67,16 +69,23 @@ export async function refreshRenter(get: typeof fetch = fetch): Promise<Renter |
 
 /**
  * What the signed-in wall can say about the renter's library: `unreadable` when
- * Steam gave no library at all (game details private, or Steam failed), `none`
- * when it did but none of it can be put on the wall, else `ok`.
+ * Steam gave no library at all (game details private, or Steam failed),
+ * `checking` when none of it is on the wall yet but the server is still
+ * checking some, `none` when it has checked and none can be put on the wall,
+ * else `ok`.
  */
-export type LibraryState = "ok" | "unreadable" | "none";
+export type LibraryState = "ok" | "unreadable" | "checking" | "none";
 
 /** The renter's library state, as the wall explains it (LibraryState). */
 export function libraryState(profile: SteamProfile): LibraryState {
   if (!profile.lib) return "unreadable";
-  return profile.owned.length || profile.games.some(([, name]) => name) ? "ok" : "none";
+  if (profile.owned.length || profile.games.some(([, name]) => name)) return "ok";
+  return profile.checking ? "checking" : "none";
 }
+
+/** Whether two reads of a profile put the same games of the renter's on the wall. */
+export const sameGames = (a: SteamProfile, b: SteamProfile) =>
+  JSON.stringify([a.owned, a.games]) === JSON.stringify([b.owned, b.games]);
 
 /** End the sign-in session. Resolves once the server has cleared the cookie. */
 export async function signOut(get: typeof fetch = fetch): Promise<void> {

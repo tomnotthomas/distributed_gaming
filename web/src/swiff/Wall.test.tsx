@@ -121,6 +121,14 @@ describe("Wall", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
+  it("says a library still being checked is being checked, not that none of it can be played", () => {
+    const profile = { ...privateLibrary, lib: true, checking: 3 };
+    render(<Wall swiff={swiffWith(applySteam(profile, pool, [cs2]), profile)} />);
+    expect(screen.getByTestId("library-state").textContent).toMatch(/Checking your games/);
+    expect(screen.queryByText(/None of your Steam games/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("says nothing about a library that reads fine", () => {
     const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
     render(<Wall swiff={swiffWith(applySteam(profile, pool), profile)} />);

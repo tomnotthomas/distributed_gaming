@@ -484,6 +484,10 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
     title: "We couldn't read your Steam library.",
     body: "In Steam, set Profile → Privacy → Game details to Public, then retry.",
   },
+  checking: {
+    title: "Checking your games…",
+    body: "Each one shows up here once we know Swiff can run it.",
+  },
   none: {
     title: "None of your Steam games can be played here yet.",
     body: "Free-to-play games still work.",

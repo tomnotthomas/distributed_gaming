@@ -173,7 +173,34 @@ describe("applySteam", () => {
 
   it("says a readable library with nothing to show is empty, rather than unreadable", () => {
     expect(libraryState(profile({ size: 3 }))).toBe("none");
+    expect(libraryState(profile({ size: 3, checking: 0 }))).toBe("none");
     expect(applySteam(profile({ size: 3 }), pool, store).every((g) => g.f2p && !g.owned)).toBe(true);
+  });
+});
+
+describe("libraryState while the server is checking games", () => {
+  const profile = (over: Partial<SteamProfile> = {}): SteamProfile => ({
+    id: "0001",
+    persona: "kai_nx",
+    avatar: "",
+    hours: 0,
+    size: 3,
+    owned: [],
+    games: [],
+    lib: true,
+    ...over,
+  });
+
+  it("says the games are being checked, not that none can be played", () => {
+    expect(libraryState(profile({ checking: 2 }))).toBe("checking");
+  });
+
+  it("shows the games already found playable while the rest are checked", () => {
+    expect(libraryState(profile({ checking: 2, games: [[440, "Team Fortress 2", 3]] }))).toBe("ok");
+  });
+
+  it("still says a private library is unreadable", () => {
+    expect(libraryState(profile({ lib: false, checking: 2 }))).toBe("unreadable");
   });
 });
 

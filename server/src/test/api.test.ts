@@ -21,7 +21,7 @@ import {
 import { createApi } from "../api.js";
 import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
 import { Platform, QUEUE_TIMEOUT_MS, RESET_HOLD_MS } from "../platform.js";
-import { emptyProfile, type SteamProfile } from "../steam.js";
+import { emptyProfile, LIBRARY_CAP, type LibraryEntry, type SteamProfile } from "../steam.js";
 import type { SignalMessage } from "../protocol.js";
 import { MAX_GAMES } from "../profile.js";
 import { REPORT } from "./report.js";
@@ -81,6 +81,8 @@ describe("booking and host API", () => {
   let shown: Map<string, Partial<SteamProfile>>;
   /** Games Swiff cannot run (playable.ts); every other game it can. */
   let unplayable: Set<number>;
+  /** Games with no verdict yet, which renters are not shown either. */
+  let unchecked: Set<number>;
   /** Every game the API asked to have checked, in order. */
   let wanted: number[];
   let wantedFirst: boolean;
@@ -107,7 +109,8 @@ describe("booking and host API", () => {
       };
     };
     const playability = {
-      playable: (appid: number) => !unplayable.has(appid),
+      playable: (appid: number) => !unplayable.has(appid) && !unchecked.has(appid),
+      checked: (appid: number) => !unchecked.has(appid),
       requiresAccount: () => null,
       want: (appids: Iterable<number>, { first = false } = {}) => {
         wanted.push(...appids);
@@ -152,6 +155,7 @@ describe("booking and host API", () => {
     unreachable = new Set();
     shown = new Map();
     unplayable = new Set();
+    unchecked = new Set();
     wanted = [];
     wantedFirst = false;
     launches = [];
@@ -764,7 +768,7 @@ describe("booking and host API", () => {
       assert.deepEqual((await call("GET", "/api/games")).body, []);
     });
 
-    it("sends the page only those of the renter's games, and has the whole library checked first", async () => {
+    it("sends the page only those of the renter's games, and has the ones it could show checked first", async () => {
       libraries.set(RENTER, [440, 570, 730, 1245620]);
       shown.set(RENTER, {
         owned: [
@@ -782,9 +786,48 @@ describe("booking and host API", () => {
         const { profile } = (await read()).body;
         assert.deepEqual(profile.owned, [[730, 400]]);
         assert.deepEqual(profile.games, [[440, "Team Fortress 2", 3]]);
-        assert.deepEqual(wanted, [440, 570, 730, 1245620]);
+        assert.equal(profile.checking, 0);
+        assert.deepEqual(wanted, [730, 1245620, 440, 570]);
         assert.equal(wantedFirst, true);
       }
+    });
+
+    it("fills the page's list of the renter's games with playable ones, past those Swiff cannot run", async () => {
+      const ranked = Array.from({ length: LIBRARY_CAP + 6 }, (_, i): LibraryEntry => [
+        1000 + i,
+        `Game ${i}`,
+        99 - i,
+      ]);
+      libraries.set(
+        RENTER,
+        ranked.map(([appid]) => appid),
+      );
+      shown.set(RENTER, { games: ranked });
+      unplayable = new Set([1000, 1001, 1002, 1003, 1004]);
+      const { profile } = (await renter("GET", "/api/me")).body;
+      assert.deepEqual(profile.games, ranked.slice(5, 5 + LIBRARY_CAP));
+      assert.equal(profile.checking, 0);
+    });
+
+    it("says how many of the games the page could show are still being checked", async () => {
+      libraries.set(RENTER, [440, 570, 1245620]);
+      shown.set(RENTER, {
+        owned: [[1245620, 61]],
+        games: [
+          [440, "Team Fortress 2", 3],
+          [570, "Dota 2", 12],
+        ],
+      });
+      unchecked = new Set([440, 570, 1245620]);
+      const before = (await renter("GET", "/api/me")).body.profile;
+      assert.deepEqual([before.owned, before.games, before.checking], [[], [], 3]);
+
+      unchecked = new Set();
+      unplayable = new Set([570]);
+      const after = (await renter("GET", "/api/me")).body.profile;
+      assert.deepEqual(after.owned, [[1245620, 61]]);
+      assert.deepEqual(after.games, [[440, "Team Fortress 2", 3]]);
+      assert.equal(after.checking, 0);
     });
 
     it("answers nothing for the others when asked what is free, and lists no machines for them", async () => {

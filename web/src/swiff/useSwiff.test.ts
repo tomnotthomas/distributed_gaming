@@ -7,7 +7,7 @@ import { GAMES } from "./data";
 import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
-import type { Renter } from "./steam";
+import { libraryState, type Renter } from "./steam";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
@@ -393,6 +393,40 @@ describe("useSwiff", () => {
         true,
       );
       expect(result.current.liveLine).toBe("1 free for this game");
+    });
+
+    it("reads the renter's profile again while their games are being checked, and stops once they are", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let checked = false;
+      const me = () =>
+        new Response(
+          JSON.stringify({
+            steamId: unnamed.steamId,
+            profile: checked
+              ? { ...unnamed.profile, lib: true, games: [[440, "Team Fortress 2", 3]], checking: 0 }
+              : { ...unnamed.profile, lib: true, checking: 1 },
+          }),
+        );
+      serve(unnamed, {}, { "GET /api/me": me });
+      const reads = () => fetched().filter((p) => p === "/api/me").length;
+      try {
+        const { result } = renderHook(() => useSwiff({ demo: false }));
+        await waitFor(() => expect(result.current.profile).not.toBeNull());
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(reads()).toBe(2));
+        expect(libraryState(result.current.profile!)).toBe("checking");
+
+        checked = true;
+        await act(() => vi.advanceTimersByTimeAsync(5_000));
+        await waitFor(() => expect(libraryState(result.current.profile!)).toBe("ok"));
+        expect(result.current.games.some((g) => g.appid === 440)).toBe(true);
+        await act(() => vi.advanceTimersByTimeAsync(20_000));
+        expect(reads()).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("keeps the machine a session is on when a re-read says it is now taken", async () => {

@@ -55,6 +55,7 @@ import {
   popularCards,
   readSteamFragment,
   refreshRenter,
+  sameGames,
   signInNote,
   withMedia,
   storeGames,
@@ -106,6 +107,11 @@ const FREED_MS = 2_400;
 
 /** The real clock is read this often; its minutes are all the page shows. */
 const CLOCK_MS = 15_000;
+
+/** While the server is still checking a renter's games, their profile is read again this often... */
+const CHECKING_READ_MS = 5_000;
+/** ...this many times at most: five minutes. */
+const CHECKING_READS = 60;
 
 /**
  * The demo: the five invented machines and the evening pinned to 20:00, at
@@ -310,6 +316,22 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     },
     [sharedMachineIds, vouch],
   );
+
+  // While the server is still checking games the renter's wall could show, read
+  // their profile again, so each game turns up once it is found playable.
+  const checkingReads = useRef(0);
+  useEffect(() => {
+    if (!profile?.checking || !steamId || checkingReads.current >= CHECKING_READS) return;
+    const timer = setTimeout(() => {
+      checkingReads.current++;
+      void fetchRenter().then((renter) => {
+        if (!renter) return;
+        if (sameGames(renter.profile, profile)) setProfile(renter.profile);
+        else showLibrary(renter);
+      });
+    }, CHECKING_READ_MS);
+    return () => clearTimeout(timer);
+  }, [profile, steamId, showLibrary]);
 
   /** Read the renter's library from Steam again, after they have made it public. */
   const retryLibrary = useCallback(() => {
