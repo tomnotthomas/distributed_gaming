@@ -206,8 +206,10 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   never as the renter, because it holds the session key. swiff-hostd starts it once per
   renter session and hands it the key as one JSON line on stdin
   (`{"sessionKey": "...", "expiresAt": <Unix s>}`); its environment carries only
-  `SWIFF_SERVER_URL` and `SWIFF_HOST_ID` (hostd's `SWIFF_APPID` is ignored). It registers with the session
-  key, never sees the machine key, and exits whenever the server puts it out (session
+  `SWIFF_SERVER_URL` and `SWIFF_HOST_ID` (hostd's `SWIFF_APPID` is ignored). `SWIFF_SERVER_URL`
+  must be `wss://` unless it points at this machine (loopback), so the session key never
+  crosses the network in the clear; only a test may override that (`--insecure-signaling`,
+  as the VM test does). It registers with the session key, never sees the machine key, and exits whenever the server puts it out (session
   ended, or the key refused after a reconnect); swiff-hostd decides what follows.
 - **Capture.** `helpers/swiff-gst.py` runs the GStreamer pipelines `src/pipeline.ts`
   builds: `pipewiresrc target-object=gamescope` → scale → H.264 Constrained Baseline,
