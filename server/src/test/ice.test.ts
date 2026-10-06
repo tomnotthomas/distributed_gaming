@@ -203,7 +203,12 @@ describe("a relay with a shared secret", () => {
   it("lets a seat in the longest booking on a rental-mode PC keep its credential to the very end", () => {
     const end = NOW_S + sessionSpanMs({ rentalMode: true }, MAX_MINUTES) / 1000;
     assert.ok(end > NOW_S + MAX_MINUTES * 60);
-    const host = sharedSecretCredential(SECRET, ["turn:relay.example:3478"], seat({ side: "host", expiresAt: end }), NOW);
+    const host = sharedSecretCredential(
+      SECRET,
+      ["turn:relay.example:3478"],
+      seat({ side: "host", expiresAt: end }),
+      NOW,
+    );
     assert.equal(host.username, `${end}:s1-host`);
   });
 
