@@ -25,8 +25,9 @@
 # (default ~/.cache/swiff-os). mkosi's workspace goes to
 # $SWIFF_OS_WORKSPACE_DIR when set (mkosi's default is /var/tmp).
 #
-# Needs: sudo (mkosi 20 builds as root), qemu-system-x86_64, swtpm, OVMF
-# (/usr/share/OVMF), /dev/kvm, bwrap. The VM gets 2 GiB of RAM and 2 vCPUs.
+# Needs: sudo (mkosi 20 builds as root; bwrap measures the UKI as root),
+# qemu-system-x86_64, swtpm, OVMF (/usr/share/OVMF), /dev/kvm, bwrap. The VM
+# gets 2 GiB of RAM and 2 vCPUs.
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # VM's firmware variables are a copy of OVMF's empty template in the run directory.
 set -euo pipefail
@@ -242,8 +243,10 @@ digest2=$(scratch_digest)
 # --- Expected PCR 11 -----------------------------------------------------------
 # systemd-measure (from the build's tools tree) predicts PCR 11 for this UKI
 # after the boot phases enter-initrd, leave-initrd, sysinit and ready.
+# bwrap runs as root: Ubuntu 24.04 (CI's runner) refuses an unprivileged
+# user namespace, so an ordinary user's bwrap cannot map its uid there.
 tools=$out/ubuntu-tools
-expected_pcr11=$(bwrap --ro-bind "$tools/usr" /usr \
+expected_pcr11=$(sudo bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
 	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
 	--proc /proc --dev /dev --tmpfs /tmp \
