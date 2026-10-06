@@ -237,16 +237,16 @@ const skipping =
 describe("firmware variables", () => {
   it("writes a boot entry byte for byte as efibootmgr and virt-firmware do", () => {
     const option = efi.loadOption({
-      title: "Swiff OS",
+      title: "Lanterel OS",
       partition: { number: 1, first: 2048, sectors: 2097152, id: "3D7B64D1-2E0C-493B-958E-7F825AEC1F7C" },
       path: "\\EFI\\swiff\\shimx64.efi",
     });
     expect(option.toString("hex")).toBe(
-      "0100000060005300770069006600660020004f005300000004012a000100000000080000000000000000200000000000d1647b3d0c2e3b49958e7f825aec1f7c0202040432005c004500460049005c00730077006900660066005c007300680069006d007800360034002e0065006600690000007fff0400",
+      "0100000060004c0061006e0074006500720065006c0020004f005300000004012a000100000000080000000000000000200000000000d1647b3d0c2e3b49958e7f825aec1f7c0202040432005c004500460049005c00730077006900660066005c007300680069006d007800360034002e0065006600690000007fff0400",
     );
     expect(efi.parseLoadOption(option)).toEqual({
       active: true,
-      title: "Swiff OS",
+      title: "Lanterel OS",
       partition: "3d7b64d1-2e0c-493b-958e-7f825aec1f7c",
       file: "\\EFI\\swiff\\shimx64.efi",
     });
@@ -368,7 +368,7 @@ describe("running a plan", () => {
 });
 
 describe("the elevated worker", () => {
-  it("installs Swiff OS next to Windows, then takes it all off again", async () => {
+  it("installs Lanterel OS next to Windows, then takes it all off again", async () => {
     const { pc, worker, layout } = await setup();
     const before = pc.cSize();
     const rental = rentalOf(pc.facts(), [{ letter: "C", games: 1 }]);
@@ -385,7 +385,11 @@ describe("the elevated worker", () => {
     expect(added.map((e) => [e.id, e.name])).toEqual(layout.map((p) => [p.id, p.name]));
     // The boot entry starts the shim on Swiff OS's ESP, last in the order; BootNext for the restart.
     const option = efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!);
-    expect(option).toMatchObject({ title: "Swiff OS", partition: ID(0), file: "\\EFI\\swiff\\shimx64.efi" });
+    expect(option).toMatchObject({
+      title: "Lanterel OS",
+      partition: ID(0),
+      file: "\\EFI\\swiff\\shimx64.efi",
+    });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     // Swiff's key queued with the owner's code, as mokutil would.
@@ -527,14 +531,14 @@ describe("the elevated worker", () => {
     const worker = async () => createWorker({ imageDir: image, trust: TRUST, win: pc.win });
 
     imageSet(image, { key: generateKeyPairSync("ed25519").privateKey });
-    await expect((await worker()).apply(mok)).rejects.toThrow(/Swiff did not sign this image set/);
+    await expect((await worker()).apply(mok)).rejects.toThrow(/Lanterel did not sign this image set/);
     imageSet(image);
     const manifest = JSON.parse(fs.readFileSync(path.join(image, MANIFEST), "utf8"));
     fs.writeFileSync(path.join(image, MANIFEST), JSON.stringify({ ...manifest, version: "0.1.1" }));
-    await expect((await worker()).apply(mok)).rejects.toThrow(/Swiff did not sign this image set/);
+    await expect((await worker()).apply(mok)).rejects.toThrow(/Lanterel did not sign this image set/);
     // Signed, but with another certificate than the one the app knows for this key.
     imageSet(image, { cert: Buffer.from("3082010a0282010100badbad", "hex") });
-    await expect((await worker()).apply(mok)).rejects.toThrow(/certificate is not Swiff's/);
+    await expect((await worker()).apply(mok)).rejects.toThrow(/certificate is not Lanterel's/);
     // Swapped after the manifest was signed.
     imageSet(image);
     fs.writeFileSync(path.join(image, "swiffos-key.cer"), Buffer.from("3082010a0282010100badbad", "hex"));
@@ -599,20 +603,20 @@ describe("the elevated worker", () => {
         // Past its signature and certificate, to its images, which this set leaves out.
         await expect(check()).rejects.toThrow(/swiffos_0\.1\.0\.esp\.raw of the image set is not on this PC/);
       } else {
-        expect(() => readImageSet(image, { trust })).toThrow(/Swiff did not sign this image set/);
-        await expect(check()).rejects.toThrow(/Swiff did not sign this image set/);
+        expect(() => readImageSet(image, { trust })).toThrow(/Lanterel did not sign this image set/);
+        await expect(check()).rejects.toThrow(/Lanterel did not sign this image set/);
       }
 
       const manifest = JSON.parse(fs.readFileSync(path.join(image, MANIFEST), "utf8"));
       fs.writeFileSync(path.join(image, MANIFEST), JSON.stringify({ ...manifest, version: "0.1.1" }));
-      await expect(check(), `${kind}: manifest`).rejects.toThrow(/Swiff did not sign this image set/);
+      await expect(check(), `${kind}: manifest`).rejects.toThrow(/Lanterel did not sign this image set/);
 
       imageSet(image);
       fs.writeFileSync(path.join(image, "swiffos-key.cer"), BAD);
       await expect(check(), `${kind}: certificate`).rejects.toThrow(/image set/);
 
       // An image file swapped after the set was signed: never copied where the worker writes from.
-      const good = Buffer.from("Swiff OS's root");
+      const good = Buffer.from("Lanterel OS's root");
       const from = path.join(image, "root.raw");
       const to = path.join(dir, "state", "root.raw");
       fs.writeFileSync(from, "Someone else's!");
@@ -629,7 +633,7 @@ describe("the elevated worker", () => {
   });
 
   it("checks each image where it is, before anything changes: a missing, short or altered one stops it", async () => {
-    const good = Buffer.from("Swiff OS's root");
+    const good = Buffer.from("Lanterel OS's root");
     const listed = { bytes: good.length, sha256: sha256(good) };
     const from = path.join(dir, "image", "root.raw");
     const progress: number[] = [];
@@ -666,7 +670,7 @@ describe("the elevated worker", () => {
     const c = pc.gpt().entries.find((e) => e.index === C_INDEX)!;
     await expect(
       worker.apply({ op: "write", disk: 0, offset: c.first * 512, bytes: GiB, source: "esp" }),
-    ).rejects.toThrow(/not one of Swiff OS's partitions/);
+    ).rejects.toThrow(/not one of Lanterel OS's partitions/);
   });
 
   it("keeps the boot partition typed Linux data until it is written, so Windows does not mount it mid-write", async () => {
@@ -721,7 +725,7 @@ describe("the elevated worker", () => {
     pc.vars.set(
       pc.key(efi.GLOBAL, "Boot0005"),
       efi.loadOption({
-        title: "Swiff OS",
+        title: "Lanterel OS",
         partition: { number: esp.index + 1, first: esp.first, sectors: esp.last - esp.first + 1, id: ID(0) },
         path: "\\EFI\\SWIFF\\SHIMX64.EFI",
       }),
@@ -740,14 +744,14 @@ describe("the elevated worker", () => {
     expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0001"))).toBe(false);
   });
 
-  it("keeps hands off an entry that is not Swiff OS's, and adds its own again when the firmware dropped it", async () => {
+  it("keeps hands off an entry that is not Lanterel OS's, and adds its own again when the firmware dropped it", async () => {
     const { pc, worker } = await withEntry();
     const windows = pc.vars.get(pc.key(efi.GLOBAL, "Boot0000"))!;
     pc.vars.set(pc.key(efi.GLOBAL, "Boot0001"), windows);
     await expect(worker.apply({ op: "boot-next", entry: "swiff" })).resolves.toEqual({ entry: 2 });
     expect(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!.equals(windows)).toBe(true);
     expect(efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0002"))!)).toMatchObject({
-      title: "Swiff OS",
+      title: "Lanterel OS",
       partition: ID(0),
       file: "\\EFI\\swiff\\shimx64.efi",
     });
@@ -806,7 +810,7 @@ describe("the elevated worker", () => {
     });
   });
 
-  it("asks MokManager to wait with every Swiff OS start, and takes that back with the request", async () => {
+  it("asks MokManager to wait with every Lanterel OS start, and takes that back with the request", async () => {
     const { pc, worker } = await withEntry();
     await worker.apply({ op: "boot-next", entry: "swiff" });
     expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokTimeout"))!.equals(efi.MOK_WAIT)).toBe(true);
@@ -832,7 +836,7 @@ describe("the elevated worker", () => {
     expect(() => checkOp({ op: "format" })).toThrow(/Not an operation this installer knows/);
     expect(() => checkOp({ op: "bitlocker-suspend", letter: "C:", restarts: 3 })).toThrow();
     expect(() =>
-      checkOp({ op: "boot-entry", disk: 0, offset: 0, path: "\\EFI\\evil.efi", title: "Swiff OS" }),
+      checkOp({ op: "boot-entry", disk: 0, offset: 0, path: "\\EFI\\evil.efi", title: "Lanterel OS" }),
     ).toThrow();
     expect(() => checkOp({ op: "mok-import", cert: "other.cer", code: "12345678" })).toThrow();
     expect(() => checkOp({ op: "restart" })).not.toThrow();

@@ -71,7 +71,7 @@ export function Settings({ view, actions, go }: ScreenProps) {
         <div className="cp">
           <p className="mono ctx">Settings</p>
           <h1>Connection</h1>
-          <p className="ln">How this PC connects to Swiff.</p>
+          <p className="ln">How this PC connects to Lanterel.</p>
           <form
             id="connection"
             className="form ctl"

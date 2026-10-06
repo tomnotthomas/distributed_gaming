@@ -208,7 +208,7 @@ describe("reading the PC", () => {
   });
 });
 
-describe("where Swiff OS goes", () => {
+describe("where Lanterel OS goes", () => {
   it("takes a fixed 24,192 MiB, the image's layout", () => {
     expect(SWIFF_OS_BYTES).toBe(24192 * MiB);
     expect(SWIFF_OS.partitions.map((p) => p.role)).toEqual([
@@ -221,7 +221,7 @@ describe("where Swiff OS goes", () => {
     ]);
   });
 
-  it("shrinks C: from its end by exactly Swiff OS's size, up to the recovery partition", () => {
+  it("shrinks C: from its end by exactly Lanterel OS's size, up to the recovery partition", () => {
     const [target] = pc().targets;
     const c = FACTS.partitions[2]!;
     expect(target).toMatchObject({ id: "shrink:C", kind: "shrink", letter: "C", disk: 0, partition: 3 });
@@ -366,13 +366,13 @@ describe("the install plan", () => {
     );
     expect(plan.steps.map((s) => s.title)).toEqual([
       "Check the Secure Boot keys and the TPM (asks for administrator)",
-      "Turn off Fast Startup so Swiff OS can read your drives",
+      "Turn off Fast Startup so Lanterel OS can read your drives",
       "Shrink C: by 24 GB",
-      "Create 6 partitions for Swiff OS on disk 0",
-      "Copy Swiff OS onto them",
-      "Add Swiff OS to the boot menu, after Windows",
-      "Label C: SWIFFGAMES so Swiff OS finds your games",
-      "Make a one-time code for Swiff's key",
+      "Create 6 partitions for Lanterel OS on disk 0",
+      "Copy Lanterel OS onto them",
+      "Add Lanterel OS to the boot menu, after Windows",
+      "Label C: SWIFFGAMES so Lanterel OS finds your games",
+      "Make a one-time code for Lanterel's key",
       "Restart once to confirm the key",
     ]);
   });
@@ -431,7 +431,7 @@ describe("the install plan", () => {
     expect(installPlan(pc()).steps.map((s) => s.id)).not.toContain("bitlocker");
   });
 
-  it("shrinks C: and lays Swiff OS's six partitions end to end in the room it made", () => {
+  it("shrinks C: and lays Lanterel OS's six partitions end to end in the room it made", () => {
     const rental = pc();
     const target = rental.targets[0]!;
     const plan = installPlan(rental);
@@ -453,7 +453,7 @@ describe("the install plan", () => {
     expect(at - target.start).toBe(SWIFF_OS_BYTES);
   });
 
-  it("writes only the boot partition and slot A, and points the boot entry at the shim on Swiff OS's own ESP", () => {
+  it("writes only the boot partition and slot A, and points the boot entry at the shim on Lanterel OS's own ESP", () => {
     const plan = installPlan(pc());
     const writes = plan.steps.find((s) => s.id === "write")!.ops;
     expect(writes.map((o) => (o.op === "write" ? o.source : null))).toEqual([
@@ -469,7 +469,7 @@ describe("the install plan", () => {
         disk: 0,
         offset: esp.op === "write" ? esp.offset : -1,
         path: "\\EFI\\swiff\\shimx64.efi",
-        title: "Swiff OS",
+        title: "Lanterel OS",
       },
     ]);
     expect(entry.commands.join("\n")).toMatch(
@@ -534,7 +534,7 @@ describe("the install plan", () => {
     expect(plan.target?.disk).toBe(1);
   });
 
-  it("offers no disk with 4,096-byte sectors: Swiff OS's ESP is a FAT with 512-byte ones", () => {
+  it("offers no disk with 4,096-byte sectors: Lanterel OS's ESP is a FAT with 512-byte ones", () => {
     const native = pc((raw) => ({ ...raw, disks: raw.disks.map((d) => ({ ...d, sector: 4096 })) }));
     expect(native.targets).toEqual([]);
   });
@@ -544,7 +544,7 @@ describe("the install plan", () => {
     expect(installPlan(pc(), { target: null }).target?.id).toBe("shrink:C");
   });
 
-  it("refuses a PC with nowhere to put Swiff OS", () => {
+  it("refuses a PC with nowhere to put Lanterel OS", () => {
     const full = pc((raw) => ({ ...raw, volumes: [] }));
     expect(() => installPlan(full)).toThrow(/24 GB/);
   });
@@ -581,8 +581,8 @@ describe("the install plan", () => {
   });
 });
 
-describe("Swiff's key, enrolled once as a MOK", () => {
-  it("queues the key with a one-time code and points the next start at Swiff OS, then restarts once on the owner's word", () => {
+describe("Lanterel's key, enrolled once as a MOK", () => {
+  it("queues the key with a one-time code and points the next start at Lanterel OS, then restarts once on the owner's word", () => {
     const plan = installPlan(pc(), { code: "48217730" });
     expect(plan.mok).toEqual({ code: "48217730" });
     const [mok, restart] = plan.steps.slice(-2);
@@ -593,7 +593,7 @@ describe("Swiff's key, enrolled once as a MOK", () => {
       { op: "boot-next", entry: "swiff" },
     ]);
     expect(mok!.confirm).toBeNull();
-    expect(mok!.commands.join("\n")).toMatch(/BootNext: Swiff OS's Boot####/);
+    expect(mok!.commands.join("\n")).toMatch(/BootNext: Lanterel OS's Boot####/);
     expect(mok!.commands.join("\n")).toMatch(/mokutil --import swiffos-key\.cer --simple-hash/);
     expect(mok!.commands.join("\n")).toMatch(/MokNew-605dab50-e046-4300-abb6-3dd810dd8b23/);
     expect(mok!.commands.join("\n")).toMatch(/MokAuth-605dab50-.*the one-time code/);
@@ -659,7 +659,7 @@ describe("Swiff's key, enrolled once as a MOK", () => {
 });
 
 describe("the switch", () => {
-  it("starts sharing with Swiff OS first in the boot order and BootNext, then restarts", () => {
+  it("starts sharing with Lanterel OS first in the boot order and BootNext, then restarts", () => {
     const plan = switchPlan("start");
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
       { op: "boot-first", entry: "swiff" },
@@ -669,7 +669,7 @@ describe("the switch", () => {
     expect(plan.steps.filter((s) => s.confirm).map((s) => s.id)).toEqual(["restart"]);
   });
 
-  it("starts Swiff OS once with BootNext alone, so the next restart is Windows again", () => {
+  it("starts Lanterel OS once with BootNext alone, so the next restart is Windows again", () => {
     const plan = switchPlan("once");
     expect(plan.steps.map((s) => s.ops)).toEqual([
       [{ op: "boot-next", entry: "swiff" }],
@@ -743,7 +743,7 @@ describe("the uninstall", () => {
     ]);
   });
 
-  it("removes Swiff's key on its own, before the uninstall, through MokManager on Swiff OS's ESP", () => {
+  it("removes Lanterel's key on its own, before the uninstall, through MokManager on Lanterel OS's ESP", () => {
     const plan = keyRemovalPlan("55554444");
     expect(plan).toMatchObject({ kind: "unkey", mok: { code: "55554444" } });
     expect(plan.steps.map((s) => s.ops)).toEqual([
@@ -779,7 +779,7 @@ describe("what the screen says", () => {
   });
   const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
 
-  it("says the fixture PC is ready to install, with Fast Startup left to Swiff", () => {
+  it("says the fixture PC is ready to install, with Fast Startup left to Lanterel", () => {
     const read = pc();
     expect(rentalStage(setupOf(read))).toEqual({ kind: "ready" });
     expect(rentalLine(setupOf(read))).toBe("Ready to install");
@@ -838,7 +838,7 @@ describe("what the screen says", () => {
     expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({ value: "RTX 4080: not yet" });
   });
 
-  it("tells Swiff OS's files Swiff did not sign from files not there, and leads to checking again", () => {
+  it("tells Lanterel OS's files Lanterel did not sign from files not there, and leads to checking again", () => {
     const missing = { ...pc(), image: null, imageRefused: false };
     expect(pcChecks(missing, null).find((c) => c.id === "image")).toMatchObject({
       value: "Its files are not on this PC",
@@ -847,7 +847,7 @@ describe("what the screen says", () => {
     expect(rentalStage(setupOf(missing)).kind).toBe("almost");
     const refused = { ...pc(), image: null, imageRefused: true };
     expect(pcChecks(refused, null).find((c) => c.id === "image")).toMatchObject({
-      value: "Not signed by Swiff",
+      value: "Not signed by Lanterel",
       state: "blocked",
     });
     expect(waitingFor(refused, null)).toEqual([]);
@@ -861,7 +861,7 @@ describe("what the screen says", () => {
       {
         id: "space",
         title: "Free up 24 GB",
-        line: "Swiff OS needs 24 GB on one drive. Move or delete files, or add a drive.",
+        line: "Lanterel OS needs 24 GB on one drive. Move or delete files, or add a drive.",
         setting: ["Free space on one drive", "24 GB"],
       },
     ]);
@@ -926,7 +926,7 @@ describe("what the screen says", () => {
     });
     expect(windowsTodos(read, "shrink:D")[0]).toMatchObject({
       id: "space",
-      line: "The drive you picked for Swiff OS isn't there any more. Pick another, or free up space on one drive.",
+      line: "The drive you picked for Lanterel OS isn't there any more. Pick another, or free up space on one drive.",
     });
     expect(rentalStage(setupOf(read, { target: "shrink:C" })).kind).toBe("ready");
   });
@@ -962,7 +962,7 @@ describe("what the screen says", () => {
   });
 });
 
-describe("Swiff's key, after the install", () => {
+describe("Lanterel's key, after the install", () => {
   const record = { complete: true, disk: 0, bootEntry: 3, partitions: [], mok: true };
   const installed = (key: RentalRead["key"], extra: Partial<RentalRead> = {}): RentalSetup => ({
     reading: false,
@@ -1019,7 +1019,7 @@ describe("Swiff's key, after the install", () => {
     expect(stepLocked("live", { rental: installed(null), live: off }, true)).toBe(false);
   });
 
-  it("goes back to the key step, Go live locked, once Swiff's key is taken off", () => {
+  it("goes back to the key step, Go live locked, once Lanterel's key is taken off", () => {
     const disk = new Map<string, string>();
     const files = {
       readFileSync: (file: string) => {
@@ -1147,7 +1147,7 @@ describe("when a step stops", () => {
   const done = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, "done" as const]));
 
   it("asks Windows again when its prompt was declined, with nothing changed", () => {
-    const { setup, f } = failed("elevate", "Windows did not give Swiff Host administrator rights.");
+    const { setup, f } = failed("elevate", "Windows did not give Lanterel Host administrator rights.");
     expect(f).toMatchObject({
       kind: "admin",
       title: "Windows didn't give permission",
@@ -1193,13 +1193,13 @@ describe("when a step stops", () => {
     });
     expect(f).toMatchObject({
       kind: "write",
-      title: "Writing Swiff OS stopped",
+      title: "Writing Lanterel OS stopped",
       why: "The drive reported an error while checking Root, after 3.0 of 8.6 GB.",
       changed:
-        "Fast Startup is off. C: is already 24 GB smaller. Windows and your files are untouched. Trying again writes Swiff OS from the start.",
+        "Fast Startup is off. C: is already 24 GB smaller. Windows and your files are untouched. Trying again writes Lanterel OS from the start.",
       label: "Try again",
       rail: "Install stopped",
-      what: "Writing Swiff OS",
+      what: "Writing Lanterel OS",
       at: "Stopped at 21:04",
       far: "Root, at 3.0 of 8.6 GB",
     });
@@ -1212,7 +1212,7 @@ describe("when a step stops", () => {
     expect(f).toMatchObject({
       kind: "space",
       title: "Not enough space on C:",
-      why: "Files were added since the check, so there isn't room for Swiff OS on C:.",
+      why: "Files were added since the check, so there isn't room for Lanterel OS on C:.",
       action: "use",
       label: "Use disk 1 instead",
       rail: "Not enough space",
@@ -1228,7 +1228,7 @@ describe("when a step stops", () => {
     });
   });
 
-  it("says what a stopped removal left: Windows as normal, Swiff OS off the boot menu, the space unused", () => {
+  it("says what a stopped removal left: Windows as normal, Lanterel OS off the boot menu, the space unused", () => {
     const record = {
       complete: true,
       disk: 0,
@@ -1250,9 +1250,9 @@ describe("when a step stops", () => {
     expect(f).toMatchObject({
       kind: "removal",
       title: "Removing rental mode stopped",
-      why: "Swiff OS's space couldn't be given back to C:.",
+      why: "Lanterel OS's space couldn't be given back to C:.",
       changed:
-        "Windows starts as normal. Swiff OS is off the boot menu. Swiff OS is off the disk. The 24 GB stays unused until this finishes.",
+        "Windows starts as normal. Lanterel OS is off the boot menu. Lanterel OS is off the disk. The 24 GB stays unused until this finishes.",
       label: "Try again",
       rail: "Removal stopped",
       far: "at step 3 of 4",
@@ -1260,7 +1260,7 @@ describe("when a step stops", () => {
     expect(rentalLine(setup)).toBe("Removal stopped");
   });
 
-  it("tells an image the check found missing or not the one listed as Swiff OS's files, not an unknown error", () => {
+  it("tells an image the check found missing or not the one listed as Lanterel OS's files, not an unknown error", () => {
     for (const error of [
       "swiffos_0.1.0.root-x86-64.raw of the image set is not on this PC.",
       "swiffos_0.1.0.root-x86-64.raw is not the file its image set lists.",
@@ -1268,7 +1268,7 @@ describe("when a step stops", () => {
       const { setup, f } = failed("check", error);
       expect(f).toMatchObject({
         kind: "image",
-        title: "Swiff OS's files didn't pass the check",
+        title: "Lanterel OS's files didn't pass the check",
         changed: "Nothing on this PC has changed.",
         action: "send",
       });
@@ -1283,10 +1283,10 @@ describe("when a step stops", () => {
     expect(f).toMatchObject({
       kind: "unknown",
       title: "The install stopped",
-      why: "It stopped while turning off Fast Startup, and Swiff doesn't know this error yet.",
+      why: "It stopped while turning off Fast Startup, and Lanterel doesn't know this error yet.",
       changed: "Nothing after that step ran. Windows and your files are untouched.",
       action: "send",
-      label: "Send details to Swiff",
+      label: "Send details to Lanterel",
       far: "at step 2 of 9",
     });
     const { f: sent } = failed("fast-startup", "reg failed: exit code 1", { reportedAt: 1 });
@@ -1299,7 +1299,7 @@ describe("when a step stops", () => {
       steps: done(["check", "fast-startup", "room", "partitions", "write", "boot-entry", "mok"]),
     };
     expect(changedSoFar(plan, run)).toBe(
-      "Fast Startup is off. C: is already 24 GB smaller. Swiff OS is in the boot menu, after Windows. Swiff's key is queued for the next restart. Windows and your files are untouched.",
+      "Fast Startup is off. C: is already 24 GB smaller. Lanterel OS is in the boot menu, after Windows. Lanterel's key is queued for the next restart. Windows and your files are untouched.",
     );
     expect(changedSoFar(plan, IDLE_RUN)).toBe("Nothing on this PC has changed.");
   });

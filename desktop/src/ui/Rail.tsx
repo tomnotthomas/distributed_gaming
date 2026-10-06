@@ -45,7 +45,7 @@ function steamLine({ steam }: HostView): string {
 }
 
 /** Rental mode's three steps, under it in the rail while it is open: done olive, current lime, later hollow. */
-const RENTAL_STEPS = ["Get the PC ready", "Install Swiff OS", "Confirm the key"] as const;
+const RENTAL_STEPS = ["Get the PC ready", "Install Lanterel OS", "Confirm the key"] as const;
 
 function RentalSteps({ view }: { view: HostView }) {
   const at = rentalStepAt(view.rental);

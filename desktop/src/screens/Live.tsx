@@ -67,8 +67,8 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
   const line = view.demo
     ? `Players near you can see ${machine}.`
     : live.registered
-      ? `${machine} is connected to Swiff.`
-      : `${machine} is connecting to Swiff.`;
+      ? `${machine} is connected to Lanterel.`
+      : `${machine} is connecting to Lanterel.`;
 
   return (
     <main className="step">
@@ -78,7 +78,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
             <span className="live" />
             {kicker}
           </p>
-          <h1>{live.registered ? "Waiting for a player" : "Connecting to Swiff"}</h1>
+          <h1>{live.registered ? "Waiting for a player" : "Connecting to Lanterel"}</h1>
           <p className="ln">{line} Use it as normal until someone books it.</p>
           {editing ? (
             <div className="ctl">
@@ -435,14 +435,14 @@ export function Offline({ view, actions, live, go }: Of<"offline">) {
     <main className="step">
       <div className="banner mono">
         <Glyph name="offline" />
-        No connection to Swiff since {clock(live.since)}
+        No connection to Lanterel since {clock(live.since)}
       </div>
       <section className="hz">
         <div className="cp">
           <p className="mono ctx">{view.machine}</p>
           <h1>Offline</h1>
           <p className="ln">
-            No one can book {view.machine} and nothing is shared. Swiff keeps trying to reconnect.
+            No one can book {view.machine} and nothing is shared. Lanterel keeps trying to reconnect.
           </p>
           <div className="acts">
             <Pill icon="refresh" onClick={actions.retry}>

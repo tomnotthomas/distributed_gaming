@@ -143,7 +143,7 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
       id: "space",
       label: "Space",
       ...(read.installed
-        ? { value: `${gb(need)}: Swiff OS is installed`, state: "ok" }
+        ? { value: `${gb(need)}: Lanterel OS is installed`, state: "ok" }
         : target
           ? { value: targetLine(target, need), state: "ok" }
           : choiceGone(read, targetId)
@@ -172,13 +172,13 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
     },
     {
       id: "image",
-      label: "Swiff OS",
+      label: "Lanterel OS",
       ...(read.installed || read.image === undefined
         ? { value: read.installed ? "Installed" : "Not read", state: read.installed ? "ok" : "unread" }
         : read.image
           ? { value: `${read.image}, ready to install`, state: "ok" }
           : read.imageRefused
-            ? { value: "Not signed by Swiff", state: "blocked" }
+            ? { value: "Not signed by Lanterel", state: "blocked" }
             : { value: "Its files are not on this PC", state: "blocked" }),
     },
     {
@@ -435,7 +435,7 @@ export type WindowsTodo = { id: "games" | "space"; title: string; line: string; 
 export type Waiting = { id: "gpu" | "image"; setting: [string, string] };
 
 /** Today's words, unchanged: NVIDIA support is being built, so it gets no new copy. */
-export const NVIDIA_LINE = "NVIDIA graphics cards come in a later Swiff OS update.";
+export const NVIDIA_LINE = "NVIDIA graphics cards come in a later Lanterel OS update.";
 
 /** Where rental mode stands on this PC, from what was read: the one thing to do next. */
 export type RentalStage =
@@ -480,7 +480,7 @@ export function windowsTodos(read: RentalRead, targetId: string | null): Windows
       todos.push({
         id: "games",
         title: `Turn off BitLocker on ${read.games.letter}:`,
-        line: "Swiff OS can't read an encrypted drive.",
+        line: "Lanterel OS can't read an encrypted drive.",
         setting: [`${read.games.letter}: BitLocker`, "Off"],
       });
     if (check.id === "space")
@@ -488,8 +488,8 @@ export function windowsTodos(read: RentalRead, targetId: string | null): Windows
         id: "space",
         title: `Free up ${gb(read.need)}`,
         line: choiceGone(read, targetId)
-          ? "The drive you picked for Swiff OS isn't there any more. Pick another, or free up space on one drive."
-          : `Swiff OS needs ${gb(read.need)} on one drive. Move or delete files, or add a drive.`,
+          ? "The drive you picked for Lanterel OS isn't there any more. Pick another, or free up space on one drive."
+          : `Lanterel OS needs ${gb(read.need)} on one drive. Move or delete files, or add a drive.`,
         setting: ["Free space on one drive", gb(read.need)],
       });
   }
@@ -510,7 +510,7 @@ export function waitingFor(read: RentalRead, targetId: string | null): Waiting[]
   if (checks.some((c) => c.id === "gpu" && c.state === "blocked"))
     waiting.push({ id: "gpu", setting: ["Graphics card", "Update coming"] });
   if (!read.imageRefused && checks.some((c) => c.id === "image" && c.state === "blocked"))
-    waiting.push({ id: "image", setting: ["Swiff OS", "Update coming"] });
+    waiting.push({ id: "image", setting: ["Lanterel OS", "Update coming"] });
   return waiting;
 }
 
@@ -596,9 +596,9 @@ export const RUNNING_TITLE: Record<string, string> = {
   bitlocker: "Pausing BitLocker on C:",
   "fast-startup": "Turning off Fast Startup",
   room: "Making room",
-  partitions: "Creating Swiff OS's partitions",
-  write: "Writing Swiff OS",
-  "boot-entry": "Adding Swiff OS to the boot menu",
+  partitions: "Creating Lanterel OS's partitions",
+  write: "Writing Lanterel OS",
+  "boot-entry": "Adding Lanterel OS to the boot menu",
   "games-clear": "Labelling your games drive",
   games: "Labelling your games drive",
   mok: "Preparing your key code",
@@ -608,7 +608,7 @@ export const RUNNING_TITLE: Record<string, string> = {
   restart: "Restarting",
   labels: "Giving your drives their names back",
   forget: "Finishing up",
-  once: "Pointing the next start at Swiff OS",
+  once: "Pointing the next start at Lanterel OS",
 };
 
 /** What a removal's running step is called, where its id is shared with the install's. */
@@ -856,8 +856,8 @@ function changeOf(plan: RentalPlan, step: PlanStep): string | null {
   if (removesDisk(plan))
     return (
       {
-        "boot-entry": "Swiff OS is off the boot menu.",
-        partitions: "Swiff OS is off the disk.",
+        "boot-entry": "Lanterel OS is off the boot menu.",
+        partitions: "Lanterel OS is off the disk.",
       }[step.id] ?? null
     );
   return (
@@ -865,8 +865,8 @@ function changeOf(plan: RentalPlan, step: PlanStep): string | null {
       bitlocker: "BitLocker on C: is paused for the next few restarts.",
       "fast-startup": "Fast Startup is off.",
       room: room ? `${room}: is already ${gb(SWIFF_GB)} smaller.` : null,
-      "boot-entry": "Swiff OS is in the boot menu, after Windows.",
-      mok: "Swiff's key is queued for the next restart.",
+      "boot-entry": "Lanterel OS is in the boot menu, after Windows.",
+      mok: "Lanterel's key is queued for the next restart.",
     }[step.id] ?? null
   );
 }
@@ -951,7 +951,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       title: "The PC didn't restart",
       why: "Windows didn't start the restart.",
       changed:
-        "Swiff's key is queued, so the blue screen still comes on the next restart, from here or the Start menu.",
+        "Lanterel's key is queued, so the blue screen still comes on the next restart, from here or the Start menu.",
       action: "restart",
       label: "Restart now",
       rail: "Restart didn't start",
@@ -964,11 +964,11 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
   if (/image set/i.test(error))
     return stopped(installing ? "Install" : "Key", {
       kind: "image",
-      title: "Swiff OS's files didn't pass the check",
-      why: "The Swiff OS files on this PC aren't the ones Swiff signed, so Swiff didn't use them.",
+      title: "Lanterel OS's files didn't pass the check",
+      why: "The Lanterel OS files on this PC aren't the ones Lanterel signed, so Lanterel didn't use them.",
       changed: changedSoFar(plan, run),
       action: sent ? "again" : "send",
-      label: sent ? "Try again" : "Send details to Swiff",
+      label: sent ? "Try again" : "Send details to Lanterel",
       rail: "Files didn't check out",
     });
   const bios = step?.id === "check" ? checkBios(error) : null;
@@ -979,8 +979,8 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       title: BIOS_ASKS[bios].title,
       why:
         bios === "ca"
-          ? "Swiff checked the BIOS's Secure Boot keys as administrator: they don't allow the Microsoft 3rd-party UEFI CA, which signs Swiff OS's start."
-          : "Swiff checked this PC as administrator, and the BIOS has this setting off.",
+          ? "Lanterel checked the BIOS's Secure Boot keys as administrator: they don't allow the Microsoft 3rd-party UEFI CA, which signs Lanterel OS's start."
+          : "Lanterel checked this PC as administrator, and the BIOS has this setting off.",
       changed: "Nothing on this PC has changed. Change the setting, then check again.",
       action: "check",
       label: "Check again",
@@ -995,7 +995,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
     return {
       kind: "space",
       title: `Not enough space on ${letter}:`,
-      why: `Files were added since the check, so there isn't room for Swiff OS on ${letter}:.`,
+      why: `Files were added since the check, so there isn't room for Lanterel OS on ${letter}:.`,
       changed: changedSoFar(plan, run),
       action: other ? "use" : "check",
       label: other
@@ -1035,14 +1035,14 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
   if (step?.id === "write") {
     const p = run.progress?.id === "write" ? run.progress.pass : null;
     return stopped(
-      "Writing Swiff OS",
+      "Writing Lanterel OS",
       {
         kind: "write",
-        title: "Writing Swiff OS stopped",
+        title: "Writing Lanterel OS stopped",
         why: p
           ? `The drive reported an error while ${p.doing} ${p.name}, after ${gbOne(p.done)} of ${gbOne(p.total)} GB.`
-          : "The drive reported an error while Swiff OS was written.",
-        changed: `${changedSoFar(plan, run)} Trying again writes Swiff OS from the start.`,
+          : "The drive reported an error while Lanterel OS was written.",
+        changed: `${changedSoFar(plan, run)} Trying again writes Lanterel OS from the start.`,
         action: "again",
         label: "Try again",
         rail: installing ? "Install stopped" : "Stopped",
@@ -1058,13 +1058,13 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       : plan.kind === "mok"
         ? "Confirming the key stopped"
         : "That stopped",
-    why: `It stopped while ${running}, and Swiff doesn't know this error yet.`,
+    why: `It stopped while ${running}, and Lanterel doesn't know this error yet.`,
     changed:
       installing || index > 1
         ? `Nothing after that step ran. ${changedSoFar(plan, run).replace("Nothing on this PC has changed.", "Windows and your files are untouched.")}`
         : changedSoFar(plan, run),
     action: sent ? "again" : "send",
-    label: sent ? "Try again" : "Send details to Swiff",
+    label: sent ? "Try again" : "Send details to Lanterel",
     rail: installing ? "Install stopped" : "Stopped",
   });
 }

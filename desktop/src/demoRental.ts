@@ -13,7 +13,7 @@ import { writesOf } from "./rental";
 /** The demo's write, as one pass over all of Swiff OS. */
 const demoPass = (done: number, total: number) => ({
   doing: "writing" as const,
-  name: "Swiff OS",
+  name: "Lanterel OS",
   done,
   total,
 });
@@ -44,17 +44,17 @@ const INSTALL: RentalPlan = {
   target: DEMO_RENTAL_READ.targets[0],
   steps: [
     step("check", "Check the Secure Boot keys and the TPM (asks for administrator)"),
-    step("fast-startup", "Turn off Fast Startup so Swiff OS can read your drives"),
+    step("fast-startup", "Turn off Fast Startup so Lanterel OS can read your drives"),
     step("room", "Shrink C: by 24 GB"),
-    step("partitions", "Create 6 partitions for Swiff OS on disk 0"),
-    step("write", "Copy Swiff OS onto them", [
+    step("partitions", "Create 6 partitions for Lanterel OS on disk 0"),
+    step("write", "Copy Lanterel OS onto them", [
       { op: "write", disk: 0, offset: AT, bytes: 1 * GiB, source: "esp" },
       { op: "write", disk: 0, offset: AT + GiB, bytes: 8 * GiB, source: "root-x86-64" },
       { op: "write", disk: 0, offset: AT + 9 * GiB, bytes: 128 * MiB, source: "root-x86-64-verity" },
     ]),
-    step("boot-entry", "Add Swiff OS to the boot menu, after Windows"),
-    step("games", "Label D: SWIFFGAMES so Swiff OS finds your games"),
-    step("mok", "Make a one-time code for Swiff's key"),
+    step("boot-entry", "Add Lanterel OS to the boot menu, after Windows"),
+    step("games", "Label D: SWIFFGAMES so Lanterel OS finds your games"),
+    step("mok", "Make a one-time code for Lanterel's key"),
     restart("Restart once to confirm the key"),
   ],
   mok: { code: CODE },
@@ -62,14 +62,14 @@ const INSTALL: RentalPlan = {
 
 const MOK: RentalPlan = {
   kind: "mok",
-  steps: [step("mok", "Make a one-time code for Swiff's key"), restart("Restart once to confirm the key")],
+  steps: [step("mok", "Make a one-time code for Lanterel's key"), restart("Restart once to confirm the key")],
   mok: { code: NEW_CODE },
 };
 
 const UNKEY: RentalPlan = {
   kind: "unkey",
   steps: [
-    step("mok-remove", "Make a one-time code to remove Swiff's key"),
+    step("mok-remove", "Make a one-time code to remove Lanterel's key"),
     { ...restart("Restart once to confirm the removal"), id: "restart" },
   ],
   mok: { code: NEW_CODE },
@@ -78,8 +78,8 @@ const UNKEY: RentalPlan = {
 const UNINSTALL: RentalPlan = {
   kind: "uninstall",
   steps: [
-    step("boot-entry", "Take Swiff OS out of the boot menu"),
-    step("partitions", "Remove Swiff OS's 6 partitions from disk 0"),
+    step("boot-entry", "Take Lanterel OS out of the boot menu"),
+    step("partitions", "Remove Lanterel OS's 6 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
   ],
 };
@@ -110,8 +110,8 @@ const REMOVE_DISK: RentalPlan = {
 const ONCE: RentalPlan = {
   kind: "once",
   steps: [
-    step("once", "Start Swiff OS on the next restart only"),
-    { ...restart("Restart into Swiff OS"), id: "restart" },
+    step("once", "Start Lanterel OS on the next restart only"),
+    { ...restart("Restart into Lanterel OS"), id: "restart" },
   ],
 };
 
@@ -329,7 +329,7 @@ function startOf(c: RentalCase): Start {
         run: {
           ...IDLE_RUN,
           status: "failed",
-          failed: { step: "elevate", error: "Windows did not give Swiff Host administrator rights." },
+          failed: { step: "elevate", error: "Windows did not give Lanterel Host administrator rights." },
           endedAt: Date.now(),
         },
       };

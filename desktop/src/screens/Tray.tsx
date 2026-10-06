@@ -60,7 +60,7 @@ export function TrayGlance({
       ) : null}
       <div className="pf mono">
         <button type="button" className="lnk" onClick={() => onAction("open")}>
-          Open Swiff
+          Open Lanterel
         </button>
         <span>{glance.foot}</span>
       </div>
@@ -79,7 +79,7 @@ export function TrayWindow() {
           <TrayGlance glance={glance} onAction={(action) => trayBridge()?.trayAction(action)} />
         </ArtContext.Provider>
       ) : (
-        <p className="glance soft">Open Swiff to go live.</p>
+        <p className="glance soft">Open Lanterel to go live.</p>
       )}
     </div>
   );

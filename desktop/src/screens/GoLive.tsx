@@ -173,7 +173,7 @@ export function GoLive(props: ScreenProps) {
       : s.kind === "running"
         ? "Getting the restart ready."
         : s.kind === "restarting" || s.kind === "restart"
-          ? "Restarting into Swiff OS."
+          ? "Restarting into Lanterel OS."
           : null;
   const failed = s.kind === "failed" ? failureOf(setup, s) : null;
   return (
@@ -185,7 +185,7 @@ export function GoLive(props: ScreenProps) {
           <p className="ln">
             {failed
               ? failed.why
-              : "Hold the button. The PC restarts into Swiff OS, and players can book it. For now its next restart is Windows again."}
+              : "Hold the button. The PC restarts into Lanterel OS, and players can book it. For now its next restart is Windows again."}
           </p>
           {!status && !failed && asksWhoCanPlay(view.crew) ? (
             <div className="ctl">

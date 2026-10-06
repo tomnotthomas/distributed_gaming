@@ -114,7 +114,7 @@ describe("SharePC", () => {
     expect(within(sheet).getByRole("button", { name: "Close" })).toHaveFocus();
     expect(sheet).toHaveTextContent("30 h away a week");
     expect(sheet).toHaveTextContent("71 h streamed");
-    expect(sheet).toHaveTextContent("€1,00/h for a High-end rig");
+    expect(sheet).toHaveTextContent("€1,00/h for a High-end PC");
     expect(sheet).toHaveTextContent("Electricity: 71 h at 420 W, €0,30/kWh");
     expect(sheet).toHaveTextContent("Quiet to busy months: €40 to €85");
 
@@ -149,9 +149,9 @@ describe("SharePC", () => {
     fireEvent.click(radio(/Entry/));
     fireEvent.click(screen.getByRole("button", { name: "How we got this number" }));
     const sheet = screen.getByRole("dialog");
-    expect(sheet).toHaveTextContent("for an Entry rig");
+    expect(sheet).toHaveTextContent("for an Entry PC");
     expect(sheet).toHaveTextContent("GPU, GTX 1660 Super");
-    expect(sheet).toHaveTextContent("An example Entry rig.");
+    expect(sheet).toHaveTextContent("An example Entry PC.");
   });
 
   it("closes the sheet from its dim", () => {

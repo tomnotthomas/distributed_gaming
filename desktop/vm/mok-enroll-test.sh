@@ -98,7 +98,7 @@ boot_vm() { # log mode [code]
 code() { node -e 'console.log(require(process.argv[1]).mokCode())' "$here/../rental.cjs"; }
 
 # --- 1. queued, then missed -------------------------------------------------------------
-log "Queue Swiff's key, then miss the screen"
+log "Queue Lanterel's key, then miss the screen"
 first=$(code)
 node "$here/apply-plan.cjs" mok "$run/vars.fd" "$run/swiffos-key.cer" "$first"
 "$BOOT_VARS" show "$run/vars.fd" | tee "$run/vars-queued.log"
@@ -132,7 +132,7 @@ expect miss-enrols-nothing "after a miss: MokList $(sed -n 5p "$run/vars-missed.
 	grep -q "^MokList: none$" "$run/vars-missed.log"
 expect confirm-clears "after confirming: $(sed -n 3p "$run/vars-confirmed.log")" \
 	grep -q "^MOK request: none$" "$run/vars-confirmed.log"
-expect confirm-enrols "MokList holds Swiff's certificate" grep -q "^MokList: .*$der" "$run/vars-confirmed.log"
+expect confirm-enrols "MokList holds Lanterel's certificate" grep -q "^MokList: .*$der" "$run/vars-confirmed.log"
 
 if [ "$failed" = 0 ]; then
 	echo "MOK enrolment VM test: PASS"

@@ -100,7 +100,7 @@ async function launchElevated({ file, args }) {
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(line, "utf16le").toString("base64")],
       { windowsHide: true, timeout: 10 * 60_000 },
       (error) =>
-        error ? reject(new Error("Windows did not give Swiff Host administrator rights.")) : resolve(),
+        error ? reject(new Error("Windows did not give Lanterel Host administrator rights.")) : resolve(),
     ),
   );
 }
@@ -134,7 +134,7 @@ function handshake(socket, token, side) {
     function fail() {
       done();
       socket.destroy();
-      reject(new Error("The installer's pipe was not Swiff Host's."));
+      reject(new Error("The installer's pipe was not Lanterel Host's."));
     }
     function onData(chunk) {
       buffered += chunk;

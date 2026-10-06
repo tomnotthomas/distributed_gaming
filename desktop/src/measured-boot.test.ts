@@ -25,9 +25,9 @@ describe("the measured-boot log", () => {
     expect(dbTrusts(events(started(WINDOWS)), SHIM_CA)).toBeNull();
   });
 
-  it("does not take Swiff OS's boot entry for shim having run: the firmware measures every Boot####", () => {
+  it("does not take Lanterel OS's boot entry for shim having run: the firmware measures every Boot####", () => {
     // The GEEKOM after its key restart: a clean start into Windows, with Swiff OS's entry in the menu.
-    const trail = trailOf(events(bootVariable(1, "Swiff OS", SHIM), started(WINDOWS)));
+    const trail = trailOf(events(bootVariable(1, "Lanterel OS", SHIM), started(WINDOWS)));
     expect(trail).toMatchObject({ shim: false, mokManager: 0, loader: false, windowsAfterShim: false });
   });
 
@@ -39,7 +39,7 @@ describe("the measured-boot log", () => {
     expect(trail).toMatchObject({ shim: true, mokManager: 2, loader: false, windowsAfterShim: true });
   });
 
-  it("sees shim start Swiff's own boot loader, which it does only with the key enrolled", () => {
+  it("sees shim start Lanterel's own boot loader, which it does only with the key enrolled", () => {
     const trail = trailOf(events(started(SHIM), started(LOADER), started(WINDOWS)));
     expect(trail).toMatchObject({ shim: true, loader: true });
     // Paths in any case, as firmware rewrites them.

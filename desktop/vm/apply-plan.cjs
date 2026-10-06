@@ -293,10 +293,10 @@ function apply(op, ctx) {
       return say(`${op.letter}: is ${op.label}`);
     }
     case "boot-first":
-      bootVars(["first", ctx.vars, op.entry === "swiff" ? "Swiff OS" : "Windows Boot Manager"]);
+      bootVars(["first", ctx.vars, op.entry === "swiff" ? "Lanterel OS" : "Windows Boot Manager"]);
       return say(op.entry);
     case "boot-next":
-      bootVars(["next", ctx.vars, "Swiff OS"]);
+      bootVars(["next", ctx.vars, "Lanterel OS"]);
       return say(op.entry);
     case "mok-import": {
       const request = mokRequest(fs.readFileSync(ctx.cert ?? fileOf(ctx.set, MOK_CERT).path), op.code);

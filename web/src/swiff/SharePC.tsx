@@ -359,7 +359,7 @@ export function EstimateSheet({ swiff }: { swiff: Swiff }) {
             <span className="op">×</span>
             <span>
               <Eur n={t.rate} decimals={2} />
-              /h for {withArticle(t.name)} rig
+              /h for {withArticle(t.name)} PC
             </span>
             <b>
               <Eur n={e.gross} />
@@ -425,8 +425,8 @@ export function EstimateSheet({ swiff }: { swiff: Swiff }) {
             </div>
           ))}
           <p>
-            An example {t.name} rig. The app on your PC reads its real hardware and sets your exact rate.
-            Hosts keep 100% of the tier rate. Your own play time is never shared.
+            An example {t.name} PC. The app on your PC reads its real hardware and sets your exact rate. Hosts
+            keep 100% of the tier rate. Your own play time is never shared.
           </p>
         </details>
       </section>

@@ -44,7 +44,7 @@ test.describe("share your PC", () => {
 
     await page.getByRole("button", { name: "How we got this number" }).click();
     const sheet = page.getByRole("dialog");
-    await expect(sheet).toContainText("for an Enthusiast rig");
+    await expect(sheet).toContainText("for an Enthusiast PC");
     await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
 
     await sheet.getByLabel("Hours away per day").fill("8");

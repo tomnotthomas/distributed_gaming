@@ -377,7 +377,7 @@ test_run() {
 		on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 2; Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\uac-out.txt; schtasks /run /tn swiff-uac | Out-Null" || true
 		for _ in $(seq 8); do sleep 4; monitor "sendkey esc" || true; done
 		on_vm "foreach (\$i in 1..30) { if (Select-String -Quiet 'error' C:\\swiff\\uac-out.txt) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\uac-out.txt; Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value 0" | tr -d '\r' > "$run/uac-declined.json"
-		expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -q 'did not give Swiff Host administrator rights' "$run/uac-declined.json"
+		expect declined "the worker did not start: $(grep -o '"error":"[^"]*"' "$run/uac-declined.json" | head -1)" grep -q 'did not give Lanterel Host administrator rights' "$run/uac-declined.json"
 		read_as declined
 		expect declined-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-declined.json" read '.read.facts.install')" = null
 
@@ -389,7 +389,7 @@ test_run() {
 		# C: keeps 30 GB free: less than Swiff OS's 24 GB and the 16 GB Windows keeps.
 		on_vm "fsutil file createnew C:\\swiff-fill.bin $((free - 30 * 1024 * 1024 * 1024)) | Out-Null"
 		read_as full
-		expect space-none "no drive offered for Swiff OS: the screen says Free up 24 GB" test "$(json "$run/read-full.json" read '.read.targets.length')" = 0
+		expect space-none "no drive offered for Lanterel OS: the screen says Free up 24 GB" test "$(json "$run/read-full.json" read '.read.targets.length')" = 0
 		on_vm 'Remove-Item -Force C:\swiff-fill.bin'
 		# Files added between the plan on screen and its run: the install's own check finds the room gone.
 		on_vm "Set-Content C:\\swiff\\cmd-race.txt 'plan install'"
@@ -487,36 +487,36 @@ test_run() {
 		expect pcr7-confirmed "PCR 7 is a clean start's: Windows Hello's PIN and BitLocker unaffected" test "$(pcr7 confirmed)" = "$base"
 		on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-1"
 		expect files-kept-1 "C: holds its file after the install" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-1"
-		expect installed "the app reads Swiff OS as installed" test "$(json "$run/read-confirmed.json" read '.read.installed' || true)" = true
+		expect installed "the app reads Lanterel OS as installed" test "$(json "$run/read-confirmed.json" read '.read.installed' || true)" = true
 		on_vm 'Get-Partition -DiskNumber 0 | Select-Object PartitionNumber, Offset, Size, GptType, Guid | ConvertTo-Json -Compress' | tr -d '\r' > "$run/partitions-installed.json"
-		expect partitions "Windows sees Swiff OS's 6 partitions after its 4" \
+		expect partitions "Windows sees Lanterel OS's 6 partitions after its 4" \
 			test "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).length)' "$run/partitions-installed.json")" = 10
 
 	fi
 	if want 8; then
-		scenario "8. Swiff OS once"
+		scenario "8. Lanterel OS once"
 		on_vm "$cli run once --image $img" | tr -d '\r' > "$run/once.json"
 		expect once "BootNext set and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/once.json"
-		expect swiffos-booted "shim, systemd-boot and the UKI started Swiff OS's self-test" \
+		expect swiffos-booted "shim, systemd-boot and the UKI started Lanterel OS's self-test" \
 			"$python" "$here/mok-drive.py" "$run/swiffos.log" wait "SWIFF-SELFTEST DONE" 900 --socket "$run/serial.sock"
 		vm_wait_off 300 || vm_kill
 		tr -d '\r' < "$run/serial.log" | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' | grep -a 'SWIFF-SELFTEST' > "$run/selftest.txt" || true
-		expect swiffos-secure-boot "Swiff OS ran with Secure Boot on" grep -q 'SWIFF-SELFTEST PASS secure-boot' "$run/selftest.txt"
-		expect swiffos-verity-root "Swiff OS's root is its verity device" grep -q 'SWIFF-SELFTEST PASS root-is-verity' "$run/selftest.txt"
+		expect swiffos-secure-boot "Lanterel OS ran with Secure Boot on" grep -q 'SWIFF-SELFTEST PASS secure-boot' "$run/selftest.txt"
+		expect swiffos-verity-root "Lanterel OS's root is its verity device" grep -q 'SWIFF-SELFTEST PASS root-is-verity' "$run/selftest.txt"
 		"$run/boot-vars" show "$run/vars.fd" > "$run/vars-swiffos.txt"
-		expect mok-enrolled "MokList holds Swiff's key, as the confirmation left it" grep -q "^MokList: .*$cert_hex" "$run/vars-swiffos.txt"
+		expect mok-enrolled "MokList holds Lanterel's key, as the confirmation left it" grep -q "^MokList: .*$cert_hex" "$run/vars-swiffos.txt"
 		# Windows has run beside Swiff OS's ESP: it must still be a sound FAT, untouched by chkdsk.
 		local esp_at esp_bytes
 		read -r esp_at esp_bytes < <(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8").trim().split(/\r?\n/).pop()).read; const p=r.facts.install.partitions.find(p=>p.role==="esp"); console.log(p.offset, p.bytes)' "$run/read-confirmed.json")
 		qemu-img convert -O raw "json:{\"driver\":\"raw\",\"offset\":$esp_at,\"size\":$esp_bytes,\"file\":{\"driver\":\"qcow2\",\"file\":{\"driver\":\"file\",\"filename\":\"$run/disk.qcow2\"}}}" "$run/esp.raw"
-		expect esp-sound "Swiff OS's ESP passes fsck.fat after Windows ran beside it" "$fsck_fat" -n "$run/esp.raw"
+		expect esp-sound "Lanterel OS's ESP passes fsck.fat after Windows ran beside it" "$fsck_fat" -n "$run/esp.raw"
 		expect esp-no-chkdsk "no FOUND.000 from Windows' chkdsk on it" bash -c "! MTOOLS_SKIP_CHECK=1 mdir -i '$run/esp.raw' ::/ | grep -q FOUND"
 		rm -f "$run/esp.raw"
 		vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
 		windows_back windows-after-swiffos
-		expect pcr7-swiffos "PCR 7 is a clean start's after Swiff OS ran" test "$(pcr7 swiffos)" = "$base"
+		expect pcr7-swiffos "PCR 7 is a clean start's after Lanterel OS ran" test "$(pcr7 swiffos)" = "$base"
 		on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-2"
-		expect files-kept-2 "C: holds its file after Swiff OS ran" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-2"
+		expect files-kept-2 "C: holds its file after Lanterel OS ran" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-2"
 
 	fi
 	if want 9; then
@@ -549,7 +549,7 @@ test_run() {
 		expect c-grown "C: is its size again: $(cat "$run/c-after") bytes" cmp -s "$run/c-before" "$run/c-after"
 		expect partitions-gone "Windows' 4 partitions, and no others" test "$(on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n')" = 4
 		read_as after
-		expect forgotten "the app reads Swiff OS as not installed" test "$(json "$run/read-after.json" read '.read.facts.install' || true)" = null
+		expect forgotten "the app reads Lanterel OS as not installed" test "$(json "$run/read-after.json" read '.read.facts.install' || true)" = null
 		on_vm "Get-Content C:\\swiff-marker.txt" | tr -d '\r\n' > "$run/marker-3"
 		expect files-kept-3 "C: holds its file after the uninstall" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-3"
 		on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-after.txt"
@@ -557,8 +557,8 @@ test_run() {
 		on_vm 'Stop-Computer -Force' || true
 		vm_wait_off 300 || vm_kill
 		"$run/boot-vars" show "$run/vars.fd" | tee "$run/vars-after.txt"
-		expect no-boot-entry "the firmware has no Swiff OS entry" bash -c "! grep -q 'Swiff OS' '$run/vars-after.txt'"
-		expect key-removed "MokList no longer holds Swiff's key" bash -c "! grep -q '$cert_hex' '$run/vars-after.txt'"
+		expect no-boot-entry "the firmware has no Lanterel OS entry" bash -c "! grep -q 'Lanterel OS' '$run/vars-after.txt'"
+		expect key-removed "MokList no longer holds Lanterel's key" bash -c "! grep -q '$cert_hex' '$run/vars-after.txt'"
 		expect no-wait-left "no MokTimeout left behind" grep -q '^MokTimeout: none$' "$run/vars-after.txt"
 		expect no-request-left "no key request or removal for shim left behind" bash -c "grep -q '^MOK request: none$' '$run/vars-after.txt' && grep -q '^MOK removal: none$' '$run/vars-after.txt'"
 
@@ -575,7 +575,7 @@ test_run() {
 		windows_back windows-after-reinstall
 		expect pcr7-reinstall "PCR 7 is a clean start's" test "$(pcr7 reinstall)" = "$base"
 		on_vm "$cli run once --image $img" | tr -d '\r' > "$run/once-2.json"
-		expect swiffos-again "Swiff OS's self-test ran again after the reinstall" \
+		expect swiffos-again "Lanterel OS's self-test ran again after the reinstall" \
 			"$python" "$here/mok-drive.py" "$run/swiffos-2.log" wait "SWIFF-SELFTEST DONE" 900 --socket "$run/serial.sock"
 		vm_wait_off 300 || vm_kill
 
@@ -595,7 +595,7 @@ test_run() {
 			}
 			mains() { sed -n 's/^mains\t//p' "$run/windows-$1.txt"; }
 			titled() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -cx "$2"; }
-			others() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -vx 'Swiff Host' | grep -c .; }
+			others() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -vx 'Lanterel Host' | grep -c .; }
 			launch() { # exe-on-vm
 				on_vm "schtasks /create /tn swiff-app /tr '$1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null"
 			}
@@ -606,9 +606,9 @@ test_run() {
 				launch 'C:\swiff\control\SwiffHost.exe'
 				sleep 120
 				windows control
-				expect control-caught "a build that cannot start fails the check: $(others control) other window(s), $(titled control 'Swiff Host') app window(s)" \
-					test "$(titled control 'Swiff Host') $(others control)" != "1 0"
-				on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff Host*' } | Stop-Process -Force" || true
+				expect control-caught "a build that cannot start fails the check: $(others control) other window(s), $(titled control 'Lanterel Host') app window(s)" \
+					test "$(titled control 'Lanterel Host') $(others control)" != "1 0"
+				on_vm "Get-Process | Where-Object { \$_.Path -like '*Lanterel Host*' } | Stop-Process -Force" || true
 				sleep 5
 			fi
 			to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
@@ -616,12 +616,12 @@ test_run() {
 			sleep 120
 			windows first
 			expect app-first-screen "the packaged app opened its window, and no error box: $(cat "$run/windows-first.txt" | tr '\n\t' '; ')" \
-				test "$(mains first) $(titled first 'Swiff Host') $(others first)" = "1 1 0"
+				test "$(mains first) $(titled first 'Lanterel Host') $(others first)" = "1 1 0"
 			launch 'C:\swiff\SwiffHost.exe'
 			sleep 90
 			windows second
 			expect one-instance "a second start left one app and one window, no error box: $(cat "$run/windows-second.txt" | tr '\n\t' '; ')" \
-				test "$(mains second) $(titled second 'Swiff Host') $(others second)" = "1 1 0"
+				test "$(mains second) $(titled second 'Lanterel Host') $(others second)" = "1 1 0"
 		else
 			result SKIP one-instance "no \$SWIFF_HOST_EXE given"
 		fi
@@ -678,7 +678,7 @@ test_run() {
 			sleep 3
 		}
 		app() { # start the app as the logged-on user, with remote debugging, and wait for its window
-			on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff*Host*' } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
+			on_vm "Get-Process | Where-Object { (\$_.Path -like '*SwiffHost*' -or \$_.Path -like '*Lanterel Host*') } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
 			tunnel
 			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
 			sleep 10
@@ -700,8 +700,8 @@ test_run() {
 		step ui-check-again "Check again reads the PC again and stays on the BIOS step" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		# A manifest that is not the signed one, and a certificate that is not Swiff's: refused before anything.
 		on_vm "Add-Content -LiteralPath '$appdata\\swiffos.json' ' '" || true
-		step ui-tampered-manifest "a changed manifest reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui click 'What Swiff checked'"
-		ui_has ui-tampered-manifest 'Not signed by Swiff' || result FAIL ui-tampered-manifest-text "the check did not say so"
+		step ui-tampered-manifest "a changed manifest reads as not signed by Lanterel" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui click 'What Lanterel checked'"
+		ui_has ui-tampered-manifest 'Not signed by Lanterel' || result FAIL ui-tampered-manifest-text "the check did not say so"
 		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
 		# A certificate swapped on disk: the read checks the signed manifest and the fingerprint it lists;
 		# the administrator side checks the file itself, before using it (ui-refused-cert below).
@@ -718,7 +718,7 @@ test_run() {
 		# --- installed by the installer modules; the key's screens in the app ---
 		code=$(new_code)
 		on_vm "$cli run install --image $img --code $code" | tr -d '\r' > "$run/ui-install.json" || true
-		expect ui-installed "the installer modules installed Swiff OS for the key's screens" grep -q '"outcome":{"status":"done"' "$run/ui-install.json"
+		expect ui-installed "the installer modules installed Lanterel OS for the key's screens" grep -q '"outcome":{"status":"done"' "$run/ui-install.json"
 		expect ui-install-mok "the key confirmed at MokManager after the modules' install" \
 			"$python" "$here/mok-drive.py" "$run/ui-mok-0.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-install

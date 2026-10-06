@@ -94,7 +94,7 @@ const GAMES_LABEL = "SWIFFGAMES";
 const BOOT_PATH = String.raw`\EFI\swiff\shimx64.efi`;
 
 /** The boot menu's name for Swiff OS. */
-const BOOT_TITLE = "Swiff OS";
+const BOOT_TITLE = "Lanterel OS";
 
 /**
  * The CA that signs the shim Swiff OS ships (Ubuntu's, from the image's own
@@ -513,7 +513,7 @@ function imageLayout(gpt) {
     const e = entries[i];
     const bytes = (e.last - e.first + 1) * gpt.sectorSize;
     if (e.type !== want.type || bytes !== want.bytes)
-      throw new Error(`The image's partition ${i + 1} is not Swiff OS's ${want.role}.`);
+      throw new Error(`The image's partition ${i + 1} is not Lanterel OS's ${want.role}.`);
     return { ...want, id: e.id, name: e.name, attrs: `0x${e.attrs.toString(16)}` };
   });
 }
@@ -560,7 +560,7 @@ function shellOf(op) {
       return [
         "if (-not (Confirm-SecureBootUEFI)) { throw 'Secure Boot is off.' }",
         "if (-not (Get-Tpm).TpmReady) { throw 'The TPM is not ready.' }",
-        `if ([Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI db).Bytes) -notmatch ${q(SHIM_CA)}) { throw ${q(`The firmware does not trust the ${SHIM_CA}, which signs the shim Swiff OS starts from.`)} }`,
+        `if ([Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI db).Bytes) -notmatch ${q(SHIM_CA)}) { throw ${q(`The firmware does not trust the ${SHIM_CA}, which signs the shim Lanterel OS starts from.`)} }`,
         ...(op.shrink
           ? [
               `if ((Get-PartitionSupportedSize -DiskNumber ${op.shrink.disk} -PartitionNumber ${op.shrink.partition}).SizeMin -gt ${op.shrink.size}) { throw '${op.shrink.letter}: cannot shrink by ${gb(SWIFF_OS_BYTES)}.' }`,
@@ -604,12 +604,12 @@ function commandsOf(op) {
   switch (op.op) {
     case "image-check":
       return [
-        "# Check that Swiff signed Swiff OS's image set (swiffos.json), that its certificate is Swiff's, and that each image file has the SHA-256 it lists, where it is, before anything changes",
+        "# Check that Lanterel signed Lanterel OS's image set (swiffos.json), that its certificate is Lanterel's, and that each image file has the SHA-256 it lists, where it is, before anything changes",
         "# Each image is hashed again as it is copied into the administrators' folder, as it is written, and as it is read back",
       ];
     case "gpt-add":
       return [
-        `# Swiff Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): types, ids, names and attributes as in the image`,
+        `# Lanterel Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): types, ids, names and attributes as in the image`,
         "#   (the boot partition is typed Linux data until it is written: Windows would mount it as an ESP mid-write)",
         ...op.partitions.map(
           (p) =>
@@ -619,7 +619,7 @@ function commandsOf(op) {
       ];
     case "gpt-remove":
       return [
-        `# Swiff Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): remove only these, each checked for Swiff OS's type, id, offset and size`,
+        `# Lanterel Host's GPT writer (gpt.cjs) on disk ${op.disk} (\\\\.\\GLOBALROOT\\Device\\Harddisk${op.disk}\\Partition0): remove only these, each checked for Lanterel OS's type, id, offset and size`,
         ...op.partitions.map((p) => `#   ${p.role}: id ${p.id}, offset ${p.offset}, ${p.bytes} bytes`),
         `Update-Disk -Number ${op.disk}`,
       ];
@@ -629,25 +629,25 @@ function commandsOf(op) {
       ];
     case "boot-entry":
       return [
-        `# Swiff Host's GPT writer: the boot partition at offset ${op.offset} gets the EFI system partition type, then Update-Disk -Number ${op.disk}`,
+        `# Lanterel Host's GPT writer: the boot partition at offset ${op.offset} gets the EFI system partition type, then Update-Disk -Number ${op.disk}`,
         `# Boot####, the first free number: "${op.title}", HD(the ESP at offset ${op.offset}, GPT, its id)/File(${op.path})`,
         "# BootOrder: as it was, with it last",
       ];
     case "boot-entry-remove":
-      return ["# Swiff OS's Boot#### deleted, and taken out of BootOrder and BootNext"];
+      return ["# Lanterel OS's Boot#### deleted, and taken out of BootOrder and BootNext"];
     case "boot-first":
-      return [`# BootOrder: ${op.entry === "swiff" ? "Swiff OS" : "Windows Boot Manager"} first`];
+      return [`# BootOrder: ${op.entry === "swiff" ? "Lanterel OS" : "Windows Boot Manager"} first`];
     case "boot-next":
-      return ["# BootNext: Swiff OS's Boot####, for the next start only"];
+      return ["# BootNext: Lanterel OS's Boot####, for the next start only"];
     case "mok-import":
       return [
-        `# Swiff Host's firmware-variable writer, as administrator: mokutil --import ${op.cert} --simple-hash, from Windows`,
+        `# Lanterel Host's firmware-variable writer, as administrator: mokutil --import ${op.cert} --simple-hash, from Windows`,
         `#   ${mokVar("MokNew")}: ${op.cert} as an EFI_SIGNATURE_LIST (X.509, owner shim), non-volatile, boot and runtime access`,
         `#   ${mokVar("MokAuth")}: SHA-256 of MokNew, then the one-time code in UTF-16LE, the same attributes`,
       ];
     case "mok-delete":
       return [
-        `# Swiff Host's firmware-variable writer, as administrator: mokutil --delete ${op.cert} --simple-hash, from Windows`,
+        `# Lanterel Host's firmware-variable writer, as administrator: mokutil --delete ${op.cert} --simple-hash, from Windows`,
         `#   ${mokVar("MokDel")} and ${mokVar("MokDelAuth")}, the same way, with a new one-time code`,
       ];
     case "mok-cancel":
@@ -664,7 +664,7 @@ function commandsOf(op) {
           : []),
       ];
     case "installed":
-      return [`# Record in ${INSTALL_FILE} that Swiff OS is installed`];
+      return [`# Record in ${INSTALL_FILE} that Lanterel OS is installed`];
     case "forget":
       return [`Remove-Item ${INSTALL_FILE}`];
     default:
@@ -704,7 +704,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
     : targetId
       ? rental.targets.find((t) => t.id === targetId)
       : rental.targets[0];
-  if (targetId && !target) throw new Error("The drive you chose for Swiff OS is no longer available.");
+  if (targetId && !target) throw new Error("The drive you chose for Lanterel OS is no longer available.");
   if (!target) throw new Error(`This PC has no drive with ${gb(SWIFF_OS_BYTES)} to spare.`);
   const disk = target.disk;
   const parts = placed(layout, target.start);
@@ -725,7 +725,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   if (bitlockerOn(rental)) steps.push(bitlockerStep(BITLOCKER_RESTARTS));
   if (facts.fastStartup !== false) {
     steps.push(
-      step("fast-startup", "Turn off Fast Startup so Swiff OS can read your drives", [
+      step("fast-startup", "Turn off Fast Startup so Lanterel OS can read your drives", [
         { op: "fast-startup-off" },
       ]),
     );
@@ -736,7 +736,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
         "room",
         `Shrink ${target.letter}: by ${gb(SWIFF_OS_BYTES)}`,
         [{ op: "shrink", ...shrink }],
-        `${target.letter}: gives ${gb(SWIFF_OS_BYTES)} from its end to Swiff OS and keeps its files. Back up anything important first.`,
+        `${target.letter}: gives ${gb(SWIFF_OS_BYTES)} from its end to Lanterel OS and keeps its files. Back up anything important first.`,
       ),
     );
   }
@@ -744,7 +744,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
     steps.push(
       step(
         "partitions",
-        `Create ${parts.length} partitions for Swiff OS on disk ${disk}`,
+        `Create ${parts.length} partitions for Lanterel OS on disk ${disk}`,
         [
           {
             op: "gpt-add",
@@ -760,25 +760,25 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
             })),
           },
         ],
-        `Disk ${disk}'s partition table gets Swiff OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
+        `Disk ${disk}'s partition table gets Lanterel OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
       ),
     );
   steps.push(
     step(
       "write",
-      "Copy Swiff OS onto them",
+      "Copy Lanterel OS onto them",
       parts
         .filter((p) => p.split)
         .map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
-      "Swiff OS is written into its new partitions, and read back to check it. Nothing outside them is touched.",
+      "Lanterel OS is written into its new partitions, and read back to check it. Nothing outside them is touched.",
     ),
   );
   steps.push(
     step(
       "boot-entry",
-      "Add Swiff OS to the boot menu, after Windows",
+      "Add Lanterel OS to the boot menu, after Windows",
       [{ op: "boot-entry", disk, offset: esp.offset, path: BOOT_PATH, title: BOOT_TITLE }],
-      "The PC's firmware gets a Swiff OS entry, last in its boot order: Windows still starts first.",
+      "The PC's firmware gets a Lanterel OS entry, last in its boot order: Windows still starts first.",
     ),
   );
   const stale = games
@@ -795,7 +795,7 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
   }
   if (games && games.label !== GAMES_LABEL) {
     steps.push(
-      step("games", `Label ${games.letter}: ${GAMES_LABEL} so Swiff OS finds your games`, [
+      step("games", `Label ${games.letter}: ${GAMES_LABEL} so Lanterel OS finds your games`, [
         { op: "label", letter: games.letter, label: GAMES_LABEL },
       ]),
     );
@@ -858,7 +858,7 @@ const mokVar = (name) => `${name}-${SHIM_LOCK}`;
  */
 function mokSteps(code) {
   return [
-    step("mok", "Make a one-time code for Swiff's key", [
+    step("mok", "Make a one-time code for Lanterel's key", [
       { op: "mok-import", cert: MOK_CERT, code },
       { op: "boot-next", entry: "swiff" },
     ]),
@@ -896,23 +896,23 @@ function mokPlan(code = mokCode(), rental = null) {
  */
 function uninstallPlan(rental) {
   const install = rental.facts.install;
-  if (!install) throw new Error("Swiff OS is not installed on this PC.");
+  if (!install) throw new Error("Lanterel OS is not installed on this PC.");
   const steps = [];
   steps.push(
     step(
       "boot-entry",
-      "Take Swiff OS out of the boot menu",
+      "Take Lanterel OS out of the boot menu",
       [...(install.bootEntry !== null ? [{ op: "boot-entry-remove" }] : []), { op: "mok-cancel" }],
-      install.bootEntry !== null ? "The PC's firmware forgets its Swiff OS entry." : null,
+      install.bootEntry !== null ? "The PC's firmware forgets its Lanterel OS entry." : null,
     ),
   );
   if (install.partitions.length && install.disk !== null) {
     steps.push(
       step(
         "partitions",
-        `Remove Swiff OS's ${install.partitions.length} partitions from disk ${install.disk}`,
+        `Remove Lanterel OS's ${install.partitions.length} partitions from disk ${install.disk}`,
         [{ op: "gpt-remove", disk: install.disk, partitions: install.partitions }],
-        "Swiff OS and everything on its partitions is deleted. Windows' own partitions are not touched.",
+        "Lanterel OS and everything on its partitions is deleted. Windows' own partitions are not touched.",
       ),
     );
   }
@@ -923,7 +923,7 @@ function uninstallPlan(rental) {
         "room",
         `Give ${letter}: its ${gb(from - to)} back`,
         [{ op: "grow", disk: install.disk, partition, letter, size: from }],
-        `${letter}: grows back to its size before Swiff OS, into the space Swiff OS left.`,
+        `${letter}: grows back to its size before Lanterel OS, into the space Lanterel OS left.`,
       ),
     );
   }
@@ -960,7 +960,7 @@ function keyRemovalPlan(code = mokCode(), rental = null) {
     kind: "unkey",
     steps: [
       ...(bitlockerOn(rental) ? [bitlockerStep(2)] : []),
-      step("mok-remove", "Make a one-time code to remove Swiff's key", [
+      step("mok-remove", "Make a one-time code to remove Lanterel's key", [
         { op: "mok-delete", cert: MOK_CERT, code },
         { op: "boot-next", entry: "swiff" },
       ]),
@@ -1025,12 +1025,12 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
-        step("once", "Start Swiff OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
+        step("once", "Start Lanterel OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
         step(
           "restart",
-          "Restart into Swiff OS",
+          "Restart into Lanterel OS",
           [{ op: "restart" }],
-          "The PC restarts into Swiff OS now. Its next restart after that starts Windows.",
+          "The PC restarts into Lanterel OS now. Its next restart after that starts Windows.",
         ),
       ],
     };
@@ -1039,13 +1039,13 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
-        step("boot-order", "Put Swiff OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
-        step("boot-next", "Start Swiff OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
+        step("boot-order", "Put Lanterel OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
+        step("boot-next", "Start Lanterel OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
         step(
           "restart",
           "Restart into rental mode",
           [{ op: "restart" }],
-          "The PC restarts into Swiff OS now, and keeps starting it until you stop sharing.",
+          "The PC restarts into Lanterel OS now, and keeps starting it until you stop sharing.",
         ),
       ],
     };

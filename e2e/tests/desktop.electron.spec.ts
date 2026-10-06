@@ -29,7 +29,7 @@ const DESKTOP_BUNDLE = resolve(DESKTOP_DIR, "dist", "index.html");
 const NO_DISPLAY = process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 const NO_DISPLAY_WHY = "no display: run under xvfb-run, as CI does (npm run test:e2e:desktop)";
 
-test.describe("Swiff Host desktop app", () => {
+test.describe("Lanterel Host desktop app", () => {
   test.skip(
     !existsSync(DESKTOP_MAIN),
     "desktop/ is not on this branch yet — the Electron host app lands separately",
@@ -263,7 +263,7 @@ test.describe("Swiff Host desktop app", () => {
 
 // The design's screens the platform cannot fill yet, on the app's labelled demo
 // data (--demo). The held press to go live is real; the data behind it is not.
-test.describe("Swiff Host desktop app, demo data", () => {
+test.describe("Lanterel Host desktop app, demo data", () => {
   test.skip(!existsSync(DESKTOP_MAIN), "desktop/ is not on this branch");
   test.skip(NO_DISPLAY, NO_DISPLAY_WHY);
   test.describe.configure({ mode: "serial", timeout: 120_000 });
