@@ -49,6 +49,10 @@ overrides file (`cloud`, with the evidence in `cloudWhy`). A game that asks for 
 Steam's at start (Ubisoft Connect, the EA app, Battle.net, Rockstar…) stays playable: the catalog
 names its launcher (`requiresAccount`), and the game page tells the renter they will sign in to it.
 
+Each signed-in player has a personal invite link (`/invite/<token>`) to ask a friend with a
+gaming PC to host their crew; a PC whose owner joined by one is offered to that crew alone
+until its owner opens it from the host app. See [Crews](docs/system-design/renter.md#crews).
+
 Code: `web/`, `server/`, `packages/`.
 
 ## Host side (gaming PC app)

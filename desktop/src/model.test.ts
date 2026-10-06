@@ -40,6 +40,7 @@ function realView(live: Live): HostView {
     sessionsToday: 0,
     connection: { url: "", machineId: "gaming-pc-1", machineKey: "", name: "", notice: null, preview: null },
     payoutSaved: false,
+    crew: null,
   };
 }
 

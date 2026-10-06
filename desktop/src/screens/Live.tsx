@@ -17,7 +17,7 @@ import { Dial, hourOf } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
 import { Art, Eur, Figure, Plate, Thumbs, Zone } from "../ui/parts";
 import { HoldPill, Pill } from "../ui/Pill";
-import { UntilPicker } from "./GoLive";
+import { CrewPicker, UntilPicker } from "./GoLive";
 import { gamesTitle, listedGames, tonight, type ScreenProps } from "./types";
 
 type Of<K extends Live["kind"]> = ScreenProps & { live: Extract<Live, { kind: K }> };
@@ -114,6 +114,11 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
               </button>
             </div>
           )}
+          {view.crew?.crews.length ? (
+            <div className="ctl">
+              <CrewPicker crew={view.crew} onChange={actions.setCrewOnly} />
+            </div>
+          ) : null}
         </div>
         <Plate
           caption={[

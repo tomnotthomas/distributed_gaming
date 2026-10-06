@@ -80,6 +80,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       preview: null,
     },
     payoutSaved: false,
+    crew: null,
     ...more,
   };
 }
@@ -105,6 +106,7 @@ function actions(): HostActions {
     chooseRentalTarget: vi.fn(),
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
+    setCrewOnly: vi.fn(),
   };
 }
 
@@ -360,6 +362,35 @@ describe("this PC's screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pause sharing" }));
     expect(acts.pause).toHaveBeenCalledOnce();
     expectNoDemoData();
+  });
+
+  it("asks who can play only once the platform says this PC's owner is in a crew", () => {
+    renderReal("live", { kind: "waiting", since: evening(21), until: evening(1), registered: true });
+    expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
+    cleanup();
+
+    const acts = renderReal(
+      "live",
+      { kind: "waiting", since: evening(21), until: evening(1), registered: true },
+      { crew: { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] } },
+    );
+    const group = screen.getByRole("radiogroup", { name: "Who can play" });
+    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveTextContent("2 players you know");
+    expect(screen.getByText("Only mika_r's crew can claim this PC.")).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole("radio", { name: /Anyone/ }));
+    expect(acts.setCrewOnly).toHaveBeenCalledWith(false);
+  });
+
+  it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
+    renderReal("live", off, {
+      now: evening(21),
+      crew: { only: false, crews: [{ name: null, own: false, size: 2 }] },
+    });
+    expect(screen.getByRole("radio", { name: /Anyone/ })).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByText("Anyone on Swiff can claim this PC, your friend's crew too."),
+    ).toBeInTheDocument();
   });
 
   it("changes the end time while live", () => {

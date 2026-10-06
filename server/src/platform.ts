@@ -75,6 +75,15 @@
 // they can check on it, watch it or claim it. A machine records its owner's
 // Steam id (owner_id) each time it checks in, and gate E5 keeps it from its own
 // owner.
+//
+// Crews: a player and the friends they invited with their personal invite link
+// (crewInvite; the link itself is signed in access.ts). Whoever opens the link
+// and joins (joinCrew) is in the inviter's crew, and so is every PC they own:
+// joining makes their machines crew-only, as is a machine first heard from
+// whose owner is in someone's crew. A crew-only machine is offered and matched
+// only to its owner's crewmates, everyone in any crew they are in (gate E7);
+// its owner can open it to anyone with crewOnly on availability. A claim checks
+// again, so a machine made crew-only after it was matched goes back.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -150,6 +159,8 @@ export type MachineSpec = HostReport & {
   price?: number | undefined;
   /** Unix ms after which the machine is not offered. Omitted: until taken back. */
   availableUntil?: number | null | undefined;
+  /** Offer it only to its owner's crew (true) or to anyone (false). Omitted: as it was. */
+  crewOnly?: boolean | undefined;
 };
 
 export type MachineView = {
@@ -168,7 +179,19 @@ export type MachineView = {
   session?: { id: string };
   /** Unix ms until which a reset holds that session through the PC's restart, while it does. */
   resetUntil?: number;
+  /** Who may play on it: only its owner's crew, and the crews its owner is in with anyone else. */
+  crew: { only: boolean; crews: CrewView[] };
 };
+
+/** A crew as its members see it: whose it is, by their Steam persona when known, and how many are in it. */
+export type CrewView = { name: string | null; own: boolean; size: number };
+
+/** A live invite link's invite, and the crew it joins. */
+export type CrewInvite = { inviteId: string; crew: CrewView };
+
+/** What became of opening an invite to join: in the crew now, or why not. */
+export type JoinResult =
+  { ok: true; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" | "own-invite" };
 
 /** How the host takes the machine off offer. */
 export type OffOffer = {
@@ -304,6 +327,8 @@ type MachineRow = {
   uptime_at: number | null;
   /** Until when a reset holds its session through the PC's restart; null when none is held. */
   reset_until: number | null;
+  /** Offered only to its owner's crewmates (gate E7). */
+  crew_only: boolean;
 };
 type BookingRow = {
   id: string;
@@ -322,6 +347,8 @@ type BookingRow = {
   /** The machine that lost it, which this booking is never matched to. */
   avoid_machine_id: string | null;
 };
+/** Each owner's crewmates: everyone in any crew they are in, themselves included. */
+type Crewmates = ReadonlyMap<string, string[]>;
 /** A machine free to be matched now: its row, the games installed on it and its seven days. */
 type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
 type ReservationRow = {
@@ -354,20 +381,23 @@ function fromJson<T>(value: string | null, fallback: T): T {
 
 /**
  * The machine as rank() reads it. `installed` lists the games to judge it on;
- * `lastSeenAt` is its last contact, now for one whose socket is open. Without
- * reported hardware it has no GPU score, so it fails E3; with no owner known on
- * either side it cannot be anybody's own machine.
+ * `lastSeenAt` is its last contact, now for one whose socket is open; `crew`
+ * who may play on a crew-only one (E7). Without reported hardware it has no
+ * GPU score, so it fails E3; with no owner known on either side it cannot be
+ * anybody's own machine.
  */
 function hostProfileOf(
   machine: MachineRow,
   installed: number[],
   status: HostProfile["status"],
   lastSeenAt: number,
+  crew: Crewmates,
 ): HostProfile {
   const display = fromJson<Display | null>(machine.display, null);
   return {
     id: machine.id,
     ownerId: machine.owner_id ?? `machine:${machine.id}`,
+    ...(machine.crew_only ? { crew: (machine.owner_id && crew.get(machine.owner_id)) || [] } : {}),
     status,
     lastHeartbeatAt: lastSeenAt,
     installed,
@@ -445,6 +475,16 @@ function bookingRenter(
 
 /** Unguessable, so one id cannot be guessed from another. */
 const newId = () => randomBytes(16).toString("base64url");
+
+/** A crew as `userId`, one of its members, sees it. */
+const crewView = (
+  crew: { owner_id: string; owner_name: string | null; size: number },
+  userId: string,
+): CrewView => ({
+  name: crew.owner_name,
+  own: crew.owner_id === userId,
+  size: crew.size,
+});
 
 /** The longest delay setTimeout takes; a later deadline is woken for early and re-armed. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -607,9 +647,11 @@ export class Platform {
       const machine = await this.#touch(machineId, now);
       await this.#saveReport(machineId, spec);
       await this.#run(
-        "UPDATE machines SET price = coalesce($1, price), available_until = $2 WHERE id = $3",
+        `UPDATE machines SET price = coalesce($1, price), available_until = $2,
+           crew_only = coalesce($3, crew_only) WHERE id = $4`,
         spec.price ?? null,
         spec.availableUntil ?? null,
+        spec.crewOnly ?? null,
         machineId,
       );
       // Its terms (price, until when) are what renters see, whether or not its status moves.
@@ -790,14 +832,15 @@ export class Platform {
         for (const { machine_id, at } of backs) if (!backAt.has(machine_id)) backAt.set(machine_id, at);
       }
       const histories = await this.#stabilities(rows, now);
-      const machines = rows.map((m): OfferedMachine => {
+      // The configured owner counts before the machine next checks in, as in matching.
+      const owned = rows.map((m) => ({ ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id }));
+      const crew = await this.#crewmates(owned);
+      const machines = owned.map((m): OfferedMachine => {
         const appids = installed.get(m.id) ?? [];
         const isBusy = m.status !== "available";
         const lastSeenAt = this.#present.has(m.id) ? now : m.last_seen_at;
-        // The configured owner counts before the machine next checks in, as in matching.
-        const row = { ...m, owner_id: this.#owners.get(m.id) ?? m.owner_id };
         return {
-          host: hostProfileOf(row, appids, isBusy ? "busy" : "available", lastSeenAt),
+          host: hostProfileOf(m, appids, isBusy ? "busy" : "available", lastSeenAt, crew),
           profile: profileOf(m, appids),
           history: histories.get(m.id)!.stats,
           backAt: isBusy ? (backAt.get(m.id) ?? null) : null,
@@ -964,6 +1007,136 @@ export class Platform {
       await this.#tick(now);
       return true;
     });
+  }
+
+  // --- crews -----------------------------------------------------------------
+
+  /**
+   * `userId`'s personal invite link (its invite), to their own crew: made, with
+   * the crew, the first time they ask, and the same one after that until they
+   * replace it (`renew`), which revokes the old link for good. `name`, their
+   * Steam persona when it could be read, is kept as whose crew it is.
+   */
+  crewInvite(userId: string, name: string | null, { renew = false } = {}): Promise<CrewInvite> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      await this.#run(
+        `INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (owner_id) DO UPDATE SET owner_name = coalesce(excluded.owner_name, crews.owner_name)`,
+        newId(),
+        userId,
+        name || null,
+        now,
+      );
+      const crew = (await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
+        "SELECT id, owner_id, owner_name FROM crews WHERE owner_id = $1",
+        userId,
+      ))!;
+      await this.#run(
+        `INSERT INTO crew_members (crew_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        crew.id,
+        userId,
+        now,
+      );
+      if (renew) {
+        await this.#run(
+          "UPDATE crew_invites SET revoked_at = $1 WHERE inviter_id = $2 AND revoked_at IS NULL",
+          now,
+          userId,
+        );
+      }
+      let invite = await this.#get<{ id: string }>(
+        "SELECT id FROM crew_invites WHERE inviter_id = $1 AND revoked_at IS NULL",
+        userId,
+      );
+      if (!invite) {
+        invite = { id: newId() };
+        await this.#run(
+          "INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ($1, $2, $3, $4)",
+          invite.id,
+          crew.id,
+          userId,
+          now,
+        );
+      }
+      return {
+        inviteId: invite.id,
+        crew: crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId),
+      };
+    });
+  }
+
+  /**
+   * The crew a live invite joins, as `userId` opening the link sees it (null:
+   * signed out), with whether they are in it already; null for a revoked or
+   * unknown invite.
+   */
+  invite(inviteId: string, userId: string | null = null): Promise<(CrewView & { member: boolean }) | null> {
+    return this.#read(async () => {
+      const crew = await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
+        `SELECT c.id, c.owner_id, c.owner_name FROM crew_invites i JOIN crews c ON c.id = i.crew_id
+           WHERE i.id = $1 AND i.revoked_at IS NULL`,
+        inviteId,
+      );
+      if (!crew) return null;
+      const member =
+        userId !== null &&
+        (await this.#get(
+          "SELECT 1 FROM crew_members WHERE crew_id = $1 AND user_id = $2",
+          crew.id,
+          userId,
+        )) !== undefined;
+      return { ...crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId ?? ""), member };
+    });
+  }
+
+  /**
+   * `userId` opens a live invite and joins its crew. The first time, every PC
+   * they own becomes crew-only: it is offered to their new crew and no one
+   * else, until they open it to anyone again. Joining a crew they are in
+   * already changes nothing (`joined` false). Their own link joins nothing.
+   */
+  joinCrew(inviteId: string, userId: string): Promise<JoinResult> {
+    return this.#transaction(async (): Promise<JoinResult> => {
+      const now = this.#now();
+      const crew = await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
+        `SELECT c.id, c.owner_id, c.owner_name FROM crew_invites i JOIN crews c ON c.id = i.crew_id
+           WHERE i.id = $1 AND i.revoked_at IS NULL`,
+        inviteId,
+      );
+      if (!crew) return { ok: false, reason: "not-found" };
+      if (crew.owner_id === userId) return { ok: false, reason: "own-invite" };
+      const joined =
+        (await this.#run(
+          `INSERT INTO crew_members (crew_id, user_id, invite_id, joined_at) VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING`,
+          crew.id,
+          userId,
+          inviteId,
+          now,
+        )) > 0;
+      if (joined) {
+        const configured = [...this.#owners].filter(([, owner]) => owner === userId).map(([id]) => id);
+        await this.#run(
+          "UPDATE machines SET crew_only = TRUE WHERE owner_id = $1 OR id = ANY ($2::text[])",
+          userId,
+          configured,
+        );
+        // Who may play where has changed: the wall reads again, and the queue is matched anew.
+        this.#offerChanged = true;
+        await this.#tick(now);
+      }
+      return { ok: true, joined, crew: crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId) };
+    });
+  }
+
+  /** How many are in the crew, its owner included. */
+  async #crewSize(crewId: string): Promise<number> {
+    const { size } = (await this.#get<{ size: number }>(
+      "SELECT count(*)::int AS size FROM crew_members WHERE crew_id = $1",
+      crewId,
+    ))!;
+    return size;
   }
 
   // --- renter ----------------------------------------------------------------
@@ -1137,6 +1310,12 @@ export class Platform {
       const owner = this.#owners.get(reservation.machine_id) ?? owner_id;
       if (owner !== null && owner === booking.renter_id) {
         await this.#releaseOwnersReservation(reservation.machine_id, owner);
+        return { ok: false, reason: "not-claimable", status: "queued" };
+      }
+      // Nor a crew-only one outside the renter's crews, made so since the match.
+      if (!(await this.#mayPlayOn(reservation.machine_id, owner, booking.renter_id))) {
+        await this.#unreserve(reservation);
+        await this.#tick(now);
         return { ok: false, reason: "not-claimable", status: "queued" };
       }
 
@@ -1604,16 +1783,18 @@ export class Platform {
     if (!fits.length) return null;
     const game = await this.#requirements.lookup(booking.game_id);
     const rtts = fromJson<Rtts>(booking.rtts, {});
-    const candidates = fits.map(({ row, installed, history }): Candidate => {
-      // The configured owner counts at once, before the machine next checks in
-      // and #touch records it, so a restart never matches an owner to their PC.
-      const owned = { ...row, owner_id: this.#owners.get(row.id) ?? row.owner_id };
-      return {
-        host: hostProfileOf(owned, installed, "available", row.last_seen_at),
-        link: bookingLink(rtts, row),
-        history,
-      };
-    });
+    // The configured owner counts at once, before the machine next checks in
+    // and #touch records it, so a restart never matches an owner to their PC.
+    const owned = fits.map((m) => ({
+      ...m,
+      row: { ...m.row, owner_id: this.#owners.get(m.row.id) ?? m.row.owner_id },
+    }));
+    const crew = await this.#crewmates(owned.map((m) => m.row));
+    const candidates = owned.map(({ row, installed, history }): Candidate => ({
+      host: hostProfileOf(row, installed, "available", row.last_seen_at, crew),
+      link: bookingLink(rtts, row),
+      history,
+    }));
     const ranked = rank(game, bookingRenter(booking), candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
     return ranked.hosts[0]?.host.id ?? null;
   }
@@ -1813,8 +1994,12 @@ export class Platform {
     const before = await this.#machineRow(machineId);
     if (before) await this.#accrue(before, now);
     const owner = this.#owners.get(machineId) ?? null;
+    // A PC first heard from is crew-only when its owner is in someone else's crew.
     const machine = (await this.#get<MachineRow>(
-      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at) VALUES ($1, $2, 'idle', $3, $3)
+      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only)
+         VALUES ($1, $2, 'idle', $3, $3, EXISTS (
+           SELECT 1 FROM crew_members m JOIN crews c ON c.id = m.crew_id
+             WHERE m.user_id = $2 AND c.owner_id <> $2))
          ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
            uptime_at = excluded.uptime_at
          RETURNING *`,
@@ -1846,10 +2031,46 @@ export class Platform {
       owner,
     );
     if (!reservation) return false;
+    await this.#unreserve(reservation);
+    return true;
+  }
+
+  /** Hand a reservation back: its booking returns to the queue and its machine is free again. */
+  async #unreserve(reservation: ReservationRow): Promise<void> {
     await this.#run("DELETE FROM reservations WHERE id = $1", reservation.id);
     await this.#setBookingStatus(reservation.booking_id, "queued");
-    await this.#setStatus(machineId, "available");
-    return true;
+    await this.#setStatus(reservation.machine_id, "available");
+  }
+
+  /**
+   * The crewmates of each crew-only machine's owner among `rows` (whose
+   * owner_id is the configured owner), for gate E7: one statement however
+   * many there are.
+   */
+  async #crewmates(rows: Pick<MachineRow, "owner_id" | "crew_only">[]): Promise<Crewmates> {
+    const owners = [...new Set(rows.filter((m) => m.crew_only && m.owner_id).map((m) => m.owner_id!))];
+    const mates = new Map<string, string[]>();
+    if (!owners.length) return mates;
+    const pairs = await this.#all<{ owner: string; mate: string }>(
+      `SELECT DISTINCT a.user_id AS owner, b.user_id AS mate FROM crew_members a
+         JOIN crew_members b ON b.crew_id = a.crew_id
+         WHERE a.user_id = ANY ($1::text[]) ORDER BY 1, 2`,
+      owners,
+    );
+    for (const { owner, mate } of pairs) mates.set(owner, [...(mates.get(owner) ?? []), mate]);
+    return mates;
+  }
+
+  /** Whether `renterId` passes gate E7 on the machine owned by `owner`: it is open to anyone, or they share a crew. */
+  async #mayPlayOn(machineId: string, owner: string | null, renterId: string | null): Promise<boolean> {
+    const row = await this.#get<{ crew_only: boolean }>(
+      "SELECT crew_only FROM machines WHERE id = $1",
+      machineId,
+    );
+    if (!row?.crew_only) return true;
+    if (owner === null || renterId === null) return false;
+    const crew = await this.#crewmates([{ owner_id: owner, crew_only: true }]);
+    return crew.get(owner)?.includes(renterId) ?? false;
   }
 
   /**
@@ -2014,7 +2235,21 @@ export class Platform {
       ...(m.available_until !== null ? { until: m.available_until } : {}),
       ...(m.session_id ? { session: { id: m.session_id } } : {}),
       ...(m.session_id && m.reset_until !== null ? { resetUntil: m.reset_until } : {}),
+      crew: { only: m.crew_only, crews: await this.#crewsOf(this.#owners.get(m.id) ?? m.owner_id) },
     };
+  }
+
+  /** The crews `userId` is in with anyone else, theirs first, then by when they joined. */
+  async #crewsOf(userId: string | null): Promise<CrewView[]> {
+    if (userId === null) return [];
+    const crews = await this.#all<{ id: string; owner_id: string; owner_name: string | null; size: number }>(
+      `SELECT c.id, c.owner_id, c.owner_name,
+              (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size
+         FROM crews c JOIN crew_members m ON m.crew_id = c.id
+         WHERE m.user_id = $1 ORDER BY c.owner_id = $1 DESC, m.joined_at, c.id`,
+      userId,
+    );
+    return crews.filter((c) => c.size > 1).map((c) => crewView(c, userId));
   }
 
   /** What the renter is told about a booking: its machine, claim deadline, session and price. */

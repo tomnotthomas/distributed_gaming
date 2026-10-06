@@ -113,6 +113,12 @@ describe("gates", () => {
     expect(gates({ ...candidate(), link: null })).toEqual(["E6"]);
   });
 
+  it("E7: lists a crew-only host only to its owner's crewmates", () => {
+    expect(gates(candidate({ crew: ["you", "a-friend"] }))).toEqual([]);
+    expect(gates(candidate({ crew: ["a-friend"] }))).toEqual(["E7"]);
+    expect(gates(candidate({ crew: [] }))).toEqual(["E7"]);
+  });
+
   it("reports every gate a host fails, not just the first", () => {
     expect(gates(candidate({ ownerId: "you", status: "busy" }, 90))).toEqual(["E1", "E5", "E6"]);
   });
@@ -292,10 +298,13 @@ describe("later", () => {
     const busyAndStale = candidate({ id: "stale", status: "busy", lastHeartbeatAt: NOW - 60_000 });
     const busyAndOwn = candidate({ id: "own", status: "busy", ownerId: "you" });
     const busyAndFar = candidate({ id: "far", status: "busy" }, 120);
-    const result = rank(ELDEN, RENTER, [busy, busyAndStale, busyAndOwn, busyAndFar], { now: NOW });
+    const busyAndCrewOnly = candidate({ id: "crew", status: "busy", crew: ["a-friend"] });
+    const result = rank(ELDEN, RENTER, [busy, busyAndStale, busyAndOwn, busyAndFar, busyAndCrewOnly], {
+      now: NOW,
+    });
     expect(result.hosts).toEqual([]);
     expect(result.later.map((c) => c.host.id)).toEqual(["busy"]);
-    expect(result.excluded).toHaveLength(4);
+    expect(result.excluded).toHaveLength(5);
   });
 });
 

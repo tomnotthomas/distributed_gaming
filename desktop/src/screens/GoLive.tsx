@@ -5,6 +5,7 @@ import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
 import { Reticle } from "../ui/Reticle";
+import type { Crew } from "../report";
 import { listedGames, tonight, type ScreenProps } from "./types";
 
 /** Four plain choices and an exact time. */
@@ -51,6 +52,52 @@ export function UntilPicker({
   );
 }
 
+/** "mika_r's crew", "your crew", or "your friend's crew" when the platform has no name for it. */
+export function crewName({ name, own }: Crew["crews"][number]): string {
+  return own ? "your crew" : name ? `${name}'s crew` : "your friend's crew";
+}
+
+/**
+ * Who can play on this PC: only the crews its owner joined from a friend's
+ * invite link, or anyone on Swiff. Shown once the platform has said this PC's
+ * owner is in a crew; the platform holds the choice.
+ */
+export function CrewPicker({ crew, onChange }: { crew: Crew | null; onChange: (only: boolean) => void }) {
+  if (!crew?.crews.length) return null;
+  const crews = crew.crews.map(crewName);
+  const named = crews.length === 1 ? crews[0]! : `${crews.slice(0, -1).join(", ")} and ${crews.at(-1)}`;
+  const size = crew.crews.reduce((n, c) => n + c.size - 1, 0);
+  const choices = [
+    { only: true, b: "Crew only", span: `${count(size, "player", "players")} you know` },
+    { only: false, b: "Anyone", span: "Every player on Swiff" },
+  ];
+  return (
+    <>
+      <p className="mono label" id="crew-label">
+        Who can play
+      </p>
+      <div className="until crew-pick" role="radiogroup" aria-labelledby="crew-label">
+        {choices.map((c) => (
+          <button
+            key={c.b}
+            type="button"
+            role="radio"
+            aria-checked={crew.only === c.only}
+            className="ut"
+            onClick={() => onChange(c.only)}
+          >
+            <b>{c.b}</b>
+            <span>{c.span}</span>
+          </button>
+        ))}
+      </div>
+      <p className="note6">
+        {crew.only ? `Only ${named} can claim this PC.` : `Anyone on Swiff can claim this PC, ${named} too.`}
+      </p>
+    </>
+  );
+}
+
 export function GoLive({ view, actions, go }: ScreenProps) {
   const { machine, rate, plan, live, connection, now } = view;
   const ready = connectionReady(connection);
@@ -78,6 +125,7 @@ export function GoLive({ view, actions, go }: ScreenProps) {
             </p>
             <UntilPicker now={now} value={plan} onChange={actions.plan} />
             <p className="note6">{untilSentence(machine, plan)}</p>
+            <CrewPicker crew={view.crew} onChange={actions.setCrewOnly} />
             {!ready ? (
               <p className="note6">
                 Add this PC&rsquo;s connection details in{" "}

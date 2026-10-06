@@ -95,6 +95,8 @@ describe("createHostReporter", () => {
   /** Answers by action; each call takes `took[action]` ms on the fake clock. */
   let answer: Record<string, number | "network">;
   let took: Record<string, number>;
+  /** What a 200 answers, by action; an error body where none is set. */
+  let replies: Record<string, unknown>;
 
   const fetch = vi.fn(async (url: string, init: RequestInit) => {
     const action = url.split("/").at(-1)!;
@@ -109,7 +111,8 @@ describe("createHostReporter", () => {
     now += took[action] ?? 20;
     const status = answer[action] ?? (action === "upload-test" ? 204 : 200);
     if (status === "network") throw new TypeError("fetch failed");
-    return new Response(status === 204 ? null : JSON.stringify({ error: "games must be a list" }), {
+    const body = status === 200 && replies[action] ? replies[action] : { error: "games must be a list" };
+    return new Response(status === 204 ? null : JSON.stringify(body), {
       status,
     });
   });
@@ -130,6 +133,7 @@ describe("createHostReporter", () => {
     now = 1_000;
     answer = {};
     took = {};
+    replies = {};
     fetch.mockClear();
   });
 
@@ -275,6 +279,35 @@ describe("createHostReporter", () => {
       method: "PUT",
       body: { available: true, until: "2026-10-03T23:00:00.000Z" },
     });
+  });
+
+  it("hears who may play from every answer, and sends the owner's choice with every offer after it", async () => {
+    const crew = { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] };
+    replies.availability = { id: "pc 1", status: "available", crew };
+    replies.heartbeat = { id: "pc 1", status: "available", crew: { ...crew, only: false } };
+    const onCrew = vi.fn();
+    const r = reporter({ name: "Nova-01" }, { onCrew });
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    // Until the owner chooses, the offer leaves the choice to the platform.
+    expect(calls[0]!.body).toEqual({ available: true, name: "Nova-01" });
+    expect(onCrew).toHaveBeenLastCalledWith(crew);
+
+    await beat();
+    expect(onCrew).toHaveBeenLastCalledWith({ ...crew, only: false });
+
+    r.setCrewOnly(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true, crewOnly: false } });
+    // The choice rides on later offers too, such as a new share-until time.
+    r.setUntil(Date.UTC(2026, 9, 3, 23));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { crewOnly: false } });
+    // The same choice again is no news.
+    const sentSoFar = calls.length;
+    r.setCrewOnly(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toHaveLength(sentSoFar);
   });
 
   it("does not send a refused section again until it changes", async () => {

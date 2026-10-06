@@ -39,6 +39,7 @@ function fakeServer(start: Partial<FakeState> = {}) {
     ...(state.until === null ? {} : { until: state.until }),
     ...(state.sessionId ? { session: { id: state.sessionId } } : {}),
     ...(state.sessionId && state.resetUntil !== null ? { resetUntil: state.resetUntil } : {}),
+    crew: { only: false, crews: [] },
   });
   const guard = (call: string) => {
     calls.push(call);

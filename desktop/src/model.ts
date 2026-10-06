@@ -12,6 +12,7 @@ import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
+import type { Crew } from "./report";
 
 export type Game = SteamGame;
 
@@ -257,6 +258,8 @@ export type HostView = {
   connection: Connection;
   /** Payout details were saved, in the demo. The app never keeps them. */
   payoutSaved: boolean;
+  /** Who may play on this PC, as the platform last said; null until it has. */
+  crew: Crew | null;
 };
 
 export type TrayAction = "stop-new" | "allow-new" | "pause" | "resume" | "retry";
@@ -289,6 +292,8 @@ export type HostActions = {
   /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
   previewRental(kind: RentalPlan["kind"]): void;
   closeRentalPreview(): void;
+  /** Offer this PC to its owner's crew only, or to anyone. */
+  setCrewOnly(on: boolean): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };

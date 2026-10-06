@@ -219,6 +219,40 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // Launches that keep failing are read from the sessions that ended recently.
     `CREATE INDEX sessions_by_end ON sessions (ended_at)`,
   ],
+  [
+    // Crews (platform.ts, crews): a player and the friends they invited. Each
+    // player owns at most one, made with their first invite link; owner_name
+    // is their Steam persona as last read, what an invite says it is from.
+    `CREATE TABLE crews (
+      id         TEXT PRIMARY KEY,
+      owner_id   TEXT NOT NULL UNIQUE,
+      owner_name TEXT,
+      created_at BIGINT NOT NULL
+    )`,
+    // Who is in each crew, its owner included. invite_id is the invite they
+    // joined by, which names who invited them; null for the owner.
+    `CREATE TABLE crew_members (
+      crew_id   TEXT NOT NULL REFERENCES crews (id),
+      user_id   TEXT NOT NULL,
+      invite_id TEXT,
+      joined_at BIGINT NOT NULL,
+      PRIMARY KEY (crew_id, user_id)
+    )`,
+    `CREATE INDEX crew_members_by_user ON crew_members (user_id)`,
+    // Personal invite links. The link carries the id signed (access.ts), so the
+    // id alone opens nothing; revoked_at is when its inviter replaced it. One
+    // live link per inviter.
+    `CREATE TABLE crew_invites (
+      id         TEXT PRIMARY KEY,
+      crew_id    TEXT NOT NULL REFERENCES crews (id),
+      inviter_id TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      revoked_at BIGINT
+    )`,
+    `CREATE UNIQUE INDEX crew_invites_live ON crew_invites (inviter_id) WHERE revoked_at IS NULL`,
+    // A crew-only machine is offered only to its owner's crewmates (gate E7).
+    `ALTER TABLE machines ADD COLUMN crew_only BOOLEAN NOT NULL DEFAULT FALSE`,
+  ],
 ];
 
 /**

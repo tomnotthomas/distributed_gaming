@@ -39,6 +39,9 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
    and install any game their account owns (or that is free to play), following its
    progress. Renters always play with their own Steam licence: a game the host installs
    only puts its files on the PC.
+10. An owner who joined a friend's crew from an invite link hosts that crew only: the app
+    says whose crew, and lets the owner open the PC to anyone, or close it to the crew
+    again ([`renter.md`](renter.md), "Crews").
 
 ---
 
@@ -124,19 +127,24 @@ can call them from its `file://` page: the bearer credential is the only one.
 
 ```
 PUT  /machines/:id/availability
-  { available: true, until?, price?, ...report }
-  { available: false, reset?: true, until?, price?, ...report }
-  → 200 { id, status, gpu, cpu, price, until?, session?, resetUntil? }
+  { available: true, until?, price?, crewOnly?, ...report }
+  { available: false, reset?: true, until?, price?, crewOnly?, ...report }
+  → 200 { id, status, gpu, cpu, price, until?, session?, resetUntil?, crew }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
   `until` is an ISO date or Unix ms; `price` is cents per hour. `report` is below. Every
   call replaces `until`, so one that leaves it out clears it; the answer's `until` (Unix ms,
   when set) is what to send back to offer the PC again on the same terms.
   `reset: true` is the rental-mode PC taking itself off offer to restart between
   renters (the reset hold, below); only with `available: false`, else 400.
+  `crewOnly` offers the PC only to its owner's crews (true) or to anyone (false); left
+  out, it stays as it was. `crew` (in this answer and the heartbeat's) is `{ only,
+  crews: [{ name, own, size }] }`: whether it is crew-only, and the crews its owner is
+  in with anyone else. The app sends the owner's choice with every offer once they have
+  made one, and shows Who can play while the owner is in a crew.
 
 POST /machines/:id/heartbeat
   { ...report }
-  → 200 { id, status, gpu, cpu, price, until?, session? }
+  → 200 { id, status, gpu, cpu, price, until?, session?, crew }
   Carries the parts of the report that changed. Liveness is the PC's socket (below):
   while the socket is open the machine needs no heartbeat. The host app beats every 5 s
   all the same while the PC is offered (`desktop/src/report.ts`), most often with an

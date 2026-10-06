@@ -4,6 +4,7 @@
 //   go live          PUT  availability { available: true, until, ...every section known }
 //   every 5 s        POST heartbeat    { ...only the sections that changed }
 //   share-until set  PUT  availability { available: true, until }
+//   who can play     PUT  availability { available: true, until, crewOnly }
 //   pause or stop    PUT  availability { available: false }
 //
 // The open signaling socket is the PC's presence. The beat keeps it fresh for
@@ -14,6 +15,10 @@
 // next. `upMbps` is timed from an upload test, at going live and every 30
 // minutes after, never while a player is on. `net` is sent once all three are
 // known, then whenever one has moved.
+//
+// Every answer says who may play on this PC (its crew, server/src/platform.ts):
+// crew-only, and the crews its owner is in. The owner's own choice goes with
+// every offer once they have made one; until then the platform's stands.
 
 import { httpOrigin } from "@swiff/rtc";
 import type { Control, Encoder, PcRead } from "../pc.cjs";
@@ -150,6 +155,11 @@ function noise(bytes: number): Uint8Array<ArrayBuffer> {
 
 export type Machine = { url: string; machineId: string; machineKey: string };
 
+/** A crew this PC's owner is in: whose (their Steam name, when known), whether it is theirs, how many are in it. */
+export type CrewOf = { name: string | null; own: boolean; size: number };
+/** Who may play on this PC, as the platform last said: only its owner's crews, and which those are. */
+export type Crew = { only: boolean; crews: CrewOf[] };
+
 export type HostReporter = {
   /** Offer this PC until `until` (null: until the owner stops), then beat every 5 s. */
   offer(until: number | null): void;
@@ -157,6 +167,8 @@ export type HostReporter = {
   update(report: HostReport): void;
   /** A new share-until time, for the platform to stop new claims at. */
   setUntil(until: number | null): void;
+  /** Offer this PC only to its owner's crews (true), or to anyone (false). */
+  setCrewOnly(on: boolean): void;
   /** A player is on: no upload test runs meanwhile. */
   setBusy(busy: boolean): void;
   /** A round trip to the server, in ms; one taken during an upload test is left out. */
@@ -169,12 +181,29 @@ export type ReporterOptions = {
   report: HostReport;
   /** A new upload speed, in Mbit/s. */
   onUpload?: (upMbps: number) => void;
+  /** Who may play on this PC, each time the platform says. */
+  onCrew?: (crew: Crew) => void;
   /** Wait for this before the first call: the previous reporter's withdraw, so it cannot land after the offer. */
   after?: Promise<unknown>;
   fetch?: typeof globalThis.fetch;
   /** Milliseconds, for timing the upload test. */
   clock?: () => number;
 };
+
+/** The crew in a Host API answer, or null when it carries none that reads. */
+export function crewOf(body: unknown): Crew | null {
+  const crew = (body as { crew?: unknown } | null)?.crew as Partial<Crew> | undefined;
+  if (!crew || typeof crew.only !== "boolean" || !Array.isArray(crew.crews)) return null;
+  const crews = crew.crews.filter(
+    (c): c is CrewOf =>
+      typeof c === "object" &&
+      c !== null &&
+      (typeof c.name === "string" || c.name === null) &&
+      typeof c.own === "boolean" &&
+      typeof c.size === "number",
+  );
+  return { only: crew.only, crews };
+}
 
 /**
  * The reporter for `machine`: offers the PC with `report`, then beats every
@@ -186,6 +215,7 @@ export function createHostReporter(
   {
     report,
     onUpload,
+    onCrew,
     after = Promise.resolve(),
     fetch = (...args) => globalThis.fetch(...args),
     clock = () => performance.now(),
@@ -197,12 +227,14 @@ export function createHostReporter(
   const headers = { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" };
 
   let latest = report;
-  /** What the platform has: the sections, the net figures and the share-until time it accepted. */
+  /** What the platform has: the sections, the net figures and the terms (until when, for whom) it accepted. */
   let sent: HostReport = {};
   let netSent: Net | null = null;
   let until: number | null = null;
-  let untilAsked = 0;
-  let untilSent = -1;
+  /** The owner's choice of who may play; undefined until they make one. */
+  let crewOnly: boolean | undefined;
+  let termsAsked = 0;
+  let termsSent = -1;
 
   let rtts: number[] = [];
   let upMbps: number | null = null;
@@ -250,9 +282,9 @@ export function createHostReporter(
       const measured = netOf(rtts, upMbps);
       const net = measured && netMoved(netSent, measured) ? measured : null;
       const body = { ...changes, ...(net ? { net } : {}) };
-      const asked = untilAsked;
-      // Until the platform has the offer and its time, every beat is the offer.
-      const offering = untilSent !== asked;
+      const asked = termsAsked;
+      // Until the platform has the offer and its terms, every beat is the offer.
+      const offering = termsSent !== asked;
       const call = offering
         ? fetch(route("availability"), {
             method: "PUT",
@@ -260,6 +292,7 @@ export function createHostReporter(
             body: JSON.stringify({
               available: true,
               until: until === null ? undefined : new Date(until).toISOString(),
+              ...(crewOnly === undefined ? {} : { crewOnly }),
               ...body,
             }),
             signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
@@ -278,7 +311,11 @@ export function createHostReporter(
       if (res.ok || (res.status === 400 && !offering)) {
         sent = { ...sent, ...changes };
         if (net) netSent = net;
-        if (offering) untilSent = asked;
+        if (offering) termsSent = asked;
+      }
+      if (res.ok) {
+        const crew = crewOf(await res.json().catch(() => null));
+        if (crew && !stopped) onCrew?.(crew);
       }
       if (res.status === 400) {
         const why = await res.json().catch(() => null);
@@ -289,13 +326,13 @@ export function createHostReporter(
     } finally {
       beating = false;
     }
-    if (!stopped && !busy && !uploading && untilSent >= 0 && clock() >= nextUploadAt) void uploadTest();
+    if (!stopped && !busy && !uploading && termsSent >= 0 && clock() >= nextUploadAt) void uploadTest();
   };
 
   return {
     offer: (at) => {
       until = at;
-      untilAsked++;
+      termsAsked++;
       void after.then(() => {
         if (stopped) return;
         started = true;
@@ -309,7 +346,13 @@ export function createHostReporter(
     setUntil: (at) => {
       if (at === until) return;
       until = at;
-      untilAsked++;
+      termsAsked++;
+      if (started) void beat();
+    },
+    setCrewOnly: (on) => {
+      if (on === crewOnly) return;
+      crewOnly = on;
+      termsAsked++;
       if (started) void beat();
     },
     setBusy: (on) => {

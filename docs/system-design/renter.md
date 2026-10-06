@@ -32,6 +32,10 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
    confirms ending it early. Ending early gives the renter 5 minutes to save and costs the
    owner reliability; the host app shows this flow only on its labelled demo data (see
    [`host.md`](host.md), requirement 3).
+10. A signed-in player can ask a friend with a gaming PC to host their crew, with a
+    personal invite link they share to WhatsApp, Discord, Steam chat or email. The friend
+    who opens it sees who asked, and once they join, their PC is crew-only: it is offered
+    and matched to that crew and nobody else (gate E7, "Crews" below).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.
@@ -89,6 +93,8 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
+| **Crew**        | A player and the friends they invited.                          | `id`, `owner_id`, `owner_name`; members `crew_id`, `user_id`, `invite_id`, `joined_at`                                |
+| **Invite**      | A player's personal invite link to their crew.                  | `id`, `crew_id`, `inviter_id`, `created_at`, `revoked_at`                                                             |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
 becomes `expired` when its reservation lapses unclaimed, or when it is queued and the
@@ -103,7 +109,8 @@ keeps nothing in local files, so a host that sleeps and loses its disk loses no 
 Unset, the data lives in memory (PGlite, Postgres compiled to WebAssembly) and resets
 with the server, so dev and the e2e tests need no database server. Platform calls take
 turns, each one transaction; one that may write first locks the machines table, so a
-second server on the same database cannot interleave with it either. Users, games and
+second server on the same database cannot interleave with it either. Crews, their
+members and invites are tables of their own beside them. Users, games and
 saves have no table yet: a user is their Steam id (a booking's `renter_id`, a machine's
 `owner_id`), games come from Steam, and saves are not built.
 
@@ -114,8 +121,8 @@ saves have no table yet: a user is their Steam id (a booking's `renter_id`, a ma
 All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
 `/availability`, `/games/:appid/machines`, `/bookings` and `/events` calls carry the
 renter's sign-in session and answer `401` without one;
-`GET /games`, `GET /ping` and `POST /signout` work signed out, and the `/sessions` calls
-carry the join ticket instead.
+`GET /games`, `GET /ping`, `POST /signout` and `GET /invites/:token` work signed out, and
+the `/sessions` calls carry the join ticket instead.
 
 ### Sign-in session
 
@@ -394,10 +401,11 @@ POST /sessions/:id/leave
 
 `/availability` and `/games/:appid/machines` (`server/src/candidates.ts`) run
 `@swiff/rank`'s `rank()` over every machine on offer that is answering, for the
-signed-in renter: gates E1–E6, then the fixed sort, with the game's requirements from
+signed-in renter: gates E1–E7, then the fixed sort, with the game's requirements from
 the requirements table. Both are signed in only: working them out for every visitor
 would cost too much, so signed-out visitors see no availability (requirement 2). The
-renter's own machine is never counted or listed (E5), nor is one whose offer has run
+renter's own machine is never counted or listed (E5), nor a crew-only one outside their
+crews (E7, not even as coming back), nor one whose offer has run
 out (its `available_until` has passed). Query parameters say how the renter plays:
 `rtt`, their round trip to the server in ms as the page measured it (required, 0 to
 10000), and, optionally, `controls`, a comma-separated list of `kb`, `mouse`, `pad`
@@ -441,8 +449,8 @@ session running out) instead of a sweep: the oldest queued booking gets the mach
 minutes, and the machine is reserved for it. That is the order of the renter's own list
 (see "What can be played where"), not merely the cheapest: a machine must have the game
 installed and meet the game's minimum hardware (gates E2 and E3), take every control the
-renter turned on (E4), not be the renter's own (E5) and be within 80 ms of the renter
-(E6), and the best of those is the one free all session, then not Shaky, then with the
+renter turned on (E4), not be the renter's own (E5), be within 80 ms of the renter
+(E6) and, when it is crew-only, be in a crew with them (E7), and the best of those is the one free all session, then not Shaky, then with the
 best response, then picture, then the lowest latency, then the lowest price. The controls
 and Picture setting are the ones the booking was made with; a booking made without them
 asks for no controls and the best picture.
@@ -499,6 +507,57 @@ the next best from that list, which the page offers to launch on instead; with n
 free on the list the page offers the queue. The demo (`/?demo=1`) books nothing: its
 machines are invented. Leaving the queue, cancelling a launch and ending
 a session all end the booking (POST /bookings/:id/end).
+
+### Crews
+
+A crew is a player and the friends they invited (`server/src/platform.ts`, crews). Every
+signed-in player has one personal invite link to their own crew, made with the crew the
+first time they ask for it. The link is `/invite/<token>`: the invite's random id followed
+by its HMAC-SHA256 under `SESSION_SECRET` in a domain of its own, cut to 16 bytes
+(`server/src/access.ts`). The database holds only the id, so a leak of it opens nothing,
+and a forged token is refused before the database is asked. A link never expires; its
+player replaces it with a new one, which stops the old one for good. Links are never
+logged or sent to analytics; the page only reports which way one was shared.
+
+Whoever opens a link and joins is in the inviter's crew, attributed to the invite they
+joined by. Joining makes every PC they own crew-only, and a PC of theirs first heard from
+later starts crew-only too. A crew-only PC is offered and matched only to its owner's
+crewmates, everyone in any crew its owner is in (gate E7 in `packages/rank`): on the
+wall, on the game page, in the queue, as a picked machine, and at the claim, which hands
+a reservation made before the PC became crew-only back to the queue. The owner can open
+it to anyone from the host app (`crewOnly`, host.md).
+
+```
+GET  /me/invite
+  → 200 { token, crew: { name, own, size } }
+  The signed-in player's link (its token) and their crew, named after their Steam
+  persona as last read. → 401 signed out.
+
+POST /me/invite/renew
+  → 200 { token, crew }
+  A new link in place of the old one, which opens nothing from now on. → 401 signed out.
+
+GET  /invites/:token
+  → 200 { crew: { name, own, size, member } }
+  Whose crew a link joins and how many are in it, for anyone who opens it; signed in,
+  whether it is their own and whether they are in it already. → 404 for a forged,
+  unknown or replaced link.
+
+POST /invites/:token/join
+  → 200 { crew, joined }
+  Join the crew as the signed-in player. `joined` is false for a crew they were in
+  already, which changes nothing. → 409 { error, code: "own-invite" } for their own
+  link. → 404 as above. → 401 signed out.
+```
+
+The web app (`web/src/swiff/AskFriend.tsx`, `Invite.tsx`) shows the link under Ask your
+PC friend on the profile, under an empty wall, and as one line on the wall's band until
+the player puts it away. It shares through the browser's share sheet where there is one,
+WhatsApp and email by link, and Discord and Steam chat by copying the message to paste.
+The invite page names who asked, signs the friend in with Steam (the token waits in the
+tab rather than riding through Steam, and the return is `/invite`), joins them, and
+leads on to the host app's download. Its words, in German and English, are placeholders
+in `web/src/swiff/crewCopy.ts` for marketing's texts.
 
 ### Connection setup (WebSocket)
 
