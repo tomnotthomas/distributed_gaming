@@ -712,7 +712,9 @@ test_run() {
 		$ui click 'Ask again' > /dev/null 2>&1 || true
 		step ui-refused-cert "the administrator side refuses a swapped certificate, guided" $ui wait-h1 "files didn't pass the check|not signed|didn't pass" 180
 		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
-		$ui click 'Try again|Check again|Send details' > /dev/null 2>&1 || true
+		# The refusal's one action is Send details to Swiff; Try again comes after it.
+		$ui click 'Send details' > /dev/null 2>&1 || true
+		$ui click '^Try again' > /dev/null 2>&1 || true
 		$ui screen > "$run/ui-after-refusal.json" 2>&1 || true
 		# The key's run through the app: then Restart now, up to MokManager waiting.
 		bash -c "$ui click '^Confirm the key' > /dev/null" 2> /dev/null || true
