@@ -19,13 +19,15 @@
 # the VM's keyboard, through QEMU's monitor, and checks that none of them
 # rebooted the VM.
 #
-# Usage: vm/run-test.sh [--no-build]
+# Usage: vm/run-test.sh [--no-build | --build-only]
 #
 # Build output, caches and the VM's files go to $SWIFF_OS_BUILD_DIR
-# (default ~/.cache/swiff-os).
+# (default ~/.cache/swiff-os). mkosi's workspace goes to
+# $SWIFF_OS_WORKSPACE_DIR when set (mkosi's default is /var/tmp).
 #
-# Needs: sudo (mkosi 20 builds as root), qemu-system-x86_64, swtpm, OVMF
-# (/usr/share/OVMF), /dev/kvm, bwrap. The VM gets 2 GiB of RAM and 2 vCPUs.
+# Needs: sudo (mkosi 20 builds as root; bwrap measures the UKI as root),
+# qemu-system-x86_64, swtpm, OVMF (/usr/share/OVMF), /dev/kvm, bwrap. The VM
+# gets 2 GiB of RAM and 2 vCPUs.
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # VM's firmware variables are a copy of OVMF's empty template in the run directory.
 set -euo pipefail
@@ -35,7 +37,7 @@ image_dir=$(cd "$here/../image" && pwd)
 # Build output and caches stay outside the source tree (see image/mkosi.conf).
 build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 out=$build_dir/output
-# The VM's disk copy (24 GiB, sparse), firmware variables, TPM state and logs.
+# The VM's disk copy (24 GiB, sparse), firmware variables and logs.
 run=$build_dir/vm
 
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
@@ -45,11 +47,13 @@ ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.fd
 boot_timeout=${BOOT_TIMEOUT:-600}
 
 build=1
+boot=1
 for arg in "$@"; do
 	case $arg in
 	--no-build) build=0 ;;
+	--build-only) boot=0 ;;
 	*)
-		echo "usage: $0 [--no-build]" >&2
+		echo "usage: $0 [--no-build | --build-only]" >&2
 		exit 2
 		;;
 	esac
@@ -63,15 +67,19 @@ die() {
 	exit 1
 }
 
-for tool in qemu-system-x86_64 swtpm mkosi bwrap sfdisk mkfs.ext4 debugfs; do
+tools="mkosi"
+[ "$boot" = 1 ] && tools="$tools qemu-system-x86_64 swtpm bwrap sfdisk mkfs.ext4 debugfs"
+for tool in $tools; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
-[ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF Secure Boot firmware not found in /usr/share/OVMF"
+if [ "$boot" = 1 ]; then
+	[ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF Secure Boot firmware not found in /usr/share/OVMF"
+fi
 # QEMU normally runs as the calling user. Without access to /dev/kvm it is
 # started through sudo and drops to the calling user (-runas) before the VM
 # starts, rather than changing the host's device permissions.
 qemu=(qemu-system-x86_64)
-if [ ! -w /dev/kvm ]; then
+if [ "$boot" = 1 ] && [ ! -w /dev/kvm ]; then
 	[ -e /dev/kvm ] && sudo -n true 2> /dev/null || die "/dev/kvm is not usable"
 	qemu=(sudo -n qemu-system-x86_64 -runas "$(id -un)")
 fi
@@ -96,18 +104,28 @@ fi
 if [ "$build" = 1 ]; then
 	log "Building the test image (mkosi --profile=selftest)"
 	mkdir -p "$out" "$build_dir/cache"
-	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" --profile=selftest -f build
+	workspace=()
+	[ -n "${SWIFF_OS_WORKSPACE_DIR:-}" ] && mkdir -p "$SWIFF_OS_WORKSPACE_DIR" && workspace=(--workspace-dir "$SWIFF_OS_WORKSPACE_DIR")
+	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" "${workspace[@]}" --profile=selftest -f build
 fi
 disk_src=$out/swiffos-selftest.raw
 uki=$out/swiffos-selftest.efi
 [ -e "$disk_src" ] || die "$disk_src not built"
+if [ "$boot" = 0 ]; then
+	echo "Built $disk_src; not booted (--build-only)."
+	exit 0
+fi
 
 # --- Prepare the VM ----------------------------------------------------------
 log "Preparing the VM in $run"
-rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games"
+rm -rf "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games"
 cp --sparse=always "$disk_src" "$run/disk.raw"
 cp "$ovmf_vars" "$run/vars.fd"
-mkdir -p "$run/tpm"
+# The TPM's state, socket and log. Ubuntu's AppArmor profile for swtpm lets
+# it write only under /tmp, $HOME and libvirt's directories, and the build
+# directory may be elsewhere (CI uses /mnt).
+tpm=$(mktemp -d /tmp/swiff-tpm.XXXXXX)
+trap 'rm -rf "$tpm"' EXIT
 
 # The shared games library, stubbed: a small read-only ext4 disk labelled
 # SWIFFGAMES with a Steam library the renter (uid 1000) may update.
@@ -160,11 +178,11 @@ boot_vm() { # boot number
 	local n=$1 serial=$run/serial-$1.log
 	log "Boot $n"
 	swtpm socket --tpm2 --terminate \
-		--tpmstate dir="$run/tpm" \
-		--ctrl type=unixio,path="$run/tpm/sock" \
-		--log file="$run/swtpm-$n.log" &
+		--tpmstate dir="$tpm" \
+		--ctrl type=unixio,path="$tpm/sock" \
+		--log file="$tpm/swtpm-$n.log" &
 	local swtpm_pid=$!
-	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
+	for _ in $(seq 50); do [ -S "$tpm/sock" ] && break; sleep 0.1; done
 	# QEMU's monitor on a pair of pipes, which the calling user owns even
 	# when QEMU is started through sudo.
 	rm -f "$run"/monitor.*
@@ -183,7 +201,7 @@ boot_vm() { # boot number
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
 		-drive if=pflash,format=raw,unit=1,file="$run/vars.fd" \
 		-device intel-iommu,intremap=on \
-		-chardev socket,id=chrtpm,path="$run/tpm/sock" \
+		-chardev socket,id=chrtpm,path="$tpm/sock" \
 		-tpmdev emulator,id=tpm0,chardev=chrtpm \
 		-device tpm-crb,tpmdev=tpm0 \
 		-drive if=none,id=os,format=raw,file="$run/disk.raw" \
@@ -196,6 +214,7 @@ boot_vm() { # boot number
 		-serial "file:$serial" || rc=$?
 	kill "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	wait "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
+	cp "$tpm/swtpm-$n.log" "$run/" 2> /dev/null || true
 	[ "$rc" = 124 ] && echo "boot $n timed out after ${boot_timeout}s" >&2
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
@@ -224,8 +243,10 @@ digest2=$(scratch_digest)
 # --- Expected PCR 11 -----------------------------------------------------------
 # systemd-measure (from the build's tools tree) predicts PCR 11 for this UKI
 # after the boot phases enter-initrd, leave-initrd, sysinit and ready.
+# bwrap runs as root: Ubuntu 24.04 (CI's runner) refuses an unprivileged
+# user namespace, so an ordinary user's bwrap cannot map its uid there.
 tools=$out/ubuntu-tools
-expected_pcr11=$(bwrap --ro-bind "$tools/usr" /usr \
+expected_pcr11=$(sudo bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
 	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
 	--proc /proc --dev /dev --tmpfs /tmp \
@@ -277,6 +298,8 @@ if [ "$disk_bytes" -le $((24 * 1024 * 1024 * 1024)) ]; then
 else
 	result FAIL size-budget "disk image $((disk_bytes / 1024 / 1024)) MiB > 24 GiB"
 fi
+root_used=$(sed -n 's/^.*SWIFF-SELFTEST INFO root-used \([0-9]*\).*$/\1/p' "$run/serial-1.log" | tail -n1)
+printf '%-4s  %-30s %s\n' INFO root-used "$((${root_used:-0} / 1024 / 1024)) MiB of the 8 GiB root slot"
 
 echo
 if [ "$fail" = 0 ]; then

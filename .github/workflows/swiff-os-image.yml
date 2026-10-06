@@ -1,0 +1,105 @@
+name: Swiff OS image
+
+# Builds the Swiff OS image and boots it twice under Secure Boot with a TPM
+# (swiff-os/vm/run-test.sh). With the NVIDIA driver in it, the build no longer
+# fits a small workstation, so it runs here. Only when the image, its VM test
+# or this workflow change: a build takes the better part of an hour.
+on:
+  push:
+    branches: [main]
+    paths:
+      - swiff-os/image/**
+      - swiff-os/vm/**
+      - .github/workflows/swiff-os-image.yml
+  pull_request:
+    paths:
+      - swiff-os/image/**
+      - swiff-os/vm/**
+      - .github/workflows/swiff-os-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: swiff-os-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  image:
+    name: Build and VM-test the Swiff OS image
+    # mkosi 20 is what the image is written for, and Ubuntu 24.04 packages it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mkosi and the VM test's tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            mkosi bubblewrap systemd-container systemd-ukify erofs-utils dosfstools zstd xz-utils \
+            cryptsetup-bin gnupg python3-pefile python3-cryptography \
+            qemu-system-x86 ovmf swtpm swtpm-tools e2fsprogs fdisk openssl python3
+          mkosi --version
+
+      # The image, its caches and the VM's disk copy take about 30 GB. The
+      # runner's second disk has the room; the toolchains on the first are not
+      # needed here.
+      - name: Make room for the build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          build=$HOME/swiff-os-build
+          if [ -d /mnt ] && [ "$(df --output=avail -B1G /mnt | tail -n1)" -ge 40 ]; then build=/mnt/swiff-os-build; fi
+          sudo mkdir -p "$build"
+          sudo chown "$(id -u):$(id -g)" "$build"
+          echo "SWIFF_OS_BUILD_DIR=$build" >> "$GITHUB_ENV"
+          echo "SWIFF_OS_WORKSPACE_DIR=$build/workspace" >> "$GITHUB_ENV"
+          df -h / /mnt "$build"
+
+      - name: Let QEMU use KVM
+        id: kvm
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+              sudo tee /etc/udev/rules.d/99-swiff-kvm.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The Secure Boot key is a throwaway that run-test.sh makes for this
+      # run; no secret is involved. The release key (an HSM) signs elsewhere.
+      - name: Build the image and boot it twice under Secure Boot
+        if: steps.kvm.outputs.present == 'true'
+        run: swiff-os/vm/run-test.sh
+
+      - name: Build the image (no KVM on this runner, so no VM test)
+        if: steps.kvm.outputs.present != 'true'
+        run: |
+          echo "::warning::No /dev/kvm on this runner: the image is built but not booted."
+          swiff-os/vm/run-test.sh --build-only
+
+      - name: Root filesystem size
+        if: always()
+        run: |
+          out=$SWIFF_OS_BUILD_DIR/output
+          ls -l "$out" || true
+          root=$(ls "$out"/swiffos-selftest.root-x86-64.raw 2> /dev/null || true)
+          [ -n "$root" ] || exit 0
+          python3 - "$root" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import struct, sys
+          with open(sys.argv[1], "rb") as f:
+              f.seek(1024)
+              sb = f.read(128)
+          blocks = struct.unpack_from("<I", sb, 36)[0]
+          size = blocks * (1 << sb[12])
+          print(f"Root filesystem (erofs): {size / 2**20:.0f} MiB of the 8192 MiB slot")
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: swiff-os-vm-logs
+          path: ${{ env.SWIFF_OS_BUILD_DIR }}/vm/*.log
+          retention-days: 3
+          if-no-files-found: ignore

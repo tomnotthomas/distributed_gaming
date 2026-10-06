@@ -4,7 +4,9 @@
 # or with VT switching open.
 [Unit]
 Description=Swiff renter session (gamescope + Steam)
-After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games-overlay.service nftables.service swiff-vtlock.service
+After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games-overlay.service nftables.service swiff-vtlock.service swiff-nvidia.service
+# NVIDIA's driver, where the PC has an NVIDIA card: gamescope needs it loaded first.
+Wants=swiff-nvidia.service
 Requires=home.mount nftables.service swiff-vtlock.service
 Conflicts=getty@tty1.service
 

@@ -13,6 +13,7 @@
 // one (a PLI, forwarded by the streamer) and otherwise every few seconds.
 
 import type { EncoderChoice, StreamerConfig } from "./config";
+import { hasNvidia, type Gpu } from "./gpu";
 
 /** RTP payload types the streamer offers; peer.ts announces the same. */
 export const VIDEO_PT = 96;
@@ -26,20 +27,32 @@ export const KEYFRAME_SECONDS = 4;
 
 export type Encoder = Exclude<EncoderChoice, "auto">;
 
-/** The GStreamer element each encoder needs, so the streamer can ask which exist. */
-export const ENCODER_ELEMENTS: Record<Encoder, string> = {
-  nvenc: "nvh264enc",
-  vaapi: "vah264enc",
-  x264: "x264enc",
+/** The GStreamer elements each encoder's chain needs, so the streamer can ask which exist. */
+export const ENCODER_ELEMENTS: Record<Encoder, string[]> = {
+  nvenc: ["cudaupload", "cudaconvertscale", "nvh264enc"],
+  vaapi: ["vapostproc", "vah264enc"],
+  x264: ["x264enc"],
 };
 
-/** GPU first: an idle GPU encoder costs the game nothing, x264 costs it CPU. */
-export const AUTO_ORDER: Encoder[] = ["nvenc", "vaapi", "x264"];
+/**
+ * The order to try encoders in. GPU first: an idle GPU encoder costs the game
+ * nothing, x264 costs it CPU. NVENC only where NVIDIA's driver runs an NVIDIA
+ * card, VA-API (AMD, Intel) otherwise. A PC whose cards cannot be read gets
+ * both tried, NVENC first.
+ */
+export function autoOrder(gpus: readonly Gpu[]): Encoder[] {
+  if (gpus.length && !hasNvidia(gpus)) return ["vaapi", "x264"];
+  return ["nvenc", "vaapi", "x264"];
+}
 
-/** The encoders to try, in order, given the elements this PC has. */
-export function encoderCandidates(choice: EncoderChoice, available: ReadonlySet<string>): Encoder[] {
+/** The encoders to try, in order, given this PC's cards and the elements it has. */
+export function encoderCandidates(
+  choice: EncoderChoice,
+  available: ReadonlySet<string>,
+  gpus: readonly Gpu[] = [],
+): Encoder[] {
   if (choice !== "auto") return [choice];
-  return AUTO_ORDER.filter((e) => available.has(ENCODER_ELEMENTS[e]));
+  return autoOrder(gpus).filter((e) => ENCODER_ELEMENTS[e].every((element) => available.has(element)));
 }
 
 type VideoSettings = Pick<
@@ -89,10 +102,13 @@ function encodeChain(s: VideoSettings, encoder: Encoder): string {
   const gop = s.frameRate * KEYFRAME_SECONDS;
   const size = `width=${s.width},height=${s.height}`;
   const encode: Record<Encoder, string> = {
+    // The frame goes to the GPU as it comes and is converted and scaled there.
+    // The fastest preset tuned for streaming, and a VBV of one frame, so no
+    // frame is ever larger than one frame's share of the bitrate.
     nvenc:
-      `videoconvert ! videoscale ! video/x-raw,format=NV12,${size} ! ` +
-      `nvh264enc name=enc preset=low-latency-hq rc-mode=cbr zerolatency=true bframes=0 ` +
-      `bitrate=${kbps} gop-size=${gop}`,
+      `cudaupload ! cudaconvertscale ! video/x-raw(memory:CUDAMemory),format=NV12,${size} ! ` +
+      `nvh264enc name=enc preset=p1 tune=ultra-low-latency rc-mode=cbr zerolatency=true bframes=0 ` +
+      `bitrate=${kbps} vbv-buffer-size=${Math.max(1, Math.round(kbps / s.frameRate))} gop-size=${gop}`,
     vaapi:
       `vapostproc ! video/x-raw(memory:VAMemory),format=NV12,${size} ! ` +
       `vah264enc name=enc rate-control=cbr b-frames=0 target-usage=7 ` +

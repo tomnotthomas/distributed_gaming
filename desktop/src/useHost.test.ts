@@ -106,6 +106,11 @@ function fakeBridge(idle = 600): HostBridge {
     installSteam: vi.fn(async () => null),
     readRental: vi.fn(async () => null),
     planRental: vi.fn(async () => null),
+    nvidiaLicence: vi.fn(async () => null),
+    installNvidia: vi.fn(async () => null),
+    cancelNvidia: vi.fn(async () => {}),
+    onNvidiaProgress: vi.fn(() => () => {}),
+    removeNvidia: vi.fn(async () => null),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),
@@ -120,13 +125,13 @@ beforeEach(() => {
   resetShare();
   (window as { swiffHost?: HostBridge }).swiffHost = fakeBridge();
   calls = [];
-  // The Host API's report routes answer; demand has no platform to ask, so
-  // each test that wants it answers for it.
+  // The Host API's report routes answer; demand and the hosting switch have no
+  // platform to ask, so each test that wants them answers for them.
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
-      if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+      if (path.endsWith("/demand") || path === "/api/hosting") throw new TypeError("no network in tests");
       const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
       calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
       return new Response(path.endsWith("/upload-test") ? null : "{}", {

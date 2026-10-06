@@ -13,6 +13,7 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import type { StreamerConfig } from "./config";
+import { readGpus, type Gpu } from "./gpu";
 import {
   audioPipeline,
   ENCODER_ELEMENTS,
@@ -48,6 +49,8 @@ export type CaptureOptions = {
   firstVideoTimeoutMs?: number;
   /** Aborting stops the start-up: a running check is killed and no helper starts after it. */
   signal?: AbortSignal;
+  /** The PC's graphics cards, which decide the encoders' order; read from sysfs when not given. */
+  gpus?: readonly Gpu[];
 };
 
 /** No working H.264 encoder on this PC, no picture from the source, or start-up aborted. */
@@ -69,6 +72,7 @@ export async function startCapture({
   restartDelayMs = 500,
   firstVideoTimeoutMs = FIRST_VIDEO_TIMEOUT_MS,
   signal,
+  gpus = readGpus(),
 }: CaptureOptions): Promise<Capture> {
   const aborted = () => {
     if (signal?.aborted) throw new CaptureError("capture start-up was aborted");
@@ -97,12 +101,16 @@ export async function startCapture({
     });
 
   aborted();
+  if (config.encoder === "auto") {
+    const cards = gpus.map((g) => `${g.vendor} (${g.driver ?? "no driver"})`).join(", ");
+    log(`[swiff-streamer] graphics: ${cards || "not read"}`);
+  }
   const available =
     config.encoder === "auto"
-      ? new Set((await finish(["--probe", ...Object.values(ENCODER_ELEMENTS)])).stdout.split("\n"))
+      ? new Set((await finish(["--probe", ...Object.values(ENCODER_ELEMENTS).flat()])).stdout.split("\n"))
       : new Set<string>();
   let encoder: Encoder | null = null;
-  for (const candidate of encoderCandidates(config.encoder, available)) {
+  for (const candidate of encoderCandidates(config.encoder, available, gpus)) {
     aborted();
     if ((await finish(["--check", encoderCheckPipeline(config, candidate)])).ok) {
       encoder = candidate;

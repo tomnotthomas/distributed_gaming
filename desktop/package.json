@@ -46,6 +46,8 @@
       "steam.cjs",
       "probe.cjs",
       "rental.cjs",
+      "nvidia.cjs",
+      "swiff-os-nvidia-driver",
       "gpt.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",

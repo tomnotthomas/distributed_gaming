@@ -1,0 +1,30 @@
+# NVIDIA's driver for Swiff OS. Swiff does not ship it: the owner's host app
+# (desktop/nvidia.cjs) shows NVIDIA's licence, and once the owner accepts it,
+# downloads these files from Ubuntu's archive onto their games drive, under
+# SwiffOS\nvidia\<version>\. At every boot swiff-nvidia.service loads them only
+# if each file matches its SHA-256 here (swiff-os/NVIDIA.md).
+#
+#   version  the driver release, which the image's own open kernel modules
+#            (Canonical's, signed) must be
+#   mirror   where the files are: the archive snapshot the image is built from
+#   licence  NVIDIA's licence for this release, as Ubuntu publishes it, and its
+#            SHA-256: the same text the driver carries, which the owner accepts
+#   file     SHA-256, size in bytes and path under the mirror, one per package
+#
+# The image build (mkosi.postinst.chroot, mkosi.finalize) fails if apt resolves
+# NVIDIA's packages to anything else, and prints the lines it expects. Keep
+# desktop/swiff-os-nvidia-driver the same (desktop/src/nvidia.test.ts).
+version 595.91.07
+mirror https://snapshot.ubuntu.com/ubuntu/20261001T000000Z
+licence https://changelogs.ubuntu.com/changelogs/pool/restricted/n/nvidia-graphics-drivers-595/nvidia-graphics-drivers-595_595.91.07-0ubuntu0.26.04.1/copyright
+licence-sha256 d088d505751b1a2246744d16bdb5846d0df1a804700ab8d09330b6e79165edef
+file 0c042a3cb713f4651f2434589316c53ef55b0ecb36d7bac2dc08ef970c47f020 18532 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-common-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file bd3bc296e9cc3a520f0056159e49c9e1b0725040aec883f108126f4fa2a8fb60 85772458 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-compute-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 65ba2a1edc472771fb733ae20447f113f4b9e3f99a1670dbed653d3e687932a7 3061172 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-decode-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 6a00c7ea70c476cd19b15654574781e858b11338c6d1f04518c02403e4c8b560 118496 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-encode-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 83d80aa1e7d90181bd0364a6b1770d6d8530decd5f6466842845f222f2f95f22 77456 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-extra-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 7b8e444ff7d02af937d112e2218d049c25e9a3fbecc05abea8ae7a83de0a03fb 138927668 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-gl-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file ad8cc409e5d6a24e8526034ba32f0c7aaf77c1eaed4b6649a0eb5c0a4888c1ee 50646426 pool/restricted/n/nvidia-graphics-drivers-595/libnvidia-gl-595_595.91.07-0ubuntu0.26.04.1_i386.deb
+file cacba1d5c39548a51930348db765b1477ecae9240b1ee05a4a10a3db7cb68a24 74965758 pool/restricted/n/nvidia-graphics-drivers-595/nvidia-firmware-595-595.91.07_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 07b1a22b3ba5937f3faabc94e5eb758167e7d8d75764b9d389429ffaa41d89b0 822308 pool/restricted/n/nvidia-graphics-drivers-595/nvidia-kernel-common-595_595.91.07-0ubuntu0.26.04.1_amd64.deb
+file 9e1c6c58e556ab8e4d87b20b2069cc6a50371bc28d87a3c605f8118af9826e53 608326 pool/restricted/n/nvidia-graphics-drivers-595/nvidia-utils-595_595.91.07-0ubuntu0.26.04.1_amd64.deb

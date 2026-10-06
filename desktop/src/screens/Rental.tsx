@@ -2,23 +2,31 @@
 // BIOS (Swiff cannot), and the steps that install it and switch to it, with
 // the one confirmation at the PC the install needs: Swiff's key, enrolled as a
 // MOK with a one-time code. The steps show as a preview: nothing on the PC is
-// changed from this screen yet.
+// changed from this screen yet, except NVIDIA's driver: on an NVIDIA card the
+// owner reads NVIDIA's licence and Swiff's terms here, accepts both, and the
+// driver downloads from Ubuntu onto their games drive (nvidia.cjs).
 
 import { useEffect, useRef, useState } from "react";
 import type { RentalPlan, RentalRead } from "../../rental.cjs";
+import type { HostActions, NvidiaSetup } from "../model";
+import { licenceFailure, mb, NVIDIA_TERMS, nvidiaFailure } from "../nvidia";
 import {
   BIOS_STEPS,
   choiceGone,
   chosenTarget,
   codeGroups,
+  day,
   firmwareChecks,
   gb,
   MOK_SCREENS,
+  nvidiaCard,
+  nvidiaStage,
   pcChecks,
   rentalStatus,
   targetLine,
   type RentalCheck,
 } from "../rental";
+import { shortGpu } from "../format";
 import { Dial } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
 import { Figure, Kv, Plate, Zone } from "../ui/parts";
@@ -26,16 +34,19 @@ import { Notice } from "../ui/Notice";
 import { Pill } from "../ui/Pill";
 import type { ScreenProps } from "./types";
 
-/** One check as a ruled row, with a mark where it is not ready yet. */
+/** One check as a ruled row, with a mark where it is not ready yet, and its detail under it. */
 function CheckRow({ check }: { check: RentalCheck }) {
   const mark = check.state === "bios" || check.state === "blocked";
   return (
-    <Kv label={check.label}>
-      <span className={mark ? "rck warn" : "rck"}>
-        {mark ? <Glyph name="warning" size={14} /> : null}
-        {check.value}
-      </span>
-    </Kv>
+    <>
+      <Kv label={check.label}>
+        <span className={mark ? "rck warn" : "rck"}>
+          {mark ? <Glyph name="warning" size={14} /> : null}
+          {check.value}
+        </span>
+      </Kv>
+      {check.detail ? <p className="rck-note">{check.detail}</p> : null}
+    </>
   );
 }
 
@@ -149,6 +160,159 @@ function MokGuide({ code }: { code: string }) {
   );
 }
 
+/**
+ * NVIDIA's driver, which Swiff does not ship. The owner reads NVIDIA's licence
+ * as Ubuntu publishes it and Swiff's terms for NVIDIA cards, ticks both, and
+ * the driver downloads from Ubuntu onto their games drive. Once it is there:
+ * what they installed and when they accepted, and how to remove it.
+ */
+function NvidiaZone({
+  read,
+  nvidia,
+  actions,
+}: {
+  read: RentalRead;
+  nvidia: NvidiaSetup;
+  actions: HostActions;
+}) {
+  const [licence, setLicence] = useState(false);
+  const [terms, setTerms] = useState(false);
+  const { licence: text, install } = nvidia;
+  const driver = read.nvidiaDriver!;
+  const letter = read.games?.letter ?? null;
+  const running = install.state === "running";
+  const done = driver.installed && driver.accepted !== null;
+  // The licence comes up on its own: the owner's first step is reading it.
+  useEffect(() => {
+    if (!done && text.state === "idle") actions.readNvidiaLicence();
+  }, [done, text.state, actions]);
+
+  if (done && !running)
+    return (
+      <Zone
+        title="NVIDIA's driver"
+        action={
+          <button type="button" className="lnk" onClick={actions.removeNvidia}>
+            Remove it
+          </button>
+        }
+      >
+        <p className="soft">
+          NVIDIA {driver.version} is on {letter}:, {mb(driver.bytes)} from Ubuntu. You accepted NVIDIA's
+          licence on {day(driver.accepted!.at)}. Swiff OS checks every file of it each time it starts.
+        </p>
+      </Zone>
+    );
+
+  const gpu = nvidiaCard(read)!;
+  const ready = licence && terms && letter !== null && text.state === "ready";
+  return (
+    <Zone
+      title="NVIDIA's driver"
+      action={
+        driver.installed && !running ? (
+          <button type="button" className="lnk" onClick={actions.removeNvidia}>
+            Remove it
+          </button>
+        ) : undefined
+      }
+    >
+      <p className="soft rnv">
+        Swiff OS runs the {shortGpu(gpu.name)} on NVIDIA's driver, which Swiff does not ship. Read NVIDIA's
+        licence and Swiff's terms below and accept both: Swiff then downloads the driver from Ubuntu onto{" "}
+        {letter ? `${letter}:` : "your games drive"}, {mb(driver.bytes)}. NVIDIA's licence is between you and
+        NVIDIA.
+      </p>
+      {letter ? null : (
+        <Notice icon="info">
+          Rental mode needs your Steam games drive first: install a game, then check again.
+        </Notice>
+      )}
+      <div className="rnvx">
+        <div>
+          <p className="mono ctx">NVIDIA's licence, driver {driver.version}</p>
+          {text.state === "ready" ? (
+            <pre className="rlic" tabIndex={0} aria-label="NVIDIA's licence">
+              {text.text}
+            </pre>
+          ) : text.state === "failed" ? (
+            <Notice icon="warning">
+              {licenceFailure(text.error)}{" "}
+              <button type="button" className="lnk" onClick={actions.readNvidiaLicence}>
+                Load it again
+              </button>
+            </Notice>
+          ) : (
+            <p className="mono gst">Loading it from Ubuntu</p>
+          )}
+          <label className="rok">
+            <input
+              type="checkbox"
+              checked={licence}
+              disabled={text.state !== "ready" || running}
+              onChange={(e) => setLicence(e.target.checked)}
+            />
+            <span>I have read NVIDIA's licence and accept it.</span>
+          </label>
+        </div>
+        <div>
+          <p className="mono ctx">Swiff's terms for NVIDIA cards</p>
+          <ol className="rterms">
+            {NVIDIA_TERMS.map((term, i) => (
+              <li key={term}>
+                <span className="mono">{String(i + 1).padStart(2, "0")}</span>
+                <span>{term}</span>
+              </li>
+            ))}
+          </ol>
+          <label className="rok">
+            <input
+              type="checkbox"
+              checked={terms}
+              disabled={running}
+              onChange={(e) => setTerms(e.target.checked)}
+            />
+            <span>I accept these terms.</span>
+          </label>
+        </div>
+      </div>
+      {install.state === "failed" && letter ? (
+        <Notice icon="warning">{nvidiaFailure(install.error, letter, driver.bytes)}</Notice>
+      ) : null}
+      {running ? (
+        <div className="acts">
+          <span className="gprog rdl">
+            <span
+              className="gbar"
+              role="progressbar"
+              aria-label="Downloading NVIDIA's driver"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={install.total ? Math.floor((install.done / install.total) * 100) : 0}
+            >
+              <i style={{ width: `${install.total ? (install.done / install.total) * 100 : 0}%` }} />
+            </span>
+            <span className="mono gst">
+              {install.stopping
+                ? "Stopping"
+                : `From Ubuntu: ${mb(install.done)} of ${mb(install.total || driver.bytes)}`}
+            </span>
+          </span>
+          <button type="button" className="lnk" onClick={actions.cancelNvidia} disabled={install.stopping}>
+            Stop
+          </button>
+        </div>
+      ) : (
+        <div className="acts">
+          <Pill icon="download" disabled={!ready} onClick={() => actions.installNvidia({ licence, terms })}>
+            {install.state === "failed" ? "Try again" : "Install NVIDIA's driver"}
+          </Pill>
+        </div>
+      )}
+    </Zone>
+  );
+}
+
 /** Where Swiff OS goes, when there is more than one place: the owner picks, never the size. */
 function TargetPicker({
   read,
@@ -180,7 +344,7 @@ function TargetPicker({
 }
 
 export function RentalSetupScreen({ view, actions }: ScreenProps) {
-  const { reading, read, target, preview } = view.rental;
+  const { reading, read, target, preview, nvidiaHosting, nvidia } = view.rental;
 
   if (!read) {
     return (
@@ -211,7 +375,13 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
     );
   }
 
-  const status = rentalStatus(read, target);
+  const status = rentalStatus(read, target, nvidiaHosting);
+  // The driver step shows for an NVIDIA card Swiff OS runs, once NVIDIA is out of testing and not paused.
+  const nvidiaStep =
+    nvidiaCard(read) !== null &&
+    read.nvidiaDriver !== null &&
+    nvidiaStage(read, nvidiaHosting) !== "testing" &&
+    (nvidiaStage(read, nvidiaHosting) !== "paused" || nvidia.install.state === "running");
   const where = chosenTarget(read, target);
   const todo = status.bios.length ? status.bios : status.fixes;
 
@@ -270,7 +440,7 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           ))}
         </Zone>
         <Zone title="This PC">
-          {pcChecks(read, target).map((check) => (
+          {pcChecks(read, target, nvidiaHosting).map((check) => (
             <CheckRow key={check.id} check={check} />
           ))}
         </Zone>
@@ -324,6 +494,11 @@ export function RentalSetupScreen({ view, actions }: ScreenProps) {
           )}
         </Zone>
       </div>
+      {nvidiaStep ? (
+        <div className="sz one">
+          <NvidiaZone read={read} nvidia={nvidia} actions={actions} />
+        </div>
+      ) : null}
       {read.installed ? null : (
         <div className="sz one">
           <Zone title="In the BIOS, if it asks">

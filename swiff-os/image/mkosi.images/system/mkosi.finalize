@@ -16,6 +16,65 @@ for moddir in "$BUILDROOT"/usr/lib/modules/*/; do
 	depmod -b "$BUILDROOT" "$(basename "$moddir")"
 done
 
+# One kernel, and Canonical's signed open NVIDIA modules built for it
+# (mkosi.postinst.chroot). Only Canonical's signature is accepted: the kernel
+# enforces module signatures and has that key built in.
+fail() {
+	echo "mkosi.finalize: $*" >&2
+	exit 1
+}
+set -- "$BUILDROOT"/usr/lib/modules/*/
+[ $# = 1 ] || fail "expected one kernel, found: $*"
+moddir=${1%/}
+kernel=$(basename "$moddir")
+nvidia=$(find "$moddir/kernel" -path '*/nvidia-*-open/nvidia.ko*' | head -n1)
+[ -n "$nvidia" ] || fail "no open NVIDIA modules for kernel $kernel"
+vermagic=$(modinfo -F vermagic "$nvidia" | cut -d' ' -f1)
+[ "$vermagic" = "$kernel" ] || fail "$nvidia is built for $vermagic, not $kernel"
+signer=$(modinfo -F signer "$nvidia")
+[ "$signer" = "Canonical Ltd. Kernel Module Signing" ] || fail "$nvidia is signed by '$signer'"
+version=$(modinfo -F version "$nvidia")
+
+# None of NVIDIA's proprietary driver is in the image: the owner installs it
+# from the host app (swiff-os/NVIDIA.md). linux-firmware's NVIDIA firmware is
+# for nouveau, which Swiff OS never loads, so it goes too. Only NVIDIA's open
+# egl-wayland (MIT) carries the name.
+rm -rf "$BUILDROOT/usr/lib/firmware/nvidia"
+packages=$(dpkg-query --admindir="$BUILDROOT/var/lib/dpkg" -W -f '${Package}\n' |
+	grep -E '^(lib)?nvidia-' | grep -vx 'libnvidia-egl-wayland1' || true)
+[ -z "$packages" ] || fail "NVIDIA's driver packages are installed: $packages"
+files=$(find "$BUILDROOT/usr" \( -name 'libnvidia-*' ! -name 'libnvidia-egl-wayland*' -o -name 'libcuda*' \
+	-o -name 'nvidia-smi' -o -name 'nvidia_icd*.json' \) -print | head -n5)
+[ -z "$files" ] || fail "NVIDIA's driver files are in the image: $files"
+
+# What the owner's host app downloads is what apt resolves NVIDIA's packages
+# to for this image, and the driver release of the image's modules.
+manifest=$BUILDROOT/usr/lib/swiff/nvidia-driver
+resolved=$BUILDROOT/usr/lib/swiff/nvidia-driver.resolved
+field() { awk -v key="$1" '$1 == key { print $2 }' "$manifest"; }
+[ "$(field version)" = "$version" ] || fail "nvidia-driver names NVIDIA $(field version), the image's modules are $version"
+others=$(awk '$5 !~ /^(lib)?nvidia-/ || $5 ~ /^libnvidia-egl-wayland/ { print $5 }' "$resolved" | sort -u | paste -sd' ' -)
+[ -z "$others" ] || fail "NVIDIA's packages also need $others: add them to the image (mkosi.conf, mkosi.postinst.chroot)"
+mirror=$(awk '{ print $1 }' "$resolved" | sort -u)
+expected=$(awk '{ print "file", $2, $3, $4 }' "$resolved" | sort -k4)
+[ "$mirror" = "$(field mirror)" ] && [ "$expected" = "$(awk '$1 == "file"' "$manifest" | sort -k4)" ] ||
+	fail "apt resolves NVIDIA's driver differently from /usr/lib/swiff/nvidia-driver; its lines should be:
+mirror $mirror
+$expected
+(and the same in desktop/swiff-os-nvidia-driver)"
+rm "$resolved"
+
+# Explicit sync, which gamescope needs on NVIDIA: driver 555 or later,
+# Xwayland 24.1 or later, egl-wayland 1.1.14 or later, and a gamescope that
+# speaks linux-drm-syncobj-v1.
+installed() { dpkg-query --admindir="$BUILDROOT/var/lib/dpkg" -W -f '${Version}' "$1"; }
+dpkg --compare-versions "$version" ge 555 || fail "NVIDIA $version has no explicit sync (555 or later)"
+dpkg --compare-versions "$(installed xwayland)" ge 2:24.1 || fail "Xwayland $(installed xwayland) has no explicit sync"
+dpkg --compare-versions "$(installed libnvidia-egl-wayland1)" ge 1:1.1.14 ||
+	fail "egl-wayland $(installed libnvidia-egl-wayland1) has no explicit sync"
+grep -qa wp_linux_drm_syncobj_manager_v1 "$BUILDROOT/usr/games/gamescope" ||
+	fail "gamescope $(installed gamescope) has no explicit sync"
+
 # Ctrl+Alt+Del never reboots. The mask is set here rather than in mkosi.extra
 # because enabling reboot.target during the build (its Alias=) replaces it
 # with a link back to reboot.target.

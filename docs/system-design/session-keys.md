@@ -209,9 +209,19 @@ two credentials (`server/src/attestation.ts`):
   and heartbeats keep its terms and its liveness, but never put it on the market alone. An
   unrecognised value counts as `required`.
 
+`NVIDIA_RENTAL` switches hosting on NVIDIA cards in Swiff OS on (`on`) or off (`off`, the
+default, and any unrecognised value) for every machine at once, without an app update. The
+owner installs NVIDIA's driver themselves ([`swiff-os/NVIDIA.md`](../../swiff-os/NVIDIA.md)).
+Attest's request says what the machine hosts on (`graphics`: `nvidia` or `other`); while the
+switch is off, `nvidia` is refused `403 attestation-refused` with reason `nvidia-rental-off`,
+and a host certificate minted for an NVIDIA machine hosts nothing (`bad-host-cert`), so its
+running session stops at its next hosting call. `GET /api/hosting` (signed out) answers
+`{ "nvidiaRental": false }` or `true`, for the host app to say so before the owner installs
+anything. Sharing from Windows with the machine key is not affected.
+
 A host certificate is a token the server signs with `ROOM_SECRET` under its own domain,
 naming one room, its tier, an id of its own, when it was minted, the boot its quote counted
-(see State key) and an expiry ten minutes away. It is the PC
+(see State key), whether the machine hosts on an NVIDIA card and an expiry ten minutes away. It is the PC
 service's credential, exactly where the machine key was: refused with `session-active` while
 a session is live, and never handed to the streamer. A certificate for a machine no longer
 in `MACHINE_KEYS` hosts nothing. Two rules make `swiff-hostd` attest again:

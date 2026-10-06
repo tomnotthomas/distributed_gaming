@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { NvidiaError } from "../nvidia.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
 import type { Glance, TrayAction } from "./model";
@@ -20,6 +21,16 @@ export type HostBridge = {
   readRental(): Promise<RentalRead | null>;
   /** A preview of the steps; null when there is no plan to show. */
   planRental(ask: { kind: RentalPlan["kind"]; target?: string | null }): Promise<RentalPlan | null>;
+  /** NVIDIA's licence for Swiff OS's driver, from Ubuntu; null while NVIDIA rental is off. */
+  nvidiaLicence(): Promise<{ ok: true; text: string } | { ok: false; error: NvidiaError } | null>;
+  /** Download NVIDIA's driver onto the games drive; null when it may not (not accepted, no card, no drive). */
+  installNvidia(accepted: {
+    licence: boolean;
+    terms: boolean;
+  }): Promise<{ ok: true } | { ok: false; error: NvidiaError } | null>;
+  cancelNvidia(): Promise<void>;
+  onNvidiaProgress(listener: (progress: { done: number; total: number }) => void): () => void;
+  removeNvidia(): Promise<{ ok: boolean } | null>;
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;

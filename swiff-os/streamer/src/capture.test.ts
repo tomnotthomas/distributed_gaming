@@ -61,26 +61,74 @@ function fakeSpawn({ elements = [] as string[], working = [] as string[], hangCh
   return { spawnFn, started, running };
 }
 
+/** Every element the encoders' chains need, in the order the streamer asks for them. */
+const ALL_ELEMENTS = ["cudaupload", "cudaconvertscale", "nvh264enc", "vapostproc", "vah264enc", "x264enc"];
+
 const config = (...argv: string[]) =>
   readConfig({ SWIFF_SERVER_URL: "ws://127.0.0.1:8080", SWIFF_HOST_ID: "pc" }, argv, "/helpers");
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 describe("startCapture", () => {
   it("encodes with the first encoder that passes its check, GPU first", async () => {
-    const fake = fakeSpawn({
-      elements: ["nvh264enc", "vah264enc", "x264enc"],
-      working: ["vah264enc", "x264enc"],
-    });
+    const fake = fakeSpawn({ elements: ALL_ELEMENTS, working: ["vah264enc", "x264enc"] });
     const logs: string[] = [];
     const capture = await startCapture({
       config: config(),
       onPacket: () => {},
       spawn: fake.spawnFn,
       log: (m) => logs.push(m),
+      gpus: [{ vendor: "nvidia", driver: "nvidia" }],
     });
     expect(capture.encoder).toBe("vaapi");
+    expect(logs).toContain("[swiff-streamer] graphics: nvidia (nvidia)");
     expect(logs).toContain("[swiff-streamer] the nvenc encoder does not work here");
     expect(fake.running("video")[0]!.args[0]).toContain("vah264enc name=enc");
+    await capture.stop();
+  });
+
+  it("encodes with NVENC on an NVIDIA card, and never checks VA-API or x264 then", async () => {
+    const fake = fakeSpawn({ elements: ALL_ELEMENTS, working: ["nvh264enc", "vah264enc", "x264enc"] });
+    const capture = await startCapture({
+      config: config(),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+      gpus: [
+        { vendor: "intel", driver: "i915" },
+        { vendor: "nvidia", driver: "nvidia" },
+      ],
+    });
+    expect(capture.encoder).toBe("nvenc");
+    const checks = fake.started.filter((h) => h.args[0] === "--check").map((h) => h.args[1]!);
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toContain("nvh264enc name=enc");
+    expect(fake.running("video")[0]!.args[0]).toContain("cudaupload ! cudaconvertscale");
+    await capture.stop();
+  });
+
+  it("never tries NVENC on a PC without an NVIDIA card: VA-API, then x264", async () => {
+    const fake = fakeSpawn({ elements: ALL_ELEMENTS, working: ["nvh264enc", "vah264enc", "x264enc"] });
+    const capture = await startCapture({
+      config: config(),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+      gpus: [{ vendor: "amd", driver: "amdgpu" }],
+    });
+    expect(capture.encoder).toBe("vaapi");
+    expect(fake.started.some((h) => h.args[0] === "--check" && h.args[1]!.includes("nvh264enc"))).toBe(false);
+    await capture.stop();
+  });
+
+  it("asks the helper for every element of every encoder's chain", async () => {
+    const fake = fakeSpawn({ elements: ["x264enc"], working: ["x264enc"] });
+    const capture = await startCapture({
+      config: config(),
+      onPacket: () => {},
+      spawn: fake.spawnFn,
+      log: () => {},
+    });
+    expect(fake.started[0]!.args).toEqual(["--probe", ...ALL_ELEMENTS]);
     await capture.stop();
   });
 

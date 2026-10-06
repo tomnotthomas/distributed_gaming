@@ -243,8 +243,18 @@ export type AttestActivationGrant = {
   encryptedSecret: string;
 };
 
-/** What attest is sent. `evidence` is the verifier's to read: quote, event log, EK certificate, AK proof. */
-export type AttestRequest = { nonce: string; evidence: unknown };
+/**
+ * What attest is sent. `evidence` is the verifier's to read: quote, event log, EK certificate, AK proof.
+ * `graphics` is what the machine hosts on: "nvidia" when NVIDIA's driver runs an NVIDIA card,
+ * which hosts only while NVIDIA rental hosting is on (GET /api/hosting); absent is "other".
+ */
+export type AttestRequest = { nonce: string; evidence: unknown; graphics?: "nvidia" | "other" };
+
+/** GET /api/hosting: what may host in Swiff OS, for everyone. Swiff can change it without an app update. */
+export type HostingPolicy = {
+  /** Machines on NVIDIA cards host in Swiff OS (the server's NVIDIA_RENTAL). */
+  nvidiaRental: boolean;
+};
 
 /** The TPM verifier's `evidence`. Binary fields are base64. */
 export type TpmEvidence = {
@@ -335,8 +345,11 @@ export type AttestRefusal = {
     | "verifier-unavailable"
     | "not-found"
     | "not-configured";
-  /** Why attestation-refused: the verifier rejected the evidence, or the hardware is below the floor. */
-  reason?: "evidence-rejected" | "below-hardware-floor";
+  /**
+   * Why attestation-refused: the verifier rejected the evidence, the hardware is below the floor,
+   * or the machine hosts on an NVIDIA card while NVIDIA rental hosting is off.
+   */
+  reason?: "evidence-rejected" | "below-hardware-floor" | "nvidia-rental-off";
   /** What the verifier rejected, when it says (the TPM verifier always does). */
   detail?: AttestRefusalDetail;
 };

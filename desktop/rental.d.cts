@@ -1,6 +1,7 @@
 // Types for rental.cjs, so the renderer and its tests can use its results and helpers.
 
 import type { Gpt } from "./gpt.cjs";
+import type { NvidiaDriver } from "./nvidia.cjs";
 
 export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 
@@ -11,7 +12,8 @@ export type RentalFacts = {
   tpm: { present: boolean | null; maker: string | null; firmware: boolean | null };
   iommu: boolean | null;
   fastStartup: boolean | null;
-  gpus: { name: string; vendor: GpuVendor }[];
+  /** Each graphics card: its PCI device number (null if unread) and Windows driver version (null if unread). */
+  gpus: { name: string; vendor: GpuVendor; device: number | null; driver: string | null }[];
   disks: { number: number; gpt: boolean; size: number; sector: number; usb: boolean; system: boolean }[];
   partitions: {
     disk: number;
@@ -65,6 +67,13 @@ export type RentalRead = {
   targets: RentalTarget[];
   games: GamesDrive | null;
   installed: boolean;
+  /**
+   * Whether rental mode takes NVIDIA cards Swiff OS's driver runs. Off until
+   * NVIDIA is tested on real hardware; on with the app's --nvidia-rental flag.
+   */
+  nvidiaRental: boolean;
+  /** NVIDIA's driver, which the owner installs on the games drive (nvidia.cjs); null while NVIDIA rental is off. */
+  nvidiaDriver: NvidiaDriver | null;
 };
 
 export type PlanOp =
@@ -124,6 +133,7 @@ export const MOK_CERT: string;
 export const SHIM_LOCK: string;
 export const SCRIPT: string;
 export function gpuVendor(pnp: string): GpuVendor;
+export function gpuDevice(pnp: string): number | null;
 export function bitlockerState(value: unknown): "on" | "off" | null;
 export function tpmMaker(info: unknown): { maker: string | null; firmware: boolean | null };
 export function factsOf(raw: unknown): RentalFacts;
@@ -143,12 +153,18 @@ export function gamesDriveOf(
   facts: RentalFacts,
   libraries: { letter: string; games: number }[],
 ): GamesDrive | null;
-export function rentalOf(raw: unknown, libraries?: { letter: string; games: number }[]): RentalRead;
+export function rentalOf(
+  raw: unknown,
+  libraries?: { letter: string; games: number }[],
+  options?: { nvidiaRental?: boolean; nvidiaDriver?: (letter: string | null) => NvidiaDriver | null },
+): RentalRead;
 export function readRental(options?: {
   platform?: string;
   run?: (script: string) => Promise<string>;
   steamPath?: () => Promise<string | null>;
   libraries?: { letter: string; games: number }[];
+  nvidiaRental?: boolean;
+  nvidiaDriver?: (letter: string | null) => NvidiaDriver | null;
   env?: Record<string, string | undefined>;
   home?: string;
   files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };

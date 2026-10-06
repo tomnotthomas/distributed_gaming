@@ -3,7 +3,7 @@
 # console for vm/run-test.sh and powers the VM off.
 [Unit]
 Description=Swiff OS VM self-test
-After=multi-user.target swiff-games-overlay.service swiff-hwcheck.service systemd-pcrphase.service
+After=multi-user.target swiff-games-overlay.service swiff-hwcheck.service swiff-nvidia.service systemd-pcrphase.service
 Requires=home.mount
 
 [Service]

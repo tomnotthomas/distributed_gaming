@@ -7,6 +7,7 @@
 //   GET  /api/me                           POST /api/machines/:id/attest-challenge
 //   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
 //   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
+//                                          GET  /api/hosting   (signed out)
 //   POST /api/bookings                     PUT  /api/machines/:id/ek            control
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
@@ -75,6 +76,7 @@ import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
+import type { HostingPolicy } from "./protocol.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
@@ -480,6 +482,7 @@ export function createApi({
     // The Host API answers the host app's origin, errors included, so the app
     // can read why a call was refused.
     const hostRoute =
+      (resource === "hosting" && !id) ||
       (resource === "machines" && id && HOST_ACTIONS.has(action ?? "")) ||
       (resource === "sessions" && id && (action === "start" || action === "end"));
     if (hostRoute) {
@@ -796,6 +799,13 @@ export function createApi({
       return true;
     }
 
+    if (resource === "hosting" && !id && method === "GET") {
+      // What may host in Swiff OS, for the host app to say so before the owner installs anything.
+      const policy: HostingPolicy = { nvidiaRental: attestation.nvidiaRental };
+      reply(res, 200, policy);
+      return true;
+    }
+
     if (resource === "machines" && id && action === "attest-challenge" && method === "POST") {
       const challenge = attestation.challenge(id);
       reply(res, challenge.ok ? 200 : challenge.status, challenge.ok ? challenge.grant : challenge.body);
@@ -847,7 +857,7 @@ export function createApi({
         reply(res, error.status === 413 ? 413 : 400, { error: "bad-request" });
         return true;
       }
-      const attested = await attestation.attest(id, body.nonce, body.evidence);
+      const attested = await attestation.attest(id, body.nonce, body.evidence, undefined, body.graphics);
       reply(res, attested.ok ? 200 : attested.status, attested.ok ? attested.grant : attested.body);
       return true;
     }

@@ -3,7 +3,7 @@
 // hosting.test.ts covers a server enforcing it end to end.
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import {
   accessFromEnv,
@@ -91,6 +91,15 @@ describe("attestation config", () => {
     assert.ok(typo.warnings.some((w) => w.includes("HOSTING_ATTESTATION")));
   });
 
+  it("keeps NVIDIA rental hosting off unless it is switched on, typos included", () => {
+    assert.equal(attestationFromEnv({}).nvidiaRental, false);
+    assert.equal(attestationFromEnv({ NVIDIA_RENTAL: "off" }).nvidiaRental, false);
+    assert.equal(attestationFromEnv({ NVIDIA_RENTAL: " On " }).nvidiaRental, true);
+    const typo = attestationFromEnv({ NVIDIA_RENTAL: "yes" });
+    assert.equal(typo.nvidiaRental, false);
+    assert.ok(typo.warnings.some((w) => w.includes("NVIDIA_RENTAL")));
+  });
+
   it("knows the insecure dev verifier, and warns whenever it is set", () => {
     const dev = attestationFromEnv({ ATTESTATION_VERIFIER: "insecure-dev" }, ACCESS.machines);
     assert.equal(dev.verifier?.name, "insecure-dev");
@@ -157,6 +166,70 @@ describe("credentials", () => {
   });
 });
 
+describe("NVIDIA rental hosting (NVIDIA_RENTAL)", () => {
+  const nvidiaOff = {
+    ok: false,
+    status: 403,
+    body: { error: "attestation-refused", reason: "nvidia-rental-off" },
+  };
+  const switched = (nvidiaRental: boolean) =>
+    createAttestation({ access: ACCESS, verifier: devVerifier, attestedOnly: true, nvidiaRental });
+
+  it("refuses a machine on an NVIDIA card while it is off, and keeps the challenge for later", async () => {
+    const attestation = switched(false);
+    assert.equal(attestation.nvidiaRental, false);
+    const nonce = nonceFor(attestation);
+    assert.deepEqual(await attestation.attest("pc-1", nonce, evidence(), undefined, "nvidia"), nvidiaOff);
+    const other = await attestation.attest("pc-1", nonce, evidence(), undefined, "other");
+    assert.ok(other.ok, "the same challenge still earns a certificate on other graphics");
+    assert.equal(verifyHostCert(SECRET, other.grant.hostCert)?.nvidia, false);
+    assert.ok(
+      (await attestation.attest("pc-1", nonceFor(attestation), evidence())).ok,
+      "nothing said is other",
+    );
+  });
+
+  it("mints a certificate that says NVIDIA while it is on", async () => {
+    const attestation = switched(true);
+    const attested = await attestation.attest("pc-1", nonceFor(attestation), evidence(), undefined, "nvidia");
+    assert.ok(attested.ok);
+    assert.equal(verifyHostCert(SECRET, attested.grant.hostCert)?.nvidia, true);
+    assert.equal(attestation.credential("pc-1", attested.grant.hostCert)?.hosting, "attested");
+  });
+
+  it("makes an NVIDIA certificate host nothing once it is off, and leaves the others hosting", () => {
+    const nvidia = mintHostCert(SECRET, "pc-1", "attested", 600, Date.now(), null, true);
+    const other = mintHostCert(SECRET, "pc-1", "attested", 600);
+    assert.ok(switched(true).credential("pc-1", nvidia));
+    assert.equal(switched(false).credential("pc-1", nvidia), null);
+    assert.ok(switched(false).credential("pc-1", other));
+    // Sharing from Windows is not rental hosting: the machine key is not affected.
+    assert.deepEqual(createAttestation({ access: ACCESS }).credential("pc-1", KEY), {
+      kind: "machine-key",
+      hosting: "unattested",
+    });
+  });
+
+  it("keeps a certificate minted before the NVIDIA claim hosting while it is off", () => {
+    const iat = Math.floor(Date.now() / 1000);
+    const body = { room: "pc-1", tier: "attested", id: "legacy-cert", exp: iat + 600, iat, boot: null };
+    const payload = Buffer.from(JSON.stringify(body)).toString("base64url");
+    const signature = createHmac("sha256", SECRET).update(`host.${payload}`).digest("base64url");
+    const legacy = `${payload}.${signature}`;
+    assert.equal(verifyHostCert(SECRET, legacy)?.nvidia, false);
+    assert.equal(switched(false).credential("pc-1", legacy)?.hosting, "attested");
+  });
+
+  it("refuses graphics it does not know", async () => {
+    const attestation = switched(true);
+    assert.deepEqual(await attestation.attest("pc-1", nonceFor(attestation), evidence(), undefined, "amd"), {
+      ok: false,
+      status: 400,
+      body: { error: "bad-request" },
+    });
+  });
+});
+
 describe("spending a host certificate", () => {
   it("starts one host session per certificate", () => {
     const attestation = required();
@@ -212,6 +285,7 @@ describe("attesting", () => {
       exp: attested.grant.expiresAt,
       iat: Math.floor(now / 1000),
       boot: 31,
+      nvidia: false,
     });
     assert.ok(cert?.id, "every certificate has an id of its own");
 
