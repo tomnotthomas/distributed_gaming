@@ -84,6 +84,9 @@ mkfs_fat=$(command -v mkfs.fat || echo /usr/sbin/mkfs.fat)
 [ -x "$mkfs_fat" ] || die "mkfs.fat not found"
 [ -e "$build/$name.raw" ] || die "$build/$name.raw not found: build the image first"
 version=$(node -e 'console.log(require(process.argv[1]).SWIFF_OS.version)' "$desktop/rental.cjs")
+# The key must unlock before the long build, not after it: a new developer key is made first.
+[ -n "${SWIFF_OS_SIGNING_KEY:-}" ] || [ -e "$key" ] || node "$desktop/image-set.cjs" devkey "$key"
+node "$desktop/image-set.cjs" trust "$key" /dev/null > /dev/null
 export MTOOLS_SKIP_CHECK=1
 
 mkdir -p "$out"
@@ -122,8 +125,9 @@ for split in root-x86-64 root-x86-64-verity; do
 done
 node "$desktop/image-set.cjs" manifest "$out" "$build/$name.raw" "$version"
 if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ]; then
-	[ -e "$key" ] || node "$desktop/image-set.cjs" devkey "$key"
-	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$desktop/image-trust.dev.json"
+	# Into place only when it succeeds: a failed run keeps the trusted entry there was.
+	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$work/image-trust.dev.json"
+	mv "$work/image-trust.dev.json" "$desktop/image-trust.dev.json"
 fi
 node "$desktop/image-set.cjs" sign "$out" "$key"
 echo "Swiff OS $version image set in $out"
