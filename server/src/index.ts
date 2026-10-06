@@ -150,7 +150,8 @@ const grace = createRenterGrace({
 // claimed PC, and every booking change to the renter's event stream. Whenever a
 // renter's session ends there, however it ends, the PC's host session ends with
 // it and the renter is put out: the next renter never meets a streamer launched
-// for the last one. Each machine's owner comes from MACHINE_KEYS, so no renter
+// for the last one. A crew whose first PC is on offer is told so on its
+// members' streams. Each machine's owner comes from MACHINE_KEYS, so no renter
 // is ever matched to their own PC. The platform arms its own timer for whatever
 // changes only with time.
 const platform = await Platform.open({
@@ -164,6 +165,7 @@ const platform = await Platform.open({
   onSessionClaimed: pushClaim,
   onBookingChanged: (bookingId) => void renterEvents.bookingChanged(bookingId),
   onAvailabilityChanged: () => renterEvents.availabilityChanged(),
+  onCrewReady: (crewId, memberIds) => renterEvents.crewReady(crewId, memberIds),
 }).catch((error: unknown) => {
   // The message names what failed (the host, the user, a missing table), never the password.
   console.error(

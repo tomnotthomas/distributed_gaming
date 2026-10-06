@@ -269,6 +269,51 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // session not yet started: its deadline is then the launch grace (platform.ts).
     `ALTER TABLE sessions ADD COLUMN signed_in_at BIGINT`,
   ],
+  [
+    // Crews become groups (platform.ts, crews): anyone may found several and
+    // join several. owner_id is now the crew's admin, who renames it and
+    // removes members, handed on to the longest-standing member when they
+    // leave; owner_name stays their Steam persona as last read. name is the
+    // crew's own name, null until someone gives it one (the page then calls it
+    // after its admin). ready_at is when a PC playing for it was first on
+    // offer, which everyone in it hears about once; archived_at is when its
+    // last member left.
+    `ALTER TABLE crews DROP CONSTRAINT crews_owner_id_key`,
+    `CREATE INDEX crews_by_owner ON crews (owner_id)`,
+    `ALTER TABLE crews ADD COLUMN name TEXT`,
+    `ALTER TABLE crews ADD COLUMN ready_at BIGINT`,
+    `ALTER TABLE crews ADD COLUMN archived_at BIGINT`,
+    // Whether a member brings a gaming PC to the crew: 'yes' (their PCs play
+    // for it, and so does one of theirs first heard from later), 'later' (they
+    // put the question off), or null (not asked yet).
+    `ALTER TABLE crew_members ADD COLUMN pc TEXT CHECK (pc IN ('yes', 'later'))`,
+    // One live link per crew, which anyone in it may share; inviter_id is who
+    // made it. Each crew had at most one already: its owner's.
+    `DROP INDEX crew_invites_live`,
+    `CREATE UNIQUE INDEX crew_invites_live ON crew_invites (crew_id) WHERE revoked_at IS NULL`,
+    // The crews each PC plays for, as its owner picked them, in place of
+    // playing for every crew its owner is in. machines.crew_only now says the
+    // PC plays only for these (gate E7); a PC that is not is open to anyone.
+    `CREATE TABLE crew_machines (
+      crew_id    TEXT NOT NULL REFERENCES crews (id),
+      machine_id TEXT NOT NULL REFERENCES machines (id),
+      added_by   TEXT,
+      added_at   BIGINT NOT NULL,
+      PRIMARY KEY (crew_id, machine_id)
+    )`,
+    `CREATE INDEX crew_machines_by_machine ON crew_machines (machine_id)`,
+    // A crew-only PC played for every crew its owner was in: it now plays for
+    // each of them by name, and its owner counts as bringing it to them.
+    `INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at)
+       SELECT m.crew_id, x.id, x.owner_id, (extract(epoch FROM now()) * 1000)::bigint
+         FROM machines x JOIN crew_members m ON m.user_id = x.owner_id
+         WHERE x.crew_only`,
+    `UPDATE crew_members SET pc = 'yes'
+       WHERE EXISTS (SELECT 1 FROM machines x WHERE x.owner_id = crew_members.user_id AND x.crew_only)`,
+    // Those crews had their PC already: nobody is told it has just arrived.
+    `UPDATE crews SET ready_at = (extract(epoch FROM now()) * 1000)::bigint
+       WHERE EXISTS (SELECT 1 FROM crew_machines c WHERE c.crew_id = crews.id)`,
+  ],
 ];
 
 /**

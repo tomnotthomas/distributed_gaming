@@ -47,6 +47,7 @@ describe("migrations", () => {
       assert.deepEqual(await tables(db), [
         "bookings",
         "crew_invites",
+        "crew_machines",
         "crew_members",
         "crews",
         "game_playability",
@@ -122,6 +123,75 @@ describe("migrations", () => {
       assert.equal(await migrate(db), LATEST);
       const { rows } = await db.query("SELECT matched_at, expires_at FROM reservations");
       assert.deepEqual(rows, [{ matched_at: 10_000, expires_at: 70_000 }]);
+      await db.close();
+    });
+  });
+
+  it("has each crew-only PC play for the crews its owner was in, once crews become groups", async () => {
+    await withSchema(async (open) => {
+      const db = open();
+      // A database the release before crew_machines left behind: Alex's crew
+      // with Sam in it, whose PC is crew-only, and Jo's open PC.
+      const before = MIGRATIONS.findIndex((m) => m.some((s) => s.includes("CREATE TABLE crew_machines")));
+      assert.ok(before > 0);
+      await db.query(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at BIGINT NOT NULL)",
+      );
+      for (const [i, statements] of MIGRATIONS.slice(0, before).entries()) {
+        for (const statement of statements) await db.query(statement);
+        await db.query("INSERT INTO schema_migrations (version, applied_at) VALUES ($1, 0)", [i + 1]);
+      }
+      await db.query(
+        `INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES
+           ('c-alex', 'alex', 'Alex', 1), ('c-sam', 'sam', 'Sam', 2)`,
+      );
+      await db.query(
+        `INSERT INTO crew_members (id, crew_id, user_id, joined_at) VALUES
+           ('m-1', 'c-alex', 'alex', 1), ('m-2', 'c-alex', 'sam', 3), ('m-3', 'c-sam', 'sam', 2),
+           ('m-4', 'c-alex', 'jo', 4)`,
+      );
+      await db.query(
+        `INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ('i-1', 'c-alex', 'alex', 1)`,
+      );
+      await db.query(
+        `INSERT INTO machines (id, owner_id, status, last_seen_at, crew_only) VALUES
+           ('pc-sam', 'sam', 'available', 1, TRUE), ('pc-jo', 'jo', 'available', 1, FALSE)`,
+      );
+
+      assert.equal(await migrate(db), LATEST);
+      const { rows: plays } = await db.query(
+        "SELECT crew_id, machine_id, added_by FROM crew_machines ORDER BY crew_id",
+      );
+      assert.deepEqual(plays, [
+        { crew_id: "c-alex", machine_id: "pc-sam", added_by: "sam" },
+        { crew_id: "c-sam", machine_id: "pc-sam", added_by: "sam" },
+      ]);
+      const { rows: members } = await db.query("SELECT id, pc FROM crew_members ORDER BY id");
+      assert.deepEqual(members, [
+        { id: "m-1", pc: null },
+        { id: "m-2", pc: "yes" },
+        { id: "m-3", pc: "yes" },
+        { id: "m-4", pc: null },
+      ]);
+      // Both crews had Sam's PC already, so neither hears it arrive.
+      const { rows: crews } = await db.query(
+        "SELECT id, name, ready_at IS NOT NULL AS ready FROM crews ORDER BY id",
+      );
+      assert.deepEqual(crews, [
+        { id: "c-alex", name: null, ready: true },
+        { id: "c-sam", name: null, ready: true },
+      ]);
+      // A player may found a second crew now, and its link is its own.
+      await db.query("INSERT INTO crews (id, owner_id, created_at) VALUES ('c-alex-2', 'alex', 5)");
+      await db.query(
+        `INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ('i-2', 'c-alex-2', 'alex', 5)`,
+      );
+      await assert.rejects(
+        db.query(
+          `INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ('i-3', 'c-alex', 'sam', 6)`,
+        ),
+        "one live link per crew",
+      );
       await db.close();
     });
   });

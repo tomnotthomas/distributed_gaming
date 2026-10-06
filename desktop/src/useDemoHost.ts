@@ -17,6 +17,7 @@ import {
   type DemoState,
 } from "./demo";
 import { useDemoRental } from "./demoRental";
+import { playingFor, type Crew } from "./report";
 import { buildRate, GRACE_MS, untilChoices, type Host, type HostView, type Live, type Step } from "./model";
 
 /**
@@ -36,7 +37,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [offered, setOffered] = useState(DEMO_OFFERED);
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
-  const [crewOnly, setCrewOnly] = useState(true);
+  const [crew, setCrew] = useState<Crew>({ only: true, crews: DEMO_CREWS });
   const [shown, setShown] = useState<DemoScreen>(screen);
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
       preview: null,
     },
     payoutSaved: state.payoutSaved,
-    crew: { only: crewOnly, crews: DEMO_CREWS },
+    crew,
   };
 
   const waiting = (until: number | null): Live => ({ kind: "waiting", since: now, until, registered: true });
@@ -143,7 +144,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     askInstall: (appid: number) => setAsked((list) => (list.includes(appid) ? list : [...list, appid])),
     ...rental.actions,
     goLiveRental: () => setLive(waiting(plan)),
-    setCrewOnly,
+    setCrews: (ids: string[]) => setCrew((was) => playingFor(was, ids)),
   };
 
   return {

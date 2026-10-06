@@ -22,6 +22,8 @@
 //       |<----------------------------------|  a machine was offered, taken back,
 //       |  GET /api/availability?appids=…   |  went busy, came free or went offline
 //       |---------------------------------->|
+//       |  event: crew  {crew: id}          |
+//       |<----------------------------------|  a crew they are in has its first PC
 //
 // An open stream does not keep a queued booking in the queue: a sleeping
 // laptop's stream can stay open, through Cloudflare, long after its page
@@ -36,6 +38,8 @@
 // renter (their own PC, how far away each machine is), so working it out for
 // every open stream on every change would cost what the signed-in-only reads
 // were made to avoid. The page asks again, within its own budget of those reads.
+// A crew event names only the crew (its id, which only its members can read):
+// the first PC playing for it is on offer, which the page celebrates once.
 //
 // Only the signed-in renter who made the booking can open a stream on it, as
 // with the rest of the Booking API, and only a signed-in renter can hear about
@@ -105,6 +109,8 @@ export type RenterEvents = {
   bookingChanged(bookingId: string): Promise<void>;
   /** Tell every availability stream that what is on offer changed. The platform calls this on each change. */
   availabilityChanged(): void;
+  /** Tell the availability streams of `memberIds` that crew `crewId` has its first PC on offer. */
+  crewReady(crewId: string, memberIds: readonly string[]): void;
 };
 
 /** One booking event, in the event-stream format. */
@@ -112,6 +118,9 @@ const bookingEvent = (booking: BookingView) => `event: booking\ndata: ${JSON.str
 
 /** One availability event: nothing but that something changed. */
 const AVAILABILITY_EVENT = "event: availability\ndata: {}\n\n";
+
+/** One crew event: the crew whose first PC is on offer. */
+const crewEvent = (crewId: string) => `event: crew\ndata: ${JSON.stringify({ crew: crewId })}\n\n`;
 
 /**
  * Write to the stream, or drop it when its buffer is full: a renter that does
@@ -173,6 +182,8 @@ export function createRenterEvents(
 
   /** Streams open for availability, with no booking. */
   const watching = new Set<ServerResponse>();
+  /** Whose each availability stream is. */
+  const watcher = new WeakMap<ServerResponse, string>();
 
   /** Whether `renterId` or the server has its fill of streams. */
   const full = (renterId: string) =>
@@ -243,6 +254,7 @@ export function createRenterEvents(
     openAvailability(res, renterId, until) {
       if (full(renterId)) return "too-many";
       hold(res, renterId, until, watching);
+      watcher.set(res, renterId);
       return "opened";
     },
 
@@ -264,6 +276,13 @@ export function createRenterEvents(
 
     availabilityChanged() {
       for (const res of [...watching]) if (!signedOut(res)) write(res, AVAILABILITY_EVENT);
+    },
+
+    crewReady(crewId, memberIds) {
+      const members = new Set(memberIds);
+      for (const res of [...watching]) {
+        if (members.has(watcher.get(res) ?? "") && !signedOut(res)) write(res, crewEvent(crewId));
+      }
     },
   };
 }

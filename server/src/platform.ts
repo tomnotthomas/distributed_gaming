@@ -76,16 +76,22 @@
 // Steam id (owner_id) each time it checks in, and gate E5 keeps it from its own
 // owner.
 //
-// Crews: a player and the friends they invited with their personal invite link
-// (crewInvite; the link itself is signed in access.ts). Whoever opens the link
-// and joins (joinCrew) is in the inviter's crew, and so is every PC they own:
-// joining makes their machines crew-only, as is a machine first heard from
-// whose owner is in someone's crew. A crew-only machine is offered and matched
-// only to its owner's crewmates, everyone in any crew they are in (gate E7);
-// its owner can open it to anyone with crewOnly on availability. A claim checks
-// again, so a machine made crew-only after it was matched goes back. A member
-// may leave a crew, and its owner may remove anyone from it (leaveCrew); from
-// then on they match none of its crew-only PCs. A new link stops new joins only.
+// Crews: groups of friends who play on each other's gaming PCs. Anyone founds
+// one in a tap (createCrew), and it has one link (its invite; the link itself
+// is signed in access.ts) that anyone in it may share: whoever opens it and
+// joins (joinCrew) is in that crew. Nobody is asked about a PC to found or
+// join. A PC plays for the crews its owner picks (crew_machines): a member
+// brings their PCs to a crew (bringPc), which also brings any PC of theirs
+// first heard from later, a founder's PCs play for the crew they found, and
+// the host app picks crews per PC (crews on availability). A PC that plays
+// for crews is crew-only: it is offered and matched only to the people in
+// those crews (gate E7). One whose owner is in a crew but picked none plays
+// for nobody; one whose owner was never in a crew is open to anyone. A claim
+// checks again, so a PC taken from a crew after it was matched goes back.
+// A member may leave, and the crew's admin (owner_id: its founder until they
+// leave) may remove anyone; their PCs leave the crew with them. A crew is
+// ready once any PC playing for it is on offer, and everyone in it hears so
+// the first time (onCrewReady). A new link stops new joins only.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -164,8 +170,18 @@ export type MachineSpec = HostReport & {
   price?: number | undefined;
   /** Unix ms after which the machine is not offered. Omitted: until taken back. */
   availableUntil?: number | null | undefined;
-  /** Offer it only to its owner's crew (true) or to anyone (false). Omitted: as it was. */
+  /**
+   * Offer it only to the crews it plays for (true) or to anyone (false).
+   * Omitted: as it was. Made crew-only while it plays for no crew, it plays
+   * for every crew its owner is in, as the host app's one switch did before
+   * crews were picked one by one.
+   */
   crewOnly?: boolean | undefined;
+  /**
+   * The ids of the crews it plays for, of those its owner is in (any other is
+   * ignored), which makes it crew-only. Omitted: as it was.
+   */
+  crews?: readonly string[] | undefined;
 };
 
 export type MachineView = {
@@ -184,25 +200,77 @@ export type MachineView = {
   session?: { id: string };
   /** Unix ms until which a reset holds that session through the PC's restart, while it does. */
   resetUntil?: number;
-  /** Who may play on it: only its owner's crew, and the crews its owner is in with anyone else. */
-  crew: { only: boolean; crews: CrewView[] };
+  /**
+   * Who may play on it: only the crews it plays for (`only`), or anyone; and
+   * every crew its owner is in, each saying whether it plays for it (`plays`).
+   */
+  crew: { only: boolean; crews: (CrewView & { id: string; plays: boolean })[] };
 };
 
-/** A crew as its members see it: whose it is, by their Steam persona when known, and how many are in it. */
-export type CrewView = { name: string | null; own: boolean; size: number };
+/**
+ * Whether a crew can play: no PC plays for it (`no-pc`), one is on offer
+ * (`ready`, free or busy), or every one is away (`offline`).
+ */
+export type CrewState = "no-pc" | "ready" | "offline";
 
-/** Someone in a player's own crew besides them, by their Steam persona when known; `id` names the membership, never them. */
-export type CrewMember = { id: string; name: string | null };
+/**
+ * A crew as a member, or someone opening its link, sees it. `name` is its
+ * admin's Steam persona when known, whose crew it is until it has a name of its
+ * own (`crewName`); `own` whether the one looking is its admin; `size` how many
+ * are in it; `pcs` how many PCs play for it.
+ */
+export type CrewView = {
+  name: string | null;
+  crewName: string | null;
+  own: boolean;
+  size: number;
+  state: CrewState;
+  pcs: number;
+};
 
-/** A crew a player joined, with `id` their membership in it, which leaving names. */
+/** A crew someone is in: `id` names the crew, `memberId` their membership in it, which leaving names. */
+export type MyCrew = CrewView & { id: string; memberId: string };
+
+/**
+ * Someone in a crew, by their Steam persona when known: `id` names the
+ * membership, never them. `you` is the one looking, `admin` the crew's admin;
+ * `pc` whether they bring a gaming PC ('yes'), put it off ('later'), or were
+ * not asked (null).
+ */
+export type CrewMember = {
+  id: string;
+  name: string | null;
+  you: boolean;
+  admin: boolean;
+  pc: "yes" | "later" | null;
+};
+
+/** How a PC playing for a crew is now: free to play, being played on, or away. */
+export type CrewPcState = "ready" | "busy" | "offline";
+
+/** A PC playing for a crew: its name as its host reported it, its owner's persona, and whether it is the viewer's. */
+export type CrewPc = { name: string | null; owner: string | null; mine: boolean; state: CrewPcState };
+
+/** A crew as one of its members sees it in full: who is in it, its PCs, and its live link's invite. */
+export type CrewDetail = MyCrew & { inviteId: string | null; members: CrewMember[]; machines: CrewPc[] };
+
+/** A member's own crews and the people in the first they founded (legacy GET /me/invite). */
 export type JoinedCrew = CrewView & { id: string };
 
-/** A live invite link's invite, the crew it joins and who is in it, and the crews its inviter joined. */
-export type CrewInvite = { inviteId: string; crew: CrewView; members: CrewMember[]; joined: JoinedCrew[] };
+/** A live invite link's invite, the crew it joins and who is in it, and the other crews its inviter is in. */
+export type CrewInvite = {
+  inviteId: string;
+  crew: CrewView;
+  members: { id: string; name: string | null }[];
+  joined: JoinedCrew[];
+};
 
-/** What became of opening an invite to join: in the crew now, or why not. */
+/** What became of opening an invite to join: in the crew now (`id` names it), or why not. */
 export type JoinResult =
-  { ok: true; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" | "own-invite" };
+  { ok: true; id: string; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" };
+
+/** The longest name a crew may have, in characters. */
+export const CREW_NAME_MAX = 24;
 
 /** How the host takes the machine off offer. */
 export type OffOffer = {
@@ -348,7 +416,7 @@ type MachineRow = {
   uptime_at: number | null;
   /** Until when a reset holds its session through the PC's restart; null when none is held. */
   reset_until: number | null;
-  /** Offered only to its owner's crewmates (gate E7). */
+  /** Offered only to the people in the crews it plays for (crew_machines, gate E7). */
   crew_only: boolean;
   rental_mode: boolean;
 };
@@ -369,7 +437,7 @@ type BookingRow = {
   /** The machine that lost it, which this booking is never matched to. */
   avoid_machine_id: string | null;
 };
-/** Each owner's crewmates: everyone in any crew they are in, themselves included. */
+/** Who may play on each crew-only machine, by its id: everyone in the crews it plays for. */
 type Crewmates = ReadonlyMap<string, string[]>;
 /** A machine free to be matched now: its row, the games installed on it and its seven days. */
 type FreeMachine = { row: MachineRow; installed: number[]; history: StabilityStats };
@@ -406,7 +474,7 @@ function fromJson<T>(value: string | null, fallback: T): T {
 /**
  * The machine as rank() reads it. `installed` lists the games to judge it on;
  * `lastSeenAt` is its last contact, now for one whose socket is open; `crew`
- * who may play on a crew-only one (E7). Without reported hardware it has no
+ * who may play on each crew-only one (E7). Without reported hardware it has no
  * GPU score, so it fails E3; with no owner known on either side it cannot be
  * anybody's own machine.
  */
@@ -421,7 +489,7 @@ function hostProfileOf(
   return {
     id: machine.id,
     ownerId: machine.owner_id ?? `machine:${machine.id}`,
-    ...(machine.crew_only ? { crew: (machine.owner_id && crew.get(machine.owner_id)) || [] } : {}),
+    ...(machine.crew_only ? { crew: crew.get(machine.id) ?? [] } : {}),
     status,
     lastHeartbeatAt: lastSeenAt,
     installed,
@@ -501,15 +569,54 @@ function bookingRenter(
 /** Unguessable, so one id cannot be guessed from another. */
 const newId = () => randomBytes(16).toString("base64url");
 
-/** A crew as `userId`, one of its members, sees it. */
-const crewView = (
-  crew: { owner_id: string; owner_name: string | null; size: number },
-  userId: string,
-): CrewView => ({
+/** A crew row with what is counted about it, as crew reads select it (CREW_COLUMNS). */
+type CrewRow = {
+  id: string;
+  owner_id: string;
+  owner_name: string | null;
+  name: string | null;
+  size: number;
+  pcs: number;
+  online: number;
+};
+
+/**
+ * What every crew read selects from `crews c`: the row, how many are in it,
+ * and its PCs, all and on offer. A free one counts as on offer only while its
+ * PC holds a socket, when $ONLY says so: then it is one of $PRESENT.
+ */
+const CREW_COLUMNS = `c.id, c.owner_id, c.owner_name, c.name,
+  (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size,
+  (SELECT count(*) FROM crew_machines p WHERE p.crew_id = c.id)::int AS pcs,
+  (SELECT count(*) FROM crew_machines p JOIN machines q ON q.id = p.machine_id
+     WHERE p.crew_id = c.id AND (q.status IN ('reserved', 'in_session')
+       OR (q.status = 'available' AND (NOT $ONLY OR q.id = ANY ($PRESENT)))))::int AS online`;
+
+/** A crew as `userId` sees it (null: signed out). */
+const crewView = (crew: CrewRow, userId: string | null): CrewView => ({
   name: crew.owner_name,
+  crewName: crew.name,
   own: crew.owner_id === userId,
   size: crew.size,
+  state: crew.pcs === 0 ? "no-pc" : crew.online > 0 ? "ready" : "offline",
+  pcs: crew.pcs,
 });
+
+/** How a PC playing for a crew is, by its status. */
+const pcState = (status: MachineStatus): CrewPcState =>
+  status === "available" ? "ready" : status === "reserved" || status === "in_session" ? "busy" : "offline";
+
+/** A crew name as given: trimmed, spaces folded, at most CREW_NAME_MAX characters; null when nothing is left. */
+export function crewNameOf(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const folded = [
+    ...name
+      .replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ];
+  return folded.length ? folded.slice(0, CREW_NAME_MAX).join("").trim() : null;
+}
 
 /** The longest delay setTimeout takes; a later deadline is woken for early and re-armed. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -546,6 +653,7 @@ export type PlatformOptions = {
   onSessionClaimed?: (machineId: string, claim: ClaimedSession) => void;
   onBookingChanged?: (bookingId: string) => void;
   onAvailabilityChanged?: () => void;
+  onCrewReady?: (crewId: string, memberIds: string[]) => void;
 };
 
 export class Platform {
@@ -558,6 +666,7 @@ export class Platform {
   readonly #onSessionClaimed: (machineId: string, claim: ClaimedSession) => void;
   readonly #onBookingChanged: (bookingId: string) => void;
   readonly #onAvailabilityChanged: () => void;
+  readonly #onCrewReady: (crewId: string, memberIds: string[]) => void;
   readonly #owners: ReadonlyMap<string, string>;
   readonly #offeredOnlyWhilePresent: boolean;
   /** The transaction of the call running now: every statement goes through it. */
@@ -593,6 +702,7 @@ export class Platform {
     onSessionClaimed = () => {},
     onBookingChanged = () => {},
     onAvailabilityChanged = () => {},
+    onCrewReady = () => {},
   }: PlatformOptions) {
     this.#db = database;
     this.#now = now;
@@ -603,6 +713,7 @@ export class Platform {
     this.#onSessionClaimed = onSessionClaimed;
     this.#onBookingChanged = onBookingChanged;
     this.#onAvailabilityChanged = onAvailabilityChanged;
+    this.#onCrewReady = onCrewReady;
     this.#requirements = new RequirementsTable(
       { query: (sql, params) => this.#active().query(sql, params) },
       now,
@@ -617,7 +728,9 @@ export class Platform {
    * `onSessionClaimed` of every claim, with the machine claimed;
    * `onBookingChanged` of every booking whose status moved, once per change;
    * `onAvailabilityChanged` once per change that offered a machine, took it
-   * back, or moved it between free, busy and offline.
+   * back, or moved it between free, busy and offline;
+   * `onCrewReady` once per crew, the first time a PC playing for it is on
+   * offer, with everyone in it.
    * All run after the change is committed, so what they do (evicting a
    * streamer, telling the PC or the renter) never outlives a rolled-back
    * change, and their failure undoes nothing.
@@ -674,13 +787,14 @@ export class Platform {
       const machine = await this.#touch(machineId, now);
       await this.#saveReport(machineId, spec);
       await this.#run(
-        `UPDATE machines SET price = coalesce($1, price), available_until = $2,
-           crew_only = coalesce($3, crew_only) WHERE id = $4`,
+        "UPDATE machines SET price = coalesce($1, price), available_until = $2 WHERE id = $3",
         spec.price ?? null,
         spec.availableUntil ?? null,
-        spec.crewOnly ?? null,
         machineId,
       );
+      if (spec.crews !== undefined || spec.crewOnly !== undefined) {
+        await this.#chooseCrews(machineId, machine.owner_id, spec, now);
+      }
       // Its terms (price, until when) are what renters see, whether or not its status moves.
       this.#offerChanged = true;
 
@@ -1115,77 +1229,192 @@ export class Platform {
   // --- crews -----------------------------------------------------------------
 
   /**
-   * `userId`'s personal invite link (its invite), to their own crew: made, with
-   * the crew, the first time they ask, and the same one after that until they
-   * replace it (`renew`), which revokes the old link for good. `name`, their
-   * Steam persona when it could be read, is kept as whose crew it is.
+   * Found a crew: `userId` is its admin and first member, `persona` their
+   * Steam persona when it could be read, and `name` its own name, if they gave
+   * one. It has its link at once. Every PC they own plays for it from now on.
+   */
+  createCrew(userId: string, persona: string | null, name: string | null = null): Promise<CrewDetail> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const crewId = newId();
+      await this.#run(
+        "INSERT INTO crews (id, owner_id, owner_name, name, created_at) VALUES ($1, $2, $3, $4, $5)",
+        crewId,
+        userId,
+        persona || null,
+        crewNameOf(name),
+        now,
+      );
+      const owned = await this.#ownedMachines(userId);
+      await this.#run(
+        "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at, pc) VALUES ($1, $2, $3, $4, $5, $6)",
+        newId(),
+        crewId,
+        userId,
+        persona || null,
+        now,
+        owned.length ? "yes" : null,
+      );
+      await this.#newInvite(crewId, userId, now);
+      if (owned.length) await this.#playFor(crewId, owned, userId, now);
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /** The crews `userId` is in, in the order they joined them. */
+  crews(userId: string): Promise<MyCrew[]> {
+    return this.#read(async () => {
+      const rows = await this.#all<CrewRow & { member_id: string }>(
+        `SELECT ${this.#crewColumns()}, m.id AS member_id FROM crews c JOIN crew_members m ON m.crew_id = c.id
+           WHERE m.user_id = $1 ORDER BY m.joined_at, m.id`,
+        userId,
+        ...this.#onlineParams(),
+      );
+      return rows.map((c) => ({ id: c.id, memberId: c.member_id, ...crewView(c, userId) }));
+    });
+  }
+
+  /** Crew `crewId` as `userId` sees it in full; null unless they are in it. */
+  crew(crewId: string, userId: string): Promise<CrewDetail | null> {
+    return this.#read(() => this.#crewDetail(crewId, userId));
+  }
+
+  /**
+   * Give the crew a name of its own, as its admin; an empty one names it after
+   * its admin again. Null unless `userId` is in it; "forbidden" for a member who
+   * is not its admin.
+   */
+  renameCrew(crewId: string, userId: string, name: unknown): Promise<CrewDetail | null | "forbidden"> {
+    return this.#transaction(async () => {
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!detail.own) return "forbidden";
+      await this.#run("UPDATE crews SET name = $1 WHERE id = $2", crewNameOf(name), crewId);
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
+   * A new link for the crew in place of the old one, which opens nothing from
+   * then on, as its admin. Null unless `userId` is in it; "forbidden" for a
+   * member who is not its admin.
+   */
+  renewCrewLink(crewId: string, userId: string): Promise<CrewDetail | null | "forbidden"> {
+    return this.#transaction(async () => {
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!detail.own) return "forbidden";
+      const now = this.#now();
+      await this.#run(
+        "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
+        now,
+        crewId,
+      );
+      await this.#newInvite(crewId, userId, now);
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
+   * `userId` answers whether they bring a gaming PC to the crew: "yes" has
+   * every PC they own play for it, and any of theirs first heard from later;
+   * "later" puts the question off; "off" takes their PCs out of it, leaving
+   * the question put off. Null unless they are in it.
+   */
+  bringPc(crewId: string, userId: string, choice: "yes" | "later" | "off"): Promise<CrewDetail | null> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const changed = await this.#run(
+        "UPDATE crew_members SET pc = $1 WHERE crew_id = $2 AND user_id = $3",
+        choice === "yes" ? "yes" : "later",
+        crewId,
+        userId,
+      );
+      if (!changed) return null;
+      const owned = await this.#ownedMachines(userId);
+      if (choice === "yes" && owned.length) await this.#playFor(crewId, owned, userId, now);
+      if (choice === "off" && owned.length) {
+        await this.#run(
+          "DELETE FROM crew_machines WHERE crew_id = $1 AND machine_id = ANY ($2::text[])",
+          crewId,
+          owned,
+        );
+        this.#offerChanged = true;
+      }
+      if (this.#offerChanged) await this.#tick(now);
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
+   * `userId`'s link to the first crew they founded (legacy GET /me/invite):
+   * the crew is made, with its link, the first time they ask, and the same link
+   * comes back after that until they replace it (`renew`), which revokes the
+   * old link for good. `name`, their Steam persona when it could be read, is
+   * kept as whose crew it is. With it, who else is in that crew and the other
+   * crews they are in.
    */
   crewInvite(userId: string, name: string | null, { renew = false } = {}): Promise<CrewInvite> {
     return this.#transaction(async () => {
       const now = this.#now();
-      await this.#run(
-        `INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (owner_id) DO UPDATE SET owner_name = coalesce(excluded.owner_name, crews.owner_name)`,
-        newId(),
+      let crew = await this.#get<{ id: string }>(
+        "SELECT id FROM crews WHERE owner_id = $1 AND archived_at IS NULL ORDER BY created_at, id LIMIT 1",
         userId,
-        name || null,
-        now,
       );
-      const crew = (await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
-        "SELECT id, owner_id, owner_name FROM crews WHERE owner_id = $1",
-        userId,
-      ))!;
-      await this.#run(
-        `INSERT INTO crew_members (id, crew_id, user_id, joined_at) VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING`,
-        newId(),
-        crew.id,
-        userId,
-        now,
-      );
-      if (renew) {
+      if (!crew) {
+        crew = { id: newId() };
         await this.#run(
-          "UPDATE crew_invites SET revoked_at = $1 WHERE inviter_id = $2 AND revoked_at IS NULL",
-          now,
-          userId,
-        );
-      }
-      let invite = await this.#get<{ id: string }>(
-        "SELECT id FROM crew_invites WHERE inviter_id = $1 AND revoked_at IS NULL",
-        userId,
-      );
-      if (!invite) {
-        invite = { id: newId() };
-        await this.#run(
-          "INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ($1, $2, $3, $4)",
-          invite.id,
+          "INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)",
           crew.id,
           userId,
+          name || null,
           now,
         );
+        await this.#run(
+          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
+          newId(),
+          crew.id,
+          userId,
+          name || null,
+          now,
+        );
+      } else if (name) {
+        await this.#run("UPDATE crews SET owner_name = $1 WHERE id = $2", name, crew.id);
       }
-      const members = await this.#all<CrewMember>(
-        `SELECT id, name FROM crew_members WHERE crew_id = $1 AND user_id <> $2 ORDER BY joined_at, id`,
+      if (renew) {
+        await this.#run(
+          "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
+          now,
+          crew.id,
+        );
+      }
+      const inviteId =
+        (
+          await this.#get<{ id: string }>(
+            "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
+            crew.id,
+          )
+        )?.id ?? (await this.#newInvite(crew.id, userId, now));
+      const members = await this.#all<{ id: string; name: string | null }>(
+        "SELECT id, name FROM crew_members WHERE crew_id = $1 AND user_id <> $2 ORDER BY joined_at, id",
         crew.id,
         userId,
       );
-      const joined = await this.#all<{
-        id: string;
-        owner_id: string;
-        owner_name: string | null;
-        size: number;
-      }>(
-        `SELECT m.id, c.owner_id, c.owner_name,
-                (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size
-           FROM crew_members m JOIN crews c ON c.id = m.crew_id
-           WHERE m.user_id = $1 AND c.owner_id <> $1 ORDER BY m.joined_at, m.id`,
+      const rows = await this.#all<CrewRow & { member_id: string }>(
+        `SELECT ${this.#crewColumns()}, m.id AS member_id FROM crews c JOIN crew_members m ON m.crew_id = c.id
+           WHERE m.user_id = $1 ORDER BY m.joined_at, m.id`,
         userId,
+        ...this.#onlineParams(),
       );
+      const crewId = crew.id;
       return {
-        inviteId: invite.id,
-        crew: crewView({ ...crew, size: members.length + 1 }, userId),
+        inviteId,
+        crew: crewView(
+          rows.find((c) => c.id === crewId)!,
+          userId,
+        ),
         members,
-        joined: joined.map((c) => ({ id: c.id, ...crewView(c, userId) })),
+        joined: rows.filter((c) => c.id !== crewId).map((c) => ({ id: c.member_id, ...crewView(c, userId) })),
       };
     });
   }
@@ -1197,11 +1426,7 @@ export class Platform {
    */
   invite(inviteId: string, userId: string | null = null): Promise<(CrewView & { member: boolean }) | null> {
     return this.#read(async () => {
-      const crew = await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
-        `SELECT c.id, c.owner_id, c.owner_name FROM crew_invites i JOIN crews c ON c.id = i.crew_id
-           WHERE i.id = $1 AND i.revoked_at IS NULL`,
-        inviteId,
-      );
+      const crew = await this.#inviteCrew(inviteId);
       if (!crew) return null;
       const member =
         userId !== null &&
@@ -1210,28 +1435,22 @@ export class Platform {
           crew.id,
           userId,
         )) !== undefined;
-      return { ...crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId ?? ""), member };
+      return { ...crewView(crew, userId), member };
     });
   }
 
   /**
-   * `userId` opens a live invite and joins its crew. The first time, every PC
-   * they own becomes crew-only: it is offered to their new crew and no one
-   * else, until they open it to anyone again. Joining a crew they are in
-   * already changes nothing (`joined` false). Their own link joins nothing.
-   * `name`, their Steam persona when it could be read, is how the crew's owner
+   * `userId` opens a live invite and joins its crew, whoever in it shared the
+   * link. Nothing about their PCs changes: they bring one when they say so
+   * (bringPc). Joining a crew they are in already changes nothing (`joined`
+   * false). `name`, their Steam persona when it could be read, is how the crew
    * sees them.
    */
   joinCrew(inviteId: string, userId: string, name: string | null = null): Promise<JoinResult> {
     return this.#transaction(async (): Promise<JoinResult> => {
       const now = this.#now();
-      const crew = await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
-        `SELECT c.id, c.owner_id, c.owner_name FROM crew_invites i JOIN crews c ON c.id = i.crew_id
-           WHERE i.id = $1 AND i.revoked_at IS NULL`,
-        inviteId,
-      );
+      const crew = await this.#inviteCrew(inviteId);
       if (!crew) return { ok: false, reason: "not-found" };
-      if (crew.owner_id === userId) return { ok: false, reason: "own-invite" };
       const joined =
         (await this.#run(
           `INSERT INTO crew_members (id, crew_id, user_id, name, invite_id, joined_at)
@@ -1244,51 +1463,270 @@ export class Platform {
           now,
         )) > 0;
       if (joined) {
-        const configured = [...this.#owners].filter(([, owner]) => owner === userId).map(([id]) => id);
-        await this.#run(
-          "UPDATE machines SET crew_only = TRUE WHERE owner_id = $1 OR id = ANY ($2::text[])",
-          userId,
-          configured,
-        );
-        // Who may play where has changed: the wall reads again, and the queue is matched anew.
+        // They may play on the crew's PCs now: the wall reads again, and the queue is matched anew.
         this.#offerChanged = true;
         await this.#tick(now);
       }
-      return { ok: true, joined, crew: crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId) };
+      return { ok: true, id: crew.id, joined, crew: crewView((await this.#crewRow(crew.id))!, userId) };
     });
   }
 
   /**
-   * End the membership `memberId`, as `userId`: their own, leaving a crew they
-   * joined, or anyone's in their own crew, removing them. An owner never leaves
-   * their own crew. From now on the one gone matches none of the crew's
-   * crew-only PCs (gate E7), and one matched to them before goes back at the
-   * claim. False when it is not theirs to end, or is gone already.
+   * End the membership `memberId`, as `userId`: their own, leaving the crew,
+   * or anyone's in a crew they are the admin of, removing them. Their PCs
+   * leave the crew with them. An admin who leaves hands the crew to whoever
+   * has been in it longest; the last one out archives it. From now on the one
+   * gone matches none of the crew's PCs (gate E7), and one matched to them
+   * before goes back at the claim. False when it is not theirs to end, or is
+   * gone already.
    */
   leaveCrew(memberId: string, userId: string): Promise<boolean> {
     return this.#transaction(async () => {
-      const left =
-        (await this.#run(
-          `DELETE FROM crew_members m USING crews c
-             WHERE m.id = $1 AND c.id = m.crew_id AND m.user_id <> c.owner_id AND $2 IN (m.user_id, c.owner_id)`,
-          memberId,
-          userId,
-        )) > 0;
-      if (left) {
-        this.#offerChanged = true;
-        await this.#tick(this.#now());
+      const member = await this.#get<{ crew_id: string; user_id: string; owner_id: string }>(
+        `SELECT m.crew_id, m.user_id, c.owner_id FROM crew_members m JOIN crews c ON c.id = m.crew_id
+           WHERE m.id = $1`,
+        memberId,
+      );
+      if (!member || (member.user_id !== userId && member.owner_id !== userId)) return false;
+      const now = this.#now();
+      await this.#run("DELETE FROM crew_members WHERE id = $1", memberId);
+      const owned = await this.#ownedMachines(member.user_id);
+      await this.#run(
+        "DELETE FROM crew_machines WHERE crew_id = $1 AND (machine_id = ANY ($2::text[]) OR added_by = $3)",
+        member.crew_id,
+        owned,
+        member.user_id,
+      );
+      if (member.user_id === member.owner_id) {
+        const next = await this.#get<{ user_id: string; name: string | null }>(
+          "SELECT user_id, name FROM crew_members WHERE crew_id = $1 ORDER BY joined_at, id LIMIT 1",
+          member.crew_id,
+        );
+        if (next) {
+          await this.#run(
+            "UPDATE crews SET owner_id = $1, owner_name = $2 WHERE id = $3",
+            next.user_id,
+            next.name,
+            member.crew_id,
+          );
+        } else {
+          await this.#run("UPDATE crews SET archived_at = $1 WHERE id = $2", now, member.crew_id);
+          await this.#run(
+            "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
+            now,
+            member.crew_id,
+          );
+        }
       }
-      return left;
+      this.#offerChanged = true;
+      await this.#tick(now);
+      return true;
     });
   }
 
-  /** How many are in the crew, its owner included. */
-  async #crewSize(crewId: string): Promise<number> {
-    const { size } = (await this.#get<{ size: number }>(
-      "SELECT count(*)::int AS size FROM crew_members WHERE crew_id = $1",
+  /** The columns of a crew read (CREW_COLUMNS with what counts as on offer), its parameters last: see #onlineParams. */
+  #crewColumns(first = 2): string {
+    return CREW_COLUMNS.replace("$ONLY", () => `$${first}::boolean`).replace(
+      "$PRESENT",
+      () => `$${first + 1}::text[]`,
+    );
+  }
+
+  /** What #crewColumns asks for: whether only PCs holding a socket count as on offer, and which do. */
+  #onlineParams(): [boolean, string[]] {
+    return [this.#offeredOnlyWhilePresent, this.#presentIds()];
+  }
+
+  /** The crew row with its counts; undefined for none. */
+  #crewRow(crewId: string): Promise<CrewRow | undefined> {
+    return this.#get<CrewRow>(
+      `SELECT ${this.#crewColumns()} FROM crews c WHERE c.id = $1`,
       crewId,
-    ))!;
-    return size;
+      ...this.#onlineParams(),
+    );
+  }
+
+  /** The crew a live invite of a crew still going joins; undefined for none. */
+  #inviteCrew(inviteId: string): Promise<CrewRow | undefined> {
+    return this.#get<CrewRow>(
+      `SELECT ${this.#crewColumns()} FROM crew_invites i JOIN crews c ON c.id = i.crew_id
+         WHERE i.id = $1 AND i.revoked_at IS NULL AND c.archived_at IS NULL`,
+      inviteId,
+      ...this.#onlineParams(),
+    );
+  }
+
+  /** A new live link for the crew, made by `userId`: its invite's id. */
+  async #newInvite(crewId: string, userId: string, now: number): Promise<string> {
+    const id = newId();
+    await this.#run(
+      "INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ($1, $2, $3, $4)",
+      id,
+      crewId,
+      userId,
+      now,
+    );
+    return id;
+  }
+
+  /** Crew `crewId` as `userId` sees it in full; null unless they are in it. */
+  async #crewDetail(crewId: string, userId: string): Promise<CrewDetail | null> {
+    const crew = await this.#crewRow(crewId);
+    if (!crew) return null;
+    const members = await this.#all<{
+      id: string;
+      user_id: string;
+      name: string | null;
+      pc: CrewMember["pc"];
+    }>(
+      `SELECT m.id, m.user_id, m.name, m.pc FROM crew_members m JOIN crews c ON c.id = m.crew_id
+         WHERE m.crew_id = $1 ORDER BY m.user_id = c.owner_id DESC, m.joined_at, m.id`,
+      crewId,
+    );
+    const me = members.find((m) => m.user_id === userId);
+    if (!me) return null;
+    const machines = await this.#all<{
+      id: string;
+      name: string | null;
+      owner_id: string | null;
+      status: MachineStatus;
+    }>(
+      `SELECT q.id, q.name, q.owner_id, q.status FROM crew_machines p JOIN machines q ON q.id = p.machine_id
+         WHERE p.crew_id = $1 ORDER BY p.added_at, q.id`,
+      crewId,
+    );
+    const persona = new Map(members.map((m) => [m.user_id, m.name]));
+    const invite = await this.#get<{ id: string }>(
+      "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
+      crewId,
+    );
+    return {
+      id: crewId,
+      memberId: me.id,
+      ...crewView(crew, userId),
+      inviteId: invite?.id ?? null,
+      members: members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        you: m.user_id === userId,
+        admin: m.user_id === crew.owner_id,
+        pc: m.pc,
+      })),
+      machines: machines.map((q) => {
+        const owner = this.#owners.get(q.id) ?? q.owner_id;
+        const state = pcState(q.status);
+        return {
+          name: q.name,
+          owner: owner === null ? null : (persona.get(owner) ?? null),
+          mine: owner === userId,
+          state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
+        };
+      }),
+    };
+  }
+
+  /** The machines `userId` owns, as configured now, of those the platform has heard from. */
+  async #ownedMachines(userId: string): Promise<string[]> {
+    const configured = [...this.#owners].filter(([, owner]) => owner === userId).map(([id]) => id);
+    const rows = await this.#all<{ id: string; owner_id: string | null }>(
+      "SELECT id, owner_id FROM machines WHERE owner_id = $1 OR id = ANY ($2::text[]) ORDER BY id",
+      userId,
+      configured,
+    );
+    return rows.filter((m) => (this.#owners.get(m.id) ?? m.owner_id) === userId).map((m) => m.id);
+  }
+
+  /** Have the machines play for the crew, and so for its people alone (crew-only), as `userId` asked. */
+  async #playFor(crewId: string, machineIds: string[], userId: string, now: number): Promise<void> {
+    await this.#run(
+      `INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at)
+         SELECT $1, unnest($2::text[]), $3, $4 ON CONFLICT DO NOTHING`,
+      crewId,
+      machineIds,
+      userId,
+      now,
+    );
+    await this.#run("UPDATE machines SET crew_only = TRUE WHERE id = ANY ($1::text[])", machineIds);
+    // Who may play where has changed: the wall reads again, and the queue is matched anew.
+    this.#offerChanged = true;
+  }
+
+  /**
+   * The host app's choice of who plays on the machine: the crews it plays for,
+   * of those its owner is in, and whether it is offered to them alone. Made
+   * crew-only while it plays for no crew, it plays for all of its owner's.
+   */
+  async #chooseCrews(machineId: string, owner: string | null, spec: MachineSpec, now: number): Promise<void> {
+    const mine = owner
+      ? (
+          await this.#all<{ crew_id: string }>("SELECT crew_id FROM crew_members WHERE user_id = $1", owner)
+        ).map((m) => m.crew_id)
+      : [];
+    let only = spec.crewOnly;
+    if (spec.crews !== undefined) {
+      const picked = mine.filter((id) => spec.crews!.includes(id));
+      await this.#run(
+        "DELETE FROM crew_machines WHERE machine_id = $1 AND NOT (crew_id = ANY ($2::text[]))",
+        machineId,
+        picked,
+      );
+      if (picked.length) {
+        await this.#run(
+          `INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at)
+             SELECT unnest($1::text[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
+          picked,
+          machineId,
+          owner,
+          now,
+        );
+      }
+      only ??= true;
+    } else if (only) {
+      const plays = await this.#get("SELECT 1 FROM crew_machines WHERE machine_id = $1", machineId);
+      if (!plays && mine.length) {
+        await this.#run(
+          `INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at)
+             SELECT unnest($1::text[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
+          mine,
+          machineId,
+          owner,
+          now,
+        );
+      }
+    }
+    if (only !== undefined)
+      await this.#run("UPDATE machines SET crew_only = $1 WHERE id = $2", only, machineId);
+    this.#offerChanged = true;
+  }
+
+  /**
+   * Mark each crew that has a PC on offer for the first time as ready, and
+   * tell everyone in it once the change commits.
+   */
+  async #crewsReady(): Promise<void> {
+    const [only, present] = this.#onlineParams();
+    const ready = await this.#all<{ id: string }>(
+      `UPDATE crews c SET ready_at = $1 WHERE c.ready_at IS NULL AND c.archived_at IS NULL AND EXISTS (
+         SELECT 1 FROM crew_machines p JOIN machines q ON q.id = p.machine_id WHERE p.crew_id = c.id
+           AND (q.status IN ('reserved', 'in_session')
+                OR (q.status = 'available' AND (NOT $2::boolean OR q.id = ANY ($3::text[])))))
+       RETURNING c.id`,
+      this.#now(),
+      only,
+      present,
+    );
+    for (const { id } of ready) {
+      const members = await this.#all<{ user_id: string }>(
+        "SELECT user_id FROM crew_members WHERE crew_id = $1 ORDER BY user_id",
+        id,
+      );
+      this.#notices.push(() =>
+        this.#onCrewReady(
+          id,
+          members.map((m) => m.user_id),
+        ),
+      );
+    }
   }
 
   // --- renter ----------------------------------------------------------------
@@ -1464,8 +1902,8 @@ export class Platform {
         await this.#releaseOwnersReservation(reservation.machine_id, owner);
         return { ok: false, reason: "not-claimable", status: "queued" };
       }
-      // Nor a crew-only one outside the renter's crews, made so since the match.
-      if (!(await this.#mayPlayOn(reservation.machine_id, owner, booking.renter_id))) {
+      // Nor a crew-only one that plays for none of the renter's crews, made so since the match.
+      if (!(await this.#mayPlayOn(reservation.machine_id, booking.renter_id))) {
         await this.#unreserve(reservation);
         await this.#tick(now);
         return { ok: false, reason: "not-claimable", status: "queued" };
@@ -2159,20 +2597,32 @@ export class Platform {
     const before = await this.#machineRow(machineId);
     if (before) await this.#accrue(before, now);
     const owner = this.#owners.get(machineId) ?? null;
-    // A PC first heard from is crew-only when its owner is in someone else's crew.
+    // A PC first heard from is crew-only while its owner shares a crew with
+    // anyone, and plays for every crew they bring their PCs to: until they pick
+    // its crews, nobody they do not know plays on it.
     const machine = (await this.#get<MachineRow>(
       `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only, rental_mode)
          VALUES ($1, $2, 'idle', $3, $3, EXISTS (
-           SELECT 1 FROM crew_members m JOIN crews c ON c.id = m.crew_id
-             WHERE m.user_id = $2 AND c.owner_id <> $2), $4)
+           SELECT 1 FROM crew_members m JOIN crew_members o ON o.crew_id = m.crew_id
+             WHERE m.user_id = $2 AND o.user_id <> $2), $4)
          ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
            uptime_at = excluded.uptime_at
-         RETURNING *`,
+         RETURNING *, (xmax = 0) AS created`,
       machineId,
       owner,
       now,
       this.#rentalMode.get(machineId) ?? false,
-    ))!;
+    ))! as MachineRow & { created?: boolean };
+    const created = machine.created;
+    delete machine.created;
+    if (created && owner !== null) {
+      const brought = await this.#all<{ crew_id: string }>(
+        "SELECT crew_id FROM crew_members WHERE user_id = $1 AND pc = 'yes'",
+        owner,
+      );
+      for (const { crew_id } of brought) await this.#playFor(crew_id, [machineId], owner, now);
+      if (brought.length) machine.crew_only = true;
+    }
     if (
       owner !== null &&
       owner !== before?.owner_id &&
@@ -2209,34 +2659,33 @@ export class Platform {
   }
 
   /**
-   * The crewmates of each crew-only machine's owner among `rows` (whose
-   * owner_id is the configured owner), for gate E7: one statement however
-   * many there are.
+   * Who may play on each crew-only machine among `rows`, for gate E7: everyone
+   * in the crews it plays for. One statement however many there are.
    */
-  async #crewmates(rows: Pick<MachineRow, "owner_id" | "crew_only">[]): Promise<Crewmates> {
-    const owners = [...new Set(rows.filter((m) => m.crew_only && m.owner_id).map((m) => m.owner_id!))];
+  async #crewmates(rows: Pick<MachineRow, "id" | "crew_only">[]): Promise<Crewmates> {
+    const ids = rows.filter((m) => m.crew_only).map((m) => m.id);
     const mates = new Map<string, string[]>();
-    if (!owners.length) return mates;
-    const pairs = await this.#all<{ owner: string; mate: string }>(
-      `SELECT DISTINCT a.user_id AS owner, b.user_id AS mate FROM crew_members a
-         JOIN crew_members b ON b.crew_id = a.crew_id
-         WHERE a.user_id = ANY ($1::text[]) ORDER BY 1, 2`,
-      owners,
+    if (!ids.length) return mates;
+    const pairs = await this.#all<{ machine: string; mate: string }>(
+      `SELECT DISTINCT p.machine_id AS machine, m.user_id AS mate FROM crew_machines p
+         JOIN crew_members m ON m.crew_id = p.crew_id
+         WHERE p.machine_id = ANY ($1::text[]) ORDER BY 1, 2`,
+      ids,
     );
-    for (const { owner, mate } of pairs) mates.set(owner, [...(mates.get(owner) ?? []), mate]);
+    for (const { machine, mate } of pairs) mates.set(machine, [...(mates.get(machine) ?? []), mate]);
     return mates;
   }
 
-  /** Whether `renterId` passes gate E7 on the machine owned by `owner`: it is open to anyone, or they share a crew. */
-  async #mayPlayOn(machineId: string, owner: string | null, renterId: string | null): Promise<boolean> {
+  /** Whether `renterId` passes gate E7 on the machine: it is open to anyone, or they are in a crew it plays for. */
+  async #mayPlayOn(machineId: string, renterId: string | null): Promise<boolean> {
     const row = await this.#get<{ crew_only: boolean }>(
       "SELECT crew_only FROM machines WHERE id = $1",
       machineId,
     );
     if (!row?.crew_only) return true;
-    if (owner === null || renterId === null) return false;
-    const crew = await this.#crewmates([{ owner_id: owner, crew_only: true }]);
-    return crew.get(owner)?.includes(renterId) ?? false;
+    if (renterId === null) return false;
+    const crew = await this.#crewmates([{ id: machineId, crew_only: true }]);
+    return crew.get(machineId)?.includes(renterId) ?? false;
   }
 
   /**
@@ -2401,21 +2850,23 @@ export class Platform {
       ...(m.available_until !== null ? { until: m.available_until } : {}),
       ...(m.session_id ? { session: { id: m.session_id } } : {}),
       ...(m.session_id && m.reset_until !== null ? { resetUntil: m.reset_until } : {}),
-      crew: { only: m.crew_only, crews: await this.#crewsOf(this.#owners.get(m.id) ?? m.owner_id) },
+      crew: { only: m.crew_only, crews: await this.#crewsOf(this.#owners.get(m.id) ?? m.owner_id, m.id) },
     };
   }
 
-  /** The crews `userId` is in with anyone else, theirs first, then by when they joined. */
-  async #crewsOf(userId: string | null): Promise<CrewView[]> {
+  /** The crews `userId` is in, in the order they joined them, each saying whether the machine plays for it. */
+  async #crewsOf(userId: string | null, machineId: string): Promise<MachineView["crew"]["crews"]> {
     if (userId === null) return [];
-    const crews = await this.#all<{ id: string; owner_id: string; owner_name: string | null; size: number }>(
-      `SELECT c.id, c.owner_id, c.owner_name,
-              (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size
+    const crews = await this.#all<CrewRow & { plays: boolean }>(
+      `SELECT ${this.#crewColumns(3)},
+              EXISTS (SELECT 1 FROM crew_machines p WHERE p.crew_id = c.id AND p.machine_id = $2) AS plays
          FROM crews c JOIN crew_members m ON m.crew_id = c.id
-         WHERE m.user_id = $1 ORDER BY c.owner_id = $1 DESC, m.joined_at, c.id`,
+         WHERE m.user_id = $1 ORDER BY m.joined_at, c.id`,
       userId,
+      machineId,
+      ...this.#onlineParams(),
     );
-    return crews.filter((c) => c.size > 1).map((c) => crewView(c, userId));
+    return crews.map((c) => ({ id: c.id, ...crewView(c, userId), plays: c.plays }));
   }
 
   /** What the renter is told about a booking: its machine, claim deadline, session and price. */
@@ -2505,6 +2956,7 @@ export class Platform {
             this.#tx = tx;
             try {
               const result = await work();
+              if (this.#offerChanged) await this.#crewsReady();
               return { result, next: await this.#nextDeadline() };
             } finally {
               this.#tx = null;

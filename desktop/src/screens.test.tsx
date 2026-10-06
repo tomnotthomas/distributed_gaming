@@ -22,6 +22,7 @@ import {
   type RentalRead,
 } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
+import type { CrewOf } from "./report";
 
 /** Sharing this Windows desktop: off, as in every build hosts download, unless a test turns it on. */
 const share = vi.hoisted(() => ({ on: false }));
@@ -128,7 +129,7 @@ function actions(): HostActions {
     chooseRentalTarget: vi.fn(),
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
-    setCrewOnly: vi.fn(),
+    setCrews: vi.fn(),
     runRental: vi.fn(),
     restartRental: vi.fn(),
     answerRentalKey: vi.fn(),
@@ -151,6 +152,28 @@ function renderReal(step: Step, live: Live, more: Partial<HostView> = {}) {
 }
 
 const off: Live = { kind: "off", note: null };
+
+/** A friend's crew this PC plays for, and the owner's own, which has no PC yet. */
+const MIKA: CrewOf = {
+  id: "c1",
+  name: "mika_r",
+  crewName: "Friday Squad",
+  own: false,
+  size: 3,
+  state: "ready",
+  pcs: 1,
+  plays: true,
+};
+const OWN: CrewOf = {
+  id: "c2",
+  name: "nova",
+  crewName: null,
+  own: true,
+  size: 4,
+  state: "no-pc",
+  pcs: 0,
+  plays: false,
+};
 
 /** Rental mode installed and its key confirmed: what Go live and Get paid wait for. */
 const RENTAL_READY: Partial<HostView> = {
@@ -567,78 +590,111 @@ describe("this PC's screens", () => {
     expectNoDemoData();
   });
 
-  it("asks who can play only once the platform says this PC's owner is in a crew", () => {
+  it("asks who the PC plays for only once the platform says this PC's owner is in a crew", () => {
     renderReal("live", { kind: "waiting", since: evening(21), until: evening(1), registered: true });
-    expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Who does your PC play for?" })).not.toBeInTheDocument();
     cleanup();
 
     const acts = renderReal(
       "live",
       { kind: "waiting", since: evening(21), until: evening(1), registered: true },
-      { crew: { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] } },
+      { crew: { only: true, crews: [MIKA, OWN] } },
     );
-    const group = screen.getByRole("radiogroup", { name: "Who can play" });
-    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
-    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveTextContent("2 players you know");
-    expect(screen.getByText("Only mika_r's crew can claim this PC.")).toBeInTheDocument();
-    fireEvent.click(within(group).getByRole("radio", { name: /Anyone/ }));
-    expect(acts.setCrewOnly).toHaveBeenCalledWith(false);
+    const group = screen.getByRole("group", { name: "Who does your PC play for?" });
+    const mika = within(group).getByRole("switch", { name: "Friday Squad" });
+    expect(mika).toHaveAttribute("aria-checked", "true");
+    expect(mika).toHaveAccessibleDescription("3 people, 1 PC");
+    const own = within(group).getByRole("switch", { name: "Your crew" });
+    expect(own).toHaveAttribute("aria-checked", "false");
+    expect(own).toHaveAccessibleDescription("4 people, no PC yet");
+    expect(
+      screen.getByText("Strangers never get on your PC. You can change this anytime."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Right now anyone/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nobody can play/)).not.toBeInTheDocument();
+    // Each switch sends the whole new set.
+    fireEvent.click(own);
+    expect(acts.setCrews).toHaveBeenLastCalledWith(["c1", "c2"]);
+    fireEvent.click(mika);
+    expect(acts.setCrews).toHaveBeenLastCalledWith([]);
   });
 
-  it("keeps asking on a crew-only PC nobody else may play on, with the ways out", () => {
+  it("names a crew by its own name, else by whose it is", () => {
+    renderReal("live", off, {
+      ...ready,
+      crew: {
+        only: true,
+        crews: [
+          { ...MIKA, crewName: null },
+          { ...MIKA, id: "c3", name: null, crewName: null, plays: false },
+        ],
+      },
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+    expect(screen.getByRole("switch", { name: "mika_r's crew" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "A friend's crew" })).toBeInTheDocument();
+  });
+
+  it("says a crew-only PC that plays for no crew lets nobody on, and how to start a crew without one", () => {
     const acts = renderReal(
       "live",
       { kind: "waiting", since: evening(21), until: evening(1), registered: true },
-      { crew: { only: true, crews: [] } },
+      { crew: { only: true, crews: [{ ...MIKA, plays: false }] } },
     );
-    const group = screen.getByRole("radiogroup", { name: "Who can play" });
-    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open to everyone" }));
-    expect(acts.setCrewOnly).toHaveBeenCalledWith(false);
-    expect(screen.queryByText(/in your browser/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Invite a friend" }));
-    expect(screen.getByText("https://signal.example")).toBeInTheDocument();
-    expect(screen.getByText(/send your link from Ask your PC friend on your profile/)).toBeInTheDocument();
+    expect(screen.getByText("Nobody can play on this PC right now. Pick a crew below.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "Friday Squad" }));
+    expect(acts.setCrews).toHaveBeenCalledWith(["c1"]);
     cleanup();
 
-    // Rental mode's Go live, as in the build hosts download.
-    const golive = renderReal("live", off, { ...ready, crew: { only: true, crews: [] } });
+    // Rental mode's Go live, as in the build hosts download, on a PC whose owner is in no crew.
+    renderReal("live", off, { ...ready, crew: { only: true, crews: [] } });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
-    expect(screen.getByRole("radiogroup", { name: "Who can play" })).toBeInTheDocument();
-    expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open to everyone" }));
-    expect(golive.setCrewOnly).toHaveBeenCalledWith(false);
-    fireEvent.click(screen.getByRole("button", { name: "Invite a friend" }));
-    expect(screen.getByText("https://signal.example")).toBeInTheDocument();
+    expect(screen.getByText("Who does your PC play for?")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.getByText("Nobody can play on this PC right now.")).toBeInTheDocument();
+    expect(screen.getByText("https://signal.example/crews")).toBeInTheDocument();
+    expect(screen.getByText(/in your browser, sign in with Steam, and start a crew\./)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open to everyone/ })).not.toBeInTheDocument();
     cleanup();
 
     renderReal("live", off, { ...ready, crew: { only: false, crews: [] } });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
-    expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Who does your PC play for?")).not.toBeInTheDocument();
   });
 
-  it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
+  it("says honestly when a PC is still open to anyone, and a pick keeps it to that crew", () => {
     const acts = renderReal("live", off, {
       ...ready,
-      crew: { only: false, crews: [{ name: null, own: false, size: 2 }] },
+      crew: { only: false, crews: [MIKA, OWN] },
     });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
-    expect(screen.getByRole("radio", { name: /Anyone/ })).toHaveAttribute("aria-checked", "true");
     expect(
-      screen.getByText("Anyone on Swiff can claim this PC, your friend's crew too."),
+      screen.getByText(
+        "Right now anyone on Lanterel can play on this PC. Pick a crew to keep it to your friends.",
+      ),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /Crew only/ }));
-    expect(acts.setCrewOnly).toHaveBeenCalledWith(true);
+    // Open to anyone, it plays for no crew in particular.
+    expect(screen.getByRole("switch", { name: "Friday Squad" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByText(/Strangers never get on your PC/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "Your crew" }));
+    expect(acts.setCrews).toHaveBeenCalledWith(["c2"]);
   });
 
-  it("says beside Who can play when the owner's choice did not save", () => {
+  it("cannot pick a crew an older server gave no id for", () => {
+    const acts = renderReal("live", off, { ...ready, crew: { only: true, crews: [{ ...MIKA, id: null }] } });
+    const old = screen.getByRole("switch", { name: "Friday Squad" });
+    expect(old).toBeDisabled();
+    fireEvent.click(old);
+    expect(acts.setCrews).not.toHaveBeenCalled();
+  });
+
+  it("says beside the crews when the owner's choice did not save", () => {
     renderReal("live", off, {
       ...ready,
-      crew: { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] },
+      crew: { only: true, crews: [MIKA] },
       crewNote: "Couldn't save who can play. Try again.",
     });
-    expect(screen.getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Friday Squad" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("status")).toHaveTextContent("Couldn't save who can play. Try again.");
   });
 

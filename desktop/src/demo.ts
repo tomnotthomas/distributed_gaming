@@ -166,8 +166,29 @@ export const demoArt: ArtSource = (appid) => (DEMO_ART[appid] ? [DEMO_ART[appid]
 /** Players looking for a PC near Nova-01 right now. */
 export const DEMO_NEAR = 14;
 
-/** The crew Nova-01's owner joined from a friend's invite link. */
-export const DEMO_CREWS: CrewOf[] = [{ name: "mika_r", own: false, size: 3 }];
+/** The crews Nova-01's owner is in: one joined from a friend's invite link, which Nova-01 plays for, and their own. */
+export const DEMO_CREWS: CrewOf[] = [
+  {
+    id: "crew-mika",
+    name: "mika_r",
+    crewName: "Friday Squad",
+    own: false,
+    size: 3,
+    state: "ready",
+    pcs: 1,
+    plays: true,
+  },
+  {
+    id: "crew-own",
+    name: "nova_owner",
+    crewName: null,
+    own: true,
+    size: 4,
+    state: "no-pc",
+    pcs: 0,
+    plays: false,
+  },
+];
 
 export const DEMO_STANDING: Standing = {
   reliability: 96,

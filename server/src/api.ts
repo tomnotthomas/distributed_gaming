@@ -8,11 +8,17 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
 //   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
 //   POST /api/bookings                     PUT  /api/machines/:id/ek            control
-//   GET  /api/me/invite                    (crews: invite links)
-//   POST /api/me/invite/renew
+//   GET  /api/crews                        (crews)
+//   POST /api/crews
+//   GET  /api/crews/:id
+//   POST /api/crews/:id/name
+//   POST /api/crews/:id/link
+//   POST /api/crews/:id/pc
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
+//   GET  /api/me/invite                    (legacy: first crew's link)
+//   POST /api/me/invite/renew
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -66,13 +72,15 @@
 // the time left, matched to the best other machine at once or queued, which the
 // page claims as it claims any, for a game the renter may still play.
 //
-// Every signed-in player has a personal invite link to their own crew
-// (platform.ts, crews), signed with the session secret (access.ts) so the id
-// the database holds opens nothing. Anyone may read whose crew a link is to,
-// so the friend who opens it sees who asked; joining takes signing in. The
-// link is never logged, and a forged one is refused before the database is.
-// A membership is named by its own id, never a Steam id: its member removes it
-// to leave, and the crew's owner to remove them.
+// A signed-in player founds crews and joins them (platform.ts, crews). Each
+// crew has one link, which anyone in it may share, signed with the session
+// secret (access.ts) so the id the database holds opens nothing. Anyone may
+// read which crew a link is to, so the friend who opens it sees who asked;
+// joining takes signing in. The link is never logged, and a forged one is
+// refused before the database is. Only someone in a crew reads it, and only
+// its admin renames it or replaces its link. A membership is named by its own
+// id, never a Steam id: its member removes it to leave, and the crew's admin
+// to remove them.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sessionSpanMs, type Control, type PicturePref } from "@swiff/rank";
@@ -92,7 +100,7 @@ import { popularGames } from "./catalog.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
 import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
-import { MAX_MINUTES, type Platform, type Rtts } from "./platform.js";
+import { MAX_MINUTES, type CrewDetail, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
@@ -252,6 +260,22 @@ const optionalTime = (value: unknown, field: string): number | undefined => {
   if (!Number.isFinite(ms)) throw new HttpError(400, `${field} must be a date`);
   return Math.round(ms);
 };
+
+/** The most crews a host app may pick for one PC: far more than anyone is in. */
+const MAX_PICKED_CREWS = 50;
+
+/** The crews a host app picked for its PC (platform.ts MachineSpec.crews), or a 400; omitted is undefined. */
+function crewIds(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_PICKED_CREWS ||
+    !value.every((id) => typeof id === "string" && /^[\w-]{1,64}$/.test(id))
+  ) {
+    throw new HttpError(400, `crews must be a list of up to ${MAX_PICKED_CREWS} crew ids`);
+  }
+  return value as string[];
+}
 
 /** A whole number from 1 to `max`, or a 400 naming the field. */
 function positiveInt(value: unknown, field: string, max = Number.MAX_SAFE_INTEGER): number {
@@ -486,6 +510,11 @@ export function createApi({
     return null;
   }
 
+  /** A crew as a member is sent it: its link's token in place of the invite id the database holds. */
+  function crewReply({ inviteId, ...crew }: CrewDetail) {
+    return { ...crew, token: inviteId && sessionSecret ? inviteToken(sessionSecret, inviteId) : null };
+  }
+
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const method = req.method ?? "GET";
@@ -621,7 +650,65 @@ export function createApi({
 
     // --- Crews ---------------------------------------------------------------
 
-    // The signed-in player's personal invite link; `renew` replaces it, and the old one stops working.
+    if (resource === "crews" && !id && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      reply(res, 200, { crews: await platform.crews(steamId) });
+      return true;
+    }
+
+    // Found a crew, with its own name when one is given; it is named after the founder until then.
+    if (resource === "crews" && !id && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (body.name !== undefined && typeof body.name !== "string")
+        throw new HttpError(400, "name must be text");
+      // The founder is shown by their Steam persona: kept from this read, when Steam answers.
+      const read = await profile(steamId).catch(() => null);
+      const crew = await platform.createCrew(steamId, read?.persona || null, (body.name as string) ?? null);
+      reply(res, 201, { crew: crewReply(crew) });
+      return true;
+    }
+
+    if (resource === "crews" && id && !action && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const crew = await platform.crew(id, steamId);
+      // Somebody else's crew reads exactly like one that does not exist.
+      if (!crew) throw new HttpError(404, "no such crew");
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    if (resource === "crews" && id && (action === "name" || action === "link") && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      let crew;
+      if (action === "name") {
+        const body = await readJson(req);
+        if (typeof body.name !== "string") throw new HttpError(400, "name must be text");
+        crew = await platform.renameCrew(id, steamId, body.name);
+      } else {
+        crew = await platform.renewCrewLink(id, steamId);
+      }
+      if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "forbidden") throw new HttpError(403, "only the crew's admin may do that");
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // Whether the signed-in member brings a gaming PC to the crew.
+    if (resource === "crews" && id && action === "pc" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (body.pc !== "yes" && body.pc !== "later" && body.pc !== "off") {
+        throw new HttpError(400, "pc must be yes, later or off");
+      }
+      const crew = await platform.bringPc(id, steamId, body.pc);
+      if (!crew) throw new HttpError(404, "no such crew");
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // The signed-in player's link to the first crew they founded, made with the
+    // crew on first ask; `renew` replaces it, and the old one stops working.
     if (resource === "me" && id === "invite" && method === (action === "renew" ? "POST" : "GET")) {
       if (action !== undefined && action !== "renew") throw new HttpError(404, "no such route");
       const steamId = requireRenter(req, sessionSecret);
@@ -653,14 +740,8 @@ export function createApi({
       // The crew's owner sees them by their Steam persona, kept from this read, when Steam answers.
       const read = inviteId ? await profile(steamId).catch(() => null) : null;
       const joined = inviteId ? await platform.joinCrew(inviteId, steamId, read?.persona || null) : null;
-      if (!joined || (!joined.ok && joined.reason === "not-found")) {
-        throw new HttpError(404, "this invite link is not valid any more");
-      }
-      if (!joined.ok) {
-        reply(res, 409, { error: "this is your own invite link", code: joined.reason });
-        return true;
-      }
-      reply(res, 200, { crew: joined.crew, joined: joined.joined });
+      if (!joined?.ok) throw new HttpError(404, "this invite link is not valid any more");
+      reply(res, 200, { id: joined.id, crew: joined.crew, joined: joined.joined });
       return true;
     }
 
@@ -844,6 +925,7 @@ export function createApi({
           price,
           availableUntil: optionalTime(body.until, "until"),
           crewOnly: body.crewOnly,
+          crews: crewIds(body.crews),
         },
         { reset: body.reset === true },
       );

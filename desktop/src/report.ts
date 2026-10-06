@@ -4,9 +4,9 @@
 //   go live          PUT  availability { available: true, until, ...every section known }
 //   every 5 s        POST heartbeat    { ...only the sections that changed }
 //   share-until set  PUT  availability { available: true, until }
-//   who can play     PUT  availability { available: true, until, crewOnly }
+//   who can play     PUT  availability { available: true, until, crews }
 //   pause or stop    PUT  availability { available: false }
-//   rental mode      PUT  availability { available: false, crewOnly }   (offOffer)
+//   rental mode      PUT  availability { available: false, crews }   (offOffer)
 //
 // The open signaling socket is the PC's presence. The beat keeps it fresh for
 // the platform's liveness gate (E1, 15 s) all the same, also while the room is
@@ -18,8 +18,9 @@
 // known, then whenever one has moved.
 //
 // Every answer says who may play on this PC (its crew, server/src/platform.ts):
-// crew-only, and the crews its owner is in. The owner's own choice goes with
-// every offer once they have made one; until then the platform's stands.
+// crew-only, and the crews its owner is in, each saying whether this PC plays
+// for it. The owner's own choice of crews goes with every offer once they have
+// made one; until then the platform's stands.
 
 import { httpOrigin } from "@swiff/rtc";
 import type { Control, Encoder, PcRead } from "../pc.cjs";
@@ -156,9 +157,23 @@ function noise(bytes: number): Uint8Array<ArrayBuffer> {
 
 export type Machine = { url: string; machineId: string; machineKey: string };
 
-/** A crew this PC's owner is in: whose (their Steam name, when known), whether it is theirs, how many are in it. */
-export type CrewOf = { name: string | null; own: boolean; size: number };
-/** Who may play on this PC, as the platform last said: only its owner's crews, and which those are. */
+/**
+ * A crew this PC's owner is in: its id (null from a server too old to pick it
+ * by), whose (their Steam name, when known), its own name, whether it is
+ * theirs, how many are in it, how many PCs play for it and whether one is on
+ * now (null when the server does not say), and whether this PC plays for it.
+ */
+export type CrewOf = {
+  id: string | null;
+  name: string | null;
+  crewName: string | null;
+  own: boolean;
+  size: number;
+  state: "no-pc" | "ready" | "offline" | null;
+  pcs: number | null;
+  plays: boolean;
+};
+/** Who may play on this PC, as the platform last said: only the crews it plays for, or anyone; and its owner's crews. */
 export type Crew = { only: boolean; crews: CrewOf[] };
 
 export type HostReporter = {
@@ -168,8 +183,8 @@ export type HostReporter = {
   update(report: HostReport): void;
   /** A new share-until time, for the platform to stop new claims at. */
   setUntil(until: number | null): void;
-  /** Offer this PC only to its owner's crews (true), or to anyone (false). */
-  setCrewOnly(on: boolean): void;
+  /** Offer this PC only to the crews with these ids, which replace the ones it played for. */
+  setCrews(ids: string[]): void;
   /** A player is on: no upload test runs meanwhile. */
   setBusy(busy: boolean): void;
   /** A round trip to the server, in ms; one taken during an upload test is left out. */
@@ -191,19 +206,49 @@ export type ReporterOptions = {
   clock?: () => number;
 };
 
-/** The crew in a Host API answer, or null when it carries none that reads. */
+/** How a crew can stand: no PC plays for it, one is on now, or its PCs are all off. */
+const STATES: readonly unknown[] = ["no-pc", "ready", "offline"];
+
+/** Whether two lists of ids hold the same ids, in any order. */
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+
+/**
+ * The crew in a Host API answer, or null when it carries none that reads. An
+ * older server's crews lack what it did not send: such a crew plays for this
+ * PC when the PC is crew-only, and one without an id cannot be picked.
+ */
 export function crewOf(body: unknown): Crew | null {
-  const crew = (body as { crew?: unknown } | null)?.crew as Partial<Crew> | undefined;
+  const crew = (body as { crew?: unknown } | null)?.crew as { only?: unknown; crews?: unknown } | undefined;
   if (!crew || typeof crew.only !== "boolean" || !Array.isArray(crew.crews)) return null;
-  const crews = crew.crews.filter(
-    (c): c is CrewOf =>
-      typeof c === "object" &&
-      c !== null &&
-      (typeof c.name === "string" || c.name === null) &&
-      typeof c.own === "boolean" &&
-      typeof c.size === "number",
-  );
-  return { only: crew.only, crews };
+  const only = crew.only;
+  const crews = (crew.crews as Partial<Record<keyof CrewOf, unknown>>[])
+    .filter(
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        (typeof c.name === "string" || c.name === null) &&
+        typeof c.own === "boolean" &&
+        typeof c.size === "number",
+    )
+    .map((c): CrewOf => ({
+      id: typeof c.id === "string" ? c.id : null,
+      name: c.name as string | null,
+      crewName: typeof c.crewName === "string" ? c.crewName : null,
+      own: c.own as boolean,
+      size: c.size as number,
+      state: STATES.includes(c.state) ? (c.state as CrewOf["state"]) : null,
+      pcs: typeof c.pcs === "number" ? c.pcs : null,
+      plays: typeof c.plays === "boolean" ? c.plays : only,
+    }));
+  return { only, crews };
+}
+
+/** Who may play once this PC plays for exactly the crews with these ids: crew-only, as any pick makes it. */
+export function playingFor(crew: Crew, ids: string[]): Crew {
+  return {
+    only: true,
+    crews: crew.crews.map((c) => ({ ...c, plays: c.id !== null && ids.includes(c.id) })),
+  };
 }
 
 /**
@@ -232,8 +277,8 @@ export function createHostReporter(
   let sent: HostReport = {};
   let netSent: Net | null = null;
   let until: number | null = null;
-  /** The owner's choice of who may play; undefined until they make one. */
-  let crewOnly: boolean | undefined;
+  /** The owner's choice of the crews this PC plays for; undefined until they make one. */
+  let crews: string[] | undefined;
   let termsAsked = 0;
   let termsSent = -1;
 
@@ -293,7 +338,7 @@ export function createHostReporter(
             body: JSON.stringify({
               available: true,
               until: until === null ? undefined : new Date(until).toISOString(),
-              ...(crewOnly === undefined ? {} : { crewOnly }),
+              ...(crews === undefined ? {} : { crews }),
               ...body,
             }),
             signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
@@ -350,9 +395,9 @@ export function createHostReporter(
       termsAsked++;
       if (started) void beat();
     },
-    setCrewOnly: (on) => {
-      if (on === crewOnly) return;
-      crewOnly = on;
+    setCrews: (ids) => {
+      if (crews && sameSet(ids, crews)) return;
+      crews = [...ids];
       termsAsked++;
       if (started) void beat();
     },
@@ -385,13 +430,13 @@ export function createHostReporter(
 
 /**
  * Rental mode, from Windows: Swiff OS offers this PC, so here it is off offer.
- * Says so, with the owner's choice of who may play when they made one, and
+ * Says so, with the owner's choice of the crews it plays for when they made one, and
  * returns who may play as the platform answers; null when it cannot be reached
  * or says nothing that reads.
  */
 export async function offOffer(
   machine: Machine,
-  crewOnly?: boolean,
+  crews?: string[],
   fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
 ): Promise<Crew | null> {
   try {
@@ -400,7 +445,7 @@ export async function offOffer(
       {
         method: "PUT",
         headers: { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ available: false, ...(crewOnly === undefined ? {} : { crewOnly }) }),
+        body: JSON.stringify({ available: false, ...(crews === undefined ? {} : { crews }) }),
         signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
       },
     );

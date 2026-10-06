@@ -5,7 +5,7 @@ import { demandRows, useDemand } from "./demand";
 import { WINDOWS_SHARE } from "./devShare";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
-import { createHostReporter, hostReport, offOffer, type Crew, type HostReporter } from "./report";
+import { createHostReporter, hostReport, offOffer, playingFor, type Crew, type HostReporter } from "./report";
 import { rentalReady } from "./rental";
 import {
   countSession,
@@ -188,9 +188,9 @@ export function useHost(): Host {
   );
   const [upMbps, setUpMbps] = useState<number | null>(null);
   // Who may play on this PC, as the platform says with every answer, and the
-  // owner's choice made while it was off offer, which the next offer carries.
+  // owner's choice of crews made while it was off offer, which the next offer carries.
   const [crew, setCrew] = useState<Crew | null>(null);
-  const crewChoice = useRef<boolean | null>(null);
+  const crewChoice = useRef<string[] | null>(null);
   const [crewNote, setCrewNote] = useState<string | null>(null);
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
@@ -205,7 +205,7 @@ export function useHost(): Host {
       onCrew: setCrew,
       after: withdrawn.current,
     });
-    if (crewChoice.current !== null) mine.setCrewOnly(crewChoice.current);
+    if (crewChoice.current !== null) mine.setCrews(crewChoice.current);
     crewChoice.current = null;
     mine.offer(latest.current.until);
     reporter.current = mine;
@@ -342,15 +342,15 @@ export function useHost(): Host {
   // did not save goes back to what the platform last confirmed, and so does the
   // screen when an older choice is confirmed after the latest one failed.
   const crewAsks = useRef<CrewAsks>(noCrewAsks());
-  const askCrew = async (only?: boolean): Promise<boolean> => {
+  const askCrew = async (crews?: string[]): Promise<boolean> => {
     const machine = rentalCrew.current;
     if (!machine) return false;
     const asks = crewAsks.current;
     const n = ++asks.n;
-    if (only !== undefined) asks.sets++;
-    const read = await offOffer(machine, only);
+    if (crews !== undefined) asks.sets++;
+    const read = await offOffer(machine, crews);
     if (asks !== crewAsks.current) return true;
-    if (only !== undefined) asks.sets--;
+    if (crews !== undefined) asks.sets--;
     if (read) window.clearTimeout(asks.retry);
     if (read && n > asks.at) {
       Object.assign(asks, { confirmed: read, at: n });
@@ -361,7 +361,7 @@ export function useHost(): Host {
     if (read) {
       setCrew(read);
       setCrewNote(null);
-    } else if (only !== undefined) {
+    } else if (crews !== undefined) {
       setCrew(asks.confirmed);
       setCrewNote("Couldn't save who can play. Try again.");
     }
@@ -447,13 +447,13 @@ export function useHost(): Host {
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
       // The platform holds the choice, sent now or with the next offer; the screen
-      // shows it at once, and the next answer confirms it.
-      setCrewOnly: (on) => {
+      // shows it at once, and the next answer confirms it. Any pick makes the PC crew-only.
+      setCrews: (ids) => {
         setCrewNote(null);
-        if (rentalCrew.current) void askCrew(on);
-        else if (reporter.current) reporter.current.setCrewOnly(on);
-        else crewChoice.current = on;
-        setCrew((was) => (was ? { ...was, only: on } : was));
+        if (rentalCrew.current) void askCrew(ids);
+        else if (reporter.current) reporter.current.setCrews(ids);
+        else crewChoice.current = ids;
+        setCrew((was) => (was ? playingFor(was, ids) : was));
       },
       runRental: rental.start,
       restartRental: rental.restart,
