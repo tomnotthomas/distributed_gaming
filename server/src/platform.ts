@@ -2948,12 +2948,15 @@ export class Platform {
     const owner = this.#owners.get(machineId) ?? null;
     // A PC first heard from is crew-only while its owner shares a crew with
     // anyone, and plays for every crew they bring their PCs to: until they pick
-    // its crews, nobody they do not know plays on it.
+    // its crews, nobody they do not know plays on it. A friend in the crew only
+    // by a seat at another of their PCs does not count: a seat never takes a
+    // host's PC off the wall.
     const machine = (await this.#get<MachineRow>(
       `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only, rental_mode)
          VALUES ($1, $2, 'idle', $3, $3, EXISTS (
            SELECT 1 FROM crew_members m JOIN crew_members o ON o.crew_id = m.crew_id
-             WHERE m.user_id = $2 AND o.user_id <> $2), $4)
+             WHERE m.user_id = $2 AND o.user_id <> $2
+               AND NOT EXISTS (SELECT 1 FROM seats s WHERE s.member_id = o.id AND s.revoked_at IS NULL)), $4)
          ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
            uptime_at = excluded.uptime_at
          RETURNING *, (xmax = 0) AS created`,

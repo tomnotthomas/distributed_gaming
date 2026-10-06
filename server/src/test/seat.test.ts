@@ -123,6 +123,8 @@ describe("friend seats", () => {
     it("leaves a PC its host sets up later open to anyone, out of the crew a seat founded", async () => {
       await offer("pc-1", { crewOnly: false });
       const seat = await seatFor("Jonas");
+      // Taken, the seat puts Jonas in the host's crew: still no reason to close a new PC.
+      await take(seat.id, JONAS);
       const view = await platform.heartbeat("pc-4");
       assert.equal(view.crew.only, false, "a new PC stays open to anyone");
       assert.deepEqual(
