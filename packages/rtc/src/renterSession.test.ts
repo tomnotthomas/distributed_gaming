@@ -625,7 +625,7 @@ describe("startRenterSession with crewmates watching", () => {
     const pc = await answered();
     const before = events.length;
     const fromViewer: SignalMessage[] = [
-      { type: "watchers", sharing: false, watchers: [] },
+      { type: "watchers", sharing: false, crew: null, crews: [], watchers: [] },
       { type: "answer", sdp: { type: "answer", sdp: "v=0 viewer" }, watchId: "w1" },
       { type: "ice", candidate: { candidate: "candidate:viewer" }, watchId: "w1" },
       { type: "offer", sdp: OFFER, watchId: "w1" },

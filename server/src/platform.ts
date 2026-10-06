@@ -123,6 +123,7 @@ import {
   type StabilityStats,
 } from "@swiff/rank";
 import type { Database, Queryable } from "./db.js";
+import type { WatchCrew } from "./protocol.js";
 import type { Display, Hardware, HostReport, Net } from "./profile.js";
 import { RequirementsTable, type Requirements } from "./requirements.js";
 import { migrate } from "./schema.js";
@@ -287,12 +288,33 @@ export type CrewLiveSession = {
   playerName: string | null;
   startedAt: number | null;
   expiresAt: number;
+  /** The crews its PC plays for that its player is in, as they joined them: who may watch is one of these (watchCrew). */
+  crews: string[];
 };
+
+/**
+ * The crews the PC of session `s` (booking `b`) plays for that its player is
+ * in, by when they joined them: whom they may open watching to.
+ */
+const PLAYER_PC_CREWS = `SELECT p.crew_id FROM crew_machines p
+    JOIN crew_members j ON j.crew_id = p.crew_id AND j.user_id = b.renter_id
+   WHERE p.machine_id = s.machine_id ORDER BY j.joined_at, p.crew_id`;
+
+/**
+ * The one crew that may ask to watch a session or watch it, of `crews` (its
+ * PLAYER_PC_CREWS): the one its player picked, else the first; null when
+ * there is none, or the one picked no longer is one of them.
+ */
+export function watchCrew(crews: string[], picked: string | null): string | null {
+  if (picked === null) return crews[0] ?? null;
+  return crews.includes(picked) ? picked : null;
+}
 
 /** Live sessions with their machine and player, for crewLive and watchable to filter. */
 const LIVE_SESSIONS = `SELECT s.id AS "sessionId", s.machine_id AS room, m.name AS "machineName",
          b.game_id AS "gameId", b.renter_id AS "playerId", s.started_at AS "startedAt",
          s.expires_at AS "expiresAt", b.status = 'claimed' AS starting,
+         ARRAY(${PLAYER_PC_CREWS}) AS crews,
          coalesce((SELECT c.owner_name FROM crews c WHERE c.owner_id = b.renter_id AND c.owner_name IS NOT NULL
                     ORDER BY c.created_at DESC LIMIT 1),
                   (SELECT n.name FROM crew_members n WHERE n.user_id = b.renter_id AND n.name IS NOT NULL
@@ -1892,85 +1914,122 @@ export class Platform {
 
   /**
    * The sessions `userId`'s crewmates are playing now (claimed or playing),
-   * on any machine: what a crewmate may ask to watch (watch.ts) once it is no
-   * longer starting. Their own is never listed. A player is named by their
-   * Steam persona as their crew last read it.
+   * on any machine, that `userId` is in the crew of (watchCrew, with what
+   * `picked` says each player picked): what they may ask to watch (watch.ts)
+   * once it is no longer starting. Their own is never listed. A player is
+   * named by their Steam persona as their crew last read it.
    */
-  crewLive(userId: string): Promise<CrewLiveSession[]> {
-    return this.#read(() =>
-      this.#all<CrewLiveSession>(
+  crewLive(userId: string, picked: (sessionId: string) => string | null): Promise<CrewLiveSession[]> {
+    return this.#read(async () => {
+      const live = await this.#all<CrewLiveSession>(
         `${LIVE_SESSIONS}
            WHERE s.ended_at IS NULL AND b.status IN ('claimed', 'playing') AND b.renter_id <> $1
              AND b.renter_id IN (SELECT y.user_id FROM crew_members x
                                    JOIN crew_members y ON y.crew_id = x.crew_id WHERE x.user_id = $1)
            ORDER BY s.started_at, s.id`,
         userId,
-      ),
-    );
+      );
+      const mine = await this.#crewsOfUser(userId);
+      return live.filter((session) => mine.has(watchCrew(session.crews, picked(session.sessionId)) ?? ""));
+    });
   }
 
   /**
    * Session `sessionId`, when `viewerId` may ask to watch it: it is being
    * played now (playing, past Ignition, so the player sees the ask), by someone
-   * other than them who shares a crew with them. Otherwise why not: the
-   * session is not live (`ended`, starting and unknown ones included) or they
-   * share no crew with its player (`not-crew`). Whether
-   * the player says yes is watch.ts's.
+   * other than them, and they are in its crew (watchCrew, `picked` being the
+   * crew its player picked). Otherwise why not: the session is not live
+   * (`ended`, starting and unknown ones included) or they are not in its crew
+   * (`not-crew`). Whether the player says yes is watch.ts's.
    */
-  watchable(sessionId: string, viewerId: string): Promise<CrewLiveSession | "ended" | "not-crew"> {
+  watchable(
+    sessionId: string,
+    viewerId: string,
+    picked: string | null,
+  ): Promise<CrewLiveSession | "ended" | "not-crew"> {
     return this.#read(async () => {
       const live = await this.#get<CrewLiveSession>(
         `${LIVE_SESSIONS} WHERE s.id = $1 AND s.ended_at IS NULL AND b.status = 'playing'`,
         sessionId,
       );
       if (!live) return "ended";
-      if (live.playerId === viewerId || !(await this.#shareCrew(live.playerId, viewerId))) return "not-crew";
+      const crew = watchCrew(live.crews, picked);
+      if (live.playerId === viewerId || crew === null || !(await this.#crewsOfUser(viewerId)).has(crew)) {
+        return "not-crew";
+      }
       return live;
     });
   }
 
   /**
-   * Of `pairs` (a session and someone watching it), why each may not go on:
-   * its session is over (`ended`) or they no longer share a crew with its
-   * player (`not-crew`), keyed `${sessionId}:${viewerId}`. One that may go on
-   * is left out. One read for all of them.
+   * Of `pairs` (a session, someone watching it, and the crew its player
+   * picked), why each may not go on: its session is over (`ended`) or they
+   * are no longer in its crew (`not-crew`, watchCrew), keyed
+   * `${sessionId}:${viewerId}`. One that may go on is left out. One read for
+   * all of them.
    */
   watchesStopped(
-    pairs: { sessionId: string; viewerId: string }[],
+    pairs: { sessionId: string; viewerId: string; picked: string | null }[],
   ): Promise<Map<string, "ended" | "not-crew">> {
     return this.#read(async () => {
       const stopped = new Map<string, "ended" | "not-crew">();
       if (!pairs.length) return stopped;
-      const rows = await this.#all<{ session_id: string; viewer_id: string; live: boolean; crew: boolean }>(
-        `SELECT p.session_id, p.viewer_id, b.id IS NOT NULL AS live,
-                (b.renter_id <> p.viewer_id AND EXISTS (
-                   SELECT 1 FROM crew_members x JOIN crew_members y ON y.crew_id = x.crew_id
-                    WHERE x.user_id = p.viewer_id AND y.user_id = b.renter_id)) AS crew
+      const rows = await this.#all<{
+        session_id: string;
+        viewer_id: string;
+        live: boolean;
+        player: string | null;
+        crews: string[];
+        mine: string[];
+      }>(
+        `SELECT p.session_id, p.viewer_id, b.id IS NOT NULL AS live, b.renter_id AS player,
+                ARRAY(${PLAYER_PC_CREWS}) AS crews,
+                ARRAY(SELECT v.crew_id FROM crew_members v WHERE v.user_id = p.viewer_id) AS mine
            FROM unnest($1::text[], $2::text[]) AS p (session_id, viewer_id)
            LEFT JOIN sessions s ON s.id = p.session_id AND s.ended_at IS NULL
            LEFT JOIN bookings b ON b.id = s.booking_id AND b.status IN ('claimed', 'playing')`,
         pairs.map((p) => p.sessionId),
         pairs.map((p) => p.viewerId),
       );
+      const picked = new Map(pairs.map((p) => [`${p.sessionId}:${p.viewerId}`, p.picked]));
       for (const row of rows) {
         const key = `${row.session_id}:${row.viewer_id}`;
+        const crew = watchCrew(row.crews, picked.get(key) ?? null);
         if (!row.live) stopped.set(key, "ended");
-        else if (!row.crew) stopped.set(key, "not-crew");
+        else if (row.player === row.viewer_id || crew === null || !row.mine.includes(crew)) {
+          stopped.set(key, "not-crew");
+        }
       }
       return stopped;
     });
   }
 
-  /** Whether two players share a crew. */
-  async #shareCrew(a: string, b: string): Promise<boolean> {
-    return Boolean(
-      await this.#get(
-        `SELECT 1 FROM crew_members x JOIN crew_members y ON y.crew_id = x.crew_id
-          WHERE x.user_id = $1 AND y.user_id = $2 LIMIT 1`,
-        a,
-        b,
+  /**
+   * The crews session `sessionId`'s player may open watching to (its
+   * PLAYER_PC_CREWS, in the same order), with their names; none once it is over.
+   */
+  watchCrews(sessionId: string): Promise<WatchCrew[]> {
+    return this.#read(() =>
+      this.#all<WatchCrew>(
+        `SELECT c.id, c.name, c.owner_name AS admin
+           FROM sessions s JOIN bookings b ON b.id = s.booking_id
+           JOIN crew_machines p ON p.machine_id = s.machine_id
+           JOIN crew_members j ON j.crew_id = p.crew_id AND j.user_id = b.renter_id
+           JOIN crews c ON c.id = p.crew_id
+          WHERE s.id = $1 AND s.ended_at IS NULL
+          ORDER BY j.joined_at, p.crew_id`,
+        sessionId,
       ),
     );
+  }
+
+  /** The crews `userId` is in. */
+  async #crewsOfUser(userId: string): Promise<Set<string>> {
+    const rows = await this.#all<{ crew_id: string }>(
+      "SELECT crew_id FROM crew_members WHERE user_id = $1",
+      userId,
+    );
+    return new Set(rows.map((row) => row.crew_id));
   }
 
   /** How many crews `userId` is in. */

@@ -30,6 +30,7 @@ import {
   relayServers,
   type CrewSignal,
   type VoicePerson,
+  type WatchCrew,
   type Watcher,
 } from "../../../server/src/protocol";
 
@@ -67,6 +68,9 @@ export type WatcherView = Watcher & {
 
 export type CrewHubState = {
   sharing: boolean;
+  /** The one crew that may ask or watch, of `crews`: those the PC plays for that the player is in. */
+  crew: WatchCrew | null;
+  crews: WatchCrew[];
   watchers: WatcherView[];
   voice: MyVoice;
 };
@@ -93,8 +97,8 @@ export type CrewHub = {
   answer(watchId: string, accept: boolean): void;
   /** Stop a viewer watching. */
   stop(watchId: string): void;
-  /** Open the screen to the crew, or close it again. */
-  share(open: boolean): void;
+  /** Open the screen to the crew, or close it again; `crew`, one of `crews`, picks which crew from now on. */
+  share(open: boolean, crew?: string): void;
   /** Join the voice chat: asks for the microphone now, and only now. */
   joinVoice(): Promise<void>;
   leaveVoice(): void;
@@ -135,6 +139,8 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   let serverIce: RTCIceServer[] = [];
   let watchers: Watcher[] = [];
   let sharing = false;
+  let crew: WatchCrew | null = null;
+  let crews: WatchCrew[] = [];
   let live = false;
   let ended = false;
   const sources: { video: MediaStreamTrack | null; audio: MediaStreamTrack | null } = {
@@ -158,6 +164,8 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   /** Who watches and where the voice chat stands, as the player's page shows it. */
   const state = (): CrewHubState => ({
     sharing,
+    crew,
+    crews,
     voice: { ...voice },
     watchers: watchers.map((w) => {
       const link = links.get(w.watchId);
@@ -369,6 +377,8 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       if (msg.type === "watchers") {
         watchers = Array.isArray(msg.watchers) ? msg.watchers : [];
         sharing = msg.sharing === true;
+        crew = msg.crew ?? null;
+        crews = Array.isArray(msg.crews) ? msg.crews : [];
         reconcile();
       } else if (msg.type === "joined") {
         serverIce = msg.iceServers ?? [];
@@ -395,8 +405,8 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       say({ type: "watch-stop", watchId });
     },
     /** The player opens their screen to the crew, or closes it. */
-    share(open) {
-      say({ type: "watch-share", open });
+    share(open, pick) {
+      say(pick === undefined ? { type: "watch-share", open } : { type: "watch-share", open, crew: pick });
     },
     /** Join the voice chat: the microphone is asked for now, not before. */
     async joinVoice() {

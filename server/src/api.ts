@@ -821,10 +821,10 @@ export function createApi({
 
     // --- Watching a crewmate play ---------------------------------------------
 
-    // What the signed-in player's crewmates are playing now, and whether each shares with the crew.
+    // What the signed-in player's crewmates are playing now, in a crew of theirs, and whether each shares with it.
     if (watches && resource === "crew-live" && !id && method === "GET") {
       const steamId = requireRenter(req, sessionSecret);
-      const live = await platform.crewLive(steamId);
+      const live = await platform.crewLive(steamId, (sessionId) => watches.crew(sessionId));
       reply(res, 200, {
         live: live.map((session) => {
           const mine = watches.list(session.sessionId).find((watch) => watch.viewerId === steamId);
@@ -849,7 +849,7 @@ export function createApi({
     if (watches && resource === "crew-live" && id && action === "watch" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
-      const live = await platform.watchable(id, steamId);
+      const live = await platform.watchable(id, steamId, watches.crew(id));
       // Behind Ignition the player would never see the ask: only once the game is on screen.
       if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {
         throw new HttpError(404, "no crewmate of yours is playing that session");

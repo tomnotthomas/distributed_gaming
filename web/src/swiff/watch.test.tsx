@@ -2,7 +2,7 @@
 // playing, the player's say over who watches (over the stream), the voice
 // chat's controls, and the viewer's watch, from asking to the player's answer.
 
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CrewHub, CrewHubState, MyVoice, WatchSession, WatchSessionEvent } from "@swiff/rtc";
 import { CrewLiveBand, CrewOverlay, usePushKey, VoiceBar } from "./Crew";
@@ -104,8 +104,14 @@ describe("the wall's crew band", () => {
 });
 
 describe("the player's crew overlay", () => {
-  const state = (watchers: CrewHubState["watchers"], sharing = false): CrewHubState => ({
+  const state = (
+    watchers: CrewHubState["watchers"],
+    sharing = false,
+    crews: CrewHubState["crews"] = [],
+  ): CrewHubState => ({
     sharing,
+    crew: crews[0] ?? null,
+    crews,
     watchers,
     voice: VOICE,
   });
@@ -156,6 +162,21 @@ describe("the player's crew overlay", () => {
     rerender(<CrewOverlay hub={hub} crew={state([], true)} />);
     fireEvent.click(screen.getByRole("button", { name: "Stop sharing with crew" }));
     expect(hub.share).toHaveBeenCalledWith(false);
+  });
+
+  it("names the crew that may watch, and lets the player pick another when the PC plays for several", () => {
+    const hub = hubDouble();
+    const friday = { id: "friday", name: "Friday Squad", admin: "Mara" };
+    const night = { id: "night", name: null, admin: "Mara" };
+    const { rerender } = render(<CrewOverlay hub={hub} crew={state([], true, [friday])} />);
+    expect(screen.getByText("Anyone in Friday Squad can watch now.")).toBeTruthy();
+    expect(screen.queryByRole("radiogroup", { name: "Which crew may watch" })).toBeNull();
+
+    rerender(<CrewOverlay hub={hub} crew={state([], true, [friday, night])} />);
+    const pick = screen.getByRole("radiogroup", { name: "Which crew may watch" });
+    expect(pick.textContent).toContain("Friday Squad");
+    fireEvent.click(within(pick).getAllByRole("radio")[1]!);
+    expect(hub.share).toHaveBeenCalledWith(true, "night");
   });
 });
 

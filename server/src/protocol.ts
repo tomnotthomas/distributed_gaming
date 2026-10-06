@@ -98,19 +98,34 @@ export type WatchingMessage = {
 /** One viewer as the player sees them: who, whether they wait for a yes, and whether their page is here. */
 export type Watcher = { watchId: string; name: string | null; state: "asking" | "watching"; here: boolean };
 
+/** A crew the player may open watching to: its own name, else its admin's, when known. */
+export type WatchCrew = { id: string; name: string | null; admin: string | null };
+
 /**
  * To the player: everyone asking to watch or watching their session, whole,
  * on every change, and whether they share with their crew (anyone in it
- * watches without asking).
+ * watches without asking). `crew` is the one crew that may ask or watch: one
+ * of `crews`, those the PC plays for that the player is in; null when none.
  */
-export type WatchersMessage = { type: "watchers"; sharing: boolean; watchers: Watcher[] };
+export type WatchersMessage = {
+  type: "watchers";
+  sharing: boolean;
+  crew: WatchCrew | null;
+  crews: WatchCrew[];
+  watchers: Watcher[];
+};
 
 /** The player's yes or no to a viewer asking. */
 export type WatchAnswerMessage = { type: "watch-answer"; watchId: string; accept: boolean };
 /** The player stops a viewer watching. */
 export type WatchStopMessage = { type: "watch-stop"; watchId: string };
-/** The player opens their screen to their crew, or closes it again (closing stops nobody already watching). */
-export type WatchShareMessage = { type: "watch-share"; open: boolean };
+/**
+ * The player opens their screen to their crew, or closes it again (closing
+ * stops nobody already watching). `crew`, one of the `crews` the watchers
+ * message gave, picks which crew may ask or watch from now on: anyone of
+ * another crew stops. Omitted, it stays as it was.
+ */
+export type WatchShareMessage = { type: "watch-share"; open: boolean; crew?: string };
 
 /** One person in the voice chat, as the viewer it is sent to sees them. */
 export type VoicePerson = {

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Button, Segment, Surface, Tag } from "@swiff/ui";
 import type { CrewHub, CrewHubState, MicMode, MyVoice, WatcherView } from "@swiff/rtc";
+import { crewTitle } from "./crews";
 import { Glyph } from "./Glyph";
 import type { Swiff } from "./useSwiff";
 import type { CrewLiveEntry } from "./watch";
@@ -169,6 +170,10 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
   const watchers = crew?.watchers ?? [];
   const asking = watchers.filter((w) => w.state === "asking" && w.here);
   const watching = watchers.filter((w) => w.state === "watching");
+  const crews = crew?.crews ?? [];
+  const named = crew?.crew
+    ? crewTitle("en", { crewName: crew.crew.name, name: crew.crew.admin, own: false })
+    : null;
   const voice = crew?.voice ?? {
     inVoice: false,
     muted: false,
@@ -214,10 +219,22 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
         ) : (
           <p className="crew-empty">
             {crew?.sharing
-              ? "Anyone in your crew can watch now."
-              : "Friends in your crew can ask to watch. Or share and let them in."}
+              ? `Anyone in ${named ?? "your crew"} can watch now.`
+              : `Friends in ${named ?? "your crew"} can ask to watch. Or share and let them in.`}
           </p>
         )}
+        {crews.length > 1 ? (
+          <Segment<string>
+            name="watch-crew"
+            aria-label="Which crew may watch"
+            value={crew?.crew?.id ?? ""}
+            onChange={(id) => hub.share(crew?.sharing ?? false, id)}
+            options={crews.map((c) => ({
+              value: c.id,
+              label: crewTitle("en", { crewName: c.name, name: c.admin, own: false }),
+            }))}
+          />
+        ) : null}
         <Button
           variant="secondary"
           size="sm"

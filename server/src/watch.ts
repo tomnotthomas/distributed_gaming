@@ -4,9 +4,10 @@
 //                                                  │                         └──► session over / not crew any more
 //                                                  └──► player: no, or no answer in ASK_MS
 //
-// Only a crewmate of the player may ask (platform.ts, watchable), and only the
-// player's yes lets them watch: a player who shares with their crew has said
-// yes to everyone in it, asking or still to ask. Watching costs nothing: no
+// Only someone in the session's crew may ask (platform.ts, watchable): one
+// crew the PC plays for that the player is in, the first they joined unless
+// they pick another. Only the player's yes lets them watch: a player who
+// shares with that crew has said yes to everyone in it, asking or still to ask. Watching costs nothing: no
 // booking, no machine, and the session's clock is the player's alone.
 //
 // The state lives in this process, next to the rooms it serves (index.ts),
@@ -64,7 +65,8 @@ export type WatchesOptions = {
   maxWatchers?: number;
 };
 
-type SessionWatches = { sharing: boolean; watches: Map<string, Watch> };
+/** `crew` is the crew the player picked (null: the first they joined, platform.ts watchCrew). */
+type SessionWatches = { sharing: boolean; crew: string | null; watches: Map<string, Watch> };
 
 export class Watches {
   readonly #now: () => number;
@@ -155,6 +157,16 @@ export class Watches {
   /** Whether the player of `sessionId` shares with their crew. */
   sharing(sessionId: string): boolean {
     return this.#sessions.get(sessionId)?.sharing ?? false;
+  }
+
+  /** The crew the player of `sessionId` picked to ask or watch; null while they picked none. */
+  crew(sessionId: string): string | null {
+    return this.#sessions.get(sessionId)?.crew ?? null;
+  }
+
+  /** The player picks crew `crewId` (the caller has checked it is one of theirs): only it may ask or watch from now on. */
+  choose(sessionId: string, crewId: string): void {
+    this.#session(sessionId).crew = crewId;
   }
 
   /**
@@ -263,15 +275,17 @@ export class Watches {
   #session(sessionId: string): SessionWatches {
     let session = this.#sessions.get(sessionId);
     if (!session) {
-      session = { sharing: false, watches: new Map() };
+      session = { sharing: false, crew: null, watches: new Map() };
       this.#sessions.set(sessionId, session);
     }
     return session;
   }
 
-  /** Drop a session's entry once nobody watches it and it is not shared. */
+  /** Drop a session's entry once nobody watches it, it is not shared and no crew was picked for it. */
   #forget(sessionId: string): void {
     const session = this.#sessions.get(sessionId);
-    if (session && !session.sharing && !session.watches.size) this.#sessions.delete(sessionId);
+    if (session && !session.sharing && session.crew === null && !session.watches.size) {
+      this.#sessions.delete(sessionId);
+    }
   }
 }

@@ -55,7 +55,7 @@ vi.mock("@swiff/rtc", () => ({
     source: () => {},
     setLive: () => {},
     end: () => {},
-    state: () => ({ sharing: false, watchers: [], voice: {} }),
+    state: () => ({ sharing: false, crew: null, crews: [], watchers: [], voice: {} }),
   }),
 }));
 

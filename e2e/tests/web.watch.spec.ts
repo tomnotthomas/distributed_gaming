@@ -16,7 +16,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
-import { E2E_TURN_URL, signIn } from "./credentials";
+import { E2E_TURN_URL, E2E_WATCH_PC, E2E_WATCH_PC_KEY, E2E_WATCH_PC_OWNER, signIn } from "./credentials";
 import { failOnPageError, fakeScreenCapture, offerHost, startHost } from "./hosts";
 
 test.describe.configure({ mode: "serial" });
@@ -110,28 +110,49 @@ test.describe("watching a friend play", () => {
 
   test.afterEach(async ({ request }) => {
     await Promise.all(contexts.splice(0).map((c) => c.close().catch(() => {})));
-    await offerHost(request, false);
+    await offerHost(request, false, E2E_WATCH_PC, E2E_WATCH_PC_KEY);
     await new Promise((r) => setTimeout(r, 400));
   });
 
-  /** The friend joins the player's crew, and the player launches on the PC and plays. */
+  /**
+   * The player founds a crew, the PC's owner brings it to the crew and the
+   * friend joins it, and the player launches on that PC and plays.
+   */
   async function playerPlays(browser: Browser, baseURL: string, request: APIRequestContext) {
-    await offerHost(request, true);
+    await offerHost(request, true, E2E_WATCH_PC, E2E_WATCH_PC_KEY);
     const player = await openPage(browser, PLAYER, baseURL);
     const friend = await openPage(browser, FRIEND, baseURL);
+    const owner = await openPage(browser, E2E_WATCH_PC_OWNER, baseURL);
     const playerErrors = failOnPageError(player, "player");
     const friendErrors = failOnPageError(friend, "friend");
 
-    // The friend joins the player's crew by the player's invite link.
+    // The player founds the crew; its link brings in the PC's owner, who brings the PC, and the friend.
     await player.goto("/");
-    const token = await player.evaluate(
-      async () => ((await (await fetch("/api/me/invite")).json()) as { token: string }).token,
+    const crew = await player.evaluate(
+      async () =>
+        (
+          (await (await fetch("/api/crews", { method: "POST" })).json()) as {
+            crew: { id: string; token: string };
+          }
+        ).crew,
     );
+    await owner.goto("/");
+    expect(
+      await owner.evaluate(async ({ id, token }) => {
+        const joined = await fetch(`/api/invites/${token}/join`, { method: "POST" });
+        const brought = await fetch(`/api/crews/${id}/pc`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pc: "yes" }),
+        });
+        return [joined.status, brought.status];
+      }, crew),
+    ).toEqual([200, 200]);
     await friend.goto("/");
     expect(
       await friend.evaluate(
         async (t) => (await fetch(`/api/invites/${t}/join`, { method: "POST" })).status,
-        token,
+        crew.token,
       ),
     ).toBe(200);
 
@@ -149,7 +170,7 @@ test.describe("watching a friend play", () => {
       contexts.push(context);
       const page = await context.newPage();
       await fakeScreenCapture(page);
-      await startHost(page);
+      await startHost(page, E2E_WATCH_PC_KEY);
       return page;
     });
     await expect(player.getByTestId("ignition")).toHaveCount(0, { timeout: 60_000 });

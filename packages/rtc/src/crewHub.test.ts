@@ -20,6 +20,8 @@ const watcher = (watchId: string, state: "asking" | "watching" = "watching", her
 const watchers = (...list: ReturnType<typeof watcher>[]): Watchers => ({
   type: "watchers",
   sharing: false,
+  crew: null,
+  crews: [],
   watchers: list,
 });
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -286,12 +288,22 @@ describe("startCrewHub", () => {
     crew.answer("jon", false);
     crew.stop("lea");
     crew.share(true);
+    crew.share(true, "night-owls");
     expect(sent).toEqual([
       { type: "watch-answer", watchId: "lea", accept: true },
       { type: "watch-answer", watchId: "jon", accept: false },
       { type: "watch-stop", watchId: "lea" },
       { type: "watch-share", open: true },
+      { type: "watch-share", open: true, crew: "night-owls" },
     ]);
+  });
+
+  it("keeps the crew that may watch, and those the player may pick, as the server says", () => {
+    const crew = hub();
+    const friday = { id: "friday", name: "Friday Squad", admin: "Mara" };
+    const night = { id: "night", name: null, admin: "Mara" };
+    crew.message({ ...watchers(), sharing: true, crew: night, crews: [friday, night] });
+    expect(crew.state()).toMatchObject({ sharing: true, crew: night, crews: [friday, night] });
   });
 
   it("connects a viewer again when their connection fails while they are here", async () => {

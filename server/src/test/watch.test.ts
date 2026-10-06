@@ -43,8 +43,10 @@ const LEA = "76561198000000022";
 const JON = "76561198000000023";
 /** Someone in no crew of theirs. */
 const STRANGER = "76561198000000024";
+/** Who owns the PCs, in Mara's crew so that they play for it: watching is the crew of the PC being played's. */
+const OWNER = "76561198000000099";
 const PERSONA: Record<string, string> = { [MARA]: "Mara", [LEA]: "Lea", [JON]: "Jon" };
-const MACHINE_KEYS = ["pc-1", "pc-2"].map((id) => `${id}:${HASH}:76561198000000099`).join(",");
+const MACHINE_KEYS = ["pc-1", "pc-2"].map((id) => `${id}:${HASH}:${OWNER}`).join(",");
 
 describe("watch state", () => {
   let now: number;
@@ -257,13 +259,24 @@ describe("crew live sessions", () => {
     return { status: res.status, headers: res.headers, body: text ? JSON.parse(text) : null };
   }
 
-  /** Mara's crew: Lea and Jon joined by her link. Returns Lea's membership. */
-  async function maraCrew() {
-    const crew = await platform.createCrew(MARA, "Mara");
+  /** A crew `founder` founds, named `name`, that `members` join by its link and whose PCs the owner brings. */
+  async function crewOf(founder: string, name: string | null, members: [string, string][]) {
+    const crew = await platform.createCrew(founder, PERSONA[founder] ?? null, name);
     assert.ok(crew !== "too-many" && crew.inviteId);
-    assert.ok((await platform.joinCrew(crew.inviteId, LEA, "Lea")).ok);
-    assert.ok((await platform.joinCrew(crew.inviteId, JON, "Jon")).ok);
-    return (await platform.crew(crew.id, MARA))!.members.find((m) => m.name === "Lea")!;
+    for (const [id, persona] of [...members, [OWNER, "Owner"] as [string, string]]) {
+      assert.ok((await platform.joinCrew(crew.inviteId, id, persona)).ok);
+    }
+    assert.ok(await platform.bringPc(crew.id, OWNER, "yes"));
+    return crew.id;
+  }
+
+  /** Mara's crew, which the PCs play for: Lea and Jon joined by her link. Returns Lea's membership. */
+  async function maraCrew() {
+    const id = await crewOf(MARA, null, [
+      [LEA, "Lea"],
+      [JON, "Jon"],
+    ]);
+    return (await platform.crew(id, MARA))!.members.find((m) => m.name === "Lea")!;
   }
 
   /**
@@ -286,40 +299,102 @@ describe("crew live sessions", () => {
   it("lists the sessions a player's crewmates play, never their own or a stranger's", async () => {
     await maraCrew();
     const { sessionId } = await plays(MARA);
-    const seen = await platform.crewLive(LEA);
+    const seen = await platform.crewLive(LEA, () => null);
     assert.deepEqual(
       seen.map((s) => [s.sessionId, s.playerName, s.room, s.gameId]),
       [[sessionId, "Mara", "pc-1", 730]],
     );
-    assert.deepEqual(await platform.crewLive(MARA), []);
-    assert.deepEqual(await platform.crewLive(STRANGER), []);
+    assert.deepEqual(await platform.crewLive(MARA, () => null), []);
+    assert.deepEqual(await platform.crewLive(STRANGER, () => null), []);
   });
 
   it("says why a session may not be watched", async () => {
     const lea = await maraCrew();
     const { sessionId, bookingId } = await plays(MARA);
-    assert.equal(typeof (await platform.watchable(sessionId, LEA)), "object");
-    assert.equal(await platform.watchable(sessionId, STRANGER), "not-crew");
-    assert.equal(await platform.watchable(sessionId, MARA), "not-crew");
-    assert.equal(await platform.watchable("nope", LEA), "ended");
-    assert.deepEqual(await platform.watchesStopped([{ sessionId, viewerId: LEA }]), new Map());
+    assert.equal(typeof (await platform.watchable(sessionId, LEA, null)), "object");
+    assert.equal(await platform.watchable(sessionId, STRANGER, null), "not-crew");
+    assert.equal(await platform.watchable(sessionId, MARA, null), "not-crew");
+    assert.equal(await platform.watchable("nope", LEA, null), "ended");
+    assert.deepEqual(await platform.watchesStopped([{ sessionId, viewerId: LEA, picked: null }]), new Map());
 
     // Lea leaves Mara's crew: she may watch no more.
     assert.ok(await platform.leaveCrew(lea.id, LEA));
     assert.deepEqual(
       await platform.watchesStopped([
-        { sessionId, viewerId: LEA },
-        { sessionId, viewerId: JON },
+        { sessionId, viewerId: LEA, picked: null },
+        { sessionId, viewerId: JON, picked: null },
       ]),
       new Map([[`${sessionId}:${LEA}`, "not-crew"]]),
     );
 
     await platform.endBooking(bookingId, MARA);
-    assert.equal(await platform.watchable(sessionId, JON), "ended");
+    assert.equal(await platform.watchable(sessionId, JON, null), "ended");
     assert.deepEqual(
-      await platform.watchesStopped([{ sessionId, viewerId: JON }]),
+      await platform.watchesStopped([{ sessionId, viewerId: JON, picked: null }]),
       new Map([[`${sessionId}:${JON}`, "ended"]]),
     );
+  });
+
+  it("keeps watching to the crew of the PC being played: another crew of the player's sees nothing", async () => {
+    await maraCrew();
+    // Mara's other crew, which the PC does not play for: Stranger is in it.
+    const night = await platform.createCrew(MARA, "Mara", "Night Owls");
+    assert.ok(night !== "too-many" && night.inviteId);
+    assert.ok((await platform.joinCrew(night.inviteId, STRANGER, "Stranger")).ok);
+    const { sessionId } = await plays(MARA);
+    assert.deepEqual((await call("GET", "/api/crew-live", STRANGER)).body.live, []);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER)).status, 404);
+    assert.equal(await platform.watchable(sessionId, STRANGER, null), "not-crew");
+    // Picking a crew the PC does not play for opens watching to nobody.
+    assert.equal(await platform.watchable(sessionId, STRANGER, night.id), "not-crew");
+    assert.equal(await platform.watchable(sessionId, LEA, night.id), "not-crew");
+    assert.equal(
+      (await platform.watchCrews(sessionId)).some((c) => c.id === night.id),
+      false,
+    );
+    assert.deepEqual(watches.all(), []);
+  });
+
+  it("opens watching to the one crew the player picks, of those the PC plays for", async () => {
+    await maraCrew();
+    now += 1_000;
+    const night = await crewOf(MARA, "Night Owls", [[STRANGER, "Stranger"]]);
+    const { sessionId } = await plays(MARA);
+    const crews = await platform.watchCrews(sessionId);
+    // The crew she joined first, unless she picks another.
+    assert.deepEqual(
+      crews.map((c) => c.name),
+      [null, "Night Owls"],
+    );
+    assert.equal(typeof (await platform.watchable(sessionId, LEA, null)), "object");
+    assert.equal(await platform.watchable(sessionId, STRANGER, null), "not-crew");
+    assert.deepEqual((await call("GET", "/api/crew-live", STRANGER)).body.live, []);
+
+    const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, LEA);
+    assert.equal(asked.status, 200);
+    watches.choose(sessionId, night);
+    assert.equal(await platform.watchable(sessionId, LEA, night), "not-crew");
+    assert.equal(typeof (await platform.watchable(sessionId, STRANGER, night)), "object");
+    assert.deepEqual((await call("GET", "/api/crew-live", LEA)).body.live, []);
+    assert.equal((await call("GET", "/api/crew-live", STRANGER)).body.live.length, 1);
+    // Lea, of the crew before, stops.
+    assert.deepEqual(
+      await platform.watchesStopped([{ sessionId, viewerId: LEA, picked: night }]),
+      new Map([[`${sessionId}:${LEA}`, "not-crew"]]),
+    );
+  });
+
+  it("stops everyone watching when the player leaves the crew of the PC being played", async () => {
+    await maraCrew();
+    const { sessionId } = await plays(MARA);
+    const [crew] = await platform.watchCrews(sessionId);
+    const mara = (await platform.crew(crew!.id, MARA))!.members.find((m) => m.you)!;
+    assert.ok(await platform.leaveCrew(mara.id, MARA));
+    assert.deepEqual(
+      await platform.watchesStopped([{ sessionId, viewerId: LEA, picked: null }]),
+      new Map([[`${sessionId}:${LEA}`, "not-crew"]]),
+    );
+    assert.deepEqual(await platform.watchCrews(sessionId), []);
   });
 
   it("lists a crewmate's session with whether they share and the viewer's own watch", async () => {
@@ -362,7 +437,7 @@ describe("crew live sessions", () => {
       { ...ticket, exp: undefined },
       { room: "pc-1", session: sessionId, watch: asked.body.watchId, viewer: LEA, exp: undefined },
     );
-    const deadline = (await platform.crewLive(LEA))[0]!.expiresAt;
+    const deadline = (await platform.crewLive(LEA, () => null))[0]!.expiresAt;
     assert.equal(ticket.exp, Math.ceil(deadline / 1000));
     // Good to the session's last millisecond, not a moment less.
     assert.ok(verifyWatchTicket(SECRET, asked.body.ticket, deadline - 1));
@@ -382,7 +457,7 @@ describe("crew live sessions", () => {
   it("lists a crewmate still behind Ignition as starting, and takes no ask until they play", async () => {
     await maraCrew();
     const { sessionId } = await plays(MARA, { starting: true });
-    assert.equal(await platform.watchable(sessionId, LEA), "ended");
+    assert.equal(await platform.watchable(sessionId, LEA, null), "ended");
     const listed = await call("GET", "/api/crew-live", LEA);
     assert.deepEqual(
       listed.body.live.map((s: { sessionId: string; starting: boolean }) => [s.sessionId, s.starting]),
@@ -437,15 +512,15 @@ describe("crew live sessions", () => {
     await maraCrew();
     const { bookingId, sessionId } = await plays(MARA);
     const before = await platform.booking(bookingId, MARA);
-    const deadline = (await platform.crewLive(LEA))[0]!.expiresAt;
+    const deadline = (await platform.crewLive(LEA, () => null))[0]!.expiresAt;
     const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, LEA);
     watches.answer(sessionId, asked.body.watchId, true);
     assert.deepEqual(await platform.booking(bookingId, MARA), before);
     // The session still ends when the player's own time runs out, not a moment later.
-    assert.equal((await platform.crewLive(LEA))[0]!.expiresAt, deadline);
+    assert.equal((await platform.crewLive(LEA, () => null))[0]!.expiresAt, deadline);
     // Lea booked nothing and holds nothing: her crew-live list is all she has.
     assert.equal((await call("GET", "/api/bookings/none", LEA)).status, 404);
-    assert.equal((await platform.crewLive(LEA)).length, 1);
+    assert.equal((await platform.crewLive(LEA, () => null)).length, 1);
   });
 
   it("tells the server when someone leaves a crew, so their watching stops", async () => {
@@ -541,7 +616,7 @@ describe("watching through the signaling server", () => {
         PORT: String(PORT),
         ROOM_SECRET: SECRET,
         SESSION_SECRET: SESSION,
-        MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+        MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}:${OWNER}`).join(","),
         DATABASE_URL: database.url,
         SWIFF_PLAYABILITY: "off",
         SWIFF_TICKET_RECONCILE_MS: "200",
@@ -597,15 +672,21 @@ describe("watching through the signaling server", () => {
     return ws;
   };
 
-  /** A crew of Mara (who invites) and `friends`, made once per test run. */
-  let crewMade = false;
+  /** Mara's crew (she founds it), founded once per test run: Lea, Jon and the PCs' owner, who brings them, are in it. */
+  let crewMade: { id: string; token: string } | null = null;
+  let membersIn = false;
   async function crew() {
-    if (crewMade) return;
-    const founded = await call("POST", "/api/crews", MARA, {});
-    for (const friend of [LEA, JON]) {
-      assert.equal((await call("POST", `/api/invites/${founded.body.crew.token}/join`, friend)).status, 200);
+    if (!crewMade) {
+      const founded = await call("POST", "/api/crews", MARA, {});
+      crewMade = { id: founded.body.crew.id, token: founded.body.crew.token };
     }
-    crewMade = true;
+    if (membersIn) return crewMade.id;
+    for (const friend of [LEA, JON, OWNER]) {
+      assert.equal((await call("POST", `/api/invites/${crewMade.token}/join`, friend)).status, 200);
+    }
+    assert.equal((await call("POST", `/api/crews/${crewMade.id}/pc`, OWNER, { pc: "yes" })).status, 200);
+    membersIn = true;
+    return crewMade.id;
   }
 
   /**
@@ -740,6 +821,7 @@ describe("watching through the signaling server", () => {
 
   it("seats a viewer to wait for the player's yes, and tells the player who asks", async () => {
     const { player, viewer, watchId } = await scene();
+    const crewId = await crew();
     const watching = await heard(viewer, isWatching, "watching");
     assert.deepEqual(
       { ...watching, iceServers: undefined },
@@ -747,9 +829,13 @@ describe("watching through the signaling server", () => {
       { type: "watching", watchId, state: "asking", player: null, playerHere: true, iceServers: undefined },
     );
     const watchers = await heard(player, isWatchers, "watchers");
+    // The crew that may watch, by its own name or its admin's: no Steam here, so neither.
+    const mine = { id: crewId, name: null, admin: null };
     assert.deepEqual(watchers, {
       type: "watchers",
       sharing: false,
+      crew: mine,
+      crews: [mine],
       watchers: [{ watchId, name: null, state: "asking", here: true }],
     });
   });
@@ -975,7 +1061,44 @@ describe("watching through the signaling server", () => {
     assert.equal((await call("POST", `/api/crew-members/${membership}/remove`, LEA)).status, 200);
     await gone;
     assert.equal(denial(viewer), "not-crew");
-    crewMade = false;
+    membersIn = false;
+  });
+
+  it("opens watching to the crew the player picks, and stops anyone of the one before", async () => {
+    const { player, viewer, sessionId } = await accepted();
+    const first = await crew();
+    // Mara's other crew, which the PCs play for too.
+    const night = await call("POST", "/api/crews", MARA, { name: "Night Owls" });
+    const nightId = night.body.crew.id as string;
+    for (const member of [STRANGER, OWNER]) {
+      assert.equal((await call("POST", `/api/invites/${night.body.crew.token}/join`, member)).status, 200);
+    }
+    assert.equal((await call("POST", `/api/crews/${nightId}/pc`, OWNER, { pc: "yes" })).status, 200);
+    // Not a crew of hers: nothing changes.
+    send(player, { type: "watch-share", open: true, crew: "no-such-crew" });
+    await handled(player);
+    assert.equal(denial(viewer), undefined);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER)).status, 404);
+
+    const gone = closed(viewer);
+    send(player, { type: "watch-share", open: true, crew: nightId });
+    await gone;
+    assert.equal(denial(viewer), "not-crew");
+    const told = await heard(
+      player,
+      (m): m is Extract<SignalMessage, { type: "watchers" }> =>
+        m.type === "watchers" && m.crew?.id === nightId && m.watchers.length === 0,
+      "watchers for Night Owls",
+    );
+    assert.equal(told.sharing, true);
+    assert.deepEqual(
+      told.crews.map((c) => c.id),
+      [first, nightId],
+    );
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+    const stranger = await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER);
+    assert.equal(stranger.status, 200);
+    assert.equal(stranger.body.state, "watching");
   });
 
   it("ends every watch when the session ends", async () => {

@@ -149,6 +149,9 @@ const RENTER = { cookie: `${SESSION_COOKIE}=${RENTER_SESSION}` };
 // The renter's crewmate, who watches.
 const FRIEND_SESSION = mintRenterSession(SESSION_SECRET, "76561198000000002", 3600);
 const FRIEND = { cookie: `${SESSION_COOKIE}=${FRIEND_SESSION}` };
+// The VM's owner, who brings it to the renter's crew: watching is for the crew of the PC being played.
+const OWNER_ID = "76561198000000003";
+const OWNER = { cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, OWNER_ID, 3600)}` };
 
 const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], {
   cwd: resolve(REPO, "server"),
@@ -157,7 +160,7 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
     PORT: String(SERVER_PORT),
     ROOM_SECRET,
     SESSION_SECRET,
-    MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`,
+    MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}:${OWNER_ID}`,
     DATABASE_URL: "",
     // Every game playable, unchecked: the friend's wall must not wait on Steam's verdicts.
     SWIFF_PLAYABILITY: "off",
@@ -341,9 +344,16 @@ async function wakeHud(page) {
 
 /** The renter plays on the Swiff page; their crewmate asks to watch from the wall, the renter says yes; they talk. */
 async function watching(browser, rtc) {
-  const invite = await call("GET", "/api/me/invite", RENTER);
-  const joined = await call("POST", `/api/invites/${invite.body.token}/join`, FRIEND);
-  if (joined.status !== 200) throw new Error(`joining the crew answered ${joined.status}`);
+  // The renter founds a crew; its link brings in the VM's owner, who brings the VM, and the friend.
+  const founded = await call("POST", "/api/crews", RENTER, {});
+  if (founded.status !== 201) throw new Error(`founding the crew answered ${founded.status}`);
+  const { id: crewId, token } = founded.body.crew;
+  for (const member of [OWNER, FRIEND]) {
+    const joined = await call("POST", `/api/invites/${token}/join`, member);
+    if (joined.status !== 200) throw new Error(`joining the crew answered ${joined.status}`);
+  }
+  const brought = await call("POST", `/api/crews/${crewId}/pc`, OWNER, { pc: "yes" });
+  if (brought.status !== 200) throw new Error(`bringing the VM to the crew answered ${brought.status}`);
   const page = await swiffPlayer(browser, rtc);
   const before = await call("GET", `/api/bookings/${session.bookingId}`, RENTER);
 

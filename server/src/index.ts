@@ -90,7 +90,7 @@ import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
 import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
-import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
+import { MAX_MINUTES, Platform, watchCrew, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
@@ -444,12 +444,23 @@ function playerOf(room: Room | undefined, sessionId: string): PeerSocket | null 
   return client && client.watchSession === sessionId && !seatRevoked(client) ? client : null;
 }
 
-/** Tell the player of `sessionId` everyone asking to watch or watching, whole. */
-function tellPlayer(room: string, sessionId: string): void {
+/**
+ * Tell the player of `sessionId` everyone asking to watch or watching, whole,
+ * and which of their crews may (platform.ts, watchCrew). Read when it is sent,
+ * so the last told is the latest. Never rejects.
+ */
+async function tellPlayer(room: string, sessionId: string): Promise<void> {
+  const crews = await platform.watchCrews(sessionId).catch(() => []);
+  const crew = watchCrew(
+    crews.map((c) => c.id),
+    watches.crew(sessionId),
+  );
   const viewers = rooms.get(room)?.viewers;
   const message: WatchersMessage = {
     type: "watchers",
     sharing: watches.sharing(sessionId),
+    crew: crews.find((c) => c.id === crew) ?? null,
+    crews,
     watchers: watches.list(sessionId).map((watch) => ({
       watchId: watch.id,
       name: watch.name,
@@ -488,7 +499,7 @@ function endWatch(watchId: string, reason: WatchEnd): void {
   const watch = watches.end(watchId, reason);
   if (!watch) return;
   endViewer(watch, reason);
-  tellPlayer(watch.room, watch.sessionId);
+  void tellPlayer(watch.room, watch.sessionId);
 }
 
 /**
@@ -501,13 +512,17 @@ function endWatch(watchId: string, reason: WatchEnd): void {
 async function checkWatches(): Promise<void> {
   for (const { watch, reason } of watches.expire()) {
     endViewer(watch, reason);
-    tellPlayer(watch.room, watch.sessionId);
+    void tellPlayer(watch.room, watch.sessionId);
   }
   const all = watches.all();
   if (!all.length) return;
   try {
     const stopped = await platform.watchesStopped(
-      all.map((watch) => ({ sessionId: watch.sessionId, viewerId: watch.viewerId })),
+      all.map((watch) => ({
+        sessionId: watch.sessionId,
+        viewerId: watch.viewerId,
+        picked: watches.crew(watch.sessionId),
+      })),
     );
     for (const watch of all) {
       const why = stopped.get(`${watch.sessionId}:${watch.viewerId}`);
@@ -1058,9 +1073,8 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       send(room.host, { type: "peer-joined", ...iceServers(hostRelay) });
       // The player is back for anyone asking or watching: they hear who, and the viewers that they are here.
       if (running !== null) {
-        const watching = watches.list(running);
-        if (watching.length || watches.sharing(running)) tellPlayer(ticket.room, running);
-        for (const watch of watching) tellViewer(watch);
+        void tellPlayer(ticket.room, running);
+        for (const watch of watches.list(running)) tellViewer(watch);
       }
       return;
     }
@@ -1076,7 +1090,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         return deny(ws, "bad-watch-ticket");
       }
       // Still their crewmate's, and still running: asked again at every seat.
-      const live = await platform.watchable(ticket.session, ticket.viewer);
+      const live = await platform.watchable(ticket.session, ticket.viewer, watches.crew(ticket.session));
       if (live === "ended" || live === "not-crew") {
         const reason = live === "ended" ? "watch-ended" : "not-crew";
         endWatch(ticket.watch, reason);
@@ -1096,7 +1110,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       room.viewers.set(watch.id, ws);
       watches.back(watch.id);
       tellViewer(watch);
-      tellPlayer(watch.room, watch.sessionId);
+      void tellPlayer(watch.room, watch.sessionId);
       return;
     }
 
@@ -1109,10 +1123,31 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       if (msg.type === "watch-share") {
         const open = msg.open === true;
         const was = watches.sharing(sessionId);
+        const crew = msg.crew;
+        const picked = crew !== undefined && crew !== watches.crew(sessionId);
+        if (picked) {
+          // One of the crews the player may open watching to, or nothing changes.
+          if (
+            typeof crew !== "string" ||
+            !(await platform.watchCrews(sessionId)).some((c) => c.id === crew)
+          ) {
+            return;
+          }
+          // Only that crew from now on: asks are checked against it at once, and anyone of another stops.
+          watches.choose(sessionId, crew);
+          const others = watches.list(sessionId);
+          const stopped = await platform.watchesStopped(
+            others.map((watch) => ({ sessionId, viewerId: watch.viewerId, picked: crew })),
+          );
+          for (const watch of others) {
+            const why = stopped.get(`${sessionId}:${watch.viewerId}`);
+            if (why) endWatch(watch.id, why === "ended" ? "watch-ended" : "not-crew");
+          }
+        }
         for (const watch of watches.share(sessionId, open)) tellViewer(watch);
-        tellPlayer(ws.hostId!, sessionId);
+        void tellPlayer(ws.hostId!, sessionId);
         // Every crewmate's wall reads the crew again: only when there is news.
-        if (was !== open) renterEvents.crewChanged();
+        if (was !== open || picked) renterEvents.crewChanged();
         return;
       }
       if (typeof msg.watchId !== "string" || watches.get(msg.watchId)?.sessionId !== sessionId) return;
@@ -1121,7 +1156,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       if (!watch) return;
       if (watches.get(watch.id)) tellViewer(watch);
       else endViewer(watch, "watch-declined");
-      tellPlayer(ws.hostId!, sessionId);
+      void tellPlayer(ws.hostId!, sessionId);
       return;
     }
 
@@ -1353,7 +1388,7 @@ function onClose(ws: PeerSocket, code = 1006): void {
     room.viewers.delete(ws.watchId);
     if (code === 1006) watches.away(ws.watchId);
     else watches.end(ws.watchId, "watch-left");
-    if (ws.watchSession) tellPlayer(ws.hostId!, ws.watchSession);
+    if (ws.watchSession) void tellPlayer(ws.hostId!, ws.watchSession);
     if (!room.host && !room.client && !room.viewers.size) rooms.delete(ws.hostId!);
     return;
   }

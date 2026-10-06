@@ -710,9 +710,9 @@ The wire format lives in `server/src/protocol.ts`.
 | `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code before the stream connects, then `signed-in` or `failed`, with an optional `reason` (`sign-in-timeout` or `launch-timeout`) ([`host.md`](host.md)); the renter's `retry` asks for a new one on the same claim. Ignition shows the code; the PC's `game-started` comes once the game is on screen. |
 | `watch`                    | viewer → server  | A crewmate takes a viewer seat with their watch ticket ("Watching a crewmate play").                                                                                                                                                                                                                                                |
 | `watching`                 | server → viewer  | Where the watch stands: `asking` or `watching`, and whether the player's page is in the room.                                                                                                                                                                                                                                       |
-| `watchers`                 | server → renter  | Everyone asking to watch or watching, whole, on every change, and whether the player shares with the crew.                                                                                                                                                                                                                          |
+| `watchers`                 | server → renter  | Everyone asking to watch or watching, whole, on every change, whether the player shares with the crew, the session's crew (`crew`) and those they may pick (`crews`).                                                                                                                                                               |
 | `watch-answer` / `-stop`   | renter → server  | The player's yes or no to a viewer asking, or stopping one watching.                                                                                                                                                                                                                                                                |
-| `watch-share`              | renter → server  | The player opens their screen to the crew, or closes it.                                                                                                                                                                                                                                                                            |
+| `watch-share`              | renter → server  | The player opens their screen to the crew, or closes it; `crew` picks which of their crews it is.                                                                                                                                                                                                                                   |
 | `crew`                     | renter ↔ viewer  | The voice chat's own talk: who is in it, who is muted. Relayed untouched, like `offer`, `answer` and `ice` with a `watchId`.                                                                                                                                                                                                        |
 | `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                                                                                                                                                                                      |
 
@@ -899,15 +899,21 @@ does not carry the session on by itself; the renter starts again from the game.
 ### Watching a crewmate play
 
 A crewmate can watch a player play, view only, and the player and everyone watching can
-talk. Consent first: only someone in a crew with the player can ask, only the player's yes
+talk. Consent first: only someone in the session's crew can ask, only the player's yes
 lets them watch, the player sees everyone who watches and stops anyone at any time, and
 nothing is recorded or kept.
+
+A session's crew is one crew the PC being played plays for (`crew_machines`) that the
+player is in: the first of those they joined, unless they pick another on their page
+(`watch-share` with `crew`). Nobody in the player's other crews sees the session on the
+wall, asks or watches; picking another crew stops anyone watching from the one before.
+A PC that plays for no crew of the player's has no crew to watch it.
 
 ```
 GET  /crew-live
   → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
   The sessions the signed-in player's crewmates are playing now (claimed or playing), on
-  any machine, never their own: whether the player is still behind Ignition (`starting`:
+  any machine, of those whose crew they are in, never their own: whether the player is still behind Ignition (`starting`:
   the booking still `claimed`, or the game still launching, until the server has relayed the
   PC's `game-started` for the session; not yet to be asked, since no ask reaches a player
   behind Ignition), who plays (`player`, their Steam persona as their crew
@@ -921,7 +927,7 @@ POST /crew-live/:sessionId/watch
   relayed, so the player sees the ask while its 60 s run): a watch ticket for the session's room, valid until the session's
   deadline, final by then. `state` is `asking`, or `watching` at once when the player shares with the
   crew. Asked again while the watch is on, it is the same watch.
-  → 404 when no crewmate of theirs plays that session now, or it is still starting. → 409 { code: "full" } when
+  → 404 when they are not in the crew of that session, it is not running now, or it is still starting. → 409 { code: "full" } when
   4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
   Retry-After for 60 s after the player said no, did not answer, or stopped them.
   → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN server is
@@ -932,18 +938,20 @@ The watch state (`server/src/watch.ts`) lives in the signaling process beside th
 
 1. The crewmate's page takes a viewer seat in the room with the ticket (`watch`). The
    server checks the ticket, that the watch is still on, and again that the session runs
-   and they still share a crew, then tells the player (`watchers`) and the viewer
+   and they are still in its crew, then tells the player (`watchers`) and the viewer
    (`watching`).
 2. The player's page shows the request over the game, whatever the HUD is doing: Let them
    watch, or Not now (`watch-answer`). No answer in 60 s is a no.
 3. On yes, the player's page streams to the viewer itself (below). Until then the server
    carries nothing between them: no address, no voice.
 4. The player stops a viewer with Stop (`watch-stop`), and can share with the crew
-   (`watch-share`), which lets everyone asking, or asking later, in without a yes until
-   they close it again; closing stops nobody already watching.
+   (`watch-share`), which lets everyone in it asking, or asking later, in without a yes
+   until they close it again; closing stops nobody already watching. Their page names the
+   crew ("Anyone in Friday Squad can watch now") and, when the PC plays for more than one
+   of theirs, lets them pick which.
 5. A watch ends when the player says no or stops it, when the session ends (the viewer
-   is told `watch-ended`), when the viewer or the player leaves the crew or is removed
-   from it (`not-crew`, checked at once on a removal through the API and every 5 s in
+   is told `watch-ended`), when the viewer or the player leaves the session's crew or is
+   removed from it, the PC stops playing for it, or the player picks another (`not-crew`, checked at once on a removal through the API and every 5 s in
    one read for all), when the viewer's page closes or reloads (`watch-left`, at once), or
    when the viewer's socket has dropped (close 1006) and not come back within 30 s. Only
    a dropped socket keeps its place, to come back on the same ticket within those 30 s.
