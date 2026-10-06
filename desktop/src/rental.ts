@@ -611,6 +611,19 @@ export const RUNNING_TITLE: Record<string, string> = {
   once: "Pointing the next start at Swiff OS",
 };
 
+/** What a removal's running step is called, where its id is shared with the install's. */
+const REMOVING_TITLE: Record<string, string> = {
+  "boot-entry": "Taking Swiff OS out of the boot menu",
+  partitions: "Removing Swiff OS's partitions",
+  room: "Giving the space back to Windows",
+  "fast-startup": "Turning Fast Startup back on",
+  bitlocker: "Resuming BitLocker",
+};
+
+/** What the running step is called in this plan: removal wording for a removal's disk part. */
+export const runningTitleOf = (plan: RentalPlan, step: PlanStep | null | undefined): string | undefined =>
+  step ? ((removesDisk(plan) ? REMOVING_TITLE[step.id] : undefined) ?? RUNNING_TITLE[step.id] ?? step.title) : undefined;
+
 /** An honest hint for a step nothing measures, by plan step id. */
 export const STEP_HINT: Record<string, { line: string; short: string }> = {
   check: { line: "Usually under a minute.", short: "Under a minute" },
@@ -1001,7 +1014,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       why:
         step?.id === "room"
           ? `Swiff OS's space couldn't be given back to ${install(read)?.shrink?.letter ?? "C"}:.`
-          : `It stopped while ${(RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "removing").toLowerCase()}.`,
+          : `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
       changed: `${changedSoFar(plan, run)}${step?.id === "room" ? ` The ${gb(SWIFF_GB)} stays unused until this finishes.` : ""}`,
       action: "again",
       label: "Try again",
@@ -1011,7 +1024,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
     return stopped("Key", {
       kind: "removal",
       title: "Removing Swiff's key stopped",
-      why: `It stopped while ${(RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "removing").toLowerCase()}.`,
+      why: `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
       changed: `${changedSoFar(plan, run)} Swiff OS is still installed.`,
       action: "again",
       label: "Try again",
@@ -1035,7 +1048,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       p ? `${p.name}, at ${gbOne(p.done)} of ${gbOne(p.total)} GB` : far,
     );
   }
-  const running = (RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "working").replace(/^\w/, (c) =>
+  const running = (runningTitleOf(plan, step) ?? "working").replace(/^\w/, (c) =>
     c.toLowerCase(),
   );
   return stopped(installing ? "Install" : "Key", {

@@ -36,6 +36,7 @@ import {
   rentalScreen,
   rentalStepAt,
   RUNNING_TITLE,
+  runningTitleOf,
   type BiosId,
   type RentalCheck,
   type Waiting,
@@ -362,7 +363,7 @@ function RunList({
                   )}
                 </span>
                 <span className="mrun-name">
-                  {row === "now" ? (RUNNING_TITLE[s.id] ?? s.title) : s.title}
+                  {row === "now" ? runningTitleOf(plan, s) : s.title}
                 </span>
                 <span className="mrun-bar" aria-hidden="true">
                   {row === "now" ? (
@@ -947,7 +948,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       const bytes = run.progress?.id === step.id ? run.progress : null;
       const left = bytes ? timeLeft(run.meter, bytes.total) : null;
       const hint = hintOf(step.id);
-      title = RUNNING_TITLE[step.id] ?? step.title;
+      title = runningTitleOf(plan, step) ?? step.title;
       line = `${bytes ? (left ?? "") : hint.line} Keep the PC on. You can leave this screen open.`.trim();
       extra = (
         <p className="mstatus mlive">

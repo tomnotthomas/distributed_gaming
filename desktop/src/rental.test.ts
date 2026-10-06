@@ -58,6 +58,7 @@ import {
   rentalScreen,
   rentalStage,
   rentalStepAt,
+  runningTitleOf,
   stepLocked,
   waitingFor,
   windowsTodos,
@@ -1395,6 +1396,33 @@ describe("Remove Swiff OS", () => {
       true,
     ]);
     expect(plan.steps.at(-1)!.confirm).toMatch(/restarts now, once, into Windows/);
+  });
+
+  it("calls the disk part's running steps what the removal does, not what the install did", () => {
+    const plan = removePlan(installed(), { key: false });
+    const step = (id: string) => plan.steps.find((s) => s.id === id)!;
+    expect(["boot-entry", "partitions", "room", "fast-startup"].map((id) => runningTitleOf(plan, step(id)))).toEqual([
+      "Taking Swiff OS out of the boot menu",
+      "Removing Swiff OS's partitions",
+      "Giving the space back to Windows",
+      "Turning Fast Startup back on",
+    ]);
+    const read = installed();
+    const setup: RentalSetup = {
+      reading: false,
+      read,
+      target: null,
+      preview: plan,
+      run: { ...IDLE_RUN, status: "failed", failed: { step: "boot-entry", error: "bcdedit failed." } },
+    };
+    const s = rentalScreen(setup);
+    if (s.kind !== "failed") throw new Error(`not failed: ${s.kind}`);
+    expect(failureOf(setup, s).why).toBe("It stopped while taking swiff os out of the boot menu.");
+    // The install keeps its own wording for the same step.
+    const install = installPlan(pc());
+    expect(runningTitleOf(install, install.steps.find((s) => s.id === "boot-entry")!)).toBe(
+      "Adding Swiff OS to the boot menu",
+    );
   });
 
   it("goes straight to the disk when the key never went in, or after a partial install", () => {
