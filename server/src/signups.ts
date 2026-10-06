@@ -1,6 +1,7 @@
 // Sign-ups from the marketing site (marketing.ts): the waitlist and the
 // Founding Host application, with double opt-in. Served with the site, so only
-// while MARKETING_PAGES=on, on any host: the site's forms post here.
+// while MARKETING_PAGES=on, and only on the site's host, where its forms post
+// and its mail links point. Each client may send a few at a time.
 //
 //   POST /api/signups               {email, kind: "player" | "host", lang, page, invite}
 //   GET  /api/signups/confirm?token=     the link in signup_confirm: a page with a button
@@ -40,9 +41,27 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const RESEND_AFTER_MS = 60 * 60_000;
 /** A confirm link works for this long after its mail. */
 export const CONFIRM_TTL_MS = 7 * 24 * 60 * 60_000;
-/** Sign-ups the whole server takes at once, then one more every SIGNUP_REFILL_MS. */
+/**
+ * Sign-ups one client may send at once, then one more every CLIENT_REFILL_MS:
+ * a household or an office behind one address signing up, with retries.
+ */
+export const CLIENT_BURST = 10;
+const CLIENT_REFILL_MS = 6_000;
+/** Sign-ups the whole server takes at once, then one more every SIGNUP_REFILL_MS: a flood of many clients. */
 const SIGNUP_BURST = 120;
 const SIGNUP_REFILL_MS = 500;
+
+/**
+ * Who sent a request, for its sign-up budget: the address that connected,
+ * or, behind a proxy the deployment trusts (`trustProxy`), the address that
+ * proxy appended last to X-Forwarded-For. A client can put anything it likes
+ * before that, never after it.
+ */
+export function clientOf(req: IncomingMessage, trustProxy: boolean): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const last = (Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? "")).split(",").at(-1)?.trim();
+  return (trustProxy && last) || req.socket.remoteAddress || "unknown";
+}
 
 export type Kind = "player" | "host";
 export type Invite = { type: string; code: string };
@@ -152,8 +171,12 @@ export type SignupsOptions = {
   site: Site;
   files: MarketingFiles;
   now?: () => number;
-  /** Sign-ups the server takes; defaults to SIGNUP_BURST at once. */
+  /** Sign-ups the server takes in all; defaults to SIGNUP_BURST at once. */
   budget?: RequestBudget;
+  /** Sign-ups each client may send; defaults to CLIENT_BURST at once. */
+  perClient?: RequestBudget;
+  /** Whether a proxy in front of the server appends the client's address to X-Forwarded-For (Render does). */
+  trustProxy?: boolean;
 };
 
 type SignupRow = {
@@ -174,6 +197,8 @@ export function createSignups({
   files,
   now = Date.now,
   budget = new RequestBudget({ burst: SIGNUP_BURST, refillMs: SIGNUP_REFILL_MS }),
+  perClient = new RequestBudget({ burst: CLIENT_BURST, refillMs: CLIENT_REFILL_MS }),
+  trustProxy = false,
 }: SignupsOptions) {
   const pageUrl = (lang: Lang, path: string) => `${site.origin}${lang === "en" ? "/en" : ""}${path}`;
   const linkUrl = (action: string, value: string) =>
@@ -344,7 +369,9 @@ export function createSignups({
     const method = req.method ?? "GET";
     const path = url.pathname;
     if (path === "/api/signups" && method === "POST") {
-      const waitMs = budget.take("signups");
+      // Each client's own budget first, so one client sending many runs out alone; the server's
+      // in all only stops a flood from many at once.
+      const waitMs = perClient.take(clientOf(req, trustProxy)) || budget.take("signups");
       if (waitMs > 0) {
         res.writeHead(429, {
           "content-type": "application/json",
@@ -386,6 +413,8 @@ export function createSignups({
     /** Serve a sign-up request; false for any other. */
     async serve(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
       if (!url.pathname.startsWith("/api/signups")) return false;
+      // Only on the site's own host, which its forms and mail links use: the app's host keeps its routes.
+      if (req.headers.host?.toLowerCase() !== site.host.toLowerCase()) return false;
       try {
         return await route(req, res, url);
       } catch (error) {
