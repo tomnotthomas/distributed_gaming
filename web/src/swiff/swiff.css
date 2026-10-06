@@ -1953,7 +1953,10 @@ button.band-tab:hover {
   position: fixed;
   inset: 0;
   z-index: 20;
+  /* The library's own dark tokens, not the paper app's ink: the HUD's words
+     stay light over the stream. */
   background: var(--color-bg);
+  color: var(--color-text);
 }
 .hud-title {
   font-family: var(--font-heading);
