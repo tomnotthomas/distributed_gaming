@@ -143,7 +143,10 @@ PUT  /machines/:id/availability
   in with anyone else. The app sends the owner's choice with every offer once they have
   made one (in rental mode, where swiff-hostd makes the offers, at once on its own; one
   that fails to save goes back to the last confirmed choice, with a note), and shows Who
-  can play while the owner is in a crew or the PC is crew-only.
+  can play while the owner is in a crew or the PC is crew-only. In rental mode the host
+  app sends this call (`available: false`, with or without `crewOnly`) only from
+  Windows, where the PC is already off offer, so it never ends a session; Swiff OS's
+  next offer applies the saved crew choice.
   A crew-only PC whose owner shares no crew with anyone (they left, or were removed)
   stays crew-only and matches nobody; the app says so and offers to open it to everyone
   or to invite a friend from the web app's profile.
