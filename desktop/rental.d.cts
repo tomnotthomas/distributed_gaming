@@ -1,6 +1,7 @@
 // Types for rental.cjs, so the renderer and its tests can use its results and helpers.
 
 import type { Gpt } from "./gpt.cjs";
+import type { NvidiaDriver } from "./nvidia.cjs";
 
 export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 
@@ -71,6 +72,8 @@ export type RentalRead = {
    * NVIDIA is tested on real hardware; on with the app's --nvidia-rental flag.
    */
   nvidiaRental: boolean;
+  /** NVIDIA's driver, which the owner installs on the games drive (nvidia.cjs); null while NVIDIA rental is off. */
+  nvidiaDriver: NvidiaDriver | null;
 };
 
 export type PlanOp =
@@ -153,7 +156,7 @@ export function gamesDriveOf(
 export function rentalOf(
   raw: unknown,
   libraries?: { letter: string; games: number }[],
-  options?: { nvidiaRental?: boolean },
+  options?: { nvidiaRental?: boolean; nvidiaDriver?: (letter: string | null) => NvidiaDriver | null },
 ): RentalRead;
 export function readRental(options?: {
   platform?: string;
@@ -161,6 +164,7 @@ export function readRental(options?: {
   steamPath?: () => Promise<string | null>;
   libraries?: { letter: string; games: number }[];
   nvidiaRental?: boolean;
+  nvidiaDriver?: (letter: string | null) => NvidiaDriver | null;
   env?: Record<string, string | undefined>;
   home?: string;
   files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };

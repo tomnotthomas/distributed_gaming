@@ -1620,6 +1620,65 @@ button.inst {
   text-transform: none;
   letter-spacing: 0;
 }
+/* NVIDIA's driver: NVIDIA's licence on the left, as Ubuntu publishes it, in a
+   ruled box of its own; Swiff's terms on the right. Each ends in the box the
+   owner ticks, and one pill installs once both are ticked. */
+.rnv {
+  max-width: 72ch;
+}
+.rnvx {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  margin-top: 22px;
+}
+.rnvx .ctx {
+  margin: 0 0 10px;
+  color: var(--t3);
+}
+.rlic {
+  height: 260px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  background: #dedfdc;
+  color: var(--t1);
+  font: 400 11.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rlic:focus-visible {
+  outline: 2px solid var(--t1);
+  outline-offset: 2px;
+}
+.legend.rterms {
+  margin: 0;
+}
+.rok {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ln);
+  font-size: 14.5px;
+  cursor: pointer;
+}
+.rok input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--olive);
+}
+.rok:has(input:disabled) {
+  color: var(--t3);
+  cursor: default;
+}
+.rdl {
+  max-width: 420px;
+}
 
 /* --- settings ------------------------------------------------------------------ */
 

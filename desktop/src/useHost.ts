@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
+import { useNvidiaHosting } from "./hosting";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
 import { createHostReporter, hostReport, type HostReporter } from "./report";
@@ -87,6 +88,7 @@ export function useHost(): Host {
   });
   const demand = useDemand({ url, machineId, machineKey });
   const rental = useRental();
+  const nvidiaHosting = useNvidiaHosting(url);
 
   // --- the games offered: every installed game the owner has not turned off
   const [notOffered, setNotOffered] = useState(loadNotOffered);
@@ -278,7 +280,14 @@ export function useHost(): Host {
     pc: { reading, hardware: pc ? { ...pc.hardware, upMbps } : null, hardwareRate: null },
     games: { installed, offered, demand: demand && demandRows(demand, installed), near: null },
     steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
-    rental: { reading: rental.reading, read: rental.read, target: rental.target, preview: rental.preview },
+    rental: {
+      reading: rental.reading,
+      read: rental.read,
+      target: rental.target,
+      preview: rental.preview,
+      nvidiaHosting,
+      nvidia: rental.nvidia,
+    },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -350,6 +359,10 @@ export function useHost(): Host {
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
+      readNvidiaLicence: rental.readNvidiaLicence,
+      installNvidia: rental.installNvidia,
+      cancelNvidia: rental.cancelNvidia,
+      removeNvidia: rental.removeNvidia,
     },
   };
 }

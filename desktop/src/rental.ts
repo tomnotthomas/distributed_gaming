@@ -142,10 +142,12 @@ export const MOK_SCREENS: readonly { screen: string; act: string }[] = [
 export const codeGroups = (code: string): string => code.replace(/(\d{4})(?=\d)/g, "$1 ");
 
 /**
- * The NVIDIA driver series Swiff OS ships: Canonical's signed open kernel
- * modules (swiff-os/image/mkosi.images/system/mkosi.conf). Change it here and
- * there. It runs Turing and newer, the GeForce GTX 16 and RTX 20 series on:
- * PCI device numbers from 0x1E00, the first Turing chip. NVIDIA moved every
+ * The NVIDIA driver series Swiff OS runs: the open kernel modules Canonical
+ * signed are in the image (swiff-os/image/mkosi.images/system/mkosi.postinst.chroot),
+ * and the owner installs the rest of NVIDIA's driver from this app
+ * (nvidia.cjs). Change it here and there. It runs Turing and newer, the
+ * GeForce GTX 16 and RTX 20 series on: PCI device numbers from 0x1E00, the
+ * first Turing chip (nvidia.cjs NVIDIA_FIRST_SUPPORTED). NVIDIA moved every
  * older card to its legacy driver branches.
  */
 export const SWIFF_OS_NVIDIA = "595";
@@ -166,19 +168,45 @@ export function nvidiaVersion(windows: string): string | null {
 }
 
 /** The card rental mode would run on: an NVIDIA card Swiff OS runs, else any NVIDIA, else AMD or Intel. */
-function rentalGpu(gpus: Gpu[]): Gpu | undefined {
+export function rentalGpu(gpus: Gpu[]): Gpu | undefined {
   const nvidia = gpus.filter((g) => g.vendor === "nvidia");
   return (
     nvidia.find((g) => nvidiaSupported(g)) ?? nvidia[0] ?? gpus.find((g) => g.vendor !== "other") ?? gpus[0]
   );
 }
 
+/** "6 Oct 2026": the day the owner accepted NVIDIA's licence. */
+export const day = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
 /**
- * The graphics card, the driver Swiff OS runs it on, and whether it can. An
- * NVIDIA card Swiff OS runs still waits while NVIDIA is in testing (the app's
- * --nvidia-rental flag lifts that, for the hardware test).
+ * Where NVIDIA stands for an NVIDIA card Swiff OS runs:
+ *   testing  NVIDIA in Swiff OS has not passed its hardware test (the app's
+ *            --nvidia-rental flag lifts that, for the test)
+ *   paused   Swiff has switched NVIDIA rental hosting off for everyone (the
+ *            server's NVIDIA_RENTAL, GET /api/hosting)
+ *   driver   the owner has not installed NVIDIA's driver yet
+ *   ready    it is installed
+ * `hosting` is the server's switch; null when it was not read, which holds
+ * nothing back here: the server refuses an NVIDIA machine itself while it is off.
  */
-function gpuCheck(gpu: Gpu | undefined, nvidiaRental: boolean): RentalCheck {
+export type NvidiaStage = "testing" | "paused" | "driver" | "ready";
+
+export function nvidiaStage(read: RentalRead, hosting: boolean | null): NvidiaStage {
+  if (!read.nvidiaRental) return "testing";
+  if (hosting === false) return "paused";
+  return read.nvidiaDriver?.installed ? "ready" : "driver";
+}
+
+/** The card, when rental mode would run on an NVIDIA card Swiff OS runs; null otherwise. */
+export function nvidiaCard(read: RentalRead): Gpu | null {
+  const gpu = rentalGpu(read.facts.gpus);
+  return gpu?.vendor === "nvidia" && nvidiaSupported(gpu) ? gpu : null;
+}
+
+/** The graphics card, the driver Swiff OS runs it on, and whether it can. */
+function gpuCheck(read: RentalRead, hosting: boolean | null): RentalCheck {
+  const gpu = rentalGpu(read.facts.gpus);
   const check = { id: "gpu", label: "Graphics" };
   if (!gpu) return { ...check, value: "Not read", state: "unread" };
   const name = shortGpu(gpu.name);
@@ -196,19 +224,38 @@ function gpuCheck(gpu: Gpu | undefined, nvidiaRental: boolean): RentalCheck {
   const series = "GeForce GTX 16 and RTX 20 series cards and newer";
   switch (nvidiaSupported(gpu)) {
     case true:
-      if (!nvidiaRental)
-        return {
-          ...check,
-          value: `${name}: in testing`,
-          state: "blocked",
-          detail: `NVIDIA support is in testing: Swiff OS will run it on NVIDIA's ${SWIFF_OS_NVIDIA} driver${windows}.`,
-        };
-      return {
-        ...check,
-        value: name,
-        state: "ok",
-        detail: `Supported: Swiff OS runs it on NVIDIA's ${SWIFF_OS_NVIDIA} driver${windows}.`,
-      };
+      switch (nvidiaStage(read, hosting)) {
+        case "testing":
+          return {
+            ...check,
+            value: `${name}: in testing`,
+            state: "blocked",
+            detail: `NVIDIA support is in testing: Swiff OS will run it on NVIDIA's ${SWIFF_OS_NVIDIA} driver${windows}.`,
+          };
+        case "paused":
+          return {
+            ...check,
+            value: `${name}: paused`,
+            state: "blocked",
+            detail: "Swiff has paused rental mode on NVIDIA cards for now.",
+          };
+        case "driver":
+          return {
+            ...check,
+            value: `${name}: needs NVIDIA's driver`,
+            state: "blocked",
+            detail: `Swiff OS runs it on NVIDIA's ${SWIFF_OS_NVIDIA} driver, which you install below${windows}.`,
+          };
+        case "ready": {
+          const accepted = read.nvidiaDriver?.accepted;
+          return {
+            ...check,
+            value: name,
+            state: "ok",
+            detail: `Swiff OS runs it on NVIDIA's ${read.nvidiaDriver!.version} driver${accepted ? `, installed ${day(accepted.at)}` : ""}${windows}.`,
+          };
+        }
+      }
     case false:
       return {
         ...check,
@@ -226,8 +273,15 @@ function gpuCheck(gpu: Gpu | undefined, nvidiaRental: boolean): RentalCheck {
   }
 }
 
-/** The Windows-side checks: space, the games drive, the graphics card, Fast Startup. */
-export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck[] {
+/**
+ * The Windows-side checks: space, the games drive, the graphics card, Fast
+ * Startup. `hosting` is whether the server lets NVIDIA cards host (null: not read).
+ */
+export function pcChecks(
+  read: RentalRead,
+  targetId: string | null,
+  hosting: boolean | null = null,
+): RentalCheck[] {
   const { facts, games, need } = read;
   const target = chosenTarget(read, targetId);
   return [
@@ -253,7 +307,7 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
             ? { value: `${games.letter}:, BitLocker off`, state: "ok" }
             : { value: `${games.letter}:, BitLocker not read`, state: "unread" }),
     },
-    gpuCheck(rentalGpu(facts.gpus), read.nvidiaRental),
+    gpuCheck(read, hosting),
     {
       id: "fast-startup",
       label: "Fast Startup",
@@ -267,9 +321,13 @@ export function pcChecks(read: RentalRead, targetId: string | null): RentalCheck
 }
 
 /** What blocks rental mode in Windows, as one sentence each. */
-export function windowsFixes(read: RentalRead, targetId: string | null): string[] {
+export function windowsFixes(
+  read: RentalRead,
+  targetId: string | null,
+  hosting: boolean | null = null,
+): string[] {
   const fixes: string[] = [];
-  for (const check of pcChecks(read, targetId)) {
+  for (const check of pcChecks(read, targetId, hosting)) {
     if (check.state !== "blocked") continue;
     if (check.id === "space")
       fixes.push(
@@ -283,10 +341,20 @@ export function windowsFixes(read: RentalRead, targetId: string | null): string[
       );
     if (check.id === "gpu") {
       const gpu = rentalGpu(read.facts.gpus)!;
+      const name = shortGpu(gpu.name);
+      if (!nvidiaSupported(gpu)) {
+        fixes.push(
+          `Fit a GeForce GTX 16 or RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${name}. Sharing from Windows works as before.`,
+        );
+        continue;
+      }
+      const stage = nvidiaStage(read, hosting);
       fixes.push(
-        nvidiaSupported(gpu)
-          ? `NVIDIA support is in testing: rental mode takes the ${shortGpu(gpu.name)} once it passes. Sharing from Windows works as before.`
-          : `Fit a GeForce GTX 16 or RTX 20 series card or newer to use rental mode: Swiff OS's NVIDIA driver does not run the ${shortGpu(gpu.name)}. Sharing from Windows works as before.`,
+        stage === "testing"
+          ? `NVIDIA support is in testing: rental mode takes the ${name} once it passes. Sharing from Windows works as before.`
+          : stage === "paused"
+            ? `Swiff has paused rental mode on NVIDIA cards for now: the ${name} cannot host in Swiff OS until it is back. Sharing from Windows works as before.`
+            : `Install NVIDIA's driver for the ${name} below: you accept NVIDIA's licence, and it comes from Ubuntu onto ${read.games ? `${read.games.letter}:` : "your games drive"}.`,
       );
     }
   }
@@ -304,11 +372,15 @@ export type RentalStatus = {
 };
 
 /** The statement at the top of the screen, and the counts its dial shows. */
-export function rentalStatus(read: RentalRead, targetId: string | null): RentalStatus {
-  const checks = [...firmwareChecks(read), ...pcChecks(read, targetId)];
+export function rentalStatus(
+  read: RentalRead,
+  targetId: string | null,
+  hosting: boolean | null = null,
+): RentalStatus {
+  const checks = [...firmwareChecks(read), ...pcChecks(read, targetId, hosting)];
   const ready = checks.filter((c) => isReady(c.state)).length;
   const bios = checks.flatMap((c) => (c.state === "bios" && c.bios ? [c.bios] : []));
-  const fixes = windowsFixes(read, targetId);
+  const fixes = windowsFixes(read, targetId, hosting);
   const canInstall = !bios.length && !fixes.length && !read.installed;
   const many = (n: number, one: string, more: string) => (n === 1 ? one : more.replace("#", String(n)));
   if (read.installed)

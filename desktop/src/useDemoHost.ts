@@ -136,6 +136,11 @@ export function useDemoHost(screen: DemoScreen): Host & {
     chooseRentalTarget: setRentalTarget,
     previewRental: () => {},
     closeRentalPreview: () => {},
+    // NVIDIA is in testing on Nova-01, as in the released app: there is no driver to install.
+    readNvidiaLicence: () => {},
+    installNvidia: () => {},
+    cancelNvidia: () => {},
+    removeNvidia: () => {},
   };
 
   return {

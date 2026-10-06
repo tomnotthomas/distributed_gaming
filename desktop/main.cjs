@@ -11,6 +11,7 @@ const {
   ipcMain,
   Menu,
   nativeImage,
+  net,
   powerMonitor,
   protocol,
   safeStorage,
@@ -23,6 +24,15 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
+const {
+  driverFolder,
+  driverState,
+  fetchLicence,
+  installDriver,
+  readManifest,
+  removeDriver,
+  supportedCard,
+} = require("./nvidia.cjs");
 const { installPlan, mokPlan, readRental, switchPlan } = require("./rental.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
@@ -113,21 +123,88 @@ async function watchGames() {
 // without administrator rights, and the steps that would install it or switch
 // to and from it, or confirm its key again. The steps are previews: nothing
 // here runs them.
-ipcMain.handle("rental:read", (event) =>
-  fromApp(event) ? readRental({ nvidiaRental: NVIDIA_RENTAL }) : null,
-);
+ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRentalHere() : null));
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object") return null;
   if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
   if (ask.kind === "mok") return mokPlan();
   if (ask.kind !== "install") return null;
-  const rental = await readRental({ nvidiaRental: NVIDIA_RENTAL });
+  const rental = await readRentalHere();
   if (!rental) return null;
   try {
     return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });
   } catch {
     return null;
   }
+});
+
+// NVIDIA's driver (nvidia.cjs), which Swiff does not ship: the owner reads
+// NVIDIA's licence, accepts it and Swiff's terms on the Rental mode screen, and
+// the driver comes from Ubuntu onto their games drive. Only with
+// --nvidia-rental, until NVIDIA has passed its hardware test, and only for a
+// card Swiff OS runs. Downloads go through Chromium's network stack (net.fetch),
+// which follows the PC's proxy settings.
+const NVIDIA_MANIFEST = (() => {
+  try {
+    return readManifest();
+  } catch {
+    return null;
+  }
+})();
+const nvidiaDriver = (letter) =>
+  NVIDIA_MANIFEST
+    ? driverState({ manifest: NVIDIA_MANIFEST, letter, dataDir: app.getPath("userData") })
+    : null;
+const readRentalHere = () => readRental({ nvidiaRental: NVIDIA_RENTAL, nvidiaDriver });
+/** The install under way, to stop it; null when none is. */
+let nvidiaInstall = null;
+/** Progress to the window at most this often: a download is thousands of chunks. */
+const NVIDIA_PROGRESS_MS = 200;
+
+ipcMain.handle("rental:nvidia-licence", (event) =>
+  fromApp(event) && NVIDIA_RENTAL && NVIDIA_MANIFEST
+    ? fetchLicence({ manifest: NVIDIA_MANIFEST, fetch: net.fetch })
+    : null,
+);
+ipcMain.handle("rental:nvidia-install", async (event, ask) => {
+  if (!fromApp(event) || !NVIDIA_RENTAL || !NVIDIA_MANIFEST || nvidiaInstall) return null;
+  // The owner ticks both on the screen, each time they install.
+  if (ask?.licence !== true || ask?.terms !== true) return null;
+  const rental = await readRentalHere();
+  const games = rental?.games;
+  if (!games || games.bitlocker === "on" || !supportedCard(rental.facts.gpus)) return null;
+  const sender = event.sender;
+  let sent = 0;
+  nvidiaInstall = new AbortController();
+  try {
+    return await installDriver({
+      manifest: NVIDIA_MANIFEST,
+      folder: driverFolder(games.letter, NVIDIA_MANIFEST.version),
+      dataDir: app.getPath("userData"),
+      free: rental.facts.volumes.find((v) => v.letter === games.letter)?.free ?? null,
+      fetch: net.fetch,
+      signal: nvidiaInstall.signal,
+      onProgress: (done, total) => {
+        if (sender.isDestroyed() || (done < total && Date.now() - sent < NVIDIA_PROGRESS_MS)) return;
+        sent = Date.now();
+        sender.send("rental:nvidia-progress", { done, total });
+      },
+    });
+  } finally {
+    nvidiaInstall = null;
+  }
+});
+ipcMain.handle("rental:nvidia-cancel", (event) => {
+  if (fromApp(event)) nvidiaInstall?.abort();
+});
+ipcMain.handle("rental:nvidia-remove", async (event) => {
+  if (!fromApp(event) || !NVIDIA_MANIFEST || nvidiaInstall) return null;
+  const games = (await readRentalHere())?.games;
+  if (!games) return null;
+  return removeDriver({
+    folder: driverFolder(games.letter, NVIDIA_MANIFEST.version),
+    dataDir: app.getPath("userData"),
+  });
 });
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no

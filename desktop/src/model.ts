@@ -9,6 +9,7 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { NvidiaError } from "../nvidia.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
@@ -75,6 +76,21 @@ export type RentalSetup = {
   read: RentalRead | null;
   target: string | null;
   preview: RentalPlan | null;
+  /** Whether the server lets NVIDIA cards host in Swiff OS (GET /api/hosting); null until read. */
+  nvidiaHosting: boolean | null;
+  nvidia: NvidiaSetup;
+};
+
+/** Installing NVIDIA's driver: its licence as Ubuntu publishes it, and the download. */
+export type NvidiaSetup = {
+  licence:
+    | { state: "idle" | "loading" }
+    | { state: "ready"; text: string }
+    | { state: "failed"; error: NvidiaError };
+  install:
+    | { state: "idle" }
+    | { state: "running"; done: number; total: number; stopping: boolean }
+    | { state: "failed"; error: NvidiaError };
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -289,6 +305,14 @@ export type HostActions = {
   /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
   previewRental(kind: RentalPlan["kind"]): void;
   closeRentalPreview(): void;
+  /** Load NVIDIA's licence for Swiff OS's driver, from Ubuntu, for the owner to read. */
+  readNvidiaLicence(): void;
+  /** Download NVIDIA's driver onto the games drive: only once the owner accepted NVIDIA's licence and Swiff's terms. */
+  installNvidia(accepted: { licence: boolean; terms: boolean }): void;
+  /** Stop the download; what has arrived is kept. */
+  cancelNvidia(): void;
+  /** Delete NVIDIA's driver from the games drive, and the acceptance with it. */
+  removeNvidia(): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };

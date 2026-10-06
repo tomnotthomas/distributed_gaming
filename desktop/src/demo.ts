@@ -130,6 +130,7 @@ export const DEMO_RENTAL_READ: RentalRead = {
   ],
   games: { letter: "D", games: 6, label: "Games", fs: "NTFS", bitlocker: "off" },
   installed: false,
+  nvidiaDriver: null,
 };
 
 export const DEMO_RENTAL: RentalSetup = {
@@ -137,6 +138,8 @@ export const DEMO_RENTAL: RentalSetup = {
   read: DEMO_RENTAL_READ,
   target: null,
   preview: null,
+  nvidiaHosting: false,
+  nvidia: { licence: { state: "idle" }, install: { state: "idle" } },
 };
 
 /** The demo games' key art, bundled with the app (from prototypes/assets). */

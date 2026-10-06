@@ -7,6 +7,7 @@ import { HOLD_MS } from "./ui/hold";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
 import { installPlan, mokPlan, rentalOf, switchPlan, TYPE, type RentalRead } from "../rental.cjs";
+import type { NvidiaDriver } from "../nvidia.cjs";
 import FACTS from "./test/rental-facts.json";
 
 const FAKE = [
@@ -63,7 +64,14 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       installs: [],
       asked: [],
     },
-    rental: { reading: false, read: null, target: null, preview: null },
+    rental: {
+      reading: false,
+      read: null,
+      target: null,
+      preview: null,
+      nvidiaHosting: null,
+      nvidia: { licence: { state: "idle" }, install: { state: "idle" } },
+    },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -105,6 +113,10 @@ function actions(): HostActions {
     chooseRentalTarget: vi.fn(),
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
+    readNvidiaLicence: vi.fn(),
+    installNvidia: vi.fn(),
+    cancelNvidia: vi.fn(),
+    removeNvidia: vi.fn(),
   };
 }
 
@@ -575,7 +587,15 @@ describe("rental mode", () => {
   const read = (change: (raw: typeof FACTS) => object = (raw) => raw) =>
     rentalOf(change(structuredClone(FACTS)), [{ letter: "C", games: 2 }]);
   const rental = (more: Partial<HostView["rental"]> = {}): Partial<HostView> => ({
-    rental: { reading: false, read: read(), target: null, preview: null, ...more },
+    rental: {
+      reading: false,
+      read: read(),
+      target: null,
+      preview: null,
+      nvidiaHosting: null,
+      nvidia: { licence: { state: "idle" }, install: { state: "idle" } },
+      ...more,
+    },
   });
   const installed = () =>
     read((raw) => ({
@@ -714,6 +734,135 @@ describe("rental mode", () => {
     expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
   });
 
+  describe("NVIDIA's driver, which the owner installs", () => {
+    const RTX_4080 = {
+      name: "NVIDIA GeForce RTX 4080",
+      pnp: "PCI\\VEN_10DE&DEV_2704",
+      driver: "32.0.15.6094",
+    };
+    const DRIVER: NvidiaDriver = {
+      version: "595.91.07",
+      bytes: 355_018_600,
+      folder: "C:\\SwiffOS\\nvidia\\595.91.07",
+      installed: false,
+      accepted: null,
+    };
+    /** This PC on an RTX 4080 with NVIDIA rental on (the app's --nvidia-rental), and `driver` on its games drive. */
+    const nvidiaPc = (driver: Partial<NvidiaDriver> = {}): RentalRead => ({
+      ...read((raw) => ({ ...raw, gpus: [RTX_4080] })),
+      nvidiaRental: true,
+      nvidiaDriver: { ...DRIVER, ...driver },
+    });
+    const LICENCE = "NVIDIA Driver License Agreement: the text as Ubuntu publishes it";
+    const ready = (more: Partial<HostView["rental"]> = {}) =>
+      rental({
+        read: nvidiaPc(),
+        nvidia: { licence: { state: "ready", text: LICENCE }, install: { state: "idle" } },
+        ...more,
+      });
+
+    it("shows NVIDIA's licence and Swiff's terms, and installs only once the owner ticked both", () => {
+      const acts = renderReal("rental", off, ready());
+      expect(screen.getByText("RTX 4080: needs NVIDIA's driver", { selector: ".rck" })).toBeInTheDocument();
+      expect(
+        screen.getByText(/Install NVIDIA's driver for the RTX 4080 below/).closest("li"),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("NVIDIA's licence")).toHaveTextContent(LICENCE);
+      expect(screen.getByText(/which Swiff does not ship/)).toHaveTextContent(/onto C:, 339 MB/);
+      expect(screen.getByText(/not from a data centre, and not as a business/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/you cover Swiff's reasonable costs from it, unless you were not at fault/),
+      ).toBeInTheDocument();
+      const install = screen.getByRole("button", { name: /Install NVIDIA's driver/ });
+      expect(install).toBeDisabled();
+      fireEvent.click(screen.getByRole("checkbox", { name: "I have read NVIDIA's licence and accept it." }));
+      expect(install).toBeDisabled();
+      fireEvent.click(screen.getByRole("checkbox", { name: "I accept these terms." }));
+      expect(install).toBeEnabled();
+      fireEvent.click(install);
+      expect(acts.installNvidia).toHaveBeenCalledWith({ licence: true, terms: true });
+      // Installing the driver is not installing Swiff OS: that waits until the driver is there.
+      expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+    });
+
+    it("loads the licence by itself, and cannot be accepted before it is shown", () => {
+      const acts = renderReal("rental", off, rental({ read: nvidiaPc() }));
+      expect(acts.readNvidiaLicence).toHaveBeenCalledOnce();
+      expect(
+        screen.getByRole("checkbox", { name: "I have read NVIDIA's licence and accept it." }),
+      ).toBeDisabled();
+    });
+
+    it("guides a licence that did not load, and a download that failed", () => {
+      const acts = renderReal(
+        "rental",
+        off,
+        rental({
+          read: nvidiaPc(),
+          nvidia: {
+            licence: { state: "failed", error: "offline" },
+            install: { state: "failed", error: "space" },
+          },
+        }),
+      );
+      expect(screen.getByText(/could not load NVIDIA's licence from Ubuntu/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Load it again" }));
+      expect(acts.readNvidiaLicence).toHaveBeenCalledOnce();
+      expect(
+        screen.getByText("C: needs 339 MB free for NVIDIA's driver. Free up space there, then try again."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Try again/ })).toBeDisabled();
+    });
+
+    it("shows how far the download is, and stops it on request", () => {
+      const acts = renderReal(
+        "rental",
+        off,
+        ready({
+          nvidia: {
+            licence: { state: "ready", text: LICENCE },
+            install: { state: "running", done: 100 * 1024 ** 2, total: 355_018_600, stopping: false },
+          },
+        }),
+      );
+      expect(screen.getByRole("progressbar", { name: "Downloading NVIDIA's driver" })).toHaveAttribute(
+        "aria-valuenow",
+        "29",
+      );
+      expect(screen.getByText("From Ubuntu: 100 MB of 339 MB")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Install NVIDIA's driver/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      expect(acts.cancelNvidia).toHaveBeenCalledOnce();
+    });
+
+    it("says what is installed and since when, and removes it on request", () => {
+      const acts = renderReal(
+        "rental",
+        off,
+        rental({ read: nvidiaPc({ installed: true, accepted: { at: "2026-10-06T08:00:00.000Z" } }) }),
+      );
+      expect(screen.getByText("RTX 4080", { selector: ".rck" })).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /NVIDIA 595\.91\.07 is on C:, 339 MB from Ubuntu\. You accepted NVIDIA's licence on 6 Oct 2026/,
+        ),
+      ).toBeInTheDocument();
+      expect(acts.readNvidiaLicence).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Remove it" }));
+      expect(acts.removeNvidia).toHaveBeenCalledOnce();
+    });
+
+    it("offers no driver while NVIDIA is in testing, or while Swiff has paused it", () => {
+      renderReal("rental", off, rental({ read: { ...nvidiaPc(), nvidiaRental: false, nvidiaDriver: null } }));
+      expect(screen.queryByText("NVIDIA's driver")).not.toBeInTheDocument();
+      cleanup();
+      renderReal("rental", off, ready({ nvidiaHosting: false }));
+      expect(screen.getByText("RTX 4080: paused", { selector: ".rck" })).toBeInTheDocument();
+      expect(screen.queryByText("NVIDIA's driver")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Install NVIDIA's driver/ })).not.toBeInTheDocument();
+    });
+  });
+
   it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {
     const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
     const acts = renderReal(
@@ -735,9 +884,19 @@ describe("rental mode", () => {
       onTrayAction: vi.fn(() => () => {}),
     };
     function Live() {
-      const { check, choose, plan, close, ...state } = useRental();
+      const {
+        check,
+        choose,
+        plan,
+        close,
+        readNvidiaLicence,
+        installNvidia,
+        cancelNvidia,
+        removeNvidia,
+        ...state
+      } = useRental();
       const host: Host = {
-        view: realView(off, { rental: state }),
+        view: realView(off, { rental: { ...state, nvidiaHosting: null } }),
         actions: {
           ...actions(),
           checkRental: check,

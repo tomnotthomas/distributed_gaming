@@ -31,7 +31,17 @@ import {
   TYPE,
   type RentalRead,
 } from "../rental.cjs";
-import { codeGroups, firmwareChecks, isReady, nvidiaVersion, pcChecks, rentalStatus } from "./rental";
+import type { NvidiaDriver } from "../nvidia.cjs";
+import { NVIDIA_FIRST_SUPPORTED, supportedCard } from "../nvidia.cjs";
+import {
+  codeGroups,
+  firmwareChecks,
+  isReady,
+  nvidiaSupported,
+  nvidiaVersion,
+  pcChecks,
+  rentalStatus,
+} from "./rental";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -543,9 +553,28 @@ describe("what the screen says", () => {
 
   describe("the graphics card", () => {
     type Card = { name: string; pnp: string; driver?: string };
-    /** The Graphics row, with NVIDIA in rental mode switched on (the app's --nvidia-rental). */
-    const gpu = (...gpus: Card[]) =>
-      pcChecks({ ...pc((raw) => ({ ...raw, gpus })), nvidiaRental: true }, null).find((c) => c.id === "gpu");
+    /** NVIDIA's driver on the games drive, as the owner installed it on 6 Oct 2026. */
+    const INSTALLED: NvidiaDriver = {
+      version: "595.91.07",
+      bytes: 355_018_600,
+      folder: "C:\\SwiffOS\\nvidia\\595.91.07",
+      installed: true,
+      accepted: { at: "2026-10-06T08:00:00.000Z" },
+    };
+    const MISSING: NvidiaDriver = { ...INSTALLED, installed: false, accepted: null };
+    /** This PC with NVIDIA in rental mode switched on (the app's --nvidia-rental), and `driver` on its games drive. */
+    const on = (gpus: Card[], driver: NvidiaDriver = INSTALLED): RentalRead => ({
+      ...pc((raw) => ({ ...raw, gpus })),
+      nvidiaRental: true,
+      nvidiaDriver: driver,
+    });
+    /** The Graphics row, with NVIDIA on and its driver installed. */
+    const gpu = (...gpus: Card[]) => pcChecks(on(gpus), null).find((c) => c.id === "gpu");
+    const RTX_4080 = {
+      name: "NVIDIA GeForce RTX 4080",
+      pnp: "PCI\\VEN_10DE&DEV_2704",
+      driver: "32.0.15.6094",
+    };
 
     it("keeps NVIDIA off while it is in testing, and says so for a card Swiff OS will run", () => {
       const read = pc((raw) => ({
@@ -569,19 +598,67 @@ describe("what the screen says", () => {
       });
     });
 
-    it("with NVIDIA on, takes a card from the GTX 16 and RTX 20 series on, and names the driver on each side", () => {
-      expect(
-        gpu({ name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704", driver: "32.0.15.6094" }),
-      ).toEqual({
+    it("with NVIDIA on and its driver installed, takes a card from the GTX 16 and RTX 20 series on, and names the driver on each side", () => {
+      expect(gpu(RTX_4080)).toEqual({
         id: "gpu",
         label: "Graphics",
         value: "RTX 4080",
         state: "ok",
-        detail: "Supported: Swiff OS runs it on NVIDIA's 595 driver, Windows on 560.94.",
+        detail: "Swiff OS runs it on NVIDIA's 595.91.07 driver, installed 6 Oct 2026, Windows on 560.94.",
       });
       expect(gpu({ name: "NVIDIA GeForce RTX 2060", pnp: "PCI\\VEN_10DE&DEV_1F08" })?.state).toBe("ok");
       expect(gpu({ name: "NVIDIA GeForce GTX 1660 Ti", pnp: "PCI\\VEN_10DE&DEV_2182" })?.state).toBe("ok");
       expect(gpu({ name: "NVIDIA GeForce RTX 5090", pnp: "PCI\\VEN_10DE&DEV_2B85" })?.state).toBe("ok");
+    });
+
+    it("with NVIDIA on, asks the owner to install NVIDIA's driver, which Swiff does not ship", () => {
+      const read = on([RTX_4080], MISSING);
+      expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({
+        value: "RTX 4080: needs NVIDIA's driver",
+        state: "blocked",
+        detail: "Swiff OS runs it on NVIDIA's 595 driver, which you install below, Windows on 560.94.",
+      });
+      expect(status(read)).toMatchObject({
+        title: "One thing to change first",
+        fixes: [
+          "Install NVIDIA's driver for the RTX 4080 below: you accept NVIDIA's licence, and it comes from Ubuntu onto C:.",
+        ],
+        canInstall: false,
+      });
+    });
+
+    it("says so when Swiff has paused NVIDIA cards, driver or not, and holds nothing back when it could not ask", () => {
+      const paused = rentalStatus(on([RTX_4080]), null, false);
+      expect(paused.fixes).toEqual([
+        "Swiff has paused rental mode on NVIDIA cards for now: the RTX 4080 cannot host in Swiff OS until it is back. Sharing from Windows works as before.",
+      ]);
+      expect(pcChecks(on([RTX_4080], MISSING), null, false).find((c) => c.id === "gpu")).toMatchObject({
+        value: "RTX 4080: paused",
+        state: "blocked",
+      });
+      // The server refuses an NVIDIA machine itself while it is off: an unread switch is not a pause.
+      expect(rentalStatus(on([RTX_4080]), null, null).canInstall).toBe(true);
+      expect(rentalStatus(on([RTX_4080]), null, true).canInstall).toBe(true);
+    });
+
+    it("draws the line for NVIDIA cards where the driver's own check does", () => {
+      expect(NVIDIA_FIRST_SUPPORTED).toBe(0x1e00);
+      for (const device of [0x1b80, 0x1dff, 0x1e00, 0x1e02, 0x2182, 0x2704]) {
+        const card = { name: "card", vendor: "nvidia" as const, device, driver: null };
+        expect(supportedCard([card])).toBe(nvidiaSupported(card));
+      }
+    });
+
+    it("reads NVIDIA's driver on the games drive only while NVIDIA rental is on", () => {
+      const seen: (string | null)[] = [];
+      const driver = (letter: string | null) => (seen.push(letter), INSTALLED);
+      expect(rentalOf(FACTS, [{ letter: "C", games: 3 }], { nvidiaDriver: driver }).nvidiaDriver).toBeNull();
+      expect(seen).toEqual([]);
+      expect(
+        rentalOf(FACTS, [{ letter: "C", games: 3 }], { nvidiaRental: true, nvidiaDriver: driver })
+          .nvidiaDriver,
+      ).toBe(INSTALLED);
+      expect(seen).toEqual(["C"]);
     });
 
     it("holds an older NVIDIA card against the PC, and says what the owner can do", () => {

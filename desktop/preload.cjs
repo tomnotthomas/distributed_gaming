@@ -9,6 +9,10 @@
 //   onGamesChanged                    the installed games, again, whenever they change
 //   readRental                        what rental mode needs from this PC, and whether it is installed
 //   planRental                        the steps that would install rental mode, confirm its key again or switch to it, as a preview
+//   nvidiaLicence                     NVIDIA's licence for Swiff OS's driver, from Ubuntu
+//   installNvidia / cancelNvidia      download NVIDIA's driver onto the games drive, once the owner accepted both
+//   onNvidiaProgress                  how far that download is
+//   removeNvidia                      delete it again
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
@@ -34,6 +38,15 @@ contextBridge.exposeInMainWorld("swiffHost", {
   readRental: () => ipcRenderer.invoke("rental:read"),
   planRental: (ask) =>
     ipcRenderer.invoke("rental:plan", { kind: String(ask?.kind), target: ask?.target ?? null }),
+  nvidiaLicence: () => ipcRenderer.invoke("rental:nvidia-licence"),
+  installNvidia: (accepted) =>
+    ipcRenderer.invoke("rental:nvidia-install", {
+      licence: accepted?.licence === true,
+      terms: accepted?.terms === true,
+    }),
+  cancelNvidia: () => ipcRenderer.invoke("rental:nvidia-cancel"),
+  onNvidiaProgress: (listener) => subscribe("rental:nvidia-progress", listener),
+  removeNvidia: () => ipcRenderer.invoke("rental:nvidia-remove"),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),

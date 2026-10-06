@@ -386,17 +386,23 @@ function gamesDriveOf(facts, libraries) {
 /** Swiff OS is installed: its boot entry is recorded and a disk has its root partition. */
 const installedOf = (facts) => Boolean(facts.bootEntry && facts.partitions.some((p) => p.type === TYPE.root));
 
-/** Everything the rental-mode screen shows, from the script's output and Steam's libraries. */
-function rentalOf(raw, libraries = [], { nvidiaRental = false } = {}) {
+/**
+ * Everything the rental-mode screen shows, from the script's output and
+ * Steam's libraries. `nvidiaDriver` reads NVIDIA's driver on the games drive
+ * (nvidia.cjs driverState), only while NVIDIA rental is on.
+ */
+function rentalOf(raw, libraries = [], { nvidiaRental = false, nvidiaDriver = () => null } = {}) {
   const facts = factsOf(raw);
   const targets = targetsOf(facts);
+  const games = gamesDriveOf(facts, libraries);
   return {
     facts,
     need: SWIFF_OS_BYTES,
     targets,
-    games: gamesDriveOf(facts, libraries),
+    games,
     installed: installedOf(facts),
     nvidiaRental,
+    nvidiaDriver: nvidiaRental ? nvidiaDriver(games?.letter ?? null) : null,
   };
 }
 
@@ -407,6 +413,7 @@ async function readRental({
   steamPath = steamPathOnce,
   libraries,
   nvidiaRental = false,
+  nvidiaDriver,
   ...options
 } = {}) {
   if (platform !== "win32") return null;
@@ -415,7 +422,7 @@ async function readRental({
     return rentalOf(
       facts,
       libraries ?? libraryDrives({ platform, steamPath: await steamPath(), ...options }),
-      { nvidiaRental },
+      { nvidiaRental, nvidiaDriver },
     );
   } catch {
     return null;

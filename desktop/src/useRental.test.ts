@@ -3,6 +3,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NvidiaError } from "../nvidia.cjs";
 import type { RentalPlan } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
 import { useRental } from "./useRental";
@@ -81,5 +82,43 @@ describe("useRental", () => {
     await answer(1, plan("stop", "Windows first"));
     await answer(0, plan("start", "Swiff OS first"));
     expect(result.current.preview?.kind).toBe("stop");
+  });
+
+  it("installs NVIDIA's driver with what the owner accepted, shows its progress, then reads the PC again", async () => {
+    let progress: (p: { done: number; total: number }) => void = () => {};
+    let finish!: (r: { ok: true } | { ok: false; error: NvidiaError }) => void;
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.onNvidiaProgress = vi.fn((listener) => ((progress = listener), () => {}));
+    host.installNvidia = vi.fn(
+      () => new Promise<{ ok: true } | { ok: false; error: NvidiaError }>((done) => (finish = done)),
+    );
+    host.cancelNvidia = vi.fn(async () => {});
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.installNvidia({ licence: true, terms: true }));
+    expect(host.installNvidia).toHaveBeenCalledWith({ licence: true, terms: true });
+    act(() => progress({ done: 10, total: 40 }));
+    expect(result.current.nvidia.install).toEqual({ state: "running", done: 10, total: 40, stopping: false });
+    act(() => result.current.cancelNvidia());
+    expect(result.current.nvidia.install).toMatchObject({ state: "running", stopping: true });
+    expect(host.cancelNvidia).toHaveBeenCalledOnce();
+    const reads = (host.readRental as ReturnType<typeof vi.fn>).mock.calls.length;
+    await act(async () => finish({ ok: false, error: "offline" }));
+    expect(result.current.nvidia.install).toEqual({ state: "failed", error: "offline" });
+    expect((host.readRental as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reads + 1);
+  });
+
+  it("loads NVIDIA's licence, and says why when it cannot", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.nvidiaLicence = vi.fn(async () => ({ ok: true as const, text: "NVIDIA Driver License Agreement" }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => result.current.readNvidiaLicence());
+    expect(result.current.nvidia.licence).toEqual({
+      state: "ready",
+      text: "NVIDIA Driver License Agreement",
+    });
+    host.nvidiaLicence = vi.fn(async () => ({ ok: false as const, error: "changed" as const }));
+    await act(async () => result.current.readNvidiaLicence());
+    expect(result.current.nvidia.licence).toEqual({ state: "failed", error: "changed" });
   });
 });
