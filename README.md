@@ -78,7 +78,7 @@ Code: `desktop/`, `packages/`.
 ## Rental mode (Lanterel OS)
 
 The locked Linux system a shared PC boots into, built in stages: [`swiff-os/`](swiff-os/README.md).
-Remove Swiff OS takes one click to start and one confirmation on a blue screen during a restart;
+Remove Lanterel OS takes one click to start and one confirmation on a blue screen during a restart;
 the app then finishes on its own (Windows may ask once more for permission).
 
 ## Checks
