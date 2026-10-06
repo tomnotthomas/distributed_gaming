@@ -554,7 +554,8 @@ again (`off`). A PC that plays for crews is crew-only: it is offered and matched
 people in those crews (gate E7 in `packages/rank`): on the wall, on the game page, in the
 queue, as a picked machine, and at the claim, which hands a reservation made before the PC
 was taken from the renter's crews back to the queue. A PC first heard from while its owner
-shares a crew with anyone starts crew-only, playing for nobody until they pick; a PC whose
+shares a crew with anyone starts crew-only, playing for nobody until they pick (someone in
+it only by a friend seat does not count, see "Friend seats"); a PC whose
 owner was never in a crew is open to anyone, as before crews. A crew-only PC from before
 crews were groups plays for every crew its owner was in.
 
