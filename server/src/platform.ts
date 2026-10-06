@@ -92,6 +92,17 @@
 // leave) may remove anyone; their PCs leave the crew with them. A crew is
 // ready once any PC playing for it is on offer, and everyone in it hears so
 // the first time (onCrewReady). A new link stops new joins only.
+//
+// Friend seats: a host keeps up to MAX_SEATS named seats at a PC of theirs for
+// friends (createSeat), each with its own link (signed in access.ts). A seat
+// is held for the friend it names for SEAT_HOLD_MS; whoever opens its link
+// first, signed in, takes it (takeSeat), and joins the crew the seat is in:
+// one the PC plays for, or, when it plays for none of its owner's, a crew
+// founded for it, which the PC then plays for. A taken seat is its holder's
+// until the host takes it back (revokeSeat) or they leave that crew, and gate
+// E7 lets its holder play on that PC whichever crews it plays for. Taking it
+// back, or a holder leaving, ends the membership taking it made. Nobody shares
+// an account: a holder plays their own Steam games, signed in as themselves.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -271,6 +282,58 @@ export const CREW_NAME_MAX = 24;
  * number is kept bounded.
  */
 export const MAX_CREWS = 50;
+
+/** The most friend seats a host keeps at one PC, taken or waiting for their friend. */
+export const MAX_SEATS = 4;
+/** How long a friend seat waits for the friend it names, from when it was made. */
+export const SEAT_HOLD_MS = 14 * 24 * 60 * 60_000;
+/** The longest name a seat's friend may be given, in characters. */
+export const SEAT_NAME_MAX = 24;
+
+/**
+ * A friend seat as its host sees it: the friend it is for, its place among the
+ * PC's seats (from 1), whether it is still waiting for them (`open`, until
+ * `expiresAt`) or taken (by `takenBy`, their Steam persona when known), and
+ * the crew taking it joins.
+ */
+export type HostSeat = {
+  id: string;
+  friend: string;
+  number: number;
+  state: "open" | "taken";
+  expiresAt: number;
+  takenBy: string | null;
+  crewId: string;
+};
+
+/**
+ * A friend seat as someone opening its link sees it: whose PC (`host`, their
+ * Steam persona when known), the friend it is for, its place among the PC's
+ * seats (`number` of `of`), and the PC. `state` is `open` while it waits for
+ * its friend (until `expiresAt`), `yours` once the viewer holds it, `taken`
+ * when someone else does, `expired` once it waited out its time, and `host`
+ * when the viewer is the host. `crewId` names the crew it is in, for its
+ * holder alone.
+ */
+export type SeatInvite = {
+  host: string | null;
+  friend: string;
+  number: number;
+  of: number;
+  state: "open" | "yours" | "taken" | "expired" | "host";
+  expiresAt: number;
+  pc: { name: string | null; gpu: string | null; state: CrewPcState; rentalMode: boolean };
+  crewId: string | null;
+};
+
+/** What became of making a friend seat: the seat, or why not. */
+export type MakeSeatResult =
+  { ok: true; seat: HostSeat } | { ok: false; reason: "unknown-machine" | "no-owner" | "full" | "too-many" };
+
+/** What became of taking a friend seat: the crew it is in and the seat, or why not. */
+export type TakeSeatResult =
+  | { ok: true; crewId: string; seat: SeatInvite; joined: boolean }
+  | { ok: false; reason: "not-found" | "expired" | "taken" | "own" | "too-many" };
 
 /** How the host takes the machine off offer. */
 export type OffOffer = {
@@ -617,6 +680,27 @@ export function crewNameOf(name: unknown): string | null {
   ];
   return folded.length ? folded.slice(0, CREW_NAME_MAX).join("").trim() : null;
 }
+
+/** A seat's friend's name as given, folded as a crew name is, at most SEAT_NAME_MAX characters; null when nothing is left. */
+export function seatNameOf(name: unknown): string | null {
+  const folded = crewNameOf(name);
+  return folded === null ? null : [...folded].slice(0, SEAT_NAME_MAX).join("").trim() || null;
+}
+
+/** A seat row, as seat reads select it. */
+type SeatRow = {
+  id: string;
+  machine_id: string;
+  crew_id: string;
+  host_id: string;
+  host_name: string | null;
+  friend: string;
+  created_at: number;
+  expires_at: number;
+  user_id: string | null;
+  user_name: string | null;
+  member_id: string | null;
+};
 
 /** The longest delay setTimeout takes; a later deadline is woken for early and re-armed. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -1439,39 +1523,321 @@ export class Platform {
       );
       if (!member || (member.user_id !== userId && member.owner_id !== userId)) return false;
       const now = this.#now();
-      await this.#run("DELETE FROM crew_members WHERE id = $1", memberId);
-      const owned = await this.#ownedMachines(member.user_id);
-      await this.#run(
-        "DELETE FROM crew_machines WHERE crew_id = $1 AND (machine_id = ANY ($2::text[]) OR added_by = $3)",
+      await this.#removeMember(memberId, member, now);
+      await this.#tick(now);
+      return true;
+    });
+  }
+
+  /**
+   * End membership `memberId` of `member.user_id` in `member.crew_id`, whose
+   * admin is `member.owner_id`: their PCs leave the crew with them, and so do
+   * the seats they hold in it and the ones at their PCs it holds; an admin
+   * leaving hands the crew on, and the last one out archives it.
+   */
+  async #removeMember(
+    memberId: string,
+    member: { crew_id: string; user_id: string; owner_id: string },
+    now: number,
+  ): Promise<void> {
+    await this.#run("DELETE FROM crew_members WHERE id = $1", memberId);
+    const owned = await this.#ownedMachines(member.user_id);
+    await this.#run(
+      "DELETE FROM crew_machines WHERE crew_id = $1 AND (machine_id = ANY ($2::text[]) OR added_by = $3)",
+      member.crew_id,
+      owned,
+      member.user_id,
+    );
+    await this.#run(
+      `UPDATE seats SET revoked_at = $1
+         WHERE crew_id = $2 AND (user_id = $3 OR host_id = $3) AND revoked_at IS NULL`,
+      now,
+      member.crew_id,
+      member.user_id,
+    );
+    if (member.user_id === member.owner_id) {
+      const next = await this.#get<{ user_id: string; name: string | null }>(
+        "SELECT user_id, name FROM crew_members WHERE crew_id = $1 ORDER BY joined_at, id LIMIT 1",
         member.crew_id,
-        owned,
-        member.user_id,
       );
-      if (member.user_id === member.owner_id) {
-        const next = await this.#get<{ user_id: string; name: string | null }>(
-          "SELECT user_id, name FROM crew_members WHERE crew_id = $1 ORDER BY joined_at, id LIMIT 1",
+      if (next) {
+        await this.#run(
+          "UPDATE crews SET owner_id = $1, owner_name = $2 WHERE id = $3",
+          next.user_id,
+          next.name,
           member.crew_id,
         );
-        if (next) {
-          await this.#run(
-            "UPDATE crews SET owner_id = $1, owner_name = $2 WHERE id = $3",
-            next.user_id,
-            next.name,
-            member.crew_id,
-          );
-        } else {
-          await this.#run("UPDATE crews SET archived_at = $1 WHERE id = $2", now, member.crew_id);
-          await this.#run(
-            "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
-            now,
-            member.crew_id,
-          );
-        }
+      } else {
+        await this.#run("UPDATE crews SET archived_at = $1 WHERE id = $2", now, member.crew_id);
+        await this.#run(
+          "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
+          now,
+          member.crew_id,
+        );
       }
+    }
+    this.#offerChanged = true;
+  }
+
+  // --- friend seats ----------------------------------------------------------
+
+  /**
+   * Keep a seat at `machineId` for the friend named `friend`, as its owner,
+   * whose Steam persona is `hostName` when it could be read. The seat is in
+   * the first crew the PC plays for of its owner's; when it plays for none, a
+   * crew is founded for its owner, which the PC plays for from then on.
+   * "unknown-machine" for a PC never heard from, "no-owner" for one with no
+   * owner on record, "full" with MAX_SEATS seats there already, and
+   * "too-many" when a crew would have to be founded for an owner in
+   * MAX_CREWS crews.
+   */
+  createSeat(machineId: string, friend: string, hostName: string | null = null): Promise<MakeSeatResult> {
+    return this.#transaction(async (): Promise<MakeSeatResult> => {
+      const now = this.#now();
+      const machine = await this.#machineRow(machineId);
+      if (!machine) return { ok: false, reason: "unknown-machine" };
+      const owner = this.#owners.get(machineId) ?? machine.owner_id;
+      if (!owner) return { ok: false, reason: "no-owner" };
+      if ((await this.#liveSeats(machineId, now)).length >= MAX_SEATS) return { ok: false, reason: "full" };
+      let crew = await this.#get<{ crew_id: string; name: string | null }>(
+        `SELECT p.crew_id, m.name FROM crew_machines p
+           JOIN crews c ON c.id = p.crew_id AND c.archived_at IS NULL
+           JOIN crew_members m ON m.crew_id = p.crew_id AND m.user_id = $2
+           WHERE p.machine_id = $1 ORDER BY p.added_at, p.crew_id LIMIT 1`,
+        machineId,
+        owner,
+      );
+      if (!crew) {
+        if ((await this.#crewCount(owner)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
+        const crewId = newId();
+        await this.#run(
+          "INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)",
+          crewId,
+          owner,
+          hostName || null,
+          now,
+        );
+        await this.#run(
+          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at, pc) VALUES ($1, $2, $3, $4, $5, 'yes')",
+          newId(),
+          crewId,
+          owner,
+          hostName || null,
+          now,
+        );
+        await this.#newInvite(crewId, owner, now);
+        await this.#playFor(crewId, [machineId], owner, now);
+        crew = { crew_id: crewId, name: hostName || null };
+      }
+      const id = newId();
+      await this.#run(
+        `INSERT INTO seats (id, machine_id, crew_id, host_id, host_name, friend, created_at, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        id,
+        machineId,
+        crew.crew_id,
+        owner,
+        hostName || crew.name || null,
+        friend,
+        now,
+        now + SEAT_HOLD_MS,
+      );
+      if (this.#offerChanged) await this.#tick(now);
+      const seat = (await this.#hostSeats(machineId, now)).find((s) => s.id === id)!;
+      return { ok: true, seat };
+    });
+  }
+
+  /** Who owns `machineId`, as configured or as it last checked in; null when nobody is on record. */
+  machineOwner(machineId: string): Promise<string | null> {
+    return this.#read(async () => {
+      const configured = this.#owners.get(machineId);
+      if (configured) return configured;
+      return (await this.#machineRow(machineId))?.owner_id ?? null;
+    });
+  }
+
+  /** The seats at `machineId`, taken or still waiting for their friend, as its host sees them, in the order they were made. */
+  seats(machineId: string): Promise<HostSeat[]> {
+    return this.#read(() => this.#hostSeats(machineId, this.#now()));
+  }
+
+  /**
+   * Take seat `seatId` at `machineId` back, as its host: its link opens
+   * nothing from then on, and a friend who took it no longer plays on the PC
+   * by it, nor is in the crew by it. False when there is no such seat there.
+   */
+  revokeSeat(machineId: string, seatId: string): Promise<boolean> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const seat = await this.#get<SeatRow>(
+        "SELECT * FROM seats WHERE id = $1 AND machine_id = $2 AND revoked_at IS NULL",
+        seatId,
+        machineId,
+      );
+      if (!seat) return false;
+      await this.#run("UPDATE seats SET revoked_at = $1 WHERE id = $2", now, seatId);
+      if (seat.member_id && seat.user_id) {
+        const member = await this.#get<{ crew_id: string; user_id: string; owner_id: string }>(
+          `SELECT m.crew_id, m.user_id, c.owner_id FROM crew_members m JOIN crews c ON c.id = m.crew_id
+             WHERE m.id = $1`,
+          seat.member_id,
+        );
+        // Only the membership taking it made, and never the crew's admin's: one handed the crew since stays.
+        if (member && member.user_id !== member.owner_id)
+          await this.#removeMember(seat.member_id, member, now);
+      }
+      // Who may play on the PC has changed: the wall reads again, and a match is checked again at claim.
       this.#offerChanged = true;
       await this.#tick(now);
       return true;
     });
+  }
+
+  /** Seat `seatId` as `userId` opening its link sees it (null: signed out); null once taken back, or for none. */
+  seat(seatId: string, userId: string | null = null): Promise<SeatInvite | null> {
+    return this.#read(async () => {
+      const seat = await this.#seatRow(seatId);
+      return seat ? this.#seatInvite(seat, userId, this.#now()) : null;
+    });
+  }
+
+  /**
+   * `userId` takes seat `seatId`, whose Steam persona is `name` when it could
+   * be read: they join the crew it is in, and play on its PC from then on.
+   * Taking a seat they hold already changes nothing. "expired" once it waited
+   * out its time, "taken" when someone else holds it, "own" for its host, and
+   * "too-many" when joining would put them in more than MAX_CREWS crews.
+   */
+  takeSeat(seatId: string, userId: string, name: string | null = null): Promise<TakeSeatResult> {
+    return this.#transaction(async (): Promise<TakeSeatResult> => {
+      const now = this.#now();
+      const seat = await this.#seatRow(seatId);
+      if (!seat) return { ok: false, reason: "not-found" };
+      if (seat.host_id === userId) return { ok: false, reason: "own" };
+      if (seat.user_id !== null && seat.user_id !== userId) return { ok: false, reason: "taken" };
+      if (seat.user_id === userId) {
+        return {
+          ok: true,
+          crewId: seat.crew_id,
+          joined: false,
+          seat: await this.#seatInvite(seat, userId, now),
+        };
+      }
+      if (seat.expires_at <= now) return { ok: false, reason: "expired" };
+      // One seat per friend at a PC: a second one there is left for someone else.
+      if (
+        await this.#get(
+          "SELECT 1 FROM seats WHERE machine_id = $1 AND user_id = $2 AND revoked_at IS NULL",
+          seat.machine_id,
+          userId,
+        )
+      ) {
+        return { ok: false, reason: "taken" };
+      }
+      const member = await this.#get(
+        "SELECT 1 FROM crew_members WHERE crew_id = $1 AND user_id = $2",
+        seat.crew_id,
+        userId,
+      );
+      if (!member && (await this.#crewCount(userId)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
+      let memberId: string | null = null;
+      if (!member) {
+        memberId = newId();
+        await this.#run(
+          `INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)`,
+          memberId,
+          seat.crew_id,
+          userId,
+          name || null,
+          now,
+        );
+      }
+      await this.#run(
+        "UPDATE seats SET user_id = $1, user_name = $2, member_id = $3, taken_at = $4 WHERE id = $5",
+        userId,
+        name || null,
+        memberId,
+        now,
+        seatId,
+      );
+      // They may play on the PC now: the wall reads again, and the queue is matched anew.
+      this.#offerChanged = true;
+      await this.#tick(now);
+      const taken = (await this.#seatRow(seatId))!;
+      return {
+        ok: true,
+        crewId: seat.crew_id,
+        joined: memberId !== null,
+        seat: await this.#seatInvite(taken, userId, now),
+      };
+    });
+  }
+
+  /** A seat not taken back, of a crew still going; undefined for none. */
+  #seatRow(seatId: string): Promise<SeatRow | undefined> {
+    return this.#get<SeatRow>(
+      `SELECT s.* FROM seats s JOIN crews c ON c.id = s.crew_id
+         WHERE s.id = $1 AND s.revoked_at IS NULL AND c.archived_at IS NULL`,
+      seatId,
+    );
+  }
+
+  /** The seats at `machineId` that count against MAX_SEATS: taken, or still waiting for their friend, oldest first. */
+  #liveSeats(machineId: string, now: number): Promise<SeatRow[]> {
+    return this.#all<SeatRow>(
+      `SELECT * FROM seats WHERE machine_id = $1 AND revoked_at IS NULL
+         AND (user_id IS NOT NULL OR expires_at > $2) ORDER BY created_at, id`,
+      machineId,
+      now,
+    );
+  }
+
+  /** The seats at `machineId` as its host sees them. */
+  async #hostSeats(machineId: string, now: number): Promise<HostSeat[]> {
+    return (await this.#liveSeats(machineId, now)).map((s, i) => ({
+      id: s.id,
+      friend: s.friend,
+      number: i + 1,
+      state: s.user_id === null ? "open" : "taken",
+      expiresAt: s.expires_at,
+      takenBy: s.user_id === null ? null : s.user_name,
+      crewId: s.crew_id,
+    }));
+  }
+
+  /** Seat `seat` as `userId` (null: signed out) sees it. */
+  async #seatInvite(seat: SeatRow, userId: string | null, now: number): Promise<SeatInvite> {
+    // An expired seat no longer counts against the PC's: it is shown after the ones that do.
+    const live = await this.#liveSeats(seat.machine_id, now);
+    const counted = live.some((s) => s.id === seat.id) ? live : [...live, seat];
+    const machine = (await this.#machineRow(seat.machine_id))!;
+    const state: SeatInvite["state"] =
+      userId !== null && seat.host_id === userId
+        ? "host"
+        : seat.user_id !== null
+          ? seat.user_id === userId
+            ? "yours"
+            : "taken"
+          : seat.expires_at <= now
+            ? "expired"
+            : "open";
+    const pc = pcState(machine.status);
+    return {
+      host: seat.host_name,
+      friend: seat.friend,
+      number: counted.findIndex((s) => s.id === seat.id) + 1,
+      of: counted.length,
+      state,
+      expiresAt: seat.expires_at,
+      pc: {
+        name: machine.name,
+        gpu: machine.gpu_model,
+        state: pc === "ready" && !this.#offerable(machine.id) ? "offline" : pc,
+        rentalMode: machine.rental_mode,
+      },
+      crewId: state === "yours" ? seat.crew_id : null,
+    };
   }
 
   /** How many crews `userId` is in. */
@@ -2624,23 +2990,28 @@ export class Platform {
 
   /**
    * Who may play on each crew-only machine among `rows`, for gate E7: everyone
-   * in the crews it plays for. One statement however many there are.
+   * in the crews it plays for, and everyone holding a seat at it. One
+   * statement however many there are.
    */
   async #crewmates(rows: Pick<MachineRow, "id" | "crew_only">[]): Promise<Crewmates> {
     const ids = rows.filter((m) => m.crew_only).map((m) => m.id);
     const mates = new Map<string, string[]>();
     if (!ids.length) return mates;
     const pairs = await this.#all<{ machine: string; mate: string }>(
-      `SELECT DISTINCT p.machine_id AS machine, m.user_id AS mate FROM crew_machines p
+      `SELECT p.machine_id AS machine, m.user_id AS mate FROM crew_machines p
          JOIN crew_members m ON m.crew_id = p.crew_id
-         WHERE p.machine_id = ANY ($1::text[]) ORDER BY 1, 2`,
+         WHERE p.machine_id = ANY ($1::text[])
+       UNION
+       SELECT s.machine_id, s.user_id FROM seats s
+         WHERE s.machine_id = ANY ($1::text[]) AND s.revoked_at IS NULL AND s.user_id IS NOT NULL
+       ORDER BY 1, 2`,
       ids,
     );
     for (const { machine, mate } of pairs) mates.set(machine, [...(mates.get(machine) ?? []), mate]);
     return mates;
   }
 
-  /** Whether `renterId` passes gate E7 on the machine: it is open to anyone, or they are in a crew it plays for. */
+  /** Whether `renterId` passes gate E7 on the machine: it is open to anyone, they are in a crew it plays for, or hold a seat at it. */
   async #mayPlayOn(machineId: string, renterId: string | null): Promise<boolean> {
     const row = await this.#get<{ crew_only: boolean }>(
       "SELECT crew_only FROM machines WHERE id = $1",

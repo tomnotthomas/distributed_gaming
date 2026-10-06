@@ -60,6 +60,7 @@ describe("migrations", () => {
         "machines",
         "reservations",
         "schema_migrations",
+        "seats",
         "sessions",
       ]);
       assert.deepEqual(await versions(db), ALL);

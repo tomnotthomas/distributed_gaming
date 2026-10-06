@@ -17,6 +17,9 @@
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
+//   GET  /api/seats/:token   (signed out)  GET  /api/machines/:id/seats         control
+//   POST /api/seats/:token/take            POST /api/machines/:id/seats         control
+//                                          DELETE /api/machines/:id/seats?seat= control
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -79,13 +82,22 @@
 // its admin renames it or replaces its link. A membership is named by its own
 // id, never a Steam id: its member removes it to leave, and the crew's admin
 // to remove them.
+//
+// A host keeps friend seats at their PC from the host app, with the machine
+// key: up to MAX_SEATS, each named for a friend, each with its own link,
+// signed as a crew link is but under its own domain (access.ts). Anyone may
+// read what a seat link is to, so the friend sees whose PC it is; taking it
+// takes signing in with Steam, and the friend then plays their own games on
+// their own account. The link is never logged.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sessionSpanMs, type Control, type PicturePref } from "@swiff/rank";
 import {
   inviteToken,
   mintTicket,
+  seatToken,
   verifyInviteToken,
+  verifySeatToken,
   verifyMachineKey,
   verifyTicket,
   type Access,
@@ -98,7 +110,16 @@ import { popularGames } from "./catalog.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
 import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
-import { MAX_CREWS, MAX_MINUTES, type CrewDetail, type Platform, type Rtts } from "./platform.js";
+import {
+  MAX_CREWS,
+  MAX_MINUTES,
+  MAX_SEATS,
+  seatNameOf,
+  type CrewDetail,
+  type HostSeat,
+  type Platform,
+  type Rtts,
+} from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
@@ -200,10 +221,10 @@ function reply(
  */
 const HOST_CORS = { "access-control-allow-origin": "*" };
 /** The Host API's machine routes: /api/machines/:id/<action>. */
-const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand", "ek"]);
+const HOST_ACTIONS = new Set(["availability", "heartbeat", "upload-test", "demand", "ek", "seats"]);
 const HOST_PREFLIGHT = {
   ...HOST_CORS,
-  "access-control-allow-methods": "GET, PUT, POST",
+  "access-control-allow-methods": "GET, PUT, POST, DELETE",
   "access-control-allow-headers": "authorization, content-type",
   "access-control-max-age": "600",
 };
@@ -513,6 +534,14 @@ export function createApi({
     return { ...crew, token: inviteId && sessionSecret ? inviteToken(sessionSecret, inviteId) : null };
   }
 
+  /** A seat as its host is sent it: with its link's token, which only the host app ever reads. */
+  function seatReply(seat: HostSeat) {
+    return { ...seat, token: sessionSecret ? seatToken(sessionSecret, seat.id) : null };
+  }
+
+  /** The seat id a seat link's token names, or null for a forged one (or with no session secret). */
+  const seatIdOf = (token: string) => (sessionSecret ? verifySeatToken(sessionSecret, token) : null);
+
   /** Serve one /api/ request; a bad one throws HttpError for serveApi to answer. */
   async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     const method = req.method ?? "GET";
@@ -741,6 +770,38 @@ export function createApi({
       return true;
     }
 
+    // --- Friend seats ----------------------------------------------------------
+
+    if (resource === "seats" && id && !action && method === "GET") {
+      const seatId = seatIdOf(id);
+      const seat = seatId ? await platform.seat(seatId, renterSessionOf(req, sessionSecret)?.steamId) : null;
+      if (!seat) throw new HttpError(404, "this seat link is not valid any more");
+      reply(res, 200, { seat });
+      return true;
+    }
+
+    if (resource === "seats" && id && action === "take" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const seatId = seatIdOf(id);
+      // The host sees who took it by their Steam persona, kept from this read, when Steam answers.
+      const read = seatId ? await profile(steamId).catch(() => null) : null;
+      const taken = seatId ? await platform.takeSeat(seatId, steamId, read?.persona || null) : null;
+      if (!taken?.ok) {
+        if (!taken || taken.reason === "not-found")
+          throw new HttpError(404, "this seat link is not valid any more");
+        const error = {
+          expired: "this seat waited out its time",
+          taken: "someone else has this seat",
+          own: "this is a seat at your own PC",
+          "too-many": `you are in ${MAX_CREWS} crews already`,
+        }[taken.reason];
+        reply(res, 409, { error, code: taken.reason === "too-many" ? "too-many-crews" : taken.reason });
+        return true;
+      }
+      reply(res, 200, { crewId: taken.crewId, joined: taken.joined, seat: taken.seat });
+      return true;
+    }
+
     if (resource === "bookings" && !id && method === "POST") {
       const renter = requireRenter(req, sessionSecret);
       const body = await readJson(req);
@@ -955,6 +1016,42 @@ export function createApi({
           .map((d) => ({ ...d, name: names.get(d.appid) ?? null })),
       });
       return true;
+    }
+
+    if (resource === "machines" && id && action === "seats") {
+      requireMachine(req, access, id);
+      if (method === "GET") {
+        reply(res, 200, { seats: (await platform.seats(id)).map(seatReply), max: MAX_SEATS });
+        return true;
+      }
+      if (method === "POST") {
+        const body = await readJson(req);
+        const friend = seatNameOf(body.friend);
+        if (friend === null) throw new HttpError(400, "friend must be a name");
+        // The friend is shown whose PC it is by the owner's Steam persona, read now, when Steam answers.
+        const owner = await platform.machineOwner(id);
+        const read = owner ? await profile(owner).catch(() => null) : null;
+        const made = await platform.createSeat(id, friend, read?.persona || null);
+        if (!made.ok) {
+          const error = {
+            "unknown-machine": "offer this PC once before keeping seats at it",
+            "no-owner": "this PC has no owner on record",
+            full: `this PC has ${MAX_SEATS} seats already`,
+            "too-many": `its owner is in ${MAX_CREWS} crews already`,
+          }[made.reason];
+          reply(res, 409, { error, code: made.reason === "too-many" ? "too-many-crews" : made.reason });
+          return true;
+        }
+        reply(res, 201, { seat: seatReply(made.seat) });
+        return true;
+      }
+      if (method === "DELETE") {
+        const seatId = queryOf(req).get("seat");
+        if (!seatId || !/^[\w-]{22}$/.test(seatId)) throw new HttpError(400, "seat must be a seat id");
+        if (!(await platform.revokeSeat(id, seatId))) throw new HttpError(404, "no such seat");
+        reply(res, 200, { seats: (await platform.seats(id)).map(seatReply), max: MAX_SEATS });
+        return true;
+      }
     }
 
     if (resource === "machines" && id && action === "attest-challenge" && method === "POST") {

@@ -315,6 +315,35 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `UPDATE crews SET ready_at = created_at
        WHERE EXISTS (SELECT 1 FROM crew_machines c WHERE c.crew_id = crews.id)`,
   ],
+  [
+    // Friend seats (platform.ts, seats): a host keeps a few named seats at
+    // their PC for friends. The link carries the id signed (access.ts), so the
+    // id alone opens nothing. crew_id is the crew taking the seat joins, one
+    // the PC plays for; friend is the name the host gave it, host_name the
+    // host's Steam persona as read when they made it. Until expires_at only
+    // the friend's link takes it; user_id is who took it, member_id the crew
+    // membership taking it made (null when they were in the crew already),
+    // and revoked_at when the host took it back, or its holder left the crew.
+    `CREATE TABLE seats (
+      id          TEXT PRIMARY KEY,
+      machine_id  TEXT NOT NULL REFERENCES machines (id),
+      crew_id     TEXT NOT NULL REFERENCES crews (id),
+      host_id     TEXT NOT NULL,
+      host_name   TEXT,
+      friend      TEXT NOT NULL,
+      created_at  BIGINT NOT NULL,
+      expires_at  BIGINT NOT NULL,
+      user_id     TEXT,
+      user_name   TEXT,
+      member_id   TEXT,
+      taken_at    BIGINT,
+      revoked_at  BIGINT
+    )`,
+    `CREATE INDEX seats_by_machine ON seats (machine_id) WHERE revoked_at IS NULL`,
+    `CREATE INDEX seats_by_user ON seats (user_id) WHERE revoked_at IS NULL`,
+    // One seat per friend per PC.
+    `CREATE UNIQUE INDEX seats_taken ON seats (machine_id, user_id) WHERE revoked_at IS NULL AND user_id IS NOT NULL`,
+  ],
 ];
 
 /**
