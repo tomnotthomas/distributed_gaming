@@ -140,12 +140,9 @@ test("with the relay, the stream comes up through it on the seat's own credentia
   await expect.poll(async () => (await sides()).join(" | "), { timeout: 20_000 }).toMatch(/relay/);
 
   // And the relay let them in on what the server minted for the seat: a
-  // credential per side, bound to it, never a shared one.
-  const log = readFileSync(SWIFF_RELAY_TURN_LOG!, "utf8");
-  for (const side of ["renter", "host"]) {
-    expect(log).toMatch(
-      new RegExp(`user <\\d+:[\\w-]+-${side}>: incoming packet ALLOCATE processed, success`),
-    );
-  }
+  // credential per side, bound to it, never a shared one. run.sh keeps only
+  // the side of each allocation made on such a credential, not the username.
+  const allocated = readFileSync(SWIFF_RELAY_TURN_LOG!, "utf8").split("\n");
+  for (const side of ["renter", "host"]) expect(allocated).toContain(`allocated ${side}`);
   expect(errors).toEqual([]);
 });

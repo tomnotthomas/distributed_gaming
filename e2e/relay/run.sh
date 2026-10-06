@@ -70,15 +70,21 @@ netns host 2
 
 out=e2e/.results/relay
 mkdir -p "$out"
-rm -f "$out/turnserver.log"
+rm -f "$out/turnserver.log" "$out/allocations.log" "$out/turnserver.fifo"
 SWIFF_RELAY_TURN_SECRET="$(head -c 32 /dev/urandom | base64)"
+# coturn's log names each TURN user, and those are credentials: it goes through
+# a FIFO, never to disk, and only which side got an allocation is kept.
+mkfifo "$out/turnserver.fifo"
+sed -unE 's/.*user <[0-9]+:[A-Za-z0-9_-]+-(renter|host)>: incoming packet ALLOCATE processed, success.*/allocated \1/p' \
+  <"$out/turnserver.fifo" >"$out/allocations.log" &
+pids+=("$!")
 "$TURNSERVER" -n --listening-ip=10.20.1.1 --relay-ip=10.20.1.1 --listening-port=3478 \
   --min-port=49152 --max-port=49999 --use-auth-secret --static-auth-secret="$SWIFF_RELAY_TURN_SECRET" \
-  --realm=swiff.test --no-tls --no-dtls --no-cli --verbose --simple-log --log-file="$out/turnserver.log" \
+  --realm=swiff.test --no-tls --no-dtls --no-cli --verbose --simple-log --log-file="$out/turnserver.fifo" \
   --userdb="$out/turndb" >/dev/null 2>&1 &
 pids+=("$!")
 
 export RENTER_PID HOST_PID SWIFF_RELAY_TURN_SECRET
 export SWIFF_RELAY_TURN_URLS="turn:10.20.1.1:3478"
-export SWIFF_RELAY_TURN_LOG="$out/turnserver.log"
+export SWIFF_RELAY_TURN_LOG="$out/allocations.log"
 npx playwright test -c e2e/relay/playwright.config.ts "$@"
