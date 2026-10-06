@@ -162,7 +162,13 @@ describe("startWatchSession", () => {
         release = () => void replaceTrack.call(this, track).then(resolve);
       });
     });
-    socket().deliver({ type: "watching", watchId: "w1", state: "watching", player: "Mara", playerHere: true });
+    socket().deliver({
+      type: "watching",
+      watchId: "w1",
+      state: "watching",
+      player: "Mara",
+      playerHere: true,
+    });
     socket().deliver({ type: "offer", sdp: OFFER, watchId: "w1" });
     await flush();
     const first = peer();
