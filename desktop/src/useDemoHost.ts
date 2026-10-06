@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEMO_CREWS,
   DEMO_DEMAND,
@@ -39,7 +39,6 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
   const [crew, setCrew] = useState<Crew>({ only: true, crews: DEMO_CREWS });
-  const [seats] = useState(() => demoSeatClient());
   const [shown, setShown] = useState<DemoScreen>(screen);
 
   useEffect(() => {
@@ -48,6 +47,10 @@ export function useDemoHost(screen: DemoScreen): Host & {
   }, []);
 
   const now = state.clockAt + (tick - mountedAt);
+  // Seats keep the demo's clock, so their days left match the panel's.
+  const nowRef = useRef(now);
+  nowRef.current = now;
+  const [seats] = useState(() => demoSeatClient(() => nowRef.current));
   const plan = picked ? picked.at : untilChoices(now)[1]!.at;
   const setLive = useCallback((live: Live) => setState((s) => ({ ...s, live })), []);
 
