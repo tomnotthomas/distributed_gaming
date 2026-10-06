@@ -430,6 +430,11 @@ export function startPlay(opts: PlayOptions): Play {
           clearTimeout(timer);
           clearTimeout(rejoinTimer);
           clearTimeout(giveUpTimer);
+          // The server ended a claim whose sign-in time ran out: that is the time-up, not a refusal.
+          if (event.reason !== "replaced" && signInBy !== undefined && now() >= signInBy && !signedIn && !state.started) {
+            timeUp();
+            break;
+          }
           set(event.reason === "replaced" ? { replaced: true } : { denied: true });
           break;
       }

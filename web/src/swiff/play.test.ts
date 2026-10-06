@@ -671,6 +671,18 @@ describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("says the sign-in time ran out, not a refusal, when the server ends the claim at its deadline", async () => {
+    vi.setSystemTime(0);
+    const { handle } = play(false, undefined, { ...CLAIM, rentalMode: true, signInBy: STEAM_SIGN_IN_MS });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS);
+    // The server's tick ends the claim and revokes its ticket.
+    latest().emit({ type: "denied", reason: "bad-ticket" });
+    expect(handle.state()).toMatchObject({ signInFailed: "time-up", denied: false, steamLogin: null });
+  });
+
   it("keeps a session signed in before the claim's sign-in time ran out", async () => {
     vi.setSystemTime(0);
     const { handle, fetch } = play(false, undefined, {
