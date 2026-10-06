@@ -168,7 +168,7 @@ rm -rf /run/swiff-selftest-nvidia
 check nvidia-forged-refused "$nv_forged" grep -q 'does not match' <<< "$nv_forged"
 nv_modprobe=$(modprobe -c)
 check nvidia-nouveau-blacklisted "nouveau and nova never bind an NVIDIA card" \
-	bash -c 'grep -qx "blacklist nouveau" <<< "$1" && grep -qx "blacklist nova_core" <<< "$1"' _ "$nv_modprobe"
+	bash -c 'm=$(cat) && grep -qx "blacklist nouveau" <<< "$m" && grep -qx "blacklist nova_core" <<< "$m"' <<< "$nv_modprobe"
 check nvidia-waits-for-driver "udev never loads nvidia before its firmware is merged" grep -qx 'blacklist nvidia' <<< "$nv_modprobe"
 check nvidia-drm-modeset "gamescope needs nvidia-drm's KMS" grep -qx 'options nvidia_drm modeset=1' <<< "$nv_modprobe"
 

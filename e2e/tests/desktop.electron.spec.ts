@@ -134,9 +134,10 @@ test.describe("Swiff Host desktop app", () => {
     // main to store and return it. Besides that it may read what the PC is,
     // read Steam's state and ask main to fetch Valve's installer, hear its
     // installed games change, read what rental mode needs and preview its
-    // install or switch, read how long since its keyboard was used, send
-    // the tray glance its snapshot and hear the glance's actions. No other
-    // door into main.
+    // install or switch, read NVIDIA's licence, install, cancel or remove
+    // NVIDIA's driver and hear its progress, read how long since its keyboard
+    // was used, send the tray glance its snapshot and hear the glance's
+    // actions. No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -151,6 +152,11 @@ test.describe("Swiff Host desktop app", () => {
       onGamesChanged: "function",
       readRental: "function",
       planRental: "function",
+      nvidiaLicence: "function",
+      installNvidia: "function",
+      cancelNvidia: "function",
+      onNvidiaProgress: "function",
+      removeNvidia: "function",
       secondsSinceInput: "function",
       setGlance: "function",
       onTrayAction: "function",
