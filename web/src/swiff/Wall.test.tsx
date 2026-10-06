@@ -41,6 +41,8 @@ function swiffWith(
     openGame: noop,
     setHoverId: noop,
     setShowAll: noop,
+    crewLive: [],
+    watch: noop,
   } as unknown as Swiff;
 }
 

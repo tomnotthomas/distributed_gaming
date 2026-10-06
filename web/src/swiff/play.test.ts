@@ -1,5 +1,11 @@
 import { STEAM_SIGN_IN_MS } from "@swiff/rank";
-import type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "@swiff/rtc";
+import type {
+  CrewHub,
+  RenterSession,
+  RenterSessionEvent,
+  RenterSessionOptions,
+  RenterStats,
+} from "@swiff/rtc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Claim } from "./booking";
 import { screenText } from "./screenCopy";
@@ -548,6 +554,42 @@ describe("startPlay", () => {
     latest().emit({ type: "game-started" });
 
     expect(handle.state().step).toBe("live");
+  });
+});
+
+describe("crewmates watching", () => {
+  /** A crew hub that records what the play tells it. */
+  function fakeCrew() {
+    const live: boolean[] = [];
+    const crew = {
+      setLive: vi.fn((on: boolean) => live.push(on)),
+      end: vi.fn(),
+    } as unknown as CrewHub & { setLive: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+    return { crew, live: () => live[live.length - 1] };
+  }
+
+  it("hands one crew hub to every connection, shows viewers the game only while it is on screen, and ends it with the play", async () => {
+    const { crew, live: viewersSee } = fakeCrew();
+    const handle = startPlay({ claim: CLAIM, video, onChange: () => {}, start, startCrew: () => crew });
+    expect(handle.crew).toBe(crew);
+    expect(latest().options.crew).toBe(crew);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    // The PC's desktop, before the game runs: viewers see nothing yet.
+    expect(viewersSee()).toBe(false);
+    latest().emit({ type: "game-started" });
+    expect(viewersSee()).toBe(true);
+
+    // Dropped: nothing while reconnecting, and the next connection gets the same hub.
+    latest().emit({ type: "disconnected", failed: true });
+    expect(viewersSee()).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sessions).toHaveLength(2);
+    expect(latest().options.crew).toBe(crew);
+
+    handle.stop();
+    expect(crew.end).toHaveBeenCalled();
   });
 });
 

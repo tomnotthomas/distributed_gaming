@@ -48,6 +48,15 @@ vi.mock("@swiff/rtc", () => ({
       },
     };
   },
+  // Nobody watches in these tests: a crew hub that does nothing.
+  startCrewHub: () => ({
+    attach: () => {},
+    message: () => {},
+    source: () => {},
+    setLive: () => {},
+    end: () => {},
+    state: () => ({ sharing: false, watchers: [], voice: {} }),
+  }),
 }));
 
 /** What /api/me answers without a Steam Web API key: the session's Steam id, an empty profile. */

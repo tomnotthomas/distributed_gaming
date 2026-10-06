@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Backdrop, Button, StatusDot, Tag, TopBar } from "@swiff/ui";
 import type { RenterStats } from "@swiff/rtc";
+import { CrewOverlay } from "./Crew";
 import { Reconnecting } from "./Reconnect";
 import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -187,6 +188,11 @@ export function Session({ swiff }: { swiff: Swiff }) {
           End session
         </Button>
       </div>
+
+      {/* Crewmates watching, and the voice chat: once the game is on screen. */}
+      {real && swiff.crewHub && !behindIgnition ? (
+        <CrewOverlay hub={swiff.crewHub} crew={swiff.crew} />
+      ) : null}
 
       {real ? <Reconnecting swiff={swiff} host={host} /> : null}
     </div>

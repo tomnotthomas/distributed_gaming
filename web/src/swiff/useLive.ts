@@ -67,6 +67,12 @@ export type Live = {
   rttMs: number | null;
   /** How many changes the stream has announced, or missed while it was down, since the page opened. */
   changes: number;
+  /**
+   * Goes up each time what crewmates play may have changed: a `crew` event
+   * (someone shared their screen), or whenever the wall reads again. The crew
+   * band (watch.ts) reads GET /api/crew-live then.
+   */
+  crewTick: number;
 };
 
 /** The session length and settings a read asks about, as one comparable string. */
@@ -87,6 +93,7 @@ export function useLive({
   const [rtt, setRtt] = useState<number | null>(null);
   const [wall, setWall] = useState<Live["wall"]>(null);
   const [game, setGame] = useState<Live["game"]>(null);
+  const [crewTick, setCrewTick] = useState(0);
 
   // One key per question, so a new wall or a new session asks again and an
   // unchanged one does not.
@@ -203,6 +210,7 @@ export function useLive({
         pending = undefined;
         readWall();
         readGame();
+        setCrewTick((n) => n + 1);
       }, wait);
     };
     const startPolling = () => {
@@ -227,6 +235,7 @@ export function useLive({
       });
       stream.addEventListener("crew", (event) => {
         changed();
+        setCrewTick((n) => n + 1);
         try {
           const { crew } = JSON.parse((event as MessageEvent<string>).data) as { crew?: unknown };
           if (typeof crew === "string") latest.current.onCrewReady?.(crew);
@@ -259,5 +268,5 @@ export function useLive({
     };
   }, [enabled, rtt, readWall, readGame]);
 
-  return { wall, game, rttMs: rtt, changes };
+  return { wall, game, rttMs: rtt, changes, crewTick };
 }

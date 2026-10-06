@@ -11,6 +11,7 @@ import { Profile } from "./Profile";
 import { AwayDialog, MachineLost, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
 import { ScreenLang, screenText } from "./screenCopy";
+import { Watch } from "./Watch";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";
@@ -31,7 +32,9 @@ export function Swiff() {
   const sheet = screen === "share" && swiff.estimateOpen;
   // Coming back to a session still running, or to a place in the queue, is
   // asked first; a session carried on from a lost machine covers the page too.
-  const back = phase === "idle" && (swiff.away !== null || swiff.queueBack || swiff.lost !== null);
+  const back =
+    phase === "idle" &&
+    (swiff.away !== null || swiff.queueBack || swiff.lost !== null || swiff.watching !== null);
   const behind = useRef<HTMLDivElement>(null);
   useEffect(() => {
     behind.current?.toggleAttribute("inert", phase !== "idle" || sheet || back);
@@ -76,6 +79,8 @@ export function Swiff() {
           {phase === "idle" && !swiff.lost ? <AwayDialog swiff={swiff} /> : null}
           {phase === "idle" && !swiff.lost && !swiff.away ? <QueueBackDialog swiff={swiff} /> : null}
           {phase === "connecting" ? <Ignition swiff={swiff} /> : null}
+          {/* Watching a crewmate play, view only. */}
+          {phase === "idle" && swiff.watching ? <Watch swiff={swiff} /> : null}
           {/* A claimed launch's stream plays behind Ignition until its game is on screen. */}
           {/* The session's own screen is English only, whatever it was started from. */}
           {phase === "live" || (phase === "connecting" && swiff.claim && !swiff.demo) ? (

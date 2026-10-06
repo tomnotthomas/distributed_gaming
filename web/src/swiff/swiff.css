@@ -1986,15 +1986,174 @@ button.band-tab:hover {
 }
 /* The HUD gets out of the way while the pointer rests; moving it brings the HUD back. */
 .session-hud,
-.session-end {
+.session-end,
+.session-crew {
   transition: opacity 0.3s var(--ease);
 }
-.session[data-hud="hidden"] :is(.session-hud, .session-end) {
+.session[data-hud="hidden"] :is(.session-hud, .session-end, .session-crew) {
   opacity: 0;
   pointer-events: none;
 }
 .session[data-hud="hidden"] {
   cursor: none;
+}
+
+/* — watching a crewmate play, and the crew's voice chat — */
+/* A crewmate asking is shown over the game at once, whatever the HUD is doing. */
+.crew-asks {
+  position: absolute;
+  top: calc(var(--space-12) * 2.4);
+  right: var(--space-8);
+  display: grid;
+  gap: var(--space-3);
+  width: min(340px, calc(100% - 2 * var(--space-8)));
+}
+.crew-ask p {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-14);
+  line-height: 1.45;
+}
+.crew-ask-actions,
+.voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .crew-ask {
+    animation: crew-ask-in 0.32s var(--ease-out) both;
+  }
+}
+@keyframes crew-ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+/* Who watches, sharing, and voice: beside End, out of the game's way. */
+.crew-panel {
+  position: absolute;
+  right: var(--space-8);
+  bottom: var(--space-8);
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  width: min(360px, calc(100% - 2 * var(--space-8)));
+  font-size: var(--text-14);
+}
+.crew-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+}
+.crew-count,
+.crew-empty,
+.voice-note {
+  color: var(--color-text-3);
+  font-size: var(--text-12);
+}
+.crew-empty,
+.voice-note {
+  margin: 0;
+  line-height: 1.45;
+}
+.crew-people {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.crew-people li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.crew-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crew-tags {
+  display: flex;
+  gap: var(--space-2);
+}
+.crew-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.voice-bar {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  width: 100%;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-divider);
+}
+/* Talking: the one live signal, in the live colour. */
+.voice-bar[data-live] .voice-note {
+  color: var(--color-live);
+}
+.voice-talk[aria-pressed="true"] {
+  border-color: var(--color-live);
+  color: var(--color-live);
+}
+/* The viewer's wait: asking, the stream on its way, or why it is over. */
+.watch-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+}
+.watch-card {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  max-width: 44ch;
+}
+.watch-card h2 {
+  margin: 0;
+  font-size: var(--text-22);
+}
+.watch-card p {
+  margin: 0;
+  color: var(--color-text-2);
+  line-height: 1.5;
+}
+.watch .session-video[hidden] {
+  display: none;
+}
+/* The wall's line for each crewmate playing now. */
+.crew-live-count {
+  opacity: 0.72;
+}
+@media (max-width: 860px) {
+  .crew-panel,
+  .crew-asks {
+    right: var(--space-4);
+    width: calc(100% - 2 * var(--space-4));
+  }
+  .crew-panel {
+    bottom: calc(var(--space-12) * 2);
+  }
+}
+
+/* /rtc, the bare handshake page: the same crew controls, in the page's flow */
+.rtc-crew {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+.rtc-crew :is(.crew-asks, .crew-panel) {
+  position: static;
+  width: min(360px, 100%);
 }
 
 /* — profile — */

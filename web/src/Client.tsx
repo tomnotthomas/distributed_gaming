@@ -3,9 +3,14 @@
 // only turns its events into the status line and buttons.
 //
 //   [ Connect ] ──► startRenterSession({ ticket, video }) ──► events ──► status, notes, <video>
+//
+// Crewmates watching the ticket's session (a ticket from a claim) are served
+// here as on the Swiff session: the same crew hub, passing on everything the
+// page plays, since this page has no Ignition to hide the PC's desktop behind.
 
 import { useEffect, useRef, useState } from "react";
-import { startRenterSession } from "@swiff/rtc";
+import { startCrewHub, startRenterSession, type CrewHub, type CrewHubState } from "@swiff/rtc";
+import { CrewOverlay } from "./swiff/Crew";
 import { Button, Notice, PageShell, Stage, StatusLine, Tag } from "@swiff/ui";
 import { SIGNALING_URL, ticketFromUrl } from "./config";
 import posthog, { isPostHogEnabled } from "./posthog";
@@ -29,13 +34,23 @@ export function Client() {
   // Connect is a user gesture and normally earns the right to sound, but a
   // browser that disagrees must still show the picture.
   const [mutedByBrowser, setMutedByBrowser] = useState(false);
+  const [hub, setHub] = useState<CrewHub | null>(null);
+  const [crew, setCrew] = useState<CrewHubState | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (!connecting || !videoRef.current) return;
 
-    const session = startRenterSession({ url: SIGNALING_URL, ticket, video: videoRef.current });
+    const crewHub = startCrewHub({ onChange: setCrew });
+    crewHub.setLive(true);
+    setHub(crewHub);
+    const session = startRenterSession({
+      url: SIGNALING_URL,
+      ticket,
+      video: videoRef.current,
+      crew: crewHub,
+    });
     session.on((event) => {
       switch (event.type) {
         case "denied":
@@ -68,7 +83,12 @@ export function Client() {
     });
 
     // Releases held input before it hangs up, while the channels can carry it.
-    return () => session.end();
+    return () => {
+      session.end();
+      crewHub.end();
+      setHub(null);
+      setCrew(null);
+    };
   }, [connecting, ticket]);
 
   return (
@@ -125,6 +145,12 @@ export function Client() {
       <StatusLine pc={pc} note={note} />
 
       <Stage ref={videoRef} empty={!playing} placeholder="no stream yet" />
+
+      {hub ? (
+        <div className="rtc-crew">
+          <CrewOverlay hub={hub} crew={crew} />
+        </div>
+      ) : null}
     </PageShell>
   );
 }
