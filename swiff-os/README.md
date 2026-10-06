@@ -13,8 +13,9 @@ stage by stage.
 | `hostd/`    | `swiff-hostd`: connects the PC to the platform and runs one renter session at a time |
 | later       | attestation client                                                                   |
 
-NVIDIA cards (GTX 16 / RTX 20 and newer): what the image carries, why it loads under lockdown,
-the licence and the hardware test are in [`NVIDIA.md`](NVIDIA.md).
+NVIDIA cards (GTX 16 / RTX 20 and newer): the image carries none of NVIDIA's proprietary driver,
+which the owner installs from the host app. What the image carries, how the owner's copy is
+checked and loaded under lockdown, the licence and the hardware test are in [`NVIDIA.md`](NVIDIA.md).
 
 ## Server: hosting requires attestation
 
@@ -40,7 +41,9 @@ The Secure Boot db and the TPM's endorsement certificate need administrator righ
 show as not checked yet. The install (shrink a drive or use free space, add the partitions,
 write the ESP, add the boot entry, name the games drive `SWIFFGAMES`, queue Swiff's key as a
 MOK and restart once to confirm it) and the start/stop sharing switch (BootOrder and BootNext)
-are previews: the app plans them and runs nothing on a PC. Real PCs boot Swiff OS through a
+are previews: the app plans them and runs nothing on a PC. The one thing it does install is
+NVIDIA's driver, on an NVIDIA card and only once the owner has accepted NVIDIA's licence: it
+downloads from Ubuntu onto the games drive ([`NVIDIA.md`](NVIDIA.md)). Real PCs boot Swiff OS through a
 Linux distribution's Microsoft-signed shim, which trusts Swiff's key once the owner confirms it
 at MokManager's blue screen, with a one-time code the host app shows and guides them through.
 A missed screen enrols nothing: shim then shows a security error and the PC falls back to
@@ -159,10 +162,10 @@ sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~
 
 Build output, caches and the VM's disk copy and logs go to `$SWIFF_OS_BUILD_DIR` (default `~/.cache/swiff-os`), outside the
 source tree, and mkosi's workspace to `$SWIFF_OS_WORKSPACE_DIR` when set. `--build-only` builds
-without booting. With the NVIDIA driver the build needs more than a small workstation has, so
+without booting. The build needs more than a small workstation has, so
 CI runs it: `.github/workflows/swiff-os-image.yml` builds the image and runs this test on a
 GitHub runner whenever `image/`, `vm/` or the workflow change. The build runs as root, and the root-only directories it leaves would break tools that
-walk the repository, such as `prettier --check .`. The first build downloads about 2.4 GB (the NVIDIA driver is about 350 MB of it) and takes
+walk the repository, such as `prettier --check .`. The first build downloads about 2 GB and takes
 a while; later builds reuse the caches. If `image/mkosi.key` and `image/mkosi.crt` do not exist, the test makes a
 throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs only.
 
@@ -200,8 +203,10 @@ host's view. Together they cover:
   the root uses).
 - NVIDIA: Canonical's signed open module is accepted under lockdown and stops at "No such
   device" (no NVIDIA card in the VM), while the same module without its signature is refused;
-  the userspace, 32-bit GL and GSP firmware of the same release are there; nouveau and nova are
-  blacklisted and `nvidia_drm modeset=1` is set.
+  none of NVIDIA's proprietary driver is in the image; with no NVIDIA card the boot loads
+  nothing, and given packages that are missing or not NVIDIA's bytes it refuses them; nouveau
+  and nova are blacklisted, udev does not load `nvidia` before its driver is checked, and
+  `nvidia_drm modeset=1` is set.
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
 checks the session's wiring, not a running game.
@@ -218,9 +223,9 @@ checks the session's wiring, not a running game.
   game straight away, so the renter never sees Steam's UI, is a Stage 0 spike plus the session agent.
 - **Steam's sandbox.** Ubuntu's AppArmor restriction on unprivileged user namespaces may need a Steam
   profile for pressure-vessel. This can only be tested with a GPU.
-- **NVIDIA on real hardware.** The image carries Canonical's signed open NVIDIA modules and the
-  matching userspace; the hardware test and the licence questions for counsel are in
-  [`NVIDIA.md`](NVIDIA.md).
+- **NVIDIA on real hardware.** The image carries Canonical's signed open NVIDIA modules; the
+  owner installs the rest of NVIDIA's driver from the host app. The hardware test and the
+  licence questions for counsel are in [`NVIDIA.md`](NVIDIA.md).
 - **The `-security` pocket.** mkosi 20 always uses the live `security.ubuntu.com` for it. Pinning it
   too needs a newer mkosi or a local mirror.
 
@@ -295,7 +300,7 @@ example `/usr/lib/swiff/streamer/dist/` and `/usr/lib/swiff/streamer/helpers/`),
 `system/` as sysusers, tmpfiles, udev rule, `/usr/libexec/swiff/swiff-pipewire-grant` and
 the renter's user unit. It needs Node 22, Python 3 with GObject introspection, GStreamer
 1.24 or later (base, good, bad, ugly, PipeWire) and `acl`; NVENC also needs the NVIDIA
-driver's `libnvidia-encode` and `libcuda`, which the image has. swiff-hostd's `streamer`
+driver's `libnvidia-encode` and `libcuda`, which come with the driver the owner installs. swiff-hostd's `streamer`
 setting is then `{"command": "/usr/bin/node", "args":
 ["/usr/lib/swiff/streamer/dist/swiff-streamer.mjs", "--pipewire-remote",
 "/run/user/1000/pipewire-0"], "uid": 961, "gid": 961}`. `--help` lists the other
