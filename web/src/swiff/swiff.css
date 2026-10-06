@@ -3035,7 +3035,7 @@ button.band-tab:hover {
     height: auto;
   }
   .hero-3b {
-    min-height: 0;
+    align-content: start;
     row-gap: 22px;
     padding: calc(var(--bar) + 26px) var(--gut) 26px;
   }
