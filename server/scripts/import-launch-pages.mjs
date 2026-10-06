@@ -4,6 +4,8 @@
 //
 //   node server/scripts/import-launch-pages.mjs <built launch set>
 //
+// (`--target <dir>` imports into another folder instead of web/marketing/.)
+//
 // Run it again for every new build marketing hands over; it replaces
 // web/marketing/ whole, and only once the whole set has been read and
 // written: it builds the new set beside the old one and swaps it in at the
@@ -35,13 +37,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join, relative, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 const TARGET = fileURLToPath(new URL("../../web/marketing", import.meta.url));
-/** Where a set is built before it replaces TARGET. */
-const STAGING = `${TARGET}.importing`;
 /** The endpoint every form posts to (server/src/signups.ts). */
 const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
@@ -120,15 +120,16 @@ function* files(dir) {
   }
 }
 
-/** Build the set at `source` into STAGING, then swap it in for TARGET. Throws, leaving TARGET alone, on a set it refuses. */
-function importSet(source, name, site) {
-  rmSync(STAGING, { recursive: true, force: true });
+/** Build the set at `source` beside `target` (`<target>.importing`), then swap it in for `target`. Throws, leaving `target` alone, on a set it refuses. */
+function importSet(source, target, name, site) {
+  const staging = `${target}.importing`;
+  rmSync(staging, { recursive: true, force: true });
   let count = 0;
   try {
     for (const path of files(source)) {
       const rel = relative(source, path);
       if (SKIPPED.has(rel)) continue;
-      const out = join(STAGING, rel);
+      const out = join(staging, rel);
       mkdirSync(dirname(out), { recursive: true });
       if (TEXT.has(extname(path))) {
         const text = readFileSync(path, "utf8");
@@ -143,11 +144,11 @@ function importSet(source, name, site) {
       count++;
     }
   } catch (error) {
-    rmSync(STAGING, { recursive: true, force: true });
+    rmSync(staging, { recursive: true, force: true });
     throw error;
   }
-  rmSync(TARGET, { recursive: true, force: true });
-  renameSync(STAGING, TARGET);
+  rmSync(target, { recursive: true, force: true });
+  renameSync(staging, target);
   return count;
 }
 
@@ -157,15 +158,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     options: {
       name: { type: "string", default: "Lanterel" },
       site: { type: "string", default: "https://lanterel.de" },
+      target: { type: "string", default: TARGET },
     },
   });
   const source = positionals[0];
   if (!source || !existsSync(join(source, "index.html"))) {
     console.error(
-      "usage: node server/scripts/import-launch-pages.mjs <built launch set> [--name Lanterel] [--site https://lanterel.de]",
+      "usage: node server/scripts/import-launch-pages.mjs <built launch set> [--name Lanterel] [--site https://lanterel.de] [--target web/marketing]",
     );
     process.exit(1);
   }
-  const count = importSet(source, values.name, new URL(values.site).origin);
-  console.log(`imported ${count} files into ${relative(process.cwd(), TARGET) || "."}`);
+  const target = resolve(values.target);
+  const count = importSet(source, target, values.name, new URL(values.site).origin);
+  console.log(`imported ${count} files into ${relative(process.cwd(), target) || "."}`);
 }

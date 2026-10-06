@@ -1,10 +1,18 @@
 // The launch set import (server/scripts/import-launch-pages.mjs): an English
 // page's FAQ structured data rebuilt from what it shows, and a set it refuses
-// leaving web/marketing/ as it was.
+// leaving its target as it was.
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -12,7 +20,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const SCRIPT = fileURLToPath(new URL("../../scripts/import-launch-pages.mjs", import.meta.url));
-const MARKETING = fileURLToPath(new URL("../../../web/marketing", import.meta.url));
 
 type FaqJsonLd = (html: string, lang: string) => string;
 const { faqJsonLd } = (await import(SCRIPT)) as { faqJsonLd: FaqJsonLd };
@@ -66,22 +73,25 @@ describe("importing the launch set", () => {
     assert.equal(faqJsonLd(bare, "en"), bare);
   });
 
-  it("leaves web/marketing/ as it was when it refuses a set", async () => {
-    const source = mkdtempSync(join(tmpdir(), "launch-set-"));
+  it("leaves the target as it was when it refuses a set", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-set-"));
+    const source = join(dir, "source");
+    const target = join(dir, "marketing");
     try {
+      mkdirSync(source);
       writeFileSync(join(source, "index.html"), "<title>ok</title>");
       writeFileSync(join(source, "zz.html"), "<p>{{ not ours }}</p>");
-      const before = statSync(join(MARKETING, "index.html")).mtimeMs;
-      const page = readFileSync(join(MARKETING, "index.html"), "utf8");
+      mkdirSync(target);
+      writeFileSync(join(target, "index.html"), PAGE);
       await assert.rejects(
-        promisify(execFile)(process.execPath, [SCRIPT, source]),
+        promisify(execFile)(process.execPath, [SCRIPT, source, "--target", target]),
         /already holds a \{\{ token/,
       );
-      assert.equal(statSync(join(MARKETING, "index.html")).mtimeMs, before);
-      assert.equal(readFileSync(join(MARKETING, "index.html"), "utf8"), page);
-      assert.equal(existsSync(`${MARKETING}.importing`), false);
+      assert.deepEqual(readdirSync(target), ["index.html"]);
+      assert.equal(readFileSync(join(target, "index.html"), "utf8"), PAGE);
+      assert.equal(existsSync(`${target}.importing`), false);
     } finally {
-      rmSync(source, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
