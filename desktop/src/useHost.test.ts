@@ -511,6 +511,48 @@ describe("useHost", () => {
       await settle();
       expect(result.current.view.crew?.only).toBe(true);
     });
+
+    it("goes back to a choice the platform took after a newer one did not save", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      let second: (ok: boolean) => void = () => {};
+      answers.push(
+        (land) => (first = land),
+        (land) => (second = land),
+      );
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      first(true);
+      await settle();
+      second(false);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+    });
+
+    it("forgets the last PC's crew when the connection changes, and reads the new one again", async () => {
+      const { result } = await ready();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      answers.push("fail");
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toBeNull();
+      expect(result.current.view.crewNote).toBeNull();
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toEqual(crewOf(true));
+    });
   });
 
   it("turns down a claim for a game the owner does not offer", async () => {

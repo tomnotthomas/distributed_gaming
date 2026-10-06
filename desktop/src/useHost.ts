@@ -330,23 +330,26 @@ export function useHost(): Host {
   // Only the answer to the latest ask counts; a choice that did not save goes
   // back to what the platform last confirmed.
   const crewAsks = useRef(0);
-  const crewConfirmed = useRef<Crew | null>(null);
+  const crewConfirmed = useRef<{ crew: Crew | null; at: number }>({ crew: null, at: 0 });
   const askCrew = async (only?: boolean): Promise<boolean> => {
     if (!rentalCrew.current) return false;
     const n = ++crewAsks.current;
     const read = await offOffer(rentalCrew.current, only);
+    if (read && n > crewConfirmed.current.at) crewConfirmed.current = { crew: read, at: n };
     if (n !== crewAsks.current) return true;
     if (read) {
-      crewConfirmed.current = read;
       setCrew(read);
       setCrewNote(null);
     } else if (only !== undefined) {
-      setCrew(crewConfirmed.current);
+      setCrew(crewConfirmed.current.crew);
       setCrewNote("Couldn't save who can play. Try again.");
     }
     return read !== null;
   };
   useEffect(() => {
+    crewConfirmed.current = { crew: null, at: crewAsks.current };
+    setCrew(null);
+    setCrewNote(null);
     let retry: number | undefined;
     void askCrew().then((ok) => {
       if (!ok && rentalCrew.current) retry = window.setTimeout(() => void askCrew(), CREW_RETRY_MS);
@@ -413,7 +416,7 @@ export function useHost(): Host {
       askInstall: steam.askInstall,
       checkRental: () => {
         rental.check();
-        if (!crewConfirmed.current) void askCrew();
+        if (!crewConfirmed.current.crew) void askCrew();
       },
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
