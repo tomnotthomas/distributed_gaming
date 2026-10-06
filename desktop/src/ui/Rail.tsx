@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { clock, count, euros, shortGpu } from "../format";
 import { claimEnd, levelProgress, steamReady, type HostView, type Standing, type Step } from "../model";
-import { rentalStatus } from "../rental";
+import { WINDOWS_SHARE } from "../devShare";
+import { rentalLine, rentalReady, rentalStepAt, stepLocked } from "../rental";
 import { DemoTag } from "./parts";
 
 type RailStep = { id: Exclude<Step, "settings">; title: string };
@@ -18,7 +19,7 @@ const STEPS: RailStep[] = [
 function liveLine(live: HostView["live"], setupDone: boolean): string {
   switch (live.kind) {
     case "off":
-      return setupDone ? "Not sharing" : "Hold to start";
+      return setupDone ? "Not live" : "Not live yet";
     case "starting":
       return "Starting";
     case "waiting":
@@ -37,21 +38,37 @@ function liveLine(live: HostView["live"], setupDone: boolean): string {
 /** Where Steam stands on this PC, in a few words. */
 function steamLine({ steam }: HostView): string {
   const { status, installs } = steam;
-  if (!status) return "Looking for Steam";
+  if (!status) return "Checking Steam";
   if (!status.installed) return "Not installed";
   if (!steamReady(steam)) return "Sign in to Steam";
   return installs.length ? `Installing ${count(installs.length, "game", "games")}` : "Signed in";
 }
 
-/** Where rental mode stands on this PC, in a few words. */
-function rentalLine({ rental }: HostView): string {
-  const { read, reading, target } = rental;
-  if (!read) return reading ? "Checking this PC" : "Not read";
-  if (read.installed) return "Installed";
-  const { bios, fixes } = rentalStatus(read, target);
-  if (bios.length) return bios.length === 1 ? "One change in the BIOS" : `${bios.length} changes in the BIOS`;
-  if (fixes.length) return "Not ready";
-  return "Ready to install";
+/** Rental mode's three steps, under it in the rail while it is open: done olive, current lime, later hollow. */
+const RENTAL_STEPS = ["Get the PC ready", "Install Swiff OS", "Confirm the key"] as const;
+
+function RentalSteps({ view }: { view: HostView }) {
+  const at = rentalStepAt(view.rental);
+  return (
+    <ol className="psub" aria-label="Rental mode steps">
+      {RENTAL_STEPS.map((name, i) => {
+        const state = i < at ? "done" : i === at ? "now" : "next";
+        return (
+          <li key={name} className={state} aria-current={state === "now" ? "step" : undefined}>
+            <span className="psd" />
+            {name}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** A step whose read is still running after start: it shows checking, never undone. */
+function checking(id: RailStep["id"], view: HostView): boolean {
+  if (id === "pc" || id === "games") return view.pc.reading;
+  if (id === "steam") return view.steam.status === null;
+  return false;
 }
 
 /** One line under each step: what it has, or what it is doing now. */
@@ -61,9 +78,9 @@ function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): strin
     case "steam":
       return steamLine(view);
     case "rental":
-      return rentalLine(view);
+      return rentalLine(view.rental);
     case "pc": {
-      if (pc.reading) return "Reading hardware";
+      if (pc.reading) return "Checking hardware";
       const gpu = pc.hardware?.gpu ? shortGpu(pc.hardware.gpu) : "Hardware read";
       return pc.hardwareRate === null ? gpu : `${gpu}, hardware rate €${euros(pc.hardwareRate)}`;
     }
@@ -72,14 +89,14 @@ function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): strin
       const { offered: chosen } = games;
       if (chosen === null)
         return pc.reading ? "Reading Steam library" : `${count(installed, "game", "games")} installed`;
-      if (!setupDone) return "Choose what players can stream";
+      if (!setupDone) return "Pick games to offer";
       const offered = games.installed.filter((g) => chosen.includes(g.appid)).length;
       return `${offered} of ${installed} games offered`;
     }
     case "live":
       return liveLine(view.live, setupDone);
     case "paid":
-      if (!view.earnings) return "Payouts are not open yet";
+      if (!view.earnings) return "Payouts not open yet";
       return view.payoutSaved ? `Payout ${view.earnings.nextPayout}` : "Paid on the 1st";
   }
 }
@@ -159,12 +176,24 @@ export function Rail({
       ) : null}
       <ol>
         {STEPS.map((s, i) => {
-          // Rental mode is optional: it is done once installed, not by being passed.
-          const passed =
-            s.id === "rental" ? Boolean(view.rental.read?.installed) : i < at || (setupDone && i < live);
+          // Rental mode is how a PC hosts: it is done once it is ready, not by being passed.
+          const passed = s.id === "rental" ? rentalReady(view.rental) : i < at || (setupDone && i < live);
           const state = i === at ? "now" : passed ? "done" : "next";
+          // Locked until rental mode is ready: not a button, and it says what it waits for.
+          if (stepLocked(s.id, view, WINDOWS_SHARE))
+            return (
+              <li key={s.id} className="pt next locked">
+                <div className="ptlock">
+                  <span className="pd" />
+                  <span className="ptx">
+                    <b>{s.title}</b>
+                    <span>After rental mode</span>
+                  </span>
+                </div>
+              </li>
+            );
           return (
-            <li key={s.id} className={`pt ${state}`}>
+            <li key={s.id} className={checking(s.id, view) ? `pt ${state} checking` : `pt ${state}`}>
               <button
                 type="button"
                 aria-current={i === at && step !== "settings" ? "step" : undefined}
@@ -176,6 +205,7 @@ export function Rail({
                   <span>{stepLine(s.id, view, setupDone)}</span>
                 </span>
               </button>
+              {s.id === "rental" && i === at ? <RentalSteps view={view} /> : null}
             </li>
           );
         })}

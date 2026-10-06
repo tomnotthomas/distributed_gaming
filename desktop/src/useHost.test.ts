@@ -9,6 +9,8 @@ import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
 import { BUSY_MS, IDLE_MS } from "./useSteam";
+import { rentalOf } from "../rental.cjs";
+import FACTS from "./test/rental-facts.json";
 import type { ShareEvents } from "./useScreenShare";
 
 type Share = {
@@ -32,6 +34,15 @@ let gamesChanged: ((games: SteamGame[]) => void) | null = null;
 /** Every Host API call the app made: method, path and parsed body. */
 let calls: { method: string; path: string; body: Record<string, unknown> | null; keepalive: boolean }[] = [];
 
+// Sharing this Windows desktop is a development path (devShare.ts): these tests
+// drive it, unless one turns it off as in the build hosts download.
+const devShare = vi.hoisted(() => ({ on: true }));
+vi.mock("./devShare", () => ({
+  get WINDOWS_SHARE() {
+    return devShare.on;
+  },
+}));
+
 vi.mock("./useScreenShare", () => ({
   useScreenShare: (e: ShareEvents) => {
     events = e;
@@ -39,7 +50,7 @@ vi.mock("./useScreenShare", () => ({
   },
 }));
 
-const { useHost } = await import("./useHost");
+const { CREW_RETRY_MS, useHost } = await import("./useHost");
 const { trayDo } = await import("./App");
 
 const STREAM = {} as MediaStream;
@@ -106,6 +117,11 @@ function fakeBridge(idle = 600): HostBridge {
     installSteam: vi.fn(async () => null),
     readRental: vi.fn(async () => null),
     planRental: vi.fn(async () => null),
+    runRental: vi.fn(async () => null),
+    restartRental: vi.fn(async () => false),
+    answerRentalKey: vi.fn(async () => false),
+    reportRental: vi.fn(async () => null),
+    onRentalEvent: vi.fn(() => () => {}),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),
@@ -359,6 +375,254 @@ describe("useHost", () => {
     expect(result.current.view.crew?.only).toBe(false);
   });
 
+  describe("who can play, in rental mode", () => {
+    /** The platform's answers, in turn: who may play, a failure, or one held until the test lets it land. */
+    type Answer = "ok" | "fail" | ((land: (ok: boolean) => void) => void);
+    let answers: Answer[];
+    let only: boolean;
+    const crewOf = (o: boolean) => ({ only: o, crews: [{ name: "Alex", own: false, size: 2 }] });
+    const READY = {
+      ...rentalOf(
+        {
+          ...structuredClone(FACTS),
+          install: {
+            complete: true,
+            disk: 0,
+            bootEntry: { partition: null, path: "\\EFI\\swiff\\shimx64.efi" },
+            partitions: [],
+            shrink: null,
+            mok: true,
+          },
+        },
+        [],
+      ),
+      key: { state: "confirmed" as const, code: null },
+    };
+
+    beforeEach(() => {
+      devShare.on = false;
+      answers = [];
+      only = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+          const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+          calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
+          const answer = answers.shift() ?? "ok";
+          const ok =
+            typeof answer === "function"
+              ? await new Promise<boolean>((land) => answer(land))
+              : answer === "ok";
+          if (!ok) throw new TypeError("offline");
+          const said = typeof body?.crewOnly === "boolean" ? body.crewOnly : only;
+          only = said;
+          return Response.json({ crew: crewOf(said) });
+        }),
+      );
+    });
+    afterEach(() => {
+      devShare.on = true;
+    });
+
+    /** The hook on a PC whose rental mode becomes ready to go live. */
+    async function ready() {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      const hook = await host();
+      bridge.readRental = vi.fn(async () => READY);
+      act(() => hook.result.current.actions.checkRental());
+      await settle();
+      return hook;
+    }
+
+    it("reads and sets it with the PC off offer in Windows", async () => {
+      const { result } = await host();
+      // Not ready to go live yet: the platform is not asked.
+      expect(result.current.view.crew).toBeNull();
+      expect(reports()).toEqual([]);
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => READY);
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports()).toEqual([
+        {
+          method: "PUT",
+          path: "/api/machines/gaming-pc-1/availability",
+          body: { available: false },
+          keepalive: false,
+        },
+      ]);
+      expect(result.current.view.crew).toEqual(crewOf(true));
+
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crew?.only).toBe(false);
+      await settle();
+      expect(reports().at(-1)!.body).toEqual({ available: false, crewOnly: false });
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
+      // Nothing offers this PC from Windows.
+      expect(reports().some((c) => c.body?.available === true)).toBe(false);
+    });
+
+    it("puts a choice that did not save back to the platform's, and says so", async () => {
+      const { result } = await ready();
+      answers.push("fail");
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crew?.only).toBe(false);
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crewNote).toBeNull();
+      await settle();
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
+    it("reads it again when the first read failed: once after a while, and on Check again", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      answers.push("fail", "fail");
+      const { result } = await ready();
+      expect(result.current.view.crew).toBeNull();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS)));
+      await settle();
+      expect(reports()).toHaveLength(2);
+      expect(result.current.view.crew).toBeNull();
+      // Retried once only; Check again asks once more.
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS * 3)));
+      expect(reports()).toHaveLength(2);
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
+    it("sends no read once Check again got the answer, so none can overtake the owner's choice", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      answers.push("fail");
+      const { result } = await ready();
+      expect(result.current.view.crew).toBeNull();
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+
+      let set: (ok: boolean) => void = () => {};
+      answers.push((land) => (set = land));
+      act(() => result.current.actions.setCrewOnly(false));
+      await settle();
+      const sent = reports().length;
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS * 2)));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports()).toHaveLength(sent);
+      set(true);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
+    it("shows the answer to the owner's latest choice, whatever order the answers land in", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      answers.push((land) => (first = land));
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+      first(true);
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+    });
+
+    it("goes back to a choice the platform took after a newer one did not save", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      let second: (ok: boolean) => void = () => {};
+      answers.push(
+        (land) => (first = land),
+        (land) => (second = land),
+      );
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      first(true);
+      await settle();
+      second(false);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+    });
+
+    it("shows a choice the platform took late, after a newer one already failed", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      answers.push((land) => (first = land), "fail");
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+      first(true);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+    });
+
+    it("lets nothing still under way for the last PC touch the new one's reads", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      let last: (ok: boolean) => void = () => {};
+      answers.push((land) => (last = land), "fail");
+      const { result } = await ready();
+      expect(reports().at(-1)!.path).toBe("/api/machines/gaming-pc-1/availability");
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      expect(result.current.view.crew).toBeNull();
+      last(true);
+      await settle();
+      expect(result.current.view.crew).toBeNull();
+      const sent = reports().length;
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS)));
+      await settle();
+      expect(reports()).toHaveLength(sent + 1);
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toEqual(crewOf(true));
+    });
+
+    it("forgets the last PC's crew when the connection changes, and reads the new one again", async () => {
+      const { result } = await ready();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      answers.push("fail");
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toBeNull();
+      expect(result.current.view.crewNote).toBeNull();
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toEqual(crewOf(true));
+    });
+  });
+
   it("turns down a claim for a game the owner does not offer", async () => {
     const { result } = await host();
     const claim = { sessionId: "s1", appid: 730, minutes: 45 };
@@ -426,7 +690,7 @@ describe("useHost", () => {
     rerender();
     expect(result.current.view.live).toEqual({
       kind: "off",
-      note: "Sharing stopped at 23:00, as you chose.",
+      note: "You went offline at 23:00, as planned.",
     });
   });
 
@@ -450,7 +714,7 @@ describe("useHost", () => {
     rerender();
     expect(result.current.view.live).toMatchObject({
       kind: "off",
-      note: "Sharing stopped at 22:00, as you chose.",
+      note: "You went offline at 22:00, as planned.",
     });
   });
 
@@ -573,9 +837,7 @@ describe("useHost", () => {
     expect(result.current.view.machine).toBe(" Nova-01 ".trim());
     expect(JSON.stringify({ ...localStorage })).not.toContain("k2");
     expect(bridge.saveMachineKey).toHaveBeenCalledWith("k2");
-    expect(result.current.view.connection.notice).toBe(
-      "This system cannot encrypt the key, so it was not saved.",
-    );
+    expect(result.current.view.connection.notice).toBe("This PC can't encrypt the key, so it wasn't saved.");
     expect(share.start).toHaveBeenCalledWith("otter.example", { machineId: "pc-2", machineKey: "k2" });
   });
 

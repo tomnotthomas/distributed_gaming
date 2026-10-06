@@ -427,6 +427,29 @@ describe("crew API", () => {
     assert.equal((await offerPc("pc-1", { crewOnly: "yes" })).status, 400);
   });
 
+  it("keeps the choice the host app sends from Windows for a rental-mode PC, which Swiff OS offers without one", async () => {
+    await joinByLink();
+    const fromWindows = (crewOnly: boolean) => offerPc("pc-1", { available: false, crewOnly });
+    const free = async (who: string) =>
+      (await call("GET", "/api/availability?appids=730&rtt=10", who)).body[0].free;
+
+    assert.deepEqual((await fromWindows(false)).body.crew, {
+      only: false,
+      crews: [{ name: "Alex", own: false, size: 2 }],
+    });
+    assert.equal(await free(STRANGER), 0, "off offer while in Windows");
+    assert.equal((await offerPc("pc-1")).body.crew.only, false);
+    assert.equal(await free(STRANGER), 1);
+    // Its restart between renters keeps it.
+    await offerPc("pc-1", { available: false, reset: true });
+    assert.equal((await offerPc("pc-1")).body.crew.only, false);
+
+    assert.equal((await fromWindows(true)).body.crew.only, true);
+    assert.equal((await offerPc("pc-1")).body.crew.only, true);
+    assert.equal(await free(STRANGER), 0);
+    assert.equal(await free(ALEX), 1);
+  });
+
   it("lists the crew by Steam persona, never Steam id, and lets its owner remove and a member leave", async () => {
     await joinByLink();
     const mine = await call("GET", "/api/me/invite", ALEX);

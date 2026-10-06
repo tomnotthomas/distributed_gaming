@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
+import { WINDOWS_SHARE } from "./devShare";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
-import { createHostReporter, hostReport, type Crew, type HostReporter } from "./report";
+import { createHostReporter, hostReport, offOffer, type Crew, type HostReporter } from "./report";
+import { rentalReady } from "./rental";
 import {
   countSession,
   loadMachineId,
@@ -13,6 +15,7 @@ import {
   loadNotOffered,
   loadSessionsToday,
   loadUrl,
+  refusedAddress,
   saveMachineId,
   saveMachineKey,
   saveName,
@@ -31,6 +34,16 @@ const INPUT_POLL_MS = 2_000;
 /** Input this recent means someone is at the PC; none for this long means they left. */
 const AT_PC_S = 5;
 const AWAY_S = 60;
+/**
+ * One rental machine's asks of who may play: how many were made, the last
+ * answer the platform confirmed and which ask it answered, the latest ask that
+ * has answered, the owner's choices on their way, and the retry of a first read
+ * that failed.
+ */
+type CrewAsks = { n: number; confirmed: Crew | null; at: number; done: number; sets: number; retry?: number };
+const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, done: 0, sets: 0 });
+/** A first read of who may play that failed is tried again this much later, once. */
+export const CREW_RETRY_MS = 10_000;
 
 type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
 
@@ -131,7 +144,7 @@ export function useHost(): Host {
     onClaimOver: () => {
       const done = after.current;
       if (done.notify && typeof Notification !== "undefined") {
-        new Notification(`${done.machine} is yours again`, { body: "The player's session has ended." });
+        new Notification(`${done.machine} is yours again`, { body: "The session just ended." });
       }
       setNotify(false);
       setAtPc(false);
@@ -139,7 +152,7 @@ export function useHost(): Host {
       const passed = done.until !== null && Date.now() >= done.until;
       if (passed) {
         done.stop();
-        setNote(`Sharing stopped at ${clock(done.until!)}, as you chose.`);
+        setNote(`You went offline at ${clock(done.until!)}, as planned.`);
       } else if (done.stopNew) {
         done.stop();
         setPausedAt(Date.now());
@@ -165,7 +178,7 @@ export function useHost(): Host {
   useEffect(() => {
     if (!share.stream || until === null || now < until || share.claim) return;
     share.stop();
-    setNote(`Sharing stopped at ${clock(until)}, as you chose.`);
+    setNote(`You went offline at ${clock(until)}, as planned.`);
   }, [now, until, share]);
 
   // --- what the platform hears about this PC (report.ts)
@@ -178,6 +191,7 @@ export function useHost(): Host {
   // owner's choice made while it was off offer, which the next offer carries.
   const [crew, setCrew] = useState<Crew | null>(null);
   const crewChoice = useRef<boolean | null>(null);
+  const [crewNote, setCrewNote] = useState<string | null>(null);
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
 
@@ -227,9 +241,12 @@ export function useHost(): Host {
     return () => window.clearInterval(id);
   }, [claimId]);
 
+  // Sharing this Windows desktop is a development path (devShare.ts): the app
+  // hosts download goes live through rental mode only.
   const begin = async (settings: Settings, end: number | null) => {
+    if (!WINDOWS_SHARE) return;
     if (end !== null && end <= Date.now()) {
-      setNote(`${clock(end)} has passed. Choose a later time.`);
+      setNote(`${clock(end)} has passed. Pick a later time.`);
       return;
     }
     // Starting again (new settings while offline) replaces the capture rather than adding one.
@@ -285,7 +302,16 @@ export function useHost(): Host {
     pc: { reading, hardware: pc ? { ...pc.hardware, upMbps } : null, hardwareRate: null },
     games: { installed, offered, demand: demand && demandRows(demand, installed), near: null },
     steam: { status: steam.status, installer: steam.installer, installs: steam.installs, asked: steam.asked },
-    rental: { reading: rental.reading, read: rental.read, target: rental.target, preview: rental.preview },
+    rental: {
+      reading: rental.reading,
+      read: rental.read,
+      target: rental.target,
+      preview: rental.preview,
+      run: rental.run,
+      readAt: rental.readAt,
+      liveSeen: rental.liveSeen,
+      planning: rental.planning,
+    },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -296,9 +322,66 @@ export function useHost(): Host {
     connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
     payoutSaved: false,
     crew,
+    crewNote,
   };
 
   const settings = { url, machineId, machineKey };
+  // Rental mode's Go live: who may play, read from and set on the platform
+  // while this PC is in Windows and so off offer (Swiff OS offers it).
+  const socket = toSocketUrl(url);
+  const rentalMachine =
+    !WINDOWS_SHARE && rentalReady(view.rental) && connectionReady(settings) && !refusedAddress(socket)
+      ? { url: socket, machineId: machineId.trim(), machineKey: machineKey.trim() }
+      : null;
+  const rentalCrew = useRef(rentalMachine);
+  rentalCrew.current = rentalMachine;
+  // Each rental machine has its own asks: anything still under way for the one
+  // before does nothing. Only the answer to the latest ask counts; a choice that
+  // did not save goes back to what the platform last confirmed, and so does the
+  // screen when an older choice is confirmed after the latest one failed.
+  const crewAsks = useRef<CrewAsks>(noCrewAsks());
+  const askCrew = async (only?: boolean): Promise<boolean> => {
+    const machine = rentalCrew.current;
+    if (!machine) return false;
+    const asks = crewAsks.current;
+    const n = ++asks.n;
+    if (only !== undefined) asks.sets++;
+    const read = await offOffer(machine, only);
+    if (asks !== crewAsks.current) return true;
+    if (only !== undefined) asks.sets--;
+    if (read) window.clearTimeout(asks.retry);
+    if (read && n > asks.at) {
+      Object.assign(asks, { confirmed: read, at: n });
+      if (asks.done === asks.n) setCrew(read);
+    }
+    if (n !== asks.n) return true;
+    asks.done = n;
+    if (read) {
+      setCrew(read);
+      setCrewNote(null);
+    } else if (only !== undefined) {
+      setCrew(asks.confirmed);
+      setCrewNote("Couldn't save who can play. Try again.");
+    }
+    return read !== null;
+  };
+  /** A read of who may play, never once the platform has said or while the owner's choice is on its way. */
+  const readCrew = () => {
+    if (!crewAsks.current.confirmed && !crewAsks.current.sets) void askCrew();
+  };
+  useEffect(() => {
+    const asks = crewAsks.current;
+    setCrew(null);
+    setCrewNote(null);
+    void askCrew().then((ok) => {
+      if (!ok && asks === crewAsks.current && rentalCrew.current)
+        asks.retry = window.setTimeout(readCrew, CREW_RETRY_MS);
+    });
+    return () => {
+      window.clearTimeout(asks.retry);
+      crewAsks.current = noCrewAsks();
+    };
+  }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey]);
   return {
     view,
     actions: {
@@ -347,24 +430,36 @@ export function useHost(): Host {
         saveMachineId(next.machineId.trim());
         saveName(next.name.trim());
         const kept = key ? await saveMachineKey(key) : true;
-        setKeyNote(kept ? null : "This system cannot encrypt the key, so it was not saved.");
+        setKeyNote(kept ? null : "This PC can't encrypt the key, so it wasn't saved.");
         if (connectionReady(next)) await begin(next, live.kind === "off" ? plan : until);
       },
       // Payouts are not open: details typed into the form are never sent or kept.
       savePayout: () => {},
       installSteam: steam.installSteam,
       askInstall: steam.askInstall,
-      checkRental: rental.check,
+      checkRental: () => {
+        rental.check();
+        readCrew();
+      },
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
       // The platform holds the choice, sent now or with the next offer; the screen
       // shows it at once, and the next answer confirms it.
       setCrewOnly: (on) => {
-        if (reporter.current) reporter.current.setCrewOnly(on);
+        setCrewNote(null);
+        if (rentalCrew.current) void askCrew(on);
+        else if (reporter.current) reporter.current.setCrewOnly(on);
         else crewChoice.current = on;
         setCrew((was) => (was ? { ...was, only: on } : was));
       },
+      runRental: rental.start,
+      restartRental: rental.restart,
+      answerRentalKey: rental.answer,
+      goLiveRental: rental.goLive,
+      retryRental: rental.retry,
+      reportRental: rental.report,
+      seenLastLive: rental.seenLive,
     },
   };
 }

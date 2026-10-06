@@ -1,8 +1,8 @@
 // Swiff host — Electron main process.
 //
-// The single reason this app exists instead of a browser tab: Chrome makes a
-// human click "Share this screen" on the gaming PC. setDisplayMediaRequestHandler
-// answers that request in code, so a rental machine needs nobody sitting at it.
+// Rental mode, with Swiff OS, is the only way to host. Sharing the owner's own
+// Windows desktop is a development path only (share-gate.cjs): there,
+// setDisplayMediaRequestHandler answers Chrome's "Share this screen" in code.
 
 const {
   app,
@@ -20,12 +20,27 @@ const {
   Tray,
   webContents,
 } = require("electron");
+const { execFile } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { promisify } = require("node:util");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
-const { installPlan, mokPlan, readRental, switchPlan } = require("./rental.cjs");
+const { testBuild } = require("./build-kind.cjs");
+const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
+const { runPlan, startWorker } = require("./rental-exec.cjs");
+const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
+const {
+  installPlan,
+  keyRemovalPlan,
+  mokPlan,
+  readRental,
+  switchPlan,
+  uninstallPlan,
+} = require("./rental.cjs");
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
+const { windowsShareAllowed } = require("./share-gate.cjs");
 
 const INDEX = path.join(__dirname, "dist", "index.html");
 // Each window gets only its own calls: the app window its preload, the tray
@@ -36,8 +51,20 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
-/** The app page's query string: `extra`, plus demo=1 in demo mode. */
-const query = (extra = {}) => ({ ...extra, ...(DEMO ? { demo: "1" } : {}) });
+// One Swiff Host at a time. Two would each run their own installer, and the
+// second one's administrator helper would wait behind the first for ever. A
+// second launch hands over to the first, which comes to the front.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+else app.on("second-instance", () => showWindow());
+
+/** A build packaged by `npm run pack:test` (build-kind.cjs). */
+const TEST_BUILD = testBuild();
+/** The app page's query string: `extra`, plus demo=1 in demo mode and build=test in a test build. */
+const query = (extra = {}) => ({
+  ...extra,
+  ...(DEMO ? { demo: "1" } : {}),
+  ...(TEST_BUILD ? { build: "test" } : {}),
+});
 
 // The machine key, encrypted by the OS for the logged-in Windows user. Never
 // written in the clear: where encryption is unavailable it is not stored at
@@ -106,22 +133,178 @@ async function watchGames() {
 }
 
 // Rental mode (rental.cjs): what Swiff OS needs from this PC, read fresh and
-// without administrator rights, and the steps that would install it or switch
-// to and from it, or confirm its key again. The steps are previews: nothing
-// here runs them.
-ipcMain.handle("rental:read", (event) => (fromApp(event) ? readRental() : null));
-ipcMain.handle("rental:plan", async (event, ask) => {
-  if (!fromApp(event) || !ask || typeof ask !== "object") return null;
-  if (ask.kind === "start" || ask.kind === "stop") return switchPlan(ask.kind);
-  if (ask.kind === "mok") return mokPlan();
-  if (ask.kind !== "install") return null;
-  const rental = await readRental();
-  if (!rental) return null;
+// without administrator rights, and the steps that install it, take it off
+// again, start it once, or confirm its key again. Main keeps the plan it last
+// showed the window, and only that plan runs (rental-exec.cjs), through one
+// elevated worker that Windows starts after one UAC prompt. The owner's one OK
+// starts the run, and every step runs by itself until a restart: that waits
+// for Restart now, so the owner has the code written down first.
+
+/** Where Swiff OS's image set is (image-set.cjs). */
+const imageDir = () => process.env.SWIFF_OS_IMAGE_DIR || path.join(app.getPath("userData"), "swiff-os");
+/** Swiff OS's image set, signed by a key this build trusts. */
+const imageSet = () => readImageSet(imageDir(), { trust: trustOf({ dev: TEST_BUILD }) });
+/**
+ * The image set's version, or null when there is none Swiff signed; `imageRefused` when there is one
+ * on this PC all the same.
+ */
+const imageRead = () => {
   try {
-    return installPlan(rental, { target: typeof ask.target === "string" ? ask.target : null });
+    return { image: imageSet().version, imageRefused: false };
+  } catch {
+    return { image: null, imageRefused: fs.existsSync(path.join(imageDir(), MANIFEST)) };
+  }
+};
+/**
+ * What the app queued for Swiff's key, and what the owner said about its blue screen (rental-key.cjs).
+ * Its code is encrypted by the OS for the logged-in Windows user, as the machine key is.
+ */
+const keys = () =>
+  keyStore(
+    app.getPath("userData"),
+    safeStorage.isEncryptionAvailable()
+      ? {
+          seal: (text) => safeStorage.encryptString(text),
+          open: (sealed) => safeStorage.decryptString(sealed),
+        }
+      : null,
+  );
+/** When this PC last started: a key request queued before it has met its blue screen. */
+const bootAt = () => Date.now() - os.uptime() * 1000;
+
+const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "once"]);
+/** A step that restarts the PC: never run by itself, only on the owner's Restart now. */
+const restarts = (step) => step.ops.some((o) => o.op === "restart");
+/** The plan on the window's screen, which `rental:run` runs; whether a run is under way. */
+let rentalPlan = null;
+let rentalRun = null;
+/** A run finished up to its restart: Restart now may restart the PC. */
+let restartReady = false;
+
+ipcMain.handle("rental:read", async (event) => {
+  if (!fromApp(event)) return null;
+  const read = await readRental();
+  if (!read) return null;
+  // Swiff OS gone, or never there: an old code or answer means nothing any more.
+  if (!read.facts.install) keys().forget();
+  return { ...read, ...imageRead(), key: keyOf(keys().read(), bootAt(), bootTrail()) };
+});
+ipcMain.handle("rental:plan", async (event, ask) => {
+  if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
+  rentalPlan = null;
+  let plan = null;
+  try {
+    if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
+    // The key's restarts suspend BitLocker on C: when it is on: the read says.
+    else if (ask.kind === "mok") plan = mokPlan(undefined, await readRental());
+    else if (ask.kind === "unkey") plan = keyRemovalPlan(undefined, await readRental());
+    else if (ask.kind === "install" || ask.kind === "uninstall") {
+      const rental = await readRental();
+      if (!rental) return null;
+      plan =
+        ask.kind === "uninstall"
+          ? uninstallPlan(rental)
+          : installPlan(rental, {
+              target: typeof ask.target === "string" ? ask.target : null,
+              layout: imageSet().layout,
+            });
+    }
   } catch {
     return null;
   }
+  if (plan && RUNNABLE.has(plan.kind)) rentalPlan = plan;
+  return plan;
+});
+ipcMain.handle("rental:run", async (event) => {
+  if (!fromApp(event) || !rentalPlan || rentalRun) return null;
+  const plan = rentalPlan;
+  rentalRun = {};
+  restartReady = false;
+  const tell = (e) => {
+    if (win && !win.isDestroyed()) win.webContents.send("rental:event", e);
+  };
+  let worker;
+  try {
+    worker = await startWorker({
+      imageDir: imageDir(),
+      // This app again, as the worker (start.cjs); `electron .` needs the app's folder first.
+      command: (pipe, token, dir) => ({
+        file: process.execPath,
+        args: [...(process.defaultApp ? [app.getAppPath()] : []), "--swiff-rental-worker", pipe, token, dir],
+      }),
+    });
+  } catch (error) {
+    rentalRun = null;
+    return {
+      status: "failed",
+      done: [],
+      failed: { step: "elevate", op: "elevate", error: error.message },
+      results: [],
+    };
+  }
+  try {
+    const outcome = await runPlan(plan, {
+      apply: worker.apply,
+      // The owner agreed to every step at once, with the OK that started this run.
+      confirm: async () => true,
+      only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),
+      onEvent: (e) => {
+        // The key's request is in the firmware, or its removal: the key's file must outlive this window.
+        if (e.type === "step" && e.state === "done") keyStep(keys(), plan, e.id, Date.now());
+        tell(e);
+      },
+    });
+    restartReady = outcome.status === "done" && plan.steps.some(restarts);
+    return outcome;
+  } finally {
+    worker.close();
+    rentalRun = null;
+    rentalPlan = null;
+  }
+});
+// Restart now: after a run that ended at its restart, or with a key request still waiting for one.
+ipcMain.handle("rental:restart", async (event) => {
+  if (!fromApp(event) || rentalRun) return false;
+  if (!restartReady && keyOf(keys().read(), bootAt())?.state !== "queued") return false;
+  try {
+    await promisify(execFile)("shutdown.exe", ["/r", "/t", "5"], { windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+});
+// Send details to Swiff: what failed, at which step, and this PC's rental checks, never files or
+// account names. Kept with the app's data for Swiff to collect until the platform takes reports.
+ipcMain.handle("rental:report", (event, report) => {
+  if (!fromApp(event) || !report || typeof report !== "object") return null;
+  const text = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+  const at = Date.now();
+  const body = {
+    at: new Date(at).toISOString(),
+    app: app.getVersion(),
+    step: text(report.step, 64),
+    error: text(report.error, 4000),
+    checks: Array.isArray(report.checks)
+      ? report.checks.slice(0, 40).map((c) => ({ id: text(c?.id, 32), value: text(c?.value, 120) }))
+      : [],
+  };
+  try {
+    const dir = path.join(app.getPath("userData"), "rental-reports");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `${body.at.replace(/[:.]/g, "-")}.json`),
+      `${JSON.stringify(body, null, 2)}\n`,
+    );
+    return at;
+  } catch {
+    return null;
+  }
+});
+// The owner's word on the blue screen, which Windows cannot see.
+ipcMain.handle("rental:key-answer", (event, yes) => {
+  if (!fromApp(event) || !canAnswer(keyOf(keys().read(), bootAt()))) return false;
+  keys().answer(yes === true);
+  return true;
 });
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no
@@ -202,6 +385,7 @@ function createWindow() {
 /** Bring the app window up, opening it again if it was destroyed. */
 function showWindow() {
   if (!win) createWindow();
+  if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
 }
@@ -315,8 +499,6 @@ ipcMain.on("tray:action", (event, action) => {
 });
 
 app.whenReady().then(() => {
-  // Hand back the primary screen without showing a picker. `getDisplayMedia`
-  // in the renderer resolves straight to it.
   protocol.handle("swiff-art", async (request) => {
     const art = await readSteamArt(request.url, await steamRootOnce());
     return art
@@ -324,28 +506,32 @@ app.whenReady().then(() => {
       : new Response(null, { status: 404 });
   });
 
-  session.defaultSession.setDisplayMediaRequestHandler(
-    (request, callback) => {
-      // Only the app window shares the screen; the tray glance never can.
-      const from = request.frame ? webContents.fromFrame(request.frame) : undefined;
-      if (!win || from !== win.webContents) return callback({});
-      desktopCapturer
-        .getSources({ types: ["screen"] })
-        .then((sources) => {
-          if (!sources.length) return callback({});
-          // `"loopback"` is what the machine is playing — the game — and is
-          // Windows only. Not `true`, which would be a microphone nobody is
-          // speaking into. `"loopbackWithMute"` silences the host's own
-          // speakers, which is wrong for a machine with nobody sitting at it
-          // and one more state to get stuck in.
-          callback(
-            process.platform === "win32" ? { video: sources[0], audio: "loopback" } : { video: sources[0] },
-          );
-        })
-        .catch(() => callback({}));
-    },
-    { useSystemPicker: false },
-  );
+  // Development only: hand back the primary screen without showing a picker, so
+  // `getDisplayMedia` in the renderer resolves straight to it. In the app hosts
+  // download no handler is registered, and a stray request gets no source.
+  if (windowsShareAllowed({ isPackaged: app.isPackaged, env: process.env }))
+    session.defaultSession.setDisplayMediaRequestHandler(
+      (request, callback) => {
+        // Only the app window shares the screen; the tray glance never can.
+        const from = request.frame ? webContents.fromFrame(request.frame) : undefined;
+        if (!win || from !== win.webContents) return callback({});
+        desktopCapturer
+          .getSources({ types: ["screen"] })
+          .then((sources) => {
+            if (!sources.length) return callback({});
+            // `"loopback"` is what the machine is playing — the game — and is
+            // Windows only. Not `true`, which would be a microphone nobody is
+            // speaking into. `"loopbackWithMute"` silences the host's own
+            // speakers, which is wrong for a machine with nobody sitting at it
+            // and one more state to get stuck in.
+            callback(
+              process.platform === "win32" ? { video: sources[0], audio: "loopback" } : { video: sources[0] },
+            );
+          })
+          .catch(() => callback({}));
+      },
+      { useSystemPicker: false },
+    );
 
   createWindow();
   void watchGames();

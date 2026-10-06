@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CAPTURE, startHostSession, type HostConnection, type SessionClaim } from "@swiff/rtc";
+import { WINDOWS_SHARE } from "./devShare";
 import { refusedAddress, toSocketUrl } from "./settings";
 
 export type Credentials = { machineId: string; machineKey: string };
@@ -36,8 +37,9 @@ export function useScreenShare(events: ShareEvents = {}) {
   // after a later one began is let go instead of shared.
   const attempt = useRef(0);
 
-  /** Resolves true once the screen is being captured. */
+  /** Resolves true once the screen is being captured; never in the app hosts download (devShare.ts). */
   const start = async (rawUrl: string, credentials: Credentials): Promise<boolean> => {
+    if (!WINDOWS_SHARE) return false;
     setError(null);
     const url = toSocketUrl(rawUrl);
     if (!url) {
@@ -50,7 +52,7 @@ export function useScreenShare(events: ShareEvents = {}) {
       return false;
     }
     if (!credentials.machineId || !credentials.machineKey) {
-      setError("Fill in this machine's id and key first.");
+      setError("Add the machine ID and key first.");
       return false;
     }
     urlRef.current = url;
@@ -82,7 +84,7 @@ export function useScreenShare(events: ShareEvents = {}) {
       // A capture that could not be set up is never left running.
       captured?.getTracks().forEach((t) => t.stop());
       if (mine === attempt.current)
-        setError(cause instanceof Error ? cause.message : "could not capture the screen");
+        setError(cause instanceof Error ? cause.message : "Couldn't capture the screen.");
       return false;
     }
   };
@@ -130,7 +132,7 @@ export function useScreenShare(events: ShareEvents = {}) {
         eventsRef.current.onClaimOver?.();
       },
       onDenied: () => {
-        setError("The server refused this machine id and key.");
+        setError("Swiff didn't accept this machine ID and key. Check both and try again.");
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
       },

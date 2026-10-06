@@ -9,7 +9,9 @@
 //                design can be seen and walked. Never mixed with this PC's.
 
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
+import type { RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
+import type { RateMeter } from "./progress";
 import type { SteamInstall, SteamStatus } from "../steam.cjs";
 import { clock, euros, HOUR, inLabel, MINUTE } from "./format";
 import type { Crew } from "./report";
@@ -65,17 +67,67 @@ export function appidIn(text: string): number | null {
 
 // --- rental mode on this PC -------------------------------------------------------
 
+/** Where a step of the plan on screen is: not reached yet (absent), running, or past. */
+export type StepState = "confirm" | "running" | "done" | "failed" | "stopped";
+
+/** One pass over one of Swiff OS's files while it is written: the file, in the owner's words, and its own bytes. */
+export type WritePass = {
+  doing: "copying" | "writing" | "checking";
+  name: string;
+  done: number;
+  total: number;
+};
+
+/**
+ * The plan on screen, being run: each step's state, when the run and its
+ * running step began, the running step's progress in bytes where it measures
+ * them (with a meter of the rate, for the time left), and how it ended.
+ * `restarting`: the owner said Restart now.
+ */
+export type RentalRun = {
+  status: "idle" | "starting" | "running" | RunOutcome["status"] | "restarting";
+  steps: Record<string, StepState>;
+  startedAt: number | null;
+  stepStartedAt: number | null;
+  /** `done` of `total` moves only forward across the step and is no count of bytes; `pass` is. */
+  progress: { id: string; done: number; total: number; pass: WritePass } | null;
+  meter: RateMeter | null;
+  failed: { step: string; error: string } | null;
+  /** When it stopped, and when its details went to Swiff (Send details to Swiff). */
+  endedAt: number | null;
+  reportedAt: number | null;
+};
+
+export const IDLE_RUN: RentalRun = {
+  status: "idle",
+  steps: {},
+  startedAt: null,
+  stepStartedAt: null,
+  progress: null,
+  meter: null,
+  failed: null,
+  endedAt: null,
+  reportedAt: null,
+};
+
 /**
  * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
  * while `reading`; `read` is null until then, and where the app cannot read
  * this PC. `target` is the place for Swiff OS the owner chose, by id, null
- * for the best one. `preview` is the plan on screen: always a dry run.
+ * for the best one. `preview` is the plan on screen, which `run` runs.
  */
 export type RentalSetup = {
   reading: boolean;
   read: RentalRead | null;
   target: string | null;
   preview: RentalPlan | null;
+  run: RentalRun;
+  /** When `read` was read. */
+  readAt?: number | null;
+  /** A plan was asked for and has not come back yet: main reads the PC again first, which can take a while. */
+  planning?: boolean;
+  /** The end of the last live run the owner has seen summed up ("You were live"), shown once. */
+  liveSeen?: number | null;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -147,7 +199,7 @@ export function levelProgress(hours: number): {
     level,
     next,
     share: Math.min(1, hours / next.hours),
-    line: `${Math.floor(hours)} of ${next.hours} reliable hours to ${next.name}`,
+    line: `${Math.floor(hours)} of ${next.hours} hours to ${next.name}`,
   };
 }
 
@@ -260,6 +312,8 @@ export type HostView = {
   payoutSaved: boolean;
   /** Who may play on this PC, as the platform last said; null until it has. */
   crew: Crew | null;
+  /** In rental mode, why the owner's last choice of who may play did not save. */
+  crewNote?: string | null;
 };
 
 export type TrayAction = "stop-new" | "allow-new" | "pause" | "resume" | "retry";
@@ -289,11 +343,25 @@ export type HostActions = {
   checkRental(): void;
   /** Where Swiff OS goes, by target id. */
   chooseRentalTarget(id: string): void;
-  /** Show the steps that would install rental mode, or switch to or from it. A preview: nothing is run. */
+  /** Show the steps that install rental mode, remove it or its key, switch to it or confirm its key again. */
   previewRental(kind: RentalPlan["kind"]): void;
   closeRentalPreview(): void;
   /** Offer this PC to its owner's crew only, or to anyone. */
   setCrewOnly(on: boolean): void;
+  /** Run the plan on screen, the owner's one OK: Windows asks once for administrator rights. */
+  runRental(): void;
+  /** Restart now, after a run that ended at its restart, or with Swiff's key queued. */
+  restartRental(): void;
+  /** Whether the blue screen took the key's code, in the owner's words. */
+  answerRentalKey(yes: boolean): void;
+  /** Go live in rental mode: the PC restarts into Swiff OS. */
+  goLiveRental(): void;
+  /** Try a failed plan again: planned afresh and run at once, the owner's OK given already. */
+  retryRental(): void;
+  /** Send details to Swiff: the failed step, its error and this PC's checks. */
+  reportRental(): void;
+  /** The owner has seen the last live run summed up. */
+  seenLastLive(): void;
 };
 
 export type Host = { view: HostView; actions: HostActions };
@@ -318,7 +386,7 @@ export function untilChoices(now: number): UntilChoice[] {
       const at = onTheHour(h);
       return { at, time: clock(at), label: inLabel(at - now) };
     }),
-    { at: null, time: "Open", label: "until I stop it" },
+    { at: null, time: "Open", label: "until I stop" },
   ];
 }
 
@@ -336,8 +404,8 @@ export function nextAt(hhmm: string, now: number): number | null {
 
 /** One sentence on what the chosen end time means. */
 export function untilSentence(machine: string, until: number | null): string {
-  const window = until === null ? "until you stop sharing" : `until ${clock(until)}`;
-  return `Players can claim ${machine} ${window}. A session that starts before then is protected until its claimed end.`;
+  const window = until === null ? "until you stop" : `until ${clock(until)}`;
+  return `Players can book ${machine} ${window}. A session that starts before then runs to its end.`;
 }
 
 // --- screens --------------------------------------------------------------------
@@ -399,7 +467,7 @@ export function glanceOf(view: HostView): Glance {
         ...base,
         status: until(live.until),
         live: true,
-        action: { id: "pause", label: "Pause sharing" },
+        action: { id: "pause", label: "Pause" },
       };
     case "session":
     case "ending": {
@@ -407,7 +475,7 @@ export function glanceOf(view: HostView): Glance {
       const caption =
         live.kind === "ending"
           ? `${live.claim.name}, ending early`
-          : `${live.claim.name}, protected until ${clock(claimEnd(live.claim))}`;
+          : `${live.claim.name}, booked until ${clock(claimEnd(live.claim))}`;
       return {
         ...base,
         status: until(live.until),
@@ -418,22 +486,22 @@ export function glanceOf(view: HostView): Glance {
           live.kind === "ending"
             ? null
             : live.stopNew
-              ? { id: "allow-new", label: "Allow new sessions" }
-              : { id: "stop-new", label: "Stop new sessions" },
+              ? { id: "allow-new", label: "Allow new bookings" }
+              : { id: "stop-new", label: "Stop new bookings" },
       };
     }
     case "paused":
       return {
         ...base,
         status: `Paused at ${clock(live.at)}`,
-        action: { id: "resume", label: "Resume sharing" },
+        action: { id: "resume", label: "Resume" },
       };
     case "offline":
       return { ...base, status: "Offline", action: { id: "retry", label: "Try again" } };
     case "starting":
       return { ...base, status: "Starting" };
     case "off":
-      return { ...base, status: "Not sharing" };
+      return { ...base, status: "Not live" };
   }
 }
 

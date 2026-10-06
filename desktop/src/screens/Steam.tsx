@@ -11,28 +11,28 @@ import { Notice } from "../ui/Notice";
 import { Pill } from "../ui/Pill";
 import type { ScreenProps } from "./types";
 
-const yes = (on: boolean | undefined, reading: boolean) => (reading ? "…" : on ? "Yes" : "No");
+const yes = (on: boolean | undefined, reading: boolean) => (reading ? "Checking" : on ? "Yes" : "No");
 
 /** The statement at the top: the one thing to do next. */
 function statement({ steam, games }: HostView): { title: string; line: string } {
   const { status } = steam;
   if (!status)
-    return { title: "Looking for Steam", line: "Players stream the games this PC's Steam has installed." };
+    return { title: "Checking Steam", line: "Players play the games installed in Steam on this PC." };
   if (!status.installed)
     return {
       title: "Install Steam",
-      line: "Players stream the games this PC's Steam has installed. Swiff downloads Valve's own installer and opens it; you click through it.",
+      line: "Swiff downloads the Steam installer for you. Click through it like any other install.",
     };
   if (!status.signedIn)
     return {
       title: "Sign in to Steam",
-      line: "Sign in with your own Steam account, in Steam's own window. Swiff never asks for or sees your Steam password.",
+      line: "Sign in with your own account in the Steam window. Swiff never sees your password.",
     };
   return {
     title: "Steam is ready",
     line: games.installed.length
-      ? "Install the games players ask for, and keep the ones you have."
-      : "Install the games players ask for: any you own, or free to play.",
+      ? "Next, pick the games players can play."
+      : "Next, install a few games. Free-to-play games work for every player.",
   };
 }
 
@@ -52,15 +52,18 @@ export function SteamSetup({ view, actions, go }: ScreenProps) {
           <h1>{title}</h1>
           <p className="ln">{line}</p>
           <p className="ln soft">
-            Players always play with their own Steam copy of a game. Installing one here only puts its files
-            on this PC: a player who does not own it cannot play it.
+            Players need to own a game on Steam to play it here. Installing it only puts the files on this PC.
           </p>
         </div>
-        <Plate caption={["Steam", reading ? "Reading" : ready === checks.length ? "Ready" : "Setting up"]}>
+        <Plate
+          caption={["Steam", reading ? "Checking now" : ready === checks.length ? "Ready" : "Setting up"]}
+        >
+          {/* Steam's read can take a while: the ring turns while it runs, so it never looks undone. */}
           <Dial
-            progress={reading ? 0 : ready / checks.length}
+            live={reading}
+            progress={reading ? null : ready / checks.length}
             big={reading ? "…" : `${ready} of ${checks.length}`}
-            small="ready"
+            small={reading ? "checking" : "ready"}
           />
         </Plate>
       </section>
@@ -76,21 +79,14 @@ export function SteamSetup({ view, actions, go }: ScreenProps) {
               </Pill>
             </div>
           ) : null}
-          {installer.kind === "fetching" ? (
-            <Notice icon="download">Downloading Valve's installer.</Notice>
-          ) : null}
+          {installer.kind === "fetching" ? <Notice icon="download">Downloading Steam…</Notice> : null}
           {installer.kind === "opened" && !status?.installed ? (
-            <Notice>
-              Valve's installer is open: follow its steps. This screen moves on once Steam is installed.
-            </Notice>
+            <Notice>The Steam installer is open. This screen updates when it's done.</Notice>
           ) : null}
           {installer.kind === "failed" ? <Notice icon="warning">{installer.error}</Notice> : null}
         </Zone>
         <Zone title="Your Steam account">
           <Kv label="Signed in">{yes(status?.signedIn, reading)}</Kv>
-          <p className="soft zl">
-            You sign in to Steam itself, with your own account. Swiff never asks for your password.
-          </p>
           {status?.installed && !status.signedIn ? (
             <div className="acts">
               <a className="inst" href={OPEN_STEAM_URL} target="_blank" rel="noreferrer">
@@ -104,7 +100,7 @@ export function SteamSetup({ view, actions, go }: ScreenProps) {
           <p className="soft">
             {installs.length
               ? `Steam is installing ${count(installs.length, "game", "games")}.`
-              : "See the games players ask for, and install any you own or that are free to play."}
+              : "See which games to install."}
           </p>
           <div className="acts">
             <Pill icon="arrow" onClick={() => go("games")}>

@@ -47,16 +47,16 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 
 ## 2. Non-functional requirements
 
-|                          | Requirement                                                                                                                                                                                                           | Why                                                                                             |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Unattended**           | The system starts capture, Steam and the game with no one clicking anything on the PC.                                                                                                                                | A rental machine has nobody sitting at it.                                                      |
-| **Isolation**            | The system runs the session in a separate Windows account and wipes it afterwards.                                                                                                                                    | The renter must never reach the owner's files, passwords or signed-in accounts.                 |
-| **Latency**              | The system injects input as OS-level input the moment it arrives.                                                                                                                                                     | Input delay is felt far more than video delay.                                                  |
-| **Correctness of input** | The system never leaves a key held down.                                                                                                                                                                              | A dropped key-up walks the character into a wall until the session ends.                        |
-| **Liveness**             | The system holds a socket open to the platform, and the platform stops offering the PC the moment it closes.                                                                                                          | Matching a renter to a dead machine wastes their time.                                          |
-| **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds.                                                                                                 | The wipe would otherwise delete the renter's progress.                                          |
-| **Control**              | The system keeps a running session going to its claimed end, stops new claims at the owner's share-until time, and ends a session early only on the owner's confirmed action, after a 5-minute warning to the player. | A player who pays must not lose their game mid-session; the owner can always stop new sessions. |
-| **Trust**                | The system ships as a signed installer.                                                                                                                                                                               | Screen capture plus input injection looks like malware to antivirus and SmartScreen.            |
+|                          | Requirement                                                                                                                                                                                                                                                         | Why                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Unattended**           | The system starts capture, Steam and the game with no one clicking anything on the PC.                                                                                                                                                                              | A rental machine has nobody sitting at it.                                                      |
+| **Isolation**            | _(2026-10-05: describes the retired Windows-sharing path, now development-only; hosting runs in rental mode on Swiff OS, see [`swiff-os/README.md`](../../swiff-os/README.md).)_ The system runs the session in a separate Windows account and wipes it afterwards. | The renter must never reach the owner's files, passwords or signed-in accounts.                 |
+| **Latency**              | The system injects input as OS-level input the moment it arrives.                                                                                                                                                                                                   | Input delay is felt far more than video delay.                                                  |
+| **Correctness of input** | The system never leaves a key held down.                                                                                                                                                                                                                            | A dropped key-up walks the character into a wall until the session ends.                        |
+| **Liveness**             | The system holds a socket open to the platform, and the platform stops offering the PC the moment it closes.                                                                                                                                                        | Matching a renter to a dead machine wastes their time.                                          |
+| **Durability**           | The system uploads the renter's saves before it wipes the session account, and never wipes until the upload succeeds.                                                                                                                                               | The wipe would otherwise delete the renter's progress.                                          |
+| **Control**              | The system keeps a running session going to its claimed end, stops new claims at the owner's share-until time, and ends a session early only on the owner's confirmed action, after a 5-minute warning to the player.                                               | A player who pays must not lose their game mid-session; the owner can always stop new sessions. |
+| **Trust**                | The system ships as a signed installer.                                                                                                                                                                                                                             | Screen capture plus input injection looks like malware to antivirus and SmartScreen.            |
 
 ---
 
@@ -67,7 +67,8 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
 1. The owner installs the host app, and gets Steam ready in it (below).
 2. The owner makes the PC available.
 3. A renter picks it, or the queue matches a renter to it.
-4. The background service gets a session key and starts the streamer and Steam in the
+4. _(2026-10-05: describes the retired Windows-sharing path, now development-only; hosting runs in rental mode on Swiff OS, see [`swiff-os/README.md`](../../swiff-os/README.md).)_
+   The background service gets a session key and starts the streamer and Steam in the
    separate Windows account.
 5. The renter plays.
 6. The session ends and the PC goes back to the owner.
@@ -98,12 +99,12 @@ The app reads what Steam leaves on the PC, never the owner's account (`desktop/s
 
 ## 4. Core entities
 
-| Entity              | What it is                                                                        | Key fields                                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Machine**         | This PC, as the platform knows it.                                                | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
-| **Session**         | One renter playing on this PC.                                                    | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`                                                   |
-| **Save**            | A renter's save data for one game, kept in object storage (S3).                   | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
-| **Session account** | The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC                                                                                       |
+| Entity              | What it is                                                                                                                                                                                                                                                         | Key fields                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| **Machine**         | This PC, as the platform knows it.                                                                                                                                                                                                                                 | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
+| **Session**         | One renter playing on this PC.                                                                                                                                                                                                                                     | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `price`                                                   |
+| **Save**            | A renter's save data for one game, kept in object storage (S3).                                                                                                                                                                                                    | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
+| **Session account** | _(2026-10-05: describes the retired Windows-sharing path, now development-only; hosting runs in rental mode on Swiff OS, see [`swiff-os/README.md`](../../swiff-os/README.md).)_ The separate Windows account the session runs in. Created at start, wiped at end. | local only, never leaves the PC                                                                                       |
 
 Machine `status`: `idle` → `available` → `reserved` → `in_session` → `available` (or
 `idle` when the owner takes it back, `offline` when its socket drops or, with no socket,
@@ -140,7 +141,12 @@ PUT  /machines/:id/availability
   out, it stays as it was. `crew` (in this answer and the heartbeat's) is `{ only,
   crews: [{ name, own, size }] }`: whether it is crew-only, and the crews its owner is
   in with anyone else. The app sends the owner's choice with every offer once they have
-  made one, and shows Who can play while the owner is in a crew or the PC is crew-only.
+  made one (in rental mode, where swiff-hostd makes the offers, at once on its own; one
+  that fails to save goes back to the last confirmed choice, with a note), and shows Who
+  can play while the owner is in a crew or the PC is crew-only. In rental mode the host
+  app sends this call (`available: false`, with or without `crewOnly`) only from
+  Windows, where the PC is already off offer, so it never ends a session; Swiff OS's
+  next offer applies the saved crew choice.
   A crew-only PC whose owner shares no crew with anyone (they left, or were removed)
   stays crew-only and matches nobody; the app says so and offers to open it to everyone
   or to invite a friend from the web app's profile.

@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "main.cjs",
+  "main": "start.cjs",
   "scripts": {
     "build": "tsc -b && vite build",
     "start": "npm run build && electron .",
     "pack": "npm run build && electron-builder --win portable --x64",
+    "pack:test": "npm run build && electron-builder --win portable --x64 -c.extraMetadata.swiffBuild=test",
     "test": "vitest run",
     "demo": "npm run build && electron . --demo",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
@@ -41,6 +42,7 @@
     },
     "files": [
       "main.cjs",
+      "start.cjs",
       "preload.cjs",
       "pc.cjs",
       "steam.cjs",
@@ -49,6 +51,16 @@
       "gpt.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
+      "share-gate.cjs",
+      "build-kind.cjs",
+      "rental-exec.cjs",
+      "rental-key.cjs",
+      "rental-worker.cjs",
+      "image-set.cjs",
+      "image-trust.json",
+      "image-trust.dev.json",
+      "efi.cjs",
+      "measured-boot.cjs",
       "dist/**"
     ],
     "win": {
@@ -59,6 +71,6 @@
     "npmRebuild": false,
     "compression": "maximum"
   },
-  "description": "Swiff host — shares this machine's screen with a renter.",
+  "description": "Swiff host \u2014 shares this machine's screen with a renter.",
   "author": "Swiff"
 }

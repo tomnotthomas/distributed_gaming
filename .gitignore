@@ -27,11 +27,17 @@ e2e/.results/
 # Electron build output
 desktop/release/
 
+# a developer's own image-set key (desktop/image-set.cjs), trusted only by test builds
+desktop/image-trust.dev.json
+
 # Windows prototype build output
 prototypes/credential-provider/**/build/
 prototypes/credential-provider/**/out/
 prototypes/isolation-proof/**/out/
 prototypes/session-splash/**/build/
+
+# Python bytecode
+__pycache__/
 
 # local secrets
 .env

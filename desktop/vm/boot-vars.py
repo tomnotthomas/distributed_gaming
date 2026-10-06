@@ -6,7 +6,8 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
 
   boot-vars.py init  VARS TEMPLATE DB_AUTH WIN_PART WIN_START WIN_SIZE WIN_UUID
       Secure Boot on with the certificate in DB_AUTH (the image's own
-      db.auth, which systemd-boot would enrol) as PK, KEK and db, and a
+      db.auth, which systemd-boot would enrol) as PK, KEK and db, or with
+      TEMPLATE's own keys when DB_AUTH is "-" (OVMF's Microsoft keys), and a
       "Windows Boot Manager" entry for the fake Windows ESP, first and only
       in BootOrder: a PC as it comes.
   boot-vars.py entry VARS TITLE PART START SIZE UUID PATH
@@ -14,10 +15,15 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
       (bcdedit /copy {bootmgr}, /set device and path, displayorder /addlast)
   boot-vars.py first VARS TITLE      move the entry to the front of BootOrder (displayorder /addfirst)
   boot-vars.py next VARS TITLE       BootNext (bootsequence)
-  boot-vars.py mok VARS NEW AUTH     MokNew and MokAuth from the files NEW and AUTH, as
-                                     mokutil --import queues Swiff's key for MokManager
+  boot-vars.py mok VARS NEW AUTH [TIMEOUT]
+                                     MokNew, MokAuth (and MokTimeout) from the files NEW, AUTH
+                                     (and TIMEOUT), as mokutil --import --timeout -1 queues
+                                     Swiff's key for MokManager
+  boot-vars.py secure-boot VARS on|off
+                                     OVMF's Secure Boot switch, as its setup screen flips it
   boot-vars.py cert DB_AUTH OUT      the certificate in DB_AUTH, as DER, to OUT
-  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request and MokList
+  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request, MokTimeout
+                                     and MokList
 """
 
 import struct
@@ -28,6 +34,9 @@ from virt.firmware.efi import devpath, efivar, guids, siglist, ucs16
 from virt.firmware.varstore import autodetect
 
 WINDOWS_PATH = "\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+
+# OVMF's Secure Boot switch (gEfiSecureBootEnableDisableGuid), which its setup screen flips.
+SECURE_BOOT_ENABLE = "SecureBootEnable"
 
 # Non-volatile, boot service and runtime access: what mokutil sets on MokNew and MokAuth.
 NV_BS_RT = 7
@@ -101,13 +110,14 @@ def main(cmd, vars_path, *args):
     if cmd == "init":
         template, db_auth, part, start, size, uuid = args
         store, varlist = load(template)
-        with tempfile.NamedTemporaryFile(suffix=".der") as cert:
-            cert.write(cert_from_auth(db_auth))
-            cert.flush()
-            owner = guids.OvmfEnrollDefaultKeys
-            for name in ("PK", "KEK", "db"):
-                varlist.add_cert(name, owner, cert.name, True)
-        varlist.enable_secureboot()
+        if db_auth != "-":
+            with tempfile.NamedTemporaryFile(suffix=".der") as cert:
+                cert.write(cert_from_auth(db_auth))
+                cert.flush()
+                owner = guids.OvmfEnrollDefaultKeys
+                for name in ("PK", "KEK", "db"):
+                    varlist.add_cert(name, owner, cert.name, True)
+            varlist.enable_secureboot()
         varlist.set_boot_entry(0, "Windows Boot Manager", hd_path(part, start, size, uuid, WINDOWS_PATH))
         set_order(varlist, [0])
         save(store, varlist, vars_path)
@@ -129,10 +139,19 @@ def main(cmd, vars_path, *args):
         varlist.set_boot_next(index_of(varlist, title))
         save(store, varlist, vars_path)
     elif cmd == "mok":
-        new, auth = args
+        names = ("MokNew", "MokAuth", "MokTimeout")
         store, varlist = load(vars_path)
-        for name, path in (("MokNew", new), ("MokAuth", auth)):
+        for name, path in zip(names, args):
             varlist[name] = efivar.EfiVar(name, guid=guids.Shim, attr=NV_BS_RT, data=open(path, "rb").read())
+        save(store, varlist, vars_path)
+    elif cmd == "secure-boot":
+        (state,) = args
+        store, varlist = load(vars_path)
+        if state == "on":
+            varlist.enable_secureboot()
+        else:
+            # OVMF's own switch, as its setup screen sets it: the keys stay enrolled.
+            varlist[SECURE_BOOT_ENABLE].data = b"\x00"
         save(store, varlist, vars_path)
     elif cmd == "cert":
         (out,) = args
@@ -153,6 +172,8 @@ def main(cmd, vars_path, *args):
             print(f"MOK request: MokNew {len(new.data) if new else 0} bytes, MokAuth {len(auth.data) if auth else 0} bytes")
         else:
             print("MOK request: none")
+        wait = varlist.get("MokTimeout")
+        print(f"MokTimeout: {struct.unpack('<i', wait.data)[0] if wait and len(wait.data) == 4 else wait.data.hex() if wait else 'none'}")
         mok = varlist.get("MokList")
         print(f"MokList: {mok.data.hex() if mok else 'none'}")
     else:

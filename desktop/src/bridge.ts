@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
 import type { Glance, TrayAction } from "./model";
@@ -18,8 +19,21 @@ export type HostBridge = {
   onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
   /** Null where rental mode cannot be read (off Windows). */
   readRental(): Promise<RentalRead | null>;
-  /** A preview of the steps; null when there is no plan to show. */
+  /** The steps, as main will run them; null when there is no plan to show. */
   planRental(ask: { kind: RentalPlan["kind"]; target?: string | null }): Promise<RentalPlan | null>;
+  /** Run the plan main last showed; null when there is none to run. */
+  runRental(): Promise<RunOutcome | null>;
+  /** Restart now, after a run that ended at its restart: false when there is nothing to restart for. */
+  restartRental(): Promise<boolean>;
+  /** Whether the blue screen took the key's code, in the owner's words. */
+  answerRentalKey(yes: boolean): Promise<boolean>;
+  /** Send details to Swiff: when it was kept, or null when it could not be. */
+  reportRental(report: {
+    step: string;
+    error: string;
+    checks: { id: string; value: string }[];
+  }): Promise<number | null>;
+  onRentalEvent(listener: (event: RunEvent) => void): () => void;
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;

@@ -6,6 +6,7 @@
 //   share-until set  PUT  availability { available: true, until }
 //   who can play     PUT  availability { available: true, until, crewOnly }
 //   pause or stop    PUT  availability { available: false }
+//   rental mode      PUT  availability { available: false, crewOnly }   (offOffer)
 //
 // The open signaling socket is the PC's presence. The beat keeps it fresh for
 // the platform's liveness gate (E1, 15 s) all the same, also while the room is
@@ -380,4 +381,31 @@ export function createHostReporter(
       }).catch(() => {});
     },
   };
+}
+
+/**
+ * Rental mode, from Windows: Swiff OS offers this PC, so here it is off offer.
+ * Says so, with the owner's choice of who may play when they made one, and
+ * returns who may play as the platform answers; null when it cannot be reached
+ * or says nothing that reads.
+ */
+export async function offOffer(
+  machine: Machine,
+  crewOnly?: boolean,
+  fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
+): Promise<Crew | null> {
+  try {
+    const res = await fetch(
+      `${httpOrigin(machine.url)}/api/machines/${encodeURIComponent(machine.machineId)}/availability`,
+      {
+        method: "PUT",
+        headers: { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ available: false, ...(crewOnly === undefined ? {} : { crewOnly }) }),
+        signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
+      },
+    );
+    return res.ok ? crewOf(await res.json().catch(() => null)) : null;
+  } catch {
+    return null;
+  }
 }

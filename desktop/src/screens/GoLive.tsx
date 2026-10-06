@@ -1,4 +1,5 @@
-// A3: choose until when players can claim this PC, then hold to go live.
+// A3: go live. In rental mode the PC restarts into Swiff OS; development builds
+// can still share this Windows desktop until a chosen time.
 
 import { useState } from "react";
 import { httpOrigin } from "@swiff/rtc";
@@ -6,7 +7,11 @@ import { clock, count, HOUR, shortGpu } from "../format";
 import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
+import { WINDOWS_SHARE } from "../devShare";
+import { failureOf, rentalScreen } from "../rental";
+import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
+import { Sent } from "./Rental";
 import type { Crew } from "../report";
 import { toSocketUrl } from "../settings";
 import { listedGames, tonight, type ScreenProps } from "./types";
@@ -149,7 +154,86 @@ export function CrewPicker({
   );
 }
 
-export function GoLive({ view, actions, go }: ScreenProps) {
+/**
+ * Go live, in rental mode: the PC restarts into Swiff OS, where players book
+ * it. Holding the button is the owner's OK: the restart follows by itself.
+ * Who can play is asked here, as the platform holds it for Swiff OS's offers.
+ */
+export function GoLive(props: ScreenProps) {
+  const { view, actions } = props;
+  if (WINDOWS_SHARE) return <GoLiveWindows {...props} />;
+  // Reachable only once rental mode is ready (stepLocked): the shell shows rental mode until then.
+  const setup = view.rental;
+  const s = rentalScreen(setup);
+  const busy = s.kind === "elevating" || s.kind === "running" || s.kind === "restarting";
+  const status =
+    s.kind === "elevating"
+      ? "Windows asks for permission. Click Yes. No prompt? Look for a flashing shield on the taskbar."
+      : s.kind === "running"
+        ? "Getting the restart ready."
+        : s.kind === "restarting" || s.kind === "restart"
+          ? "Restarting into Swiff OS."
+          : null;
+  const failed = s.kind === "failed" ? failureOf(setup, s) : null;
+  return (
+    <main className="step">
+      <section className="hz">
+        <div className="cp">
+          <p className="mono ctx">{view.machine}</p>
+          <h1>{failed ? failed.title : "Ready to go live"}</h1>
+          <p className="ln">
+            {failed
+              ? failed.why
+              : "Hold the button. The PC restarts into Swiff OS, and players can book it. For now its next restart is Windows again."}
+          </p>
+          {!status && !failed && asksWhoCanPlay(view.crew) ? (
+            <div className="ctl">
+              <CrewPicker
+                crew={view.crew}
+                site={siteOf(view.connection.url)}
+                onChange={actions.setCrewOnly}
+              />
+              {view.crewNote ? <Notice>{view.crewNote}</Notice> : null}
+            </div>
+          ) : null}
+          {status ? (
+            <p className="mstatus mlive">
+              <i className="mpulse" aria-hidden="true" />
+              {status}
+            </p>
+          ) : null}
+          {failed && setup.run.reportedAt !== null ? <Sent at={setup.run.reportedAt} /> : null}
+          {failed ? (
+            <div className="acts">
+              {/* The failure's own next step, as on the rental screen. */}
+              <Pill
+                icon={failed.action === "send" ? "arrow" : "refresh"}
+                onClick={() => {
+                  if (failed.action === "send") return actions.reportRental();
+                  if (failed.action === "restart") return actions.restartRental();
+                  if (failed.action === "check") {
+                    actions.closeRentalPreview();
+                    return actions.checkRental();
+                  }
+                  actions.retryRental();
+                }}
+              >
+                {failed.label}
+              </Pill>
+            </div>
+          ) : null}
+        </div>
+        <Plate className="ret" caption={["Go live", busy ? "Starting" : "Hold to start"]}>
+          <Reticle onFire={actions.goLiveRental} starting={busy} />
+        </Plate>
+      </section>
+      <i className="ruler" aria-hidden="true" />
+    </main>
+  );
+}
+
+/** Development builds only: going live by sharing this Windows desktop. */
+function GoLiveWindows({ view, actions, go }: ScreenProps) {
   const { machine, rate, plan, live, connection, now } = view;
   const ready = connectionReady(connection);
   const games = listedGames(view);
@@ -168,18 +252,18 @@ export function GoLive({ view, actions, go }: ScreenProps) {
               </>
             ) : null}
           </p>
-          <h1>Ready to share</h1>
-          <p className="ln">Choose until when players can claim {machine}, then hold the button.</p>
+          <h1>Ready to go live</h1>
+          <p className="ln">Pick an end time, then hold the button.</p>
           <div className="ctl">
             <p className="mono label" aria-hidden="true">
-              Share until
+              Live until
             </p>
             <UntilPicker now={now} value={plan} onChange={actions.plan} />
             <p className="note6">{untilSentence(machine, plan)}</p>
             <CrewPicker crew={view.crew} site={siteOf(connection.url)} onChange={actions.setCrewOnly} />
             {!ready ? (
               <p className="note6">
-                Add this PC&rsquo;s connection details in{" "}
+                Add your connection details in{" "}
                 <button type="button" className="lnk" onClick={() => go("settings")}>
                   Settings
                 </button>{" "}
@@ -190,7 +274,7 @@ export function GoLive({ view, actions, go }: ScreenProps) {
             {connection.notice ? <Notice>{connection.notice}</Notice> : null}
           </div>
         </div>
-        <Plate className="ret" caption={["Go live", "No account needed yet"]}>
+        <Plate className="ret" caption={["Go live", "Hold to start"]}>
           <Reticle onFire={actions.goLive} disabled={!ready} starting={live.kind === "starting"} />
         </Plate>
       </section>
@@ -222,8 +306,8 @@ export function GoLive({ view, actions, go }: ScreenProps) {
             <Kv label={`Level ${rate.level.name}`}>+{Math.round(rate.level.bonus * 100)}%</Kv>
             {plan !== null ? (
               <p className="soft fine">
-                At most <Eur n={(rate.total * Math.max(0, plan - now)) / HOUR} /> {tonight(now)}, if a player
-                stays until {clock(plan)}.
+                Up to <Eur n={(rate.total * Math.max(0, plan - now)) / HOUR} /> {tonight(now)} if players stay
+                until {clock(plan)}.
               </p>
             ) : null}
           </Zone>

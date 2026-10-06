@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
 # Rental mode's install and switch, tested in a VM (report stage 2).
 #
-# The host app plans the install and the switch (rental.cjs) but runs nothing
-# on a PC yet. This test carries the plans out on a disk image laid out like a
-# Windows PC's, with apply-plan.cjs standing in for Windows, then boots it
-# under OVMF with Secure Boot and a software TPM (swtpm):
+# The host app's plans (rental.cjs), carried out on a disk image laid out like
+# a Windows PC's, with apply-plan.cjs standing in for Windows (the real
+# installer on real Windows is vm/windows-install-test.sh's), then booted
+# under OVMF with Microsoft's Secure Boot keys and a software TPM (swtpm), as
+# a PC boots it:
 #
-#   1. a "Windows" disk: ESP with a Windows Boot Manager stand-in, the
-#      reserved partition, C: (NTFS) and a recovery partition at the end,
-#      and firmware variables with Secure Boot on and Windows in BootOrder
+#   1. a "Windows" disk: ESP with a Windows Boot Manager stand-in (Ubuntu's
+#      Microsoft-signed shim, starting the image's systemd-boot on its own
+#      screen once Swiff's key is trusted), the reserved partition, C: (NTFS)
+#      and a recovery partition at the end, and firmware variables with
+#      Secure Boot on and Windows in BootOrder
 #   2. the install plan for it: C: shrunk by Swiff OS's 24,192 MiB, Swiff OS's
 #      six partitions added with the image's ids, names and attributes, its
-#      ESP and slot A written, its boot entry added after Windows, C: named
-#      SWIFFGAMES, Swiff's key queued for MokManager (MokNew, MokAuth) and
-#      BootNext set for the restart that confirms it. The VM boots systemd-boot
-#      without shim, so nothing here shows MokManager: vm/mok-enroll-test.sh does
-#   3. start sharing (Swiff OS first in BootOrder, BootNext), then boot 1:
-#      the firmware must start Swiff OS, which runs its self-test
-#   4. stop sharing (Windows first), then boot 2: the firmware must start
+#      ESP (with the shim, swiff-os/image-set.sh) and slot A written, its boot
+#      entry for the shim added after Windows, C: named SWIFFGAMES, Swiff's key
+#      queued for MokManager (MokNew, MokAuth) and BootNext set
+#   3. boot 0: shim shows MokManager, and the owner confirms Swiff's key with
+#      the install's code (mok-drive.py)
+#   4. start sharing (Swiff OS first in BootOrder, BootNext), then boot 1:
+#      shim must start Swiff's systemd-boot and Swiff OS, which runs its self-test
+#   5. stop sharing (Windows first), then boot 2: the firmware must start
 #      Windows Boot Manager
 #
 # Windows' C: must come through with its files, and Swiff OS must find its
@@ -26,9 +30,10 @@
 # Usage: vm/rental-install-test.sh
 #
 # Needs the Swiff OS self-test build from swiff-os/vm/run-test.sh in
-# $SWIFF_OS_OUTPUT (default ~/.cache/swiff-os/output), and: node, sudo (loop
-# devices for the NTFS tools, and QEMU when /dev/kvm is not writable),
-# qemu-system-x86_64, swtpm, OVMF, mtools, mkfs.fat, ntfs-3g ($NTFS_BIN, default
+# $SWIFF_OS_OUTPUT (default ~/.cache/swiff-os/output), which it makes an image
+# set of, and: node, curl (Ubuntu's shim), sudo (loop devices for the NTFS
+# tools, and QEMU when /dev/kvm is not writable), qemu-system-x86_64, swtpm,
+# OVMF with Microsoft's keys, mtools, mkfs.fat, ntfs-3g ($NTFS_BIN, default
 # /usr/sbin), sgdisk, and a Python with virt-firmware ($VIRT_FW_PYTHON).
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # disk is a sparse file and the firmware variables a copy of OVMF's template.
@@ -42,7 +47,7 @@ image=$out/swiffos-selftest.raw
 python=${VIRT_FW_PYTHON:-python3}
 ntfs_bin=${NTFS_BIN:-/usr/sbin}
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
-ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.fd
+ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
 boot_timeout=${BOOT_TIMEOUT:-600}
 # Big enough that C: keeps 16 GiB free after giving Swiff OS its share.
 disk_bytes=$((64 * 1024 * 1024 * 1024))
@@ -101,17 +106,23 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
 }
 
 # --- 1. a disk like a Windows PC's ---------------------------------------------------
+log "The image set"
+set=$run/image-set
+"$here/../../swiff-os/image-set.sh" "$out" swiffos-selftest "$set"
 log "A Windows-like disk in $run"
 parts=$(node "$here/apply-plan.cjs" windows "$disk" "$disk_bytes")
 read -r esp_offset esp_bytes < <(python3 -c 'import json,sys; p = json.loads(sys.argv[1])[0]; print(p["offset"], p["bytes"])' "$parts")
 # One sector a cluster, so a 300 MiB FAT32 has the clusters firmware expects of one.
 mkfs.fat -F 32 -s 1 -n SYSTEM --offset $((esp_offset / 512)) "$disk" $((esp_bytes / 1024)) > /dev/null
-# Windows Boot Manager's stand-in: the image's signed systemd-boot with no
-# entries, which stays on its own screen.
-mcopy -i "$out/swiffos-selftest.esp.raw" ::/EFI/systemd/systemd-bootx64.efi "$run/bootmgfw.efi"
-mcopy -i "$out/swiffos-selftest.esp.raw" ::/loader/keys/auto/db.auth "$run/db.auth"
+# Windows Boot Manager's stand-in, signed by Microsoft as Windows' is: the
+# image set's shim, which starts the image's systemd-boot with no entries
+# beside it (once Swiff's key is trusted), which stays on its own screen.
+esp_set=$(ls "$set"/swiffos_*.esp.raw)
+mcopy -i "$esp_set" ::/EFI/swiff/shimx64.efi "$run/bootmgfw.efi"
+mcopy -i "$esp_set" ::/EFI/systemd/systemd-bootx64.efi "$run/grubx64.efi"
 mmd -i "$disk@@$esp_offset" ::/EFI ::/EFI/Microsoft ::/EFI/Microsoft/Boot ::/loader
 mcopy -i "$disk@@$esp_offset" "$run/bootmgfw.efi" ::/EFI/Microsoft/Boot/bootmgfw.efi
+mcopy -i "$disk@@$esp_offset" "$run/grubx64.efi" ::/EFI/Microsoft/Boot/grubx64.efi
 printf 'timeout menu-force\nauto-entries no\n' > "$run/loader.conf"
 mcopy -i "$disk@@$esp_offset" "$run/loader.conf" ::/loader/loader.conf
 read_c
@@ -119,30 +130,25 @@ on_c mkntfs -Q -F -L Windows {} > /dev/null
 marker="swiff-windows-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 echo "$marker" > "$run/marker.txt"
 on_c ntfscp -f {} "$run/marker.txt" /windows-marker.txt
-# Firmware variables as the PC comes: Secure Boot on, Windows first and only.
+# Firmware variables as the PC comes: Secure Boot on with Microsoft's keys, Windows first and only.
 read -r win_start win_size win_uuid < <(sfdisk -J "$disk" | python3 -c 'import json,sys
 p = json.load(sys.stdin)["partitiontable"]["partitions"][0]; print(p["start"], p["size"], p["uuid"])')
-"$BOOT_VARS" init "$vars" "$ovmf_vars" "$run/db.auth" 1 "$win_start" "$win_size" "$win_uuid"
+"$BOOT_VARS" init "$vars" "$ovmf_vars" - 1 "$win_start" "$win_size" "$win_uuid"
 
 # --- 2. install -------------------------------------------------------------------------
 log "What the app reads"
 node "$here/apply-plan.cjs" facts "$disk" > "$run/facts.json"
 cat "$run/facts.json"
 log "Install"
-# Swiff's certificate's stand-in: the image's own test certificate.
-"$BOOT_VARS" cert "$run/db.auth" "$run/swiffos-key.cer"
-node "$here/apply-plan.cjs" install "$disk" "$image" "$run/facts.json" "$vars" "$run/swiffos-key.cer"
+code=$(node -e 'console.log(require(process.argv[1]).mokCode())' "$here/../rental.cjs")
+SWIFF_MOK_CODE=$code node "$here/apply-plan.cjs" install "$disk" "$set" "$run/facts.json" "$vars"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-installed.log"
-
-# --- 3. start sharing, boot 1 -----------------------------------------------------------
-log "Start sharing"
-node "$here/apply-plan.cjs" switch start "$vars"
-"$BOOT_VARS" show "$vars" | tee "$run/vars-started.log"
 
 # Boots the VM once; returns when it powers off or after the timeout. It runs
 # in the run directory, so the TPM's socket path stays under the 108 bytes a
-# UNIX socket path may have.
-boot_vm() { # boot-number timeout
+# UNIX socket path may have. With a code, it plays the owner at MokManager
+# instead (mok-drive.py), and stops once the firmware starts again.
+boot_vm() { # boot-number timeout [mok-code]
 	local n=$1 serial=$run/serial-$1.log
 	log "Boot $n"
 	cd "$run"
@@ -152,7 +158,7 @@ boot_vm() { # boot-number timeout
 		--log file="$run/swtpm-$n.log" &
 	local swtpm_pid=$!
 	for _ in $(seq 50); do [ -S tpm/sock ] && break; sleep 0.1; done
-	timeout "$2" "${qemu[@]}" \
+	local vm=("${qemu[@]}" \
 		-machine q35,smm=on,accel=kvm,kernel-irqchip=split \
 		-cpu host -smp 2 -m 2048 \
 		-global driver=cfi.pflash01,property=secure,value=on \
@@ -167,8 +173,12 @@ boot_vm() { # boot-number timeout
 		-device virtio-blk-pci,drive=os \
 		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
-		-display none -vga none -monitor none \
-		-serial "file:$serial" || true
+		-display none -vga none -monitor none)
+	if [ -n "${3:-}" ]; then
+		"$python" "$here/mok-drive.py" "$serial" confirm "$3" -- "${vm[@]}" && mok_confirmed=1 || true
+	else
+		timeout "$2" "${vm[@]}" -serial "file:$serial" || true
+	fi
 	kill "$swtpm_pid" 2> /dev/null || true
 	wait "$swtpm_pid" 2> /dev/null || true
 	return 0
@@ -178,10 +188,19 @@ serial() { tr -d '\r' < "$run/serial-$1.log" | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'
 # The first boot option the firmware started on a boot: its title.
 started() { serial "$1" | sed -n 's/^.*BdsDxe: starting Boot[0-9A-F]* "\([^"]*\)".*$/\1/p' | head -n1; }
 
+# --- 3. boot 0: the owner confirms Swiff's key ----------------------------------------
+mok_confirmed=0
+boot_vm 0 300 "$code"
+"$BOOT_VARS" show "$vars" | tee "$run/vars-confirmed.log"
+
+# --- 4. start sharing, boot 1 -----------------------------------------------------------
+log "Start sharing"
+node "$here/apply-plan.cjs" switch start "$vars"
+"$BOOT_VARS" show "$vars" | tee "$run/vars-started.log"
 boot_vm 1 "$boot_timeout"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-after-boot1.log"
 
-# --- 4. stop sharing, boot 2 ------------------------------------------------------------
+# --- 5. stop sharing, boot 2 ------------------------------------------------------------
 log "Stop sharing"
 node "$here/apply-plan.cjs" switch stop "$vars"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-stopped.log"
@@ -202,6 +221,8 @@ expect() { # name detail command...
 	if "$@" > /dev/null 2>&1; then result PASS "$name" "$detail"; else result FAIL "$name" "$detail"; fi
 }
 
+# A boot entry's number: the firmware's template has entries of its own (UiApp, network boot).
+B="Boot[0-9A-F]\{4\}"
 expect gpt-valid "the disk's GPT passes sgdisk's checks" bash -c "sgdisk -v '$disk' | grep -q 'No problems found'"
 # Swiff OS's partitions on the disk carry the image's ids, names, types and attributes.
 compare=$(python3 - "$image" "$disk" << 'EOF'
@@ -222,15 +243,18 @@ expect windows-volume-clean "C:'s NTFS needs no repair" on_c ntfsfix -n {}
 games_label=$(on_c ntfslabel {} 2> /dev/null || true)
 expect games-drive-named "C: is labelled ${games_label:-?}" test "$games_label" = SWIFFGAMES
 expect install-adds-last "after install: $(head -n1 "$run/vars-installed.log")" \
-	grep -q "^BootOrder: Boot0000 'Windows Boot Manager', Boot0001 'Swiff OS'$" "$run/vars-installed.log"
+	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Swiff OS'$" "$run/vars-installed.log"
 expect install-restarts-to-swiff "after install: $(sed -n 2p "$run/vars-installed.log")" \
-	grep -q "^BootNext: Boot0001 'Swiff OS'$" "$run/vars-installed.log"
+	grep -q "^BootNext: $B 'Swiff OS'$" "$run/vars-installed.log"
 expect install-queues-mok "after install: $(sed -n 3p "$run/vars-installed.log")" \
-	grep -q "^MOK request: MokNew $((44 + $(stat -c %s "$run/swiffos-key.cer"))) bytes, MokAuth 32 bytes$" "$run/vars-installed.log"
+	grep -q "^MOK request: MokNew $((44 + $(stat -c %s "$set/swiffos-key.cer"))) bytes, MokAuth 32 bytes$" "$run/vars-installed.log"
+expect mok-confirmed "the owner confirmed Swiff's key at MokManager with the install's code" test "$mok_confirmed" = 1
+expect mok-enrolled "MokList holds Swiff's certificate" \
+	grep -q "^MokList: .*$(od -An -v -tx1 "$set/swiffos-key.cer" | tr -d ' \n')" "$run/vars-confirmed.log"
 expect start-sets-order "start: $(head -n1 "$run/vars-started.log")" \
-	grep -q "^BootOrder: Boot0001 'Swiff OS', Boot0000 'Windows Boot Manager'$" "$run/vars-started.log"
+	grep -q "^BootOrder: $B 'Swiff OS', $B 'Windows Boot Manager'" "$run/vars-started.log"
 expect start-sets-bootnext "start: $(sed -n 2p "$run/vars-started.log")" \
-	grep -q "^BootNext: Boot0001 'Swiff OS'$" "$run/vars-started.log"
+	grep -q "^BootNext: $B 'Swiff OS'$" "$run/vars-started.log"
 expect boot1-starts-swiff "boot 1 started: $(started 1)" test "$(started 1)" = "Swiff OS"
 expect bootnext-consumed "after boot 1: $(sed -n 2p "$run/vars-after-boot1.log")" \
 	grep -q "^BootNext: none$" "$run/vars-after-boot1.log"
@@ -250,7 +274,7 @@ while read -r status name detail; do
 done < <(serial 1 | sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p')
 # The firmware appends its own entries (its setup app, network boot) on the first boot.
 expect stop-sets-order "stop: $(head -n1 "$run/vars-stopped.log" | cut -c1-80)" \
-	grep -q "^BootOrder: Boot0000 'Windows Boot Manager', Boot0001 'Swiff OS'" "$run/vars-stopped.log"
+	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Swiff OS'" "$run/vars-stopped.log"
 expect boot2-starts-windows "boot 2 started: $(started 2)" test "$(started 2)" = "Windows Boot Manager"
 expect boot2-no-swiff "Swiff OS did not start on boot 2" bash -c "[ -s '$run/serial-2.log' ] && ! grep -aq 'SWIFF-SELFTEST' '$run/serial-2.log'"
 

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { bridge } from "./bridge";
 import { DEMO_SCREENS, demoArt, type DemoScreen } from "./demo";
+import { WINDOWS_SHARE } from "./devShare";
 import { clock } from "./format";
 import { glanceOf, type Host, type Step, type TrayAction } from "./model";
 import { GetPaid } from "./screens/GetPaid";
 import { GoLive } from "./screens/GoLive";
 import { Ending, InUse, Offline, Paused, Streaming, Waiting } from "./screens/Live";
 import { Settings } from "./screens/Settings";
+import { stepLocked } from "./rental";
 import { RentalSetupScreen } from "./screens/Rental";
 import { Games, ReadPc } from "./screens/Setup";
 import { SteamSetup } from "./screens/Steam";
@@ -89,8 +91,10 @@ export function Shell({
 }) {
   useTray(host);
   const props: ScreenProps = { view: host.view, actions: host.actions, go: onStep };
+  // A step that is still locked shows rental mode, the step it waits for, and opens by itself once it is ready.
+  const shown = stepLocked(step, host.view, WINDOWS_SHARE) ? "rental" : step;
   const screen = (() => {
-    switch (step) {
+    switch (shown) {
       case "pc":
         return <ReadPc {...props} setupDone={setupDone} />;
       case "steam":
@@ -110,11 +114,14 @@ export function Shell({
   return (
     <div className={MAC ? "hx mac" : "hx"}>
       <div className="titlebar" aria-hidden="true" />
-      <Rail view={host.view} step={step} setupDone={setupDone} onStep={onStep} foot={foot} />
+      <Rail view={host.view} step={shown} setupDone={setupDone} onStep={onStep} foot={foot} />
       {screen}
     </div>
   );
 }
+
+/** A build packaged by `npm run pack:test` (build-kind.cjs): main opens the window with build=test. */
+const TEST_BUILD = new URLSearchParams(location.search).get("build") === "test";
 
 /** The app on this PC's own data. The first run starts at reading the PC; later ones at Go live. */
 export function RealApp() {
@@ -131,6 +138,7 @@ export function RealApp() {
         saveSetupDone();
         setSetupDone(true);
       }}
+      foot={TEST_BUILD ? <span className="build-tag">Test build</span> : undefined}
     />
   );
 }

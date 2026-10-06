@@ -39,4 +39,6 @@ export function withPartitions(
   adds: { type: string; id: string; name: string; first: number; last: number; attrs?: bigint }[],
 ): Gpt;
 export function withResized(gpt: Gpt, index: number, last: number): Gpt;
+export function withRemoved(gpt: Gpt, indexes: number[]): Gpt;
+export function withRetyped(gpt: Gpt, index: number, type: string): Gpt;
 export function gptWrites(gpt: Gpt, options?: { mbr?: boolean }): Write[];

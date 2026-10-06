@@ -2,12 +2,33 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DemoApp, Shell } from "./App";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
-import type { Claim, Host, HostActions, HostView, Live, Step } from "./model";
+import {
+  IDLE_RUN,
+  type Claim,
+  type Host,
+  type HostActions,
+  type HostView,
+  type Live,
+  type Step,
+} from "./model";
 import { HOLD_MS } from "./ui/hold";
-import type { HostBridge } from "./bridge";
-import { useRental } from "./useRental";
-import { installPlan, mokPlan, rentalOf, switchPlan, TYPE, type RentalRead } from "../rental.cjs";
+import {
+  installPlan,
+  keyRemovalPlan,
+  rentalOf,
+  switchPlan,
+  uninstallPlan,
+  type RentalRead,
+} from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
+
+/** Sharing this Windows desktop: off, as in every build hosts download, unless a test turns it on. */
+const share = vi.hoisted(() => ({ on: false }));
+vi.mock("./devShare", () => ({
+  get WINDOWS_SHARE() {
+    return share.on;
+  },
+}));
 
 const FAKE = [
   "setTimeout",
@@ -63,7 +84,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       installs: [],
       asked: [],
     },
-    rental: { reading: false, read: null, target: null, preview: null },
+    rental: { reading: false, read: null, target: null, preview: null, run: IDLE_RUN },
     standing: null,
     earlyEnd: null,
     rate: null,
@@ -107,6 +128,13 @@ function actions(): HostActions {
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
     setCrewOnly: vi.fn(),
+    runRental: vi.fn(),
+    restartRental: vi.fn(),
+    answerRentalKey: vi.fn(),
+    goLiveRental: vi.fn(),
+    retryRental: vi.fn(),
+    reportRental: vi.fn(),
+    seenLastLive: vi.fn(),
   };
 }
 
@@ -118,6 +146,33 @@ function renderReal(step: Step, live: Live, more: Partial<HostView> = {}) {
 }
 
 const off: Live = { kind: "off", note: null };
+
+/** Rental mode installed and its key confirmed: what Go live and Get paid wait for. */
+const RENTAL_READY: Partial<HostView> = {
+  rental: {
+    reading: false,
+    read: {
+      ...rentalOf(
+        {
+          ...structuredClone(FACTS),
+          install: {
+            complete: true,
+            disk: 0,
+            bootEntry: { path: "x" },
+            partitions: [],
+            shrink: null,
+            mok: true,
+          },
+        },
+        [],
+      ),
+      key: { state: "confirmed", code: null },
+    },
+    target: null,
+    preview: null,
+    run: IDLE_RUN,
+  },
+};
 const session = (atPc: boolean): Live => ({
   kind: "session",
   since: evening(21),
@@ -139,11 +194,38 @@ function expectNoDemoData() {
 
 describe("demo", () => {
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
-    pc: "Reading this PC",
+    pc: "Your PC",
     steam: "Steam is ready",
     games: "Choose the games you offer",
-    rental: "One change in the BIOS",
-    golive: "Ready to share",
+    "rental-checking": "Checking this PC",
+    "rental-unread": "Check didn't finish",
+    rental: "Turn on IOMMU",
+    "rental-bios2": "Turn on Secure Boot and IOMMU",
+    "rental-recheck": "Turn on IOMMU",
+    "rental-bitlocker": "Turn off BitLocker on D:",
+    "rental-almost": "Almost ready",
+    "rental-ready": "Install rental mode",
+    "rental-preview": "Write down this code",
+    "rental-run-check": "Checking the Secure Boot keys",
+    "rental-run-shrink": "Making room",
+    "rental-run-write": "Writing Swiff OS",
+    "rental-run-late": "Writing Swiff OS",
+    "rental-restart": "Restart to confirm the key",
+    "rental-restarting": "Restarting",
+    "rental-ask": "Did the blue screen take your code?",
+    "rental-key": "Confirm Swiff's key",
+    "rental-key-code": "Write down this code",
+    "rental-installed": "Rental mode is ready",
+    "rental-back": "You were live 21:00 to 23:40",
+    "rental-fail-admin": "Windows didn't give permission",
+    "rental-fail-write": "Writing Swiff OS stopped",
+    "rental-fail-space": "Not enough space on C:",
+    "rental-nokey": "The key didn't go in",
+    "rental-ca": "Allow the 3rd-party UEFI CA",
+    "rental-fail-bios": "Turn on Secure Boot",
+    "rental-fail-removal": "Removing rental mode stopped",
+    "rental-fail-unknown": "The install stopped",
+    golive: "Ready to go live",
     waiting: "Waiting for a player",
     streaming: "Elden Ring",
     inuse: "Nova-01 is in use",
@@ -165,15 +247,15 @@ describe("demo", () => {
 
   it("shows the tray glance under a tray, labelled as demo data", () => {
     render(<DemoApp screen="tray" />);
-    expect(screen.getByText("Elden Ring, protected until 22:40")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop new sessions" })).toBeInTheDocument();
+    expect(screen.getByText("Elden Ring, booked until 22:40")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop new bookings" })).toBeInTheDocument();
     expect(screen.getByText("Demo data")).toBeInTheDocument();
   });
 
-  it("ranks the games by demand, with Install on Steam for the ones this PC lacks", () => {
+  it("ranks the games by demand, with Install in Steam for the ones this PC lacks", () => {
     render(<DemoApp screen="games" />);
     expect(screen.getByText("38 looking")).toBeInTheDocument();
-    const install = screen.getAllByRole("link", { name: /Install on Steam/ });
+    const install = screen.getAllByRole("link", { name: /Install in Steam/ });
     expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/553850"]);
     expect(screen.getByRole("progressbar", { name: "Installing Baldur's Gate 3" })).toHaveAttribute(
       "aria-valuenow",
@@ -185,20 +267,11 @@ describe("demo", () => {
     expect(screen.getByText("5", { selector: ".gcount b" })).toBeInTheDocument();
   });
 
-  it("builds the rate in the open", () => {
-    render(<DemoApp screen="golive" />);
-    const rate = screen.getByRole("heading", { name: "Your rate" }).closest("section")!;
-    expect(rate).toHaveTextContent("Hardware, RTX 4080€1,00");
-    expect(rate).toHaveTextContent("Reliability 96100%");
-    expect(rate).toHaveTextContent("Level Steady+5%");
-    expect(rate).toHaveTextContent("At most €4,20 tonight, if a player stays until 01:00.");
-  });
-
   it("shows the month against a ceiling at the current rate, not a forecast", () => {
     render(<DemoApp screen="paid" />);
     // €1,05 an hour, six evening hours, thirty days in September.
-    expect(screen.getByText(/this month at your current rate, if live every evening/)).toHaveTextContent(
-      "Up to €189 this month at your current rate, if live every evening from 18:00 to midnight.",
+    expect(screen.getByText(/this month at your rate, if you're live/)).toHaveTextContent(
+      "Up to €189 this month at your rate, if you're live 18:00 to midnight every day.",
     );
     expect(document.body.textContent).not.toMatch(/estimate/i);
   });
@@ -216,9 +289,9 @@ describe("demo", () => {
       hold(screen.getByRole("button", { name: "Hold to go live" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Waiting for a player");
 
-      fireEvent.click(screen.getByRole("button", { name: "Pause sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Pause" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Paused");
-      fireEvent.click(screen.getByRole("button", { name: "Resume sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Waiting for a player");
     });
 
@@ -232,13 +305,41 @@ describe("demo", () => {
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Player warned");
       expect(screen.getByLabelText("Your standing")).toHaveTextContent("91↓5");
 
-      fireEvent.click(screen.getByRole("button", { name: "Cancel, let them play" }));
+      fireEvent.click(screen.getByRole("button", { name: "Let them keep playing" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nova-01 is in use");
     });
   });
 });
 
-describe("hold to go live", () => {
+/** Rental mode installed, with its key at `key`; `ready` is ready to go live. */
+const installed = (key: RentalRead["key"]): Partial<HostView> => ({
+  rental: {
+    reading: false,
+    read: {
+      ...rentalOf(
+        {
+          ...structuredClone(FACTS),
+          install: {
+            complete: true,
+            disk: 0,
+            bootEntry: { partition: null, path: "\\EFI\\swiff\\shimx64.efi" },
+            partitions: [],
+            shrink: null,
+            mok: true,
+          },
+        },
+        [],
+      ),
+      key,
+    },
+    target: null,
+    preview: null,
+    run: IDLE_RUN,
+  },
+});
+const ready = installed({ state: "confirmed", code: null });
+
+describe("going live", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: [...FAKE] });
   });
@@ -246,55 +347,130 @@ describe("hold to go live", () => {
     vi.useRealTimers();
   });
 
-  it("goes live once the press has been held all the way", () => {
-    const acts = renderReal("live", off);
+  it("stays locked until rental mode is ready: the rail says so, and the window shows rental mode", () => {
+    const go = vi.fn();
+    const host: Host = {
+      view: realView(off, {
+        rental: {
+          reading: false,
+          read: rentalOf(structuredClone(FACTS), []),
+          target: null,
+          preview: null,
+          run: IDLE_RUN,
+        },
+      }),
+      actions: actions(),
+    };
+    render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} />);
+    // Never a screen that only sends the owner back: rental mode's own, at its next to-do.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install rental mode");
+    expect(screen.queryByText(/Finish rental mode first/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hold to go live" })).not.toBeInTheDocument();
+    // Go live and Get paid are not buttons until then.
+    const rail = screen.getByRole("navigation", { name: "Steps" });
+    expect(within(rail).queryByRole("button", { name: /Go live/ })).not.toBeInTheDocument();
+    expect(within(rail).queryByRole("button", { name: /Get paid/ })).not.toBeInTheDocument();
+    expect(within(rail).getAllByText("After rental mode")).toHaveLength(2);
+    expect(within(rail).getByRole("button", { name: /Rental mode/ })).toHaveAttribute("aria-current", "step");
+    cleanup();
+    renderReal("live", off, installed({ state: "ask", code: null }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Did the blue screen take your code?",
+    );
+    cleanup();
+    renderReal("live", off, ready);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+  });
+
+  it("goes live in rental mode once the press has been held all the way", () => {
+    const acts = renderReal("live", off, ready);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     const reticle = screen.getByRole("button", { name: "Hold to go live" });
     fireEvent.pointerDown(reticle, { button: 0 });
     run(HOLD_MS / 2);
-    expect(acts.goLive).not.toHaveBeenCalled();
+    expect(acts.goLiveRental).not.toHaveBeenCalled();
     expect(reticle).toHaveAttribute("data-phase", "hold");
     run(HOLD_MS / 2 + 100);
-    expect(acts.goLive).toHaveBeenCalledOnce();
+    expect(acts.goLiveRental).toHaveBeenCalledOnce();
+    expect(acts.goLive).not.toHaveBeenCalled();
   });
 
   it("resets with nothing started when released early", () => {
-    const acts = renderReal("live", off);
+    const acts = renderReal("live", off, ready);
     const reticle = screen.getByRole("button", { name: "Hold to go live" });
     fireEvent.pointerDown(reticle, { button: 0 });
     run(HOLD_MS / 2);
     fireEvent.pointerUp(window); // released anywhere, not only over the reticle
     run(HOLD_MS);
-    expect(acts.goLive).not.toHaveBeenCalled();
+    expect(acts.goLiveRental).not.toHaveBeenCalled();
     expect(reticle).toHaveAttribute("data-phase", "idle");
     expect(reticle.querySelector(".reticle-arc")).toHaveAttribute("stroke-dashoffset", "100.00");
   });
 
   it("holds from the keyboard", () => {
-    const acts = renderReal("live", off);
+    const acts = renderReal("live", off, ready);
     const reticle = screen.getByRole("button", { name: "Hold to go live" });
     fireEvent.keyDown(reticle, { key: " " });
     run(HOLD_MS + 100);
     fireEvent.keyUp(reticle, { key: " " });
-    expect(acts.goLive).toHaveBeenCalledOnce();
+    expect(acts.goLiveRental).toHaveBeenCalledOnce();
   });
 
-  it("waits for the connection details before it can be held", () => {
-    renderReal("live", off, {
-      connection: {
-        url: "",
-        machineId: "gaming-pc-1",
-        machineKey: "",
-        name: "",
-        notice: null,
-        preview: null,
-      },
+  describe("sharing this Windows desktop, in development builds only", () => {
+    beforeEach(() => {
+      share.on = true;
     });
-    expect(screen.getByRole("button", { name: "Hold to go live" })).toBeDisabled();
-    expect(screen.getByText(/connection details in/)).toHaveTextContent("Settings");
+    afterEach(() => {
+      share.on = false;
+    });
+
+    it("goes live once the press has been held all the way", () => {
+      const acts = renderReal("live", off);
+      hold(screen.getByRole("button", { name: "Hold to go live" }));
+      expect(acts.goLive).toHaveBeenCalledOnce();
+      expect(acts.goLiveRental).not.toHaveBeenCalled();
+    });
+
+    it("waits for the connection details before it can be held", () => {
+      renderReal("live", off, {
+        connection: {
+          url: "",
+          machineId: "gaming-pc-1",
+          machineKey: "",
+          name: "",
+          notice: null,
+          preview: null,
+        },
+      });
+      expect(screen.getByRole("button", { name: "Hold to go live" })).toBeDisabled();
+      expect(screen.getByText(/connection details in/)).toHaveTextContent("Settings");
+    });
+
+    it("goes live without a rate, listing the installed games", () => {
+      renderReal("live", off, { now: evening(21) });
+      expect(screen.queryByText("Your rate")).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "2 games installed See all" })).toBeInTheDocument();
+      expect(document.body.textContent).not.toMatch(/offered|Offering/);
+      expect(screen.getByRole("radio", { name: /01:00/ })).toHaveAttribute("aria-checked", "true");
+      expectNoDemoData();
+    });
+
+    it("builds the rate in the open", () => {
+      render(<DemoApp screen="golive" />);
+      const rate = screen.getByRole("heading", { name: "Your rate" }).closest("section")!;
+      expect(rate).toHaveTextContent("Hardware, RTX 4080€1,00");
+      expect(rate).toHaveTextContent("Reliability 96100%");
+      expect(rate).toHaveTextContent("Level Steady+5%");
+      expect(rate).toHaveTextContent("Up to €4,20 tonight if players stay until 01:00.");
+    });
   });
 });
 
 describe("this PC's screens", () => {
+  afterEach(() => {
+    share.on = false;
+  });
+
   it("reads the PC's parts, with no rate the platform does not set", () => {
     renderReal("pc", off);
     expect(within(screen.getByRole("main")).getByText("RTX 4080")).toBeInTheDocument();
@@ -303,6 +479,31 @@ describe("this PC's screens", () => {
     expect(screen.getByText("2560 × 1440, 144 Hz")).toBeInTheDocument();
     expect(screen.getByText("4 of 4")).toBeInTheDocument();
     expectNoDemoData();
+  });
+
+  it("shows the PC and Steam reads as checking while they run, never as undone", () => {
+    renderReal("pc", off, { pc: { reading: true, hardware: null, hardwareRate: null } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Reading your PC");
+    expect(screen.getByText("Checking now")).toBeInTheDocument();
+    expect(screen.queryByText("Not found")).not.toBeInTheDocument();
+    // Steam can be set up while the read runs: nothing waits behind a greyed button.
+    expect(screen.getByRole("button", { name: /Set up Steam/ })).toBeEnabled();
+    cleanup();
+
+    renderReal("steam", off, {
+      steam: { status: null, installer: { kind: "idle" }, installs: [], asked: [] },
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Checking Steam");
+    expect(screen.getByText("Checking now")).toBeInTheDocument();
+    expect(screen.queryByText("No")).not.toBeInTheDocument();
+    cleanup();
+
+    renderReal("games", off, {
+      pc: { reading: true, hardware: null, hardwareRate: null },
+      games: { installed: [], offered: null, demand: null, near: null },
+    });
+    expect(screen.getByText("Checking for installed Steam games.")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
   it("lets the owner choose which installed games players can stream", () => {
@@ -335,17 +536,8 @@ describe("this PC's screens", () => {
     expect(document.body.textContent).not.toMatch(/offered|Offering/);
     expect(screen.getByText("2 games installed")).toBeInTheDocument();
     // No game tile to install: only the field for any game the owner has, empty yet.
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
-    expect(screen.getByText("Read from this PC's Steam library.")).toBeInTheDocument();
-    expectNoDemoData();
-  });
-
-  it("goes live without a rate, listing the installed games", () => {
-    renderReal("live", off, { now: evening(21) });
-    expect(screen.queryByText("Your rate")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "2 games installed See all" })).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/offered|Offering/);
-    expect(screen.getByRole("radio", { name: /01:00/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
+    expect(screen.getByText("From your Steam library on this PC.")).toBeInTheDocument();
     expectNoDemoData();
   });
 
@@ -359,7 +551,7 @@ describe("this PC's screens", () => {
     expect(screen.getByText(/gaming-pc-1 is connected to Swiff\./)).toBeInTheDocument();
     expect(screen.queryByText("Near you now")).not.toBeInTheDocument();
     expect(screen.queryByText(/You earn/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Pause sharing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(acts.pause).toHaveBeenCalledOnce();
     expectNoDemoData();
   });
@@ -399,24 +591,44 @@ describe("this PC's screens", () => {
     expect(screen.getByText(/send your link from Ask your PC friend on your profile/)).toBeInTheDocument();
     cleanup();
 
-    renderReal("live", off, { now: evening(21), crew: { only: true, crews: [] } });
+    // Rental mode's Go live, as in the build hosts download.
+    const golive = renderReal("live", off, { ...ready, crew: { only: true, crews: [] } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.getByRole("radiogroup", { name: "Who can play" })).toBeInTheDocument();
     expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open to everyone" }));
+    expect(golive.setCrewOnly).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Invite a friend" }));
+    expect(screen.getByText("https://signal.example")).toBeInTheDocument();
     cleanup();
 
-    renderReal("live", off, { now: evening(21), crew: { only: false, crews: [] } });
+    renderReal("live", off, { ...ready, crew: { only: false, crews: [] } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
   });
 
   it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
-    renderReal("live", off, {
-      now: evening(21),
+    const acts = renderReal("live", off, {
+      ...ready,
       crew: { only: false, crews: [{ name: null, own: false, size: 2 }] },
     });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.getByRole("radio", { name: /Anyone/ })).toHaveAttribute("aria-checked", "true");
     expect(
       screen.getByText("Anyone on Swiff can claim this PC, your friend's crew too."),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Crew only/ }));
+    expect(acts.setCrewOnly).toHaveBeenCalledWith(true);
+  });
+
+  it("says beside Who can play when the owner's choice did not save", () => {
+    renderReal("live", off, {
+      ...ready,
+      crew: { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] },
+      crewNote: "Couldn't save who can play. Try again.",
+    });
+    expect(screen.getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't save who can play. Try again.");
   });
 
   it("changes the end time while live", () => {
@@ -428,15 +640,15 @@ describe("this PC's screens", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Change end time" }));
     fireEvent.click(screen.getByRole("radio", { name: /Open/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Keep sharing until I stop it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stay live until I stop" }));
     expect(acts.setUntil).toHaveBeenCalledWith(null);
   });
 
   it("shows a player's session with only the stop of new sessions", () => {
     const acts = renderReal("live", session(false));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ELDEN RING");
-    expect(screen.getByText(/Claimed until 22:40 and protected until then\./)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Stop new sessions" }));
+    expect(screen.getByText(/Booked until 22:40\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop new bookings" }));
     expect(acts.setStopNew).toHaveBeenCalledWith(true);
     expect(screen.queryByText("this session")).not.toBeInTheDocument();
     expectNoDemoData();
@@ -446,9 +658,14 @@ describe("this PC's screens", () => {
     const acts = renderReal("live", session(true));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("gaming-pc-1 is in use");
     expect(screen.queryByRole("button", { name: /end early/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Ending a session early is not available yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/You can't end it early yet\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Notify me at 22:40" }));
     expect(acts.notifyAtEnd).toHaveBeenCalledOnce();
+    cleanup();
+    // Once asked, it says so plainly: no disabled button stands in for it.
+    renderReal("live", { ...session(true), notify: true } as Live);
+    expect(screen.getByRole("status")).toHaveTextContent("We'll tell you at 22:40.");
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: /22:40/ })).not.toBeInTheDocument();
   });
 
   it("reports a dropped connection with a way to retry", () => {
@@ -466,7 +683,7 @@ describe("this PC's screens", () => {
 
   it("counts today's sessions when paused, without earnings", () => {
     renderReal("live", { kind: "paused", at: evening(21, 31) });
-    expect(screen.getByText("Sharing paused at 21:31")).toBeInTheDocument();
+    expect(screen.getByText("Paused at 21:31", { selector: ".banner" })).toBeInTheDocument();
     const tonight = screen.getByRole("heading", { name: "Tonight" }).closest("section")!;
     expect(within(tonight).getByText("1")).toBeInTheDocument();
     expectNoDemoData();
@@ -486,7 +703,7 @@ describe("getting Steam ready", () => {
       steam({ status: { installed: false, running: false, signedIn: false } }),
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install Steam");
-    expect(screen.getByText(/Valve's own installer/)).toBeInTheDocument();
+    expect(screen.getByText(/Swiff downloads the Steam installer for you/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Get Steam/ }));
     expect(acts.installSteam).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Steam Not installed" })).toBeInTheDocument();
@@ -499,7 +716,7 @@ describe("getting Steam ready", () => {
       off,
       steam({ status: { installed: false, running: false, signedIn: false }, installer: { kind: "opened" } }),
     );
-    expect(screen.getByText(/Valve's installer is open/)).toBeInTheDocument();
+    expect(screen.getByText(/The Steam installer is open/)).toBeInTheDocument();
     cleanup();
     renderReal(
       "steam",
@@ -540,7 +757,7 @@ describe("getting Steam ready", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Steam is ready");
     expect(screen.getByText("3 of 3")).toBeInTheDocument();
     expect(screen.getByText("Steam is installing 1 game.")).toBeInTheDocument();
-    expect(screen.getByText(/a player who does not own it cannot play it/)).toBeInTheDocument();
+    expect(screen.getByText(/Players need to own a game on Steam to play it here/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Choose games/ }));
     expect(go).toHaveBeenCalledWith("games");
   });
@@ -567,8 +784,8 @@ describe("getting Steam ready", () => {
       "25",
     );
     expect(screen.getByText("Downloading 25%")).toBeInTheDocument();
-    expect(screen.getByText("Confirm in Steam")).toBeInTheDocument();
-    const install = screen.getAllByRole("link", { name: /Install on Steam/ });
+    expect(screen.getByText("Click Install in Steam")).toBeInTheDocument();
+    const install = screen.getAllByRole("link", { name: /Install in Steam/ });
     expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/1172470"]);
     fireEvent.click(install[0]!);
     expect(acts.askInstall).toHaveBeenCalledWith(1172470);
@@ -592,17 +809,19 @@ describe("getting Steam ready", () => {
       steam({ status: { installed: true, running: true, signedIn: true } }),
     );
     const field = screen.getByLabelText("Install any game you own");
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
+    // Nothing to install yet is no button at all, not a greyed one.
+    expect(screen.queryByText("Install in Steam")).not.toBeInTheDocument();
 
     fireEvent.change(field, { target: { value: "https://store.steampowered.com/app/570/Dota_2/" } });
-    const link = screen.getByRole("link", { name: /Install on Steam/ });
+    const link = screen.getByRole("link", { name: /Install in Steam/ });
     expect(link).toHaveAttribute("href", "steam://install/570");
     fireEvent.click(link);
     expect(acts.askInstall).toHaveBeenCalledWith(570);
 
     fireEvent.change(field, { target: { value: "730" } });
     expect(screen.getByText("That game is installed already.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open your Steam library/ })).toHaveAttribute(
       "href",
       "steam://open/games",
@@ -619,7 +838,7 @@ describe("getting Steam ready", () => {
       actions: actions(),
     };
     render(<Shell host={host} step="games" onStep={go} setupDone finishSetup={vi.fn()} />);
-    expect(screen.queryByRole("link", { name: /Install on Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Install any game you own")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Install Steam first" })[0]!);
     expect(go).toHaveBeenCalledWith("steam");
@@ -632,251 +851,576 @@ describe("rental mode", () => {
   const read = (change: (raw: typeof FACTS) => object = (raw) => raw) =>
     rentalOf(change(structuredClone(FACTS)), [{ letter: "C", games: 2 }]);
   const rental = (more: Partial<HostView["rental"]> = {}): Partial<HostView> => ({
-    rental: { reading: false, read: read(), target: null, preview: null, ...more },
+    rental: { reading: false, read: read(), target: null, preview: null, run: IDLE_RUN, ...more },
   });
-  const installed = () =>
-    read((raw) => ({
-      ...raw,
-      bootEntry: "{6a1f3c2e-0d4b-4e8a-9f7c-2b1d3e4f5a60}",
-      partitions: [
-        ...raw.partitions,
-        { disk: 0, number: 6, letter: "", type: TYPE.root, offset: 0, size: 8 * GiB },
-      ],
-    }));
+  /** What a finished install recorded on the fixture PC. */
+  const RECORD = {
+    complete: true,
+    disk: 0,
+    bitlocker: null,
+    fastStartup: true,
+    shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+    partitions: [{ role: "esp", id: "00000000-0000-4000-8000-000000000000", offset: 976 * GiB, bytes: GiB }],
+    bootEntry: 1,
+    windowsEntry: 0,
+    labels: [],
+    mok: true,
+  };
+  const installed = (key: RentalRead["key"] = { state: "confirmed", code: null }): RentalRead => ({
+    ...read((raw) => ({ ...raw, install: RECORD })),
+    key,
+  });
+  const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
+  const h1 = () => screen.getByRole("heading", { level: 1 });
+  /** The screen's pill buttons: each state has at most one. */
+  const pills = () => document.querySelectorAll("main .lpill");
+  /** The rail's current rental sub-step. */
+  const subStep = () => document.querySelector(".psub [aria-current='step']")?.textContent;
 
-  it("offers to check again when this PC could not be read", () => {
-    const acts = renderReal("rental", off, rental({ reading: false, read: null }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC was not read");
+  it("checks this PC first, with nothing to press", () => {
+    renderReal("rental", off, rental({ reading: true, read: null }));
+    expect(h1()).toHaveTextContent("Checking this PC");
+    expect(screen.getByText("This takes a few seconds.")).toBeInTheDocument();
+    expect(pills()).toHaveLength(0);
+    expect(subStep()).toBe("Get the PC ready");
+  });
+
+  it("offers to check again when the check did not finish", () => {
+    const acts = renderReal("rental", off, rental({ read: null }));
+    expect(h1()).toHaveTextContent("Check didn't finish");
     fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
     expect(acts.checkRental).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Rental mode Check didn't finish" })).toBeInTheDocument();
   });
 
-  it("checks this PC first, without changing anything", () => {
-    renderReal("rental", off, rental({ reading: true, read: null }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Checking this PC");
-    expect(screen.queryByRole("button", { name: /Review the install/ })).not.toBeInTheDocument();
+  it("names the BIOS setting to change, shows what to set it to on the plate, and the trip as a strip", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: read((raw) => ({ ...raw, securityProperties: [1, 2] })) }),
+    );
+    expect(h1()).toHaveTextContent("Turn on IOMMU");
+    const plate = document.querySelector(".plate")!;
+    expect(plate).toHaveTextContent("Set to");
+    expect(plate).toHaveTextContent("IOMMUEnabled");
+    expect(plate.textContent).not.toMatch(/\d+ of \d+/);
+    const strip = screen.getByRole("region", { name: "In the BIOS" });
+    expect(
+      within(strip)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector(":scope > b")!.textContent),
+    ).toEqual(["Open the BIOS", "Turn on IOMMU", "Save and exit", "Check again"]);
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Rental mode 1 BIOS setting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Secure Boot won't turn on?" })).toBeInTheDocument();
   });
 
-  it("shows a ready PC's checks, and previews the install from one button", () => {
-    const acts = renderReal("rental", off, rental());
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
-    expect(screen.getByText("8 of 10")).toBeInTheDocument();
-    expect(screen.getByText("Microsoft UEFI CA 2023").closest(".krow")).toHaveTextContent("Not checked yet");
-    expect(screen.getByText("TPM certificate").closest(".krow")).toHaveTextContent("Not checked yet");
-    for (const step of [
-      /Setup Mode/,
-      /Allow Microsoft 3rd-party UEFI CA/,
-      /lacks the Microsoft UEFI CA 2023/,
-      /restarts once, for you to confirm Swiff's key/,
-    ])
-      expect(screen.getByText(step)).toBeInTheDocument();
-    expect(screen.getByText("2.0, in the processor (AMD fTPM)")).toBeInTheDocument();
-    expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
-    expect(screen.getByText("On: Swiff turns it off")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rental mode Ready to install" })).toBeInTheDocument();
-    expectNoDemoData();
-    fireEvent.click(screen.getByRole("button", { name: /Review the install/ }));
-    expect(acts.previewRental).toHaveBeenCalledWith("install");
+  it("keeps the passing checks behind What Swiff checked, the ones the install checks included", () => {
+    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, securityProperties: [1, 2] })) }));
+    expect(screen.queryByText("Microsoft UEFI CA 2011")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "What Swiff checked" }));
+    expect(screen.getByText("Microsoft UEFI CA 2011").closest(".krow")).toHaveTextContent(
+      "Read when you install",
+    );
+    expect(screen.getByText("TPM certificate").closest(".krow")).toHaveTextContent("Read when you install");
+    expect(screen.getByText("Fast Startup").closest(".krow")).toHaveTextContent(
+      "On. The install turns it off",
+    );
+    expect(screen.getByText("IOMMU", { selector: ".krow span" }).closest(".krow")).toHaveTextContent("Off");
   });
 
-  it("shows the install as a preview, with its exact commands when asked", () => {
-    const acts = renderReal("rental", off, rental({ preview: installPlan(read()) }));
-    expect(screen.getByText("Shrink C: by 24 GB")).toBeInTheDocument();
-    expect(screen.getByText("Add Swiff OS to the PC's boot menu, after Windows")).toBeInTheDocument();
-    expect(screen.getByText(/nothing on this PC has been changed/)).toBeInTheDocument();
-    expect(screen.queryByText(/Resize-Partition/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show the commands" }));
-    expect(screen.getByText(/Resize-Partition -DiskNumber 0 -PartitionNumber 3/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
-  });
-
-  it("guides the one confirmation at the PC after the install's restart, with the code large and copyable", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    try {
-      renderReal("rental", off, rental({ preview: installPlan(read(), { code: "48217730" }) }));
-      expect(screen.getByText("Restart once into Swiff OS, to confirm its key")).toBeInTheDocument();
-      expect(screen.getByText("After the restart: confirm Swiff's key")).toBeInTheDocument();
-      expect(screen.getByText("4821 7730")).toBeInTheDocument();
-      const steps = screen.getByText("Choose Enroll MOK.").closest("ol")!;
-      expect([...steps.querySelectorAll("b")].map((b) => b.textContent)).toEqual([
-        "Press any key within 10 seconds.",
-        "Choose Enroll MOK.",
-        "Choose Continue.",
-        "Choose Yes.",
-        "Type the code, then press Enter. The screen shows nothing as you type.",
-        "Choose Reboot. The PC starts Windows again.",
-      ]);
-      const missed = screen.getByText(/Missed the blue screen\? It waits/);
-      expect(missed).toHaveTextContent(/shows a security error and falls back to Windows/);
-      expect(missed).toHaveTextContent(/choose Confirm the security key again/);
-      fireEvent.click(screen.getByRole("button", { name: "Copy the code" }));
-      expect(writeText).toHaveBeenCalledWith("48217730");
-      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
-    } finally {
-      Reflect.deleteProperty(navigator, "clipboard");
-    }
-  });
-
-  it("shows no confirmation guide when switching, only when installing", () => {
-    renderReal("rental", off, rental({ read: installed(), preview: switchPlan("start") }));
-    expect(screen.queryByText("After the restart: confirm Swiff's key")).not.toBeInTheDocument();
-  });
-
-  it("shows an unread IOMMU and BitLocker state as not read, never as off", () => {
+  it("puts BitLocker first, in Windows, and names the BIOS trip after it", () => {
     renderReal(
       "rental",
       off,
       rental({
         read: read((raw) => ({
           ...raw,
-          securityProperties: [null],
-          volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })),
+          securityProperties: [1, 2],
+          volumes: raw.volumes.map((v) => ({ ...v, bitlocker: 1 })),
         })),
       }),
     );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready for rental mode");
-    expect(screen.getByText("IOMMU").closest(".krow")).toHaveTextContent("Not read");
-    expect(screen.getByText("C:, BitLocker not read")).toBeInTheDocument();
-    expect(screen.queryByText(/Turn on the IOMMU/)).not.toBeInTheDocument();
+    expect(h1()).toHaveTextContent("Turn off BitLocker on C:");
+    expect(screen.getByText("After this: turn on IOMMU in the BIOS.")).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("C: BitLockerOff");
+    expect(screen.getByRole("region", { name: "In Windows" })).toHaveTextContent("Open BitLocker");
   });
 
-  it("lists the BIOS changes Swiff cannot make, and checks again when asked", () => {
-    const acts = renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0 })) }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
-    expect(screen.getByText("Turn on Secure Boot.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
-    expect(acts.checkRental).toHaveBeenCalledOnce();
+  it("asks nothing of an NVIDIA PC with everything else ready: it waits for the update", () => {
+    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, gpus: [nvidia] })) }));
+    expect(h1()).toHaveTextContent("Almost ready");
+    expect(pills()).toHaveLength(0);
+    expect(document.querySelector(".plate")).toHaveTextContent("Waiting for");
+    expect(document.querySelector(".plate")).toHaveTextContent("Graphics card supportSwiff OS update");
+    expect(screen.getByRole("button", { name: "Rental mode Not on NVIDIA yet" })).toBeInTheDocument();
   });
 
-  it("counts only BIOS changes in the headline, and says what else blocks rental mode beside them", () => {
-    const nvidia = { name: "NVIDIA GeForce RTX 4080", pnp: "PCI\\VEN_10DE&DEV_2704" };
-    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, secureBoot: 0, gpus: [nvidia] })) }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One change in the BIOS");
-    expect(screen.getByText("Turn on Secure Boot.").closest("li")).toBeInTheDocument();
-    expect(
-      screen.getByText("NVIDIA graphics cards come in a later Swiff OS update.").closest(".hnote"),
-    ).toBeInTheDocument();
+  it("says Swiff OS's files on this PC were not signed by Swiff, and offers one thing: check again", () => {
+    const actions = renderReal(
+      "rental",
+      off,
+      rental({ read: { ...read(), image: null, imageRefused: true } }),
+    );
+    expect(h1()).toHaveTextContent("Swiff OS's files didn't pass the check");
+    expect(screen.getByText(/aren't the ones Swiff signed/)).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("Not signed by Swiff");
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(actions.checkRental).toHaveBeenCalled();
   });
 
-  it("lets the owner choose where Swiff OS goes when there is more than one place, never its size", () => {
+  it("shows the graphics card only as waiting beside the IOMMU on an NVIDIA PC", () => {
+    renderReal(
+      "rental",
+      off,
+      rental({ read: read((raw) => ({ ...raw, gpus: [nvidia], securityProperties: [1, 2] })) }),
+    );
+    expect(h1()).toHaveTextContent("Turn on IOMMU");
+    expect(document.querySelector(".mtrow.wait")).toHaveTextContent("Graphics cardUpdate coming");
+  });
+
+  it("shows the re-check on the same button for the few seconds it runs", () => {
+    renderReal(
+      "rental",
+      off,
+      rental({ reading: true, read: read((raw) => ({ ...raw, securityProperties: [1, 2] })) }),
+    );
+    expect(screen.getByRole("button", { name: /Checking/ })).toBeDisabled();
+    expect(screen.getByLabelText("Checking")).toBeInTheDocument();
+  });
+
+  it("offers the install from one button, and another drive as a quiet link", () => {
     const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
     const acts = renderReal(
       "rental",
       off,
       rental({ read: read((raw) => ({ ...raw, disks: [...raw.disks, second] })) }),
     );
-    expect(screen.getByRole("radio", { name: /Disk 1/ })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
+    expect(h1()).toHaveTextContent("Install rental mode");
+    expect(screen.getByText(/Swiff OS goes on 24 GB of free space on disk 1/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use C: instead" }));
     expect(acts.chooseRentalTarget).toHaveBeenCalledWith("shrink:C");
+    fireEvent.click(screen.getByRole("button", { name: /See the install/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("install");
+    expect(subStep()).toBe("Install Swiff OS");
+    expectNoDemoData();
   });
 
-  /** The rental screen on useRental itself, over a bridge that answers each read with `reads.next`. */
-  function renderLive(reads: { next: RentalRead }) {
-    (window as { swiffHost?: Partial<HostBridge> }).swiffHost = {
-      readRental: vi.fn(async () => reads.next),
-      planRental: vi.fn(async () => null),
-      setGlance: vi.fn(),
-      onTrayAction: vi.fn(() => () => {}),
-    };
-    function Live() {
-      const { check, choose, plan, close, ...state } = useRental();
-      const host: Host = {
-        view: realView(off, { rental: state }),
-        actions: {
-          ...actions(),
-          checkRental: check,
-          chooseRentalTarget: choose,
-          previewRental: plan,
-          closeRentalPreview: close,
+  it("puts the code on the plate before the install, with the blue screen as a strip and one OK", () => {
+    const acts = renderReal("rental", off, rental({ preview: installPlan(read(), { code: "48217730" }) }));
+    expect(h1()).toHaveTextContent("Write down this code");
+    expect(document.querySelector(".plate .mplatecode")).toHaveTextContent("4821 7730");
+    const strip = screen.getByRole("region", { name: "After the restart, on the blue screen" });
+    // The menu waits for the owner (MokTimeout -1): no "press any key within 10 seconds" race.
+    expect(within(strip).getAllByRole("listitem")).toHaveLength(5);
+    expect(strip).toHaveTextContent("The blue screen waits for you.");
+    expect(strip).not.toHaveTextContent("10 seconds");
+    expect(strip).toHaveTextContent("Choose Reboot");
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Install/ }));
+    expect(acts.runRental).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "What the install does, 9 steps" }));
+    expect(screen.getByText("Copy Swiff OS onto them")).toBeInTheDocument();
+  });
+
+  it("tells the owner to look for Windows' prompt while it is up", () => {
+    renderReal(
+      "rental",
+      off,
+      rental({ preview: installPlan(read()), run: { ...IDLE_RUN, status: "starting" } }),
+    );
+    expect(h1()).toHaveTextContent("Waiting for Windows");
+    expect(document.querySelector(".mstatus")).toHaveTextContent(
+      "No prompt? Look for a flashing shield on the taskbar and click it.",
+    );
+    expect(pills()).toHaveLength(0);
+  });
+
+  it("shows the write's bytes, how long is left, and a sign of life, with nothing to press", () => {
+    const plan = installPlan(read());
+    const steps = Object.fromEntries(plan.steps.slice(0, 4).map((s) => [s.id, "done" as const]));
+    const now = Date.now();
+    const total = 9.8e9;
+    renderReal(
+      "rental",
+      off,
+      rental({
+        preview: plan,
+        run: {
+          ...IDLE_RUN,
+          status: "running",
+          steps: { ...steps, write: "running" },
+          stepStartedAt: now - 131_000,
+          progress: {
+            id: "write",
+            done: 4.1e9,
+            total,
+            pass: { doing: "copying", name: "Root", done: 2.1e9, total: 8.6e9 },
+          },
+          meter: {
+            since: now - 131_000,
+            at: now,
+            done: 4.1e9,
+            rate: 30e6,
+            mark: { at: now - 1000, done: 4.07e9 },
+            recent: 30e6,
+          },
         },
-      };
-      return <Shell host={host} step="rental" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />;
-    }
-    render(<Live />);
-  }
-  const second = { number: 1, style: "GPT", size: 500 * GiB, sector: 512, bus: "SATA", system: false };
-  const gone = "The drive you chose is no longer available: choose again";
-  afterEach(() => {
-    delete (window as { swiffHost?: unknown }).swiffHost;
+      }),
+    );
+    expect(h1()).toHaveTextContent("Writing Swiff OS");
+    expect(screen.getByText(/About 3 minutes left\. Keep the PC on\./)).toBeInTheDocument();
+    expect(screen.getByText(/Step 5 of 9, running for 2:1\d/)).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("Root");
+    expect(document.querySelector(".plate")).toHaveTextContent("2.1 of 8.6 GB copied");
+    expect(document.querySelector(".plate")).toHaveTextContent("41 percent");
+    expect(screen.getByRole("button", { name: "Rental mode Installing, 41%" })).toBeInTheDocument();
+    expect(pills()).toHaveLength(0);
+    expect(document.querySelector(".mrun li.now")).toHaveTextContent("Root: 2.1 of 8.6 GB copied");
   });
 
-  it("never swaps in another drive when the chosen one is gone after checking again", async () => {
-    const reads = { next: read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] })) };
-    renderLive(reads);
-    fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
-    reads.next = read();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
-    expect(screen.getByText(gone).closest(".krow")).toBeInTheDocument();
-    expect(screen.queryByText("24 GB from C:")).not.toBeInTheDocument();
-    expect(screen.queryByText(/takes 24 GB from C:/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: /C:/ })).toHaveAttribute("aria-checked", "false");
-    fireEvent.click(screen.getByRole("radio", { name: /C:/ }));
-    expect(screen.queryByText(gone)).not.toBeInTheDocument();
-    expect(screen.getByText("24 GB from C:")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Review the install/ })).toBeEnabled();
+  it("stops at the restart: the code on the plate, the one choice to make said large, and Restart now", () => {
+    const plan = installPlan(read(), { code: "48217730" });
+    const acts = renderReal("rental", off, rental({ preview: plan, run: { ...IDLE_RUN, status: "done" } }));
+    expect(h1()).toHaveTextContent("Restart to confirm the key");
+    expect(document.querySelector(".mwarn")).toHaveTextContent(
+      "On the blue screen, choose Enroll MOK. Never Continue boot.",
+    );
+    expect(document.querySelector(".plate .mplatecode")).toHaveTextContent("4821 7730");
+    // Why never Continue boot, in the owner's terms.
+    expect(
+      screen.getByText(/Don't choose Continue boot: Windows would then ask you to set your PIN again\./),
+    ).toBeInTheDocument();
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Restart now/ }));
+    expect(acts.restartRental).toHaveBeenCalledOnce();
   });
 
-  it("asks for no drive once Swiff OS is installed where the owner chose", async () => {
-    const reads = { next: read((raw) => ({ ...raw, secureBoot: 0, disks: [...raw.disks, second] })) };
-    renderLive(reads);
-    fireEvent.click(await screen.findByRole("radio", { name: /Disk 1/ }));
-    reads.next = installed();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Check again/ })));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
-    expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Check again/ })).not.toBeInTheDocument();
-    expect(screen.getByText("Space").closest(".krow")).toHaveTextContent("24 GB: Swiff OS is installed");
+  it("says a plan is being got ready, instead of a button that seems to do nothing", () => {
+    renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }), planning: true }));
+    expect(h1()).toHaveTextContent("Confirm Swiff's key");
+    // Announced to screen readers too: it replaces the button they were on.
+    expect(screen.getByRole("status")).toHaveTextContent("Getting it ready. This can take up to a minute.");
+    expect(pills()).toHaveLength(0);
   });
 
-  it("switches, once installed: going live and back to Windows, as previews", () => {
-    const acts = renderReal("rental", off, rental({ read: installed() }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Rental mode is installed");
-    fireEvent.click(screen.getByRole("button", { name: "Preview going live" }));
-    expect(acts.previewRental).toHaveBeenCalledWith("start");
-    fireEvent.click(screen.getByRole("button", { name: "Preview back to Windows" }));
-    expect(acts.previewRental).toHaveBeenCalledWith("stop");
+  it("asks the owner whether the blue screen took the code, which Windows cannot see", () => {
+    const acts = renderReal("rental", off, rental({ read: installed({ state: "ask", code: null }) }));
+    expect(h1()).toHaveTextContent("Did the blue screen take your code?");
+    expect(subStep()).toBe("Confirm the key");
+    fireEvent.click(screen.getByRole("button", { name: /Yes, it did/ }));
+    expect(acts.answerRentalKey).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "No, or I'm not sure" }));
+    expect(acts.answerRentalKey).toHaveBeenCalledWith(false);
   });
 
-  it("offers to confirm the key again once installed, and previews it with the same guide and a new code", () => {
-    const acts = renderReal("rental", off, rental({ read: installed() }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm the security key again" }));
+  it("confirms the key again with a new code, with the blue screen on the plate", () => {
+    const acts = renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }) }));
+    expect(h1()).toHaveTextContent("Confirm Swiff's key");
+    expect(document.querySelector(".plate")).toHaveTextContent("Perform MOK management");
+    expect(screen.getByRole("region", { name: "After the restart, on the blue screen" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Confirm the key/ }));
     expect(acts.previewRental).toHaveBeenCalledWith("mok");
+    expect(screen.getByRole("button", { name: "Rental mode Confirm the key" })).toBeInTheDocument();
+  });
+
+  it("is ready once the key is confirmed: Go live, with removal one quiet link away", () => {
+    const go = vi.fn();
+    const host: Host = { view: realView(off, rental({ read: installed() })), actions: actions() };
+    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} />);
+    expect(h1()).toHaveTextContent("Rental mode is ready");
+    expect(screen.getByText("Rental mode, installed")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /^Go live/ }));
+    expect(go).toHaveBeenCalledWith("live");
+    fireEvent.click(screen.getByRole("button", { name: "Remove rental mode" }));
+    expect(host.actions.previewRental).toHaveBeenCalledWith("uninstall");
+    expect(document.querySelectorAll(".psub .done")).toHaveLength(3);
+  });
+
+  it("leads a Go live that stopped to the failure's own next step", () => {
+    const failedAt = (step: string, error: string, reportedAt: number | null = null) =>
+      rental({
+        read: installed(),
+        preview: switchPlan("once"),
+        run: {
+          ...IDLE_RUN,
+          status: "failed",
+          failed: { step, error },
+          endedAt: evening(21, 4),
+          reportedAt,
+        },
+      });
+    let acts = renderReal("live", off, failedAt("restart", "Windows did not start the restart."));
+    expect(h1()).toHaveTextContent("The PC didn't restart");
+    fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+    expect(acts.restartRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();
-    renderReal("rental", off, rental({ read: installed(), preview: mokPlan("11112222") }));
-    expect(screen.getByText("Preview: Confirming Swiff's key again")).toBeInTheDocument();
-    expect(screen.getByText("Ask the PC to trust Swiff's key, with a one-time code")).toBeInTheDocument();
-    expect(screen.getByText("Restart once into Swiff OS, to confirm its key")).toBeInTheDocument();
-    expect(screen.getByText("After the restart: confirm Swiff's key")).toBeInTheDocument();
-    expect(screen.getByText("1111 2222")).toBeInTheDocument();
+
+    acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
+    expect(screen.queryByText(/Saved at/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
+    expect(acts.reportRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
+    cleanup();
+
+    renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5", evening(21, 6)));
+    expect(
+      screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
   });
 
-  it("offers no key confirmation before the install", () => {
-    renderReal("rental", off, rental());
-    expect(screen.queryByRole("button", { name: "Confirm the security key again" })).not.toBeInTheDocument();
+  it("offers to continue an install that stopped part way, and to undo it", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: read((raw) => ({ ...raw, install: { ...RECORD, complete: false } })) }),
+    );
+    expect(h1()).toHaveTextContent("The install didn't finish");
+    fireEvent.click(screen.getByRole("button", { name: /Continue the install/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("install");
+    fireEvent.click(screen.getByRole("button", { name: "Undo what was done" }));
+    expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
   });
 
-  describe("from Go live", () => {
-    beforeEach(() => {
-      vi.useFakeTimers({ toFake: [...FAKE] });
-    });
-    afterEach(() => {
-      vi.useRealTimers();
+  it("lists the removal's steps before its one OK", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({ read: installed(), preview: uninstallPlan(installed()) }),
+    );
+    expect(h1()).toHaveTextContent("Remove rental mode");
+    expect(screen.getByText("Take Swiff OS out of the boot menu")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Remove rental mode/ }));
+    expect(acts.runRental).toHaveBeenCalledOnce();
+  });
+
+  it("guides the key's removal with its own code and Delete MOK", () => {
+    renderReal("rental", off, rental({ read: installed(), preview: keyRemovalPlan("55554444") }));
+    expect(document.querySelector(".plate .mplatecode")).toHaveTextContent("5555 4444");
+    expect(screen.getByText("Choose Delete MOK")).toBeInTheDocument();
+  });
+
+  describe("when a step stops", () => {
+    const plan = installPlan(read(), { code: "48217730" });
+    const failedAt = (step: string, error: string, more: Partial<HostView["rental"]["run"]> = {}) =>
+      rental({
+        preview: plan,
+        run: { ...IDLE_RUN, status: "failed", failed: { step, error }, endedAt: evening(21, 4), ...more },
+      });
+
+    it("asks Windows again after a declined prompt, and shows how to find it", () => {
+      const acts = renderReal(
+        "rental",
+        off,
+        failedAt("elevate", "Windows did not give Swiff Host administrator rights."),
+      );
+      expect(h1()).toHaveTextContent("Windows didn't give permission");
+      expect(screen.getByText("Nothing on this PC has changed.")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "When Windows asks" })).toHaveTextContent("No prompt?");
+      fireEvent.click(screen.getByRole("button", { name: /Ask again/ }));
+      expect(acts.retryRental).toHaveBeenCalledOnce();
+      expect(screen.getByRole("button", { name: "Rental mode Needs permission" })).toBeInTheDocument();
     });
 
-    it("still goes live once rental mode is installed: the switch is only a preview on its own screen", () => {
-      const host: Host = { view: realView(off, rental({ read: installed() })), actions: actions() };
-      const go = vi.fn();
-      render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} />);
-      hold(screen.getByRole("button", { name: "Hold to go live" }));
-      expect(host.actions.goLive).toHaveBeenCalledOnce();
-      expect(host.actions.previewRental).not.toHaveBeenCalled();
-      expect(go).not.toHaveBeenCalledWith("rental");
+    it("says how far the write got and what changed, and keeps the exact error one link away", () => {
+      const error = "Write to disk 0, partition 5 failed at 4,402,341,888 bytes. (0x8007045D)";
+      const steps = Object.fromEntries(plan.steps.slice(0, 4).map((s) => [s.id, "done" as const]));
+      const acts = renderReal(
+        "rental",
+        off,
+        failedAt("write", error, {
+          steps: { ...steps, write: "failed" },
+          progress: {
+            id: "write",
+            done: 4.1e9,
+            total: 9.8e9,
+            pass: { doing: "checking", name: "Root", done: 3.0e9, total: 8.6e9 },
+          },
+        }),
+      );
+      expect(h1()).toHaveTextContent("Writing Swiff OS stopped");
+      expect(
+        screen.getByText("The drive reported an error while checking Root, after 3.0 of 8.6 GB."),
+      ).toBeInTheDocument();
+      expect(document.querySelector(".mchanged")).toHaveTextContent("C: is already 24 GB smaller.");
+      expect(document.querySelector(".plate")).toHaveTextContent("Root, at 3.0 of 8.6 GB");
+      expect(document.querySelector(".plate")).toHaveTextContent("Stopped at 21:04");
+      expect(screen.queryByText(error)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "What happened, in detail" }));
+      expect(screen.getByText(error)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
+      expect(acts.reportRental).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+      expect(acts.retryRental).toHaveBeenCalledOnce();
+      expect(subStep()).toBe("Install Swiff OS");
+    });
+
+    it("sends an unknown error's details as its one action, then says what was sent", () => {
+      const acts = renderReal("rental", off, failedAt("fast-startup", "reg failed: exit code 1"));
+      expect(h1()).toHaveTextContent("The install stopped");
+      expect(
+        screen.getByText(/while turning off Fast Startup, and Swiff doesn't know this error yet/),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Send details to Swiff/ }));
+      expect(acts.reportRental).toHaveBeenCalledOnce();
+      cleanup();
+      renderReal(
+        "rental",
+        off,
+        failedAt("fast-startup", "reg failed: exit code 1", { reportedAt: evening(21, 6) }),
+      );
+      expect(
+        screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    });
+
+    it("puts the space failure on step 1, with the drives' free space on the plate", () => {
+      renderReal("rental", off, failedAt("room", "C: cannot shrink by 24 GB."));
+      expect(h1()).toHaveTextContent("Not enough space on C:");
+      expect(document.querySelector(".plate")).toHaveTextContent("Free now, Swiff OS needs 24 GB");
+      expect(subStep()).toBe("Get the PC ready");
     });
   });
+
+  it("says when the boot log showed Windows starting straight from the blue screen, the PIN included", () => {
+    const acts = renderReal("rental", off, rental({ read: installed({ state: "nokey", code: null }) }));
+    expect(h1()).toHaveTextContent("The key didn't go in");
+    expect(
+      screen.getByText(/Windows may ask you to set your PIN again, now and once after the next restart\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Keep your Microsoft account password ready\./)).toBeInTheDocument();
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Confirm the key/ }));
+    expect(acts.previewRental).toHaveBeenCalledWith("mok");
+    expect(subStep()).toBe("Confirm the key");
+    // Never a BIOS to-do the read did not prove.
+    expect(screen.queryByText(/3rd-party/)).not.toBeInTheDocument();
+  });
+
+  it("sends the owner to the BIOS for the 3rd-party CA only when the db proves it missing, with this PC's menu path", () => {
+    const geekom = read((raw) => ({
+      ...raw,
+      db: false,
+      bios: "American Megatrends International, LLC.",
+      maker: "GEEKOM",
+      cpu: "AuthenticAMD",
+    }));
+    renderReal("rental", off, rental({ read: geekom }));
+    expect(h1()).toHaveTextContent("Allow the 3rd-party UEFI CA");
+    const strip = screen.getByRole("region", { name: "In the BIOS" });
+    expect(strip).toHaveTextContent("press Del or F2");
+    expect(strip).toHaveTextContent("Security → Secure Boot → Key Management → Restore Factory Keys");
+    cleanup();
+    renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, db: true })) }));
+    expect(h1()).not.toHaveTextContent("3rd-party");
+  });
+
+  it("turns the install's check finding Secure Boot off into the BIOS trip and Check again", () => {
+    const failed = rental({
+      preview: installPlan(read(), { code: "48217730" }),
+      run: {
+        ...IDLE_RUN,
+        status: "failed",
+        failed: { step: "check", error: "Secure Boot is off." },
+        endedAt: evening(21, 4),
+      },
+    });
+    const acts = renderReal("rental", off, failed);
+    expect(h1()).toHaveTextContent("Turn on Secure Boot");
+    expect(screen.getByRole("region", { name: "In the BIOS" })).toBeInTheDocument();
+    expect(pills()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.closeRentalPreview).toHaveBeenCalledOnce();
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+  });
+
+  it("sums up the last live run back in Windows, once", () => {
+    const go = vi.fn();
+    const lastLive = { from: evening(21), to: evening(23, 40), sessions: 2, early: 0, earned: null };
+    const host: Host = {
+      view: realView(off, rental({ read: { ...installed(), lastLive } })),
+      actions: actions(),
+    };
+    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} />);
+    expect(h1()).toHaveTextContent("You were live 21:00 to 23:40");
+    expect(screen.getByText(/2 sessions, both ran to their end/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Go live again/ }));
+    expect(host.actions.seenLastLive).toHaveBeenCalledOnce();
+    expect(go).toHaveBeenCalledWith("live");
+  });
+});
+
+describe("the rail", () => {
+  it("hangs rental mode's three steps under it only while it is the current step", () => {
+    renderReal("rental", off);
+    expect([...document.querySelectorAll(".psub li")].map((li) => li.textContent)).toEqual([
+      "Get the PC ready",
+      "Install Swiff OS",
+      "Confirm the key",
+    ]);
+    cleanup();
+    renderReal("pc", off);
+    expect(document.querySelector(".psub")).toBeNull();
+  });
+
+  it("marks rental mode done only once it is ready", () => {
+    renderReal("pc", off);
+    expect(screen.getByRole("button", { name: /^Rental mode/ }).closest("li")).not.toHaveClass("done");
+  });
+
+  it("shows This PC, Steam and Games as checking while their reads run, never as undone", () => {
+    // From the start: the steps not passed yet turn while their reads run.
+    const base = realView(off);
+    const view = realView(off, {
+      pc: { ...base.pc, reading: true, hardware: null },
+      steam: { ...base.steam, status: null },
+    });
+    render(
+      <Shell
+        host={{ view, actions: actions() }}
+        step="pc"
+        onStep={vi.fn()}
+        setupDone={false}
+        finishSetup={vi.fn()}
+      />,
+    );
+    for (const name of [/^This PC/, /^Steam/, /^Games/])
+      expect(screen.getByRole("button", { name }).closest("li")).toHaveClass("checking");
+    expect(screen.getByRole("button", { name: /^Steam Checking Steam/ })).toBeInTheDocument();
+    cleanup();
+    renderReal("rental", off);
+    expect(document.querySelectorAll(".pt.checking")).toHaveLength(0);
+  });
+});
+
+describe("every rental state in the demo", () => {
+  const cases = DEMO_SCREENS.filter((s) => s.id.startsWith("rental"));
+
+  it.each(cases)("$name has at most one pill, and nothing disabled but a re-check", ({ id }) => {
+    render(<DemoApp screen={id} />);
+    const main = screen.getByRole("main");
+    expect(main.querySelectorAll(".lpill").length).toBeLessThanOrEqual(1);
+    for (const button of main.querySelectorAll("button:disabled"))
+      expect(button).toHaveTextContent("Checking");
+    // Never a count of checks ("6 of 8"): bytes written and a stopped step's place are not counts of checks.
+    expect(main.querySelector(".plate")?.textContent ?? "").not.toMatch(
+      /(?<!step )(?<![.\d])\d+ of \d+(?![.\d]| GB)/i,
+    );
+  });
+
+  it.each(cases.filter((s) => /fail|nokey|-ca$/.test(s.id)))(
+    "$name says what happened with exactly one action",
+    ({ id }) => {
+      render(<DemoApp screen={id} />);
+      expect(screen.getByRole("main").querySelectorAll(".lpill")).toHaveLength(1);
+    },
+  );
 });
 
 describe("the payout form", () => {
@@ -884,10 +1428,10 @@ describe("the payout form", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const setItem = vi.spyOn(Storage.prototype, "setItem");
-    const acts = renderReal("paid", off);
+    const acts = renderReal("paid", off, RENTAL_READY);
 
     expect(
-      screen.getByText(/Payouts are not open yet, so nothing you type here is sent or kept\./),
+      screen.getByText(/Payouts aren't open yet\. Nothing you type here is sent or saved\./),
     ).toBeInTheDocument();
     const iban = screen.getByLabelText("IBAN");
     fireEvent.change(screen.getByLabelText("Account holder"), { target: { value: "Kai Example" } });
@@ -896,7 +1440,7 @@ describe("the payout form", () => {
 
     expect(iban).toHaveValue("");
     expect(screen.getByLabelText("Account holder")).toHaveValue("");
-    expect(screen.getByText("Nothing was sent or kept. The fields were cleared.")).toBeInTheDocument();
+    expect(screen.getByText("Cleared. Nothing was sent.")).toBeInTheDocument();
     expect(acts.savePayout).toHaveBeenCalledOnce();
     expect(fetch).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
@@ -906,7 +1450,7 @@ describe("the payout form", () => {
   });
 
   it("asks for the fields each payout method needs", () => {
-    renderReal("paid", off);
+    renderReal("paid", off, RENTAL_READY);
     fireEvent.click(screen.getByRole("radio", { name: "PayPal" }));
     expect(screen.getByLabelText("PayPal email")).toBeInTheDocument();
     expect(screen.queryByLabelText("IBAN")).not.toBeInTheDocument();
@@ -914,20 +1458,29 @@ describe("the payout form", () => {
 });
 
 describe("settings", () => {
-  it("saves the connection and starts sharing", async () => {
-    const acts = renderReal("settings", off);
-    fireEvent.change(screen.getByLabelText("Signaling server"), { target: { value: "otter.example" } });
+  it("saves the connection, with nothing in it that shares this Windows desktop", async () => {
+    const onStep = vi.fn();
+    const host: Host = { view: realView(off), actions: actions() };
+    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
+    // The signaling server, the screen preview and going live from here are the development path only.
+    expect(screen.queryByLabelText("Signaling server")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Capturing|Not capturing/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: /go live|sharing/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveAttribute("placeholder", "gaming-pc-1");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Nova-01" } });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Save and start sharing" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });
-    expect(acts.saveConnection).toHaveBeenCalledWith({
-      url: "otter.example",
+    expect(host.actions.saveConnection).toHaveBeenCalledWith({
+      url: "signal.example",
       machineId: "gaming-pc-1",
       machineKey: "test-machine-key",
       name: "Nova-01",
     });
+    expect(screen.getByRole("status")).toHaveTextContent("Saved.");
+    expect(onStep).not.toHaveBeenCalled();
   });
 
   it("can be saved again when saving fails, and says so", async () => {
@@ -937,7 +1490,7 @@ describe("settings", () => {
       actions: { ...actions(), saveConnection: vi.fn(async () => Promise.reject(new Error("disk full"))) },
     };
     render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
-    const save = screen.getByRole("button", { name: "Save and start sharing" });
+    const save = screen.getByRole("button", { name: "Save" });
     await act(async () => {
       fireEvent.click(save);
     });
@@ -949,7 +1502,7 @@ describe("settings", () => {
   it("cannot change under a live session", () => {
     renderReal("settings", session(false));
     expect(screen.getByLabelText("Machine key")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save and start sharing" })).toBeDisabled();
-    expect(screen.getByText("Pause sharing to change these.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByText("Pause to change these.")).toBeInTheDocument();
   });
 });

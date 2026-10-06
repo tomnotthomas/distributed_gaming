@@ -180,7 +180,8 @@ body {
   width: 1px;
   background: var(--ln2);
 }
-.pt button {
+.pt button,
+.ptlock {
   position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -195,6 +196,11 @@ body {
 }
 .pt.done button {
   color: var(--t2);
+}
+/* A step that waits for an earlier one: plain text, no hover, no pointer. */
+.ptlock {
+  cursor: default;
+  opacity: 0.55;
 }
 .pt.now button {
   color: var(--t1);
@@ -233,6 +239,20 @@ body {
 .pt.now .pd {
   border-color: var(--t1);
   background: var(--g-panel);
+}
+/* A step whose read is still running: a turning mark, never an empty dot that looks undone. */
+.pt.checking button {
+  color: var(--t2);
+}
+.pt.checking .pd {
+  border-color: var(--ln2);
+  border-top-color: var(--olive);
+  background: var(--g-bg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pt.checking .pd {
+    animation: mspin 1s linear infinite;
+  }
 }
 .pt.now .pd::after,
 .ladder .now .pd::after,
@@ -346,6 +366,13 @@ body {
 }
 .stand + .pfoot {
   margin-top: 0;
+}
+.build-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t2);
 }
 .demo-pick {
   display: flex;
@@ -541,11 +568,6 @@ body {
 }
 .zc .acts {
   margin-top: 14px;
-}
-.zc .soft.ragain {
-  margin-top: 22px;
-  padding-top: 14px;
-  border-top: 1px solid var(--ln);
 }
 .krow {
   display: grid;
@@ -1558,38 +1580,18 @@ button.inst {
 }
 
 /* --- rental mode -------------------------------------------------------------- */
+/* One thing at a time: the title says what to do, the plate shows the one thing
+   the owner looks for (a setting, the code, the blue screen, progress), the strip
+   under it shows how, and everything else waits behind one quiet row of links. */
 
-/* A check's value, with a hairline warning where the owner has something to change.
-   Brick stays for costs: the glyph carries the warning. */
+/* A check's value in "What Swiff checked", with a hairline warning where the owner
+   has something to change. Brick stays for costs: the glyph carries the warning. */
 .rck {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-/* The changes to make first, under the statement. */
-.legend.rfix {
-  max-width: 560px;
-  margin-top: 18px;
-}
-.rtg {
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  margin: 0 0 14px;
-}
-.rpa {
-  display: inline-flex;
-  gap: 20px;
-}
-/* The plan: the level ladder's rule and dots, one step per rung. */
-.rplan li {
-  padding: 6px 0;
-}
-.rplan b {
-  text-transform: none;
-  letter-spacing: 0;
-  font: 400 14.5px/1.35 var(--f);
-}
 .rcmd {
-  grid-column: 2 / -1;
   margin: 8px 0 4px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -1598,28 +1600,461 @@ button.inst {
   font: 400 11.5px/1.55 var(--mono);
   white-space: pre;
 }
-/* The install's confirmation at the PC: the code large on the left, the blue
-   screen's steps on the right, each with the screen's own words under it, in
-   mono and in its own case, as the owner will see them. */
-.rmok {
+
+/* The rail: Rental mode's three steps under it while it is open. */
+.hx .psub {
+  position: relative;
+  margin: -6px 0 8px;
+  padding: 0 24px 0 57px;
+  list-style: none;
+}
+.hx .psub li {
   display: grid;
-  /* The code's column holds its 8 digits on one line at the window's narrowest. */
-  grid-template-columns: minmax(350px, 1fr) minmax(0, 1.25fr);
-  gap: 36px;
-  align-items: start;
-}
-.rcv {
-  user-select: all;
-  white-space: nowrap;
-}
-.rcode .soft {
-  max-width: 40ch;
-  margin-top: 12px;
-}
-.hx .rmoks small {
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
   color: var(--t3);
-  text-transform: none;
-  letter-spacing: 0;
+}
+.hx .psub li.done {
+  color: var(--t2);
+}
+.hx .psub li.now {
+  color: var(--t1);
+  font-weight: 500;
+}
+.hx .psub .psd {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+.hx .psub .done .psd {
+  background: var(--olive);
+  border-color: var(--olive);
+}
+.hx .psub .now .psd {
+  background: var(--lime);
+  border-color: var(--lime-d);
+}
+
+/* A quiet line under the statement: what comes after this, or a status. */
+.hx .mstatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  font-size: 14px;
+  color: var(--t3);
+}
+.hx .mquiet {
+  color: var(--t3);
+}
+/* The one thing that must not be missed at the blue screen, said large before the restart. */
+.hx .mwarn {
+  max-width: 34ch;
+  margin: 22px 0 0;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--lime);
+  font: 300 20px/1.4 var(--f);
+  color: var(--t1);
+}
+.hx .mwarn q {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  quotes: "\201C" "\201D";
+}
+
+/* The plate: the setting and its value, the code, the blue screen. */
+.hx .mplatebody {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 320px;
+}
+.hx .mtarget {
+  width: 100%;
+  max-width: 300px;
+}
+.hx .mtarget > .mono {
+  margin: 0 0 10px;
+  color: var(--t3);
+}
+.hx .mtrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ln);
+  font: 400 15px var(--mono);
+}
+.hx .mtrow b {
+  flex: none;
+  white-space: nowrap;
+  padding: 4px 11px;
+  font-weight: 500;
+  color: #242525;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+.hx .mtrow.wait {
+  color: var(--t3);
+}
+.hx .mtrow.wait b {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--ln2);
+  color: var(--t2);
+  font-weight: 400;
+}
+.hx .mspin {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ln2);
+  border-top-color: var(--olive);
+  border-radius: 50%;
+}
+.hx .mplatecode {
+  margin: 0;
+  font: 400 60px/1 var(--mono);
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--t1);
+  user-select: all;
+}
+.hx .mplatescreen {
+  width: 100%;
+  max-width: 320px;
+  height: 200px;
+}
+
+/* A to-do of several steps: an illustrated strip, one tile per step with what
+   the owner sees or presses there. */
+.hx .mmulti > h2 {
+  margin: 0 0 14px;
+  color: var(--t3);
+  font-weight: 400;
+}
+.hx .mstrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hx .mstrip li {
+  min-width: 0;
+}
+.hx .mstrip .mnum2 {
+  display: block;
+  margin-top: 12px;
+  color: var(--t3);
+}
+.hx .mstrip b {
+  display: block;
+  margin-top: 2px;
+  font: 500 15px/1.3 var(--f);
+}
+.hx .mtext {
+  display: block;
+  margin-top: 4px;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.hx .mvis {
+  display: grid;
+  place-items: center;
+  height: 96px;
+  background: var(--g-bg);
+  box-shadow: inset 0 0 0 1px var(--ln);
+}
+.hx .mvis.keys {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.hx .mk-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.hx .mk-or {
+  font: 400 12px var(--mono);
+  color: var(--t3);
+}
+.hx .mk {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  height: 40px;
+  padding: 0 10px;
+  font: 500 14px var(--mono);
+  color: var(--t1);
+  background: var(--g-panel);
+  border: 1px solid var(--ln2);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+}
+.hx .mvis.setting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  font: 400 13px var(--mono);
+  color: var(--t2);
+}
+.hx .mvis.setting b {
+  padding: 3px 9px;
+  font-weight: 500;
+  color: #242525;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+.hx .mvis.screen {
+  place-items: center start;
+  padding: 0 14px;
+  white-space: pre-line;
+  font: 400 11.5px/1.6 var(--mono);
+  color: #e4e8f2;
+  background: #2b4180;
+  box-shadow: none;
+}
+.hx .mvis.big.screen {
+  padding: 0 28px;
+  font-size: 15px;
+}
+.hx .mvis.appbtn {
+  color: var(--t2);
+}
+/* A strip's way out when the screen is not what the owner expects. */
+.hx .mnote {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 72ch;
+  margin: 20px 0 0;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--t1);
+}
+.hx .mnote .glyph {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* One quiet row of links, each opening its drawer under it. */
+.hx .mbar {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.hx .mdrawer {
+  padding-top: 18px;
+}
+.hx .mcols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 36px;
+  max-width: 880px;
+}
+.hx .mlist {
+  margin: 0;
+  padding-left: 18px;
+  max-width: 70ch;
+  font-size: 14px;
+  color: var(--t2);
+}
+.hx .mlist li {
+  padding: 3px 0;
+}
+.hx .mnum {
+  margin: 0;
+  padding-left: 22px;
+  max-width: 80ch;
+  font-size: 14px;
+  color: var(--t2);
+}
+.hx .mnum > li {
+  padding: 4px 0;
+}
+
+/* A long step: real progress, an honest hint, and a quiet sign of life. */
+.hx .mlive {
+  margin-top: 22px;
+  color: var(--t2);
+}
+.hx .mpulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 1px var(--lime-d);
+}
+.hx .mrun {
+  max-width: 880px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hx .mrun li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 180px 120px;
+  gap: 14px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--ln);
+  font-size: 14.5px;
+  color: var(--t3);
+}
+.hx .mrun li.done {
+  color: var(--t2);
+}
+.hx .mrun li.now {
+  color: var(--t1);
+  font-weight: 500;
+}
+.hx .mrun li.fail {
+  color: var(--brick);
+  font-weight: 500;
+}
+.hx .mrun-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.hx .mrun li.done .mrun-mark {
+  color: var(--olive);
+}
+.hx .mrun-mark > i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.hx .mrun li.now .mrun-mark > i {
+  border-color: var(--lime-d);
+  background: var(--lime);
+}
+.hx .mrun-bar {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+}
+.hx .mrun li.now .mrun-bar {
+  background: var(--ln2);
+}
+.hx .mrun-bar .det {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--olive);
+  transition: width 0.6s var(--ease);
+}
+.hx .mrun-bar .indet {
+  position: absolute;
+  inset: 0;
+  width: 34%;
+  background: var(--olive);
+}
+.hx .mrun-t {
+  text-align: right;
+  color: var(--t3);
+}
+.hx .mrun li.now .mrun-t {
+  color: var(--t1);
+}
+/* A failure: what changed on the PC so far (the safety fact), what was sent to
+   Swiff, and the exact error behind "What happened, in detail". */
+.hx .mchanged,
+.hx .msent {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  max-width: 52ch;
+  margin: 14px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.hx .mchanged .glyph,
+.hx .msent .glyph {
+  flex: none;
+  margin-top: 3px;
+  color: var(--t3);
+}
+.hx .msent {
+  margin-top: 10px;
+  color: var(--olive);
+}
+.hx .msent .glyph {
+  color: var(--olive);
+}
+.hx .mdetail {
+  max-width: 880px;
+  margin: 0 0 12px;
+  padding: 12px 12px;
+  background: #dedfdc;
+  color: var(--t1);
+  font: 400 12.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Motion: the indeterminate bar glides, the dot breathes, a running value turns.
+   Under reduced motion all of them stand still and the numbers keep updating. */
+@media (prefers-reduced-motion: no-preference) {
+  .hx .mpulse {
+    animation: mpulse 2.4s ease-in-out infinite;
+  }
+  .hx .mspin {
+    animation: mspin 1s linear infinite;
+  }
+  .hx .mrun-bar .indet {
+    animation: mindet 1.8s var(--ease) infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hx .mrun-bar .indet {
+    width: 100%;
+    opacity: 0.35;
+  }
+  .hx .mrun-bar .det {
+    transition: none;
+  }
+}
+@keyframes mpulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px var(--lime-d),
+      0 0 0 0 rgb(212 245 60 / 0.6);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--lime-d),
+      0 0 0 6px rgb(212 245 60 / 0);
+  }
+}
+@keyframes mspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes mindet {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }
 
 /* --- settings ------------------------------------------------------------------ */

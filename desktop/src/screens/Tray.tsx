@@ -79,7 +79,7 @@ export function TrayWindow() {
           <TrayGlance glance={glance} onAction={(action) => trayBridge()?.trayAction(action)} />
         </ArtContext.Provider>
       ) : (
-        <p className="glance soft">Open Swiff to start sharing.</p>
+        <p className="glance soft">Open Swiff to go live.</p>
       )}
     </div>
   );
