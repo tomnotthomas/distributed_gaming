@@ -217,6 +217,7 @@ function writeImage(disk, source, offset, bytes) {
   fs.closeSync(fd);
 }
 
+/** Carries out one plan operation on the VM's disk image and firmware variables, as the worker would on Windows. */
 function apply(op, ctx) {
   const say = (line) => console.log(`  ${op.op}: ${line}`);
   switch (op.op) {

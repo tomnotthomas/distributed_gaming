@@ -27,6 +27,7 @@ function Field({ label, hint, children }: { label: string; hint: string; childre
 /** Live states the connection cannot change under: pause sharing first. Offline is not one: fixing it is why. */
 const LOCKED = new Set(["starting", "waiting", "session", "ending"]);
 
+/** This PC's connection: where it connects, the key it signs in with, and its name. */
 export function Settings({ view, actions, go }: ScreenProps) {
   const { connection, live } = view;
   const [url, setUrl] = useState(connection.url);

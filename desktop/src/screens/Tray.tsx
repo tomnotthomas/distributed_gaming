@@ -18,6 +18,7 @@ const ICONS: Record<TrayAction, GlyphName> = {
   retry: "refresh",
 };
 
+/** The tray glance: what this PC is doing, with the actions that fit it and a way into the app. */
 export function TrayGlance({
   glance,
   onAction,
@@ -28,7 +29,7 @@ export function TrayGlance({
   return (
     <div className="glance">
       <div className="ph1">
-        <span className="wm">SWIFF</span>
+        <span className="wm">LANTEREL</span>
         <span className="mono">
           {glance.live ? <span className="live" /> : null}
           {glance.status}

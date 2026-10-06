@@ -480,6 +480,7 @@ function Links({ items }: { items: More[] }) {
   );
 }
 
+/** What Lanterel checked: the firmware's checks and this PC's, behind one link. */
 const checkedLink = (read: RentalRead, target: string | null): More => ({
   id: "checks",
   label: "What Lanterel checked",
@@ -577,7 +578,7 @@ function rowsOf(todos: WindowsTodo[], bios: BiosId[], waiting: Waiting[]): Row[]
   ];
 }
 
-/** "Swiff OS goes on 24 GB of C:" or "… of free space on disk 1". */
+/** "Lanterel OS goes on 24 GB of C:" or "… of free space on disk 1". */
 function placeLine(read: RentalRead, target: string | null): string {
   const where = chosenTarget(read, target);
   if (!where) return `Lanterel OS needs ${gb(read.need)} next to Windows.`;

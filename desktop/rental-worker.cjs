@@ -582,6 +582,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
     });
   }
 
+  /** Checks `op` against what this worker allows, then carries it out, reporting progress for long writes. */
   async function apply(op, progress = () => {}) {
     checkOp(op);
     const s = state.get();

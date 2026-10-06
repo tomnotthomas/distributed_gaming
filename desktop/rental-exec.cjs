@@ -131,6 +131,7 @@ function handshake(socket, token, side) {
       socket.off("data", onData);
       socket.off("close", fail);
     };
+    /** Hangs up on a peer that closed before both proofs were in: it was not this app's worker. */
     function fail() {
       done();
       socket.destroy();
