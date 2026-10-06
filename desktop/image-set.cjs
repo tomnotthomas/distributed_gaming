@@ -281,7 +281,7 @@ function trustEntry(key, cert, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE)
   };
 }
 
-/** SHA-256 of a public key's SPKI DER: the fingerprint image-trust.json lists it by. */
+/** SHA-256 of a public key's SPKI DER: its fingerprint, for people to compare. */
 const fingerprintOf = (publicKey) =>
   crypto
     .createHash("sha256")
@@ -311,7 +311,7 @@ function publicOf(key, cert, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
  * The image-trust.json entry for the public halves in `text` (publicOf's
  * output): its Ed25519 public key and the SHA-256 of its certificate's DER,
  * which is what swiffos-key.cer holds. Each is worked out from the PEM itself,
- * and a fingerprint printed beside it must agree.
+ * and a certificate hash printed beside it must agree.
  */
 function releaseTrustOf(text) {
   if (/PRIVATE KEY-----/.test(text))
@@ -328,17 +328,11 @@ function releaseTrustOf(text) {
   const cert = new crypto.X509Certificate(pem("CERTIFICATE"));
   const entry = {
     publicKey: publicKey.export({ type: "spki", format: "pem" }),
-    fingerprint: fingerprintOf(publicKey),
     certSha256: crypto.createHash("sha256").update(cert.raw).digest("hex"),
   };
-  const printed = (what) => text.match(new RegExp(`${what}[^:\\n]*: ([0-9a-f]{64})`))?.[1];
-  for (const [what, want] of [
-    ["Image signing key fingerprint", entry.fingerprint],
-    ["Secure Boot certificate SHA-256", entry.certSha256],
-  ]) {
-    const got = printed(what);
-    if (got !== undefined && got !== want) throw new Error(`The printed ${what} is not the one its PEM has.`);
-  }
+  const printed = text.match(/Secure Boot certificate SHA-256[^:\n]*: ([0-9a-f]{64})/)?.[1];
+  if (printed !== undefined && printed !== entry.certSha256)
+    throw new Error("The printed Secure Boot certificate SHA-256 is not the one its PEM has.");
   return entry;
 }
 
@@ -351,7 +345,7 @@ function addTrust(text, file = path.join(__dirname, "image-trust.json")) {
   const entry = releaseTrustOf(text);
   const list = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!Array.isArray(list)) throw new Error(`${file} is not a list.`);
-  if (list.some((t) => t?.fingerprint === entry.fingerprint && t.certSha256 === entry.certSha256))
+  if (list.some((t) => t?.publicKey === entry.publicKey && t.certSha256 === entry.certSha256))
     return false;
   fs.writeFileSync(file, `${JSON.stringify([...list, entry], null, 2)}\n`);
   return true;
@@ -411,7 +405,6 @@ module.exports = {
   newSigningKey,
   signManifest,
   trustEntry,
-  fingerprintOf,
   publicOf,
   releaseTrustOf,
   addTrust,

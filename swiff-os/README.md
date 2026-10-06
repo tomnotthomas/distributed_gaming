@@ -124,7 +124,7 @@ set in `%ProgramData%\Swiff\swiff-os`, which only administrators can write: its 
 signed manifest and the certificate there and hashes each image where it is, before anything on
 the PC changes, and each image is copied there, checked again as it is copied, only at its write (after C: has given Swiff OS its room), then removed once written. The
 release signs with Lanterel's release image signing key in `$SWIFF_OS_SIGNING_KEY` (below,
-**Release keys**): it never enters the repository, and its public half, its fingerprint and the
+**Release keys**): it never enters the repository, and its public half and the
 SHA-256 of the Secure Boot certificate release sets carry are what `desktop/image-trust.json`
 lists. A release build (`npm run pack`, or an unpackaged run) reads no set signed by another key,
 nor one built with another Secure Boot certificate, and refuses every set while that list is
@@ -155,8 +155,12 @@ keys and the image key's passphrase, encrypted with gpg (symmetric, AES-256) und
 `backup.passphrase`. None of it is ever copied into a repository, a log, CI or a chat: CI holds no
 release key, and releases are signed on the GEEKOM. `node desktop/image-set.cjs add-trust
 ~/.lanterel-keys/release/public.txt` adds the public halves to `desktop/image-trust.json`
-(the public key, its fingerprint, the certificate's SHA-256), working each out from the PEM itself
-and refusing input with a private key in it.
+(the public key and the certificate's SHA-256), working each out from the PEM itself
+and refusing input with a private key in it. The image signing key's fingerprint (SHA-256 of its
+SPKI DER) is for people only: keep the one `release-key.sh` printed when it made the key, and
+before trusting or rotating compare it with the one `node desktop/image-set.cjs public
+"$k/image-signing-key.pem" "$k/secure-boot.crt"` prints now (with `k` and
+`SWIFF_OS_KEY_PASSPHRASE` set as for a release, below).
 
 A release is built and signed on the GEEKOM with those files in place of the VM test key pair:
 

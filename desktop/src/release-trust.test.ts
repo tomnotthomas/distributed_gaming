@@ -13,7 +13,6 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   addTrust,
-  fingerprintOf,
   MANIFEST,
   readImageSet,
   releaseTrustOf,
@@ -142,15 +141,15 @@ describe.skipIf(!tools)("Lanterel's release keys", () => {
     const list = JSON.parse(fs.readFileSync(trustFile, "utf8"));
     expect(list).toHaveLength(1);
     const [entry] = list;
-    expect(Object.keys(entry).sort()).toEqual(["certSha256", "fingerprint", "publicKey"]);
+    expect(Object.keys(entry).sort()).toEqual(["certSha256", "publicKey"]);
     expect(entry.certSha256).toBe(sha256(releaseCert));
-    expect(entry.fingerprint).toBe(fingerprintOf(createPublicKey(entry.publicKey)));
+    expect(createPublicKey(entry.publicKey).asymmetricKeyType).toBe("ed25519");
     expect(JSON.stringify(list)).not.toMatch(/PRIVATE/);
   });
 
   it("are not taken from output that was changed or holds a private key", () => {
-    const fingerprint = printed.match(/fingerprint[^:\n]*: ([0-9a-f]{64})/)![1]!;
-    expect(() => releaseTrustOf(printed.replace(fingerprint, "0".repeat(64)))).toThrow(/fingerprint/);
+    const certHash = printed.match(/certificate SHA-256[^:\n]*: ([0-9a-f]{64})/)![1]!;
+    expect(() => releaseTrustOf(printed.replace(certHash, "0".repeat(64)))).toThrow(/certificate SHA-256/);
     const { privateKey } = generateKeyPairSync("ed25519");
     expect(() =>
       releaseTrustOf(`${printed}\n${privateKey.export({ type: "pkcs8", format: "pem" })}`),
@@ -216,14 +215,12 @@ describe.skipIf(!tools)("Lanterel's release keys", () => {
 });
 
 describe("the shipped image-trust.json", () => {
-  it("lists only Ed25519 release keys, each with its fingerprint and a certificate hash", () => {
+  it("lists only Ed25519 release keys, each with a certificate hash", () => {
     const list = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "image-trust.json"), "utf8"));
     expect(Array.isArray(list)).toBe(true);
     for (const entry of list) {
-      expect(Object.keys(entry).sort()).toEqual(["certSha256", "fingerprint", "publicKey"]);
-      const key = createPublicKey(entry.publicKey);
-      expect(key.asymmetricKeyType).toBe("ed25519");
-      expect(entry.fingerprint).toBe(fingerprintOf(key));
+      expect(Object.keys(entry).sort()).toEqual(["certSha256", "publicKey"]);
+      expect(createPublicKey(entry.publicKey).asymmetricKeyType).toBe("ed25519");
       expect(entry.certSha256).toMatch(/^[0-9a-f]{64}$/);
     }
     expect(trustOf({ dev: false })).toHaveLength(list.length);

@@ -10,7 +10,7 @@ export type ImageSet = {
 };
 
 /** A key the app trusts to sign image sets, and the SHA-256 of the certificate its sets carry. */
-export type Trust = { publicKey: string; certSha256: string; fingerprint?: string };
+export type Trust = { publicKey: string; certSha256: string };
 
 export const MANIFEST: string;
 export const SIGNATURE: string;
@@ -43,8 +43,7 @@ export function certFromAuth(auth: Uint8Array): Buffer;
 export function newSigningKey(file: string, passphrase?: string): void;
 export function signManifest(dir: string, key: string, passphrase?: string): void;
 export function trustEntry(key: string, cert: string, passphrase?: string): Trust;
-export function fingerprintOf(publicKey: import("node:crypto").KeyObject): string;
 export function publicOf(key: string, cert: string, passphrase?: string): string;
-export function releaseTrustOf(text: string): Required<Trust>;
+export function releaseTrustOf(text: string): Trust;
 export function addTrust(text: string, file?: string): boolean;
 export function writeManifest(dir: string, image: string, version: string): Promise<void>;
