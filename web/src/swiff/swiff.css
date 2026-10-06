@@ -2756,7 +2756,7 @@ button.band-tab:hover {
 }
 .menu-copy > .menu-title {
   order: 0;
-  margin-top: 16px;
+  margin: 16px 0 24px;
 }
 .menu-copy > .menu-line {
   order: 1;
@@ -2779,10 +2779,14 @@ button.band-tab:hover {
 .share-copy > .share-title {
   margin-top: 14px;
 }
-.share-copy > .share-figure {
+.share-copy > .share-figure,
+.share-copy > .share-line {
   order: 1;
 }
-.share-copy > :not(.hero-kicker, .share-title, .share-figure) {
+.share-copy > .hero-kicker {
+  margin-top: 10px;
+}
+.share-copy > :not(.hero-kicker, .share-title, .share-figure, .share-line) {
   order: 3;
 }
 .hero-strip-say > .hero-strip-kick {
@@ -2843,6 +2847,11 @@ button.band-tab:hover {
 }
 .profile-name {
   margin: 12px 0 14px;
+}
+.profile-name::before,
+.profile-name::after {
+  left: -4px;
+  right: -48px;
 }
 
 /* — Share your PC sits on the plain paper: the key art lives only on a screen — */
@@ -3335,5 +3344,32 @@ button.band-tab:hover {
   }
   .hero-3b-leader {
     margin-top: 22px;
+  }
+  /* waiting on a phone: the name's slot is held above the screen, its two
+     dimension lines drawn empty, and the screen sits where the loaded one will */
+  .wall:not(.wall-bare):not(:has(.hero-3b)) {
+    background-image:
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2)),
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2)),
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2));
+    background-repeat: no-repeat;
+    background-size:
+      calc(100% - 2 * var(--gut) + 16px) 1px,
+      calc(100% - 2 * var(--gut) + 16px) 1px,
+      1px 9px,
+      1px 9px,
+      1px 9px,
+      1px 9px;
+    background-position:
+      calc(var(--gut) - 8px) calc(var(--bar) + 14px),
+      calc(var(--gut) - 8px) calc(var(--bar) + 125px),
+      calc(var(--gut) - 8px) calc(var(--bar) + 10px),
+      calc(var(--gut) - 8px) calc(var(--bar) + 121px),
+      calc(100% - var(--gut) + 7px) calc(var(--bar) + 10px),
+      calc(100% - var(--gut) + 7px) calc(var(--bar) + 121px);
+  }
+  .wall:not(.wall-bare):not(:has(.hero-3b))::before {
+    width: calc(100% - 2 * var(--gut));
+    margin-top: calc(var(--bar) + 203px);
   }
 }
