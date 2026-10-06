@@ -619,7 +619,8 @@ becomes its page, `/crews` lists the player's crews, `/crews/<id>` is one crew. 
 reads "Almost ready." until a PC is in, leads with one next step per state (bring your
 people, with one WhatsApp message that invites and asks who has a gaming PC, through the
 phone's share sheet where there is one and `wa.me` otherwise; got a gaming PC?; play now; or
-every PC away), has an open PC slot anyone in the crew fills, a "Plan a session" panel that
+every PC away), has an open PC slot anyone in the crew fills (once a PC is in, it offers
+anyone with no PC in the crew yet to add another), a "Plan a session" panel that
 posts the session to WhatsApp, the crew link with other ways to share, and leaving. Someone
 who joined is shown once what the crew sees on their PC and what it does not, with a
 one-minute PC check and an equally plain "Later", which stays as a "Check my PC later" chip.

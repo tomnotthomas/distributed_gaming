@@ -146,9 +146,10 @@ PUT  /machines/:id/availability
   answer and the heartbeat's) is `{ only, crews: [{ id, name, crewName, own, size, state,
   pcs, plays }] }`: whether it is crew-only, and every crew its owner is in, each saying
   whether this PC plays for it. The app sends the owner's choice of crews (`crews`) with
-  every offer once they have made one (in rental mode, where swiff-hostd makes the
-  offers, at once on its own; one that fails to save goes back to the last confirmed
-  choice, with a note), and shows "Who does your PC play for?" while the owner is in a
+  the offers after they make it, until the platform has it, and never again after, so a
+  crew the PC was brought to on the web is never dropped by an old pick (in rental mode,
+  where swiff-hostd makes the offers, at once on its own; one that fails to save goes back
+  to the last confirmed choice, with a note), and shows "Who does your PC play for?" while the owner is in a
   crew or the PC is crew-only. In rental mode the host app sends this call (`available:
   false`, with or without `crews`) only from Windows, where the PC is already off offer,
   so it never ends a session; Swiff OS's next offer applies the saved crew choice.
