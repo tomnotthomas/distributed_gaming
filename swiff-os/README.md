@@ -240,8 +240,9 @@ anything the user drives has started can be trusted:
 4. **Promotion** runs at shutdown (`ExecStop`), after the session has stopped, so it fits the reboot
    between renters (D5). For each sealed game, the files that the session layer still holds
    **byte-identical** to what was sealed are copied onto the library. The table and Steam's app
-   manifest are then updated, the manifest without the renter's SteamID. One changed file keeps the
-   whole update off the library. The game is marked `promoting` while its files are renamed into
+   manifest are then updated, the manifest without the renter's SteamID. A sealed file the session
+   layer does not hold is re-hashed on the library first and must still match. One changed or
+   unreadable file keeps the whole update off the library. The game is marked `promoting` while its files are renamed into
    place, and an interrupted promotion is fully re-hashed at the next boot. An update that does not
    fit in the library's free space (plus 64 MiB) is not promoted, and the reason is logged; the game
    stays on its verified version. Nothing half-written is left on the library.
