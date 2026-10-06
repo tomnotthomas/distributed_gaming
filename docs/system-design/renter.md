@@ -907,8 +907,10 @@ nothing is recorded or kept.
 GET  /crew-live
   → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
   The sessions the signed-in player's crewmates are playing now (claimed or playing), on
-  any machine, never their own: whether the player is still behind Ignition (`starting`,
-  booking `claimed`: not yet to be asked), who plays (`player`, their Steam persona as their crew
+  any machine, never their own: whether the player is still behind Ignition (`starting`:
+  the booking still `claimed`, or the game still launching, until the server has relayed the
+  PC's `game-started` for the session; not yet to be asked, since no ask reaches a player
+  behind Ignition), who plays (`player`, their Steam persona as their crew
   knows it), which game on which machine, whether they share with the crew (`sharing`),
   how many watch, and this player's own watch on it (`mine`, `{ state }`, or null).
   → 401 signed out.
@@ -978,6 +980,7 @@ the pages (or through the TURN relay), never through the server, and nothing is 
 The player hears the game and the crew; viewers hear the game and the crew.
 
 On the wall, a band names each crewmate playing now with Ask to watch (Watch when they
-share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it, so Ask to watch shows at once),
-or `event: crew` says a player shared or stopped sharing. The watch itself covers the
+share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it),
+or `event: crew` says a player shared or stopped sharing, or that a crewmate's game is on
+screen (so Ask to watch shows at once). The watch itself covers the
 page: Asked, the player's yes, the game, and plainly why it ended.

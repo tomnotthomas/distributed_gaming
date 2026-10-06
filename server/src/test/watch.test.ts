@@ -261,13 +261,20 @@ describe("crew live sessions", () => {
     return (await platform.crewInvite(MARA, "Mara")).members.find((m) => m.name === "Lea")!;
   }
 
-  /** `renter` books and claims pc-1, and (unless still `starting`, behind Ignition) plays on it. */
+  /**
+   * `renter` books and claims pc-1, and (unless still `starting`, behind
+   * Ignition) plays on it with the game on screen: the PC's game-started, which
+   * the signaling server records as it relays it.
+   */
   async function plays(renter: string, { starting = false } = {}) {
     await platform.setAvailability("pc-1", true, REPORT);
     const booking = await platform.book(730, 60, renter);
     const claim = await platform.claim(booking.bookingId, renter);
     assert.ok(claim.ok);
-    if (!starting) assert.equal(await platform.startSession("pc-1", claim.sessionId), true);
+    if (!starting) {
+      assert.equal(await platform.startSession("pc-1", claim.sessionId), true);
+      watches.gameOnScreen(claim.sessionId);
+    }
     return { bookingId: booking.bookingId, sessionId: claim.sessionId };
   }
 
@@ -351,7 +358,9 @@ describe("crew live sessions", () => {
       { room: "pc-1", session: sessionId, watch: asked.body.watchId, viewer: LEA, exp: undefined },
     );
     const deadline = (await platform.crewLive(LEA))[0]!.expiresAt;
-    assert.equal(ticket.exp, Math.floor(deadline / 1000));
+    assert.equal(ticket.exp, Math.ceil(deadline / 1000));
+    // Good to the session's last millisecond, not a moment less.
+    assert.ok(verifyWatchTicket(SECRET, asked.body.ticket, deadline - 1));
     assert.equal(watches.get(asked.body.watchId)?.name, "Lea");
   });
 
@@ -381,6 +390,12 @@ describe("crew live sessions", () => {
     assert.equal(await platform.startSession("pc-1", sessionId), true);
     // The walls hear of the start at once, so the crew band reads again without waiting for a poll.
     assert.equal(availabilityChanged, 1);
+    // Playing from the first frame, but the game is still launching behind Ignition: no ask yet.
+    assert.equal((await call("GET", "/api/crew-live", LEA)).body.live[0].starting, true);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+    assert.deepEqual(watches.all(), []);
+
+    watches.gameOnScreen(sessionId);
     assert.equal((await call("GET", "/api/crew-live", LEA)).body.live[0].starting, false);
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
   });
@@ -396,6 +411,7 @@ describe("crew live sessions", () => {
     assert.equal(again.headers.get("retry-after"), String(COOLDOWN_MS / 1000));
 
     const full = new Watches({ maxWatchers: 0 });
+    full.gameOnScreen(sessionId);
     watches = full;
     const refused = await call("POST", `/api/crew-live/${sessionId}/watch`, JON);
     assert.equal(refused.status, 409);
@@ -591,13 +607,18 @@ describe("watching through the signaling server", () => {
     const booking = await call("POST", "/api/bookings", MARA, { gameId: 730, minutes: 30, machineId: room });
     const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`, MARA);
     assert.equal(claim.status, 200);
-    assert.equal(
-      (await call("POST", `/api/sessions/${claim.body.sessionId}/start`, undefined, {}, MACHINE_KEY)).status,
-      200,
-    );
     const player = await tracked();
     send(player, { type: "join", ticket: claim.body.ticket });
     await handled(player);
+    // The player's first frame starts the session, and the PC is told to launch the game.
+    assert.equal(
+      (await call("POST", `/api/sessions/${claim.body.sessionId}/start`, undefined, {}, claim.body.ticket))
+        .status,
+      200,
+    );
+    // The game on screen: the PC says so, through the server, to the player.
+    send(host, { type: "game-started", sessionId: claim.body.sessionId });
+    await heard(player, (m): m is SignalMessage => m.type === "game-started", "game-started");
     const asked = await call("POST", `/api/crew-live/${claim.body.sessionId}/watch`, LEA);
     assert.equal(asked.status, 200);
     const viewer = await tracked();
@@ -628,6 +649,68 @@ describe("watching through the signaling server", () => {
     return s;
   }
 
+  it("takes no ask while the game launches, and tells the crew's walls once it is on screen", async () => {
+    await crew();
+    const room = ROOMS[roomIndex++]!;
+    const offer = { available: true, ...REPORT };
+    assert.equal(
+      (await call("PUT", `/api/machines/${room}/availability`, undefined, offer, MACHINE_KEY)).status,
+      200,
+    );
+    const host = await tracked();
+    send(host, { type: "register", hostId: room, key: MACHINE_KEY });
+    await handled(host);
+    const booking = await call("POST", "/api/bookings", MARA, { gameId: 730, minutes: 30, machineId: room });
+    const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`, MARA);
+    const sessionId = claim.body.sessionId as string;
+    const player = await tracked();
+    send(player, { type: "join", ticket: claim.body.ticket });
+    await handled(player);
+    assert.equal(
+      (await call("POST", `/api/sessions/${sessionId}/start`, undefined, {}, claim.body.ticket)).status,
+      200,
+    );
+
+    // Playing since the first frame, but the game is still launching behind Ignition.
+    const starting = (await call("GET", "/api/crew-live", LEA)).body.live.find(
+      (s: { sessionId: string }) => s.sessionId === sessionId,
+    );
+    assert.equal(starting.starting, true);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+
+    const abort = new AbortController();
+    const wall = await fetch(`${HTTP}/api/events`, {
+      signal: abort.signal,
+      headers: { cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION, LEA, 3600)}` },
+    });
+    let text = "";
+    const reading = (async () => {
+      const decoder = new TextDecoder();
+      const reader = wall.body!.getReader();
+      try {
+        for (let read = await reader.read(); !read.done; read = await reader.read())
+          text += decoder.decode(read.value, { stream: true });
+      } catch {
+        // Aborted at the end of the test.
+      }
+    })();
+    try {
+      await wait(100);
+      send(host, { type: "game-started", sessionId });
+      await heard(player, (m): m is SignalMessage => m.type === "game-started", "game-started");
+      await wait(100);
+      assert.match(text, /event: crew\n/);
+      const live = (await call("GET", "/api/crew-live", LEA)).body.live.find(
+        (s: { sessionId: string }) => s.sessionId === sessionId,
+      );
+      assert.equal(live.starting, false);
+      assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
+    } finally {
+      abort.abort();
+      await reading;
+    }
+  });
+
   it("seats a viewer to wait for the player's yes, and tells the player who asks", async () => {
     const { player, viewer, watchId } = await scene();
     const watching = await heard(viewer, isWatching, "watching");
@@ -655,7 +738,7 @@ describe("watching through the signaling server", () => {
   });
 
   it("on the player's yes, carries the player's offer to the viewer and the viewer's answer back, never to the PC", async () => {
-    const { host, player, viewer, watchId } = await accepted();
+    const { host, player, viewer, watchId, sessionId } = await accepted();
     assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
     const before = host.received.length;
 
@@ -680,7 +763,12 @@ describe("watching through the signaling server", () => {
     await handled(viewer);
     await handled(player);
     assert.deepEqual(
-      player.received.filter((m) => ["answer", "ice", "crew", "offer", "game-started"].includes(m.type)),
+      // The PC's own game-started, from before anyone asked, aside.
+      player.received.filter(
+        (m) =>
+          ["answer", "ice", "crew", "offer", "game-started"].includes(m.type) &&
+          !(m.type === "game-started" && m.sessionId === sessionId),
+      ),
       [
         { type: "answer", sdp: { type: "answer", sdp: "v=0 viewer" }, watchId },
         { type: "ice", candidate: { candidate: "candidate:viewer" }, watchId },

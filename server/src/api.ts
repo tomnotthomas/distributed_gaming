@@ -824,7 +824,8 @@ export function createApi({
           const mine = watches.list(session.sessionId).find((watch) => watch.viewerId === steamId);
           return {
             sessionId: session.sessionId,
-            starting: session.starting,
+            // Starting until the game is on the player's screen: no ask reaches them before.
+            starting: session.starting || !watches.onScreen(session.sessionId),
             player: session.playerName,
             gameId: session.gameId,
             machine: session.machineName,
@@ -843,12 +844,14 @@ export function createApi({
       const steamId = requireRenter(req, sessionSecret);
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
       const live = await platform.watchable(id, steamId);
-      if (live === "ended" || live === "not-crew") {
+      // Behind Ignition the player would never see the ask: only once the game is on screen.
+      if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {
         throw new HttpError(404, "no crewmate of yours is playing that session");
       }
       // The player sees them by their Steam persona, when Steam answers.
       const read = await profile(steamId).catch(() => null);
-      const exp = Math.floor(live.expiresAt / 1000);
+      // Rounded up: a ticket must not lapse before the session it is for.
+      const exp = Math.ceil(live.expiresAt / 1000);
       const asked = watches.ask(
         { sessionId: live.sessionId, room: live.room, playerName: live.playerName, exp },
         { id: steamId, name: read?.persona || null },

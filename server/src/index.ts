@@ -1202,6 +1202,11 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
   if (!ticketId) return;
   if (!(await confirmed(ws, peer, renter, arrived))) return;
   if (!forRenterSession(ws, renter, msg)) return;
+  // The game is on the player's screen: their crew may ask to watch from now on.
+  if (msg.type === "game-started" && !watches.onScreen(msg.sessionId)) {
+    watches.gameOnScreen(msg.sessionId);
+    renterEvents.crewChanged();
+  }
   // Recorded before the renter hears it, so their first frame may start the session. While the
   // database cannot take it, the frame is held, with the frames behind it, and the write retried.
   if (msg.type === "steam-login" && msg.state === "signed-in") {

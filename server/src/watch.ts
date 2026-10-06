@@ -78,6 +78,8 @@ export class Watches {
   readonly #over = new Map<string, { reason: WatchEnd; until: number }>();
   /** `${sessionId}:${viewerId}` → until when (Unix ms) that viewer may not ask that session again. */
   readonly #cooldown = new Map<string, number>();
+  /** Sessions whose game the PC has said is on screen (game-started): the player sees an ask from then on. */
+  readonly #onScreen = new Set<string>();
 
   constructor(opts: WatchesOptions = {}) {
     this.#now = opts.now ?? Date.now;
@@ -207,7 +209,22 @@ export class Watches {
   endSession(sessionId: string): Watch[] {
     const ended = this.list(sessionId).map((watch) => this.end(watch.id, "watch-ended")!);
     this.#sessions.delete(sessionId);
+    this.#onScreen.delete(sessionId);
     return ended;
+  }
+
+  /**
+   * The PC said the game of `sessionId` is on screen (its game-started, as
+   * relayed to the player). Until then the player is behind Ignition, where
+   * no ask reaches them, so crewmates may not ask (api.ts).
+   */
+  gameOnScreen(sessionId: string): void {
+    this.#onScreen.add(sessionId);
+  }
+
+  /** Whether the player of `sessionId` has the game on screen: crewmates may ask to watch. */
+  onScreen(sessionId: string): boolean {
+    return this.#onScreen.has(sessionId);
   }
 
   /** The viewer's page left the room at `at`; back clears it. */
