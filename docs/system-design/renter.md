@@ -636,6 +636,52 @@ in the path) and joins at once, then the friend lands on the crew's page. The pr
 wall carry the player's crews and a way to found one. Their words, in German and English
 kept apart, are in `web/src/swiff/crewCopy.ts`.
 
+### Friend seats
+
+A host keeps up to four named seats at their gaming PC for friends (`server/src/platform.ts`,
+seats; `MAX_SEATS`), from the host app (host.md, `/machines/:id/seats`). Each seat is in a
+crew the PC plays for: the first of its owner's, or, when the PC plays for none of theirs, a
+crew founded for it, which the PC then plays for (so it is crew-only from then on). A seat
+names the friend it is for and waits for them for 14 days (`SEAT_HOLD_MS`); an unanswered
+seat that ran out no longer counts against the four.
+
+Each seat has its own link, `/seat/<token>`, signed as a crew link is but in a domain of its
+own (`server/src/access.ts`), so a crew link is never a seat link and the reverse. Whoever
+opens it first, signed in with Steam, takes it: they join the crew it is in, and hold the
+seat until the host takes it back or they leave that crew (a host leaving the crew lets its
+seats at their PCs go too). Nobody else takes a taken seat, its host never takes their own,
+and one friend holds at most one seat per PC. Gate E7 lets a seat's holder play on its PC
+whichever crews the PC plays for later; taking the seat back ends that, and the crew
+membership taking it made (one they had before stays), and a match made before goes back
+at the claim. A holder plays their own Steam games on their own account, as anyone does:
+booking and claiming check their own library, and in rental mode they sign in to Steam
+themselves. Seat links are cut from analytics as crew links are (`withoutInviteTokens`).
+
+```
+GET  /seats/:token
+  → 200 { seat: { host, friend, number, of, state, expiresAt,
+                  pc: { name, gpu, state, rentalMode }, crewId } }
+  The seat a link opens, for anyone: `host` is the owner's Steam persona as read when the
+  seat was made, `number` of `of` its place among the PC's seats. `state` is `open`,
+  `yours` (the signed-in viewer holds it; only then is `crewId` set), `taken`, `expired`,
+  or `host` (the viewer's own PC). → 404 for a forged, unknown or taken-back seat.
+
+POST /seats/:token/take
+  → 200 { crewId, joined, seat }
+  Take the seat as the signed-in player and join its crew; `joined` is false when they
+  were in it already. Taking a seat they hold changes nothing. → 409 { code } for one
+  someone else holds (`taken`), that ran out (`expired`), at their own PC (`own`), or a
+  player in 50 crews already (`too-many-crews`). → 404 as above. → 401 signed out.
+```
+
+The seat page (`web/src/swiff/SeatInvite.tsx`, `seat.css`) is the launch set's approved
+seat invite: whose PC, the PC as a lit screen with the seat's stub ("Saved for Jonas · 12
+days"), the facts as a pass (seat, graphics, now, valid until, price), and three steps. A
+signed-out friend grabs the seat through Steam sign-in, which comes back to `/seat` (the
+token waits in the tab, as a crew link's does) and takes it at once; either way they land
+on the crew's page. Its words, German and English kept apart, are the `st.*` keys in
+`web/src/swiff/crewCopy.ts`.
+
 ### Connection setup (WebSocket)
 
 The wire format lives in `server/src/protocol.ts`.

@@ -43,6 +43,9 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
     each crew by its name (or whose it is), how many people and PCs it has, and a switch
     per crew; any pick makes the PC crew-only. A PC still open to anyone says so, and the
     app offers no way to open it to anyone ([`renter.md`](renter.md), "Crews").
+11. An owner keeps up to four named seats at their PC for friends ("Seats for friends"):
+    they save one for a friend by name, copy its link to send, see who took it, and take
+    it back ([`renter.md`](renter.md), "Friend seats").
 
 ---
 
@@ -178,6 +181,21 @@ GET  /machines/:id/demand
   (`looking`), and its bookings in the queue now (`waiting`). Counts only, never who
   asked, and only games Swiff can run (`server/src/playable.ts`). `name` is the
   catalogue's, null where it has none.
+
+GET    /machines/:id/seats
+POST   /machines/:id/seats { friend }
+DELETE /machines/:id/seats?seat=<id>
+  → 200 { seats: [{ id, friend, number, state, expiresAt, takenBy, crewId, token }], max: 4 }
+    (POST → 201 { seat })
+  The friend seats at this PC, with the machine key ([`renter.md`](renter.md), "Friend
+  seats"): list them, save one for the friend named `friend` (up to 24 characters), or
+  take one back. `state` is `open` while it waits for its friend, until `expiresAt`, or
+  `taken` (by `takenBy`, their Steam persona); `token` is its link's, which the app shows
+  as `<site>/seat/<token>` for the owner to send and never logs. → 409 { code } for a PC
+  with four seats (`full`), never offered (`unknown-machine`), with no owner on record
+  (`no-owner`), or whose owner would need a crew founded while in 50 (`too-many-crews`).
+  → 404 for a seat that is not there. The app shows them on the Go live screen in rental
+  mode and while the PC waits for a renter (`desktop/src/screens/FriendSeats.tsx`).
 
 POST /machines/:id/session
   { sessionId }
