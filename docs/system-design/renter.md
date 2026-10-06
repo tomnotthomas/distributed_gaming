@@ -530,9 +530,10 @@ A crew is a group of friends who play on each other's gaming PCs (`server/src/pl
 crews). A signed-in player founds one in a tap (`POST /crews`): it exists at once, named
 after its founder until someone gives it a name of its own, with its link. Anyone founds
 several crews and joins several, up to 50 in all (`MAX_CREWS`), the most one PC can be
-picked for; that also bounds the unready crews checked on each change of offer. The founder is the crew's admin, who renames it, replaces
-its link and removes members; when the admin leaves, whoever has been in the crew longest
-takes over, and the last one out archives it, which also kills its link.
+picked for; that also bounds the unready crews checked on each change of offer. The
+founder is the crew's admin, who renames it, replaces its link and removes members; when
+the admin leaves, whoever has been in the crew longest takes over, and the last one out
+archives it, which also kills its link.
 
 A crew has one link, `/invite/<token>`, which anyone in it may share: whoever opens it and
 joins is in that crew, attributed to the invite. The token is the invite's random id
