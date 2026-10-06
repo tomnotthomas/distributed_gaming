@@ -958,6 +958,28 @@ describe("host sessions", () => {
     assert.deepEqual(denial(host), { type: "denied", reason: "bad-machine-key" });
   });
 
+  it("records a rental-mode PC's Steam sign-in as it relays it, so the claim's deadline becomes the launch grace", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, { type: "register", hostId: room, key: MACHINE_KEY, rental: true });
+    await handled(host);
+    const { ticket, bookingId } = await claimRoomWithTicket(room);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const signInMs = async () => (await call("POST", `/api/bookings/${bookingId}/rejoin`)).body.signInMs;
+    assert.equal(typeof (await signInMs()), "number", "signing in: the rejoin carries the sign-in deadline");
+
+    send(host, { type: "steam-login", state: "signed-in" });
+    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    assert.equal(await signInMs(), undefined, "approved: no sign-in deadline left");
+    assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
+    renter.close();
+    host.close();
+  });
+
   it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
     const room = nextRoom();
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);

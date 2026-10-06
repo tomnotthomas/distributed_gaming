@@ -7,6 +7,7 @@ export {
   headroomOf,
   DEFAULT_MAX_RTT_MS,
   DEFAULT_HEARTBEAT_MAX_AGE_MS,
+  STEAM_LAUNCH_GRACE_MS,
   STEAM_SIGN_IN_MS,
   sessionSpanMs,
 } from "./rank.ts";

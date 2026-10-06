@@ -748,7 +748,7 @@ export function createApi({
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
-      // On a rental-mode PC the booked minutes run from the start, which may come as late as its sign-in allows.
+      // On a rental-mode PC the booked minutes run from the start, which may come as late as its sign-in and launch allow.
       const ticket = mintTicket(
         access.secret,
         claim.roomId,

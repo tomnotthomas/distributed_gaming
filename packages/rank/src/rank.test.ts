@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { failedGates, pictureScore, rank, responseScore, stabilityOf, STEAM_SIGN_IN_MS } from "./rank.ts";
+import {
+  failedGates,
+  pictureScore,
+  rank,
+  responseScore,
+  stabilityOf,
+  STEAM_LAUNCH_GRACE_MS,
+  STEAM_SIGN_IN_MS,
+} from "./rank.ts";
 import type { Candidate, GameRequirements, HostProfile, RenterPrefs, StabilityStats } from "./types.ts";
 
 const NOW = 1_800_000_000_000;
@@ -293,13 +301,16 @@ describe("sort order", () => {
 });
 
 describe("free all session", () => {
-  it("counts a rental-mode PC's Steam sign-in before the booked minutes", () => {
+  it("counts a rental-mode PC's Steam sign-in and launch before the booked minutes", () => {
     const until = NOW + RENTER.sessionMinutes * 60_000;
     const covers = (host: Partial<HostProfile>) =>
       rank(ELDEN, RENTER, [candidate(host)], { now: NOW }).hosts[0]!.coversSession;
     expect(covers({ availableUntil: until })).toBe(true);
     expect(covers({ availableUntil: until, rentalMode: true })).toBe(false);
-    expect(covers({ availableUntil: until + STEAM_SIGN_IN_MS, rentalMode: true })).toBe(true);
+    expect(covers({ availableUntil: until + STEAM_SIGN_IN_MS, rentalMode: true })).toBe(false);
+    expect(
+      covers({ availableUntil: until + STEAM_SIGN_IN_MS + STEAM_LAUNCH_GRACE_MS, rentalMode: true }),
+    ).toBe(true);
   });
 });
 

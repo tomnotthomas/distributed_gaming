@@ -92,6 +92,7 @@ import {
   gpuScore,
   rank,
   sessionSpanMs,
+  STEAM_LAUNCH_GRACE_MS,
   STEAM_SIGN_IN_MS,
   type Candidate,
   type Control,
@@ -384,6 +385,8 @@ type SessionRow = {
   booking_id: string;
   machine_id: string;
   started_at: number | null;
+  /** When the PC said the renter approved the Steam sign-in, on a rental-mode PC. */
+  signed_in_at: number | null;
   ended_at: number | null;
   expires_at: number;
   price: number | null;
@@ -856,7 +859,8 @@ export class Platform {
       if (busy.length) {
         const backs = await this.#all<{ machine_id: string; at: number }>(
           `SELECT s.machine_id,
-               CASE WHEN m.rental_mode AND s.started_at IS NULL THEN s.expires_at + b.minutes * 60000
+               CASE WHEN m.rental_mode AND s.started_at IS NULL
+                 THEN s.expires_at + CASE WHEN s.signed_in_at IS NULL THEN $3::bigint ELSE 0 END + b.minutes * 60000
                  ELSE s.expires_at END AS at
              FROM sessions s JOIN bookings b ON b.id = s.booking_id JOIN machines m ON m.id = s.machine_id
              WHERE s.machine_id = ANY ($1::text[]) AND s.ended_at IS NULL
@@ -865,7 +869,8 @@ export class Platform {
              FROM reservations r JOIN bookings b ON b.id = r.booking_id JOIN machines m ON m.id = r.machine_id
              WHERE r.machine_id = ANY ($1::text[])`,
           busy,
-          STEAM_SIGN_IN_MS,
+          STEAM_SIGN_IN_MS + STEAM_LAUNCH_GRACE_MS,
+          STEAM_LAUNCH_GRACE_MS,
         );
         for (const { machine_id, at } of backs) if (!backAt.has(machine_id)) backAt.set(machine_id, at);
       }
@@ -1011,6 +1016,35 @@ export class Platform {
         session.booking_id,
       ))!;
       return { machineId: session.machine_id, gameId: game_id };
+    });
+  }
+
+  /**
+   * The PC said its renter approved the Steam sign-in: on a rental-mode
+   * session not yet started, what is left of the sign-in allowance gives way
+   * to STEAM_LAUNCH_GRACE_MS for the game's first frame, once. The booked
+   * minutes still start with that frame. Only the join ticket handed out for
+   * the session counts, and only before its deadline; answers whether it applied.
+   */
+  steamSignedIn(sessionId: string, ticketId: string): Promise<boolean> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
+      if (!session || session.ticket_id !== ticketId || session.ended_at !== null) return false;
+      if (session.started_at !== null || session.signed_in_at !== null || session.expires_at <= now)
+        return false;
+      const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+        "SELECT rental_mode FROM machines WHERE id = $1",
+        session.machine_id,
+      ))!;
+      if (!rental_mode) return false;
+      await this.#run(
+        "UPDATE sessions SET signed_in_at = $1, expires_at = $2 WHERE id = $3",
+        now,
+        now + STEAM_LAUNCH_GRACE_MS,
+        session.id,
+      );
+      return true;
     });
   }
 
@@ -1459,13 +1493,19 @@ export class Platform {
         "SELECT rental_mode FROM machines WHERE id = $1",
         session.machine_id,
       ))!;
-      const signingIn = rental_mode && session.started_at === null;
+      const unstarted = rental_mode && session.started_at === null;
+      const signingIn = unstarted && session.signed_in_at === null;
       return {
         ok: true,
         sessionId: session.id,
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
-        remainingMs: session.expires_at - now + (signingIn ? booking.minutes * 60_000 : 0),
+        // A ticket handed out while signing in outlives a start as late as the launch grace allows.
+        remainingMs:
+          session.expires_at -
+          now +
+          (signingIn ? STEAM_LAUNCH_GRACE_MS : 0) +
+          (unstarted ? booking.minutes * 60_000 : 0),
         rentalMode: rental_mode,
         ...(signingIn ? { signInMs: session.expires_at - now } : {}),
       };

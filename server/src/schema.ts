@@ -264,6 +264,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // (api.ts, claim).
     `ALTER TABLE machines ADD COLUMN rental_mode BOOLEAN NOT NULL DEFAULT false`,
   ],
+  [
+    // When the PC said its renter approved the Steam sign-in, on a rental-mode
+    // session not yet started: its deadline is then the launch grace (platform.ts).
+    `ALTER TABLE sessions ADD COLUMN signed_in_at BIGINT`,
+  ],
 ];
 
 /**

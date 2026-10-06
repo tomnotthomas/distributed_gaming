@@ -287,7 +287,7 @@ const revokedTickets = new Map<string, number>();
 
 /**
  * A booking's ticket runs for its minutes from the claim, and a rental-mode
- * PC's Steam sign-in before them (api.ts), so none outlives its revocation by more.
+ * PC's Steam sign-in and launch before them (api.ts), so none outlives its revocation by more.
  */
 const REVOCATION_KEPT_MS = sessionSpanMs({ rentalMode: true }, MAX_MINUTES);
 
@@ -931,7 +931,26 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
     }
   }
   if (seatRevoked(renter) || peerOf(ws) !== peer || !forRenterSession(ws, renter, msg)) return;
+  // Recorded before the renter hears it, so their first frame finds the launch grace in place.
+  if (msg.type === "steam-login" && msg.state === "signed-in") await steamSignedIn(ticketId);
   send(peer, msg);
+}
+
+/**
+ * The PC says the renter seated with `ticketId` approved the Steam sign-in:
+ * their claim's deadline becomes the launch grace (platform.ts). Never rejects:
+ * a failed write leaves the sign-in deadline, which the first frame may still beat.
+ */
+async function steamSignedIn(ticketId: string): Promise<void> {
+  try {
+    const sessionId = await platform.ticketSession(ticketId);
+    if (sessionId) await platform.steamSignedIn(sessionId, ticketId);
+  } catch (error) {
+    console.error(
+      "[swiff] recording the Steam sign-in failed:",
+      error instanceof Error ? error.name : typeof error,
+    );
+  }
 }
 
 /** One frame from `ws`, which arrived at `arrived` (performance.now() ms): relayed to its peer, or answered. */
