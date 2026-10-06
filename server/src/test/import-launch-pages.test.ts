@@ -132,4 +132,32 @@ describe("importing the launch set", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("puts back the old pages an interrupted import left aside before anything else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-promote-"));
+    try {
+      const target = join(dir, "marketing");
+      // Stopped between the renames: the old set aside, no target.
+      mkdirSync(`${target}.previous`);
+      writeFileSync(join(`${target}.previous`, "old.html"), "old");
+      mkdirSync(`${target}.importing`);
+      writeFileSync(join(`${target}.importing`, "new.html"), "new");
+      const failing = (from: string, to: string) => {
+        if (from.endsWith(".importing")) throw new Error("EXDEV: cross-device link not permitted");
+        renameSync(from, to);
+      };
+      assert.throws(() => promote(`${target}.importing`, target, failing), /EXDEV/);
+      assert.equal(readFileSync(join(target, "old.html"), "utf8"), "old");
+      assert.deepEqual(readdirSync(dir), ["marketing"]);
+
+      // And with the rename working, the new set goes in.
+      mkdirSync(`${target}.importing`);
+      writeFileSync(join(`${target}.importing`, "new.html"), "new");
+      promote(`${target}.importing`, target);
+      assert.deepEqual(readdirSync(target), ["new.html"]);
+      assert.deepEqual(readdirSync(dir), ["marketing"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

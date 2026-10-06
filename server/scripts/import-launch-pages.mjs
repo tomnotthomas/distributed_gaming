@@ -156,11 +156,14 @@ function importSet(source, target, name, site) {
 /**
  * Put the built set at `staging` in place of `target`. The old `target` is
  * moved aside (`<target>.previous`) rather than deleted until the new one is
- * in, and moved back if that fails, so `target` is never left missing.
+ * in, and moved back if that fails, so `target` is never left missing; an
+ * old set an interrupted import left aside, with no `target`, is put back first.
  * `rename` is renameSync, or a stand-in for a test.
  */
 export function promote(staging, target, rename = renameSync) {
   const previous = `${target}.previous`;
+  // An import stopped between the two renames left the only copy of the old pages aside: they come back first.
+  if (!existsSync(target) && existsSync(previous)) rename(previous, target);
   rmSync(previous, { recursive: true, force: true });
   const had = existsSync(target);
   if (had) rename(target, previous);
