@@ -931,25 +931,34 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
     }
   }
   if (seatRevoked(renter) || peerOf(ws) !== peer || !forRenterSession(ws, renter, msg)) return;
-  // Recorded before the renter hears it, so their first frame finds the launch grace in place.
-  if (msg.type === "steam-login" && msg.state === "signed-in") await steamSignedIn(ticketId);
+  // Recorded before the renter hears it, so their first frame may start the session. While the
+  // database cannot take it, the frame is held, with the frames behind it, and the write retried.
+  if (msg.type === "steam-login" && msg.state === "signed-in") {
+    while (!(await steamSignedIn(ticketId))) {
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
+      if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
+      if (seatRevoked(renter)) return;
+    }
+  }
   send(peer, msg);
 }
 
 /**
  * The PC says the renter seated with `ticketId` approved the Steam sign-in:
  * their claim's deadline becomes the launch grace (platform.ts). Never rejects:
- * a failed write leaves the sign-in deadline, which the first frame may still beat.
+ * answers false when the database could not take it.
  */
-async function steamSignedIn(ticketId: string): Promise<void> {
+async function steamSignedIn(ticketId: string): Promise<boolean> {
   try {
     const sessionId = await platform.ticketSession(ticketId);
     if (sessionId) await platform.steamSignedIn(sessionId, ticketId);
+    return true;
   } catch (error) {
     console.error(
       "[swiff] recording the Steam sign-in failed:",
       error instanceof Error ? error.name : typeof error,
     );
+    return false;
   }
 }
 

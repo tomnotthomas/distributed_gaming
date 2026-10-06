@@ -989,6 +989,7 @@ export function createApi({
         action === "start"
           ? await platform.startSession(machineId, id)
           : await platform.endSession(machineId, id, optionalTime(body.endedAt, "endedAt"));
+      if (ok === "signing-in") throw new HttpError(409, "the Steam sign-in is not approved yet");
       if (!ok) throw new HttpError(409, "the session is already over");
       reply(res, 200, { sessionId: id, roomId: machineId });
       return true;

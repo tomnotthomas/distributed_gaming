@@ -982,8 +982,11 @@ export class Platform {
       }),
   };
 
-  /** The renter arrived. False when the session is not this machine's or is already over. */
-  startSession(machineId: string, sessionId: string): Promise<boolean> {
+  /**
+   * The renter arrived. False when the session is not this machine's or is
+   * already over; "signing-in" while its Steam sign-in is not approved yet.
+   */
+  startSession(machineId: string, sessionId: string): Promise<boolean | "signing-in"> {
     return this.#transaction(async () => {
       const now = this.#now();
       await this.#touch(machineId, now);
@@ -992,7 +995,7 @@ export class Platform {
       if (session.started_at === null) {
         // Past its deadline it is over, even while the timer that ends it is still to run.
         if (session.expires_at <= now) return false;
-        if (await this.#signingIn(session)) return false;
+        if (await this.#signingIn(session)) return "signing-in";
         await this.#start(session, now);
       }
       return true;

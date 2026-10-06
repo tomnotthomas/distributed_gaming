@@ -387,7 +387,8 @@ POST /sessions/:id/start
   again on each new connection's first frame, which tells the PC again. The PC's own
   start (host.md) takes the machine key instead. → 403 for another session's ticket,
   → 409 once the session is over or past its deadline (even before the timer that ends
-  it has run, so no `launch-game` goes out for it).
+  it has run, so no `launch-game` goes out for it), and → 409 for a rental-mode session
+  whose Steam sign-in the PC has not yet reported approved (`steam-login` `signed-in`).
 
 POST /sessions/:id/qos
   { fps, bitrate, rttMs, packetLoss }

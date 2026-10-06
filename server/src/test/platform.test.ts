@@ -391,10 +391,10 @@ describe("the booked minutes on a rental-mode PC", () => {
     const { bookingId, sessionId } = await claimed(true);
     now += 60_000;
     assert.equal(await platform.renterStarted(sessionId, "ticket-1"), "signing-in");
-    assert.equal(await platform.startSession("pc-1", sessionId), false);
+    assert.equal(await platform.startSession("pc-1", sessionId), "signing-in");
     assert.equal((await platform.viewBooking(bookingId))!.status, "claimed");
     assert.ok(await platform.steamSignedIn(sessionId, "ticket-1"));
-    assert.ok(await platform.startSession("pc-1", sessionId));
+    assert.equal(await platform.startSession("pc-1", sessionId), true);
     assert.equal((await platform.viewBooking(bookingId))!.status, "playing");
   });
 
