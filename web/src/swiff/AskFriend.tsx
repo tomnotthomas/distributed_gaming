@@ -102,9 +102,13 @@ export function AskFriend({ persona, onShared }: { persona: string; onShared?: (
     }
   };
 
+  const [ending, setEnding] = useState(false);
   const end = async (id: string) => {
+    setEnding(true);
     setNote(null);
-    if (await removeCrewMember(id)) load();
+    const done = await removeCrewMember(id);
+    setEnding(false);
+    if (done) load();
     else say("ask.removeFailed");
   };
 
@@ -191,7 +195,7 @@ export function AskFriend({ persona, onShared }: { persona: string; onShared?: (
                       <button
                         type="button"
                         className="share-link"
-                        disabled={busy}
+                        disabled={busy || ending}
                         aria-label={t("ask.removeLabel", { name })}
                         onClick={() => void end(m.id)}
                       >
@@ -216,7 +220,7 @@ export function AskFriend({ persona, onShared }: { persona: string; onShared?: (
                       <button
                         type="button"
                         className="share-link"
-                        disabled={busy}
+                        disabled={busy || ending}
                         aria-label={t("ask.leaveLabel", { crew })}
                         onClick={() => void end(c.id)}
                       >

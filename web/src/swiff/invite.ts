@@ -2,9 +2,9 @@
 // personal invite link, and the invite a friend opens from it. The link is the
 // whole credential for joining, so it is never sent to analytics (every event
 // passes withoutInviteTokens first) or the console, and is kept out of the
-// Steam sign-in round trip: the invite page
-// remembers it in this tab while the friend signs in, and comes back to
-// /invite without it.
+// address bar and the Steam sign-in round trip: the invite page remembers it
+// in this tab, puts /invite in the address instead, and comes back there from
+// sign-in. Only with storage blocked does it stay in the path.
 
 import { STEAM_LOGIN_URL } from "./steam";
 
@@ -128,10 +128,14 @@ export async function joinInvite(
   }
 }
 
-/** End a crew membership as the signed-in player: leave a crew they joined, or remove someone from their own. */
+/**
+ * End a crew membership as the signed-in player: leave a crew they joined, or
+ * remove someone from their own. One already gone counts as done.
+ */
 export async function removeCrewMember(id: string, get: typeof fetch = fetch): Promise<boolean> {
   try {
-    return (await get(`/api/crew-members/${encodeURIComponent(id)}/remove`, { method: "POST" })).ok;
+    const response = await get(`/api/crew-members/${encodeURIComponent(id)}/remove`, { method: "POST" });
+    return response.ok || response.status === 404;
   } catch {
     return false;
   }

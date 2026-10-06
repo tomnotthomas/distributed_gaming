@@ -6,9 +6,11 @@ import { GAMES } from "./data";
 import { Glyph } from "./Glyph";
 import { SignInWithSteam } from "./SignIn";
 import {
+  INVITE_PATH,
   inviteTokenAt,
   joinInvite,
   openInvite,
+  rememberInvite,
   rememberedInvite,
   signInForInvite,
   type OpenedInvite,
@@ -38,6 +40,13 @@ export function Invite({ swiff }: { swiff: Swiff }) {
   const [joinFailed, setJoinFailed] = useState(false);
   const [joined, setJoined] = useState(false);
   const [attempt, setAttempt] = useState(0);
+
+  // The token leaves the address bar and history once this tab holds it; with storage blocked it stays in the path.
+  useEffect(() => {
+    if (inviteTokenAt(location.pathname) && rememberInvite(token)) {
+      history.replaceState(history.state, "", INVITE_PATH + location.search);
+    }
+  }, [token]);
 
   // Read again once sign-in is known: whether it is their own link, or a crew they are in, depends on it.
   useEffect(() => {

@@ -228,11 +228,32 @@ describe("AskFriend", () => {
   });
 
   it("says so when a member could not be removed", async () => {
-    fetchFrom({ "/api/me/invite": [200, { ...MINE, members: [{ id: "m-sam", name: "Sam" }] }] });
+    fetchFrom({
+      "/api/me/invite": [200, { ...MINE, members: [{ id: "m-sam", name: "Sam" }] }],
+      "/api/crew-members/m-sam/remove": [500, {}],
+    });
     render(<AskFriend persona="Alex" />);
     fireEvent.click(await screen.findByRole("button", { name: "Remove Sam" }));
     expect(await screen.findByText("That did not work. Try again.")).toBeInTheDocument();
     expect(screen.getByText("Sam")).toBeInTheDocument();
+  });
+
+  it("sends one removal however fast the button is pressed, and takes one already gone as done", async () => {
+    let mine = { ...MINE, members: [{ id: "m-sam", name: "Sam" }] };
+    const calls = fetchFrom({
+      "/api/me/invite": () => [200, mine],
+      "/api/crew-members/m-sam/remove": () => {
+        mine = { ...mine, members: [] };
+        return [404, { error: "no such crew member" }];
+      },
+    });
+    render(<AskFriend persona="Alex" />);
+    const remove = await screen.findByRole("button", { name: "Remove Sam" });
+    fireEvent.click(remove);
+    fireEvent.click(remove);
+    await waitFor(() => expect(screen.queryByText("Sam")).toBeNull());
+    expect(calls.filter(([, url]) => url === "/api/crew-members/m-sam/remove")).toHaveLength(1);
+    expect(screen.queryByText("That did not work. Try again.")).toBeNull();
   });
 
   it("puts the wall's strip away for good once the player says not now", () => {
@@ -280,6 +301,25 @@ describe("Invite", () => {
     expect(screen.getByRole("button", { name: /Download for Windows/ })).toBeDisabled();
     expect(screen.getByText("2 in the crew")).toBeInTheDocument();
     expect(document.querySelector("li[aria-current]")).toHaveTextContent("Download");
+  });
+
+  it("takes the token out of the address once the tab holds it, and leaves it there when storage is blocked", async () => {
+    history.replaceState(null, "", `/invite/${TOKEN}?from=wa`);
+    fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: CREW }] });
+    const { unmount } = render(<Invite swiff={swiffAs(false)} />);
+    expect(await screen.findByText("Invited by Alex")).toBeInTheDocument();
+    expect(location.pathname + location.search).toBe("/invite?from=wa");
+    expect(sessionStorage.getItem("swiff.invite")).toBe(TOKEN);
+    unmount();
+
+    sessionStorage.clear();
+    history.replaceState(null, "", `/invite/${TOKEN}`);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    render(<Invite swiff={swiffAs(false)} />);
+    expect(await screen.findByText("Invited by Alex")).toBeInTheDocument();
+    expect(location.pathname).toBe(`/invite/${TOKEN}`);
   });
 
   it("picks the invite up again at /invite, coming back from sign-in", async () => {

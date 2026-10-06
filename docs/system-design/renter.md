@@ -571,7 +571,8 @@ the player puts it away. Below the link it lists who is in the crew, each with R
 and the crews the player joined, each with Leave crew. It shares through the browser's share sheet where there is one,
 WhatsApp and email by link, and Discord and Steam chat by copying the message to paste.
 The invite page names who asked, signs the friend in with Steam (the token waits in the
-tab rather than riding through Steam, and the return is `/invite`), joins them, and
+tab, the address shows `/invite` rather than the token, and sign-in returns there; only
+with storage blocked does the token stay in the path), joins them, and
 leads on to the host app's download. Its words, in German and English, are placeholders
 in `web/src/swiff/crewCopy.ts` for marketing's texts.
 
