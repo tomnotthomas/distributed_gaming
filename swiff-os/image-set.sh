@@ -21,6 +21,8 @@
 #   swiffos.json                 the layout, and each file's size and SHA-256
 #   swiffos.json.sig             its Ed25519 signature: the app reads no
 #                                manifest that a key it trusts did not sign
+#   SHA256SUMS                   every file's SHA-256 as sha256sum prints it: what
+#                                the download page publishes as text
 #
 # The release signs with the private key in the file $SWIFF_OS_SIGNING_KEY,
 # which the release step writes from its secret store: it is never in the
@@ -130,4 +132,7 @@ if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ]; then
 	mv "$work/image-trust.dev.json" "$desktop/image-trust.dev.json"
 fi
 node "$desktop/image-set.cjs" sign "$out" "$key"
+# The SHA-256 of each file, as sha256sum prints them: what the download page publishes as text
+# (desktop/checksums.cjs release --image), and what `sha256sum -c SHA256SUMS` checks.
+(cd "$out" && node "$desktop/checksums.cjs" sums SHA256SUMS swiffos_"$version".*.raw swiffos-key.cer swiffos.json swiffos.json.sig > /dev/null)
 echo "Swiff OS $version image set in $out"

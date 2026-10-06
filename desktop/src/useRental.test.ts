@@ -331,6 +331,108 @@ describe("useRental", () => {
     expect(host.readRental).toHaveBeenCalledTimes(2);
   });
 
+  it("passes the BitLocker recovery key's confirmation on with no key in it, then reads the PC again", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.saveRecoveryKey = vi.fn(async () => true);
+    host.openBitLocker = vi.fn(async () => false);
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    await act(async () => result.current.saveRecovery());
+    expect(host.saveRecoveryKey).toHaveBeenCalledWith();
+    expect(host.readRental).toHaveBeenCalledTimes(2);
+    expect(result.current.bitlockerPage).toBeNull();
+    await act(async () => result.current.openBitLocker());
+    expect(result.current.bitlockerPage).toBe("failed");
+  });
+
+  it("asks for Remove Swiff OS with or without its key, and goes on with the part that stopped", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.seenRemoval = vi.fn(async () => true);
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "failed",
+      done: [],
+      failed: { step: "partitions", op: "gpt-remove", error: "io" },
+      results: [],
+    }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.plan("remove", { key: false }));
+    expect(pending[0]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    await act(async () => result.current.start());
+    act(() => result.current.retry());
+    expect(pending[1]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    act(() => result.current.plan("remove"));
+    expect(pending[2]!.ask).toEqual({ kind: "remove", target: null });
+    await act(async () => result.current.seenRemoval());
+    expect(host.seenRemoval).toHaveBeenCalledOnce();
+  });
+
+  it("goes on with Remove Swiff OS by itself once its key's restart is behind it, and only once", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.readRental = vi.fn(async () => ({ removal: { state: "finish" } }) as never);
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "failed",
+      done: [],
+      failed: { step: "elevate", op: "elevate", error: "declined" },
+      results: [],
+    }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledOnce();
+    expect(result.current.run.status).toBe("failed");
+    // Declined at Windows' prompt: the failed screen's Try again asks again, nothing asks by itself.
+    await act(async () => {});
+    expect(pending).toHaveLength(1);
+    expect(host.runRental).toHaveBeenCalledOnce();
+    // The blue screen didn't take the code: the key's removal is what gets planned, not the disk's.
+    act(() => result.current.plan("remove", { key: true }));
+    await act(async () => {});
+    expect(pending.map((p) => p.ask)).toEqual([
+      { kind: "remove", target: null, key: false },
+      { kind: "remove", target: null, key: true },
+    ]);
+    await answer(1, { ...plan("remove", "mok-remove"), phase: "key" });
+    expect(result.current.preview).toMatchObject({ phase: "key" });
+    // Back, or Check again: the screen offers the rest, nothing runs it by itself again.
+    act(() => result.current.close());
+    act(() => result.current.check());
+    await act(async () => {});
+    expect(pending).toHaveLength(2);
+    expect(host.runRental).toHaveBeenCalledOnce();
+    expect(result.current.removalTried).toBe(true);
+    // Try again: the disk's part, planned and run at once.
+    act(() => result.current.finishRemoval());
+    expect(pending[2]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(2, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits with Remove Swiff OS's disk part until the BitLocker recovery key is saved, then goes on once", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    let saved = false;
+    host.readRental = vi.fn(
+      async () => ({ removal: { state: "finish" }, recovery: { drives: ["C", "D"], saved } }) as never,
+    );
+    host.saveRecoveryKey = vi.fn(async () => (saved = true));
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "done",
+      done: ["partitions"],
+      results: [],
+    }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    expect(pending).toHaveLength(0);
+    expect(result.current.removalTried).toBe(false);
+    await act(async () => result.current.saveRecovery());
+    expect(pending.map((p) => p.ask)).toEqual([{ kind: "remove", target: null, key: false }]);
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledOnce();
+  });
+
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({

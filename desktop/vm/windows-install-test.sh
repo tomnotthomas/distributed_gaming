@@ -17,14 +17,18 @@
 #                  log, without administrator rights) and its one elevation
 #               2. the administrator prompt declined (Esc at Windows' prompt)
 #               3. not enough space, also when files fill C: after the plan
-#               4. an install stopped after its partitions, then undone
+#               4. an install stopped after its partitions, then Remove Swiff OS:
+#                  straight to the disk, its check, and a restart Windows comes back from,
+#                  checked by the app against what the removal recorded
 #               5. a fresh install; MokManager's menu waits (MokTimeout -1), then
 #                  Continue boot: the app says what the firmware did after it
 #               6. the PC powered off at the key's screen: a clean start, the app asks
 #               7. the key confirmed: PCR 7 a clean start's (Windows Hello's PIN and
 #                  BitLocker unaffected, as vm/pcr7.py replays the TCG log)
 #               8. Swiff OS once through shim; its ESP still sound after Windows
-#               9. the key removed, then the uninstall: all back as it was
+#               9. Remove Swiff OS after a full install: its key at MokManager, then
+#                  the rest as the app goes on with it by itself (the disk, its check,
+#                  the restart), the next start checked: all back as it was
 #              10. a reinstall after the removal
 #              11. the packaged app ($SWIFF_HOST_EXE): its window, no error box, one
 #                  app after a second start ($SWIFF_HOST_EXE_CONTROL: a build known
@@ -33,8 +37,10 @@
 #              13. the packaged TEST build (npm run pack:test) through its own
 #                  screens, over Electron's remote debugging (vm/ui-drive.mjs):
 #                  rental mode's BIOS step and Check again, tampered image sets
-#                  refused, the administrator prompt declined and Ask again, the
-#                  key's restart to MokManager, Go live, and removal. Needs the
+#                  refused, the BitLocker recovery key saved on the owner's word,
+#                  the administrator prompt declined and Ask again, the key's
+#                  restart to MokManager, Go live, and Remove Swiff OS to the end from
+#                  its one click (after the key's restart the app goes on by itself). Needs the
 #                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
 #                  trusts) and Playwright from the repository's node_modules
 #             Windows must come back after each restart without asking for its
@@ -335,7 +341,7 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	# Scenario 11 alone needs no image set.
 	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
@@ -404,13 +410,21 @@ test_run() {
 		expect partial "the install ran up to its partitions" grep -q '"done":\["check","bitlocker","fast-startup","room","partitions"\]' "$run/serve-partial.json"
 		read_as partial
 		expect partial-record "the app sees an install that did not finish (Continue or Undo)" test "$(json "$run/read-partial.json" read '.read.facts.install.complete') $(json "$run/read-partial.json" read '.read.installed')" = 'false false'
-		serve undo "plan uninstall" "run partitions room fast-startup bitlocker forget"
-		expect undo "every step that undoes it ran" grep -q '"status":"done"' "$run/serve-undo.json"
+		# Remove Swiff OS, as the app's one action runs it: no key went in, so straight to the disk.
+		on_vm "$cli run remove --image $img" | tr -d '\r' | tee "$run/remove-partial.json" | grep -E '"(outcome|error)"' || true
+		expect undo "Remove Swiff OS ran every step, up to its restart" grep -q '"outcome":{"status":"done"' "$run/remove-partial.json"
+		expect undo-no-key "no key part: the install never queued one" grep -q '"phase":"disk"' "$run/remove-partial.json"
+		expect undo-verified "its own check found no boot entry, request or partition of Swiff OS left" grep -q '"id":"verify","state":"done"' "$run/remove-partial.json"
+		sleep 30
+		windows_back windows-after-undo
 		on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-undone"
 		expect undo-c "C: is its size again" cmp -s "$run/c-before" "$run/c-undone"
 		expect undo-partitions "Windows' 4 partitions, and no others" test "$(on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n')" = 4
 		read_as undone
 		expect undo-record "the install record is gone" test "$(json "$run/read-undone.json" read '.read.facts.install')" = null
+		expect undo-checked "the next start checked against the removal's record: $(json "$run/read-undone.json" removal '.removal.checks' | tr -d '\n' | head -c 600)" \
+			test "$(json "$run/read-undone.json" removal '.removal.state') $(json "$run/read-undone.json" removal '.removal.ok')" = '"checked" true'
+		expect pcr7-undo "PCR 7 is a clean start's after the removal" test "$(pcr7 undo)" = "$base"
 		on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-undone.txt"
 		expect undo-bitlocker-on "BitLocker protection is on" grep -q 'Protection On' "$run/bitlocker-undone.txt"
 
@@ -506,21 +520,31 @@ test_run() {
 
 	fi
 	if want 9; then
-		scenario "9. Removal after a full install"
-		# The key first: MokManager, which removes it, is on Swiff OS's boot partition.
+		scenario "9. Remove Swiff OS after a full install"
+		vm_up
+		# Remove Swiff OS, as the app's one action runs it. Its key first: MokManager, which
+		# removes it, is on Swiff OS's boot partition.
 		code=$(new_code)
-		on_vm "$cli run unkey --image $img --code $code" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
-		expect unkey "the key's removal queued and the PC restarting" grep -q '"outcome":{"status":"done"' "$run/unkey.json"
+		on_vm "$cli run remove --image $img --code $code" | tr -d '\r' | tee "$run/unkey.json" | grep -E '"(outcome|error)"' || true
+		expect unkey "Remove Swiff OS began with the key: its removal queued, the PC restarting" grep -q '"outcome":{"status":"done"' "$run/unkey.json"
+		expect unkey-phase "the key's part, BitLocker paused for its restart" grep -q '"phase":"key"' "$run/unkey.json"
 		expect mok-removed "the owner's removal at MokManager went through" \
 			"$python" "$here/mok-drive.py" "$run/mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 		windows_back windows-after-unkey
 		expect pcr7-unkey "PCR 7 is a clean start's after the key's removal" test "$(pcr7 unkey)" = "$base"
-		on_vm "$cli run uninstall --image $img" | tr -d '\r' | tee "$run/uninstall.json" | grep -E '"(outcome|error)"' || true
-		expect uninstall "every uninstall step ran" grep -q '"outcome":{"status":"done"' "$run/uninstall.json"
+		read_as finish
+		expect remove-finish "back in Windows, the removal's record says the disk's part is next" test "$(json "$run/read-finish.json" removal '.removal.state')" = '"finish"'
+		on_vm "$cli run remove --image $img" | tr -d '\r' | tee "$run/uninstall.json" | grep -E '"(outcome|error)"' || true
+		expect uninstall "the disk's part ran every step, up to its restart" grep -q '"outcome":{"status":"done"' "$run/uninstall.json"
+		expect uninstall-phase "the disk's part, without the key's again" grep -q '"phase":"disk"' "$run/uninstall.json"
+		expect uninstall-verified "its own check found no boot entry, request or partition of Swiff OS left" grep -q '"id":"verify","state":"done"' "$run/uninstall.json"
 		# Windows starts as before, from the firmware's own entry, without its recovery key.
-		on_vm 'Restart-Computer -Force' || true
 		sleep 30
 		windows_back windows-after-uninstall
+		read_as removed
+		expect removal-checked "the next start checked against the removal's record: $(json "$run/read-removed.json" removal '.removal.checks' | tr -d '\n' | head -c 600)" \
+			test "$(json "$run/read-removed.json" removal '.removal.state') $(json "$run/read-removed.json" removal '.removal.ok')" = '"checked" true'
+		expect pcr7-uninstall "PCR 7 is a clean start's after the removal" test "$(pcr7 uninstall)" = "$base"
 		on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-after"
 		expect c-grown "C: is its size again: $(cat "$run/c-after") bytes" cmp -s "$run/c-before" "$run/c-after"
 		expect partitions-gone "Windows' 4 partitions, and no others" test "$(on_vm 'Get-Partition -DiskNumber 0 | Measure-Object | ForEach-Object Count' | tr -d '\r\n')" = 4
@@ -536,6 +560,7 @@ test_run() {
 		expect no-boot-entry "the firmware has no Swiff OS entry" bash -c "! grep -q 'Swiff OS' '$run/vars-after.txt'"
 		expect key-removed "MokList no longer holds Swiff's key" bash -c "! grep -q '$cert_hex' '$run/vars-after.txt'"
 		expect no-wait-left "no MokTimeout left behind" grep -q '^MokTimeout: none$' "$run/vars-after.txt"
+		expect no-request-left "no key request or removal for shim left behind" bash -c "grep -q '^MOK request: none$' '$run/vars-after.txt' && grep -q '^MOK removal: none$' '$run/vars-after.txt'"
 
 	fi
 	if want 10; then
@@ -699,7 +724,13 @@ test_run() {
 		windows_back ui-windows-after-install
 		app
 		step ui-ask "the app asks whether the code went in" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120"
-		step ui-no "No, or I'm not sure leads to confirming the key with a new code" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'confirm swiff' 60"
+		# C: is BitLocker's: before the key's restart, the recovery key is saved, on the owner's word alone.
+		step ui-recovery "No, or I'm not sure: first, save the BitLocker recovery key" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'save your bitlocker recovery key' 60"
+		ui_has ui-recovery 'never reads, sends or keeps' || result FAIL ui-recovery-text "the screen does not say the key stays the owner's"
+		step ui-no "I saved my key leads to confirming the key with a new code" bash -c "$ui click 'I saved my key' > /dev/null; $ui wait-h1 'confirm swiff' 60"
+		on_vm "Get-Content 'C:\Users\swiff\AppData\Roaming\@swiff\desktop\bitlocker-recovery.json'" | tr -d '\r' > "$run/ui-recovery-saved.json" || true
+		expect ui-recovery-kept "only the owner's word is kept, for C:, and no key: $(cat "$run/ui-recovery-saved.json")" \
+			bash -c "grep -q '\"drives\":\\[\"C\"\\]' '$run/ui-recovery-saved.json' && ! grep -Eq '[0-9]{6}-[0-9]{6}' '$run/ui-recovery-saved.json'"
 		# Anchored: the rail's Rental mode entry is a button too, and its name lists "Confirm the key".
 		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click '^Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 240"
 		# Administrator declined, through the app's own elevation.
@@ -731,9 +762,23 @@ test_run() {
 		app
 		step ui-yes "the app asks; Yes, it did" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120 > /dev/null; $ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
 		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
-		# Removal through the app.
-		step ui-remove-preview "Remove rental mode shows what removing does" bash -c "$ui click '^Rental mode' > /dev/null; $ui click 'Remove rental mode' > /dev/null; $ui wait-h1 'remove rental mode' 240"
-		step ui-removed "removing ran through the app's elevation, and rental mode starts over" bash -c "$ui click '^Remove rental mode' > /dev/null; sleep 60; $ui wait-h1 'turn on iommu' 600"
+		# Remove Swiff OS through the app from its one click: the key's code, its restart to MokManager,
+		# the rest by itself, the restart that shows Windows, and the app's check of that start.
+		step ui-remove-code "Remove Swiff OS starts with a code for the key" bash -c "$ui click '^Rental mode' > /dev/null; $ui click '^Remove Swiff OS' > /dev/null; $ui wait-h1 'write down this code' 240"
+		code=$($ui code)
+		step ui-remove-restart "the key's part ends at Restart now" bash -c "$ui click '^Remove the key' > /dev/null; $ui wait-h1 'restart to remove the key' 300"
+		$ui click 'Restart now' > "$run/ui-remove-restart-click.json" 2>&1 || true
+		expect ui-remove-mok "the app's restart reached MokManager, and the key's removal went through with the app's code" \
+			"$python" "$here/mok-drive.py" "$run/ui-mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
+		windows_back ui-windows-after-unkey
+		app
+		step ui-remove-ran "back in Windows, the app went on by itself through its elevation, up to the restart that checks Windows" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'restart to check windows' 600"
+		$ui click 'Restart now' > "$run/ui-check-restart-click.json" 2>&1 || true
+		sleep 30
+		windows_back ui-windows-after-remove
+		app
+		step ui-removed "the app checked the start: Swiff OS is off, Windows started as usual" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'swiff os is off this pc' 120"
+		step ui-done "Done, and rental mode starts over" bash -c "$ui click '^Done' > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
 		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true

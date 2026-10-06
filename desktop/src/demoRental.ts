@@ -30,6 +30,7 @@ const step = (id: string, title: string, ops: PlanStep["ops"] = [{ op: "installe
   ops,
   commands: [`# ${title}`],
 });
+/** A plan's restart step, which waits for the owner's Restart now. */
 const restart = (title: string) => ({
   ...step("mok-restart", title, [{ op: "restart" }]),
   confirm: "Restarts.",
@@ -83,6 +84,29 @@ const UNINSTALL: RentalPlan = {
   ],
 };
 
+const REMOVE_KEY: RentalPlan = {
+  kind: "remove",
+  phase: "key",
+  steps: [
+    step("mok-remove", "Make a one-time code to remove Swiff's key"),
+    { ...restart("Restart once to confirm the removal"), id: "restart" },
+  ],
+  mok: { code: NEW_CODE },
+};
+
+const REMOVE_DISK: RentalPlan = {
+  kind: "remove",
+  phase: "disk",
+  steps: [
+    step("boot-entry", "Take Swiff OS out of the boot menu"),
+    step("partitions", "Remove Swiff OS's 6 partitions from disk 0"),
+    step("room", "Give C: its 24 GB back"),
+    step("verify", "Check nothing of Swiff OS is left"),
+    step("forget", "Forget the install"),
+    { ...restart("Restart once to check Windows starts"), id: "restart" },
+  ],
+};
+
 const ONCE: RentalPlan = {
   kind: "once",
   steps: [
@@ -98,6 +122,10 @@ const PLANS: Partial<Record<RentalPlan["kind"], RentalPlan>> = {
   uninstall: UNINSTALL,
   once: ONCE,
 };
+
+/** Remove Swiff OS's part for this read: its key first while Swiff OS is installed, then the disk. */
+const removeFor = (read: RentalRead | null, key?: boolean): RentalPlan =>
+  (key ?? read?.removal?.state !== "finish") && read?.installed ? REMOVE_KEY : REMOVE_DISK;
 
 /** How long each pretend step takes, in seconds; the write goes by bytes instead. */
 const SECONDS: Record<string, number> = { check: 20, room: 110, partitions: 3, "boot-entry": 2, mok: 2 };
@@ -135,7 +163,29 @@ const installed = (key: NonNullable<RentalRead["key"]> | null): RentalRead => ({
   installed: true,
   key,
 });
+/** Swiff OS installed, with its key as `state` says. */
 const keyAs = (state: "ask" | "confirmed" | "missed" | "nokey") => installed({ state, code: null });
+/** Remove Swiff OS, as far as `removal` says. */
+const removing = (removal: NonNullable<RentalRead["removal"]>): RentalRead => ({
+  ...keyAs("missed"),
+  ...(removal.state === "restart" || removal.state === "checked"
+    ? { installed: false, facts: { ...ready.facts, install: null } }
+    : {}),
+  removal,
+});
+/** What the start after Remove Swiff OS showed. */
+const CHECKED: NonNullable<RentalRead["removal"]> = {
+  state: "checked",
+  ok: true,
+  at: AT,
+  checks: [
+    { id: "windows", label: "Windows", ok: true, value: "Started as usual" },
+    { id: "partitions", label: "Swiff OS", ok: true, value: "Gone from the disk" },
+    { id: "space", label: "C:", ok: true, value: "Its 1863 GB again" },
+    { id: "bitlocker-C", label: "C: BitLocker", ok: true, value: "On" },
+    { id: "record", label: "Install record", ok: true, value: "Gone" },
+  ],
+};
 
 /** The run of a plan at step `at` (its index), the steps before it done. */
 function runAt(plan: RentalPlan, at: number, state: "running" | "failed", elapsed: number): RentalRun {
@@ -171,6 +221,7 @@ function writing(run: RentalRun, share: number, elapsed: number): RentalRun {
 
 type Start = { read: RentalRead | null; reading: boolean; preview: RentalPlan | null; run: RentalRun };
 
+/** The read, plan and run the demo case `c` opens on. */
 function startOf(c: RentalCase): Start {
   const idle = { reading: false, preview: null, run: IDLE_RUN };
   switch (c) {
@@ -253,6 +304,23 @@ function startOf(c: RentalCase): Start {
           lastLive: { from: evening(21), to: evening(23, 40), sessions: 2, early: 0, earned: 3.1 },
         },
       };
+    case "rental-recovery":
+      return { ...idle, read: { ...ready, recovery: { drives: ["C"], saved: false, at: null } } };
+    case "rental-remove-code":
+      return { ...idle, read: keyAs("confirmed"), preview: REMOVE_KEY };
+    case "rental-remove-finish":
+      return { ...idle, read: removing({ state: "finish" }) };
+    case "rental-remove-continue":
+      return {
+        ...idle,
+        read: removing({ state: "finish" }),
+        preview: REMOVE_DISK,
+        run: { ...IDLE_RUN, status: "starting", startedAt: Date.now(), stepStartedAt: Date.now() },
+      };
+    case "rental-remove-check":
+      return { ...idle, read: removing({ state: "restart" }) };
+    case "rental-removed":
+      return { ...idle, read: removing(CHECKED) };
     case "rental-fail-admin":
       return {
         ...idle,
@@ -409,19 +477,27 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
   }, [s.run.status]);
 
   // A pretend restart: Windows comes back, and only the owner knows what the blue screen did.
+  // After Remove Swiff OS's key, the app goes on with the disk by itself.
   useEffect(() => {
     if (s.run.status !== "restarting") return;
     const t = window.setTimeout(
       () =>
-        setS((cur) => ({
-          ...cur,
-          preview: null,
-          run: IDLE_RUN,
-          read:
-            cur.preview?.kind === "uninstall"
-              ? ready
-              : keyAs(cur.preview?.kind === "unkey" ? "missed" : "ask"),
-        })),
+        setS((cur) => {
+          const goesOn = cur.preview?.kind === "remove" && cur.preview.phase === "key";
+          return {
+            ...cur,
+            preview: goesOn ? REMOVE_DISK : null,
+            run: goesOn
+              ? { ...IDLE_RUN, status: "starting", startedAt: Date.now(), stepStartedAt: Date.now() }
+              : IDLE_RUN,
+            read:
+              cur.preview?.kind === "remove"
+                ? removing(cur.preview.phase === "key" ? { state: "finish" } : CHECKED)
+                : cur.preview?.kind === "uninstall"
+                  ? ready
+                  : keyAs(cur.preview?.kind === "unkey" ? "missed" : "ask"),
+          };
+        }),
       5000,
     );
     return () => window.clearTimeout(t);
@@ -448,13 +524,25 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
   const actions = {
     checkRental: () => setS((cur) => ({ ...cur, reading: true, preview: null, run: IDLE_RUN })),
     chooseRentalTarget: (id: string) => setS((cur) => ({ ...cur, target: id })),
-    previewRental: (kind: RentalPlan["kind"]) =>
-      setS((cur) => ({ ...cur, preview: PLANS[kind] ?? null, run: IDLE_RUN })),
+    previewRental: (kind: RentalPlan["kind"], options?: { key?: boolean }) =>
+      setS((cur) => ({
+        ...cur,
+        preview: kind === "remove" ? removeFor(cur.read, options?.key) : (PLANS[kind] ?? null),
+        run: IDLE_RUN,
+      })),
     closeRentalPreview: () => setS((cur) => ({ ...cur, preview: null, run: IDLE_RUN })),
     runRental: () => s.preview && start(s.preview),
     restartRental: () =>
       setS((cur) => ({ ...cur, run: { ...cur.run, status: "restarting", stepStartedAt: Date.now() } })),
     answerRentalKey: (yes: boolean) => setS((cur) => ({ ...cur, read: keyAs(yes ? "confirmed" : "missed") })),
+    saveRecoveryKey: () =>
+      setS((cur) => ({
+        ...cur,
+        read: cur.read && { ...cur.read, recovery: { drives: ["C"], saved: true, at: Date.now() } },
+      })),
+    openBitLocker: () => {},
+    seenRemoval: () => setS((cur) => ({ ...cur, read: ready })),
+    finishRemoval: () => start(REMOVE_DISK),
     retryRental: () => s.preview && start(s.preview),
     reportRental: () => setS((cur) => ({ ...cur, run: { ...cur.run, reportedAt: Date.now() } })),
     seenLastLive: () => setS((cur) => ({ ...cur, read: cur.read && { ...cur.read, lastLive: null } })),

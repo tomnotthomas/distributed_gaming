@@ -12,6 +12,9 @@
 //   runRental / onRentalEvent         run that plan up to its restart, and hear each step as it goes
 //   restartRental                     Restart now: the PC restarts, to the blue screen or Swiff OS
 //   answerRentalKey                   the owner's word on whether the blue screen took the code
+//   saveRecoveryKey                   the owner's word that they saved their BitLocker recovery key (never the key)
+//   openBitLocker                     Windows' BitLocker page, where the key is backed up
+//   seenRemoval                       the owner has seen how Remove Swiff OS ended
 //   reportRental                      Send details to Swiff: a failed step's error and this PC's checks
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
@@ -37,10 +40,17 @@ contextBridge.exposeInMainWorld("swiffHost", {
   onGamesChanged: (listener) => subscribe("pc:games", listener),
   readRental: () => ipcRenderer.invoke("rental:read"),
   planRental: (ask) =>
-    ipcRenderer.invoke("rental:plan", { kind: String(ask?.kind), target: ask?.target ?? null }),
+    ipcRenderer.invoke("rental:plan", {
+      kind: String(ask?.kind),
+      target: ask?.target ?? null,
+      ...(typeof ask?.key === "boolean" ? { key: ask.key } : {}),
+    }),
   runRental: () => ipcRenderer.invoke("rental:run"),
   restartRental: () => ipcRenderer.invoke("rental:restart"),
   answerRentalKey: (yes) => ipcRenderer.invoke("rental:key-answer", yes === true),
+  saveRecoveryKey: () => ipcRenderer.invoke("rental:recovery-saved"),
+  openBitLocker: () => ipcRenderer.invoke("rental:open-bitlocker"),
+  seenRemoval: () => ipcRenderer.invoke("rental:removal-seen"),
   reportRental: (report) => ipcRenderer.invoke("rental:report", report),
   onRentalEvent: (listener) => subscribe("rental:event", listener),
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),

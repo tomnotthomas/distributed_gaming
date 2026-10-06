@@ -7,9 +7,13 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
+import { drivesOff, recoveryOf, recoveryStore } from "../recovery-key.cjs";
 import { keyOf, keyStep, keyStore } from "../rental-key.cjs";
+import { checksOf, expectOf, removalOf, removalStep, removalStore } from "../rental-removal.cjs";
 import {
+  bitlockerDrives,
   bitlockerState,
+  BOOT_CHANGES,
   factsOf,
   freeSpans,
   gamesDriveOf,
@@ -25,6 +29,7 @@ import {
   mokRequest,
   mokSteps,
   readRental,
+  removePlan,
   rentalOf,
   SWIFF_OS,
   SWIFF_OS_BYTES,
@@ -40,6 +45,7 @@ import {
   biosTodos,
   changedSoFar,
   codeGroups,
+  drivesLine,
   failureOf,
   firmwareChecks,
   isReady,
@@ -52,6 +58,7 @@ import {
   rentalScreen,
   rentalStage,
   rentalStepAt,
+  runningTitleOf,
   stepLocked,
   waitingFor,
   windowsTodos,
@@ -245,8 +252,16 @@ describe("where Swiff OS goes", () => {
   it("finds the gaps between partitions, MiB-aligned, leaving the end for the backup table", () => {
     const disk = { number: 0, gpt: true, size: 100 * GiB, sector: 512, usb: false, system: true };
     const parts = [
-      { disk: 0, number: 1, letter: null, type: TYPE.esp, offset: MiB, size: 100 * MiB },
-      { disk: 0, number: 2, letter: "C", type: TYPE.windowsData, offset: 200 * MiB, size: 50 * GiB },
+      { disk: 0, number: 1, letter: null, type: TYPE.esp, id: null, offset: MiB, size: 100 * MiB },
+      {
+        disk: 0,
+        number: 2,
+        letter: "C",
+        type: TYPE.windowsData,
+        id: null,
+        offset: 200 * MiB,
+        size: 50 * GiB,
+      },
     ];
     expect(freeSpans(disk, parts)).toEqual([
       { offset: 101 * MiB, bytes: 99 * MiB },
@@ -1287,5 +1302,379 @@ describe("when a step stops", () => {
       "Fast Startup is off. C: is already 24 GB smaller. Swiff OS is in the boot menu, after Windows. Swiff's key is queued for the next restart. Windows and your files are untouched.",
     );
     expect(changedSoFar(plan, IDLE_RUN)).toBe("Nothing on this PC has changed.");
+  });
+});
+
+/** A file system in memory, for the app's own little files. */
+function memoryFiles() {
+  const disk = new Map<string, string>();
+  return {
+    disk,
+    files: {
+      readFileSync: (file: string) => {
+        if (!disk.has(file)) throw new Error("ENOENT");
+        return disk.get(file)!;
+      },
+      writeFileSync: (file: string, data: string) => void disk.set(file, data),
+      mkdirSync: () => undefined,
+      rmSync: (file: string) => void disk.delete(file),
+    } as unknown as typeof import("node:fs"),
+  };
+}
+const CRYPT = {
+  seal: (text: string) => Buffer.from(text).reverse(),
+  open: (sealed: Buffer) => Buffer.from(sealed).reverse().toString(),
+};
+
+describe("Remove Swiff OS", () => {
+  const ESP = "11111111-2222-4333-8444-555555555555";
+  const ROOT = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+  const record = {
+    complete: true,
+    disk: 0,
+    bitlocker: null,
+    fastStartup: true,
+    shrink: { letter: "C", partition: 3, from: 1000 * GiB, to: 976 * GiB },
+    partitions: [
+      { role: "esp", id: ESP, offset: 976 * GiB, bytes: GiB },
+      { role: "root-a", id: ROOT, offset: 977 * GiB, bytes: 8 * GiB },
+    ],
+    bootEntry: { partition: ESP, path: "\\EFI\\swiff\\shimx64.efi" },
+    windowsEntry: null,
+    labels: [],
+    mok: true,
+  };
+  const installed = (change = {}, raw: (r: typeof FACTS) => object = (r) => r) =>
+    pc((r) => ({ ...raw(r), install: { ...record, ...change } }));
+
+  it("starts with Swiff's key, through MokManager while it is still on the disk, and BitLocker paused for it", () => {
+    const plan = removePlan(
+      installed({}, (r) => ({ ...r, volumes: r.volumes.map((v) => ({ ...v, bitlocker: 1 })) })),
+      {
+        key: true,
+        code: "55554444",
+      },
+    );
+    expect(plan).toMatchObject({ kind: "remove", phase: "key", mok: { code: "55554444" } });
+    expect(plan.steps.map((s) => s.id)).toEqual(["bitlocker", "mok-remove", "restart"]);
+    expect(plan.steps.flatMap((s) => s.ops).map((o) => o.op)).toEqual([
+      "bitlocker-suspend",
+      "mok-delete",
+      "boot-next",
+      "restart",
+    ]);
+    expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("55554444");
+  });
+
+  it("then takes Swiff OS off, checks nothing is left, and restarts once to show Windows starts", () => {
+    const plan = removePlan(installed(), { key: false });
+    expect(plan).toMatchObject({ kind: "remove", phase: "disk" });
+    expect(plan.mok).toBeUndefined();
+    expect(plan.steps.map((s) => s.id)).toEqual([
+      "boot-entry",
+      "partitions",
+      "room",
+      "fast-startup",
+      "verify",
+      "forget",
+      "restart",
+    ]);
+    expect(plan.steps.find((s) => s.id === "verify")!.ops).toEqual([
+      { op: "removal-check", disk: 0, ids: [ESP, ROOT] },
+    ]);
+    // The boot entry by its partition's GPT id, and every request for shim, go first.
+    expect(plan.steps[0]!.ops).toEqual([{ op: "boot-entry-remove" }, { op: "mok-cancel" }]);
+    expect(plan.steps[0]!.commands.join("\n")).toMatch(/MokDel/);
+    // Only the last step restarts, and only on the owner's word.
+    expect(plan.steps.map((s) => s.ops.some((o) => o.op === "restart"))).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+    expect(plan.steps.at(-1)!.confirm).toMatch(/restarts now, once, into Windows/);
+  });
+
+  it("calls the disk part's running steps what the removal does, not what the install did", () => {
+    const plan = removePlan(installed(), { key: false });
+    const step = (id: string) => plan.steps.find((s) => s.id === id)!;
+    expect(
+      ["boot-entry", "partitions", "room", "fast-startup"].map((id) => runningTitleOf(plan, step(id))),
+    ).toEqual([
+      "Taking Swiff OS out of the boot menu",
+      "Removing Swiff OS's partitions",
+      "Giving the space back to Windows",
+      "Turning Fast Startup back on",
+    ]);
+    const read = installed();
+    const setup: RentalSetup = {
+      reading: false,
+      read,
+      target: null,
+      preview: plan,
+      run: { ...IDLE_RUN, status: "failed", failed: { step: "boot-entry", error: "bcdedit failed." } },
+    };
+    const s = rentalScreen(setup);
+    if (s.kind !== "failed") throw new Error(`not failed: ${s.kind}`);
+    expect(failureOf(setup, s).why).toBe("It stopped while taking swiff os out of the boot menu.");
+    // The install keeps its own wording for the same step.
+    const install = installPlan(pc());
+    expect(
+      runningTitleOf(
+        install,
+        install.steps.find((s) => s.id === "boot-entry")!,
+      ),
+    ).toBe("Adding Swiff OS to the boot menu");
+  });
+
+  it("goes straight to the disk when the key never went in, or after a partial install", () => {
+    const partial = installed({ complete: false, bootEntry: null, mok: false });
+    expect(removePlan(partial, { key: true }).phase).toBe("disk");
+    expect(removePlan(installed({ bootEntry: null }), { key: true }).phase).toBe("disk");
+  });
+
+  it("refuses a PC where nothing was installed", () => {
+    expect(() => removePlan(pc())).toThrow(/not installed/);
+  });
+
+  it("is a boot change, as every plan but stopping is", () => {
+    for (const kind of ["install", "uninstall", "mok", "unkey", "remove", "once", "start"])
+      expect(BOOT_CHANGES.has(kind)).toBe(true);
+    expect(BOOT_CHANGES.has("stop")).toBe(false);
+  });
+
+  it("follows the removal across its restarts, with the key's code sealed until it is used", () => {
+    const { files, disk } = memoryFiles();
+    const store = removalStore("/data", CRYPT, files);
+    const key = removePlan(installed(), { key: true, code: "55554444" });
+    removalStep(store, key, "mok-remove", 1000);
+    expect([...disk.values()].join()).not.toContain("55554444");
+    expect(removalOf(store.read(), 500)).toEqual({ state: "queued", code: "55554444" });
+    expect(removalOf(store.read(), 2000)).toEqual({ state: "finish" });
+    const expect_ = expectOf(installed().facts.install!, ["C"]);
+    const plan = removePlan(installed(), { key: false });
+    removalStep(store, plan, "verify", 3000, expect_);
+    expect(store.read()!.phase).toBe("key");
+    removalStep(store, plan, "forget", 3000, expect_);
+    expect(removalOf(store.read(), 2000)).toEqual({ state: "restart" });
+    // Without the OS's encryption, the code is not kept: the screen shows none.
+    const bare = removalStore("/bare", null, files);
+    removalStep(bare, key, "mok-remove", 1000);
+    expect(removalOf(bare.read(), 500)).toEqual({ state: "queued", code: null });
+  });
+
+  it("checks the next start against what the removal recorded: Windows, the disk, the space, BitLocker", () => {
+    const install = installed().facts.install!;
+    const expected = expectOf(install, ["C"]);
+    expect(expected).toEqual({ ids: [ESP, ROOT], room: { letter: "C", size: 1000 * GiB }, bitlocker: ["C"] });
+    const facts = (change: (r: typeof FACTS) => object) => pc(change).facts;
+    const back = facts((r) => ({
+      ...r,
+      partitions: r.partitions.map((p) => (p.letter === "C" ? { ...p, size: 1000 * GiB } : p)),
+      volumes: r.volumes.map((v) => ({ ...v, bitlocker: 1 })),
+    }));
+    const removed = { phase: "disk" as const, at: 1000, expect: expected };
+    const good = removalOf(removed, 2000, back, { shim: false });
+    expect(good).toMatchObject({ state: "checked", ok: true });
+    if (good?.state !== "checked") throw new Error("not checked");
+    expect(good.checks.map((c) => [c.id, c.value])).toEqual([
+      ["windows", "Started as usual"],
+      ["partitions", "Gone from the disk"],
+      ["space", "Its 1000 GB again"],
+      ["bitlocker-C", "On"],
+      ["record", "Gone"],
+    ]);
+    // A partition left behind, C: still short, BitLocker off: each is named, and the whole is not ok.
+    const bad = facts((r) => ({
+      ...r,
+      partitions: [
+        ...r.partitions,
+        { disk: 0, number: 5, letter: "", type: TYPE.esp, id: `{${ESP}}`, offset: 1, size: GiB },
+      ],
+      volumes: r.volumes.map((v) => ({ ...v, bitlocker: 2 })),
+    }));
+    const checks = checksOf(expected, bad, { shim: true });
+    expect(checks.filter((c) => !c.ok).map((c) => c.id)).toEqual([
+      "windows",
+      "partitions",
+      "space",
+      "bitlocker-C",
+    ]);
+    expect(removalOf(removed, 2000, bad, null)).toMatchObject({ state: "checked", ok: false });
+  });
+
+  it("reads each partition's GPT id, which the removal's check looks for", () => {
+    const facts = pc((r) => ({
+      ...r,
+      partitions: [
+        { disk: 0, number: 1, letter: "", type: "{x}", id: `{${ESP.toUpperCase()}}`, offset: MiB, size: GiB },
+      ],
+    })).facts;
+    expect(facts.partitions[0]!.id).toBe(ESP);
+  });
+
+  it("puts Remove Swiff OS before anything else on the screen, across its restarts", () => {
+    const at = (removal: RentalRead["removal"]): RentalSetup => ({
+      reading: false,
+      read: { ...installed(), key: { state: "confirmed", code: null }, removal },
+      target: null,
+      preview: null,
+      run: IDLE_RUN,
+    });
+    expect(rentalStage(at({ state: "queued", code: "55554444" }))).toEqual({
+      kind: "restart",
+      code: "55554444",
+      removing: "key",
+    });
+    expect(rentalStage(at({ state: "finish" }))).toEqual({ kind: "finish" });
+    expect(rentalLine(at({ state: "finish" }))).toBe("Removing");
+    expect(rentalStage(at({ state: "restart" }))).toEqual({ kind: "restart", code: "", removing: "check" });
+    const checks = [{ id: "windows", label: "Windows", ok: true, value: "Started as usual" }];
+    expect(rentalStage(at({ state: "checked", ok: true, checks, at: 1 }))).toEqual({
+      kind: "removed",
+      ok: true,
+      checks,
+    });
+    expect(rentalLine(at({ state: "checked", ok: false, checks, at: 1 }))).toBe("Removed, check it");
+    expect(rentalReady(at({ state: "finish" }))).toBe(false);
+  });
+
+  it("asks for a new drive's recovery key before the disk part, which is a boot change too", () => {
+    // BitLocker turned on for the games drive between the key's restart and the disk part: main refuses
+    // the run until its key is saved, so the screen asks for it instead of offering Try again for ever.
+    const setup = (saved: boolean): RentalSetup => ({
+      reading: false,
+      read: {
+        ...installed(),
+        removal: { state: "finish" },
+        recovery: { drives: ["C", "D"], saved, at: null },
+      },
+      target: null,
+      preview: null,
+      run: IDLE_RUN,
+    });
+    expect(rentalStage(setup(false))).toEqual({ kind: "recovery", drives: ["C", "D"] });
+    expect(rentalStage(setup(true))).toEqual({ kind: "finish" });
+    // The key part's restart, already queued, is not held up.
+    const queued = setup(false);
+    queued.read!.removal = { state: "queued", code: "55554444" };
+    expect(rentalStage(queued).kind).toBe("restart");
+  });
+});
+
+describe("the BitLocker recovery key", () => {
+  const on = (letters: string[]) => (raw: typeof FACTS) => ({
+    ...raw,
+    volumes: [
+      ...raw.volumes.map((v) => ({ ...v, bitlocker: letters.includes(v.letter) ? 1 : 2 })),
+      {
+        letter: "D",
+        fs: "NTFS",
+        label: "Games",
+        size: 500 * GiB,
+        free: 100 * GiB,
+        fixed: true,
+        bitlocker: letters.includes("D") ? 1 : 2,
+      },
+    ],
+  });
+
+  it("looks at C: and the games drive, and only those BitLocker protects", () => {
+    expect(bitlockerDrives(pc(on(["C"])))).toEqual(["C"]);
+    expect(bitlockerDrives(pc(on(["C", "D"]), [{ letter: "D", games: 4 }]))).toEqual(["C", "D"]);
+    expect(bitlockerDrives(pc(on(["D"]), [{ letter: "C", games: 4 }]))).toEqual([]);
+    expect(bitlockerDrives(pc(on([])))).toEqual([]);
+    expect(bitlockerDrives(null)).toEqual([]);
+  });
+
+  it("asks again for a drive seen without BitLocker, should BitLocker protect it later", () => {
+    const { files, disk } = memoryFiles();
+    const store = recoveryStore("/data", files);
+    store.saved(["C", "D"], 1000);
+    // A read sees D: (the games drive) without BitLocker: its confirmation goes, C:'s stays.
+    const offD = pc(on(["C"]), [{ letter: "D", games: 4 }]);
+    expect(drivesOff(offD)).toEqual(["D"]);
+    store.forget(drivesOff(offD));
+    expect(store.read()).toEqual({ at: 1000, drives: ["C"] });
+    // BitLocker on D: again, with a new key: the owner is asked again.
+    expect(
+      recoveryOf(store.read(), bitlockerDrives(pc(on(["C", "D"]), [{ letter: "D", games: 4 }]))).saved,
+    ).toBe(false);
+    // A drive whose state was not read keeps its confirmation; with none left, nothing is kept.
+    const unread = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })) }));
+    expect(drivesOff(unread)).toEqual([]);
+    store.forget(drivesOff(pc(on([]))));
+    expect(store.read()).toBeNull();
+    expect(disk.size).toBe(0);
+    expect(drivesOff(null)).toEqual([]);
+  });
+
+  it("keeps the owner's word that they saved it, for which drives and when, and never a key", () => {
+    const { files, disk } = memoryFiles();
+    const store = recoveryStore("/data", files);
+    expect(recoveryOf(store.read(), ["C"])).toEqual({ drives: ["C"], saved: false, at: null });
+    store.saved(["C"], 1000);
+    expect(recoveryOf(store.read(), ["C"])).toEqual({ drives: ["C"], saved: true, at: 1000 });
+    // A drive BitLocker protects later asks again.
+    expect(recoveryOf(store.read(), ["C", "D"]).saved).toBe(false);
+    store.saved(["D"], 2000);
+    expect(recoveryOf(store.read(), ["C", "D"]).saved).toBe(true);
+    expect(JSON.parse([...disk.values()][0]!)).toEqual({ at: 2000, drives: ["C", "D"] });
+    // Nothing protected: nothing to save.
+    expect(recoveryOf(null, []).saved).toBe(true);
+  });
+
+  it("keeps no recovery key or protector in what it read, even when one comes with the volumes", () => {
+    const password = "123456-234567-345678-456789-567890-678901-789012-890123";
+    const { facts } = pc((r) => ({
+      ...r,
+      volumes: r.volumes.map((v) => ({
+        ...v,
+        RecoveryPassword: password,
+        KeyProtector: [{ KeyProtectorType: "RecoveryPassword", RecoveryPassword: password }],
+      })),
+    }));
+    expect(facts.volumes.length).toBeGreaterThan(0);
+    for (const v of facts.volumes) expect(Object.keys(v)).not.toContain("RecoveryPassword");
+    expect(JSON.stringify(facts)).not.toMatch(/RecoveryPassword|KeyProtector|123456-234567/);
+  });
+
+  it("comes before the install, and before anything else that changes the boot once installed", () => {
+    const due = { drives: ["C"], saved: false, at: null };
+    const setup = (read: RentalRead): RentalSetup => ({
+      reading: false,
+      read,
+      target: null,
+      preview: null,
+      run: IDLE_RUN,
+    });
+    const ready = { ...pc((r) => ({ ...r, fastStartup: 0 })), recovery: due };
+    expect(rentalStage(setup(ready))).toEqual({ kind: "recovery", drives: ["C"] });
+    expect(rentalLine(setup(ready))).toBe("Save your recovery key");
+    expect(rentalStepAt(setup(ready))).toBe(0);
+    expect(rentalStage(setup({ ...ready, recovery: { ...due, saved: true } })).kind).not.toBe("recovery");
+    // A BIOS setting still comes first: the key is the last thing before the install.
+    const bios = { ...pc((r) => ({ ...r, secureBoot: 0 })), recovery: due };
+    expect(rentalStage(setup(bios)).kind).toBe("bios");
+    // Installed before the gate: Go live, the key and removal all wait for it.
+    const record = { complete: true, disk: 0, bootEntry: 3, partitions: [], mok: true };
+    const installed = (key: RentalRead["key"]) =>
+      setup({ ...pc((r) => ({ ...r, install: record })), key, recovery: due });
+    for (const state of ["confirmed", "missed", "nokey"] as const) {
+      expect(rentalStage(installed({ state, code: null }))).toEqual({ kind: "recovery", drives: ["C"] });
+      expect(rentalReady(installed({ state, code: null }))).toBe(false);
+    }
+    // A blue screen already queued, or the question after it, is not held up.
+    expect(rentalStage(installed({ state: "queued", code: "48217730" })).kind).toBe("restart");
+    expect(rentalStage(installed({ state: "ask", code: null })).kind).toBe("ask");
+  });
+
+  it("names the drives as the owner reads them", () => {
+    expect(drivesLine(["C"])).toBe("C:");
+    expect(drivesLine(["C", "D"])).toBe("C: and D:");
+    expect(drivesLine(["C", "D", "E"])).toBe("C:, D: and E:");
   });
 });

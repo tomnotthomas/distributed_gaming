@@ -128,6 +128,10 @@ export type RentalSetup = {
   planning?: boolean;
   /** The end of the last live run the owner has seen summed up ("You were live"), shown once. */
   liveSeen?: number | null;
+  /** Whether Windows' BitLocker page opened when the owner asked for it; null until they did. */
+  bitlockerPage?: "opened" | "failed" | null;
+  /** The app's one automatic go at Remove Swiff OS's disk part has started, this app start. */
+  removalTried?: boolean;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -343,8 +347,11 @@ export type HostActions = {
   checkRental(): void;
   /** Where Swiff OS goes, by target id. */
   chooseRentalTarget(id: string): void;
-  /** Show the steps that install rental mode, remove it or its key, switch to it or confirm its key again. */
-  previewRental(kind: RentalPlan["kind"]): void;
+  /**
+   * Show the steps that install rental mode, remove it or its key, switch to it or confirm its key
+   * again. Remove Swiff OS: `key` starts with Swiff's key, or without it; main decides when absent.
+   */
+  previewRental(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
   closeRentalPreview(): void;
   /** Offer this PC to its owner's crew only, or to anyone. */
   setCrewOnly(on: boolean): void;
@@ -354,6 +361,14 @@ export type HostActions = {
   restartRental(): void;
   /** Whether the blue screen took the key's code, in the owner's words. */
   answerRentalKey(yes: boolean): void;
+  /** The owner saved their BitLocker recovery key: their word, never the key. */
+  saveRecoveryKey(): void;
+  /** Open Windows' BitLocker page, where Back up your recovery key is. */
+  openBitLocker(): void;
+  /** The owner has seen how Remove Swiff OS ended. */
+  seenRemoval(): void;
+  /** Remove Swiff OS's disk part, planned and run at once: Try again after its key's restart. */
+  finishRemoval(): void;
   /** Go live in rental mode: the PC restarts into Swiff OS. */
   goLiveRental(): void;
   /** Try a failed plan again: planned afresh and run at once, the owner's OK given already. */

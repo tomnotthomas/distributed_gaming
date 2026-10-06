@@ -60,6 +60,9 @@ const SWIFF_TYPES = new Set([TYPE.esp, TYPE.root, TYPE.verity, TYPE.linux]);
  */
 const STAGING = TYPE.linux;
 
+/** shim's request variables: a key to add or remove, its code, and how long MokManager waits. */
+const SHIM_REQUESTS = ["MokNew", "MokAuth", "MokDel", "MokDelAuth", "MokTimeout"];
+
 /** What Windows Boot Manager's entry starts, wherever Windows' own ESP is. */
 const WINDOWS_PATH = String.raw`\EFI\Microsoft\Boot\bootmgfw.efi`;
 
@@ -380,6 +383,11 @@ function checkOp(op) {
       return must(
         op.cert === MOK_CERT && typeof op.code === "string" && /^\d{8}$/.test(op.code),
         "A bad MOK request.",
+      );
+    case "removal-check":
+      return must(
+        (op.disk === null || isInt(op.disk)) && Array.isArray(op.ids) && op.ids.every(isGuid),
+        "A bad removal check.",
       );
     case "image-check":
     case "fast-startup-off":
@@ -887,10 +895,36 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         return {};
       }
       case "mok-cancel":
-        await win.firmware(
-          ["MokNew", "MokAuth", "MokTimeout"].map((name) => ({ set: name, guid: efi.SHIM_LOCK, data: null })),
-        );
+        await win.firmware(SHIM_REQUESTS.map((name) => ({ set: name, guid: efi.SHIM_LOCK, data: null })));
         return {};
+      case "removal-check": {
+        // Only reads: what is left of Swiff OS after its removal, wherever the firmware or the disk has it.
+        const { numbers, got } = await bootEntries();
+        const left = numbers.filter((n) => {
+          const option = efi.parseLoadOption(got[efi.bootName(n)]);
+          return option && efi.samePath(option.file, BOOT_PATH);
+        });
+        must(
+          !left.length,
+          `Swiff OS is still in the boot menu: ${left.map((n) => efi.bootName(n)).join(", ")}.`,
+        );
+        const next = (await win.firmware([{ get: "BootNext", guid: efi.GLOBAL }])).BootNext;
+        must(
+          !next || numbers.includes(efi.orderOf(next)[0]),
+          "BootNext still names a boot entry that is gone.",
+        );
+        const requests = await win.firmware(
+          SHIM_REQUESTS.map((name) => ({ get: name, guid: efi.SHIM_LOCK })),
+        );
+        const queued = SHIM_REQUESTS.filter((name) => requests[name]);
+        must(!queued.length, `A request for shim is still queued: ${queued.join(", ")}.`);
+        if (op.disk !== null)
+          await withDisk(op.disk, async (_disk, gpt) => {
+            const still = gpt.entries.filter((e) => op.ids.includes(e.id));
+            must(!still.length, `Swiff OS's partitions are still on disk ${op.disk}.`);
+          });
+        return {};
+      }
       case "label": {
         const recorded = s.labels.find((l) => l.letter === op.letter);
         const restore = recorded && recorded.from === op.label;

@@ -10,6 +10,7 @@
 // its own chip accepted at a lower trust tier. Change it here and there.
 
 import type { LastLive, PlanStep, RentalPlan, RentalRead, RentalTarget } from "../rental.cjs";
+import type { RemovalCheck } from "../rental-removal.cjs";
 import type { RentalRun, RentalSetup, WritePass } from "./model";
 import { clock, shortGpu } from "./format";
 
@@ -449,8 +450,17 @@ export type RentalStage =
   /** Only what an update brings is left. */
   | { kind: "almost"; waiting: Waiting[] }
   | { kind: "ready" }
-  /** Swiff's key is queued: the next restart shows its blue screen. */
-  | { kind: "restart"; code: string; plan?: RentalPlan }
+  /** Before anything changes what the PC starts: the BitLocker recovery key of these drives, saved. */
+  | { kind: "recovery"; drives: string[] }
+  /**
+   * Swiff's key is queued, or its removal (`removing` "key"): the next restart shows its blue
+   * screen. Or Remove Swiff OS is done (`removing` "check"): one restart shows Windows still starts.
+   */
+  | { kind: "restart"; code: string; plan?: RentalPlan; removing?: "key" | "check" }
+  /** Remove Swiff OS: its key's restart is behind it, and the rest runs by itself. */
+  | { kind: "finish" }
+  /** Remove Swiff OS ended, and the start after it was checked: what it showed. */
+  | { kind: "removed"; ok: boolean | null; checks: RemovalCheck[] }
   /** The PC restarted since: only the owner saw whether the blue screen took the code. */
   | { kind: "ask" }
   /** The key was not confirmed: a new code, and one more restart. */
@@ -512,28 +522,62 @@ export function rentalStage({
   liveSeen = null,
 }: Pick<RentalSetup, "read" | "reading" | "target" | "liveSeen">): RentalStage {
   if (!read) return reading ? { kind: "reading" } : { kind: "unread" };
+  // Remove Swiff OS, under way across its restarts, comes before anything else.
+  const removal = read.removal ?? null;
+  if (removal?.state === "queued") return { kind: "restart", code: removal.code ?? "", removing: "key" };
+  // A drive BitLocker protects since the key's part still waits for its recovery key: the disk part is a boot change too.
+  if (removal?.state === "finish")
+    return recoveryDue(read) ? { kind: "recovery", drives: read.recovery!.drives } : { kind: "finish" };
+  if (removal?.state === "restart") return { kind: "restart", code: "", removing: "check" };
+  if (removal?.state === "checked") return { kind: "removed", ok: removal.ok, checks: removal.checks };
+  // Nothing that changes what the PC starts is offered while a recovery key is not saved.
+  const gate: RentalStage | null = recoveryDue(read)
+    ? { kind: "recovery", drives: read.recovery!.drives }
+    : null;
   if (read.installed) {
     const key = read.key ?? null;
     if (key?.state === "queued") return { kind: "restart", code: key.code };
     if (key?.state === "confirmed") {
       const live = read.lastLive ?? null;
+      if (gate) return gate;
       return live && live.to !== liveSeen ? { kind: "back", live } : { kind: "installed" };
     }
-    if (key?.state === "missed") return { kind: "key" };
-    if (key?.state === "nokey") return { kind: "nokey" };
+    if (key?.state === "missed") return gate ?? { kind: "key" };
+    if (key?.state === "nokey") return gate ?? { kind: "nokey" };
     // Restarted since the request, or installed before the app kept track: the owner knows.
     return { kind: "ask" };
   }
   const todos = windowsTodos(read, target);
   const bios = biosTodos(read);
   const waiting = waitingFor(read, target);
-  if (read.facts.install) return { kind: "resume", bios, todos };
+  if (read.facts.install) return gate ?? { kind: "resume", bios, todos };
   if (todos.length) return { kind: "windows", todos, bios, waiting };
   if (bios.length) return { kind: "bios", bios, waiting };
   if (read.imageRefused) return { kind: "unsigned" };
   if (waiting.length) return { kind: "almost", waiting };
-  return { kind: "ready" };
+  return gate ?? { kind: "ready" };
 }
+
+/** A drive BitLocker protects has no recovery key saved yet: nothing may change what the PC starts. */
+export const recoveryDue = (read: RentalRead | null): boolean =>
+  Boolean(read?.recovery && !read.recovery.saved && read.recovery.drives.length);
+
+/** "C:", "C: and D:": the drives, as the owner reads them. */
+export const drivesLine = (drives: string[]): string =>
+  drives.length > 1
+    ? `${drives
+        .slice(0, -1)
+        .map((l) => `${l}:`)
+        .join(", ")} and ${drives.at(-1)}:`
+    : `${drives[0] ?? "C"}:`;
+
+/** The plan takes Swiff's key off: on its own, or as Remove Swiff OS's first part. */
+export const removesKey = (plan: RentalPlan | null | undefined): boolean =>
+  plan?.kind === "unkey" || (plan?.kind === "remove" && plan.phase === "key");
+
+/** The plan takes Swiff OS off the disk: the uninstall, or Remove Swiff OS's second part. */
+export const removesDisk = (plan: RentalPlan | null | undefined): boolean =>
+  plan?.kind === "uninstall" || (plan?.kind === "remove" && plan.phase === "disk");
 
 /** "Turn on Secure Boot and IOMMU", "Turn on IOMMU", "Change 3 BIOS settings". */
 export function biosTitle(bios: BiosId[]): string {
@@ -559,12 +603,28 @@ export const RUNNING_TITLE: Record<string, string> = {
   games: "Labelling your games drive",
   mok: "Preparing your key code",
   "mok-restart": "Restarting",
+  verify: "Checking nothing is left",
   "mok-remove": "Preparing your key code",
   restart: "Restarting",
   labels: "Giving your drives their names back",
   forget: "Finishing up",
   once: "Pointing the next start at Swiff OS",
 };
+
+/** What a removal's running step is called, where its id is shared with the install's. */
+const REMOVING_TITLE: Record<string, string> = {
+  "boot-entry": "Taking Swiff OS out of the boot menu",
+  partitions: "Removing Swiff OS's partitions",
+  room: "Giving the space back to Windows",
+  "fast-startup": "Turning Fast Startup back on",
+  bitlocker: "Resuming BitLocker",
+};
+
+/** What the running step is called in this plan: removal wording for a removal's disk part. */
+export const runningTitleOf = (plan: RentalPlan, step: PlanStep | null | undefined): string | undefined =>
+  step
+    ? ((removesDisk(plan) ? REMOVING_TITLE[step.id] : undefined) ?? RUNNING_TITLE[step.id] ?? step.title)
+    : undefined;
 
 /** An honest hint for a step nothing measures, by plan step id. */
 export const STEP_HINT: Record<string, { line: string; short: string }> = {
@@ -623,7 +683,15 @@ export function rentalScreen(setup: RentalSetup): RentalScreen {
       case "restarting":
         return { kind: "restarting", code: plan.mok?.code ?? null, plan };
       case "done":
-        if (endsInRestart(plan)) return { kind: "restart", code: plan.mok?.code ?? "", plan };
+        if (endsInRestart(plan))
+          return {
+            kind: "restart",
+            code: plan.mok?.code ?? "",
+            plan,
+            ...(plan.kind === "remove"
+              ? { removing: removesKey(plan) ? ("key" as const) : ("check" as const) }
+              : {}),
+          };
         break;
       default:
         return { kind: "preview", plan };
@@ -639,22 +707,29 @@ export function rentalStepAt(setup: RentalSetup): number {
   switch (s.kind) {
     case "installed":
     case "back":
+    case "finish":
+    case "removed":
       return 3;
+    case "recovery":
+      return setup.read?.installed ? 3 : 0;
     case "ask":
     case "key":
     case "nokey":
       return 2;
     case "restart":
     case "restarting":
+      if (s.plan?.kind === "remove" || (s.kind === "restart" && s.removing)) return 3;
       // The install's own restart is its last step; any later one is for the key alone.
       return s.plan?.kind === "install" ? 1 : 2;
     case "failed":
+      if (s.plan.kind === "remove") return 3;
       // Space and a BIOS setting are the PC's to get ready, whatever step found them.
       if (["space", "bios"].includes(failureOf(setup, s).kind)) return 0;
       return s.plan.kind === "mok" || s.plan.kind === "unkey" ? 2 : 1;
     case "preview":
     case "elevating":
     case "running":
+      if (s.plan.kind === "remove") return 3;
       return s.plan.kind === "mok" || s.plan.kind === "unkey" ? 2 : 1;
     case "ready":
     case "resume":
@@ -704,12 +779,20 @@ export function rentalLine(setup: RentalSetup): string {
     case "almost":
       return s.waiting.some((w) => w.id === "gpu") ? "Not on NVIDIA yet" : "Waiting for an update";
     case "ready":
-    case "preview":
       return "Ready to install";
+    case "preview":
+      return s.plan.kind === "remove" ? "Removing" : "Ready to install";
+    case "recovery":
+      return "Save your recovery key";
+    case "finish":
+      return "Removing";
+    case "removed":
+      return s.ok === false ? "Removed, check it" : "Removed";
     case "elevating":
       return s.plan.kind === "install" ? "Installing" : "Waiting for Windows";
     case "running": {
-      if (s.plan.kind !== "install") return s.plan.kind === "uninstall" ? "Removing" : "Working";
+      if (s.plan.kind !== "install")
+        return removesDisk(s.plan) || s.plan.kind === "remove" ? "Removing" : "Working";
       const p = setup.run.progress;
       return p && p.total > 0 ? `Installing, ${Math.floor((p.done / p.total) * 100)}%` : "Installing";
     }
@@ -736,7 +819,8 @@ export function rentalLine(setup: RentalSetup): string {
 // different on the PC so far (from the steps that finished), and the one thing
 // to do next. Windows' own words wait behind "What happened, in detail".
 
-export type FailureKind = "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "unknown";
+export type FailureKind =
+  "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "recovery" | "unknown";
 
 export type Failure = {
   kind: FailureKind;
@@ -769,7 +853,7 @@ export function checkBios(error: string): BiosId | null {
 /** What a finished step left changed on the PC, in the owner's words; null for the ones that leave nothing to know. */
 function changeOf(plan: RentalPlan, step: PlanStep): string | null {
   const room = plan.target?.kind === "shrink" ? plan.target.letter : null;
-  if (plan.kind === "uninstall")
+  if (removesDisk(plan))
     return (
       {
         "boot-entry": "Swiff OS is off the boot menu.",
@@ -794,7 +878,7 @@ export function changedSoFar(plan: RentalPlan, run: RentalRun): string {
   const changes = plan.steps
     .filter((s) => run.steps[s.id] === "done")
     .flatMap((s) => changeOf(plan, s) ?? []);
-  if (plan.kind === "uninstall") return ["Windows starts as normal.", ...changes].join(" ");
+  if (removesDisk(plan)) return ["Windows starts as normal.", ...changes].join(" ");
   if (!changes.length) return "Nothing on this PC has changed.";
   return [...changes, "Windows and your files are untouched."].join(" ");
 }
@@ -847,6 +931,19 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       what: installing ? "Install" : "Windows",
       at: "Not started",
       far: "for permission",
+    };
+  if (failedStep === "recovery")
+    return {
+      kind: "recovery",
+      title: "Save your BitLocker recovery key first",
+      why: "Swiff changes nothing about how this PC starts until you've saved the key.",
+      changed: "Nothing on this PC has changed.",
+      action: "check",
+      label: "Check again",
+      rail: "Save your recovery key",
+      what: "BitLocker",
+      at: "Not started",
+      far: "not started",
     };
   if (failedStep === "restart")
     return {
@@ -912,15 +1009,25 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       far: "",
     };
   }
-  if (plan.kind === "uninstall")
+  if (removesDisk(plan))
     return stopped("Removing", {
       kind: "removal",
       title: "Removing rental mode stopped",
       why:
         step?.id === "room"
           ? `Swiff OS's space couldn't be given back to ${install(read)?.shrink?.letter ?? "C"}:.`
-          : `It stopped while ${(RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "removing").toLowerCase()}.`,
+          : `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
       changed: `${changedSoFar(plan, run)}${step?.id === "room" ? ` The ${gb(SWIFF_GB)} stays unused until this finishes.` : ""}`,
+      action: "again",
+      label: "Try again",
+      rail: "Removal stopped",
+    });
+  if (plan.kind === "remove")
+    return stopped("Key", {
+      kind: "removal",
+      title: "Removing Swiff's key stopped",
+      why: `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
+      changed: `${changedSoFar(plan, run)} Swiff OS is still installed.`,
       action: "again",
       label: "Try again",
       rail: "Removal stopped",
@@ -943,9 +1050,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       p ? `${p.name}, at ${gbOne(p.done)} of ${gbOne(p.total)} GB` : far,
     );
   }
-  const running = (RUNNING_TITLE[step?.id ?? ""] ?? step?.title ?? "working").replace(/^\w/, (c) =>
-    c.toLowerCase(),
-  );
+  const running = (runningTitleOf(plan, step) ?? "working").replace(/^\w/, (c) => c.toLowerCase());
   return stopped(installing ? "Install" : "Key", {
     kind: "unknown",
     title: installing

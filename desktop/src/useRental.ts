@@ -4,7 +4,7 @@ import type { RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
 import { IDLE_RUN, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
-import { endsInRestart, fileName, firmwareChecks, pcChecks, writesOf } from "./rental";
+import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
 
 const LIVE_SEEN = "swiff.rental.liveSeen";
 
@@ -50,7 +50,7 @@ export function stepBytes(
 export function useRental(): RentalSetup & {
   check(): void;
   choose(id: string): void;
-  plan(kind: RentalPlan["kind"]): void;
+  plan(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
   close(): void;
   start(): void;
   restart(): void;
@@ -59,6 +59,10 @@ export function useRental(): RentalSetup & {
   retry(): void;
   report(): void;
   seenLive(): void;
+  saveRecovery(): void;
+  openBitLocker(): void;
+  seenRemoval(): void;
+  finishRemoval(): void;
 } {
   const [read, setRead] = useState<RentalRead | null>(null);
   const [reading, setReading] = useState(true);
@@ -67,6 +71,7 @@ export function useRental(): RentalSetup & {
   const [run, setRun] = useState<RentalRun>(IDLE_RUN);
   const [readAt, setReadAt] = useState<number | null>(null);
   const [planning, setPlanning] = useState(false);
+  const [bitlockerPage, setBitlockerPage] = useState<"opened" | "failed" | null>(null);
   // Which live run the owner has seen summed up: kept in this window's storage, a convenience only.
   const [liveSeen, setLiveSeen] = useState<number | null>(() => {
     try {
@@ -199,15 +204,17 @@ export function useRental(): RentalSetup & {
   };
 
   /** Plan `kind` afresh and run it at once: Try again and Ask again, where the owner's OK stands. */
-  const again = (kind: RentalPlan["kind"]) => {
+  const again = (kind: RentalPlan["kind"], key?: boolean) => {
     const host = bridge();
     if (!host || busy) return;
     const n = nextPlan();
+    setPlanning(true);
     void host
-      .planRental({ kind, target })
+      .planRental({ kind, target, ...(key === undefined ? {} : { key }) })
       .catch(() => null)
       .then((plan) => {
         if (n !== plans.current) return;
+        setPlanning(false);
         setPreview(plan);
         if (plan) void runPlan(plan);
         else
@@ -219,12 +226,31 @@ export function useRental(): RentalSetup & {
       });
   };
 
+  // Remove Swiff OS goes on by itself once its key's restart is behind it, once per app start:
+  // the owner asked once. After that, only the owner's own Try again or the key's removal again.
+  const [removalTried, setRemovalTried] = useState(false);
+  useEffect(() => {
+    if (
+      read?.removal?.state !== "finish" ||
+      recoveryDue(read) ||
+      preview ||
+      planning ||
+      run.status !== "idle" ||
+      removalTried
+    )
+      return;
+    setRemovalTried(true);
+    again("remove", false);
+  });
+
   return {
     reading,
     read,
     readAt,
     planning,
     liveSeen,
+    bitlockerPage,
+    removalTried,
     target,
     preview,
     run,
@@ -238,12 +264,16 @@ export function useRental(): RentalSetup & {
       setTarget(id);
       drop();
     },
-    plan: (kind) => {
+    plan: (kind, options) => {
       if (busy) return;
       const n = nextPlan();
       setPreview(null);
       setRun(IDLE_RUN);
-      const asked = bridge()?.planRental({ kind, target });
+      const asked = bridge()?.planRental({
+        kind,
+        target,
+        ...(typeof options?.key === "boolean" ? { key: options.key } : {}),
+      });
       if (!asked) return;
       setPlanning(true);
       void asked
@@ -277,7 +307,27 @@ export function useRental(): RentalSetup & {
       if (run.failed?.step === "restart") return restart();
       // Windows said no before anything ran: main still holds the same plan, and its code stands.
       if (run.failed?.step === "elevate") return void runPlan(preview);
-      again(preview.kind);
+      // Remove Swiff OS goes on with the part that stopped.
+      again(preview.kind, preview.kind === "remove" ? preview.phase === "key" : undefined);
+    },
+    saveRecovery: () => {
+      void bridge()
+        ?.saveRecoveryKey()
+        .catch(() => false)
+        .then(() => reread());
+    },
+    openBitLocker: () => {
+      void bridge()
+        ?.openBitLocker()
+        .catch(() => false)
+        .then((opened) => setBitlockerPage(opened ? "opened" : "failed"));
+    },
+    finishRemoval: () => again("remove", false),
+    seenRemoval: () => {
+      void bridge()
+        ?.seenRemoval()
+        .catch(() => false)
+        .then(() => reread());
     },
     report: () => {
       const host = bridge();

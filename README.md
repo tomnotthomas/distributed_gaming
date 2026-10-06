@@ -63,11 +63,19 @@ npm run desktop:demo   # the same app on labelled demo data, to walk every scree
 npm run desktop:pack   # build desktop/release/SwiffHost-<version>.exe
 ```
 
+The download page (`/share`) publishes the SHA-256 of the installer and of the Swiff OS image
+set as text, to check with `Get-FileHash` before running it. The release step writes them:
+CI's package job leaves `SHA256SUMS` beside each installer, `swiff-os/image-set.sh` beside the
+image set, and `node desktop/checksums.cjs release web/src/swiff/release.json --host <exe>
+--url <address> --image <set>` puts them, with the download's address, on the page.
+
 Code: `desktop/`, `packages/`.
 
 ## Rental mode (Swiff OS)
 
 The locked Linux system a shared PC boots into, built in stages: [`swiff-os/`](swiff-os/README.md).
+Remove Swiff OS takes one click to start and one confirmation on a blue screen during a restart;
+the app then finishes on its own (Windows may ask once more for permission).
 
 ## Checks
 

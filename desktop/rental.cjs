@@ -13,6 +13,10 @@
 //                  confirm once at the PC (MOK) and restart into that confirmation.
 //   uninstallPlan  the steps that take it all back off, from what the install
 //                  recorded: also what undoes an install that stopped half way.
+//   removePlan     Remove Swiff OS, as one action in two parts: Swiff's key off
+//                  first (one restart, confirmed at MokManager), then the
+//                  uninstall, a check that nothing of Swiff OS is left, and a
+//                  restart that shows Windows still starts.
 //   switchPlan     the steps that start Swiff OS once (BootNext), start sharing
 //                  (Swiff OS first in the boot order, BootNext, restart) and stop
 //                  it (Windows first).
@@ -165,7 +169,7 @@ $system = Read-Or { Get-CimInstance Win32_ComputerSystem -ErrorAction Stop }
   fastStartup = Read-Or { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction Stop).HiberbootEnabled }
   gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [pscustomobject]@{ name = $_.Name; pnp = $_.PNPDeviceID } })
   disks = @(Get-Disk | ForEach-Object { [pscustomobject]@{ number = $_.Number; style = [string]$_.PartitionStyle; size = $_.Size; sector = $_.LogicalSectorSize; bus = [string]$_.BusType; system = $_.IsSystem } })
-  partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; offset = $_.Offset; size = $_.Size } })
+  partitions = @(Get-Partition | ForEach-Object { [pscustomobject]@{ disk = $_.DiskNumber; number = $_.PartitionNumber; letter = [string]$_.DriveLetter; type = $_.GptType; id = [string]$_.Guid; offset = $_.Offset; size = $_.Size } })
   volumes = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { [pscustomobject]@{ letter = [string]$_.DriveLetter; fs = $_.FileSystem; label = $_.FileSystemLabel; size = $_.Size; free = $_.SizeRemaining; fixed = ([string]$_.DriveType -eq 'Fixed'); bitlocker = $shell.NameSpace("$($_.DriveLetter):").Self.ExtendedProperty('System.Volume.BitLockerProtection') } })
   bios = Read-Or { (Get-CimInstance Win32_BIOS -ErrorAction Stop).Manufacturer }
   maker = $system.Manufacturer
@@ -305,6 +309,7 @@ function factsOf(raw) {
         number: num(p.number),
         letter: letterOf(p.letter),
         type: guidOf(p.type),
+        id: guidOrNull(guidOf(p.id)),
         offset: p.offset,
         size: p.size,
       })),
@@ -646,7 +651,18 @@ function commandsOf(op) {
         `#   ${mokVar("MokDel")} and ${mokVar("MokDelAuth")}, the same way, with a new one-time code`,
       ];
     case "mok-cancel":
-      return [`# ${mokVar("MokNew")} and ${mokVar("MokAuth")} deleted, if a request is still queued`];
+      return [
+        `# ${mokVar("MokNew")}, ${mokVar("MokAuth")}, ${mokVar("MokDel")}, ${mokVar("MokDelAuth")} and ${mokVar("MokTimeout")} deleted, if a request is still queued`,
+      ];
+    case "removal-check":
+      return [
+        `# Read back, as administrator: no Boot#### starts ${BOOT_PATH}, BootNext names none, no request for shim is left`,
+        ...(op.disk !== null
+          ? [
+              `#   and disk ${op.disk}'s partition table has none of Swiff OS's partitions: ${op.ids.join(", ")}`,
+            ]
+          : []),
+      ];
     case "installed":
       return [`# Record in ${INSTALL_FILE} that Swiff OS is installed`];
     case "forget":
@@ -797,6 +813,23 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
 const bitlockerOn = (rental) => rental?.facts.volumes.find((v) => v.letter === "C")?.bitlocker === "on";
 
 /**
+ * The drives BitLocker protects that a change to the boot can ask the
+ * recovery key of: C:, Windows' own, and the games drive Swiff OS shares.
+ * Before any boot change the owner keeps that key somewhere they can reach it
+ * (recovery-key.cjs); Swiff never reads it.
+ */
+function bitlockerDrives(rental) {
+  if (!rental) return [];
+  const letters = ["C", ...(rental.games ? [rental.games.letter] : [])];
+  return [...new Set(letters)].filter(
+    (l) => rental.facts.volumes.find((v) => v.letter === l)?.bitlocker === "on",
+  );
+}
+
+/** The plans that change what the PC starts: each waits for the BitLocker recovery key to be saved. */
+const BOOT_CHANGES = new Set(["install", "uninstall", "mok", "unkey", "remove", "once", "start"]);
+
+/**
  * Suspend BitLocker on C: for `restarts` restarts: a start that goes through
  * shim and on into Windows in the same power-on (Continue boot at MokManager)
  * changes PCR 7, and BitLocker would ask for its recovery key.
@@ -943,6 +976,45 @@ function keyRemovalPlan(code = mokCode(), rental = null) {
 }
 
 /**
+ * Remove Swiff OS: the owner's one action, carried out in two parts, each its
+ * own plan (`phase`), because Swiff's key can only come off through
+ * MokManager, which lives on Swiff OS's own boot partition.
+ *
+ *   key   with Swiff's key (maybe) enrolled: BitLocker on C: suspended for
+ *         the restart, MokDel queued with a new code, BootNext into
+ *         MokManager, and the restart, where the owner confirms the removal.
+ *   disk  the uninstall (uninstallPlan), then a check as administrator that
+ *         no boot entry, request or partition of Swiff OS is left, and a
+ *         restart that shows Windows still starts: the app checks the next
+ *         start against what the removal recorded (rental-removal.cjs).
+ *
+ * `key` says whether to start with the key; the caller knows (main: the
+ * install finished and the key was not already taken off, or never went in).
+ */
+function removePlan(rental, { key = false, code = mokCode() } = {}) {
+  const install = rental?.facts.install;
+  if (!install) throw new Error("Swiff OS is not installed on this PC.");
+  if (key && install.partitions.length && install.bootEntry !== null) {
+    const unkey = keyRemovalPlan(code, rental);
+    return { ...unkey, kind: "remove", phase: "key" };
+  }
+  const { steps } = uninstallPlan(rental);
+  const forget = steps.pop();
+  const ids = install.partitions.map((p) => p.id);
+  steps.push(
+    step("verify", "Check nothing of Swiff OS is left", [{ op: "removal-check", disk: install.disk, ids }]),
+    forget,
+    step(
+      "restart",
+      "Restart once to check Windows starts",
+      [{ op: "restart" }],
+      "The PC restarts now, once, into Windows. Save your work first.",
+    ),
+  );
+  return { kind: "remove", phase: "disk", steps };
+}
+
+/**
  * Start Swiff OS once: BootNext, then restart; whatever happens there, the
  * next start is Windows again. Start sharing: Swiff OS first in the boot
  * order, so a power cut or a crash comes back to it, and BootNext for this
@@ -1000,6 +1072,7 @@ module.exports = {
   BOOT_PATH,
   BOOT_TITLE,
   BITLOCKER_RESTARTS,
+  BOOT_CHANGES,
   SCRIPT,
   gpuVendor,
   bitlockerState,
@@ -1020,6 +1093,8 @@ module.exports = {
   mokSteps,
   mokPlan,
   keyRemovalPlan,
+  removePlan,
+  bitlockerDrives,
   shellOf,
   commandsOf,
   installPlan,

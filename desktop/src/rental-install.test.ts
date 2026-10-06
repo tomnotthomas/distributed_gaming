@@ -22,6 +22,7 @@ import {
   installPlan,
   keyRemovalPlan,
   mokRequest,
+  removePlan,
   rentalOf,
   splitFile,
   SWIFF_OS,
@@ -194,6 +195,7 @@ function fakeWindows(stateDir: string) {
       number: e.index + 1,
       letter: e.index === C_INDEX ? "C" : "\u0000",
       type: `{${e.type}}`,
+      id: `{${e.id}}`,
       offset: e.first * 512,
       size: (e.last - e.first + 1) * 512,
     })),
@@ -440,9 +442,82 @@ describe("the elevated worker", () => {
     expect(pc.vars.has(pc.key(efi.GLOBAL, "BootNext"))).toBe(false);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0]);
     expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokNew"))).toBe(false);
-    expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokDel"))!.equals(MokNew)).toBe(true);
+    // No request for shim is left: shim and MokManager went with Swiff OS's boot partition.
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDel"))).toBe(false);
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDelAuth"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "state", "rental-install.json"))).toBe(false);
     expect(rentalOf(pc.facts()).facts.install).toBeNull();
+  });
+
+  it("removes Swiff OS in one go after a full install: the key through MokManager, then the disk, checked", async () => {
+    const { pc, worker, layout } = await setup();
+    const before = pc.cSize();
+    await runPlan(
+      installPlan(rentalOf(pc.facts(), [{ letter: "C", games: 1 }]), { layout, code: "48217730" }),
+      {
+        apply: skipping(worker.apply),
+      },
+    );
+    // The key's part: MokDel with its own code, BootNext into MokManager on Swiff OS's ESP.
+    pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
+    const key = removePlan(rentalOf(pc.facts()), { key: true, code: "55554444" });
+    expect(await runPlan(key, { apply: worker.apply })).toMatchObject({ status: "done" });
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDel"))).toBe(true);
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
+    // The restart: the firmware takes BootNext, and MokManager clears the request it carried out.
+    pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
+    for (const name of ["MokDel", "MokDelAuth", "MokNew", "MokAuth"])
+      pc.vars.delete(pc.key(efi.SHIM_LOCK, name));
+    const disk = removePlan(rentalOf(pc.facts()), { key: false });
+    expect(await runPlan(disk, { apply: worker.apply })).toMatchObject({ status: "done" });
+    expect(pc.gpt().entries).toHaveLength(4);
+    expect(pc.cSize()).toBe(before);
+    expect(pc.vars.has(pc.key(efi.GLOBAL, "Boot0001"))).toBe(false);
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokTimeout"))).toBe(false);
+    expect(rentalOf(pc.facts()).facts.install).toBeNull();
+    // The restart that shows Windows still starts waits for the owner.
+    expect(pc.shell.some((t) => /^shutdown/m.test(t))).toBe(true);
+  });
+
+  it("removes what a partial install left, straight from the disk, and gives C: its space back", async () => {
+    const { pc, worker, layout } = await setup();
+    const before = pc.cSize();
+    const plan = installPlan(rentalOf(pc.facts(), []), { layout });
+    await runPlan(plan, {
+      apply: skipping(worker.apply),
+      only: ["check", "bitlocker", "fast-startup", "room", "partitions"],
+    });
+    expect(pc.cSize()).toBeLessThan(before);
+    const rental = rentalOf(pc.facts());
+    expect(rental.installed).toBe(false);
+    const remove = removePlan(rental, { key: true });
+    expect(remove.phase).toBe("disk");
+    expect(await runPlan(remove, { apply: worker.apply })).toMatchObject({ status: "done" });
+    expect(pc.gpt().entries).toHaveLength(4);
+    expect(pc.cSize()).toBe(before);
+    expect(pc.shell.join("\n")).toMatch(/manage-bde -protectors -enable C:/);
+    expect(rentalOf(pc.facts()).facts.install).toBeNull();
+  });
+
+  it("fails the removal's check while a boot entry, a request for shim or a partition of Swiff OS is left", async () => {
+    const { pc, worker } = await withEntry();
+    const ids = installOf(worker.state())!.partitions.map((p) => p.id);
+    // Still in the boot menu, under any number.
+    await expect(worker.apply({ op: "removal-check", disk: null, ids: [] })).rejects.toThrow(
+      /still in the boot menu: Boot0001/,
+    );
+    await worker.apply({ op: "boot-entry-remove" });
+    pc.vars.set(pc.key(efi.SHIM_LOCK, "MokDel"), Buffer.from([1]));
+    await expect(worker.apply({ op: "removal-check", disk: null, ids: [] })).rejects.toThrow(
+      /request for shim is still queued: MokDel/,
+    );
+    await worker.apply({ op: "mok-cancel" });
+    expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDel"))).toBe(false);
+    await expect(worker.apply({ op: "removal-check", disk: 0, ids })).rejects.toThrow(
+      /partitions are still on disk 0/,
+    );
+    await expect(worker.apply({ op: "removal-check", disk: null, ids })).resolves.toEqual({});
+    expect(() => checkOp({ op: "removal-check", disk: 0, ids: ["not-a-guid"] })).toThrow(/bad removal check/);
   });
 
   it("uses only an image set Swiff signed, carrying the certificate Swiff's key's sets carry", async () => {

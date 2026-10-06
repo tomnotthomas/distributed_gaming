@@ -1,9 +1,14 @@
 // Share your PC is the website half of hosting, reached from the renter app's
-// top bar and at its own address: the estimate, How we got this number, and the
-// one download. Everything after the download happens in the desktop app.
+// top bar and at its own address: the estimate, How we got this number, the
+// one download, and what a host can check for themselves (its SHA-256).
+// Everything after the download happens in the desktop app.
 
 import { expect, test } from "@playwright/test";
 import { signIn } from "./credentials";
+import RELEASE from "../../web/src/swiff/release.json";
+
+/** What the release step published for the page the web server serves (null until a download exists). */
+const HOST = (RELEASE as { host: { url: string | null; sha256: string } | null }).host;
 
 const figure = (page: import("@playwright/test").Page) => page.locator(".share-figure b");
 
@@ -53,15 +58,34 @@ test.describe("share your PC", () => {
     await expect(page.getByRole("button", { name: "How we got this number" })).toBeFocused();
   });
 
-  test("shows the Windows download as coming soon", async ({ page }) => {
+  test("offers the Windows download once one is published, as coming soon until then", async ({ page }) => {
     await page.goto("/share");
+    const link = page.getByTestId("share").getByRole("link", { name: /Download for Windows/ });
+    if (HOST?.url) {
+      await expect(link).toHaveAttribute("href", HOST.url);
+      return;
+    }
     const download = page.getByRole("button", { name: /Download for Windows/ });
     await expect(download).toBeDisabled();
     await expect(download).toHaveAccessibleDescription("Coming soon");
-    await expect(page.getByTestId("share").getByRole("link")).toHaveCount(0);
+    await expect(link).toHaveCount(0);
 
     await download.click({ force: true });
     await expect(page).toHaveURL(/\/share$/);
+  });
+
+  test("says what a host can check for themselves, and where the download's SHA-256 goes", async ({
+    page,
+  }) => {
+    await page.goto("/share");
+    await page.getByRole("link", { name: "Check the download" }).click();
+    await expect(page).toHaveURL(/\/share#trust$/);
+    const trust = page.locator("#trust");
+    await expect(trust).toBeInViewport();
+    await expect(trust).toContainText("Swiff never reads, sends or keeps it");
+    await expect(trust).toContainText("One click starts its removal");
+    await expect(trust).toContainText(HOST ? HOST.sha256 : "SHA-256 is published here with it");
+    await expect(page.getByTestId("share")).toBeVisible();
   });
 
   test("keeps a running launch in place on Back", async ({ page, context, baseURL }) => {

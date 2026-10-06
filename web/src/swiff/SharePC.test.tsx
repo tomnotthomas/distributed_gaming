@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WEEK, type Week } from "./estimate";
-import { EstimateSheet, SharePC } from "./SharePC";
+import { EstimateSheet, SharePC, type Release } from "./SharePC";
 import { screenAt } from "./route";
 import type { Swiff } from "./useSwiff";
 
@@ -10,13 +10,13 @@ import type { Swiff } from "./useSwiff";
  * Just the slice of the hook Share your PC reads, kept in real state so a
  * change made on the page or the sheet shows on both, as in the app.
  */
-function Harness() {
+function Harness({ release }: { release?: Release } = {}) {
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [estimateOpen, setEstimateOpen] = useState(false);
   const swiff = { week, setWeek, estimateOpen, setEstimateOpen } as unknown as Swiff;
   return (
     <>
-      <SharePC swiff={swiff} />
+      <SharePC swiff={swiff} release={release} />
       {estimateOpen ? <EstimateSheet swiff={swiff} /> : null}
     </>
   );
@@ -36,11 +36,45 @@ describe("SharePC", () => {
   });
 
   it("shows the Windows download as coming soon until an installer is published", () => {
-    render(<Harness />);
+    render(<Harness release={{ host: null, image: null }} />);
     const download = screen.getByRole("button", { name: /Download for Windows/ });
     expect(download).toBeDisabled();
     expect(download).toHaveAccessibleDescription("Coming soon");
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Download/ })).toBeNull();
+    // Nothing published yet: no sum to show, and the page says where it will be.
+    expect(screen.getByText(/SHA-256 is published here with it/)).toBeInTheDocument();
+  });
+
+  it("publishes the download's SHA-256 and the image set's as text, to check with Get-FileHash", () => {
+    const sha = "a".repeat(64);
+    const swiff = { week: DEFAULT_WEEK, setWeek: () => {}, setEstimateOpen: () => {} } as unknown as Swiff;
+    render(
+      <SharePC
+        swiff={swiff}
+        release={{
+          host: {
+            file: "SwiffHost-0.1.0.exe",
+            sha256: sha,
+            bytes: 1,
+            url: "https://example.test/SwiffHost-0.1.0.exe",
+          },
+          image: { version: "0.1.0", files: [{ name: "swiffos.json", sha256: "b".repeat(64) }] },
+        }}
+      />,
+    );
+    const trust = within(document.getElementById("trust")!);
+    expect(trust.getByText("Get-FileHash .\\SwiffHost-0.1.0.exe")).toBeInTheDocument();
+    expect(trust.getByText(sha)).toBeInTheDocument();
+    expect(trust.getByText("b".repeat(64))).toBeInTheDocument();
+    expect(trust.getByText(/Swiff never reads, sends or keeps it/)).toBeInTheDocument();
+    expect(trust.getByRole("heading", { name: "One click starts its removal" })).toBeInTheDocument();
+    expect(trust.getByText(/confirm once on a blue screen during a restart/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Check the download" })).toHaveAttribute("href", "#trust");
+    // The download and the sum shown for it come from the same release.
+    expect(screen.getByRole("link", { name: /Download for Windows/ })).toHaveAttribute(
+      "href",
+      "https://example.test/SwiffHost-0.1.0.exe",
+    );
   });
 
   it("re-estimates when another tier is picked", () => {
