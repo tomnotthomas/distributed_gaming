@@ -121,6 +121,29 @@ describe("relayFromEnv", () => {
     assert.equal((calls[0]!.init.headers as Record<string, string>).Authorization, "Bearer old-token");
   });
 
+  it("serves the URLs the old Cloudflare key answers, not a static fallback left from before", async () => {
+    const { fetch } = fakeFetch(ok(MINTED));
+    const { relay, warnings } = relayFromEnv(
+      {
+        TURN_KEY_ID: "key-1",
+        TURN_KEY_API_TOKEN: "old-token",
+        TURN_URLS: "turn:fallback.example:3478",
+        TURN_USERNAME: "u",
+        TURN_CREDENTIAL: "p",
+      },
+      { fetch },
+    );
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /TURN_USERNAME, TURN_CREDENTIAL, TURN_URLS no longer configure TURN/);
+    assert.deepEqual(await relay.credentials(seat(), NOW), [
+      {
+        urls: ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:443?transport=tcp"],
+        username: "minted-user",
+        credential: "minted-secret",
+      },
+    ]);
+  });
+
   it("ignores the old Cloudflare key, and says so, when TURN_SECRET mints", async () => {
     const { relay, warnings } = relayFromEnv({
       TURN_KEY_ID: "k",

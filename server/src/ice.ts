@@ -101,7 +101,7 @@ function dialable(urls: string | string[]): string[] {
 
 /** The relay configured in `env`, and what is wrong with the configuration. */
 export function relayFromEnv(env: NodeJS.ProcessEnv, deps: Deps = {}): { relay: Relay; warnings: string[] } {
-  const urls = (env.TURN_URLS ?? "")
+  let urls = (env.TURN_URLS ?? "")
     .split(",")
     .map((url) => url.trim())
     .filter(Boolean);
@@ -116,10 +116,11 @@ export function relayFromEnv(env: NodeJS.ProcessEnv, deps: Deps = {}): { relay: 
   if (legacyKey) {
     endpoint = `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`;
     token = keyToken;
+    urls = [];
   }
 
   const gone = ["TURN_USERNAME", "TURN_CREDENTIAL", "TURN_TTL_SECONDS"];
-  if (!legacyKey) gone.push("TURN_KEY_ID", "TURN_KEY_API_TOKEN");
+  gone.push(...(legacyKey ? ["TURN_URLS"] : ["TURN_KEY_ID", "TURN_KEY_API_TOKEN"]));
   const stale = gone.filter((name) => env[name]?.trim());
   const ignored = stale.length
     ? [
