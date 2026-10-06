@@ -980,6 +980,32 @@ describe("host sessions", () => {
     host.close();
   });
 
+  it("refuses the renter's start on a rental-mode PC until the PC relays the Steam sign-in, then starts it", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, { type: "register", hostId: room, key: MACHINE_KEY, rental: true });
+    await handled(host);
+    const { sessionId, ticket, bookingId } = await claimRoomWithTicket(room);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const start = () => call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket);
+
+    assert.deepEqual(await start(), {
+      status: 409,
+      body: { error: "the Steam sign-in is not approved yet" },
+    });
+
+    send(host, { type: "steam-login", state: "signed-in" });
+    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    assert.equal((await start()).status, 200);
+    assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
+    renter.close();
+    host.close();
+  });
+
   it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
     const room = nextRoom();
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
