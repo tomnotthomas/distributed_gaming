@@ -49,8 +49,13 @@ const MIA = "76561198000000023";
 const STRANGER = "76561198000000024";
 /** Has a gaming PC too, and is in Lena's crew. */
 const KAI = "76561198000000025";
-/** pc-1 is Lena's; pc-2 has no owner on record; pc-3 is Kai's. */
-const MACHINE_KEYS = [`pc-1:${HASH}:${LENA}`, `pc-2:${HASH}`, `pc-3:${HASH}:${KAI}`].join(",");
+/** pc-1 and pc-4 are Lena's; pc-2 has no owner on record; pc-3 is Kai's. */
+const MACHINE_KEYS = [
+  `pc-1:${HASH}:${LENA}`,
+  `pc-2:${HASH}`,
+  `pc-3:${HASH}:${KAI}`,
+  `pc-4:${HASH}:${LENA}`,
+].join(",");
 const PERSONA: Record<string, string> = { [LENA]: "Lena", [JONAS]: "Jonas", [MIA]: "Mia", [KAI]: "Kai" };
 
 let now: number;
@@ -113,6 +118,22 @@ describe("friend seats", () => {
       assert.equal((await platform.bookMachine("pc-1", 730, 30, STRANGER))?.machine?.id, "pc-1");
       // A second seat goes into the same crew.
       assert.equal((await seatFor("Mia")).crewId, seat.crewId);
+    });
+
+    it("leaves a PC its host sets up later open to anyone, out of the crew a seat founded", async () => {
+      await offer("pc-1", { crewOnly: false });
+      const seat = await seatFor("Jonas");
+      const view = await platform.heartbeat("pc-4");
+      assert.equal(view.crew.only, false, "a new PC stays open to anyone");
+      assert.deepEqual(
+        view.crew.crews.filter((c) => c.plays).map((c) => c.id),
+        [],
+        "the new PC plays for no crew",
+      );
+      assert.deepEqual(
+        (await platform.crew(seat.crewId, LENA))!.machines.map((m) => m.name),
+        ["Nova-01"],
+      );
     });
 
     it("keeps the seat in the first crew the PC plays for", async () => {

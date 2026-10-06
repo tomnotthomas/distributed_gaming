@@ -1621,7 +1621,7 @@ export class Platform {
           now,
         );
         await this.#run(
-          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at, pc) VALUES ($1, $2, $3, $4, $5, 'yes')",
+          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
           newId(),
           crewId,
           owner,
