@@ -259,10 +259,11 @@ describe("crew live sessions", () => {
 
   /** Mara's crew: Lea and Jon joined by her link. Returns Lea's membership. */
   async function maraCrew() {
-    const { inviteId } = await platform.crewInvite(MARA, "Mara");
-    assert.ok((await platform.joinCrew(inviteId, LEA, "Lea")).ok);
-    assert.ok((await platform.joinCrew(inviteId, JON, "Jon")).ok);
-    return (await platform.crewInvite(MARA, "Mara")).members.find((m) => m.name === "Lea")!;
+    const crew = await platform.createCrew(MARA, "Mara");
+    assert.ok(crew !== "too-many" && crew.inviteId);
+    assert.ok((await platform.joinCrew(crew.inviteId, LEA, "Lea")).ok);
+    assert.ok((await platform.joinCrew(crew.inviteId, JON, "Jon")).ok);
+    return (await platform.crew(crew.id, MARA))!.members.find((m) => m.name === "Lea")!;
   }
 
   /**
@@ -600,9 +601,9 @@ describe("watching through the signaling server", () => {
   let crewMade = false;
   async function crew() {
     if (crewMade) return;
-    const invite = await call("GET", "/api/me/invite", MARA);
+    const founded = await call("POST", "/api/crews", MARA, {});
     for (const friend of [LEA, JON]) {
-      assert.equal((await call("POST", `/api/invites/${invite.body.token}/join`, friend)).status, 200);
+      assert.equal((await call("POST", `/api/invites/${founded.body.crew.token}/join`, friend)).status, 200);
     }
     crewMade = true;
   }
@@ -968,8 +969,8 @@ describe("watching through the signaling server", () => {
   it("stops a viewer who leaves the player's crew", async () => {
     const { viewer } = await accepted();
     // Lea leaves: her membership is hers to end.
-    const mine = await call("GET", "/api/me/invite", LEA);
-    const membership = mine.body.joined[0].id as string;
+    const mine = await call("GET", "/api/crews", LEA);
+    const membership = mine.body.crews[0].memberId as string;
     const gone = closed(viewer);
     assert.equal((await call("POST", `/api/crew-members/${membership}/remove`, LEA)).status, 200);
     await gone;
