@@ -453,6 +453,14 @@ describe("marketing site", () => {
   it("does not confirm with a link a week old", async () => {
     await signUp({ email: "late@example.com", kind: "player" });
     now += 8 * 24 * 60 * 60_000;
+    // Its page says it is not valid, with nothing to press; the unsubscribe link still works.
+    const asked = await ask(origin, `/api/signups/confirm?token=${await linkToken("confirm")}`);
+    assert.equal(asked.status, 404);
+    assert.match(asked.body, /Dieser Link ist ungültig. · This link is not valid./);
+    assert.doesNotMatch(asked.body, /<form|<button/);
+    const leave = await ask(origin, `/api/signups/unsubscribe?token=${await linkToken("unsubscribe")}`);
+    assert.equal(leave.status, 200);
+    assert.match(leave.body, /<form method="post"/);
     const late = await confirm(await linkToken("confirm"));
     assert.equal(late.headers.location, `${SITE.origin}/`);
   });

@@ -301,14 +301,17 @@ export function createSignups({
     return rows.length > 0;
   }
 
-  /** The language of the sign-up a confirm or unsubscribe link is for, or null for an unknown one. */
+  /** The language of the sign-up a confirm or unsubscribe link is for, or null for an unknown or expired one. */
   async function linkLang(action: LinkAction, value: string): Promise<Lang | null> {
-    const { rows } = await database.query<{ lang: Lang }>(
+    const { rows } =
       action === "confirm"
-        ? `SELECT lang FROM marketing_signups WHERE confirm_hash = $1`
-        : `SELECT lang FROM marketing_signups WHERE unsubscribe = $1`,
-      [action === "confirm" ? hash(value) : value],
-    );
+        ? await database.query<{ lang: Lang }>(
+            `SELECT lang FROM marketing_signups WHERE confirm_hash = $1 AND confirm_sent_at >= $2`,
+            [hash(value), now() - CONFIRM_TTL_MS],
+          )
+        : await database.query<{ lang: Lang }>(`SELECT lang FROM marketing_signups WHERE unsubscribe = $1`, [
+            value,
+          ]);
     return rows[0]?.lang ?? null;
   }
 
