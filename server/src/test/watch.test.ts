@@ -193,6 +193,7 @@ describe("crew live sessions", () => {
   let origin: string;
   let watches: Watches;
   let crewLeft = 0;
+  let availabilityChanged = 0;
   const owners = parseMachineOwners(MACHINE_KEYS);
   const access: Access = {
     secret: SECRET,
@@ -228,7 +229,13 @@ describe("crew live sessions", () => {
     now = Date.now();
     crewLeft = 0;
     watches = new Watches({ now: () => now });
-    platform = await Platform.open({ database: await testDatabase(), now: () => now, owners });
+    availabilityChanged = 0;
+    platform = await Platform.open({
+      database: await testDatabase(),
+      now: () => now,
+      owners,
+      onAvailabilityChanged: () => availabilityChanged++,
+    });
   });
 
   afterEach(() => platform.close());
@@ -370,7 +377,10 @@ describe("crew live sessions", () => {
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
     assert.deepEqual(watches.all(), []);
 
+    availabilityChanged = 0;
     assert.equal(await platform.startSession("pc-1", sessionId), true);
+    // The walls hear of the start at once, so the crew band reads again without waiting for a poll.
+    assert.equal(availabilityChanged, 1);
     assert.equal((await call("GET", "/api/crew-live", LEA)).body.live[0].starting, false);
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
   });

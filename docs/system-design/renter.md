@@ -978,6 +978,6 @@ the pages (or through the TURN relay), never through the server, and nothing is 
 The player hears the game and the crew; viewers hear the game and the crew.
 
 On the wall, a band names each crewmate playing now with Ask to watch (Watch when they
-share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed,
+share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it, so Ask to watch shows at once),
 or `event: crew` says a player shared or stopped sharing. The watch itself covers the
 page: Asked, the player's yes, the game, and plainly why it ended.

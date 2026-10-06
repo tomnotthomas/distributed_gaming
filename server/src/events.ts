@@ -114,8 +114,9 @@ export type RenterEvents = {
   /**
    * Tell every availability stream that what crewmates play, or share, may
    * have changed: the page reads GET /api/crew/live again. Sent when a player
-   * opens or closes their screen to their crew; a session starting or ending
-   * is an availability change already.
+   * opens or closes their screen to their crew; a session claimed, started
+   * (playing, so crewmates may ask to watch it) or ended is an availability
+   * change already.
    */
   crewChanged(): void;
 };

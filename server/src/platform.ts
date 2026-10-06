@@ -843,7 +843,8 @@ export class Platform {
    * `onSessionClaimed` of every claim, with the machine claimed;
    * `onBookingChanged` of every booking whose status moved, once per change;
    * `onAvailabilityChanged` once per change that offered a machine, took it
-   * back, or moved it between free, busy and offline;
+   * back, or moved it between free, busy and offline, and once a session
+   * starts: crewmates may ask to watch it from then on (crewLive);
    * `onCrewReady` once per crew, the first time a PC playing for it is on
    * offer, with everyone in it.
    * All run after the change is committed, so what they do (evicting a
@@ -1312,6 +1313,7 @@ export class Platform {
       session.id,
     );
     await this.#setBookingStatus(session.booking_id, "playing");
+    this.#offerChanged = true;
   }
 
   /**
