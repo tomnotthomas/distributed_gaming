@@ -46,6 +46,14 @@
 //   insecure-dev  believes the facts claimed by the holder of the machine's own
 //                 key: for VMs and tests, never for a server renters reach.
 //
+// NVIDIA_RENTAL switches hosting on NVIDIA cards in Swiff OS on for everyone
+// at once, or off: the owner installs NVIDIA's driver themselves
+// (swiff-os/NVIDIA.md), and Swiff can stop that hosting without an app update.
+// Off, the default, attest refuses a machine that says it hosts on an NVIDIA
+// card (nvidia-rental-off), and a host certificate minted for one hosts
+// nothing, so its sessions stop at their next hosting call. Sharing from
+// Windows (the machine key) is not affected.
+//
 // See docs/system-design/session-keys.md, "Control and hosting credentials".
 
 import {
@@ -247,14 +255,16 @@ export type AttestationConfig = {
   attestedOnly: boolean;
   /** ATTESTATION_VERIFIER; null when unset or unknown: no machine can attest. */
   verifier: AttestationVerifier | null;
+  /** NVIDIA_RENTAL=on: machines on NVIDIA cards host in Swiff OS. */
+  nvidiaRental: boolean;
   /** Lines for the startup log. */
   warnings: string[];
 };
 
 /**
- * HOSTING_ATTESTATION (`optional`, the default, or `required`) and
+ * HOSTING_ATTESTATION (`optional`, the default, or `required`),
  * ATTESTATION_VERIFIER (unset, `tpm`, or `insecure-dev` for the machines in
- * `machines`). An unknown policy is read as `required` and an unknown verifier
+ * `machines`) and NVIDIA_RENTAL (`off`, the default, or `on`). An unknown policy is read as `required` and an unknown verifier
  * as none: a typo never opens hosting up. `tpm` keeps each machine's EK,
  * firmware baseline and TPM counters in `database`, and needs:
  *
@@ -304,7 +314,11 @@ export function attestationFromEnv(
     warnings.push("hosting requires attestation and no verifier is set — no PC can host");
   if (!attestedOnly)
     warnings.push("HOSTING_ATTESTATION=optional — machine keys host unattested (development only)");
-  return { attestedOnly, verifier, warnings };
+  // Only "on" turns it on: unset, a typo or anything else keeps NVIDIA rental hosting off.
+  const nvidia = env.NVIDIA_RENTAL?.trim().toLowerCase() || "off";
+  if (nvidia !== "on" && nvidia !== "off")
+    warnings.push(`NVIDIA_RENTAL is not "on" or "off" — NVIDIA rental hosting stays off`);
+  return { attestedOnly, verifier, nvidiaRental: nvidia === "on", warnings };
 }
 
 /** The TPM verifier from the environment; throws naming what is missing or unreadable. */
@@ -355,6 +369,8 @@ export type Refusal = { ok: false; status: number; body: AttestRefusal };
 export type Attestation = {
   /** Whether only a host certificate hosts. */
   readonly attestedOnly: boolean;
+  /** Whether machines on NVIDIA cards host in Swiff OS (NVIDIA_RENTAL). */
+  readonly nvidiaRental: boolean;
   /**
    * A fresh challenge for machine `room`, or a refusal: 404 for a machine with
    * no key configured, 503 when no secret or no verifier is configured.
@@ -389,12 +405,15 @@ export type Attestation = {
    * certificate when it passes and the machine meets the hardware floor. The
    * challenge is held while its attempt is judged and spent only when it earns
    * a certificate; a verifier that fails answers 503 verifier-unavailable.
+   * `graphics` is what the machine hosts on (AttestRequest): "nvidia" is
+   * refused nvidia-rental-off while NVIDIA rental hosting is off.
    */
   attest(
     room: string,
     nonce: unknown,
     evidence: unknown,
     now?: number,
+    graphics?: unknown,
   ): Promise<{ ok: true; grant: HostCertGrant } | Refusal>;
   /** What `token` is for machine `room`: its machine key, a host certificate for it, or null. */
   credential(room: string, token: unknown, now?: number): Credential | null;
@@ -418,6 +437,7 @@ export function createAttestation({
   access,
   verifier = null,
   attestedOnly = false,
+  nvidiaRental = false,
   floor = HARDWARE_FLOOR,
   ttlSeconds = HOST_CERT_TTL_SECONDS,
   onAttested,
@@ -425,6 +445,7 @@ export function createAttestation({
   access: Access;
   verifier?: AttestationVerifier | null;
   attestedOnly?: boolean;
+  nvidiaRental?: boolean;
   floor?: HardwareFloor;
   ttlSeconds?: number;
   onAttested?: (room: string, boot: number | null, now: number, restarted: boolean) => Promise<void>;
@@ -447,6 +468,7 @@ export function createAttestation({
 
   return {
     attestedOnly,
+    nvidiaRental,
 
     challenge(room, now = Date.now()) {
       if (!access.secret || !verifier) return refuse(503, { error: "not-configured" });
@@ -497,10 +519,16 @@ export function createAttestation({
       }
     },
 
-    async attest(room, nonce, evidence, now = Date.now()) {
+    async attest(room, nonce, evidence, now = Date.now(), graphics = undefined) {
       if (!access.secret || !verifier) return refuse(503, { error: "not-configured" });
       if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
       if (typeof nonce !== "string" || evidence === undefined) return refuse(400, { error: "bad-request" });
+      if (graphics !== undefined && graphics !== "nvidia" && graphics !== "other")
+        return refuse(400, { error: "bad-request" });
+      // Before the challenge is held: a refused NVIDIA machine keeps it for when the switch is on.
+      const nvidia = graphics === "nvidia";
+      if (nvidia && !nvidiaRental)
+        return refuse(403, { error: "attestation-refused", reason: "nvidia-rental-off" });
       const roomSpent = spent.get(room) ?? new Map<string, number>();
       spent.set(room, roomSpent);
       forgetExpired(roomSpent, now);
@@ -536,7 +564,7 @@ export function createAttestation({
       return {
         ok: true,
         grant: {
-          hostCert: mintHostCert(access.secret, room, tier, ttlSeconds, now, boot),
+          hostCert: mintHostCert(access.secret, room, tier, ttlSeconds, now, boot, nvidia),
           tier,
           expiresAt: Math.floor(now / 1000) + ttlSeconds,
         },
@@ -548,8 +576,9 @@ export function createAttestation({
         return { kind: "machine-key", hosting: attestedOnly ? null : "unattested" };
       }
       const cert = access.secret ? verifyHostCert(access.secret, token, now) : null;
-      // A machine whose key was taken out of MACHINE_KEYS hosts no more, certificate or not.
-      if (cert && cert.room === room && access.machines.has(room)) {
+      // A machine whose key was taken out of MACHINE_KEYS hosts no more, certificate or not,
+      // and one on an NVIDIA card none while NVIDIA rental hosting is off.
+      if (cert && cert.room === room && access.machines.has(room) && (nvidiaRental || !cert.nvidia)) {
         return {
           kind: "host-cert",
           hosting: cert.tier,

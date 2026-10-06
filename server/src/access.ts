@@ -254,14 +254,20 @@ export type HostCert = {
    * not report one. The state key is released only to the machine's latest boot (state-key.ts).
    */
   boot: number | null;
+  /**
+   * The machine hosts on an NVIDIA card, with NVIDIA's driver the owner
+   * installed (swiff-os/NVIDIA.md). Such a certificate hosts only while
+   * NVIDIA_RENTAL is on (attestation.ts).
+   */
+  nvidia: boolean;
 };
 
 const ATTESTED_TIERS: readonly string[] = ["attested", "attested-discrete-tpm"];
 
 /**
  * Mint a signed host certificate for `room` at `tier`, with a random id, for
- * the boot `boot` counts (null: unknown). Expiry is `ttlSeconds` after `now`
- * (Unix milliseconds) rounded down to whole seconds.
+ * the boot `boot` counts (null: unknown), on an NVIDIA card or not. Expiry is
+ * `ttlSeconds` after `now` (Unix milliseconds) rounded down to whole seconds.
  */
 export function mintHostCert(
   secret: string,
@@ -270,6 +276,7 @@ export function mintHostCert(
   ttlSeconds: number,
   now = Date.now(),
   boot: number | null = null,
+  nvidia = false,
 ): string {
   const iat = Math.floor(now / 1000);
   const cert: HostCert = {
@@ -279,6 +286,7 @@ export function mintHostCert(
     exp: iat + ttlSeconds,
     iat,
     boot,
+    nvidia,
   };
   return seal(secret, cert, "host");
 }
@@ -305,6 +313,8 @@ export function verifyHostCert(secret: string, token: unknown, now = Date.now())
     exp: cert.exp,
     iat: count(cert.iat),
     boot: count(cert.boot),
+    // Anything but false is an NVIDIA card: a certificate never hosts past the switch by omission.
+    nvidia: cert.nvidia !== false,
   };
 }
 

@@ -278,6 +278,21 @@ describe("hosting requires attestation", () => {
     assert.equal((await attest("pc-3", { ...FACTS, tpm: "discrete" })).tier, "attested-discrete-tpm");
   });
 
+  it("says NVIDIA rental hosting is off by default, and refuses a machine on an NVIDIA card", async () => {
+    const policy = await fetch(`${HTTP}/api/hosting`);
+    assert.equal(policy.status, 200);
+    // The host app reads it from its own origin.
+    assert.equal(policy.headers.get("access-control-allow-origin"), "*");
+    assert.deepEqual(await policy.json(), { nvidiaRental: false });
+    const challenge = await call("POST", "/api/machines/pc-3/attest-challenge");
+    const nvidia = await call("POST", "/api/machines/pc-3/attest", {
+      nonce: challenge.body.nonce,
+      evidence: { machineKey: MACHINE_KEY, facts: FACTS },
+      graphics: "nvidia",
+    });
+    assert.deepEqual(nvidia, { status: 403, body: { error: "attestation-refused", reason: "nvidia-rental-off" } });
+  });
+
   it("keeps a machine the machine key offers off the market until an attested socket is open", async () => {
     const room = "pc-5";
     const offered = await call(
