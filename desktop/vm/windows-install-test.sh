@@ -594,8 +594,8 @@ test_run() {
 				screenshot "windows-$1"
 			}
 			mains() { sed -n 's/^mains\t//p' "$run/windows-$1.txt"; }
-			titled() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -cx "$2"; }
-			others() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -vx 'Lanterel Host' | grep -c .; }
+			titled() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -cxE "$2"; }
+			others() { tail -n +2 "$run/windows-$1.txt" | cut -f2- | grep -vxE "$2" | grep -c .; }
 			launch() { # exe-on-vm
 				on_vm "schtasks /create /tn swiff-app /tr '$1' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null"
 			}
@@ -606,9 +606,9 @@ test_run() {
 				launch 'C:\swiff\control\SwiffHost.exe'
 				sleep 120
 				windows control
-				expect control-caught "a build that cannot start fails the check: $(others control) other window(s), $(titled control 'Lanterel Host') app window(s)" \
-					test "$(titled control 'Lanterel Host') $(others control)" != "1 0"
-				on_vm "Get-Process | Where-Object { \$_.Path -like '*Lanterel Host*' } | Stop-Process -Force" || true
+				expect control-caught "a build that cannot start fails the check: $(others control 'Swiff Host|Lanterel Host') other window(s), $(titled control 'Swiff Host|Lanterel Host') app window(s)" \
+					test "$(titled control 'Swiff Host|Lanterel Host') $(others control 'Swiff Host|Lanterel Host')" != "1 0"
+				on_vm "Get-Process | Where-Object { \$_.Path -like '*Swiff Host*' -or \$_.Path -like '*Lanterel Host*' } | Stop-Process -Force" || true
 				sleep 5
 			fi
 			to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
@@ -616,12 +616,12 @@ test_run() {
 			sleep 120
 			windows first
 			expect app-first-screen "the packaged app opened its window, and no error box: $(cat "$run/windows-first.txt" | tr '\n\t' '; ')" \
-				test "$(mains first) $(titled first 'Lanterel Host') $(others first)" = "1 1 0"
+				test "$(mains first) $(titled first 'Lanterel Host') $(others first 'Lanterel Host')" = "1 1 0"
 			launch 'C:\swiff\SwiffHost.exe'
 			sleep 90
 			windows second
 			expect one-instance "a second start left one app and one window, no error box: $(cat "$run/windows-second.txt" | tr '\n\t' '; ')" \
-				test "$(mains second) $(titled second 'Lanterel Host') $(others second)" = "1 1 0"
+				test "$(mains second) $(titled second 'Lanterel Host') $(others second 'Lanterel Host')" = "1 1 0"
 		else
 			result SKIP one-instance "no \$SWIFF_HOST_EXE given"
 		fi

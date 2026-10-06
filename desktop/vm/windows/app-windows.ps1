@@ -27,7 +27,7 @@ public static class SwiffWindows {
   }
 }
 '@
-$app = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '*Lanterel Host*.exe' })
+$app = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '*Swiff Host*.exe' -or $_.ExecutablePath -like '*Lanterel Host*.exe' })
 $pids = @($app | ForEach-Object { [string]$_.ProcessId })
 $mains = @($app | Where-Object { $_.CommandLine -notmatch '--type=' }).Count
 $lines = @("mains`t$mains") + @([SwiffWindows]::Visible() | Where-Object { $pids -contains ($_ -split "`t")[0] })
