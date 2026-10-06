@@ -51,7 +51,11 @@ Swiff OS runs:
    brings the current one), server error, not the expected bytes (nothing kept), no room on the
    drive (how much), the drive cannot be written, stopped by the owner.
 5. Once installed, the screen says what is on which drive and when the owner accepted, and
-   **Remove it** deletes the folder and the acceptance.
+   **Remove it** deletes the folder and the acceptance. The driver counts as ready only while the
+   recorded acceptance matches this release's licence and the current terms version; otherwise
+   (new terms, a new licence, or the record gone) the screen asks the owner to tick both boxes
+   again, and Install keeps the files already there. **Remove it** stays offered there, so an
+   owner can delete the driver without accepting anything.
 
 The manifest the app uses (`desktop/swiff-os-nvidia-driver`) is the image's, byte for byte
 (`desktop/src/nvidia.test.ts`).
