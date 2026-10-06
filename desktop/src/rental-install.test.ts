@@ -932,8 +932,11 @@ describe("the worker's pipe", () => {
     const relay = net.createServer((down) => {
       toWorker = down;
       const up = net.connect(pipe);
-      down.on("data", (chunk) => up.write(chunk));
-      up.on("data", (chunk) => down.write(chunk));
+      // Either end may hang up while the other still has bytes in flight: those go nowhere.
+      down.on("data", (chunk) => up.writable && up.write(chunk));
+      up.on("data", (chunk) => down.writable && down.write(chunk));
+      down.on("error", () => up.destroy());
+      up.on("error", () => down.destroy());
       down.on("close", () => up.destroy());
     });
     await new Promise<void>((r) => relay.listen(relayPipe, r));
