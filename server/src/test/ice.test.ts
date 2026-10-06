@@ -19,6 +19,37 @@ const seat = (over: Partial<RelaySeat> = {}): RelaySeat => ({
 /** What coturn computes for a TURN REST API username, worked out apart from ice.ts. */
 const coturnPassword = (username: string) => createHmac("sha1", SECRET).update(username).digest("base64");
 
+/** A fetch that answers from a script, recording what it was asked. */
+function fakeFetch(answer: () => unknown) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fetch = async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return answer() as Response;
+  };
+  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+}
+
+const ok = (body: unknown) => () =>
+  ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
+
+const ENDPOINT = "https://rtc.live.cloudflare.com/v1/turn/keys/key-1/credentials/generate-ice-servers";
+
+/** What Cloudflare answers, port 53 included as its docs warn it may be. */
+const MINTED = {
+  iceServers: [
+    { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] },
+    {
+      urls: [
+        "turn:turn.cloudflare.com:3478?transport=udp",
+        "turn:turn.cloudflare.com:53?transport=udp",
+        "turns:turn.cloudflare.com:443?transport=tcp",
+      ],
+      username: "minted-user",
+      credential: "minted-secret",
+    },
+  ],
+};
+
 describe("relayFromEnv", () => {
   it("runs no relay and says nothing when nothing is configured", async () => {
     const { relay, warnings } = relayFromEnv({});
@@ -52,16 +83,6 @@ describe("relayFromEnv", () => {
       { TURN_CREDENTIAL_URL: "http://mint.example", TURN_CREDENTIAL_TOKEN: "t" },
       /not https/,
     ],
-    [
-      "a static pair from before",
-      { TURN_URLS: URLS, TURN_USERNAME: "u", TURN_CREDENTIAL: "p", TURN_SECRET: SECRET },
-      /TURN_USERNAME, TURN_CREDENTIAL no longer configure TURN/,
-    ],
-    [
-      "the old Cloudflare key",
-      { TURN_KEY_ID: "k", TURN_KEY_API_TOKEN: "t" },
-      /TURN_KEY_ID, TURN_KEY_API_TOKEN/,
-    ],
   ] as const) {
     it(`runs no relay, and warns, on ${what}`, async () => {
       const { relay, warnings } = relayFromEnv(env);
@@ -70,6 +91,47 @@ describe("relayFromEnv", () => {
       assert.deepEqual(await relay.credentials(seat(), NOW), []);
     });
   }
+
+  it("warns once about a static pair and ttl from before, and runs the shared-secret relay anyway", async () => {
+    const { relay, warnings } = relayFromEnv({
+      TURN_URLS: URLS,
+      TURN_USERNAME: "u",
+      TURN_CREDENTIAL: "p",
+      TURN_TTL_SECONDS: "3600",
+      TURN_SECRET: SECRET,
+    });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /TURN_USERNAME, TURN_CREDENTIAL, TURN_TTL_SECONDS no longer configure TURN/);
+    const [server] = await relay.credentials(seat(), NOW);
+    assert.equal(server!.credential, coturnPassword(server!.username!));
+  });
+
+  it("keeps the old Cloudflare key's relay, minting from its generate-ice-servers", async () => {
+    const { fetch, calls } = fakeFetch(ok(MINTED));
+    const { relay, warnings } = relayFromEnv(
+      { TURN_KEY_ID: "key/1", TURN_KEY_API_TOKEN: "old-token" },
+      { fetch },
+    );
+    assert.deepEqual(warnings, []);
+    assert.equal((await relay.credentials(seat(), NOW)).length, 1);
+    assert.equal(
+      calls[0]!.url,
+      "https://rtc.live.cloudflare.com/v1/turn/keys/key%2F1/credentials/generate-ice-servers",
+    );
+    assert.equal((calls[0]!.init.headers as Record<string, string>).Authorization, "Bearer old-token");
+  });
+
+  it("ignores the old Cloudflare key, and says so, when TURN_SECRET mints", async () => {
+    const { relay, warnings } = relayFromEnv({
+      TURN_KEY_ID: "k",
+      TURN_KEY_API_TOKEN: "t",
+      TURN_SECRET: SECRET,
+      TURN_URLS: URLS,
+    });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /TURN_KEY_ID, TURN_KEY_API_TOKEN no longer configure TURN/);
+    assert.equal((await relay.credentials(seat(), NOW)).length, 1);
+  });
 
   it("does not mind the old variables left blank, as .env.example used to have them", () => {
     const { warnings } = relayFromEnv({
@@ -113,38 +175,23 @@ describe("a relay with a shared secret", () => {
   });
 });
 
-/** A fetch that answers from a script, recording what it was asked. */
-function fakeFetch(answer: () => unknown) {
-  const calls: { url: string; init: RequestInit }[] = [];
-  const fetch = async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init ?? {} });
-    return answer() as Response;
-  };
-  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
-}
-
-const ok = (body: unknown) => () =>
-  ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
-
-const ENDPOINT = "https://rtc.live.cloudflare.com/v1/turn/keys/key-1/credentials/generate-ice-servers";
-
-/** What Cloudflare answers, port 53 included as its docs warn it may be. */
-const MINTED = {
-  iceServers: [
-    { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] },
-    {
-      urls: [
-        "turn:turn.cloudflare.com:3478?transport=udp",
-        "turn:turn.cloudflare.com:53?transport=udp",
-        "turns:turn.cloudflare.com:443?transport=tcp",
-      ],
-      username: "minted-user",
-      credential: "minted-secret",
-    },
-  ],
-};
-
 describe("a relay with a credential endpoint", () => {
+  it("serves what a real Cloudflare generate-ice-servers answer mints", async () => {
+    const { fetch } = fakeFetch(() => new Response(JSON.stringify(MINTED), { status: 201 }));
+    const { relay, warnings } = relayFromEnv(
+      { TURN_CREDENTIAL_URL: ENDPOINT, TURN_CREDENTIAL_TOKEN: "super-secret" },
+      { fetch },
+    );
+    assert.deepEqual(warnings, []);
+    assert.deepEqual(await relay.credentials(seat({ side: "host" }), NOW), [
+      {
+        urls: ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:443?transport=tcp"],
+        username: "minted-user",
+        credential: "minted-secret",
+      },
+    ]);
+  });
+
   const env = { TURN_CREDENTIAL_URL: ENDPOINT, TURN_CREDENTIAL_TOKEN: "super-secret" };
 
   it("asks for a credential that lives as long as the seat, and serves its TURN entry alone", async () => {
@@ -214,4 +261,15 @@ describe("a relay with a credential endpoint", () => {
       assert.deepEqual(await relay.credentials(seat(), NOW), []);
     });
   }
+
+  it("never logs a body it cannot parse, which may carry a minted credential", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const garbled = "minted-user:minted-secret";
+    const { fetch } = fakeFetch(() => new Response(garbled, { status: 201 }));
+    const { relay } = relayFromEnv(env, { fetch });
+    assert.deepEqual(await relay.credentials(seat(), NOW), []);
+    const logged = JSON.stringify(warn.mock.calls.map((call) => call.arguments));
+    assert.match(logged, /not JSON/);
+    assert.ok(!logged.includes("minted"));
+  });
 });

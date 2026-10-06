@@ -111,6 +111,27 @@ credential per renter's seat, for the renter and for the PC, that expires with t
 from a self-run coturn's shared secret, or from a provider's credential endpoint such as
 Cloudflare's.
 
+**Recommendation: Cloudflare Realtime TURN's free tier for launch, self-run coturn as the
+fallback.** Cloudflare's free tier is 1,000 GB a month, shared with its SFU, then about
+$0.05/GB of egress: about 220 relayed hours a month free at 10 Mbit/s. The fallback is coturn
+on a Hetzner CX23 at about €6/month, IPv4 and 20 TB of traffic included. Nothing has been
+bought or signed up for yet, so the configuration stays provider-neutral: `TURN_SECRET` for
+coturn, `TURN_CREDENTIAL_URL`/`TURN_CREDENTIAL_TOKEN` for an endpoint such as Cloudflare's.
+The relay scenario in `e2e/relay` proves the shared-secret path; the endpoint path is
+unit-tested against Cloudflare's documented answer but has not yet run against the real
+provider.
+
+The TURN variables (`server/src/ice.ts`). Leave all of them blank on one LAN, and set the
+URLs and exactly one way to mint:
+
+| Variable                                               | Meaning                                                                                                                                                                                       |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TURN_URLS`                                            | The relay's URLs, comma-separated, e.g. `turn:relay.example:3478,turns:relay.example:443?transport=tcp`. Optional with an endpoint, whose own URLs are used.                                  |
+| `TURN_SECRET`                                          | Self-run coturn: its `static-auth-secret` (`use-auth-secret`), 32 characters or more. The server mints each credential itself.                                                                |
+| `TURN_CREDENTIAL_URL` + `TURN_CREDENTIAL_TOKEN`        | A provider endpoint POSTed `{"ttl": <seconds>}` with the token as a bearer header, e.g. `https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers`. https only. |
+| `TURN_KEY_ID` + `TURN_KEY_API_TOKEN`                   | An existing Cloudflare setup still works: with none of the above set, the endpoint is derived from the key id and the API token is the bearer token.                                          |
+| `TURN_USERNAME`, `TURN_CREDENTIAL`, `TURN_TTL_SECONDS` | No longer used: ignored, with one warning at start.                                                                                                                                           |
+
 The original conclusion still holds at scale — a VPS with included egress wins once relayed
 hours are routine — but coturn is now a cost threshold to watch rather than a step to finish
 before phase 1 is done. Turn `maxBitrate` down while developing; 2 Mbit/s is watchable for a

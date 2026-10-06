@@ -22,6 +22,8 @@
 //   TURN_CREDENTIAL_TOKEN this bearer token, answering `{ iceServers }`:
 //                         Cloudflare Realtime TURN's generate-ice-servers. Its
 //                         URLs are used unless TURN_URLS names others.
+//   TURN_KEY_ID           A Cloudflare TURN key, as configured before: used for
+//   TURN_KEY_API_TOKEN    its generate-ice-servers when nothing else mints.
 //
 // Neither set: no TURN, and the server behaves exactly as it did before. That
 // is the right default — on one LAN a relay is pure cost. A relay that cannot
@@ -104,18 +106,39 @@ export function relayFromEnv(env: NodeJS.ProcessEnv, deps: Deps = {}): { relay: 
     .map((url) => url.trim())
     .filter(Boolean);
   const secret = env.TURN_SECRET?.trim() ?? "";
-  const endpoint = env.TURN_CREDENTIAL_URL?.trim() ?? "";
-  const token = env.TURN_CREDENTIAL_TOKEN?.trim() ?? "";
+  let endpoint = env.TURN_CREDENTIAL_URL?.trim() ?? "";
+  let token = env.TURN_CREDENTIAL_TOKEN?.trim() ?? "";
 
-  const gone = ["TURN_USERNAME", "TURN_CREDENTIAL", "TURN_KEY_ID", "TURN_KEY_API_TOKEN", "TURN_TTL_SECONDS"];
-  const stale = gone.filter((name) => env[name]?.trim());
-  if (stale.length) {
-    return off(
-      `${stale.join(", ")} no longer configure TURN, and no relay runs while they are set — ` +
-        "see TURN_SECRET or TURN_CREDENTIAL_URL in .env.example",
-    );
+  // A Cloudflare key from before keeps its relay, when nothing else mints.
+  const keyId = env.TURN_KEY_ID?.trim() ?? "";
+  const keyToken = env.TURN_KEY_API_TOKEN?.trim() ?? "";
+  const legacyKey = Boolean(keyId && keyToken && !endpoint && !token && !secret);
+  if (legacyKey) {
+    endpoint = `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`;
+    token = keyToken;
   }
 
+  const gone = ["TURN_USERNAME", "TURN_CREDENTIAL", "TURN_TTL_SECONDS"];
+  if (!legacyKey) gone.push("TURN_KEY_ID", "TURN_KEY_API_TOKEN");
+  const stale = gone.filter((name) => env[name]?.trim());
+  const ignored = stale.length
+    ? [
+        `${stale.join(", ")} no longer configure TURN and are ignored — see the TURN variables in docs/phase-1/plan.md`,
+      ]
+    : [];
+
+  const { relay, warnings } = mintingFrom(urls, secret, endpoint, token, deps);
+  return { relay, warnings: [...ignored, ...warnings] };
+}
+
+/** The relay minting one way, from a shared secret or an endpoint, and what is wrong with it. */
+function mintingFrom(
+  urls: string[],
+  secret: string,
+  endpoint: string,
+  token: string,
+  deps: Deps,
+): { relay: Relay; warnings: string[] } {
   if (secret && endpoint) {
     return off("TURN_SECRET and TURN_CREDENTIAL_URL are both set — no relay runs");
   }
@@ -167,7 +190,10 @@ function endpointRelay(endpoint: string, token: string, urls: string[], doFetch:
           // back what was sent, and this is the one secret worth not printing.
           throw new Error(`the request failed with ${response.status}`);
         }
-        const body = (await response.json()) as { iceServers?: RTCIceServer | RTCIceServer[] };
+        // A parse error quotes the body, which carries the minted credential.
+        const body = (await response.json().catch(() => {
+          throw new Error("the answer was not JSON");
+        })) as { iceServers?: RTCIceServer | RTCIceServer[] };
         // Only the entries that relay: STUN the peers already have.
         const minted = [body.iceServers ?? []]
           .flat()
