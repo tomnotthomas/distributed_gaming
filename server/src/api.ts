@@ -298,9 +298,10 @@ function ticketOf(req: IncomingMessage, access: Access) {
 }
 
 /** The HTTP answer for a renter call the platform refused. */
-function renterRefusal(result: "not-found" | "wrong-ticket" | "over"): HttpError {
+function renterRefusal(result: "not-found" | "wrong-ticket" | "over" | "signing-in"): HttpError {
   if (result === "not-found") return new HttpError(404, "no such session");
   if (result === "wrong-ticket") return new HttpError(403, "the ticket is not for this session");
+  if (result === "signing-in") return new HttpError(409, "the Steam sign-in is not approved yet");
   return new HttpError(409, "the session is over");
 }
 

@@ -989,7 +989,12 @@ export class Platform {
       await this.#touch(machineId, now);
       const session = await this.#openSession(machineId, sessionId);
       if (!session) return false;
-      if (session.started_at === null) await this.#start(session, now);
+      if (session.started_at === null) {
+        // Past its deadline it is over, even while the timer that ends it is still to run.
+        if (session.expires_at <= now) return false;
+        if (await this.#signingIn(session)) return false;
+        await this.#start(session, now);
+      }
       return true;
     });
   }
@@ -1003,14 +1008,17 @@ export class Platform {
   renterStarted(
     sessionId: string,
     ticketId: string,
-  ): Promise<{ machineId: string; gameId: number } | Exclude<QosResult, "ok">> {
+  ): Promise<{ machineId: string; gameId: number } | Exclude<QosResult, "ok"> | "signing-in"> {
     return this.#transaction(async () => {
       const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
       if (session.ticket_id === null || session.ticket_id !== ticketId) return "wrong-ticket";
       // Past its deadline it is over, even while the timer that ends it is still to run.
       if (session.ended_at !== null || session.expires_at <= this.#now()) return "over";
-      if (session.started_at === null) await this.#start(session, this.#now());
+      if (session.started_at === null) {
+        if (await this.#signingIn(session)) return "signing-in";
+        await this.#start(session, this.#now());
+      }
       const { game_id } = (await this.#get<{ game_id: number }>(
         "SELECT game_id FROM bookings WHERE id = $1",
         session.booking_id,
@@ -1046,6 +1054,16 @@ export class Platform {
       );
       return true;
     });
+  }
+
+  /** A rental-mode session whose Steam sign-in the PC has not said is approved: it may not start yet. */
+  async #signingIn(session: SessionRow): Promise<boolean> {
+    if (session.signed_in_at !== null) return false;
+    const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+      "SELECT rental_mode FROM machines WHERE id = $1",
+      session.machine_id,
+    ))!;
+    return rental_mode;
   }
 
   /**

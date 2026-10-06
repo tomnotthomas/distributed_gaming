@@ -337,6 +337,8 @@ describe("the booked minutes on a rental-mode PC", () => {
     it(`run from the start the ${by} reports, not the claim, so Steam sign-in takes none of them`, async () => {
       const { bookingId, sessionId } = await claimed(true);
       now += 6 * 60_000; // signing in to Steam
+      assert.ok(await platform.steamSignedIn(sessionId, "ticket-1"));
+      now += 30_000; // the game's first frame
       if (by === "renter")
         assert.ok(typeof (await platform.renterStarted(sessionId, "ticket-1")) === "object");
       else assert.ok(await platform.startSession("pc-1", sessionId));
@@ -383,6 +385,25 @@ describe("the booked minutes on a rental-mode PC", () => {
     assert.ok(running.ok);
     assert.equal(running.remainingMs, 15 * 60_000);
     assert.equal((await platform.viewBooking(bookingId))!.status, "playing");
+  });
+
+  it("start no rental-mode session before the PC says its Steam sign-in was approved", async () => {
+    const { bookingId, sessionId } = await claimed(true);
+    now += 60_000;
+    assert.equal(await platform.renterStarted(sessionId, "ticket-1"), "signing-in");
+    assert.equal(await platform.startSession("pc-1", sessionId), false);
+    assert.equal((await platform.viewBooking(bookingId))!.status, "claimed");
+    assert.ok(await platform.steamSignedIn(sessionId, "ticket-1"));
+    assert.ok(await platform.startSession("pc-1", sessionId));
+    assert.equal((await platform.viewBooking(bookingId))!.status, "playing");
+  });
+
+  it("start no claim past its deadline, even before the timer ends it", async () => {
+    const { sessionId } = await claimed(true);
+    assert.ok(await platform.steamSignedIn(sessionId, "ticket-1"));
+    now += STEAM_LAUNCH_GRACE_MS; // the tick has not run yet
+    assert.equal(await platform.startSession("pc-1", sessionId), false);
+    assert.equal(await platform.renterStarted(sessionId, "ticket-1"), "over");
   });
 
   it("end an approved sign-in whose game never reaches the screen once the launch grace runs out", async () => {

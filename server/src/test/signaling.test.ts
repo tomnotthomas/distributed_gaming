@@ -1053,6 +1053,8 @@ describe("host sessions", () => {
     assert.equal(await code, 4003);
 
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    // An attested PC runs Swiff OS: its renter's Steam sign-in comes first, relayed as tested above.
+    await database.exec(`UPDATE sessions SET signed_in_at = 0 WHERE id = '${sessionId}'`);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
     await wait(100);
     assert.ok(!types(service).includes("launch-game"), `the expired host saw [${types(service)}]`);

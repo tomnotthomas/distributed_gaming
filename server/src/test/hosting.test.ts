@@ -184,6 +184,8 @@ describe("hosting requires attestation", () => {
     assert.equal(service.received.at(-1)?.type, "denied", "the service's socket is put out for the session");
     const streamer = await host(room, { sessionKey });
     assert.equal(streamer.received[0]?.type, "registered");
+    // An attested PC runs Swiff OS: its renter's Steam sign-in comes first (signaling.test relays it).
+    await database.exec(`UPDATE sessions SET signed_in_at = 0 WHERE id = '${sessionId}'`);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, {}, grant.hostCert)).status, 200);
 
     // Control stays with the machine key: heartbeat, and the owner's end-early.
