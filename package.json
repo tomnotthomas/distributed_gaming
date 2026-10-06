@@ -23,7 +23,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm test --workspaces --if-present",
-    "test:e2e": "playwright test",
+    "test:e2e": "node e2e/scripts/playwright.cjs",
     "test:e2e:web": "playwright test --project web",
     "test:e2e:desktop": "node e2e/scripts/desktop.cjs",
     "test:coverage": "npm run test:coverage -w @swiff/web",
