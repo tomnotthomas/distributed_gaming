@@ -4,6 +4,7 @@
 //   node ui-drive.mjs screen                    the h1, the rail, the pills, the main text
 //   node ui-drive.mjs click <name>              click the button whose accessible name matches (regex, i)
 //   node ui-drive.mjs wait-h1 <regex> <seconds> wait until the h1 matches
+//   node ui-drive.mjs wait-gone <name> <seconds> wait until no button's accessible name matches (a check still running)
 //   node ui-drive.mjs shot <file>               screenshot of the window
 //   node ui-drive.mjs code                      the key code on the plate, digits only, and nothing else
 // The key code lets whoever has it enrol a key at the blue screen: every answer
@@ -67,6 +68,11 @@ try {
       s = await screen();
     }
     say({ ok: re.test(s.h1 ?? ""), ...s });
+  } else if (cmd === "wait-gone") {
+    const buttons = page.getByRole("button", { name: new RegExp(args[0], "i") });
+    const end = Date.now() + Number(args[1] ?? 60) * 1000;
+    while ((await buttons.count()) > 0 && Date.now() < end) await page.waitForTimeout(1000);
+    say({ ok: (await buttons.count()) === 0, ...(await screen()) });
   } else if (cmd === "shot") {
     await page.screenshot({ path: args[0] });
     say({ ok: true, shot: args[0] });

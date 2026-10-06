@@ -672,10 +672,10 @@ test_run() {
 		ui_has ui-test-build 'TEST BUILD|Test build' && ui_has ui-test-build 'GO LIVE After rental mode' || result FAIL ui-test-build-text "no test-build tag or a step not locked"
 		step ui-rental "Rental mode names the one BIOS setting this PC lacks" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		ui_has ui-rental 'In the BIOS' || result FAIL ui-rental-strip "no BIOS strip"
-		step ui-check-again "Check again reads the PC again and stays on the BIOS step" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui wait-h1 'turn on iommu' 120"
+		step ui-check-again "Check again reads the PC again and stays on the BIOS step" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		# A manifest that is not the signed one, and a certificate that is not Swiff's: refused before anything.
 		on_vm "Add-Content -LiteralPath '$appdata\\swiffos.json' ' '" || true
-		step ui-tampered-manifest "a changed manifest reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 20; $ui click 'What Swiff checked'"
+		step ui-tampered-manifest "a changed manifest reads as not signed by Swiff" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui click 'What Swiff checked'"
 		ui_has ui-tampered-manifest 'Not signed by Swiff' || result FAIL ui-tampered-manifest-text "the check did not say so"
 		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
 		# A certificate swapped on disk: the read checks the signed manifest and the fingerprint it lists;
