@@ -388,6 +388,21 @@ describe("useRental", () => {
     await act(async () => {});
     expect(pending).toHaveLength(1);
     expect(host.runRental).toHaveBeenCalledOnce();
+    // The blue screen didn't take the code: the key's removal is what gets planned, not the disk's.
+    act(() => result.current.plan("remove", { key: true }));
+    await act(async () => {});
+    expect(pending.map((p) => p.ask)).toEqual([
+      { kind: "remove", target: null, key: false },
+      { kind: "remove", target: null, key: true },
+    ]);
+    await answer(1, { ...plan("remove", "mok-remove"), phase: "key" });
+    expect(result.current.preview).toMatchObject({ phase: "key" });
+    // Back, or Check again: the screen offers the rest, nothing runs it by itself again.
+    act(() => result.current.close());
+    act(() => result.current.check());
+    await act(async () => {});
+    expect(pending).toHaveLength(2);
+    expect(host.runRental).toHaveBeenCalledOnce();
   });
 
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {

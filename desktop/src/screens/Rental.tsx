@@ -825,8 +825,11 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       title = "Finishing removing Swiff OS";
       line =
         "Swiff now takes Swiff OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
-      // Only when planning the rest failed: Check again plans it again.
-      if (run.status === "failed") action = again;
+      action = (
+        <Pill icon="undo" onClick={() => actions.previewRental("remove", { key: false })}>
+          Try again
+        </Pill>
+      );
       plate = (
         <Plate caption={["Remove Swiff OS", "Windows may ask once"]}>
           <Dial progress={0.5} big="Last part" small="then a restart" />

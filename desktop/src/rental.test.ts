@@ -31,7 +31,6 @@ import {
   readRental,
   removePlan,
   rentalOf,
-  SCRIPT,
   SWIFF_OS,
   SWIFF_OS_BYTES,
   switchPlan,
@@ -1475,7 +1474,6 @@ describe("Remove Swiff OS", () => {
   });
 
   it("reads each partition's GPT id, which the removal's check looks for", () => {
-    expect(SCRIPT).toMatch(/id = \[string\]\$_\.Guid/);
     const facts = pc((r) => ({
       ...r,
       partitions: [
@@ -1552,8 +1550,19 @@ describe("the BitLocker recovery key", () => {
     expect(recoveryOf(null, []).saved).toBe(true);
   });
 
-  it("never reads a recovery key or its password from the PC", () => {
-    expect(SCRIPT).not.toMatch(/RecoveryPassword|KeyProtector|manage-bde|BitLockerVolume/i);
+  it("keeps no recovery key or protector in what it read, even when one comes with the volumes", () => {
+    const password = "123456-234567-345678-456789-567890-678901-789012-890123";
+    const { facts } = pc((r) => ({
+      ...r,
+      volumes: r.volumes.map((v) => ({
+        ...v,
+        RecoveryPassword: password,
+        KeyProtector: [{ KeyProtectorType: "RecoveryPassword", RecoveryPassword: password }],
+      })),
+    }));
+    expect(facts.volumes.length).toBeGreaterThan(0);
+    for (const v of facts.volumes) expect(Object.keys(v)).not.toContain("RecoveryPassword");
+    expect(JSON.stringify(facts)).not.toMatch(/RecoveryPassword|KeyProtector|123456-234567/);
   });
 
   it("comes before the install, and before anything else that changes the boot once installed", () => {

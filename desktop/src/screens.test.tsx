@@ -1280,6 +1280,8 @@ describe("rental mode", () => {
     expect(
       within(screen.getByRole("main")).queryByRole("button", { name: /Finish|Remove|Check again/ }),
     ).toBeNull();
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Try again/ }));
+    expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: false });
     fireEvent.click(screen.getByRole("button", { name: "The blue screen didn't take the code" }));
     expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: true });
     cleanup();
