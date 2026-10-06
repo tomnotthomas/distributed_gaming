@@ -47,11 +47,23 @@ function parseSums(text) {
     });
 }
 
-/** Whether `url` parses as an https:// address with a host: one a download link can use. */
+/**
+ * Whether `url` is a public download address the page may show: https, with a
+ * host, and nothing that could carry a credential (no user name or password,
+ * no query string, no fragment).
+ */
 function httpsUrl(url) {
   try {
     const u = new URL(url);
-    return u.protocol === "https:" && u.hostname !== "";
+    return (
+      u.protocol === "https:" &&
+      u.hostname !== "" &&
+      u.username === "" &&
+      u.password === "" &&
+      u.search === "" &&
+      u.hash === "" &&
+      !/[?#@]/.test(url)
+    );
   } catch {
     return false;
   }
@@ -63,7 +75,8 @@ function httpsUrl(url) {
  * image set's version and its files' sums.
  */
 function releaseOf({ host = null, url = null, image = null } = {}) {
-  if (url !== null && !httpsUrl(url)) throw new Error("--url takes an https:// address.");
+  if (url !== null && !httpsUrl(url))
+    throw new Error("--url takes a public https:// address, with no user name, password, query or fragment.");
   if (host && !HEX.test(host.sha256)) throw new Error("Not a SHA-256.");
   return {
     host: host ? { file: host.name, sha256: host.sha256, bytes: host.bytes, url } : null,
@@ -99,6 +112,7 @@ function flags(args) {
   return out;
 }
 
+/** The command line: `sums` writes SHA256SUMS, `release` writes the download page's release.json. */
 function main([cmd, ...rest]) {
   const opts = flags(rest);
   if (cmd === "sums" && opts._.length >= 2) {

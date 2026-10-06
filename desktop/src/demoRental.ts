@@ -30,6 +30,7 @@ const step = (id: string, title: string, ops: PlanStep["ops"] = [{ op: "installe
   ops,
   commands: [`# ${title}`],
 });
+/** A plan's restart step, which waits for the owner's Restart now. */
 const restart = (title: string) => ({
   ...step("mok-restart", title, [{ op: "restart" }]),
   confirm: "Restarts.",
@@ -162,6 +163,7 @@ const installed = (key: NonNullable<RentalRead["key"]> | null): RentalRead => ({
   installed: true,
   key,
 });
+/** Swiff OS installed, with its key as `state` says. */
 const keyAs = (state: "ask" | "confirmed" | "missed" | "nokey") => installed({ state, code: null });
 /** Remove Swiff OS, as far as `removal` says. */
 const removing = (removal: NonNullable<RentalRead["removal"]>): RentalRead => ({
@@ -219,6 +221,7 @@ function writing(run: RentalRun, share: number, elapsed: number): RentalRun {
 
 type Start = { read: RentalRead | null; reading: boolean; preview: RentalPlan | null; run: RentalRun };
 
+/** The read, plan and run the demo case `c` opens on. */
 function startOf(c: RentalCase): Start {
   const idle = { reading: false, preview: null, run: IDLE_RUN };
   switch (c) {

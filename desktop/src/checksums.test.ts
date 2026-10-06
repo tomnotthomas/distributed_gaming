@@ -57,6 +57,15 @@ describe("checksums", () => {
     // Only an address a download link can use: https, with a host.
     expect(() => releaseOf({ host, url: "https://#fragment" })).toThrow(/https/);
     expect(() => releaseOf({ host, url: "https:// spaced.test/x" })).toThrow(/https/);
+    // Nothing that could carry a credential reaches the public page.
+    for (const url of [
+      "https://user:secret@example.test/SwiffHost.exe",
+      "https://token@example.test/SwiffHost.exe",
+      "https://example.test/SwiffHost.exe?token=abc",
+      "https://example.test/SwiffHost.exe?",
+      "https://example.test/SwiffHost.exe#sig=abc",
+    ])
+      expect(() => releaseOf({ host, url })).toThrow(/no user name, password, query or fragment/);
     expect(releaseOf()).toEqual({ host: null, image: null });
   });
 

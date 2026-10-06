@@ -50,6 +50,7 @@ const {
   uninstallPlan,
 } = require("./rental.cjs");
 
+/** One answer, as one JSON line on stdout. */
 const say = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 
 /** The flags after the command: --name value, or --name alone for true. */
@@ -70,6 +71,7 @@ const bootAt = () => Date.now() - os.uptime() * 1000;
 const removals = () =>
   removalStore(path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "Swiff", "rental-cli"), null);
 
+/** The plan `kind` names, for this PC as read now: the same plans the app's Rental screen runs. */
 async function plan(kind, { image, target = null, code, store }) {
   if (kind === "once" || kind === "start" || kind === "stop") return switchPlan(kind);
   if (kind === "mok") return mokPlan(code, await readRental());
@@ -152,6 +154,7 @@ async function* follow(file) {
   }
 }
 
+/** The console's commands: read, run and serve (see the top of this file). */
 async function main([cmd, ...rest]) {
   const opts = flags(rest);
   // With this start's boot trail (rental-key.cjs): what ran before Windows, for the VM test.

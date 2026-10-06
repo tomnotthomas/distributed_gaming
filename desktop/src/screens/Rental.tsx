@@ -85,6 +85,7 @@ function biosTrip(ids: BiosId[], read: RentalRead | null): Tile[] {
   ];
 }
 
+/** Turning BitLocker off for the games drive, in Windows: Swiff OS cannot read an encrypted drive. */
 function bitlockerTrip(letter: string): Tile[] {
   return [
     {
@@ -177,6 +178,7 @@ function blueScreen(remove = false): Tile[] {
   ];
 }
 
+/** A tile's picture: the keys to press, the setting and its value, the screen's text, or the app's button. */
 function Visualize({ v }: { v: Visual }) {
   if ("keys" in v)
     return (
@@ -209,6 +211,7 @@ function Visualize({ v }: { v: Visual }) {
   );
 }
 
+/** The strip under the plate: how to do the one thing, tile by tile, with any note after it. */
 function Strip({ tiles, label, children }: { tiles: Tile[]; label: string; children?: ReactNode }) {
   return (
     <div className="sz one">
@@ -249,6 +252,7 @@ const NoContinue = () => (
 
 type Row = { name: string; value: string; wait?: boolean };
 
+/** The plate for settings: each one with the value it must have, or what it waits for. */
 function SettingsPlate({
   where,
   rows,
@@ -279,6 +283,7 @@ function SettingsPlate({
   );
 }
 
+/** The plate for a one-time key code, in two halves of four. */
 function CodePlate({ code, caption }: { code: string; caption: [string, string] }) {
   return (
     <Plate caption={caption}>
@@ -291,6 +296,7 @@ function CodePlate({ code, caption }: { code: string; caption: [string, string] 
   );
 }
 
+/** The plate for the blue screen after the restart, in its own words. */
 function ScreenPlate({ text }: { text: string }) {
   return (
     <Plate caption={["After the restart", "Blue screen"]}>
@@ -580,6 +586,7 @@ function placeLine(read: RentalRead, target: string | null): string {
     : `Swiff OS goes on ${gb(read.need)} of free space on disk ${where.disk}, next to Windows. Your files stay where they are.`;
 }
 
+/** The Rental mode screen: the one thing to do now, its plate, how to do it, and the rest one link away. */
 export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
   const setup = view.rental;
   const { read, reading, target, run } = setup;
