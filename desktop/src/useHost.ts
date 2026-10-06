@@ -297,6 +297,7 @@ export function useHost(): Host {
       run: rental.run,
       readAt: rental.readAt,
       liveSeen: rental.liveSeen,
+      planning: rental.planning,
     },
     standing: null,
     earlyEnd: null,

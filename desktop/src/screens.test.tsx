@@ -1068,6 +1068,13 @@ describe("rental mode", () => {
     expect(acts.restartRental).toHaveBeenCalledOnce();
   });
 
+  it("says a plan is being got ready, instead of a button that seems to do nothing", () => {
+    renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }), planning: true }));
+    expect(h1()).toHaveTextContent("Confirm Swiff's key");
+    expect(screen.getByText(/Getting it ready\. This can take up to a minute\./)).toBeInTheDocument();
+    expect(pills()).toHaveLength(0);
+  });
+
   it("asks the owner whether the blue screen took the code, which Windows cannot see", () => {
     const acts = renderReal("rental", off, rental({ read: installed({ state: "ask", code: null }) }));
     expect(h1()).toHaveTextContent("Did the blue screen take your code?");

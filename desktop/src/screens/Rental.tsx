@@ -1062,6 +1062,16 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
   if (s.kind === "bios")
     links.push({ id: "sb", label: "Secure Boot won't turn on?", body: <SecureBootHelp /> });
 
+  // A plan was asked for: main reads the PC again first, which can take a while. Its action waits,
+  // and the screen says so, rather than look as if the press did nothing.
+  if (setup.planning && !setup.preview)
+    action = (
+      <p className="mstatus mlive">
+        <i className="mpulse" aria-hidden="true" />
+        Getting it ready. This can take up to a minute.
+      </p>
+    );
+
   return (
     <main className="step">
       <section className="hz">

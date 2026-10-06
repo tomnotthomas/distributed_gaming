@@ -124,6 +124,8 @@ export type RentalSetup = {
   run: RentalRun;
   /** When `read` was read. */
   readAt?: number | null;
+  /** A plan was asked for and has not come back yet: main reads the PC again first, which can take a while. */
+  planning?: boolean;
   /** The end of the last live run the owner has seen summed up ("You were live"), shown once. */
   liveSeen?: number | null;
 };

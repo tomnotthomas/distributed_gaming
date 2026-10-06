@@ -66,6 +66,7 @@ export function useRental(): RentalSetup & {
   const [preview, setPreview] = useState<RentalPlan | null>(null);
   const [run, setRun] = useState<RentalRun>(IDLE_RUN);
   const [readAt, setReadAt] = useState<number | null>(null);
+  const [planning, setPlanning] = useState(false);
   // Which live run the owner has seen summed up: kept in this window's storage, a convenience only.
   const [liveSeen, setLiveSeen] = useState<number | null>(() => {
     try {
@@ -81,6 +82,7 @@ export function useRental(): RentalSetup & {
   const busy = run.status === "starting" || run.status === "running" || run.status === "restarting";
   const drop = () => {
     plans.current++;
+    setPlanning(false);
     setPreview(null);
     setRun(IDLE_RUN);
   };
@@ -218,6 +220,7 @@ export function useRental(): RentalSetup & {
     reading,
     read,
     readAt,
+    planning,
     liveSeen,
     target,
     preview,
@@ -236,11 +239,15 @@ export function useRental(): RentalSetup & {
       if (busy) return;
       const n = ++plans.current;
       setRun(IDLE_RUN);
-      void bridge()
-        ?.planRental({ kind, target })
+      const asked = bridge()?.planRental({ kind, target });
+      if (!asked) return;
+      setPlanning(true);
+      void asked
         .catch(() => null)
         .then((next) => {
-          if (n === plans.current) setPreview(next);
+          if (n !== plans.current) return;
+          setPlanning(false);
+          setPreview(next);
         });
     },
     close: () => {

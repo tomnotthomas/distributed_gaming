@@ -53,7 +53,10 @@ describe("useRental", () => {
     const { result } = renderHook(() => useRental());
     await act(async () => {}); // the first read has landed: the screen offers plans only then
     act(() => result.current.plan("install"));
+    // Until main answers (it reads the PC again first), the screen knows a plan is coming.
+    expect(result.current.planning).toBe(true);
     await answer(0, plan("install", "Shrink C:"));
+    expect(result.current.planning).toBe(false);
     expect(result.current.preview?.steps[0]?.title).toBe("Shrink C:");
   });
 

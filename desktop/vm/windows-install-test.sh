@@ -699,7 +699,7 @@ test_run() {
 		app
 		step ui-ask "the app asks whether the code went in" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120"
 		step ui-no "No, or I'm not sure leads to confirming the key with a new code" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'confirm swiff' 60"
-		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click 'Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 60"
+		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click 'Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 240"
 		# Administrator declined, through the app's own elevation.
 		uac 2
 		$ui click '^Confirm the key' > "$run/ui-elevate.json" 2>&1 || true
@@ -728,7 +728,7 @@ test_run() {
 		step ui-yes "the app asks; Yes, it did" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120 > /dev/null; $ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
 		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
 		# Removal through the app.
-		step ui-remove-preview "Remove rental mode shows what removing does" bash -c "$ui click '^Rental mode' > /dev/null; $ui click 'Remove rental mode' > /dev/null; $ui wait-h1 'remove rental mode' 60"
+		step ui-remove-preview "Remove rental mode shows what removing does" bash -c "$ui click '^Rental mode' > /dev/null; $ui click 'Remove rental mode' > /dev/null; $ui wait-h1 'remove rental mode' 240"
 		step ui-removed "removing ran through the app's elevation, and rental mode starts over" bash -c "$ui click '^Remove rental mode' > /dev/null; sleep 60; $ui wait-h1 'turn on iommu' 600"
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
