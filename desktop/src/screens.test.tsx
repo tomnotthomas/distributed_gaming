@@ -1141,11 +1141,17 @@ describe("rental mode", () => {
   });
 
   it("leads a Go live that stopped to the failure's own next step", () => {
-    const failedAt = (step: string, error: string) =>
+    const failedAt = (step: string, error: string, reportedAt: number | null = null) =>
       rental({
         read: installed(),
         preview: switchPlan("once"),
-        run: { ...IDLE_RUN, status: "failed", failed: { step, error }, endedAt: evening(21, 4) },
+        run: {
+          ...IDLE_RUN,
+          status: "failed",
+          failed: { step, error },
+          endedAt: evening(21, 4),
+          reportedAt,
+        },
       });
     let acts = renderReal("live", off, failedAt("restart", "Windows did not start the restart."));
     expect(h1()).toHaveTextContent("The PC didn't restart");
@@ -1155,9 +1161,17 @@ describe("rental mode", () => {
     cleanup();
 
     acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
+    expect(screen.queryByText(/Saved at/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
     expect(acts.reportRental).toHaveBeenCalledOnce();
     expect(acts.retryRental).not.toHaveBeenCalled();
+    cleanup();
+
+    renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5", evening(21, 6)));
+    expect(
+      screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
   });
 
   it("offers to continue an install that stopped part way, and to undo it", () => {

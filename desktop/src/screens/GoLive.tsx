@@ -11,6 +11,7 @@ import { WINDOWS_SHARE } from "../devShare";
 import { failureOf, rentalScreen } from "../rental";
 import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
+import { Sent } from "./Rental";
 import type { Crew } from "../report";
 import { toSocketUrl } from "../settings";
 import { listedGames, tonight, type ScreenProps } from "./types";
@@ -201,6 +202,7 @@ export function GoLive(props: ScreenProps) {
               {status}
             </p>
           ) : null}
+          {failed && setup.run.reportedAt !== null ? <Sent at={setup.run.reportedAt} /> : null}
           {failed ? (
             <div className="acts">
               {/* The failure's own next step, as on the rental screen. */}

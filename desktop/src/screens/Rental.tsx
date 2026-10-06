@@ -476,6 +476,14 @@ const Changed = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
+/** What was sent to Swiff, and when. */
+export const Sent = ({ at }: { at: number }) => (
+  <p className="msent">
+    <Glyph name="check" size={14} />
+    Saved at {clock(at)} for Swiff: the error, the step and this PC's checks.
+  </p>
+);
+
 /** The exact error, in mono, with Send details to Swiff under it unless that is the screen's own button. */
 function Detail({ error, sent, onSend }: { error: string; sent: boolean; onSend: (() => void) | null }) {
   return (
@@ -864,12 +872,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       extra = (
         <>
           <Changed>{f.changed}</Changed>
-          {sent ? (
-            <p className="msent">
-              <Glyph name="check" size={14} />
-              Saved at {clock(run.reportedAt!)} for Swiff: the error, the step and this PC's checks.
-            </p>
-          ) : null}
+          {sent ? <Sent at={run.reportedAt!} /> : null}
         </>
       );
       const other =
