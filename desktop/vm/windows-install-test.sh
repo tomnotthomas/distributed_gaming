@@ -721,9 +721,9 @@ test_run() {
 		step ui-restart "the key's run ends at Restart now" $ui wait-h1 'restart to confirm the key' 300
 		code=$($ui code)
 		$ui click 'Restart now' > "$run/ui-restart-click.json" 2>&1 || true
-		expect ui-mokmanager "the app's restart reached MokManager, and it waits" \
-			"$python" "$here/mok-drive.py" "$run/ui-mok-wait.log" wait "Perform MOK management" 600 --socket "$run/serial.sock"
-		expect ui-mok-confirmed "the key confirmed with the code the app showed" \
+		# One serial session from the restart on: MokManager draws its menu once, so a second
+		# session would never see it.
+		expect ui-mokmanager "the app's restart reached MokManager, which waited (no countdown), and the key confirmed with the code the app showed" \
 			"$python" "$here/mok-drive.py" "$run/ui-mok-1.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-key
 		expect ui-pcr7 "PCR 7 is a clean start's after the app's key restart" test "$(pcr7 ui-key)" = "$base"

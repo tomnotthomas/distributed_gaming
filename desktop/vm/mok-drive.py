@@ -141,7 +141,8 @@ def main(log, mode, *rest):
             vm.expect(rest[0], int(rest[1]))
             return
         # The menu at once, without the countdown (MokTimeout -1).
-        vm.expect("Perform MOK management", 120)
+        # Up to 10 minutes: from a restart in Windows, its shutdown comes first.
+        vm.expect("Perform MOK management", 600)
         if "Press any key to perform MOK management" in ANSI.sub(b"", vm.log_bytes()).decode("latin-1"):
             sys.exit("mok-drive: MokManager counted down instead of waiting (MokTimeout not honoured)")
         if mode == "miss":
