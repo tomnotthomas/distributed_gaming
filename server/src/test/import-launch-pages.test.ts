@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -22,7 +23,8 @@ import { promisify } from "node:util";
 const SCRIPT = fileURLToPath(new URL("../../scripts/import-launch-pages.mjs", import.meta.url));
 
 type FaqJsonLd = (html: string, lang: string) => string;
-const { faqJsonLd } = (await import(SCRIPT)) as { faqJsonLd: FaqJsonLd };
+type Promote = (staging: string, target: string, rename?: (from: string, to: string) => void) => void;
+const { faqJsonLd, promote } = (await import(SCRIPT)) as { faqJsonLd: FaqJsonLd; promote: Promote };
 
 const PAGE = `<head><script type="application/ld+json">
 {
@@ -90,6 +92,42 @@ describe("importing the launch set", () => {
       assert.deepEqual(readdirSync(target), ["index.html"]);
       assert.equal(readFileSync(join(target, "index.html"), "utf8"), PAGE);
       assert.equal(existsSync(`${target}.importing`), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("swaps a built set in for the target, keeping nothing of the old one", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-promote-"));
+    try {
+      const target = join(dir, "marketing");
+      mkdirSync(target);
+      writeFileSync(join(target, "old.html"), "old");
+      mkdirSync(`${target}.importing`);
+      writeFileSync(join(`${target}.importing`, "new.html"), "new");
+      promote(`${target}.importing`, target);
+      assert.deepEqual(readdirSync(target), ["new.html"]);
+      assert.deepEqual(readdirSync(dir), ["marketing"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("puts the old target back when the new set cannot be moved in", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-promote-"));
+    try {
+      const target = join(dir, "marketing");
+      mkdirSync(target);
+      writeFileSync(join(target, "old.html"), "old");
+      mkdirSync(`${target}.importing`);
+      writeFileSync(join(`${target}.importing`, "new.html"), "new");
+      const failing = (from: string, to: string) => {
+        if (from.endsWith(".importing")) throw new Error("EXDEV: cross-device link not permitted");
+        renameSync(from, to);
+      };
+      assert.throws(() => promote(`${target}.importing`, target, failing), /EXDEV/);
+      assert.equal(readFileSync(join(target, "old.html"), "utf8"), "old");
+      assert.deepEqual(readdirSync(dir), ["marketing"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

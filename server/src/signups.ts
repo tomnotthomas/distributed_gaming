@@ -96,8 +96,11 @@ const INVALID: Record<Lang, Copy> = {
   en: { title: "Invalid link", text: "This link is not valid." },
 };
 
+/** A new confirm or unsubscribe token: 24 random bytes. */
 const token = () => randomBytes(24).toString("base64url");
+/** A token as kept: its SHA-256, in hex. */
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+/** A new row id. */
 const newId = () => randomBytes(16).toString("base64url");
 /** A crew link code: 8 characters, which INVITE_CODE accepts. */
 const referralCode = () => randomBytes(6).toString("base64url");
@@ -139,11 +142,13 @@ export async function renderMail(
     files.text(`emails/${template}.${lang}.txt`),
   ]);
   if (html === null || text === null) return null;
+  /** `s` safe as HTML text, for a placeholder filled into a mail's HTML version. */
   const escapeHtml = (s: string) =>
     s.replace(
       /[&<>"']/g,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
     );
+  /** `s` with each {placeholder} it has a value for replaced by that value, escaped with `escape`. */
   const fill = (s: string, escape: (v: string) => string) =>
     s.replace(/\{(\w+)\}/g, (whole, key: string) => (key in values ? escape(values[key]!) : whole));
   const [first, ...rest] = text.split("\n");
@@ -191,6 +196,11 @@ type SignupRow = {
   unsubscribed_at: number | null;
 };
 
+/**
+ * The sign-ups of the marketing site on `database`, with their mails rendered
+ * from `files` into the outbox: what serves their routes (`serve`), and whether
+ * a code is a confirmed sign-up's crew link (`isShareCode`).
+ */
 export function createSignups({
   database,
   site,
@@ -200,7 +210,9 @@ export function createSignups({
   perClient = new RequestBudget({ burst: CLIENT_BURST, refillMs: CLIENT_REFILL_MS }),
   trustProxy = false,
 }: SignupsOptions) {
+  /** A page of the site at `path`, in `lang`. */
   const pageUrl = (lang: Lang, path: string) => `${site.origin}${lang === "en" ? "/en" : ""}${path}`;
+  /** A mail's link to `action` (confirm or unsubscribe) with its token. */
   const linkUrl = (action: string, value: string) =>
     `${site.origin}/api/signups/${action}?token=${encodeURIComponent(value)}`;
 
@@ -342,6 +354,7 @@ export function createSignups({
 
   /** A small page on the site's look, in `lang`, or in both for an unknown link. */
   function page(res: ServerResponse, status: number, lang: Lang | null, copy: Record<Lang, Copy>, form = "") {
+    /** A line in the link's language, or in German and English for a link nobody knows. */
     const both = (pick: (c: Copy) => string) =>
       lang ? pick(copy[lang]) : `${pick(copy.de)} · ${pick(copy.en)}`;
     res.writeHead(status, {
@@ -365,6 +378,7 @@ export function createSignups({
     );
   }
 
+  /** Serve a sign-up request under /api/signups; false for a path or method it does not know. */
   async function route(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
     const method = req.method ?? "GET";
     const path = url.pathname;

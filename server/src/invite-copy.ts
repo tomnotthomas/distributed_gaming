@@ -40,6 +40,7 @@ export type InviteCopy = {
   literal: [string, string][];
 };
 
+/** `s` safe as HTML text, with braces escaped too so a name never turns into a {{token}}. */
 const escapeHtml = (s: string) => s.replace(/[&<>"'{}]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** A name as it may be shown: trimmed, at most 40 characters; null when nothing is left. */
@@ -76,6 +77,7 @@ const crewMockup = (who: string, initial: string): [string, string][] => [
   ['<span class="av m">M</span>', `<span class="av m">${initial}</span>`],
 ];
 
+/** The crew invite page in `lang`: a friend asks to play on the reader's gaming PC. */
 function crew(lang: Lang): InviteCopy {
   if (lang === "de")
     return {
@@ -178,6 +180,7 @@ function namedCrew(lang: Lang, n: string): InviteCopy {
 
 // --- seat at a friend's rig ------------------------------------------------------
 
+/** The rig seat page in `lang`: a host holds a seat at their rig for the reader. */
 function seat(lang: Lang): InviteCopy {
   if (lang === "de")
     return {
@@ -232,6 +235,7 @@ function seat(lang: Lang): InviteCopy {
 
 // --- gift seat -------------------------------------------------------------------
 
+/** The gift seat page in `lang`: a friend gives the reader a seat after a good session. */
 function gift(lang: Lang): InviteCopy {
   if (lang === "de")
     return {
@@ -268,6 +272,7 @@ function gift(lang: Lang): InviteCopy {
 
 // --- crew Night ------------------------------------------------------------------
 
+/** The crew Night page in `lang`: an invitation to play together with the crew. */
 function night(lang: Lang): InviteCopy {
   if (lang === "de")
     return {
