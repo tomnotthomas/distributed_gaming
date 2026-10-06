@@ -34,6 +34,8 @@ const INPUT_POLL_MS = 2_000;
 /** Input this recent means someone is at the PC; none for this long means they left. */
 const AT_PC_S = 5;
 const AWAY_S = 60;
+/** A first read of who may play that failed is tried again this much later, once. */
+export const CREW_RETRY_MS = 10_000;
 
 type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
 
@@ -181,6 +183,7 @@ export function useHost(): Host {
   // owner's choice made while it was off offer, which the next offer carries.
   const [crew, setCrew] = useState<Crew | null>(null);
   const crewChoice = useRef<boolean | null>(null);
+  const [crewNote, setCrewNote] = useState<string | null>(null);
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
 
@@ -311,6 +314,7 @@ export function useHost(): Host {
     connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
     payoutSaved: false,
     crew,
+    crewNote,
   };
 
   const settings = { url, machineId, machineKey };
@@ -323,12 +327,33 @@ export function useHost(): Host {
       : null;
   const rentalCrew = useRef(rentalMachine);
   rentalCrew.current = rentalMachine;
+  // Only the answer to the latest ask counts; a choice that did not save goes
+  // back to what the platform last confirmed.
+  const crewAsks = useRef(0);
+  const crewConfirmed = useRef<Crew | null>(null);
+  const askCrew = async (only?: boolean): Promise<boolean> => {
+    if (!rentalCrew.current) return false;
+    const n = ++crewAsks.current;
+    const read = await offOffer(rentalCrew.current, only);
+    if (n !== crewAsks.current) return true;
+    if (read) {
+      crewConfirmed.current = read;
+      setCrew(read);
+      setCrewNote(null);
+    } else if (only !== undefined) {
+      setCrew(crewConfirmed.current);
+      setCrewNote("Couldn't save who can play. Try again.");
+    }
+    return read !== null;
+  };
   useEffect(() => {
-    if (!rentalCrew.current) return;
-    let current = true;
-    void offOffer(rentalCrew.current).then((read) => current && read && setCrew(read));
+    let retry: number | undefined;
+    void askCrew().then((ok) => {
+      if (!ok && rentalCrew.current) retry = window.setTimeout(() => void askCrew(), CREW_RETRY_MS);
+    });
     return () => {
-      current = false;
+      crewAsks.current++;
+      window.clearTimeout(retry);
     };
   }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey]);
   return {
@@ -386,14 +411,18 @@ export function useHost(): Host {
       savePayout: () => {},
       installSteam: steam.installSteam,
       askInstall: steam.askInstall,
-      checkRental: rental.check,
+      checkRental: () => {
+        rental.check();
+        if (!crewConfirmed.current) void askCrew();
+      },
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
       // The platform holds the choice, sent now or with the next offer; the screen
       // shows it at once, and the next answer confirms it.
       setCrewOnly: (on) => {
-        if (rentalCrew.current) void offOffer(rentalCrew.current, on).then((read) => read && setCrew(read));
+        setCrewNote(null);
+        if (rentalCrew.current) void askCrew(on);
         else if (reporter.current) reporter.current.setCrewOnly(on);
         else crewChoice.current = on;
         setCrew((was) => (was ? { ...was, only: on } : was));

@@ -192,6 +192,7 @@ export function GoLive(props: ScreenProps) {
                 site={siteOf(view.connection.url)}
                 onChange={actions.setCrewOnly}
               />
+              {view.crewNote ? <Notice>{view.crewNote}</Notice> : null}
             </div>
           ) : null}
           {status ? (

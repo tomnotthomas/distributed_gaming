@@ -614,6 +614,16 @@ describe("this PC's screens", () => {
     expect(acts.setCrewOnly).toHaveBeenCalledWith(true);
   });
 
+  it("says beside Who can play when the owner's choice did not save", () => {
+    renderReal("live", off, {
+      ...ready,
+      crew: { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] },
+      crewNote: "Couldn't save who can play. Try again.",
+    });
+    expect(screen.getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't save who can play. Try again.");
+  });
+
   it("changes the end time while live", () => {
     const acts = renderReal("live", {
       kind: "waiting",

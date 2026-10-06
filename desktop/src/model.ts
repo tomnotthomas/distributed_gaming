@@ -312,6 +312,8 @@ export type HostView = {
   payoutSaved: boolean;
   /** Who may play on this PC, as the platform last said; null until it has. */
   crew: Crew | null;
+  /** In rental mode, why the owner's last choice of who may play did not save. */
+  crewNote?: string | null;
 };
 
 export type TrayAction = "stop-new" | "allow-new" | "pause" | "resume" | "retry";

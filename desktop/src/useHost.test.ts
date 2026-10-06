@@ -50,7 +50,7 @@ vi.mock("./useScreenShare", () => ({
   },
 }));
 
-const { useHost } = await import("./useHost");
+const { CREW_RETRY_MS, useHost } = await import("./useHost");
 const { trayDo } = await import("./App");
 
 const STREAM = {} as MediaStream;
@@ -375,28 +375,14 @@ describe("useHost", () => {
     expect(result.current.view.crew?.only).toBe(false);
   });
 
-  it("in rental mode, reads and sets who can play with the PC off offer in Windows", async () => {
-    devShare.on = false;
-    let only = true;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init: RequestInit) => {
-        const path = new URL(url).pathname;
-        if (path.endsWith("/demand")) throw new TypeError("no network in tests");
-        const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
-        calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
-        if (typeof body?.crewOnly === "boolean") only = body.crewOnly;
-        return Response.json({ crew: { only, crews: [{ name: "Alex", own: false, size: 2 }] } });
-      }),
-    );
-    try {
-      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
-      const { result } = await host();
-      // Not ready to go live yet: the platform is not asked.
-      expect(result.current.view.crew).toBeNull();
-      expect(reports()).toEqual([]);
-
-      const ready = rentalOf(
+  describe("who can play, in rental mode", () => {
+    /** The platform's answers, in turn: who may play, a failure, or one held until the test lets it land. */
+    type Answer = "ok" | "fail" | ((land: (ok: boolean) => void) => void);
+    let answers: Answer[];
+    let only: boolean;
+    const crewOf = (o: boolean) => ({ only: o, crews: [{ name: "Alex", own: false, size: 2 }] });
+    const READY = {
+      ...rentalOf(
         {
           ...structuredClone(FACTS),
           install: {
@@ -409,8 +395,54 @@ describe("useHost", () => {
           },
         },
         [],
+      ),
+      key: { state: "confirmed" as const, code: null },
+    };
+
+    beforeEach(() => {
+      devShare.on = false;
+      answers = [];
+      only = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+          const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+          calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
+          const answer = answers.shift() ?? "ok";
+          const ok =
+            typeof answer === "function"
+              ? await new Promise<boolean>((land) => answer(land))
+              : answer === "ok";
+          if (!ok) throw new TypeError("offline");
+          const said = typeof body?.crewOnly === "boolean" ? body.crewOnly : only;
+          only = said;
+          return Response.json({ crew: crewOf(said) });
+        }),
       );
-      bridge.readRental = vi.fn(async () => ({ ...ready, key: { state: "confirmed" as const, code: null } }));
+    });
+    afterEach(() => {
+      devShare.on = true;
+    });
+
+    /** The hook on a PC whose rental mode becomes ready to go live. */
+    async function ready() {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      const hook = await host();
+      bridge.readRental = vi.fn(async () => READY);
+      act(() => hook.result.current.actions.checkRental());
+      await settle();
+      return hook;
+    }
+
+    it("reads and sets it with the PC off offer in Windows", async () => {
+      const { result } = await host();
+      // Not ready to go live yet: the platform is not asked.
+      expect(result.current.view.crew).toBeNull();
+      expect(reports()).toEqual([]);
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => READY);
       act(() => result.current.actions.checkRental());
       await settle();
       expect(reports()).toEqual([
@@ -421,21 +453,64 @@ describe("useHost", () => {
           keepalive: false,
         },
       ]);
-      expect(result.current.view.crew).toEqual({
-        only: true,
-        crews: [{ name: "Alex", own: false, size: 2 }],
-      });
+      expect(result.current.view.crew).toEqual(crewOf(true));
 
       act(() => result.current.actions.setCrewOnly(false));
       expect(result.current.view.crew?.only).toBe(false);
       await settle();
       expect(reports().at(-1)!.body).toEqual({ available: false, crewOnly: false });
       expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
       // Nothing offers this PC from Windows.
       expect(reports().some((c) => c.body?.available === true)).toBe(false);
-    } finally {
-      devShare.on = true;
-    }
+    });
+
+    it("puts a choice that did not save back to the platform's, and says so", async () => {
+      const { result } = await ready();
+      answers.push("fail");
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crew?.only).toBe(false);
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crewNote).toBeNull();
+      await settle();
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
+    it("reads it again when the first read failed: once after a while, and on Check again", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      answers.push("fail", "fail");
+      const { result } = await ready();
+      expect(result.current.view.crew).toBeNull();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS)));
+      await settle();
+      expect(reports()).toHaveLength(2);
+      expect(result.current.view.crew).toBeNull();
+      // Retried once only; Check again asks once more.
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS * 3)));
+      expect(reports()).toHaveLength(2);
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
+    it("shows the answer to the owner's latest choice, whatever order the answers land in", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      answers.push((land) => (first = land));
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+      first(true);
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+    });
   });
 
   it("turns down a claim for a game the owner does not offer", async () => {
