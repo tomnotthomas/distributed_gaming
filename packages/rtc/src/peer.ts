@@ -26,6 +26,17 @@ export type IceConfig = {
   forceRelay?: boolean;
 };
 
+/**
+ * The TURN relays among `servers` (turn: or turns:), without STUN: what a
+ * relay-only connection, such as one between a player and a crewmate watching
+ * them, may use. Neither side then learns the other's address.
+ */
+export function relayOnly(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers.filter((server) =>
+    (Array.isArray(server.urls) ? server.urls : [server.urls]).some((url) => /^turns?:/i.test(url)),
+  );
+}
+
 export function createPeerConnection({ iceServers, forceRelay }: IceConfig = {}): RTCPeerConnection {
   const pc = new RTCPeerConnection({
     iceServers: iceServers ?? DEFAULT_ICE_SERVERS,

@@ -18,6 +18,7 @@ export function Watch({ swiff }: { swiff: Swiff }) {
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [unmuted, setUnmuted] = useState(false);
   const { state, session, muteForMe } = useWatching(entry?.sessionId ?? null, video);
+  /** Push to talk, for the push key and the button alike. */
   const talk = useCallback((on: boolean) => session?.setTalking(on), [session]);
   usePushKey(PUSH_KEY, state.voice.inVoice && state.voice.mode === "push", talk);
   if (!entry) return null;
@@ -28,6 +29,7 @@ export function Watch({ swiff }: { swiff: Swiff }) {
   const game = swiff.games.find((g) => g.appid === entry.gameId)?.title ?? null;
   const showing = state.phase === "watching" && state.framed;
 
+  /** Sound on: the browser held it back until the viewer chose it. */
   const unmute = () => {
     if (!video) return;
     video.muted = false;

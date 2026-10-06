@@ -98,6 +98,7 @@ import { bearer, HttpError, readJson } from "./http.js";
 import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
 import { createSignups } from "./signups.js";
 import { Watches, type Watch, type WatchEnd } from "./watch.js";
+import { relayServers, watchFrame } from "./watchIce.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -227,6 +228,7 @@ const serveApi = createApi({
   onRenterStarted: pushLaunch,
   heldUntil: (machineId) => grace.until(machineId),
   watches,
+  watchRelay: () => relayServers(ice.servers()).length > 0,
   onCrewLeft: () => void checkWatches(),
 });
 
@@ -457,7 +459,7 @@ function tellPlayer(room: string, sessionId: string): void {
   send(playerOf(rooms.get(room), sessionId), message);
 }
 
-/** Tell a viewer where their watch stands. */
+/** Tell a viewer where their watch stands, with the TURN relays their relay-only connection uses. */
 function tellViewer(watch: Watch): void {
   const room = rooms.get(watch.room);
   send(room?.viewers.get(watch.id) ?? null, {
@@ -466,7 +468,7 @@ function tellViewer(watch: Watch): void {
     state: watch.state,
     player: watch.playerName,
     playerHere: playerOf(room, watch.sessionId) !== null,
-    ...iceServers(),
+    iceServers: relayServers(ice.servers()),
   });
 }
 
@@ -1233,6 +1235,7 @@ async function confirmed(
 ): Promise<boolean> {
   const ticketId = renter.ticketId;
   if (!ticketId) return false;
+  /** Whether both sides are still connected and seated. */
   const still = () =>
     ws.readyState === ws.OPEN && peer.readyState === peer.OPEN && seated(ws) && seated(peer);
   while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
@@ -1284,7 +1287,9 @@ async function relayWatch(ws: PeerSocket, msg: SignalMessage, arrived: number): 
   // Stopped, or no longer the player's, while the database was asked.
   const now = watches.get(watchId);
   if (!now || now.state !== "watching" || playerOf(rooms.get(watch.room), watch.sessionId) !== player) return;
-  send(peer, { ...msg, watchId } as SignalMessage);
+  // Only what the peer needs, and no address but the relay's (watchIce.ts).
+  const frame = watchFrame(msg, watchId);
+  if (frame) send(peer, frame);
 }
 
 /**

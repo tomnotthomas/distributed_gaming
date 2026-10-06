@@ -29,11 +29,13 @@ const { values } = parseArgs({
   options: {
     "server-port": { type: "string" },
     "harness-port": { type: "string" },
+    "turn-port": { type: "string" },
     out: { type: "string" },
   },
 });
 const SERVER_PORT = Number(values["server-port"]);
 const HARNESS_PORT = Number(values["harness-port"]);
+const TURN_PORT = Number(values["turn-port"]);
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const HTTP = `http://127.0.0.1:${SERVER_PORT}`;
 // Only the VM may talk to the harness: /grant hands out a live session key. run-test.sh
@@ -159,14 +161,26 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
     DATABASE_URL: "",
     // Every game playable, unchecked: the friend's wall must not wait on Steam's verdicts.
     SWIFF_PLAYABILITY: "off",
+    // Watching is relay-only: the relay below, with e2e/scripts/turn.sh's test-only credential.
+    TURN_URLS: `turn:127.0.0.1:${TURN_PORT}`,
+    TURN_USERNAME: "swiff-e2e",
+    TURN_CREDENTIAL: "e2e-only-turn-credential",
   },
   // Its own log beside the results, in this user's build directory, for when it fails.
   stdio: ["ignore", "ignore", openSync(resolve(dirname(values.out), "server.log"), "w")],
 });
 // The server must not outlive the harness, however the harness ends: a normal
 // exit, an uncaught start-up failure, or a signal before stopAll is in place.
+// The TURN relay the renter's and the friend's browsers watch through (TURNSERVER, from run-test.sh).
+const turn = spawn("sh", [resolve(REPO, "e2e/scripts/turn.sh"), String(TURN_PORT)], {
+  env: { ...process.env },
+  stdio: ["ignore", "ignore", "ignore"],
+});
 let stopping = false;
-process.on("exit", () => server.kill());
+process.on("exit", () => {
+  server.kill();
+  turn.kill();
+});
 server.on("exit", (code, signal) => {
   if (!stopping) console.log(`the server exited early (${signal ?? `code ${code}`}); its log is server.log`);
 });
@@ -628,6 +642,7 @@ const stopAll = (code) => {
     `${EXPECTED.length - missing.length - failed.filter((f) => EXPECTED.includes(f)).length}/${EXPECTED.length} expected checks passed`,
   );
   server.kill();
+  turn.kill();
   harness.close();
   process.exit(code ?? (missing.length || failed.length ? 1 : 0));
 };

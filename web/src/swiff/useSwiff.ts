@@ -267,11 +267,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // What crewmates are playing now, to ask to watch (watch.ts).
   const crewLive = useCrewLive({ enabled: signedIn && !demo, tick: live.crewTick });
+  /** Ask to watch the crewmate of `entry`: the watch page takes over. */
   const watch = useCallback((entry: CrewLiveEntry) => {
     track("watch_asked", { game: entry.gameId, sharing: entry.sharing });
     setWatching(entry);
   }, []);
   const reloadCrewLive = crewLive.reload;
+  /** Back to the wall from a watch, with the crew's sessions read again. */
   const stopWatching = useCallback(() => {
     setWatching(null);
     reloadCrewLive();

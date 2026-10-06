@@ -193,6 +193,8 @@ describe("crew live sessions", () => {
   let origin: string;
   let watches: Watches;
   let crewLeft = 0;
+  /** Whether a TURN relay is configured: watching is relay-only. */
+  let relay = true;
   let availabilityChanged = 0;
   const owners = parseMachineOwners(MACHINE_KEYS);
   const access: Access = {
@@ -214,6 +216,7 @@ describe("crew live sessions", () => {
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
         watches,
+        watchRelay: () => relay,
         onCrewLeft: () => crewLeft++,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -228,6 +231,7 @@ describe("crew live sessions", () => {
   beforeEach(async () => {
     now = Date.now();
     crewLeft = 0;
+    relay = true;
     watches = new Watches({ now: () => now });
     availabilityChanged = 0;
     platform = await Platform.open({
@@ -400,6 +404,16 @@ describe("crew live sessions", () => {
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
   });
 
+  it("takes no ask, with a plain answer, while no relay is configured: never direct candidates", async () => {
+    await maraCrew();
+    const { sessionId } = await plays(MARA);
+    relay = false;
+    const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, LEA);
+    assert.equal(asked.status, 503);
+    assert.equal(asked.body.code, "no-relay");
+    assert.deepEqual(watches.all(), []);
+  });
+
   it("says when the session is full, and when a viewer turned down must wait", async () => {
     await maraCrew();
     const { sessionId } = await plays(MARA);
@@ -444,6 +458,14 @@ describe("crew live sessions", () => {
 
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8500 + Math.floor(Math.random() * 400);
+/** A relay candidate, its related address already blank: the only kind that passes between player and viewer. */
+const RELAY_CANDIDATE = "candidate:1 1 udp 41885439 203.0.113.9 50000 typ relay raddr 0.0.0.0 rport 0";
+/** A fake TURN relay the signaling server hands out; nothing here connects to it. */
+const TURN = {
+  urls: "turn:turn.test:3478?transport=udp",
+  username: "test-user",
+  credential: "test-credential",
+};
 const WS_ORIGIN = `ws://localhost:${PORT}`;
 const HTTP = `http://localhost:${PORT}`;
 const ROOMS = Array.from({ length: 30 }, (_, i) => `room-${i}`);
@@ -522,6 +544,10 @@ describe("watching through the signaling server", () => {
         DATABASE_URL: database.url,
         SWIFF_PLAYABILITY: "off",
         SWIFF_TICKET_RECONCILE_MS: "200",
+        // A relay to hand out (none is reached here): watching is relay-only.
+        TURN_URLS: TURN.urls,
+        TURN_USERNAME: TURN.username,
+        TURN_CREDENTIAL: TURN.credential,
       },
       stdio: "ignore",
     });
@@ -730,7 +756,7 @@ describe("watching through the signaling server", () => {
   it("carries nothing between the player and a viewer still asking", async () => {
     const { player, viewer, watchId } = await scene();
     send(player, { type: "offer", sdp: { type: "offer", sdp: "v=0 player" }, watchId });
-    send(viewer, { type: "ice", candidate: { candidate: "candidate:viewer" } });
+    send(viewer, { type: "ice", candidate: { candidate: RELAY_CANDIDATE } });
     await handled(player);
     await handled(viewer);
     assert.ok(!viewer.received.some((m) => m.type === "offer"));
@@ -755,7 +781,7 @@ describe("watching through the signaling server", () => {
 
     // A viewer's frames name no one: the server sends them to the player, as from that viewer.
     send(viewer, { type: "answer", sdp: { type: "answer", sdp: "v=0 viewer" }, watchId: "someone-else" });
-    send(viewer, { type: "ice", candidate: { candidate: "candidate:viewer" } });
+    send(viewer, { type: "ice", candidate: { candidate: RELAY_CANDIDATE } });
     send(viewer, { type: "crew", data: { kind: "voice", inVoice: true, muted: false } });
     // Nothing else a viewer sends goes anywhere: no offer, no game-started, no input.
     send(viewer, { type: "offer", sdp: { type: "offer", sdp: "v=0 viewer" } });
@@ -771,12 +797,82 @@ describe("watching through the signaling server", () => {
       ),
       [
         { type: "answer", sdp: { type: "answer", sdp: "v=0 viewer" }, watchId },
-        { type: "ice", candidate: { candidate: "candidate:viewer" }, watchId },
+        { type: "ice", candidate: { candidate: RELAY_CANDIDATE }, watchId },
         { type: "crew", data: { kind: "voice", inVoice: true, muted: false }, watchId },
       ],
     );
     // The PC never hears of the viewer, nor of anything the player says to them.
     assert.deepEqual(host.received.slice(before), []);
+  });
+
+  it("passes a viewer no address but the relay's: relay candidates only, an SDP stripped of the rest", async () => {
+    const { player, viewer, watchId } = await accepted();
+    const watching = await heard(viewer, isWatching, "watching");
+    // The viewer's connection is relay-only: it is handed the TURN relay and nothing else.
+    assert.deepEqual(watching.iceServers, [{ ...TURN, urls: [TURN.urls] }]);
+
+    const sdp = [
+      "v=0",
+      "o=- 1 2 IN IP4 192.168.1.20",
+      "m=video 9 UDP/TLS/RTP/SAVPF 96",
+      "c=IN IP4 198.51.100.7",
+      "a=rtcp:9 IN IP4 198.51.100.7",
+      "a=candidate:1 1 udp 2122260223 192.168.1.20 54321 typ host generation 0",
+      "a=candidate:2 1 udp 1686052607 198.51.100.7 54321 typ srflx raddr 192.168.1.20 rport 54321",
+      "a=candidate:3 1 udp 41885439 203.0.113.9 50000 typ relay raddr 198.51.100.7 rport 54321",
+      "a=mid:0",
+    ].join("\r\n");
+    send(player, {
+      type: "offer",
+      sdp: { type: "offer", sdp },
+      watchId,
+      extra: "not passed on",
+    } as SignalMessage);
+    const host = "candidate:1 1 udp 2122260223 192.168.1.20 54321 typ host generation 0";
+    const srflx = "candidate:2 1 udp 1686052607 198.51.100.7 54321 typ srflx raddr 192.168.1.20 rport 54321";
+    const relayed = "candidate:3 1 udp 41885439 203.0.113.9 50000 typ relay raddr 198.51.100.7 rport 54321";
+    for (const candidate of [host, srflx, relayed, ""]) {
+      send(player, { type: "ice", candidate: { candidate, sdpMid: "0", sdpMLineIndex: 0 }, watchId });
+    }
+    await handled(player);
+    await wait(100);
+
+    const offer = viewer.received.find((m) => m.type === "offer");
+    assert.deepEqual(offer, {
+      type: "offer",
+      sdp: {
+        type: "offer",
+        sdp: [
+          "v=0",
+          "o=- 1 2 IN IP4 192.168.1.20",
+          "m=video 9 UDP/TLS/RTP/SAVPF 96",
+          "c=IN IP4 0.0.0.0",
+          "a=rtcp:9 IN IP4 0.0.0.0",
+          "a=candidate:3 1 udp 41885439 203.0.113.9 50000 typ relay raddr 0.0.0.0 rport 0",
+          "a=mid:0",
+        ].join("\r\n"),
+      },
+      watchId,
+    });
+    const candidates = viewer.received
+      .filter((m): m is Extract<SignalMessage, { type: "ice" }> => m.type === "ice")
+      .map((m) => m.candidate.candidate);
+    assert.deepEqual(candidates, [
+      "candidate:3 1 udp 41885439 203.0.113.9 50000 typ relay raddr 0.0.0.0 rport 0",
+      "",
+    ]);
+    // Nothing a viewer receives names a host or srflx address.
+    const heardText = JSON.stringify(viewer.received);
+    for (const address of ["192.168.1.20 54321 typ host", "typ srflx", "198.51.100.7"]) {
+      assert.ok(!heardText.includes(address), `a viewer heard ${address}`);
+    }
+
+    // And the same the other way: a viewer's host candidate never reaches the player.
+    send(viewer, { type: "ice", candidate: { candidate: host } });
+    send(viewer, { type: "ice", candidate: { candidate: srflx } });
+    await handled(viewer);
+    await wait(100);
+    assert.ok(!player.received.some((m) => m.type === "ice"));
   });
 
   it("never lets the PC reach a viewer, nor the player's own talk to the PC name one", async () => {

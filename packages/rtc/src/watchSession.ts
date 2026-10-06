@@ -13,7 +13,7 @@
 // for the microphone.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
-import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
+import { createPeerConnection, relayOnly, type IceConfig } from "./peer";
 import { readRenterStats, DEFAULT_STATS_INTERVAL_MS, type RenterStats } from "./renterSession";
 import { connectSignaling, type SignalMessage } from "./signaling";
 import type { CrewSignal, VoicePerson } from "../../../server/src/protocol";
@@ -81,6 +81,7 @@ export type WatchSession = {
  */
 export function startWatchSession(opts: WatchSessionOptions): WatchSession {
   const listeners = new Set<(event: WatchSessionEvent) => void>();
+  /** Report `event` to every listener. */
   const emit = (event: WatchSessionEvent) => listeners.forEach((fn) => fn(event));
   const statsIntervalMs = opts.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS;
   const getMicrophone =
@@ -107,7 +108,9 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
   const voices = new Map<string, HTMLAudioElement>();
   const hushed = new Set<string>();
 
+  /** The viewer's microphone track, once they joined the voice chat. */
   const micTrack = () => mic?.getAudioTracks()[0] ?? null;
+  /** Let the microphone send only while neither the viewer nor the player muted it, and on push to talk while talking. */
   const applyMic = () => {
     const track = micTrack();
     if (track) {
@@ -119,6 +122,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     const data: CrewSignal = { kind: "voice", inVoice: voice.inVoice, muted: voice.muted };
     send?.({ type: "crew", data });
   };
+  /** Apply the microphone and report where the viewer's voice stands. */
   const voiceChanged = () => {
     applyMic();
     emit({ type: "voice", voice: { ...voice, mutedByPlayer } });
@@ -133,6 +137,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     }
   };
 
+  /** Close the connection to the player, and stop playing the voices on it. */
   const teardown = () => {
     clearInterval(statsTimer);
     detach?.abort();
@@ -147,11 +152,14 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     emit({ type: "peer-connection", pc: null });
   };
 
+  /** The player's offer: a fresh relay-only connection, answered. */
   const answer = async (sdp: RTCSessionDescriptionInit, reply: (m: SignalMessage) => void) => {
     teardown();
     const connection = createPeerConnection({
       ...opts,
-      iceServers: opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
+      // Relay-only: the player and a crewmate never learn each other's address.
+      iceServers: relayOnly(opts.iceServers ?? serverIce),
+      forceRelay: true,
     });
     const signal = (detach = new AbortController()).signal;
     pc = connection;
@@ -176,6 +184,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     );
 
     let sawFrame = false;
+    /** Report the first frame of the player's picture, once per connection. */
     const firstFrame = () => {
       if (sawFrame || pc !== connection) return;
       sawFrame = true;
@@ -284,6 +293,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     },
   });
 
+  /** End the watch: hang up, let the microphone go, and say why. */
   function finish(reason: "local" | "denied") {
     if (ended) return;
     ended = true;
@@ -296,10 +306,12 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
   }
 
   return {
+    /** Hear every event from now on; returns a function that stops it. */
     on(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    /** Join the voice chat: the microphone is asked for now, not before. */
     async joinVoice() {
       if (voice.inVoice || ended) return;
       try {
@@ -321,6 +333,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
       tellVoice();
       voiceChanged();
     },
+    /** Leave the voice chat and let the microphone go. */
     leaveVoice() {
       if (!voice.inVoice) return;
       voice.inVoice = false;
@@ -330,28 +343,35 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
       tellVoice();
       voiceChanged();
     },
+    /** Mute or unmute the viewer's own microphone. */
     setMuted(muted) {
       voice.muted = muted;
       tellVoice();
       voiceChanged();
     },
+    /** Open mic or push to talk. */
     setMode(mode) {
       voice.mode = mode;
       voice.talking = false;
       voiceChanged();
     },
+    /** Push to talk: held down or let go. */
     setTalking(talking) {
       if (voice.talking === talking) return;
       voice.talking = talking;
       voiceChanged();
     },
+    /** Mute someone in the voice chat for this viewer alone. */
     muteForMe(id, muted) {
       if (muted) hushed.add(id);
       else hushed.delete(id);
       applyHushed();
     },
+    /** Who is in the voice chat, as the player last said. */
     roster: () => people,
+    /** Where the viewer's own voice stands. */
     voice: () => ({ ...voice, mutedByPlayer }),
+    /** Stop watching and hang up. */
     end: () => finish("local"),
   };
 }

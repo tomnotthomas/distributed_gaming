@@ -63,8 +63,11 @@ export type WatchGrant = {
   ticket: string;
 };
 
-/** Why asking to watch did not go through. */
-export type AskRefusal = "gone" | "full" | "cooldown" | "failed";
+/**
+ * Why asking to watch did not go through. `no-relay`: watching is relay-only,
+ * so neither side learns the other's address, and this Swiff has no relay.
+ */
+export type AskRefusal = "gone" | "full" | "cooldown" | "no-relay" | "failed";
 
 /** Ask to watch a crewmate's session: a watch ticket, or why not. */
 export async function askToWatch(
@@ -77,6 +80,10 @@ export async function askToWatch(
     if (res.status === 404) return { ok: false, reason: "gone" };
     if (res.status === 409) return { ok: false, reason: "full" };
     if (res.status === 429) return { ok: false, reason: "cooldown" };
+    if (res.status === 503) {
+      const body = (await res.json().catch(() => null)) as { code?: string } | null;
+      if (body?.code === "no-relay") return { ok: false, reason: "no-relay" };
+    }
     return { ok: false, reason: "failed" };
   } catch {
     return { ok: false, reason: "failed" };
@@ -99,6 +106,7 @@ export function useCrewLive({
   const pending = useRef<ReturnType<typeof setTimeout>>();
   const read = useRef(0);
 
+  /** Read the crew's live sessions again, at most every MIN_GAP_MS. */
   const reload = useCallback(() => {
     if (!enabled || pending.current !== undefined) return;
     const wait = Math.max(0, lastRead.current + MIN_GAP_MS - Date.now());
@@ -201,6 +209,7 @@ export function useWatching(
     let gone = false;
     let current: WatchSession | null = null;
     setState(initial(null));
+    /** Merge `next` into the state, unless the watch is gone. */
     const set = (next: Partial<WatchState>) => !gone && setState((s) => ({ ...s, ...next }));
 
     void askToWatch(sessionId, deps.current.get).then((asked) => {
@@ -243,6 +252,7 @@ export function useWatching(
     };
   }, [sessionId, video]);
 
+  /** Mute someone in the voice chat for this viewer alone, and remember it. */
   const muteForMe = useCallback(
     (id: string, muted: boolean) => {
       session?.muteForMe(id, muted);
@@ -257,6 +267,7 @@ export function useWatching(
   return { state, session, muteForMe };
 }
 
+/** A watch just asked for, of `player`'s session. */
 const initial = (player: string | null): WatchState => ({
   phase: "asking-server",
   player,
@@ -287,6 +298,8 @@ export function endedLine(ended: WatchState["ended"], player: string): string {
       return `As many friends as can are watching ${player} already.`;
     case "cooldown":
       return `You asked ${player} a moment ago. Give it a minute.`;
+    case "no-relay":
+      return "Watching isn't available here yet. It needs Swiff's relay, which keeps your addresses private.";
     case "watch-replaced":
       return "You're watching in another tab.";
     default:

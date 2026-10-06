@@ -22,8 +22,8 @@ peer-to-peer path costs nothing.
 | How                  | The PC uploads once to an SFU, which forwards a copy to each viewer                                                                                                      | The PC opens one more peer connection per viewer                                                                     | The player's page passes on what it receives, on its own connection to each viewer   |
 | PC upload            | Flat: one stream                                                                                                                                                         | +10 Mbit/s per viewer (the Swiff OS streamer can send the same encoded packets again; the desktop app encodes again) | Flat: one stream, as today                                                           |
 | Player upload        | None                                                                                                                                                                     | None                                                                                                                 | +2.5 Mbit/s per viewer, at most 4 viewers (10 Mbit/s)                                |
-| Cost per viewer-hour | Every viewer's copy leaves the SFU: 4.5 GB, so USD 0.225 past the free tier (or 1.125 GB, USD 0.056, with a second, smaller layer from the PC)                           | Free direct; USD 0.225 when the viewer's path needs TURN                                                             | Free direct; 1.125 GB, USD 0.056, when the viewer's path needs TURN                  |
-| Free tier lasts      | ~222 viewer-hours a month at full quality                                                                                                                                | ~222 relayed viewer-hours                                                                                            | ~889 relayed viewer-hours                                                            |
+| Cost per viewer-hour | Every viewer's copy leaves the SFU: 4.5 GB, so USD 0.225 past the free tier (or 1.125 GB, USD 0.056, with a second, smaller layer from the PC)                           | Free direct; USD 0.225 when the viewer's path needs TURN                                                             | Always relayed (relay-only, for privacy): 1.125 GB, USD 0.056                        |
+| Free tier lasts      | ~222 viewer-hours a month at full quality                                                                                                                                | ~222 relayed viewer-hours                                                                                            | ~889 viewer-hours                                                                    |
 | New service          | Cloudflare Realtime SFU needs an account and an app; a self-run SFU needs a server with public UDP, and Swiff's server sits behind cloudflared (HTTP and WebSocket only) | None                                                                                                                 | None                                                                                 |
 | Viewers and the PC   | Through the SFU                                                                                                                                                          | Each viewer is a peer of the input-taking streamer, and learns its address                                           | The PC never hears of a viewer; no viewer frame reaches it                           |
 | Viewer picture       | Full                                                                                                                                                                     | Full, or a second encode                                                                                             | 720p-ish at 30 fps, one more decode and encode (tens of ms, unnoticed when watching) |
@@ -47,12 +47,22 @@ untouched: a viewer cannot send input because nothing that takes input is ever c
 to them. The voice chat rides the same connections, with the player's page passing each
 viewer's voice on to the others.
 
-## Relay dependency
+## Relay-only, and the relay dependency
 
-The TURN relay (`fm/swiff-turn-relay`) is not merged. Viewer connections use the same
-provider-neutral ICE settings as everything else: the default STUN plus whatever the
-server hands out in `joined` and `watching` (`server/src/ice.ts`). Until a relay is
-configured, a viewer on a network with no direct path to the player (carrier NAT on both
-ends, strict networks) cannot connect, as a player on such a network cannot reach a PC.
-When the relay lands with credentials minted per seat and bound to the session, viewer
-seats need theirs minted the same way, bound to the watch.
+A viewer's connection, picture, game sound and voice alike, is relay-only: both the
+player's page and the viewer's gather nothing but TURN candidates (`iceTransportPolicy:
+"relay"`, the server's TURN servers and no STUN), so a crewmate never learns the player's IP
+address, nor the player theirs. The server holds them to it (`server/src/watchIce.ts`): it
+passes on only the fields a frame needs, drops every host, srflx and prflx candidate, and
+strips an SDP of everything but its relay candidates, with their related addresses and the
+connection lines blanked. So every viewer-hour goes through TURN: 1.125 GB, about USD 0.056
+past the free tier, and the free tier lasts about 889 viewer-hours a month. The voice lines
+add a few MB.
+
+Without a TURN server there is no watching: asking answers 503 `no-relay`, and the wall
+says plainly that watching is not available yet. It never falls back to direct candidates.
+
+The TURN relay (`fm/swiff-turn-relay`) is not merged. Until it is, the server hands out
+whatever `server/src/ice.ts` is configured with (TURN_KEY_ID and TURN_KEY_API_TOKEN, or
+TURN_URLS). When the relay lands with credentials minted per seat and bound to the session,
+viewer seats need theirs minted the same way, bound to the watch.

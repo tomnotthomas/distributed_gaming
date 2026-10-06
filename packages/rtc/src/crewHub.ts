@@ -23,7 +23,7 @@
 // stream shows the game (`setLive`), nothing is sent on.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
-import { createPeerConnection, DEFAULT_ICE_SERVERS, type IceConfig } from "./peer";
+import { createPeerConnection, relayOnly, type IceConfig } from "./peer";
 import type { SignalMessage } from "./signaling";
 import { MAX_WATCHERS, type CrewSignal, type VoicePerson, type Watcher } from "../../../server/src/protocol";
 
@@ -123,6 +123,7 @@ type Link = {
   muted: boolean;
 };
 
+/** Start the player's crew hub: one for the whole play, handed to every connection it makes. */
 export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   let send: ((msg: SignalMessage) => void) | null = null;
   let serverIce: RTCIceServer[] = [];
@@ -148,6 +149,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
         video: false,
       }));
 
+  /** Who watches and where the voice chat stands, as the player's page shows it. */
   const state = (): CrewHubState => ({
     sharing,
     voice: { ...voice },
@@ -163,12 +165,15 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       };
     }),
   });
+  /** Tell the page the hub's state changed. */
   const changed = () => opts.onChange?.(state());
 
+  /** Send `msg` on the player's signaling socket, while it is attached. */
   const say = (msg: SignalMessage) => send?.(msg);
 
   /** The player's microphone track, sending only while they mean it to. */
   const micTrack = () => mic?.getAudioTracks()[0] ?? null;
+  /** Let the microphone send only while unmuted, and on push to talk only while talking. */
   const applyMic = () => {
     const track = micTrack();
     if (track) track.enabled = !voice.muted && (voice.mode === "open" || voice.talking);
@@ -197,6 +202,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   /** Tell each viewer who is in the voice chat, and which of their transceivers carries whom. */
   const roster = () => {
     const order = watchers.filter((w) => links.has(w.watchId)).map((w) => links.get(w.watchId)!);
+    /** One viewer as the roster names them, on transceiver `mid` of the connection it is sent on. */
     const person = (link: Link, mid: string | null): VoicePerson => ({
       id: link.watchId,
       name: watchers.find((w) => w.watchId === link.watchId)?.name ?? null,
@@ -237,7 +243,9 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   const connect = async (watchId: string) => {
     const pc = createPeerConnection({
       ...opts,
-      iceServers: opts.iceServers ?? [...DEFAULT_ICE_SERVERS, ...serverIce],
+      // Relay-only: the player and a crewmate never learn each other's address.
+      iceServers: relayOnly(opts.iceServers ?? serverIce),
+      forceRelay: true,
     });
     const video = pc.addTransceiver("video", {
       direction: "sendonly",
@@ -325,6 +333,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
     changed();
   };
 
+  /** A frame from a viewer, by the server's own `watchId`: their answer, a candidate, or their voice. */
   const fromViewer = (msg: SignalMessage) => {
     if (!("watchId" in msg) || typeof msg.watchId !== "string") return;
     const link = links.get(msg.watchId);
@@ -343,10 +352,12 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
   };
 
   return {
+    /** Send on `next` from now on: the player's current signaling socket. */
     attach(next) {
       send = next;
       reconcile();
     },
+    /** A frame for the hub: who watches, the server's ICE servers, or a viewer's. */
     message(msg) {
       if (ended) return;
       if (msg.type === "watchers") {
@@ -357,25 +368,31 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
         serverIce = msg.iceServers ?? [];
       } else fromViewer(msg);
     },
+    /** The picture or the game's sound the player's page plays, to pass on. */
     source(track) {
       if (track.kind === "video") sources.video = track;
       else if (track.kind === "audio") sources.audio = track;
       wire();
     },
+    /** Whether the game is on screen: viewers get it only while it is. */
     setLive(next) {
       if (live === next) return;
       live = next;
       wire();
     },
+    /** The player's yes or no to a viewer asking. */
     answer(watchId, accept) {
       say({ type: "watch-answer", watchId, accept });
     },
+    /** The player stops a viewer watching. */
     stop(watchId) {
       say({ type: "watch-stop", watchId });
     },
+    /** The player opens their screen to the crew, or closes it. */
     share(open) {
       say({ type: "watch-share", open });
     },
+    /** Join the voice chat: the microphone is asked for now, not before. */
     async joinVoice() {
       if (voice.inVoice || ended) return;
       try {
@@ -396,6 +413,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       wire();
       changed();
     },
+    /** Leave the voice chat and let the microphone go. */
     leaveVoice() {
       if (!voice.inVoice) return;
       voice.inVoice = false;
@@ -404,30 +422,35 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       wire();
       changed();
     },
+    /** Mute or unmute the player's own microphone. */
     setMuted(muted) {
       voice.muted = muted;
       applyMic();
       roster();
       changed();
     },
+    /** Open mic or push to talk. */
     setMode(mode) {
       voice.mode = mode;
       voice.talking = false;
       applyMic();
       changed();
     },
+    /** Push to talk: held down or let go. */
     setTalking(talking) {
       if (voice.talking === talking) return;
       voice.talking = talking;
       applyMic();
       changed();
     },
+    /** Mute a viewer for the player alone. */
     muteForMe(watchId, muted) {
       if (muted) hushed.add(watchId);
       else hushed.delete(watchId);
       wire();
       changed();
     },
+    /** Mute a viewer for everyone: nobody hears them until the player lets them speak. */
     muteForAll(watchId, muted) {
       if (muted) silenced.add(watchId);
       else silenced.delete(watchId);
@@ -435,6 +458,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
       changed();
     },
     state,
+    /** Hang up on every viewer and let the microphone go. */
     end() {
       if (ended) return;
       ended = true;

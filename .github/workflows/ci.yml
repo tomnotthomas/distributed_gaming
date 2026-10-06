@@ -151,7 +151,17 @@ jobs:
         run: npx playwright install-deps chromium
         if: steps.pw-cache.outputs.cache-hit == 'true'
 
+      # Watching a crewmate is relay-only (server/src/watchIce.ts), so
+      # web.watch.spec.ts needs a TURN relay: coturn, on this runner only.
+      - name: Start a TURN relay
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends coturn
+          nohup e2e/scripts/turn.sh 3479 > "$RUNNER_TEMP/turn.log" 2>&1 &
+
       - run: npm run test:e2e:web
+        env:
+          E2E_TURN_URL: turn:127.0.0.1:3479
 
       - uses: actions/upload-artifact@v4
         if: failure()

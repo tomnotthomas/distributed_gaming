@@ -66,6 +66,22 @@ const sentOf = <T extends SignalMessage["type"]>(type: T) =>
   socket().messages.filter((m): m is Extract<SignalMessage, { type: T }> => m.type === type);
 
 describe("startWatchSession", () => {
+  it("connects to the player relay-only, through the TURN relay alone, so neither learns the other's address", async () => {
+    start();
+    const turn = { urls: ["turns:relay.test:5349"], username: "u", credential: "c" };
+    socket().deliver({
+      type: "watching",
+      watchId: "w1",
+      state: "watching",
+      player: "Mara",
+      playerHere: true,
+      iceServers: [{ urls: ["stun:stun.test"] }, turn],
+    });
+    socket().deliver({ type: "offer", sdp: OFFER, watchId: "w1" });
+    await flush();
+    expect(peer().config).toMatchObject({ iceTransportPolicy: "relay", iceServers: [turn] });
+  });
+
   it("takes its seat with the watch ticket and says where the watch stands", () => {
     const { events } = start();
     expect(socket().messages).toEqual([{ type: "watch", ticket: TICKET }]);

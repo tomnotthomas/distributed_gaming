@@ -297,6 +297,7 @@ export function createRenterEvents(
       }
     },
 
+    /** Send every open availability stream a crew event. */
     crewChanged() {
       for (const res of [...watching]) if (!signedOut(res)) write(res, CREW_EVENT);
     },

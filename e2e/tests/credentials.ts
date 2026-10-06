@@ -21,7 +21,18 @@ export const E2E_SEAT_PC_OWNER = "76561198000000201";
 const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 const E2E_SESSION_SECRET = "e2e-session-secret-that-is-long-enough-to-pass";
 
+/**
+ * Where a TURN relay listens for watching a crewmate, which is relay-only
+ * (server/src/watchIce.ts): e2e/scripts/turn.sh starts one with the test-only
+ * credential below, and CI sets this. Unset: no relay, and watching says so.
+ */
+export const E2E_TURN_URL = process.env.E2E_TURN_URL ?? "";
+const E2E_TURN: Record<string, string> = E2E_TURN_URL
+  ? { TURN_URLS: E2E_TURN_URL, TURN_USERNAME: "swiff-e2e", TURN_CREDENTIAL: "e2e-only-turn-credential" }
+  : {};
+
 export const E2E_ENV = {
+  ...E2E_TURN,
   ROOM_SECRET: E2E_SECRET,
   // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
   SESSION_SECRET: E2E_SESSION_SECRET,

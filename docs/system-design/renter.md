@@ -924,7 +924,8 @@ POST /crew-live/:sessionId/watch
   → 404 when no crewmate of theirs plays that session now, or it is still starting. → 409 { code: "full" } when
   4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
   Retry-After for 60 s after the player said no, did not answer, or stopped them.
-  → 503 when ROOM_SECRET is not set. → 401 signed out.
+  → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN server is
+  configured, since watching is relay-only (the viewer is told plainly). → 401 signed out.
 ```
 
 The watch state (`server/src/watch.ts`) lives in the signaling process beside the rooms:
@@ -976,7 +977,11 @@ button or V, since a viewer's keyboard reaches nothing else), mutes themselves, 
 anyone for themselves alone. The player can mute anyone for everyone: their voice is no
 longer passed on, and they are told. Every transceiver is there from the first offer, so
 joining, leaving, muting and viewers coming and going only swap tracks. Voices go between
-the pages (or through the TURN relay), never through the server, and nothing is recorded.
+the pages through the TURN relay, never through the server, and nothing is recorded. Every
+watch connection is relay-only (`iceTransportPolicy: "relay"`, TURN servers only), and the
+server passes on only relay candidates and an SDP stripped of every other address
+(`server/src/watchIce.ts`): a crewmate never learns the player's IP address, nor the player
+theirs. Without a TURN server, there is no watching.
 The player hears the game and the crew; viewers hear the game and the crew.
 
 On the wall, a band names each crewmate playing now with Ask to watch (Watch when they

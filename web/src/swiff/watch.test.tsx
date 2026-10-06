@@ -249,6 +249,11 @@ describe("watching", () => {
     expect(await askToWatch("s1", fetchAnswering(404, {}))).toEqual({ ok: false, reason: "gone" });
     expect(await askToWatch("s1", fetchAnswering(409, {}))).toEqual({ ok: false, reason: "full" });
     expect(await askToWatch("s1", fetchAnswering(429, {}))).toEqual({ ok: false, reason: "cooldown" });
+    expect(await askToWatch("s1", fetchAnswering(503, { code: "no-relay" }))).toEqual({
+      ok: false,
+      reason: "no-relay",
+    });
+    expect(await askToWatch("s1", fetchAnswering(503, {}))).toEqual({ ok: false, reason: "failed" });
     const get = fetchAnswering(200, {
       watchId: "w1",
       state: "asking",
@@ -290,6 +295,9 @@ describe("watching", () => {
     expect(endedLine("watch-declined", "Mara")).toBe("Mara would rather play alone right now.");
     expect(endedLine("watch-stopped", "Mara")).toBe("Mara stopped sharing with you.");
     expect(endedLine("not-crew", "Mara")).toBe("You're no longer in a crew with Mara.");
+    expect(endedLine("no-relay", "Mara")).toBe(
+      "Watching isn't available here yet. It needs Swiff's relay, which keeps your addresses private.",
+    );
     for (const reason of ["watch-unanswered", "watch-ended", "full", "cooldown", null] as const) {
       expect(endedLine(reason, "Mara")).not.toMatch(/[—–]/);
     }

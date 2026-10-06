@@ -81,6 +81,7 @@ export class Watches {
   /** Sessions whose game the PC has said is on screen (game-started): the player sees an ask from then on. */
   readonly #onScreen = new Set<string>();
 
+  /** Watches with the clock and limits of `opts`, the defaults otherwise (tests set them). */
   constructor(opts: WatchesOptions = {}) {
     this.#now = opts.now ?? Date.now;
     this.#askMs = opts.askMs ?? ASK_MS;
@@ -233,6 +234,7 @@ export class Watches {
     if (watch && watch.awaySince === null) watch.awaySince = at;
   }
 
+  /** The viewer's page is back in the room: their watch stays. */
   back(watchId: string): void {
     const watch = this.#byId.get(watchId);
     if (watch) watch.awaySince = null;
@@ -257,6 +259,7 @@ export class Watches {
     return ended;
   }
 
+  /** The watches of `sessionId`, made when it has none yet. */
   #session(sessionId: string): SessionWatches {
     let session = this.#sessions.get(sessionId);
     if (!session) {

@@ -33,6 +33,7 @@ export function CrewLiveBand({ swiff }: { swiff: Swiff }) {
   );
 }
 
+/** One crewmate playing now: who, what and where, with Ask to watch (Watch when they share) once their game is on screen. */
 function CrewLiveLine({
   entry,
   game,
@@ -238,6 +239,7 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
   );
 }
 
+/** One viewer in the player's panel: asking or watching, in the voice chat or not, with the player's say over them. */
 function WatcherRow({ watcher, hub }: { watcher: WatcherView; hub: CrewHub }) {
   const name = nameOf(watcher.name);
   return (
@@ -283,15 +285,19 @@ function WatcherRow({ watcher, hub }: { watcher: WatcherView; hub: CrewHub }) {
 export function usePushKey(key: string, on: boolean, onTalk: (talking: boolean) => void) {
   useEffect(() => {
     if (!on) return;
+    /** Whether the key went to a text field, where it types rather than talks. */
     const typing = (e: KeyboardEvent) =>
       e.target instanceof HTMLElement && e.target.closest("input, textarea, [contenteditable]") !== null;
+    /** The push-to-talk key goes down: talk. */
     const down = (e: KeyboardEvent) => {
       if (e.code !== key || e.repeat || typing(e)) return;
       onTalk(true);
     };
+    /** The push-to-talk key comes up: stop talking. */
     const up = (e: KeyboardEvent) => {
       if (e.code === key) onTalk(false);
     };
+    /** The page lost focus with the key held: stop talking. */
     const blur = () => onTalk(false);
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);

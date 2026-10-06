@@ -199,6 +199,11 @@ export type ApiOptions = {
   heldUntil?: (machineId: string) => number | null;
   /** Who asked to watch which session (watch.ts). Without it the crew-live routes are not served. */
   watches?: Watches;
+  /**
+   * Whether a TURN relay is configured now: a watch connection is relay-only
+   * (watchIce.ts), so without one nobody can ask to watch. Unset: none.
+   */
+  watchRelay?: () => boolean;
   /** Someone left a crew or was removed from one: whoever watches across it stops. */
   onCrewLeft?: () => void;
 };
@@ -487,6 +492,7 @@ export function createApi({
   onRenterStarted,
   heldUntil = () => null,
   watches,
+  watchRelay,
   onCrewLeft,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
@@ -847,6 +853,14 @@ export function createApi({
       // Behind Ignition the player would never see the ask: only once the game is on screen.
       if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {
         throw new HttpError(404, "no crewmate of yours is playing that session");
+      }
+      // Relay-only, so neither side learns the other's address: no relay, no watching.
+      if (!watchRelay?.()) {
+        reply(res, 503, {
+          error: "watching needs Swiff's relay, which is not set up here",
+          code: "no-relay",
+        });
+        return true;
       }
       // The player sees them by their Steam persona, when Steam answers.
       const read = await profile(steamId).catch(() => null);

@@ -64,6 +64,20 @@ const rosterFor = (watchId: string) => {
 };
 
 describe("startCrewHub", () => {
+  it("connects to a viewer relay-only, through the TURN relay alone, so neither learns the other's address", async () => {
+    const crew = hub();
+    const turn = { urls: ["turn:relay.test:3478"], username: "u", credential: "c" };
+    crew.message({
+      type: "joined",
+      hostId: "pc-1",
+      hostOnline: true,
+      iceServers: [{ urls: "stun:stun.test" }, turn],
+    });
+    crew.message(watchers(watcher("lea")));
+    await flush();
+    expect(peerFor(0).config).toMatchObject({ iceTransportPolicy: "relay", iceServers: [turn] });
+  });
+
   it("offers a viewer the picture, the game, a voice line and voice slots, and no data channel at all", async () => {
     const crew = hub();
     crew.message(watchers(watcher("lea")));

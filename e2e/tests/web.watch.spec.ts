@@ -8,8 +8,15 @@
 // stats: the voice energy each side receives, and that no viewer connection
 // ever carries a data channel.
 
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { signIn } from "./credentials";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
+import { E2E_TURN_URL, signIn } from "./credentials";
 import { failOnPageError, fakeScreenCapture, offerHost, startHost } from "./hosts";
 
 test.describe.configure({ mode: "serial" });
@@ -63,6 +70,25 @@ const voiceEnergy = (page: Page, mid: string, onlyViewerLinks = false) =>
     { mid, onlyViewerLinks },
   );
 
+/** The candidate types of the page's open connections' selected pairs, local and remote, deduplicated. */
+const candidateTypes = (page: Page) =>
+  page.evaluate(async () => {
+    const local = new Set<string>();
+    const remote = new Set<string>();
+    for (const pc of (window as unknown as { __kept: RTCPeerConnection[] }).__kept) {
+      if (pc.connectionState !== "connected") continue;
+      const stats = new Map<string, { type: string; [k: string]: unknown }>();
+      (await pc.getStats()).forEach((s: { id: string; type: string }) => stats.set(s.id, s));
+      for (const s of stats.values()) {
+        if (s.type !== "transport" || typeof s.selectedCandidatePairId !== "string") continue;
+        const pair = stats.get(s.selectedCandidatePairId);
+        local.add(String(stats.get(String(pair?.localCandidateId))?.candidateType));
+        remote.add(String(stats.get(String(pair?.remoteCandidateId))?.candidateType));
+      }
+    }
+    return { local: [...local], remote: [...remote] };
+  });
+
 /** Wake the player's HUD, which the crew panel hides with, so the next click lands on it. */
 async function wakeHud(page: Page) {
   await page.mouse.move(400, 300);
@@ -88,15 +114,11 @@ test.describe("watching a friend play", () => {
     await new Promise((r) => setTimeout(r, 400));
   });
 
-  test("a crewmate asks, the player says yes, the crewmate watches view only, and they talk both ways", async ({
-    browser,
-    baseURL,
-    request,
-  }) => {
-    test.setTimeout(180_000);
+  /** The friend joins the player's crew, and the player launches on the PC and plays. */
+  async function playerPlays(browser: Browser, baseURL: string, request: APIRequestContext) {
     await offerHost(request, true);
-    const player = await openPage(browser, PLAYER, baseURL!);
-    const friend = await openPage(browser, FRIEND, baseURL!);
+    const player = await openPage(browser, PLAYER, baseURL);
+    const friend = await openPage(browser, FRIEND, baseURL);
     const playerErrors = failOnPageError(player, "player");
     const friendErrors = failOnPageError(friend, "friend");
 
@@ -137,6 +159,24 @@ test.describe("watching a friend play", () => {
         return ((await (await fetch(`/api/bookings/${play.bookingId}`)).json()) as { status: string }).status;
       });
     await expect.poll(playing, { timeout: 15_000 }).toBe("playing");
+    return { player, friend, host, playing, playerErrors, friendErrors };
+  }
+
+  test("a crewmate asks, the player says yes, the crewmate watches view only, and they talk both ways", async ({
+    browser,
+    baseURL,
+    request,
+  }) => {
+    test.skip(
+      !E2E_TURN_URL,
+      "watching is relay-only: start e2e/scripts/turn.sh and set E2E_TURN_URL (CI does)",
+    );
+    test.setTimeout(180_000);
+    const { player, friend, host, playing, playerErrors, friendErrors } = await playerPlays(
+      browser,
+      baseURL!,
+      request,
+    );
 
     // The friend sees who is playing, and asks to watch.
     await friend.reload();
@@ -159,6 +199,8 @@ test.describe("watching a friend play", () => {
       })
       .toBeGreaterThan(0);
     await expect(friend.getByTestId("watch")).toHaveAttribute("data-phase", "watching");
+    // Relay-only: the friend's connection knows no address of the player's but the relay's.
+    expect(await candidateTypes(friend)).toEqual({ local: ["relay"], remote: ["relay"] });
     // View only: no data channel on any connection of the friend's, made or offered.
     expect(await friend.evaluate(() => (window as unknown as { __channels: string[] }).__channels)).toEqual(
       [],
@@ -197,6 +239,28 @@ test.describe("watching a friend play", () => {
     await player.getByRole("button", { name: "End session" }).click();
     await expect(player.getByTestId("session")).toHaveCount(0);
     expect(host).toBeTruthy();
+    expect(playerErrors).toEqual([]);
+    expect(friendErrors).toEqual([]);
+  });
+
+  test("without a relay, says plainly that watching is not available", async ({
+    browser,
+    baseURL,
+    request,
+  }) => {
+    test.skip(Boolean(E2E_TURN_URL), "a relay is configured: the test above watches through it");
+    test.setTimeout(120_000);
+    const { player, friend, playerErrors, friendErrors } = await playerPlays(browser, baseURL!, request);
+    await friend.reload();
+    const line = friend.getByTestId("crew-live-line");
+    await expect(line).toContainText("is playing", { timeout: 30_000 });
+    await line.getByRole("button", { name: "Ask to watch" }).click();
+    await expect(friend.getByTestId("watch-wait")).toContainText("Watching isn't available here yet");
+    // The player is never asked, and no connection is made to anyone for it.
+    await expect(player.getByTestId("crew-asks")).toHaveCount(0);
+    expect(await friend.evaluate(() => (window as unknown as { __kept: unknown[] }).__kept.length)).toBe(0);
+    await wakeHud(player);
+    await player.getByRole("button", { name: "End session" }).click();
     expect(playerErrors).toEqual([]);
     expect(friendErrors).toEqual([]);
   });
