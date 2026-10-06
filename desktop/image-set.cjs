@@ -231,6 +231,8 @@ const X509 = Buffer.from("a159c0a5e494a74a87b5ab155c2bf072", "hex");
 // the release's and a developer's alike, and is unlocked with the passphrase in
 // $SWIFF_OS_KEY_PASSPHRASE. A key file that is not encrypted is refused.
 const ENCRYPTED_PEM = "-----BEGIN ENCRYPTED PRIVATE KEY-----";
+const DEV_KEY_WAY_OUT =
+  "A developer key can be deleted: image-set.sh then makes a new one (rebuild the test build so it trusts the new image-trust.dev.json).";
 
 function passphraseOf(passphrase) {
   if (!passphrase) throw new Error("Set SWIFF_OS_KEY_PASSPHRASE to the image signing key's passphrase.");
@@ -242,13 +244,13 @@ function signingKeyOf(key, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
   const pem = fs.readFileSync(key, "utf8");
   if (!pem.includes(ENCRYPTED_PEM))
     throw new Error(
-      `The image signing key in ${key} is not encrypted: keep it as an encrypted PKCS#8 file (\`image-set.cjs devkey\` makes one).`,
+      `The image signing key in ${key} is not encrypted: keep it as an encrypted PKCS#8 file (\`image-set.cjs devkey\` makes one). ${DEV_KEY_WAY_OUT}`,
     );
   try {
     return crypto.createPrivateKey({ key: pem, format: "pem", passphrase: passphraseOf(passphrase) });
   } catch (error) {
     if (!passphrase) throw error;
-    throw new Error(`The passphrase does not unlock the image signing key in ${key}.`);
+    throw new Error(`The passphrase does not unlock the image signing key in ${key}. ${DEV_KEY_WAY_OUT}`);
   }
 }
 

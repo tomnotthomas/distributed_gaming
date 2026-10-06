@@ -36,5 +36,8 @@ prototypes/credential-provider/**/out/
 prototypes/isolation-proof/**/out/
 prototypes/session-splash/**/build/
 
+# Python bytecode
+__pycache__/
+
 # local secrets
 .env

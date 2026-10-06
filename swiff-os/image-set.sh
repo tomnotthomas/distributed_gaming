@@ -67,9 +67,16 @@ die() {
 	exit 1
 }
 for tool in node mcopy mmd minfo; do command -v "$tool" > /dev/null || die "$tool not found"; done
+key=${SWIFF_OS_SIGNING_KEY:-}
+[ -n "$key" ] || key=${XDG_CONFIG_HOME:-$HOME/.config}/swiff/image-dev-key.pem
 if [ -z "${SWIFF_OS_KEY_PASSPHRASE:-}" ] && [ -t 0 ]; then
 	read -rsp "Passphrase of the image signing key: " SWIFF_OS_KEY_PASSPHRASE
 	echo
+	if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ] && [ ! -e "$key" ]; then
+		read -rsp "The same passphrase again, for the new key: " again
+		echo
+		[ "$again" = "$SWIFF_OS_KEY_PASSPHRASE" ] || die "the two passphrases differ: no key was made"
+	fi
 fi
 [ -n "${SWIFF_OS_KEY_PASSPHRASE:-}" ] || die "set SWIFF_OS_KEY_PASSPHRASE to the image signing key's passphrase"
 export SWIFF_OS_KEY_PASSPHRASE
@@ -114,9 +121,7 @@ for split in root-x86-64 root-x86-64-verity; do
 	cp --sparse=always "$build/$name.$split.raw" "$out/swiffos_$version.$split.raw"
 done
 node "$desktop/image-set.cjs" manifest "$out" "$build/$name.raw" "$version"
-key=${SWIFF_OS_SIGNING_KEY:-}
-if [ -z "$key" ]; then
-	key=${XDG_CONFIG_HOME:-$HOME/.config}/swiff/image-dev-key.pem
+if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ]; then
 	[ -e "$key" ] || node "$desktop/image-set.cjs" devkey "$key"
 	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$desktop/image-trust.dev.json"
 fi

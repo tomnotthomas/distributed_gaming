@@ -46,7 +46,7 @@ describe("the image signing key", () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     fs.writeFileSync(key, privateKey.export({ type: "pkcs8", format: "pem" }));
 
-    expect(() => signManifest(dir, key, "pass")).toThrow(/not encrypted/);
+    expect(() => signManifest(dir, key, "pass")).toThrow(/not encrypted.*developer key can be deleted/);
     expect(() => trustEntry(key, path.join(dir, "swiffos-key.cer"), "pass")).toThrow(/not encrypted/);
     expect(fs.existsSync(path.join(dir, SIGNATURE))).toBe(false);
   });
@@ -56,7 +56,7 @@ describe("the image signing key", () => {
     newSigningKey(key, "right");
 
     expect(() => signManifest(dir, key, "")).toThrow(/SWIFF_OS_KEY_PASSPHRASE/);
-    expect(() => signManifest(dir, key, "wrong")).toThrow(/does not unlock/);
+    expect(() => signManifest(dir, key, "wrong")).toThrow(/does not unlock.*developer key can be deleted/);
     expect(fs.existsSync(path.join(dir, SIGNATURE))).toBe(false);
   });
 });
