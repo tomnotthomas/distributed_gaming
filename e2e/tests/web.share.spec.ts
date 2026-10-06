@@ -74,7 +74,7 @@ test.describe("share your PC", () => {
     const trust = page.locator("#trust");
     await expect(trust).toBeInViewport();
     await expect(trust).toContainText("Swiff never reads, sends or keeps it");
-    await expect(trust).toContainText("Remove it in one click");
+    await expect(trust).toContainText("One click starts its removal");
     await expect(trust).toContainText("SHA-256 is published here with it");
     await expect(page.getByTestId("share")).toBeVisible();
   });

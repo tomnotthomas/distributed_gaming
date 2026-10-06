@@ -67,6 +67,8 @@ describe("SharePC", () => {
     expect(trust.getByText(sha)).toBeInTheDocument();
     expect(trust.getByText("b".repeat(64))).toBeInTheDocument();
     expect(trust.getByText(/Swiff never reads, sends or keeps it/)).toBeInTheDocument();
+    expect(trust.getByRole("heading", { name: "One click starts its removal" })).toBeInTheDocument();
+    expect(trust.getByText(/confirm once on a blue screen during a restart/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Check the download" })).toHaveAttribute("href", "#trust");
   });
 

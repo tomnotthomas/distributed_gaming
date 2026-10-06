@@ -490,6 +490,17 @@ const checkedLink = (read: RentalRead, target: string | null): More => ({
   ),
 });
 
+/** Remove Swiff OS's disk part, going on by itself after its key's restart. */
+const continuesRemoval = (plan: RentalPlan, read: RentalRead | null): boolean =>
+  plan.kind === "remove" && plan.phase === "disk" && read?.removal?.state === "finish";
+
+/** The quiet way back to the key's removal, should its blue screen not have taken the code. */
+const rekeyLink = (actions: ScreenProps["actions"]): More => ({
+  id: "rekey",
+  label: "The blue screen didn't take the code",
+  onClick: () => actions.previewRental("remove", { key: true }),
+});
+
 const planLink = (plan: RentalPlan): More => ({
   id: "steps",
   label: `${plan.kind === "install" ? "What the install does" : removesDisk(plan) ? "What removing does" : "What the restart does"}, ${plan.steps.length} steps`,
@@ -811,24 +822,17 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       break;
     }
     case "finish":
-      title = "Finish removing Swiff OS";
+      title = "Finishing removing Swiff OS";
       line =
-        "Windows asks once more for permission. Then Swiff OS comes off the disk, and its space goes back to Windows.";
-      action = (
-        <Pill icon="undo" onClick={() => actions.previewRental("remove", { key: false })}>
-          Finish removing
-        </Pill>
-      );
+        "Swiff now takes Swiff OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
+      // Only when planning the rest failed: Check again plans it again.
+      if (run.status === "failed") action = again;
       plate = (
-        <Plate caption={["Remove Swiff OS", "Windows asks once"]}>
+        <Plate caption={["Remove Swiff OS", "Windows may ask once"]}>
           <Dial progress={0.5} big="Last part" small="then a restart" />
         </Plate>
       );
-      links.push({
-        id: "rekey",
-        label: "The blue screen didn't take the code",
-        onClick: () => actions.previewRental("remove", { key: true }),
-      });
+      links.push(rekeyLink(actions));
       break;
     case "removed": {
       const fine = s.ok !== false;
@@ -866,7 +870,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             {plan.kind === "install"
               ? "Then Swiff runs every step by itself. Windows asks once for permission."
               : plan.kind === "remove"
-                ? "Windows asks once for permission. Back in Windows, Finish removing takes Swiff OS off the disk."
+                ? "Windows asks once for permission. Back in Windows, open Swiff: it takes Swiff OS off the disk by itself."
                 : "Windows asks once for permission. Then Swiff gets the restart ready."}
           </p>
         );
@@ -913,7 +917,9 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
     }
     case "elevating":
       title = "Waiting for Windows";
-      line = "Windows asks for permission to make changes. Click Yes.";
+      line = continuesRemoval(s.plan, read)
+        ? "Windows asks once more for permission, to take Swiff OS off the disk. Click Yes."
+        : "Windows asks for permission to make changes. Click Yes.";
       extra = (
         <p className="mstatus mlive">
           <i className="mpulse" aria-hidden="true" />
@@ -1091,6 +1097,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         );
       if (f.kind === "admin") below = <Strip tiles={WINDOWS_ASKS} label="When Windows asks" />;
       if (f.kind === "bios" && f.bios) below = <Strip tiles={biosTrip([f.bios], read)} label="In the BIOS" />;
+      if (continuesRemoval(s.plan, read)) links.push(rekeyLink(actions));
       if (s.error)
         links.push({
           id: "why",

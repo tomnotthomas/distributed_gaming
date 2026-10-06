@@ -211,6 +211,7 @@ export function useRental(): RentalSetup & {
       .planRental({ kind, target, ...(key === undefined ? {} : { key }) })
       .catch(() => null)
       .then((plan) => {
+        continuing.current = false;
         if (n !== plans.current) return;
         setPreview(plan);
         if (plan) void runPlan(plan);
@@ -222,6 +223,14 @@ export function useRental(): RentalSetup & {
           });
       });
   };
+
+  // Remove Swiff OS goes on by itself once its key's restart is behind it: the owner asked once.
+  const continuing = useRef(false);
+  useEffect(() => {
+    if (read?.removal?.state !== "finish" || preview || run.status !== "idle" || continuing.current) return;
+    continuing.current = true;
+    again("remove", false);
+  });
 
   return {
     reading,

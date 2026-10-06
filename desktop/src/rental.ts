@@ -457,7 +457,7 @@ export type RentalStage =
    * screen. Or Remove Swiff OS is done (`removing` "check"): one restart shows Windows still starts.
    */
   | { kind: "restart"; code: string; plan?: RentalPlan; removing?: "key" | "check" }
-  /** Remove Swiff OS: its key's restart is behind it, the rest runs on Finish removing. */
+  /** Remove Swiff OS: its key's restart is behind it, and the rest runs by itself. */
   | { kind: "finish" }
   /** Remove Swiff OS ended, and the start after it was checked: what it showed. */
   | { kind: "removed"; ok: boolean | null; checks: RemovalCheck[] }
@@ -768,7 +768,7 @@ export function rentalLine(setup: RentalSetup): string {
     case "recovery":
       return "Save your recovery key";
     case "finish":
-      return "Finish removing";
+      return "Removing";
     case "removed":
       return s.ok === false ? "Removed, check it" : "Removed";
     case "elevating":

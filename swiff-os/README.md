@@ -78,11 +78,11 @@ uninstall works from: boot entry (kept by what it starts, its partition's GPT id
 path, since firmware renumbers `Boot####`), partitions, C:'s space back, the drive names, Fast
 Startup and BitLocker.
 
-**Remove Swiff OS** is one action on the Rental screen (`removePlan` in `desktop/rental.cjs`),
-in two parts across a restart. With Swiff's key enrolled it starts with the key: MokManager,
+**Remove Swiff OS** is one click on the Rental screen (`removePlan` in `desktop/rental.cjs`),
+in two parts across a restart, with one confirmation on MokManager's blue screen. With Swiff's key enrolled it starts with the key: MokManager,
 which removes it once the owner confirms with a new code, lives on Swiff OS's own boot
 partition, so the key comes off first (BitLocker on C: suspended for that restart). Back in
-Windows, Finish removing runs the uninstall: the boot entry, every request for shim (MokNew,
+Windows, the app goes on by itself (Windows may ask once more for permission) with the uninstall: the boot entry, every request for shim (MokNew,
 MokDel, MokTimeout), the six partitions, the drive Swiff OS came from grown back to its size,
 the names, Fast Startup and BitLocker as they were; then a check as administrator that no
 `Boot####` starts shim, no request is queued and none of the partitions is on the disk; then a
@@ -91,7 +91,7 @@ restart. An install that stopped part way (no key went in) goes straight to that
 removal is checked against it, without administrator rights: Windows started without Swiff OS's
 loader (this start's measured-boot log), the partitions are gone, the drive has its space back,
 BitLocker is on again where it was, and the install record is gone. The screen shows each,
-marked where one is not as it was. Should the owner miss the blue screen, Finish removing goes
+marked where one is not as it was. Should the owner miss the blue screen, the removal goes
 on without the key (shim, the only thing that would trust it, is gone with the partitions), or
 they ask for the key's removal again. Once installed, going live sets only BootNext
 for now, so the next restart is Windows again; Swiff OS first in BootOrder waits until Swiff
@@ -148,7 +148,7 @@ administrator prompt declined, not enough space, an install stopped part way and
 fresh install whose key screen is left waiting and then Continue boot, a power-off at the key
 screen, the key confirmed (PCR 7 as a clean start's each time, as `vm/pcr7.py` replays it),
 Swiff OS started once through shim with its ESP still sound, Remove Swiff OS after the partial
-install and after the full one (its key at MokManager, Finish removing, the restart, and the
+install and after the full one (its key at MokManager, the app going on by itself, the restart, and the
 app's check of the start after it: Windows back, its space and BitLocker as before, no boot
 entry or request for shim left), a reinstall, a second app instance, Secure Boot off, and the packaged test build
 driven through its own screens. `desktop/rental-cli.cjs`

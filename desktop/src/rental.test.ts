@@ -1499,7 +1499,7 @@ describe("Remove Swiff OS", () => {
       removing: "key",
     });
     expect(rentalStage(at({ state: "finish" }))).toEqual({ kind: "finish" });
-    expect(rentalLine(at({ state: "finish" }))).toBe("Finish removing");
+    expect(rentalLine(at({ state: "finish" }))).toBe("Removing");
     expect(rentalStage(at({ state: "restart" }))).toEqual({ kind: "restart", code: "", removing: "check" });
     const checks = [{ id: "windows", label: "Windows", ok: true, value: "Started as usual" }];
     expect(rentalStage(at({ state: "checked", ok: true, checks, at: 1 }))).toEqual({

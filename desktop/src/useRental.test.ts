@@ -368,6 +368,28 @@ describe("useRental", () => {
     expect(host.seenRemoval).toHaveBeenCalledOnce();
   });
 
+  it("goes on with Remove Swiff OS by itself once its key's restart is behind it, and only once", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.readRental = vi.fn(async () => ({ removal: { state: "finish" } }) as never);
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "failed",
+      done: [],
+      failed: { step: "elevate", op: "elevate", error: "declined" },
+      results: [],
+    }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledOnce();
+    expect(result.current.run.status).toBe("failed");
+    // Declined at Windows' prompt: the failed screen's Try again asks again, nothing asks by itself.
+    await act(async () => {});
+    expect(pending).toHaveLength(1);
+    expect(host.runRental).toHaveBeenCalledOnce();
+  });
+
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({

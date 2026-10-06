@@ -5,13 +5,13 @@
 //
 //   node rental-cli.cjs read
 //       what the app reads from this PC, and what an install recorded, with
-//       where Remove Swiff OS stands (its record in --state <dir>)
+//       where Remove Swiff OS stands
 //   node rental-cli.cjs run <install|uninstall|unkey|remove|mok|once|start|stop> --image <dir>
-//           [--target <id>] [--dry-run] [--code <8 digits>] [--key yes|no] [--state <dir>]
+//           [--target <id>] [--dry-run] [--code <8 digits>]
 //       plan it and run every step: typing this command is the confirmation.
 //       remove runs Remove Swiff OS's next part: its key (MokManager, after the
 //       restart), or, once that restart is behind it, the disk, its check and
-//       the restart that shows Windows still starts; --key says which
+//       the restart that shows Windows still starts
 //   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run] [--code <8 digits>]
 //       one elevated worker (one UAC prompt, on `elevate` or the first `run`),
 //       then commands one per line, on stdin or appended to <file> (which
@@ -66,14 +66,11 @@ function flags(args) {
 /** When this PC last started: a removal recorded before it has met its restart. */
 const bootAt = () => Date.now() - os.uptime() * 1000;
 
-/** Remove Swiff OS's record: in --state, else the console's own folder in the user's local app data. */
-const removals = (opts) =>
-  removalStore(
-    path.resolve(opts.state ?? path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "Swiff", "rental-cli")),
-    null,
-  );
+/** Remove Swiff OS's record: the console's own folder in the user's local app data. */
+const removals = () =>
+  removalStore(path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "Swiff", "rental-cli"), null);
 
-async function plan(kind, { image, target = null, code, key, store }) {
+async function plan(kind, { image, target = null, code, store }) {
   if (kind === "once" || kind === "start" || kind === "stop") return switchPlan(kind);
   if (kind === "mok") return mokPlan(code, await readRental());
   if (kind === "unkey") return keyRemovalPlan(code, await readRental());
@@ -81,13 +78,10 @@ async function plan(kind, { image, target = null, code, key, store }) {
   if (!rental) throw new Error("This PC could not be read.");
   if (kind === "uninstall") return uninstallPlan(rental);
   if (kind === "remove") {
-    // Its key first, as the app does, unless its restart is behind it already or --key says otherwise.
+    // Its key first, as the app does, unless its restart is behind it already.
     const install = rental.facts.install;
     const first =
-      key === undefined
-        ? Boolean(install?.complete && install.mok) &&
-          removalOf(store?.read() ?? null, bootAt())?.state !== "finish"
-        : key;
+      Boolean(install?.complete && install.mok) && removalOf(store.read(), bootAt())?.state !== "finish";
     const p = removePlan(rental, { key: first, ...(code ? { code } : {}) });
     return p.phase === "disk" ? { ...p, expect: expectOf(install, bitlockerDrives(rental)) } : p;
   }
@@ -167,19 +161,12 @@ async function main([cmd, ...rest]) {
     return say({
       read,
       trail,
-      removal: removalOf(removals(opts).read(), bootAt(), read?.facts ?? null, trail),
+      removal: removalOf(removals().read(), bootAt(), read?.facts ?? null, trail),
     });
   }
   if (cmd === "run") {
-    const store = removals(opts);
-    const key = opts.key === undefined ? undefined : opts.key === "yes";
-    const p = await plan(opts._[0], {
-      image: opts.image,
-      target: opts.target,
-      code: codeOf(opts),
-      key,
-      store,
-    });
+    const store = removals();
+    const p = await plan(opts._[0], { image: opts.image, target: opts.target, code: codeOf(opts), store });
     codeOf(opts, p);
     say({ plan: shown(p) });
     const w = await worker(opts.image, opts["dry-run"]);
@@ -216,8 +203,7 @@ async function main([cmd, ...rest]) {
             image: opts.image,
             target: args[1] ?? null,
             code: codeOf(opts),
-            key: opts.key === undefined ? undefined : opts.key === "yes",
-            store: removals(opts),
+            store: removals(),
           });
           say({ plan: shown(current) });
         } else if (verb === "elevate") {

@@ -192,7 +192,7 @@ export function SharePC({ swiff, release = RELEASE as Release }: { swiff: Swiff;
 
 /**
  * What a host can check for themselves: their BitLocker key stays theirs,
- * Swiff OS comes off in one click, and every download's SHA-256 is here as
+ * one click starts Swiff OS's removal, and every download's SHA-256 is here as
  * text, to compare with Windows' own Get-FileHash before running it.
  */
 export function Trust({ release }: { release: Release }) {
@@ -209,10 +209,11 @@ export function Trust({ release }: { release: Release }) {
       </div>
       <div className="share-cell">
         <Glyph name="undo" />
-        <h2>Remove it in one click</h2>
+        <h2>One click starts its removal</h2>
         <p>
-          The boot entry, the partitions and Swiff&rsquo;s key come off, the space goes back to Windows, and
-          the app checks Windows starts as before.
+          You confirm once on a blue screen during a restart, and the app finishes on its own (Windows may ask
+          once more for permission). The boot entry, the partitions and Swiff&rsquo;s key come off, the space
+          goes back to Windows, and the app checks Windows starts as before.
         </p>
       </div>
       <div className="share-cell share-sums">

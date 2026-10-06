@@ -27,8 +27,8 @@
 #                  BitLocker unaffected, as vm/pcr7.py replays the TCG log)
 #               8. Swiff OS once through shim; its ESP still sound after Windows
 #               9. Remove Swiff OS after a full install: its key at MokManager, then
-#                  Finish removing (the disk, its check, the restart), the next start
-#                  checked: all back as it was
+#                  the rest as the app goes on with it by itself (the disk, its check,
+#                  the restart), the next start checked: all back as it was
 #              10. a reinstall after the removal
 #              11. the packaged app ($SWIFF_HOST_EXE): its window, no error box, one
 #                  app after a second start ($SWIFF_HOST_EXE_CONTROL: a build known
@@ -39,7 +39,8 @@
 #                  rental mode's BIOS step and Check again, tampered image sets
 #                  refused, the BitLocker recovery key saved on the owner's word,
 #                  the administrator prompt declined and Ask again, the key's
-#                  restart to MokManager, Go live, and Remove Swiff OS to the end. Needs the
+#                  restart to MokManager, Go live, and Remove Swiff OS to the end from
+#                  its one click (after the key's restart the app goes on by itself). Needs the
 #                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
 #                  trusts) and Playwright from the repository's node_modules
 #             Windows must come back after each restart without asking for its
@@ -532,9 +533,9 @@ test_run() {
 		windows_back windows-after-unkey
 		expect pcr7-unkey "PCR 7 is a clean start's after the key's removal" test "$(pcr7 unkey)" = "$base"
 		read_as finish
-		expect remove-finish "back in Windows, the app offers Finish removing" test "$(json "$run/read-finish.json" removal '.removal.state')" = '"finish"'
+		expect remove-finish "back in Windows, the removal's record says the disk's part is next" test "$(json "$run/read-finish.json" removal '.removal.state')" = '"finish"'
 		on_vm "$cli run remove --image $img" | tr -d '\r' | tee "$run/uninstall.json" | grep -E '"(outcome|error)"' || true
-		expect uninstall "Finish removing ran every step, up to its restart" grep -q '"outcome":{"status":"done"' "$run/uninstall.json"
+		expect uninstall "the disk's part ran every step, up to its restart" grep -q '"outcome":{"status":"done"' "$run/uninstall.json"
 		expect uninstall-phase "the disk's part, without the key's again" grep -q '"phase":"disk"' "$run/uninstall.json"
 		expect uninstall-verified "its own check found no boot entry, request or partition of Swiff OS left" grep -q '"id":"verify","state":"done"' "$run/uninstall.json"
 		# Windows starts as before, from the firmware's own entry, without its recovery key.
@@ -761,8 +762,8 @@ test_run() {
 		app
 		step ui-yes "the app asks; Yes, it did" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120 > /dev/null; $ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
 		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
-		# Remove Swiff OS through the app: the key's code, its restart to MokManager, Finish removing,
-		# the restart that shows Windows, and the app's check of that start.
+		# Remove Swiff OS through the app from its one click: the key's code, its restart to MokManager,
+		# the rest by itself, the restart that shows Windows, and the app's check of that start.
 		step ui-remove-code "Remove Swiff OS starts with a code for the key" bash -c "$ui click '^Rental mode' > /dev/null; $ui click '^Remove Swiff OS' > /dev/null; $ui wait-h1 'write down this code' 240"
 		code=$($ui code)
 		step ui-remove-restart "the key's part ends at Restart now" bash -c "$ui click '^Remove the key' > /dev/null; $ui wait-h1 'restart to remove the key' 300"
@@ -771,9 +772,7 @@ test_run() {
 			"$python" "$here/mok-drive.py" "$run/ui-mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-unkey
 		app
-		step ui-finish "back in Windows, the app offers Finish removing" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'finish removing swiff os' 120"
-		step ui-remove-disk "Finish removing shows what removing does" bash -c "$ui click '^Finish removing' > /dev/null; $ui wait-h1 '^remove swiff os' 240"
-		step ui-remove-ran "removing ran through the app's elevation, up to the restart that checks Windows" bash -c "$ui click '^Remove Swiff OS' > /dev/null; sleep 60; $ui wait-h1 'restart to check windows' 600"
+		step ui-remove-ran "back in Windows, the app went on by itself through its elevation, up to the restart that checks Windows" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'restart to check windows' 600"
 		$ui click 'Restart now' > "$run/ui-check-restart-click.json" 2>&1 || true
 		sleep 30
 		windows_back ui-windows-after-remove

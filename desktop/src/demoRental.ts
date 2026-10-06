@@ -307,6 +307,13 @@ function startOf(c: RentalCase): Start {
       return { ...idle, read: keyAs("confirmed"), preview: REMOVE_KEY };
     case "rental-remove-finish":
       return { ...idle, read: removing({ state: "finish" }) };
+    case "rental-remove-continue":
+      return {
+        ...idle,
+        read: removing({ state: "finish" }),
+        preview: REMOVE_DISK,
+        run: { ...IDLE_RUN, status: "starting", startedAt: Date.now(), stepStartedAt: Date.now() },
+      };
     case "rental-remove-check":
       return { ...idle, read: removing({ state: "restart" }) };
     case "rental-removed":
@@ -467,21 +474,27 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
   }, [s.run.status]);
 
   // A pretend restart: Windows comes back, and only the owner knows what the blue screen did.
+  // After Remove Swiff OS's key, the app goes on with the disk by itself.
   useEffect(() => {
     if (s.run.status !== "restarting") return;
     const t = window.setTimeout(
       () =>
-        setS((cur) => ({
-          ...cur,
-          preview: null,
-          run: IDLE_RUN,
-          read:
-            cur.preview?.kind === "remove"
-              ? removing(cur.preview.phase === "key" ? { state: "finish" } : CHECKED)
-              : cur.preview?.kind === "uninstall"
-                ? ready
-                : keyAs(cur.preview?.kind === "unkey" ? "missed" : "ask"),
-        })),
+        setS((cur) => {
+          const goesOn = cur.preview?.kind === "remove" && cur.preview.phase === "key";
+          return {
+            ...cur,
+            preview: goesOn ? REMOVE_DISK : null,
+            run: goesOn
+              ? { ...IDLE_RUN, status: "starting", startedAt: Date.now(), stepStartedAt: Date.now() }
+              : IDLE_RUN,
+            read:
+              cur.preview?.kind === "remove"
+                ? removing(cur.preview.phase === "key" ? { state: "finish" } : CHECKED)
+                : cur.preview?.kind === "uninstall"
+                  ? ready
+                  : keyAs(cur.preview?.kind === "unkey" ? "missed" : "ask"),
+          };
+        }),
       5000,
     );
     return () => window.clearTimeout(t);

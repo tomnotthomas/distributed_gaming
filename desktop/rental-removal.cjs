@@ -4,7 +4,7 @@
 //
 //   key       Swiff's key's removal is queued with a code (sealed, as the
 //             key's own file keeps it): the next restart shows MokManager.
-//             After that restart, Finish removing runs the rest.
+//             After that restart, the app runs the rest by itself.
 //   disk      Swiff OS is off the PC, and the app recorded what that left:
 //             the partitions that must be gone, the drive that must have its
 //             space back, the drives BitLocker must protect again. The next
@@ -117,7 +117,7 @@ function checksOf(expect, facts, trail) {
  * (`bootAt`, ms), the app's read now (`facts`) and this start's boot trail:
  *
  *   queued    the key's removal waits for its restart (with the code)
- *   finish    that restart happened: Finish removing runs the rest
+ *   finish    that restart happened: the app runs the rest by itself
  *   restart   Swiff OS is off: one restart shows Windows still starts
  *   checked   that restart happened: what it showed, check by check
  */
