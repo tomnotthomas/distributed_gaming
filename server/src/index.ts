@@ -834,6 +834,9 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       }
       // Run out while the database or the relay was asked: nothing changes for it.
       if (ticket.exp * 1000 <= Date.now()) return deny(ws, "bad-ticket");
+      // Gone meanwhile: it takes no seat, and puts out nobody who holds one.
+      // Its close, queued behind this join, would otherwise leave the room empty.
+      if (ws.readyState !== ws.OPEN) return;
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
         // The same ticket again is the same renter refreshing: hand them the

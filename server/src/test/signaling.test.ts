@@ -230,6 +230,29 @@ describe("signaling", () => {
     client.close();
   });
 
+  it("seats no renter whose socket closed mid-join, nor puts out the one who joined with the same ticket", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+
+    // The first socket closes while its join waits on the database and the relay.
+    const ticket = mintTicket(SECRET, room, 600);
+    const gone = await open();
+    send(gone, join(room, ticket));
+    gone.terminate();
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    await wait(300);
+
+    assert.ok(types(renter).includes("joined"));
+    assert.ok(!types(renter).includes("denied"), "the live renter was put out");
+    assert.equal(host.received.at(-1)?.type, "peer-joined", "the room was left without its renter");
+    host.close();
+    renter.close();
+  });
+
   it("notifies a late-registering host that a renter is already waiting", async () => {
     const room = nextRoom();
     const client = await open();

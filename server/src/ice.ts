@@ -34,9 +34,6 @@ import { createHmac } from "node:crypto";
 import { MIN_SECRET_LENGTH } from "./access.js";
 import { MAX_MINUTES } from "./platform.js";
 
-/** The fewest seconds a credential is minted for, so one minted at a seat's last moment still allocates. */
-const MIN_TTL_SECONDS = 60;
-
 /** The most: the longest booking. A ticket minted by hand for longer gets this. */
 const MAX_TTL_SECONDS = MAX_MINUTES * 60;
 
@@ -71,10 +68,13 @@ const NO_RELAY: Relay = { credentials: async () => [] };
 /** No relay, and why. */
 const off = (warning: string) => ({ relay: NO_RELAY, warnings: [warning] });
 
-/** Seconds from `now` (Unix ms) to the seat's end, kept within what a relay is minted for. */
+/**
+ * Seconds from `now` (Unix ms) to the seat's end, at most the longest booking.
+ * Never rounded up: a credential outliving its seat would relay for nobody's
+ * session. Zero or less once the seat has ended, and then nothing is minted.
+ */
 function ttlFor(seat: RelaySeat, now: number): number {
-  const left = seat.expiresAt - Math.floor(now / 1000);
-  return Math.min(MAX_TTL_SECONDS, Math.max(MIN_TTL_SECONDS, left));
+  return Math.min(MAX_TTL_SECONDS, seat.expiresAt - Math.floor(now / 1000));
 }
 
 /**
@@ -152,7 +152,10 @@ function mintingFrom(
       return off(`TURN_SECRET is shorter than ${MIN_SECRET_LENGTH} characters — no relay runs`);
     }
     return {
-      relay: { credentials: async (seat, now) => [sharedSecretCredential(secret, urls, seat, now)] },
+      relay: {
+        credentials: async (seat, now = Date.now()) =>
+          ttlFor(seat, now) > 0 ? [sharedSecretCredential(secret, urls, seat, now)] : [],
+      },
       warnings: [],
     };
   }
@@ -179,6 +182,7 @@ function endpointRelay(endpoint: string, token: string, urls: string[], doFetch:
   return {
     async credentials(seat, now = Date.now()) {
       const ttl = ttlFor(seat, now);
+      if (ttl <= 0) return [];
       try {
         const response = await doFetch(endpoint, {
           method: "POST",

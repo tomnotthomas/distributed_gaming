@@ -189,12 +189,17 @@ describe("a relay with a shared secret", () => {
     assert.ok(!served.includes(SECRET));
   });
 
-  it("gives a seat at its last moment a minute, and one minted by hand at most the longest booking", () => {
+  it("gives a seat at its last moment only what it has left, and one minted by hand at most the longest booking", () => {
     const urls = ["turn:relay.example:3478"];
     const last = sharedSecretCredential(SECRET, urls, seat({ expiresAt: NOW_S + 5 }), NOW);
-    assert.equal(last.username, `${NOW_S + 60}:s1-renter`);
+    assert.equal(last.username, `${NOW_S + 5}:s1-renter`);
     const long = sharedSecretCredential(SECRET, urls, seat({ expiresAt: NOW_S + 7 * 86_400 }), NOW);
     assert.equal(long.username, `${NOW_S + 12 * 3600}:s1-renter`);
+  });
+
+  it("mints nothing for a seat that has already ended", async () => {
+    assert.deepEqual(await relay.credentials(seat({ expiresAt: NOW_S }), NOW), []);
+    assert.deepEqual(await relay.credentials(seat({ expiresAt: NOW_S - 30 }), NOW), []);
   });
 });
 
@@ -245,6 +250,13 @@ describe("a relay with a credential endpoint", () => {
     await relay.credentials(seat({ side: "host", expiresAt: NOW_S + 600 }), NOW);
     assert.equal(calls.length, 2);
     assert.deepEqual(JSON.parse(String(calls[1]!.init.body)), { ttl: 600 });
+  });
+
+  it("asks for nothing, and serves nothing, for a seat that has already ended", async () => {
+    const { fetch, calls } = fakeFetch(ok(MINTED));
+    const { relay } = relayFromEnv(env, { fetch });
+    assert.deepEqual(await relay.credentials(seat({ expiresAt: NOW_S }), NOW), []);
+    assert.equal(calls.length, 0);
   });
 
   // The long-term secret goes in the header and nowhere else — not the URL,
