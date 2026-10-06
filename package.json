@@ -25,7 +25,7 @@
     "test": "npm test --workspaces --if-present",
     "test:e2e": "playwright test",
     "test:e2e:web": "playwright test --project web",
-    "test:e2e:desktop": "playwright test --project desktop",
+    "test:e2e:desktop": "node e2e/scripts/desktop.cjs",
     "test:coverage": "npm run test:coverage -w @swiff/web",
     "desktop": "npm start -w @swiff/desktop",
     "desktop:demo": "npm run demo -w @swiff/desktop",

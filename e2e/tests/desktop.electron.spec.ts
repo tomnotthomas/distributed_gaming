@@ -22,12 +22,19 @@ const DESKTOP_DIR = process.env.SWIFF_DESKTOP_DIR
   : resolve(REPO_ROOT, "desktop");
 const DESKTOP_MAIN = resolve(DESKTOP_DIR, "main.cjs");
 const DESKTOP_BUNDLE = resolve(DESKTOP_DIR, "dist", "index.html");
+// Linux with no display (DISPLAY, WAYLAND_DISPLAY): Electron crashes at start instead of
+// failing cleanly, and under WSL every crash leaves a dump the size of its address space on
+// Windows' disk (about 40 GB). So these tests do not launch it there: run them under xvfb-run,
+// as CI does, through `npm run test:e2e:desktop`.
+const NO_DISPLAY = process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+const NO_DISPLAY_WHY = "no display: run under xvfb-run, as CI does (npm run test:e2e:desktop)";
 
 test.describe("Swiff Host desktop app", () => {
   test.skip(
     !existsSync(DESKTOP_MAIN),
     "desktop/ is not on this branch yet — the Electron host app lands separately",
   );
+  test.skip(NO_DISPLAY, NO_DISPLAY_WHY);
 
   // Electron is a real app launch: slower than a page load, and on CI it comes
   // up under a virtual display.
@@ -253,6 +260,7 @@ test.describe("Swiff Host desktop app", () => {
 // data (--demo). The held press to go live is real; the data behind it is not.
 test.describe("Swiff Host desktop app, demo data", () => {
   test.skip(!existsSync(DESKTOP_MAIN), "desktop/ is not on this branch");
+  test.skip(NO_DISPLAY, NO_DISPLAY_WHY);
   test.describe.configure({ mode: "serial", timeout: 120_000 });
 
   let app: ElectronApplication;
