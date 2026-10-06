@@ -354,6 +354,15 @@ body:has(> #root > .sw) {
     display: none;
   }
 }
+/* The bar is paper with ink words on every screen now, the crew pages too:
+   crew.css still darkens it there for the old light words, so this undoes that
+   (selector one step stronger, since crew.css loads after this file). */
+.sw[data-screen="crew"] > .sw-page > .bar,
+.sw[data-screen="invite"] > .sw-page > .bar {
+  background: var(--paper);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* who is signed in and how long they have tonight, on one card */
 .bar .bar-acct {
   justify-content: flex-end;
@@ -2727,6 +2736,242 @@ button.band-tab:hover {
   font-size: 12.5px;
 }
 
+/* — labels read as the drafting's annotations: under the name they describe,
+   never above it as an eyebrow — */
+.hero-3b-draft,
+.menu-copy,
+.ig-copy,
+.share-copy,
+.hero-strip-say {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.hero-3b-leader {
+  order: 2;
+  margin: 26px 0 0;
+}
+.menu-kicker {
+  order: 2;
+}
+.menu-copy > .menu-title {
+  order: 0;
+  margin-top: 16px;
+}
+.menu-copy > .menu-line {
+  order: 1;
+  margin-bottom: 10px;
+}
+.menu-copy > .menu-signin {
+  order: 3;
+}
+.ig-copy > .mono {
+  order: 2;
+  margin-top: 10px;
+}
+.ig-copy > .ig-title {
+  margin-top: 16px;
+}
+.share-copy > .hero-kicker {
+  order: 2;
+  margin: 6px 0 0;
+}
+.share-copy > .share-title {
+  margin-top: 14px;
+}
+.share-copy > .share-figure {
+  order: 1;
+}
+.share-copy > :not(.hero-kicker, .share-title, .share-figure) {
+  order: 3;
+}
+.hero-strip-say > .hero-strip-kick {
+  order: 2;
+  margin-top: 10px;
+}
+.hero-strip-say > .hero-strip-line {
+  margin-top: 0;
+}
+/* the profile's section names are headings, set like the crews card's */
+.profile-section > .kicker {
+  margin: 0;
+  color: var(--ink);
+  font: 400 18px/1.2 var(--wide);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* — every screen's name drafted between dimension lines, as the wall's title — */
+.menu-title,
+.ig-title,
+.share-title,
+.profile-name {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  align-self: flex-start;
+}
+.menu-title::before,
+.menu-title::after,
+.ig-title::before,
+.ig-title::after,
+.share-title::before,
+.share-title::after,
+.profile-name::before,
+.profile-name::after {
+  content: "";
+  position: absolute;
+  left: -14px;
+  right: -14px;
+  height: 9px;
+  border-left: 1px solid var(--line-2);
+  border-right: 1px solid var(--line-2);
+  background: linear-gradient(var(--line-2), var(--line-2)) center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+.menu-title::before,
+.ig-title::before,
+.share-title::before,
+.profile-name::before {
+  top: -16px;
+}
+.menu-title::after,
+.ig-title::after,
+.share-title::after,
+.profile-name::after {
+  bottom: -14px;
+}
+.profile-name {
+  margin: 12px 0 14px;
+}
+
+/* — Share your PC sits on the plain paper: the key art lives only on a screen — */
+.share-hero > .backdrop,
+.share-hero .hero-scrim {
+  display: none;
+}
+
+/* — the Resume dial's time left fits inside its disc; the facts never wrap — */
+.resume-label small {
+  letter-spacing: 0.02em;
+  word-spacing: -0.2em;
+}
+.hero-kv dt,
+.hero-kv dd {
+  white-space: nowrap;
+}
+
+/* — the estimate's sliders: the knob in ink, lime stays a mark — */
+.slider-knob {
+  background: radial-gradient(circle, var(--ink) 0 3px, var(--paper) 3.5px);
+}
+
+/* — the profile uses the width: the crews and the PC on the left, streaming beside them — */
+@media (min-width: 1180px) {
+  .profile {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-auto-flow: row dense;
+    align-content: start;
+    align-items: start;
+    gap: 16px;
+  }
+  .profile > * {
+    max-width: none;
+    grid-column: 1;
+  }
+  .profile > .profile-head {
+    grid-column: 1 / -1;
+  }
+  .profile > .profile-section:has(.profile-grid) {
+    grid-column: 2;
+    grid-row: 2 / span 3;
+  }
+  /* the picture switch needs its full width: the rows stack below 720px of card */
+  .profile .profile-grid {
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  }
+}
+
+/* — the wall waiting for its games: the loaded wall's own geometry, the
+   name's dimension lines drawn empty at the left and the screen at the right
+   at its loaded size, a single line of light idling on it; nothing jumps when
+   the games arrive — */
+@media (min-width: 861px) {
+  .wall:not(.wall-bare):not(:has(.hero-3b)) {
+    --wgap: clamp(32px, 4.4vw, 88px);
+    --wscr: calc((100vw - 2 * var(--gut) - var(--wgap)) * 27 / 88);
+    --wpad: calc(var(--bar) + clamp(24px, 4.4vh, 48px));
+    --wtop: calc(
+      var(--wpad) +
+        max(
+          0px,
+          (
+              100dvh - var(--wpad) - clamp(24px, 4.4vh, 44px) - var(--wscr) - 30px - clamp(22px, 3.4vh, 36px) -
+                clamp(132px, 17vh, 176px)
+            ) / 2
+        )
+    );
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-rows: auto 30px auto;
+    column-gap: var(--wgap);
+    padding: var(--wtop) var(--gut) 0;
+    /* the empty name: its cap and base lines with their end ticks */
+    background-image:
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2)),
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2)),
+      linear-gradient(var(--line-2), var(--line-2)), linear-gradient(var(--line-2), var(--line-2));
+    background-repeat: no-repeat;
+    background-size:
+      calc((100% - 2 * var(--gut) - var(--wgap)) * 5 / 11 + 28px) 1px,
+      calc((100% - 2 * var(--gut) - var(--wgap)) * 5 / 11 + 28px) 1px,
+      1px 9px,
+      1px 9px,
+      1px 9px,
+      1px 9px;
+    background-position:
+      calc(var(--gut) - 14px) calc(var(--wtop) + var(--wscr) / 2 - 64px),
+      calc(var(--gut) - 14px) calc(var(--wtop) + var(--wscr) / 2 + 64px),
+      calc(var(--gut) - 14px) calc(var(--wtop) + var(--wscr) / 2 - 68px),
+      calc(var(--gut) - 14px) calc(var(--wtop) + var(--wscr) / 2 + 60px),
+      calc(var(--gut) + (100% - 2 * var(--gut) - var(--wgap)) * 5 / 11 + 13px)
+        calc(var(--wtop) + var(--wscr) / 2 - 68px),
+      calc(var(--gut) + (100% - 2 * var(--gut) - var(--wgap)) * 5 / 11 + 13px)
+        calc(var(--wtop) + var(--wscr) / 2 + 60px);
+  }
+  .wall:not(.wall-bare):not(:has(.hero-3b))::before {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    margin: 0;
+  }
+  .wall:not(.wall-bare):not(:has(.hero-3b))::after {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: center;
+    align-self: end;
+    margin: 0;
+  }
+  .wall:not(.wall-bare):not(:has(.hero-3b)) > .band {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin: clamp(48px, 8vh, 96px) calc(-1 * var(--gut)) 0;
+  }
+}
+/* the idle line of light across the off screen */
+.wall:not(.wall-bare):not(:has(.hero-3b))::before {
+  background:
+    linear-gradient(90deg, transparent, rgb(244 244 242 / 0.9) 30%, rgb(244 244 242 / 0.9) 70%, transparent)
+      center / 100% 2px no-repeat,
+    radial-gradient(60% 9% at 50% 50%, rgb(244 244 242 / 0.16), transparent) center / 100% 100% no-repeat,
+    radial-gradient(120% 90% at 30% 0%, var(--screen-2), var(--screen) 70%);
+}
+/* counts mean nothing before the games are in */
+.wall:not(.wall-bare):not(:has(.hero-3b)) .band-n {
+  visibility: hidden;
+}
+
 /* — big displays —
    display.ts puts the tier on <html data-display>. The fluid sizes above reach
    their caps by then; the bar and the band grow a step with the screen. */
@@ -3060,5 +3305,35 @@ button.band-tab:hover {
   }
   .acct {
     padding: 4px;
+  }
+}
+
+/* — phones: Ignition's screen keeps its height above the paper; the library's
+   tabs run as one scrolling row; the signed-out pill keeps its inset — */
+@media (max-width: 860px) {
+  .ig-art {
+    min-height: auto;
+  }
+  .band-tabs {
+    display: flex;
+    gap: 22px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .band-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .band-tab {
+    flex: none;
+    gap: 10px;
+  }
+  .band-tab:empty {
+    display: none;
+  }
+  .acct.acct-out {
+    padding: 0 16px;
+  }
+  .hero-3b-leader {
+    margin-top: 22px;
   }
 }

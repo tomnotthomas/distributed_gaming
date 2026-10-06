@@ -36,8 +36,11 @@ the title in Michroma at 56 to 96px between dimension lines, the line "On Glassh
 Right 6/11: the screen, art lit, stand under it with a warm light spill on the paper. Under both, a card
 strip: the machine facts and the Resume dial at the right edge, the primary action.
 
-FORM: The launch set's Impeccable lobby (lobby-impeccable.css), brief-pinned by the captain; no roll (a
-brief-pinned direction beats the roll). Code-led: no image generation on this machine. Signature
+FORM: The launch set's Impeccable lobby (lobby-impeccable.css), pinned by the captain, so no roll (a
+brief-pinned direction beats the roll). The captain picked the Impeccable version for the crew and invite
+pages ("use taste or impecable for the design please") and, to the proposal to redesign the app after login
+in that light style so it reads as one product, answered "continue the overnight mode and add the actions to
+your list". Code-led: no image generation on this machine. Signature
 interaction: Ignition's screen powers on from one bright line to the full picture as progress climbs;
 while the wall waits for its games the empty screen's dashed lime frame breathes.
 
