@@ -557,6 +557,22 @@ describe("useHost", () => {
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
     });
 
+    it("shows a choice the platform took late, after a newer one already failed", async () => {
+      const { result } = await ready();
+      let first: (ok: boolean) => void = () => {};
+      answers.push((land) => (first = land), "fail");
+      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrewOnly(true));
+      await settle();
+      expect(result.current.view.crew?.only).toBe(true);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+      first(true);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
+    });
+
     it("lets nothing still under way for the last PC touch the new one's reads", async () => {
       vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
       let last: (ok: boolean) => void = () => {};

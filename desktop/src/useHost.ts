@@ -36,11 +36,12 @@ const AT_PC_S = 5;
 const AWAY_S = 60;
 /**
  * One rental machine's asks of who may play: how many were made, the last
- * answer the platform confirmed and which ask it answered, the owner's choices
- * on their way, and the retry of a first read that failed.
+ * answer the platform confirmed and which ask it answered, the latest ask that
+ * has answered, the owner's choices on their way, and the retry of a first read
+ * that failed.
  */
-type CrewAsks = { n: number; confirmed: Crew | null; at: number; sets: number; retry?: number };
-const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, sets: 0 });
+type CrewAsks = { n: number; confirmed: Crew | null; at: number; done: number; sets: number; retry?: number };
+const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, done: 0, sets: 0 });
 /** A first read of who may play that failed is tried again this much later, once. */
 export const CREW_RETRY_MS = 10_000;
 
@@ -336,7 +337,8 @@ export function useHost(): Host {
   rentalCrew.current = rentalMachine;
   // Each rental machine has its own asks: anything still under way for the one
   // before does nothing. Only the answer to the latest ask counts; a choice that
-  // did not save goes back to what the platform last confirmed.
+  // did not save goes back to what the platform last confirmed, and so does the
+  // screen when an older choice is confirmed after the latest one failed.
   const crewAsks = useRef<CrewAsks>(noCrewAsks());
   const askCrew = async (only?: boolean): Promise<boolean> => {
     const machine = rentalCrew.current;
@@ -348,8 +350,12 @@ export function useHost(): Host {
     if (asks !== crewAsks.current) return true;
     if (only !== undefined) asks.sets--;
     if (read) window.clearTimeout(asks.retry);
-    if (read && n > asks.at) Object.assign(asks, { confirmed: read, at: n });
+    if (read && n > asks.at) {
+      Object.assign(asks, { confirmed: read, at: n });
+      if (asks.done === asks.n) setCrew(read);
+    }
     if (n !== asks.n) return true;
+    asks.done = n;
     if (read) {
       setCrew(read);
       setCrewNote(null);
