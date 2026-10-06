@@ -1652,8 +1652,25 @@ button.inst {
   outline: 2px solid var(--t1);
   outline-offset: 2px;
 }
-.legend.rterms {
+/* The terms are numbered, as a contract's clauses are: dots here would read as choices. */
+.rterms {
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rterms li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--ln);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.rterms .mono {
+  color: var(--t3);
+  font-size: 11.5px;
+  line-height: 20px;
 }
 .rok {
   display: flex;

@@ -248,10 +248,10 @@ function NvidiaZone({
         </div>
         <div>
           <p className="mono ctx">Swiff's terms for NVIDIA cards</p>
-          <ol className="legend rterms">
-            {NVIDIA_TERMS.map((term) => (
-              <li key={term} className="lg st-next">
-                <span className="dotst" />
+          <ol className="rterms">
+            {NVIDIA_TERMS.map((term, i) => (
+              <li key={term}>
+                <span className="mono">{String(i + 1).padStart(2, "0")}</span>
                 <span>{term}</span>
               </li>
             ))}
