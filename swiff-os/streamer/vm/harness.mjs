@@ -182,13 +182,18 @@ await until(
 );
 console.log(`server on ${HTTP}`);
 
-/** swiff-hostd's part up to the streamer: offered, claimed by a renter, host session started. */
+/**
+ * swiff-hostd's part up to the streamer: offered, claimed by a renter, host
+ * session started. Like the PC service without its socket, it beats every 5 s
+ * from then on: a machine silent for LIVENESS_MS (15 s) is lost, and its
+ * session with it, however long the VM takes to start the streamer.
+ */
 async function makeSession() {
-  const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
-    available: true,
-    ...REPORT,
-  });
+  const beat = () =>
+    call("PUT", `/api/machines/${MACHINE}/availability`, HOST, { available: true, ...REPORT });
+  const offered = await beat();
   if (offered.status !== 200) throw new Error(`offer answered ${offered.status}`);
+  setInterval(() => void beat().catch(() => {}), 5_000).unref();
   const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
   const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`, RENTER);
   if (claim.status !== 200) throw new Error(`claim answered ${claim.status}`);
