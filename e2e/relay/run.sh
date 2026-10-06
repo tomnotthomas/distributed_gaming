@@ -16,10 +16,11 @@
 # turnserver (TURNSERVER=path, else on PATH), Playwright's Chromium
 # (npx playwright install chromium-headless-shell) and a build (npm run build).
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+script="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+cd "$(dirname "$script")/../.."
 
 if [[ "${SWIFF_RELAY_INSIDE:-}" != 1 ]]; then
-  exec env SWIFF_RELAY_INSIDE=1 unshare --user --map-root-user --net "$0" "$@"
+  exec env SWIFF_RELAY_INSIDE=1 unshare --user --map-root-user --net "$script" "$@"
 fi
 
 TURNSERVER="${TURNSERVER:-$(command -v turnserver || true)}"

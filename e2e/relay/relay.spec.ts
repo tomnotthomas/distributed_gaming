@@ -61,7 +61,8 @@ function browserIn(pid: string, name: string): Promise<Browser> {
 async function startServer(relay: boolean): Promise<ChildProcess> {
   const server = spawn(process.execPath, ["server/dist/index.js"], {
     env: {
-      ...process.env,
+      // No relay but the one this scenario sets up, whatever the shell has.
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("TURN_"))),
       ...E2E_ENV,
       PORT: String(PORT),
       DATABASE_URL: "",
@@ -145,7 +146,10 @@ test("with the relay, the stream comes up through it on the seat's own credentia
   // And the relay let them in on what the server minted for the seat: a
   // credential per side, bound to it, never a shared one. run.sh keeps only
   // the side of each allocation made on such a credential, not the username.
-  const allocated = readFileSync(SWIFF_RELAY_TURN_LOG!, "utf8").split("\n");
-  for (const side of ["renter", "host"]) expect(allocated).toContain(`allocated ${side}`);
+  // Written as coturn logs it, so it may trail the connection by a moment.
+  const allocated = () => readFileSync(SWIFF_RELAY_TURN_LOG!, "utf8").split("\n");
+  await expect
+    .poll(allocated, { timeout: 10_000 })
+    .toEqual(expect.arrayContaining(["allocated renter", "allocated host"]));
   expect(errors()).toEqual([]);
 });

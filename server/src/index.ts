@@ -819,12 +819,17 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       // (the ticket, for one minted by hand) and good until the ticket ends.
       // Only for a ticket still honoured: a revoked one is refused just below.
       const seat = { id: running ?? ticket.id, expiresAt: ticket.exp };
-      const [renterRelay, hostRelay] = revokedTickets.has(ticket.id)
-        ? [[], []]
-        : await Promise.all([
-            turn.relay.credentials({ ...seat, side: "renter" }),
-            turn.relay.credentials({ ...seat, side: "host" }),
-          ]);
+      // Nor for a room somebody else's ticket holds: refused just below too,
+      // and checked again there in case it changes while the relay is asked.
+      const holder = rooms.get(ticket.room)?.client;
+      const taken = holder != null && holder !== ws && holder.ticketId !== ticket.id;
+      const [renterRelay, hostRelay] =
+        revokedTickets.has(ticket.id) || taken
+          ? [[], []]
+          : await Promise.all([
+              turn.relay.credentials({ ...seat, side: "renter" }),
+              turn.relay.credentials({ ...seat, side: "host" }),
+            ]);
       // Revoked in the database, or by a notice while the database or the relay was asked.
       if (revokedTickets.has(ticket.id)) {
         // A renter still seated on it is put out too.
