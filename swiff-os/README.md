@@ -65,6 +65,10 @@ command line carries the dm-verity root hash, so the UKI pins every byte of the 
 systemd-stub measures the UKI's sections into PCR 11. While Secure Boot is on, it ignores any command
 line passed from outside. The VM test checks that PCR 11 equals the value `systemd-measure` predicts for
 the built UKI. That value is what the attestation verifier will expect (report §5.3, stage 3).
+`SignExpectedPcr=yes` (in `image/mkosi.conf`) signs those expected PCR 11 values with the Secure Boot
+key into the UKI's `.pcrsig`, with the public key in `.pcrpkey`. systemd copies both to `/run/systemd`
+at boot, and `swiff-hostd` seals the state partition's U share under that signed policy. `.pcrsig` is
+not itself measured, so the PCR 11 prediction is the same.
 
 ### Disk layout
 
@@ -368,6 +372,33 @@ host protocol the desktop app already speaks, with no new messages
   the firmware boot order and reboots.
 - **On boot**, it first ends any host session a crash left behind. A session still live
   is served at once, with a new key.
+- **Opens the persistent state only for an untouched system** (report §5.3, the U/V split),
+  before anything else on boot. The state is a LUKS2 partition whose key is U XOR V: U is
+  sealed to this PC's TPM under Swiff's signed PCR 11 policy (a `systemd-creds` credential
+  made with `--with-key=tpm2-with-public-key --tpm2-public-key=/run/systemd/tpm2-pcr-public-key.pem`
+  and opened with `--tpm2-signature=/run/systemd/tpm2-pcr-signature.json`, so only a signed
+  Swiff OS boot of this PC unseals it; the id of the V it pairs with is kept beside it), and
+  V is the server's share, released
+  (`POST /api/machines/:id/state-key`, see `docs/system-design/session-keys.md`) only to a
+  fresh, unused host certificate from this machine's latest attested boot. Every try
+  attests afresh. `404 no-state-key` or `409 continuity-gap` (something else booted since)
+  takes a new V on the same certificate (`PUT`) and formats the partition anew with a fresh
+  U; a V whose id is not the sealed U's (a format cut short, or a seal that failed, which
+  closes the partition again) is renewed the same way on a new certificate. When U does not
+  unseal, or U XOR V does not open the partition, the same unseal is not tried again: the
+  state is renewed the same way on a new certificate. `401 stale-host-cert` attests again
+  at once, once. Refused otherwise (`revoked`, `firmware-cooldown`, ...) or with the server
+  unreachable, the agent keeps the PC off the market (no socket, no heartbeat, no offer),
+  shows the refusal on the status page (`locked`; `unseal-failed` when U did not open the
+  state and the renewal failed other than by a refusal), and tries again after 5 s, 15 s,
+  30 s, 1 min, 2 min, then every 5 min, or after the server's `retry-after` when longer.
+  The attestation client gets 60 s, and each state-key call 30 s. The owner can take the PC
+  back to Windows at the PC throughout, even while a try is under way. The combined key reaches `cryptsetup` only on its stdin and is never
+  written anywhere; it and both shares are zeroed once the state is open. The config's
+  `state` names the partition (`device`, `mountpoint`), U's credential (`localShare`) and
+  `attestCommand`, the attestation client that prints a fresh host certificate as JSON,
+  until attesting is part of the agent. A machine whose config has no `state` has no such
+  partition, and skips this.
 
 Two open decisions are each one setting in `hostd/src/config.ts`, with provisional
 defaults:
@@ -387,7 +418,7 @@ defaults:
   for a discrete TPM.
 
 ```bash
-npm test -w @swiff/hostd                  # unit tests, and two against the real server (build it first)
+npm test -w @swiff/hostd                  # unit tests, and some against the real server (build it first)
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts      # the agent
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts status
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
@@ -404,6 +435,8 @@ can use.
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
+- The persistent state partition in the image (the agent already formats it and enrols
+  its key, sealing U and taking V, the first time the server has no V for the machine).
 - Attesting, and hosting on the host certificate it earns in place of the machine key
   (the server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at
   the `unattested` tier meanwhile), then re-attesting before each session.

@@ -10,13 +10,17 @@
 //
 // One run is one boot: it ends by handing the machine to a reboot.
 //
-// Boot. End any host session a crash left behind (its keys die), then ask the
-// server where the machine stands. A renter already served in this same boot
-// means the reset's reboot never happened: nobody is served or offered on it,
-// and it restarts again, off offer unless a session is live. A session still
-// live there is served at once. A machine off offer is one the agent paused
-// before its reset reboot, and is offered again on the owner's terms;
-// otherwise its owner stopped sharing it, and it goes back to Windows.
+// Boot. Open the persistent state first: the server releases its share of the
+// state's key only to a freshly attested boot (state-key.ts). Until it does, the
+// PC stays off the market: no socket, no heartbeat, no offer, and the agent
+// tries again, waiting longer each time. Then end any host session a crash left
+// behind (its keys die), and ask the server where the machine stands. A renter
+// already served in this same boot means the reset's reboot never happened:
+// nobody is served or offered on it, and it restarts again, off offer unless a
+// session is live. A session still live there is served at once. A machine off
+// offer is one the agent paused before its reset reboot, and is offered again
+// on the owner's terms; otherwise its owner stopped sharing it, and it goes
+// back to Windows.
 //
 // Offered. The machine-key socket holds the room and hears `session-claimed`.
 // A heartbeat now and then also learns of a claim the socket missed, and of
@@ -39,15 +43,30 @@ import { HostApiError } from "./api.ts";
 import type { FloorCheck, OwnerTakeover } from "./config.ts";
 import type { ResumeStore } from "./resume.ts";
 import type { MachineSocket, SessionClaim, SocketEvent } from "./socket.ts";
+import type { StateKeyError } from "../../../server/src/protocol.ts";
+import { StateKeyRefused, UnsealFailed, type StateUnlock } from "./state-key.ts";
 import type { LaunchStreamer, Streamer } from "./streamer.ts";
 import type { System } from "./system.ts";
 
-export type Phase = "starting" | "unfit" | "refused" | "offered" | "serving" | "resetting" | "returning";
+export type Phase =
+  "starting" | "unfit" | "locked" | "refused" | "offered" | "serving" | "resetting" | "returning";
+
+export type LockReason = StateKeyError["error"] | "unseal-failed";
 
 /** How a run ended: the machine is restarting into rental mode, or into Windows. */
 export type Outcome = "reset" | "windows";
 
-export type AgentStatus = { phase: Phase; sessionId: string | null; unmet: FloorCheck[] };
+export type AgentStatus = {
+  phase: Phase;
+  sessionId: string | null;
+  unmet: FloorCheck[];
+  /**
+   * While `locked`: why the server keeps its share back (`revoked`, `firmware-cooldown`...),
+   * `unseal-failed` when this PC's own share did not open the state and it could not be
+   * renewed; null when the server has not answered.
+   */
+  locked?: LockReason | null;
+};
 
 /** The answer to the owner asking for the PC back. */
 export type ReturnReply = { ok: true } | { ok: false; reason: "session-live" | "busy" };
@@ -63,6 +82,8 @@ export type Timing = {
   maxStreamerStarts: number;
   /** A streamer that ran this long stopped for a reason of its own (an expired key), not as a failed start. */
   streamerSettledMs: number;
+  /** Waits between tries to open the persistent state; the last one repeats. */
+  unlockRetryMs: readonly number[];
 };
 
 export const DEFAULT_TIMING: Timing = {
@@ -71,6 +92,7 @@ export const DEFAULT_TIMING: Timing = {
   offlineBeatMs: 5_000,
   maxStreamerStarts: 4,
   streamerSettledMs: 60_000,
+  unlockRetryMs: [5_000, 15_000, 30_000, 60_000, 120_000, 300_000],
 };
 
 export type AgentDeps = {
@@ -79,6 +101,8 @@ export type AgentDeps = {
   launchStreamer: LaunchStreamer;
   system: System;
   resume: ResumeStore;
+  /** Opens the persistent state; none on a machine that has no state partition. */
+  state?: StateUnlock;
   ownerTakeover: OwnerTakeover;
   timing?: Partial<Timing>;
   now?: () => number;
@@ -106,6 +130,7 @@ export function createAgent(deps: AgentDeps): Agent {
   const log = deps.log ?? ((message: string) => console.log(`[swiff-hostd] ${message}`));
 
   let phase: Phase = "starting";
+  let lockedBy: LockReason | null = null;
   let sessionId: string | null = null;
   let unmet: FloorCheck[] = [];
   /** The owner's request in hand, answered by the loop that holds the machine now. */
@@ -174,6 +199,7 @@ export function createAgent(deps: AgentDeps): Agent {
       while (!asked) await inbox.next(null);
       return "windows";
     }
+    if (!(await unlockState())) return "windows";
     // A host session a crash left behind holds keys this boot never handed out.
     await endHostSession();
     let view = await beatUntilAnswered();
@@ -201,6 +227,51 @@ export function createAgent(deps: AgentDeps): Agent {
     await resume.clear();
     if (!sharing(view)) return "windows";
     return "offer";
+  }
+
+  /**
+   * Open the persistent state, tried until it opens, waiting longer each time.
+   * False when the owner asked for the PC back meanwhile, even mid-try.
+   */
+  async function unlockState(): Promise<boolean> {
+    const { state } = deps;
+    if (!state) return true;
+    // Shut until it opens: the owner may take the PC back from the first try on.
+    phase = "locked";
+    for (let tries = 0; ; tries++) {
+      let wait = timing.unlockRetryMs[Math.min(tries, timing.unlockRetryMs.length - 1)]!;
+      const tried: { result?: { ok: true } | { ok: false; cause: unknown } } = {};
+      void state
+        .unlock()
+        .then(
+          () => ({ ok: true as const }),
+          (cause: unknown) => ({ ok: false as const, cause }),
+        )
+        .then((result) => {
+          tried.result = result;
+          inbox.push({ type: "wake" });
+        });
+      while (!tried.result && !asked) await inbox.next(null);
+      if (asked) return false;
+      const result = tried.result!;
+      if (result.ok) {
+        if (tries) log("the persistent state is open");
+        phase = "starting";
+        return true;
+      }
+      const { cause } = result;
+      lockedBy =
+        cause instanceof StateKeyRefused
+          ? cause.code
+          : cause instanceof UnsealFailed
+            ? "unseal-failed"
+            : null;
+      log(`not offered: the persistent state did not open (${describe(cause)})`);
+      // The server's own retry-after, when it says to wait longer.
+      if (cause instanceof StateKeyRefused && cause.retryAfterMs) wait = Math.max(wait, cause.retryAfterMs);
+      if (!asked) await inbox.next(wait);
+      if (asked) return false;
+    }
   }
 
   /** Hold the room with the machine key until a claim, or until the PC should go back to Windows. */
@@ -452,7 +523,7 @@ export function createAgent(deps: AgentDeps): Agent {
 
   return {
     run,
-    status: () => ({ phase, sessionId, unmet }),
+    status: () => ({ phase, sessionId, unmet, ...(phase === "locked" && { locked: lockedBy }) }),
     requestReturnToWindows: async () => {
       if (phase === "returning") return { ok: true };
       if (phase === "starting" || phase === "resetting" || asked) return { ok: false, reason: "busy" };
