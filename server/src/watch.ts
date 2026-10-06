@@ -1,6 +1,6 @@
 // Watching a crewmate play: who asked to watch which session, and who watches.
 //
-//   POST /api/crew/live/:id/watch ──► ask ──► asking ──► player: yes ──► watching ──► player: stop
+//   POST /api/crew-live/:id/watch ──► ask ──► asking ──► player: yes ──► watching ──► player: stop
 //                                                  │                         └──► session over / not crew any more
 //                                                  └──► player: no, or no answer in ASK_MS
 //

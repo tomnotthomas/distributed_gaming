@@ -66,7 +66,7 @@ export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit; watchId?
 /** The most viewers one session takes, asking or watching. The player's page encodes one picture per viewer. */
 export const MAX_WATCHERS = 4;
 
-/** Sent by a viewer to take a viewer seat, with the watch ticket POST /api/crew/live/:id/watch gave. */
+/** Sent by a viewer to take a viewer seat, with the watch ticket POST /api/crew-live/:id/watch gave. */
 export type WatchMessage = { type: "watch"; ticket: string };
 
 /**
