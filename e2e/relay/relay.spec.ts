@@ -97,14 +97,17 @@ test.afterEach(async () => {
 });
 
 /** The PC sharing and the renter connecting, each in its own network, with or without the relay. */
-async function connect(relay: boolean): Promise<{ host: Page; renter: Page; errors: string[] }> {
+async function connect(relay: boolean): Promise<{ host: Page; renter: Page; errors: () => string[] }> {
   server = await startServer(relay);
   const hostBrowser = await browserIn(HOST_PID!, "host");
   const renterBrowser = await browserIn(RENTER_PID!, "renter");
   browsers.push(hostBrowser, renterBrowser);
   const host = await (await hostBrowser.newContext({ baseURL: ORIGIN })).newPage();
   const renter = await (await renterBrowser.newContext({ baseURL: ORIGIN })).newPage();
-  const errors = [...failOnPageError(host, "host"), ...failOnPageError(renter, "renter")];
+  // Read when asked: the pages' errors land in these arrays as they happen.
+  const hostErrors = failOnPageError(host, "host");
+  const renterErrors = failOnPageError(renter, "renter");
+  const errors = () => [...hostErrors, ...renterErrors];
 
   await fakeScreenCapture(host);
   await startHost(host);
@@ -144,5 +147,5 @@ test("with the relay, the stream comes up through it on the seat's own credentia
   // the side of each allocation made on such a credential, not the username.
   const allocated = readFileSync(SWIFF_RELAY_TURN_LOG!, "utf8").split("\n");
   for (const side of ["renter", "host"]) expect(allocated).toContain(`allocated ${side}`);
-  expect(errors).toEqual([]);
+  expect(errors()).toEqual([]);
 });

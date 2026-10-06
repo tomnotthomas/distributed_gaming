@@ -69,12 +69,15 @@ netns renter 1
 netns host 2
 
 out=e2e/.results/relay
+# What coturn says about its users passes through here: for this user alone.
+umask 077
 mkdir -p "$out"
+chmod 700 "$out"
 rm -f "$out/turnserver.log" "$out/allocations.log" "$out/turnserver.fifo"
 SWIFF_RELAY_TURN_SECRET="$(head -c 32 /dev/urandom | base64)"
 # coturn's log names each TURN user, and those are credentials: it goes through
 # a FIFO, never to disk, and only which side got an allocation is kept.
-mkfifo "$out/turnserver.fifo"
+mkfifo -m 600 "$out/turnserver.fifo"
 sed -unE 's/.*user <[0-9]+:[A-Za-z0-9_-]+-(renter|host)>: incoming packet ALLOCATE processed, success.*/allocated \1/p' \
   <"$out/turnserver.fifo" >"$out/allocations.log" &
 pids+=("$!")
