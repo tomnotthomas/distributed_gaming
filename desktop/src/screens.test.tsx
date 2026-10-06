@@ -615,8 +615,33 @@ describe("this PC's screens", () => {
     // Each switch sends the whole new set.
     fireEvent.click(own);
     expect(acts.setCrews).toHaveBeenLastCalledWith(["c1", "c2"]);
-    fireEvent.click(mika);
-    expect(acts.setCrews).toHaveBeenLastCalledWith([]);
+  });
+
+  it("sends each pick against the crews the PC plays for now, keeping the others", () => {
+    const live: Live = { kind: "waiting", since: evening(21), until: evening(1), registered: true };
+    const host: Host = {
+      view: realView(live, { crew: { only: true, crews: [MIKA, OWN] } }),
+      actions: actions(),
+    };
+    const shell = (h: Host) => (
+      <Shell host={h} step="live" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />
+    );
+    const { rerender } = render(shell(host));
+    const pick = (name: string) =>
+      within(screen.getByRole("group", { name: "Who does your PC play for?" })).getByRole("switch", { name });
+
+    fireEvent.click(pick("Your crew"));
+    expect(host.actions.setCrews).toHaveBeenLastCalledWith(["c1", "c2"]);
+    // The app shows the pick at once: both crews play now.
+    rerender(
+      shell({
+        ...host,
+        view: realView(live, { crew: { only: true, crews: [MIKA, { ...OWN, plays: true }] } }),
+      }),
+    );
+    expect(pick("Your crew")).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(pick("Friday Squad"));
+    expect(host.actions.setCrews).toHaveBeenLastCalledWith(["c2"]);
   });
 
   it("names a crew by its own name, else by whose it is", () => {

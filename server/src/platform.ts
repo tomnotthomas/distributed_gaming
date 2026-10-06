@@ -1666,11 +1666,14 @@ export class Platform {
    */
   async #crewsReady(): Promise<void> {
     const [only, present] = this.#onlineParams();
+    // From the PCs on offer to the crews they play for: the work is bounded by
+    // the PCs on offer, never by how many crews still wait for their first.
     const ready = await this.#all<{ id: string }>(
-      `UPDATE crews c SET ready_at = $1 WHERE c.ready_at IS NULL AND c.archived_at IS NULL AND EXISTS (
-         SELECT 1 FROM crew_machines p JOIN machines q ON q.id = p.machine_id WHERE p.crew_id = c.id
-           AND (q.status IN ('reserved', 'in_session')
-                OR (q.status = 'available' AND (NOT $2::boolean OR q.id = ANY ($3::text[])))))
+      `UPDATE crews c SET ready_at = $1
+         FROM (SELECT DISTINCT p.crew_id FROM machines q JOIN crew_machines p ON p.machine_id = q.id
+                 WHERE q.status IN ('reserved', 'in_session')
+                    OR (q.status = 'available' AND (NOT $2::boolean OR q.id = ANY ($3::text[])))) r
+         WHERE c.id = r.crew_id AND c.ready_at IS NULL AND c.archived_at IS NULL
        RETURNING c.id`,
       this.#now(),
       only,
