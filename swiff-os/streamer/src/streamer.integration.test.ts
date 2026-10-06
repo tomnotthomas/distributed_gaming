@@ -244,7 +244,9 @@ describe("swiff-streamer against the server", () => {
         const [expiry, who] = relay!.username!.split(":");
         expect(who).toBe(`${sessionId}-host`);
         expect(Math.abs(Number(expiry) - (Date.now() / 1000 + 30 * 60))).toBeLessThan(120);
-        expect(relay!.credential).toBe(createHmac("sha1", TURN_SECRET).update(relay!.username!).digest("base64"));
+        expect(relay!.credential).toBe(
+          createHmac("sha1", TURN_SECRET).update(relay!.username!).digest("base64"),
+        );
         // A keyframe was asked for the moment the connection came up.
         await until(() => keyframes >= 1, "the keyframe request when the connection came up");
         expect(renter.payloads[0]!.toString("latin1")).toMatch(/^\x65frame-\d+$/);

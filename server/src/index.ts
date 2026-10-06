@@ -44,8 +44,9 @@
 // service's credential cannot register it at all. See sessions.ts.
 //
 // Only a credential that may host serves a renter: the service's socket, which
-// hears session-claimed, and starting a host session, which mints session keys. That is a host certificate from attestation, or the machine
-// key while hosting does not require attestation. See attestation.ts.
+// hears session-claimed, and starting a host session, which mints session keys.
+// That is a host certificate from attestation, or the machine key while
+// hosting does not require attestation. See attestation.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";

@@ -66,6 +66,9 @@ type Deps = {
 
 const NO_RELAY: Relay = { credentials: async () => [] };
 
+/** No relay, and why. */
+const off = (warning: string) => ({ relay: NO_RELAY, warnings: [warning] });
+
 /** Seconds from `now` (Unix ms) to the seat's end, kept within what a relay is minted for. */
 function ttlFor(seat: RelaySeat, now: number): number {
   const left = seat.expiresAt - Math.floor(now / 1000);
@@ -107,28 +110,22 @@ export function relayFromEnv(env: NodeJS.ProcessEnv, deps: Deps = {}): { relay: 
   const gone = ["TURN_USERNAME", "TURN_CREDENTIAL", "TURN_KEY_ID", "TURN_KEY_API_TOKEN", "TURN_TTL_SECONDS"];
   const stale = gone.filter((name) => env[name]?.trim());
   if (stale.length) {
-    return {
-      relay: NO_RELAY,
-      warnings: [
-        `${stale.join(", ")} no longer configure TURN, and no relay runs while they are set — ` +
-          "see TURN_SECRET or TURN_CREDENTIAL_URL in .env.example",
-      ],
-    };
+    return off(
+      `${stale.join(", ")} no longer configure TURN, and no relay runs while they are set — ` +
+        "see TURN_SECRET or TURN_CREDENTIAL_URL in .env.example",
+    );
   }
 
   if (secret && endpoint) {
-    return { relay: NO_RELAY, warnings: ["TURN_SECRET and TURN_CREDENTIAL_URL are both set — no relay runs"] };
+    return off("TURN_SECRET and TURN_CREDENTIAL_URL are both set — no relay runs");
   }
 
   if (secret) {
     if (urls.length === 0) {
-      return { relay: NO_RELAY, warnings: ["TURN_SECRET is set without TURN_URLS — no relay runs"] };
+      return off("TURN_SECRET is set without TURN_URLS — no relay runs");
     }
     if (secret.length < MIN_SECRET_LENGTH) {
-      return {
-        relay: NO_RELAY,
-        warnings: [`TURN_SECRET is shorter than ${MIN_SECRET_LENGTH} characters — no relay runs`],
-      };
+      return off(`TURN_SECRET is shorter than ${MIN_SECRET_LENGTH} characters — no relay runs`);
     }
     return {
       relay: { credentials: async (seat, now) => [sharedSecretCredential(secret, urls, seat, now)] },
@@ -138,20 +135,17 @@ export function relayFromEnv(env: NodeJS.ProcessEnv, deps: Deps = {}): { relay: 
 
   if (endpoint) {
     if (!token) {
-      return { relay: NO_RELAY, warnings: ["TURN_CREDENTIAL_URL is set without TURN_CREDENTIAL_TOKEN — no relay runs"] };
+      return off("TURN_CREDENTIAL_URL is set without TURN_CREDENTIAL_TOKEN — no relay runs");
     }
     // The token is the long-term secret: it goes to nothing but https.
     if (!endpoint.startsWith("https://")) {
-      return { relay: NO_RELAY, warnings: ["TURN_CREDENTIAL_URL is not https — no relay runs"] };
+      return off("TURN_CREDENTIAL_URL is not https — no relay runs");
     }
     return { relay: endpointRelay(endpoint, token, urls, deps.fetch ?? globalThis.fetch), warnings: [] };
   }
 
   if (urls.length) {
-    return {
-      relay: NO_RELAY,
-      warnings: ["TURN_URLS is set without TURN_SECRET or TURN_CREDENTIAL_URL — no relay runs"],
-    };
+    return off("TURN_URLS is set without TURN_SECRET or TURN_CREDENTIAL_URL — no relay runs");
   }
   return { relay: NO_RELAY, warnings: [] };
 }
@@ -178,7 +172,9 @@ function endpointRelay(endpoint: string, token: string, urls: string[], doFetch:
         const minted = [body.iceServers ?? []]
           .flat()
           .flatMap(({ urls: answered, username, credential }) =>
-            username && credential ? [{ urls: urls.length ? urls : dialable(answered), username, credential }] : [],
+            username && credential
+              ? [{ urls: urls.length ? urls : dialable(answered), username, credential }]
+              : [],
           )
           .filter((server) => server.urls.length);
         if (minted.length === 0) throw new Error("the answer carried no TURN server");

@@ -6,5 +6,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["tests", "../playwright.config.ts"]
+  "include": ["tests", "relay", "../playwright.config.ts"]
 }

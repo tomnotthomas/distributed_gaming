@@ -69,7 +69,10 @@ function relayIn(msg: SignalMessage | undefined): RTCIceServer {
   assert.ok(msg && "iceServers" in msg && msg.iceServers, `expected TURN in ${JSON.stringify(msg)}`);
   const [server] = msg.iceServers;
   assert.deepEqual(server!.urls, [TURN_URLS]);
-  assert.equal(server!.credential, createHmac("sha1", TURN_SECRET).update(server!.username!).digest("base64"));
+  assert.equal(
+    server!.credential,
+    createHmac("sha1", TURN_SECRET).update(server!.username!).digest("base64"),
+  );
   return server!;
 }
 
@@ -1284,7 +1287,10 @@ describe("host sessions", () => {
       const room = nextRoom();
       const { sessionId, ticket, host, renter } = await playing(room);
       const { exp } = ticketOf(ticket);
-      assert.ok(Math.abs(exp - (Date.now() / 1000 + 30 * 60)) < 60, "the ticket ends with the 30-minute session");
+      assert.ok(
+        Math.abs(exp - (Date.now() / 1000 + 30 * 60)) < 60,
+        "the ticket ends with the 30-minute session",
+      );
       assert.equal(relayIn(joinedMessage(renter)).username, `${exp}:${sessionId}-renter`);
       assert.equal(relayIn(peerJoined(host)).username, `${exp}:${sessionId}-host`);
       host.close();

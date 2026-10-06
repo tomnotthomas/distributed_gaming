@@ -33,18 +33,35 @@ describe("relayFromEnv", () => {
     ["a short secret", { TURN_SECRET: "short", TURN_URLS: URLS }, /shorter than 32/],
     [
       "both ways to mint",
-      { TURN_SECRET: SECRET, TURN_URLS: URLS, TURN_CREDENTIAL_URL: "https://mint.example", TURN_CREDENTIAL_TOKEN: "t" },
+      {
+        TURN_SECRET: SECRET,
+        TURN_URLS: URLS,
+        TURN_CREDENTIAL_URL: "https://mint.example",
+        TURN_CREDENTIAL_TOKEN: "t",
+      },
       /both set/,
     ],
     ["urls with no way to mint", { TURN_URLS: URLS }, /without TURN_SECRET or TURN_CREDENTIAL_URL/],
-    ["an endpoint without its token", { TURN_CREDENTIAL_URL: "https://mint.example" }, /without TURN_CREDENTIAL_TOKEN/],
-    ["an endpoint over http", { TURN_CREDENTIAL_URL: "http://mint.example", TURN_CREDENTIAL_TOKEN: "t" }, /not https/],
+    [
+      "an endpoint without its token",
+      { TURN_CREDENTIAL_URL: "https://mint.example" },
+      /without TURN_CREDENTIAL_TOKEN/,
+    ],
+    [
+      "an endpoint over http",
+      { TURN_CREDENTIAL_URL: "http://mint.example", TURN_CREDENTIAL_TOKEN: "t" },
+      /not https/,
+    ],
     [
       "a static pair from before",
       { TURN_URLS: URLS, TURN_USERNAME: "u", TURN_CREDENTIAL: "p", TURN_SECRET: SECRET },
       /TURN_USERNAME, TURN_CREDENTIAL no longer configure TURN/,
     ],
-    ["the old Cloudflare key", { TURN_KEY_ID: "k", TURN_KEY_API_TOKEN: "t" }, /TURN_KEY_ID, TURN_KEY_API_TOKEN/],
+    [
+      "the old Cloudflare key",
+      { TURN_KEY_ID: "k", TURN_KEY_API_TOKEN: "t" },
+      /TURN_KEY_ID, TURN_KEY_API_TOKEN/,
+    ],
   ] as const) {
     it(`runs no relay, and warns, on ${what}`, async () => {
       const { relay, warnings } = relayFromEnv(env);
@@ -55,7 +72,12 @@ describe("relayFromEnv", () => {
   }
 
   it("does not mind the old variables left blank, as .env.example used to have them", () => {
-    const { warnings } = relayFromEnv({ TURN_KEY_ID: "", TURN_USERNAME: " ", TURN_SECRET: SECRET, TURN_URLS: URLS });
+    const { warnings } = relayFromEnv({
+      TURN_KEY_ID: "",
+      TURN_USERNAME: " ",
+      TURN_SECRET: SECRET,
+      TURN_URLS: URLS,
+    });
     assert.deepEqual(warnings, []);
   });
 });
@@ -101,7 +123,8 @@ function fakeFetch(answer: () => unknown) {
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
 
-const ok = (body: unknown) => () => ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
+const ok = (body: unknown) => () =>
+  ({ ok: true, status: 201, json: async () => body }) as unknown as Response;
 
 const ENDPOINT = "https://rtc.live.cloudflare.com/v1/turn/keys/key-1/credentials/generate-ice-servers";
 
