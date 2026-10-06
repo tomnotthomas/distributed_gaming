@@ -119,7 +119,8 @@ administrator prompt declined, not enough space, an install stopped part way and
 fresh install whose key screen is left waiting and then Continue boot, a power-off at the key
 screen, the key confirmed (PCR 7 as a clean start's each time, as `vm/pcr7.py` replays it),
 Swiff OS started once through shim with its ESP still sound, the key's removal and the
-uninstall, a reinstall, a second app instance, and Secure Boot off. `desktop/rental-cli.cjs`
+uninstall, a reinstall, a second app instance, Secure Boot off, and the packaged test build
+driven through its own screens. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
 time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with
 `apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
