@@ -154,7 +154,9 @@ every file in Steam's depot manifests, its folders, the manifests' own hashes, a
 Steam's app manifest, and the files present but not in the manifests ("extras"). It also records the
 TPM `resetCount` and `restartCount` of the last rental-mode boot. It is authenticated with an HMAC whose
 key is sealed to the TPM under PCR 7 (`systemd-creds`, `SwiffOS/table-key.cred`). The owner's Windows
-can delete the table, which costs a new bootstrap, but cannot forge it.
+can delete the table, which costs a new bootstrap, but cannot forge it. Rental mode never writes on the
+volume through a symlink: if `SwiffOS` is not a real folder, the library is used read-only for that
+boot.
 
 The key is created only when there is none. If it no longer unseals, for example after a Secure Boot
 update changed PCR 7, rental mode tries three times, then keeps the credential and blocks every game.
@@ -257,7 +259,7 @@ access to `/dev/kvm`, QEMU is started through `sudo` and drops back to the user 
 VM starts.
 
 ```sh
-swiff-os/vm/run-test.sh             # build the test image, boot it ten times, check everything
+swiff-os/vm/run-test.sh             # build the test image, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again
 # the shipped image only, as swiffos.raw in the given output directory
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build

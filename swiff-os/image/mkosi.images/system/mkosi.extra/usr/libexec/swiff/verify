@@ -119,13 +119,17 @@ def renter():
 
 
 def write_atomic(path, data, mode=0o644, owner=None):
-    """Writes a file through a temporary file and a rename, so it is never half-written."""
+    """Writes a file through a temporary file and a rename, so it is never half-written.
+    The temporary file is created anew, never through a symlink another OS left there."""
     tmp = path + TEMP_SUFFIX
-    with open(tmp, "wb") as f:
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(tmp)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())
-    os.chmod(tmp, mode)
+        os.fchmod(fd, mode)
+        os.fsync(fd)
     if owner:
         own(tmp, owner)
     os.replace(tmp, path)
@@ -153,6 +157,18 @@ def is_dir(path):
         return stat.S_ISDIR(os.lstat(path).st_mode)
     except OSError:
         return False
+
+
+def swiff_dir():
+    """The SwiffOS folder on the library volume, created if missing. Another OS
+    can write that volume, so a symlink or a file there is refused: the key,
+    table and session layer would otherwise be written wherever it points."""
+    path = os.path.join(VOLUME, "SwiffOS")
+    if not os.path.lexists(path):
+        os.mkdir(path, 0o755)
+    if not is_dir(path):
+        raise OSError(errno.ENOTDIR, "SwiffOS on the library is not a folder", path)
+    return path
 
 
 def hash_file(path, sha1=False):
@@ -411,7 +427,9 @@ def new_table_key():
     path = os.path.join(VOLUME, KEY)
     key = secrets.token_bytes(32)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        swiff_dir()
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path + TEMP_SUFFIX)
         run("systemd-creds", "encrypt", "--with-key=tpm2", "--tpm2-pcrs=7", "--name=swiff-games-table", "-", path + TEMP_SUFFIX, input=key)
         os.replace(path + TEMP_SUFFIX, path)
     except (OSError, subprocess.CalledProcessError) as e:
@@ -456,6 +474,7 @@ def load_table(key):
 def save_table(key, table):
     """Writes the table and its HMAC to the library volume."""
     doc = {"hmac": mac(key, table), "table": table}
+    swiff_dir()
     write_atomic(os.path.join(VOLUME, TABLE), json.dumps(doc, sort_keys=True).encode())
 
 
@@ -529,14 +548,14 @@ def open_container():
     This is also what makes NTFS libraries work: overlayfs cannot keep its
     writes on NTFS, but on ext4 inside a file on NTFS it can."""
     img = os.path.join(VOLUME, CONTAINER)
-    os.makedirs(os.path.dirname(img), exist_ok=True)
+    swiff_dir()
     with contextlib.suppress(FileNotFoundError):
         os.unlink(img)
     vfs = os.statvfs(VOLUME)
     size = container_size(vfs.f_blocks * vfs.f_frsize, vfs.f_bavail * vfs.f_frsize)
     if size < 256 << 20:
         raise OSError(errno.ENOSPC, "less than 256 MiB free on the library volume")
-    with open(img, "wb") as f:
+    with os.fdopen(os.open(img, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as f:
         f.truncate(size)
     loop = run("losetup", "--find", "--show", img, capture_output=True, text=True).stdout.strip()
     run(CRYPTSETUP, "attach", CRYPT_NAME, loop, "/dev/urandom", "plain,cipher=aes-xts-plain64,size=512,sector-size=4096,discard")
@@ -555,8 +574,9 @@ def close_container():
     loops = subprocess.run(["losetup", "--noheadings", "--output", "NAME", "--associated", img], capture_output=True, text=True).stdout.split()
     for loop in loops:
         subprocess.run(["losetup", "--detach", loop])
-    with contextlib.suppress(OSError):
-        os.unlink(img)
+    if is_dir(os.path.dirname(img)):
+        with contextlib.suppress(OSError):
+            os.unlink(img)
 
 
 def build_view(setup, mode, verified):
@@ -767,6 +787,14 @@ def cmd_start(_):
     volume = mount_volume()
     if volume:
         setup.update(volume, library=find_library())
+    if setup["writable"]:
+        try:
+            swiff_dir()
+        except OSError as e:
+            # Nothing is written to the library this boot: no key, table,
+            # session layer or promotion.
+            log(f"{e.strerror}; the library is used read-only this boot")
+            setup["writable"] = False
     key = table_key(create=setup["writable"]) if volume else None
     table, table_problem = load_table(key)
     try:

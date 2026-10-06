@@ -375,5 +375,58 @@ class Robustness(Library):
         self.assertEqual(verify.load_table(None)[1], "no table key")
 
 
+class Symlinks(Library):
+    """Root never writes through a symlink another OS left on the library volume."""
+
+    def setUp(self):
+        """Adds a folder outside the volume that symlinks may point at."""
+        super().setUp()
+        self.outside = os.path.join(self.root, "outside")
+        os.makedirs(self.outside)
+
+    def swiffos_points_outside(self):
+        """Replaces the SwiffOS folder with a symlink to the outside folder."""
+        os.rmdir(os.path.join(self.volume, "SwiffOS"))
+        os.symlink(self.outside, os.path.join(self.volume, "SwiffOS"))
+
+    def test_a_planted_temporary_symlink_is_not_followed(self):
+        """A symlink at the temporary path is replaced, and its target left alone."""
+        victim = os.path.join(self.outside, "victim")
+        write(victim, b"untouched")
+        os.chmod(victim, 0o600)
+        table = os.path.join(self.volume, verify.TABLE)
+        os.symlink(victim, table + verify.TEMP_SUFFIX)
+        verify.save_table(KEY, self.table)
+        self.assertEqual(read(victim), b"untouched")
+        self.assertEqual(os.stat(victim).st_mode & 0o777, 0o600)
+        self.assertFalse(os.path.islink(table))
+        self.assertIsNone(verify.load_table(KEY)[1])
+
+    def test_a_symlinked_swiffos_folder_gets_nothing_written(self):
+        """No table, key or session layer is written where a symlinked SwiffOS points."""
+        self.swiffos_points_outside()
+        with self.assertRaises(NotADirectoryError):
+            verify.save_table(KEY, self.table)
+        with mock.patch.object(verify, "run", side_effect=AssertionError("systemd-creds must not run")):
+            self.assertIsNone(verify.table_key(create=True))
+        with self.assertRaises(NotADirectoryError):
+            verify.open_container()
+        self.assertEqual(os.listdir(self.outside), [])
+
+    def test_session_cleanup_does_not_follow_a_symlinked_swiffos(self):
+        """Closing the session layer deletes no session.img outside the volume."""
+        self.swiffos_points_outside()
+        write(os.path.join(self.outside, "session.img"), b"someone else's")
+        with mock.patch.object(verify, "umount"), mock.patch.object(verify.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            verify.close_container()
+        self.assertEqual(read(os.path.join(self.outside, "session.img")), b"someone else's")
+
+    def test_a_missing_swiffos_folder_is_created(self):
+        """A library without the folder gets a real one."""
+        os.rmdir(os.path.join(self.volume, "SwiffOS"))
+        verify.save_table(KEY, self.table)
+        self.assertTrue(verify.is_dir(os.path.join(self.volume, "SwiffOS")))
+
+
 if __name__ == "__main__":
     unittest.main()
