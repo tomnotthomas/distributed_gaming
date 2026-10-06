@@ -521,7 +521,7 @@ body:has(> #root > .sw) {
   }
 }
 
-/* Share your PC's estimate under a band of key art fading into the paper (.share-hero sizes it) */
+/* Share your PC's estimate on plain paper, its key art hidden (.share-hero sizes it) */
 .hero {
   position: relative;
   overflow: hidden;
