@@ -31,11 +31,12 @@
 // direct paths alone.
 
 import { createHmac } from "node:crypto";
+import { sessionSpanMs } from "@swiff/rank";
 import { MIN_SECRET_LENGTH } from "./access.js";
 import { MAX_MINUTES } from "./platform.js";
 
-/** The most: the longest booking. A ticket minted by hand for longer gets this. */
-const MAX_TTL_SECONDS = MAX_MINUTES * 60;
+/** The most: the longest session's ticket. A ticket minted by hand for longer gets this. */
+const MAX_TTL_SECONDS = sessionSpanMs({ rentalMode: true }, MAX_MINUTES) / 1000;
 
 /** How long a join waits for the endpoint before going on without a relay. */
 const MINT_TIMEOUT_MS = 5_000;
@@ -69,7 +70,7 @@ const NO_RELAY: Relay = { credentials: async () => [] };
 const off = (warning: string) => ({ relay: NO_RELAY, warnings: [warning] });
 
 /**
- * Seconds from `now` (Unix ms) to the seat's end, at most the longest booking.
+ * Seconds from `now` (Unix ms) to the seat's end, at most the longest session.
  * Never rounded up: a credential outliving its seat would relay for nobody's
  * session. Zero or less once the seat has ended, and then nothing is minted.
  */

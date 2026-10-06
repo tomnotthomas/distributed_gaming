@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
+import { sessionSpanMs } from "@swiff/rank";
 import { relayFromEnv, sharedSecretCredential, type RelaySeat } from "../ice.js";
+import { MAX_MINUTES } from "../platform.js";
 
 const NOW = 1_800_000_000_000; // Unix ms
 const NOW_S = NOW / 1000;
@@ -189,12 +191,20 @@ describe("a relay with a shared secret", () => {
     assert.ok(!served.includes(SECRET));
   });
 
-  it("gives a seat at its last moment only what it has left, and one minted by hand at most the longest booking", () => {
+  it("gives a seat at its last moment only what it has left, and one minted by hand at most the longest session", () => {
     const urls = ["turn:relay.example:3478"];
     const last = sharedSecretCredential(SECRET, urls, seat({ expiresAt: NOW_S + 5 }), NOW);
     assert.equal(last.username, `${NOW_S + 5}:s1-renter`);
+    const longest = sessionSpanMs({ rentalMode: true }, MAX_MINUTES) / 1000;
     const long = sharedSecretCredential(SECRET, urls, seat({ expiresAt: NOW_S + 7 * 86_400 }), NOW);
-    assert.equal(long.username, `${NOW_S + 12 * 3600}:s1-renter`);
+    assert.equal(long.username, `${NOW_S + longest}:s1-renter`);
+  });
+
+  it("lets a seat in the longest booking on a rental-mode PC keep its credential to the very end", () => {
+    const end = NOW_S + sessionSpanMs({ rentalMode: true }, MAX_MINUTES) / 1000;
+    assert.ok(end > NOW_S + MAX_MINUTES * 60);
+    const host = sharedSecretCredential(SECRET, ["turn:relay.example:3478"], seat({ side: "host", expiresAt: end }), NOW);
+    assert.equal(host.username, `${end}:s1-host`);
   });
 
   it("mints nothing for a seat that has already ended", async () => {
