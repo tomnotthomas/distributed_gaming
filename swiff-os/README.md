@@ -78,7 +78,7 @@ uninstall works from: boot entry (kept by what it starts, its partition's GPT id
 path, since firmware renumbers `Boot####`), partitions, C:'s space back, the drive names, Fast
 Startup and BitLocker.
 
-**Remove Swiff OS** is one click on the Rental screen (`removePlan` in `desktop/rental.cjs`),
+**Remove Swiff OS** starts with one click on the Rental screen (`removePlan` in `desktop/rental.cjs`),
 in two parts across a restart, with one confirmation on MokManager's blue screen. With Swiff's key enrolled it starts with the key: MokManager,
 which removes it once the owner confirms with a new code, lives on Swiff OS's own boot
 partition, so the key comes off first (BitLocker on C: suspended for that restart). Back in
