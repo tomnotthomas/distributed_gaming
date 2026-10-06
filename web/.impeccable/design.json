@@ -4,11 +4,26 @@
   "title": "Design System: Lanterel (renter app)",
   "extensions": {
     "colorMeta": {
-      "paper": { "role": "neutral", "displayName": "Lobby Paper", "canonical": "#e8e9e8", "tonalRamp": ["#131313", "#2a2b2b", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8", "#f4f4f2"] },
-      "card": { "role": "neutral", "displayName": "Card Stock", "canonical": "#f4f4f2", "tonalRamp": ["#141413", "#2b2b2a", "#4a4a48", "#646462", "#8b8b89", "#d4d4d2", "#e9e9e7", "#f4f4f2"] },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Lobby Paper",
+        "canonical": "#e8e9e8",
+        "tonalRamp": ["#131313", "#2a2b2b", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8", "#f4f4f2"]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card Stock",
+        "canonical": "#f4f4f2",
+        "tonalRamp": ["#141413", "#2b2b2a", "#4a4a48", "#646462", "#8b8b89", "#d4d4d2", "#e9e9e7", "#f4f4f2"]
+      },
       "card-lift": { "role": "neutral", "displayName": "Lift White", "canonical": "#ffffff" },
       "grey": { "role": "neutral", "displayName": "Cool Grey", "canonical": "#d3d4d3" },
-      "ink": { "role": "primary", "displayName": "Drafting Ink", "canonical": "#131313", "tonalRamp": ["#000000", "#131313", "#3f4040", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8"] },
+      "ink": {
+        "role": "primary",
+        "displayName": "Drafting Ink",
+        "canonical": "#131313",
+        "tonalRamp": ["#000000", "#131313", "#3f4040", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8"]
+      },
       "ink-press": { "role": "primary", "displayName": "Press Black", "canonical": "#000000" },
       "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "#4a4b4b" },
       "ink-3": { "role": "neutral", "displayName": "Ink 3", "canonical": "#636464" },
@@ -17,41 +32,112 @@
       "screen": { "role": "primary", "displayName": "The Screen", "canonical": "#131313" },
       "screen-2": { "role": "primary", "displayName": "Screen Glow", "canonical": "#1d1e1d" },
       "on-screen": { "role": "neutral", "displayName": "On Screen", "canonical": "#e8e9e8" },
-      "on-screen-2": { "role": "neutral", "displayName": "On Screen 2", "canonical": "rgb(232 233 232 / 0.78)" },
-      "lime": { "role": "secondary", "displayName": "Signal Lime", "canonical": "#d4f53c", "tonalRamp": ["#2f370a", "#4a560f", "#5f6f12", "#7d921c", "#9cb52a", "#bcd934", "#d4f53c", "#ecfbb0"] },
+      "on-screen-2": {
+        "role": "neutral",
+        "displayName": "On Screen 2",
+        "canonical": "rgb(232 233 232 / 0.78)"
+      },
+      "lime": {
+        "role": "secondary",
+        "displayName": "Signal Lime",
+        "canonical": "#d4f53c",
+        "tonalRamp": ["#2f370a", "#4a560f", "#5f6f12", "#7d921c", "#9cb52a", "#bcd934", "#d4f53c", "#ecfbb0"]
+      },
       "lime-edge": { "role": "secondary", "displayName": "Lime Edge", "canonical": "#9cb52a" },
       "lime-deep": { "role": "secondary", "displayName": "Lime Ink", "canonical": "#5f6f12" }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "The wall's lead game name, fitted to its column; one per screen, drafted between dimension lines." },
-      "headline": { "displayName": "Headline", "purpose": "A game page's name, Ignition's title, the profile name." },
+      "display": {
+        "displayName": "Display",
+        "purpose": "The wall's lead game name, fitted to its column; one per screen, drafted between dimension lines."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "A game page's name, Ignition's title, the profile name."
+      },
       "title": { "displayName": "Title", "purpose": "Profile section headings." },
-      "figure": { "displayName": "Figure", "purpose": "Big numbers: Ignition percent, free-machine count, come-back timer; latency at 38px in machine rows." },
-      "wordmark": { "displayName": "Wordmark", "purpose": "The bar's wordmark (still reads Swiff pending the rename)." },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Big numbers: Ignition percent, free-machine count, come-back timer; latency at 38px in machine rows."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The bar's wordmark (still reads Swiff pending the rename)."
+      },
       "lead": { "displayName": "Lead", "purpose": "The one spoken line under a name." },
       "body": { "displayName": "Body", "purpose": "Running copy and notes." },
-      "item": { "displayName": "Item", "purpose": "Game card titles; machine names at 600 18px; reading values at 500 19px." },
+      "item": {
+        "displayName": "Item",
+        "purpose": "Game card titles; machine names at 600 18px; reading values at 500 19px."
+      },
       "control": { "displayName": "Control", "purpose": "Uppercase nav items, band tabs, tier names." },
-      "label": { "displayName": "Label", "purpose": "Mono readings and annotations, placed under what they describe." }
+      "label": {
+        "displayName": "Label",
+        "purpose": "Mono readings and annotations, placed under what they describe."
+      }
     },
     "shadows": [
       { "name": "bezel", "value": "0 0 0 6px #131313", "purpose": "The screen's frame." },
-      { "name": "screen-cast", "value": "0 24px 44px -24px rgb(19 19 19 / 0.55)", "purpose": "Under every screen, lit or off." },
-      { "name": "warm-spill", "value": "0 46px 56px -34px rgb(236 140 24 / 0.5)", "purpose": "Added only when the screen shows its picture." },
-      { "name": "lime-edge", "value": "inset 0 0 0 1px #9cb52a", "purpose": "Keeps a lime bar or done dot visible on paper." },
-      { "name": "live-dot-edge", "value": "inset 0 0 0 1px #5f6f12", "purpose": "Edge of a 7px live dot on paper." },
-      { "name": "freed-ring", "value": "inset 0 0 0 4px #d4f53c", "purpose": "Peak of the one-time ring when a machine frees up (2.4s keyframe)." },
-      { "name": "focus", "value": "outline: 2px solid #131313; outline-offset: 3px", "purpose": "Focus on every renter control." }
+      {
+        "name": "screen-cast",
+        "value": "0 24px 44px -24px rgb(19 19 19 / 0.55)",
+        "purpose": "Under every screen, lit or off."
+      },
+      {
+        "name": "warm-spill",
+        "value": "0 46px 56px -34px rgb(236 140 24 / 0.5)",
+        "purpose": "Added only when the screen shows its picture."
+      },
+      {
+        "name": "lime-edge",
+        "value": "inset 0 0 0 1px #9cb52a",
+        "purpose": "Keeps a lime bar or done dot visible on paper."
+      },
+      {
+        "name": "live-dot-edge",
+        "value": "inset 0 0 0 1px #5f6f12",
+        "purpose": "Edge of a 7px live dot on paper."
+      },
+      {
+        "name": "freed-ring",
+        "value": "inset 0 0 0 4px #d4f53c",
+        "purpose": "Peak of the one-time ring when a machine frees up (2.4s keyframe)."
+      },
+      {
+        "name": "focus",
+        "value": "outline: 2px solid #131313; outline-offset: 3px",
+        "purpose": "Focus on every renter control."
+      }
     ],
     "motion": [
       { "name": "ease", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Every state change." },
       { "name": "color", "value": "0.3s", "purpose": "Nav, tabs, borders, card hover." },
-      { "name": "pill", "value": "0.35s", "purpose": "Pill background and border changes; the end circle turns 45deg over 0.45s." },
-      { "name": "screen-breathe", "value": "2.8s ease-in-out infinite", "purpose": "The off screen's dashed lime frame, 40% to full." },
-      { "name": "ignition-open", "value": "clip-path 0.9s, filter 1.2s", "purpose": "The picture opening step by step as the connection comes up." },
-      { "name": "hero-crossfade", "value": "opacity 1.4s", "purpose": "Signed-out wall turning through games." },
+      {
+        "name": "pill",
+        "value": "0.35s",
+        "purpose": "Pill background and border changes; the end circle turns 45deg over 0.45s."
+      },
+      {
+        "name": "screen-breathe",
+        "value": "2.8s ease-in-out infinite",
+        "purpose": "The off screen's dashed lime frame, 40% to full."
+      },
+      {
+        "name": "ignition-open",
+        "value": "clip-path 0.9s, filter 1.2s",
+        "purpose": "The picture opening step by step as the connection comes up."
+      },
+      {
+        "name": "hero-crossfade",
+        "value": "opacity 1.4s",
+        "purpose": "Signed-out wall turning through games."
+      },
       { "name": "freed", "value": "2.4s", "purpose": "A game that just became playable rings once in lime." },
-      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce", "purpose": "Nothing moves on its own; hover scales and rises are removed." }
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Nothing moves on its own; hover scales and rises are removed."
+      }
     ],
     "breakpoints": [
       { "name": "phone", "value": "520px" },
@@ -146,11 +232,31 @@
       "Everything you press is a pill or a circle."
     ],
     "rules": [
-      { "name": "The Mark Rule", "body": "Lime is a mark, never a fill, a surface, or text on paper. If a lime element is wider than 18px it is a frame line or a ring, not an area.", "section": "colors" },
-      { "name": "The One Screen Rule", "body": "The only dark surface on a renter page is the screen (and the chosen machine card that borrows its colour). Key art is painted on the screen and nowhere else; no art bands behind copy, no full-bleed dark pages.", "section": "colors" },
-      { "name": "The Drafted Name Rule", "body": "Every screen's name is Michroma uppercase between a cap line and a base line of `line-2`, each with 9px end ticks, running 14px past the word on both sides.", "section": "typography" },
-      { "name": "The Annotation Rule", "body": "A mono label sits under the name or value it describes, as a drawing's annotation, never above it as an eyebrow. The build enforces this by reordering every label below its title.", "section": "typography" },
-      { "name": "The One Shadow Rule", "body": "Only the screen casts a shadow. A card that needs to stand out gets an ink border or the screen's colour, not a shadow.", "section": "elevation" }
+      {
+        "name": "The Mark Rule",
+        "body": "Lime is a mark, never a fill, a surface, or text on paper. If a lime element is wider than 18px it is a frame line or a ring, not an area.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Screen Rule",
+        "body": "The only dark surface on a renter page is the screen (and the chosen machine card that borrows its colour). Key art is painted on the screen and nowhere else; no art bands behind copy, no full-bleed dark pages.",
+        "section": "colors"
+      },
+      {
+        "name": "The Drafted Name Rule",
+        "body": "Every screen's name is Michroma uppercase between a cap line and a base line of `line-2`, each with 9px end ticks, running 14px past the word on both sides.",
+        "section": "typography"
+      },
+      {
+        "name": "The Annotation Rule",
+        "body": "A mono label sits under the name or value it describes, as a drawing's annotation, never above it as an eyebrow. The build enforces this by reordering every label below its title.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Shadow Rule",
+        "body": "Only the screen casts a shadow. A card that needs to stand out gets an ink border or the screen's colour, not a shadow.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do set every renter screen on paper (#e8e9e8), with card-stock panels bordered by 1px `line-2` hairlines at 14px or 22px radius.",

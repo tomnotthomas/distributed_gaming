@@ -173,6 +173,7 @@ The density is calm and instrument-like. A screen holds one name, one screen, on
 Motion is slow, eased, and physical: the screen's dashed lime frame breathes while it waits, Ignition opens the picture from one bright line to the full frame as the connection comes up, a freed machine rings its card once in lime. Under reduced motion nothing moves on its own.
 
 **Key Characteristics:**
+
 - Paper ground, card panels on 1px hairlines, ink type; no dark pages.
 - Key art only on the screen: a dark rounded 16:9 with a 6px bezel, a stand, and a warm light spill.
 - Michroma uppercase titles drafted between dimension lines; Outfit for reading; IBM Plex Mono for readings and annotations.
@@ -184,15 +185,18 @@ Motion is slow, eased, and physical: the screen's dashed lime frame breathes whi
 A near-monochrome paper-and-ink palette with one dark object and one acid mark.
 
 ### Primary
+
 - **Drafting Ink** (`ink`): all type, the filled primary pill, the account avatar, the chosen machine card, focus rings (2px solid, 3px offset), text selection. Hover on a filled pill deepens to **Press Black** (`ink-press`).
 - **The Screen** (`screen`, with `screen-2` as its off-state glow): the one dark object on every page. The bezel, the stand, the off screen's radial glow, the chosen machine card. Text on it is `on-screen` and `on-screen-2`.
 
 ### Secondary
+
 - **Signal Lime** (`lime`): the mark. Live dots (7px), the current nav item's and tab's 18x3px bar, done steps in Ignition's legend, the waiting screen's dashed frame, the one-time ring when a machine frees up.
 - **Lime Edge** (`lime-edge`): the 1px inset edge that keeps a lime bar or done dot visible on paper.
 - **Lime Ink** (`lime-deep`): the 1px inset edge of a live dot on paper, and the outline of the Free mark's dot.
 
 ### Neutral
+
 - **Lobby Paper** (`paper`): the ground of every renter screen, the html and body under it, and the disc fill inside the Resume and Reticle dials.
 - **Card Stock** (`card`): every panel, tile, machine row, strip and note on the paper. Hover lifts a card to **Lift White** (`card-lift`), which is also the QR code's backing.
 - **Cool Grey** (`grey`): the library's lowest accent step, re-pointed; quiet fills only.
@@ -202,6 +206,7 @@ A near-monochrome paper-and-ink palette with one dark object and one acid mark.
 - **Hairline Strong** (`line-2`): card and panel borders, dimension lines and their end ticks, tab baselines.
 
 ### Named Rules
+
 **The Mark Rule.** Lime is a mark, never a fill, a surface, or text on paper. If a lime element is wider than 18px it is a frame line or a ring, not an area.
 
 **The One Screen Rule.** The only dark surface on a renter page is the screen (and the chosen machine card that borrows its colour). Key art is painted on the screen and nowhere else; no art bands behind copy, no full-bleed dark pages.
@@ -215,6 +220,7 @@ A near-monochrome paper-and-ink palette with one dark object and one acid mark.
 **Character:** Michroma is wide and engineered, set uppercase so a game's name reads like a part number on a drawing. Outfit is light and round for reading, so sentences feel spoken rather than stamped. Plex Mono carries the readings: milliseconds, hours free, GPU names, steps.
 
 ### Hierarchy
+
 - **Display** (Michroma 400, clamp(40px, 5.6vw, 96px), line-height 1, uppercase): the wall's lead game name, fitted to its column by measurement. One per screen.
 - **Headline** (Michroma 400, clamp(32px, 3.6vw, 54px), 1.02, uppercase): a game page's name; Ignition's title at clamp(32px, 3.8vw, 56px); the profile name at 30px.
 - **Title** (Michroma 400, 18px, 1.2, 0.02em, uppercase): profile section headings; Steam sign-in heading at 22px.
@@ -226,6 +232,7 @@ A near-monochrome paper-and-ink palette with one dark object and one acid mark.
 - **Label** (IBM Plex Mono 400, 11.5px, 1.55, 0.06em, uppercase): readings, dt terms, card meta, the Ignition legend, ledger heads, hashes (12 to 12.5px). Sentences set in mono (the band's footnote) drop the uppercase.
 
 ### Named Rules
+
 **The Drafted Name Rule.** Every screen's name is Michroma uppercase between a cap line and a base line of `line-2`, each with 9px end ticks, running 14px past the word on both sides.
 
 **The Annotation Rule.** A mono label sits under the name or value it describes, as a drawing's annotation, never above it as an eyebrow. The build enforces this by reordering every label below its title.
@@ -245,12 +252,14 @@ The desktop is the 1440 x 900 lobby grid made fluid: an 80px bar (96px on ultra 
 The system is flat, with one exception that is the point. Cards and panels sit on the paper with hairline borders and no shadow; hover answers with an ink border and a lift to white, never with a shadow. Depth belongs only to the screen, which casts a soft shadow and spills warm light onto the paper under it, as a lit television would. A static fractal-noise grain at 12% opacity in overlay blend lies over the whole app.
 
 ### Shadow Vocabulary
+
 - **Bezel** (`box-shadow: 0 0 0 6px #131313`): the screen's frame, always.
 - **Screen cast** (`0 24px 44px -24px rgb(19 19 19 / 0.55)`): under every screen, lit or off.
 - **Warm spill** (`0 46px 56px -34px rgb(236 140 24 / 0.5)`): added only when the screen shows its picture.
 - **Hairline inset** (`inset 0 0 0 1px ...`): edges on lime marks, the art frame inside a card, the time ring. Not elevation.
 
 ### Named Rules
+
 **The One Shadow Rule.** Only the screen casts a shadow. A card that needs to stand out gets an ink border or the screen's colour, not a shadow.
 
 ## Shapes
@@ -260,20 +269,25 @@ Soft rectangles for things you read, full rounds for things you press. Corner st
 ## Components
 
 ### Buttons
+
 Calm pills with a turning circle.
+
 - **Shape:** full pill (999px), 52px tall; the small size is 42px.
 - **Primary:** filled ink with paper text, Outfit 500 16px, padding 6px 6px 6px 22px, ending in a 38px hairline circle holding an arrow glyph.
 - **Outline:** transparent with a 1px currentColor border; used for sign in, retry, cancel.
 - **Hover / Focus:** primary deepens to black; outline takes a 5% ink wash; the end circle rotates 45deg over 0.45s. Press nudges down 1px and scales to 0.99. Focus is a 2px ink outline at 3px offset. Disabled is 50% opacity.
 
 ### Dials (Resume and the Reticle)
+
 The signature control. A paper disc inside a ring of ticks with four corner brackets, the label and a mono reading inside. Resume (140 to 156px) spins its ticks slowly and draws its brackets in on hover or focus. The Reticle (200px) is hold-to-launch: holding draws the outer ring and pulls the brackets to 0.9, done to 0.8; idle, the brackets settle in and out every 3s.
 
 ### Chips
+
 - **Free mark:** a 1px ink-ringed pill, mono 500 11px uppercase, led by a 7px lime dot with a lime-deep edge.
 - **Live dot:** 7px lime circle with a 1px lime-deep inset, before live counts and the best machine.
 
 ### Cards / Containers
+
 - **Corner Style:** 14px for game cards, machine rows, notes; 22px for panels and the hero strip.
 - **Background:** card stock on paper; white on hover.
 - **Shadow Strategy:** none (see The One Shadow Rule).
@@ -282,20 +296,25 @@ The signature control. A paper disc inside a ring of ticks with four corner brac
 - **Locked game:** grey-scaled art under an ink veil with a 40px hairline lock circle; the text stays full strength.
 
 ### Machine Ledger
+
 Each machine is a card: latency as a 38px Michroma figure on the left, the name and owner, then a mono meta row (the tag, time left). The chosen machine is printed in the screen's colour with on-screen text; the best one carries the lime dot.
 
 ### Inputs / Fields
+
 Settings checkboxes are native at 20px with an ink accent. The estimate's sliders are real range inputs over a drawn hairline ruler with an ink-centred paper knob. The tier picker is four cells on a ticked ruler; the chosen cell turns ink with the lime bar under it.
 
 ### Navigation
+
 The 80px paper bar: the wordmark (Michroma 17px, 0.08em) left; four equal cells of uppercase Outfit 500 13px in ink-2, turning ink on hover over 0.3s; the current page is ink with an 18x3px lime bar under it. The account card on the right is a pill on card stock (38px ink avatar, name, connection line) beside a 14px-radius "Tonight" card with the hours left. Band tabs repeat the pattern: ink-2, an ink underline and the lime bar for the current tab, a mono count at the right.
 
 ### The Screen
+
 The world's one object. A 16:9 rounded rectangle in the screen's colour with the bezel, the cast, and a stand. Off, it shows a radial glow from the top left, a 1.5px dashed lime frame inset 12px that breathes between 40% and full lime every 2.8s, and on the waiting wall a single line of light across the middle. Lit, the frame goes and the warm spill appears. On Ignition the picture opens in steps (clip from one line at 49.6% to the full frame, brightness from 2.4 down to 1, saturation back up) as each step of the connection completes. On a game's page the art sits under a grey desaturating veil, with the lens circle left in full colour behind a hairline crosshair and lens dial.
 
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** set every renter screen on paper (#e8e9e8), with card-stock panels bordered by 1px `line-2` hairlines at 14px or 22px radius.
 - **Do** put a game's key art on the screen: 16:9, 16px radius, 6px bezel, stand, and the warm spill once lit.
 - **Do** draft each screen's name in Michroma uppercase between dimension lines with 9px end ticks.
@@ -305,6 +324,7 @@ The world's one object. A 16:9 rounded rectangle in the screen's colour with the
 - **Do** give lime on paper a 1px `lime-edge` or `lime-deep` inset so the mark holds against the grey.
 
 ### Don't:
+
 - **Don't** paint key art full-bleed behind copy or as a dark page band; the Share page's art band is hidden in the build for this reason.
 - **Don't** use lime as a fill, a surface, or text on paper.
 - **Don't** add drop shadows to cards, pills or panels; only the screen casts one.

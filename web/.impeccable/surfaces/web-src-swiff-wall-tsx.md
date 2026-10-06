@@ -2,7 +2,15 @@
 version: 1
 slug: "web-src-swiff-wall-tsx"
 primary_target: "web/src/swiff/Wall.tsx"
-related_targets: ["web/src/swiff/GameMenu.tsx","web/src/swiff/Ignition.tsx","web/src/swiff/Reconnect.tsx","web/src/swiff/Profile.tsx","web/src/swiff/Chrome.tsx","web/src/swiff/swiff.css"]
+related_targets:
+  [
+    "web/src/swiff/GameMenu.tsx",
+    "web/src/swiff/Ignition.tsx",
+    "web/src/swiff/Reconnect.tsx",
+    "web/src/swiff/Profile.tsx",
+    "web/src/swiff/Chrome.tsx",
+    "web/src/swiff/swiff.css",
+  ]
 ---
 
 # Renter app after sign-in
