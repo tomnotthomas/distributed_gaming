@@ -525,7 +525,9 @@ export function rentalStage({
   // Remove Swiff OS, under way across its restarts, comes before anything else.
   const removal = read.removal ?? null;
   if (removal?.state === "queued") return { kind: "restart", code: removal.code ?? "", removing: "key" };
-  if (removal?.state === "finish") return { kind: "finish" };
+  // A drive BitLocker protects since the key's part still waits for its recovery key: the disk part is a boot change too.
+  if (removal?.state === "finish")
+    return recoveryDue(read) ? { kind: "recovery", drives: read.recovery!.drives } : { kind: "finish" };
   if (removal?.state === "restart") return { kind: "restart", code: "", removing: "check" };
   if (removal?.state === "checked") return { kind: "removed", ok: removal.ok, checks: removal.checks };
   // Nothing that changes what the PC starts is offered while a recovery key is not saved.

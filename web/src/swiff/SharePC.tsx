@@ -60,6 +60,8 @@ function Eur({ n, decimals = 0 }: { n: number; decimals?: number }) {
 export function SharePC({ swiff, release = RELEASE as Release }: { swiff: Swiff; release?: Release }) {
   const { week, setWeek } = swiff;
   const e = estimate(week);
+  // The download and its SHA-256 come from the same release, so the page never shows one without the other.
+  const download = release.host?.url ?? null;
 
   return (
     <main className="share" data-testid="share">
@@ -98,9 +100,9 @@ export function SharePC({ swiff, release = RELEASE as Release }: { swiff: Swiff;
           <TierPicker value={week.tier} onChange={(id) => setWeek({ ...week, tier: id })} />
 
           <div className="share-actions">
-            {HOST_DOWNLOAD_URL ? (
+            {download ? (
               <>
-                <a className="lpill" href={HOST_DOWNLOAD_URL}>
+                <a className="lpill" href={download}>
                   Download for Windows
                   <span className="lpill-c">
                     <Glyph name="download" size={18} />

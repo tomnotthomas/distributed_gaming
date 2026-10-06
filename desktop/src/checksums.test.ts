@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { imageSums, parseSums, releaseOf, sumOf, sumsText } from "../checksums.cjs";
+import { flags, imageSums, parseSums, releaseOf, sumOf, sumsText } from "../checksums.cjs";
 import RELEASE from "../../web/src/swiff/release.json";
 
 let dir: string;
@@ -54,7 +54,21 @@ describe("checksums", () => {
       "https://example.test/SwiffHost.exe",
     );
     expect(() => releaseOf({ host, url: "http://example.test/x.exe" })).toThrow(/https/);
+    // Only an address a download link can use: https, with a host.
+    expect(() => releaseOf({ host, url: "https://#fragment" })).toThrow(/https/);
+    expect(() => releaseOf({ host, url: "https:// spaced.test/x" })).toThrow(/https/);
     expect(releaseOf()).toEqual({ host: null, image: null });
+  });
+
+  it("refuses a flag given without its value, before anything is written", () => {
+    expect(flags(["release", "out.json", "--host", "a.exe"])).toEqual({
+      _: ["release", "out.json"],
+      host: "a.exe",
+    });
+    expect(() => flags(["release", "out.json", "--host"])).toThrow(/--host takes a value/);
+    expect(() => flags(["release", "out.json", "--host", "--url", "https://x.test/a.exe"])).toThrow(
+      /--host takes a value/,
+    );
   });
 
   it("ships the website a release file in the shape it reads", () => {

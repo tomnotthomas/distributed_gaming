@@ -9,6 +9,7 @@ export type Release = {
 export function sumOf(file: string, files?: typeof import("node:fs")): Sum & { bytes: number };
 export function sumsText(sums: Sum[]): string;
 export function parseSums(text: string): Sum[];
+export function flags(args: string[]): { _: string[] } & Record<string, string | string[]>;
 export function releaseOf(options?: {
   host?: (Sum & { bytes: number }) | null;
   url?: string | null;

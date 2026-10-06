@@ -47,13 +47,23 @@ function parseSums(text) {
     });
 }
 
+/** Whether `url` parses as an https:// address with a host: one a download link can use. */
+function httpsUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * What the download page shows (web/src/swiff/release.json): `host` the
  * installer's sum, with the address it is published at or null; `image` the
  * image set's version and its files' sums.
  */
 function releaseOf({ host = null, url = null, image = null } = {}) {
-  if (url !== null && !/^https:\/\/\S+$/.test(url)) throw new Error("--url takes an https:// address.");
+  if (url !== null && !httpsUrl(url)) throw new Error("--url takes an https:// address.");
   if (host && !HEX.test(host.sha256)) throw new Error("Not a SHA-256.");
   return {
     host: host ? { file: host.name, sha256: host.sha256, bytes: host.bytes, url } : null,
@@ -78,11 +88,13 @@ function imageSums(dir, files = fs) {
   };
 }
 
+/** The command line's words and --name value pairs; a --name with no value after it is refused. */
 function flags(args) {
   const out = { _: [] };
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) out[args[i].slice(2)] = args[++i];
-    else out._.push(args[i]);
+    if (!args[i].startsWith("--")) out._.push(args[i]);
+    else if (i + 1 < args.length && !args[i + 1].startsWith("--")) out[args[i].slice(2)] = args[++i];
+    else throw new Error(`${args[i]} takes a value.`);
   }
   return out;
 }
@@ -112,6 +124,13 @@ function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { sumOf, sumsText, parseSums, releaseOf, imageSums };
+module.exports = { sumOf, sumsText, parseSums, releaseOf, imageSums, flags };
 
-if (require.main === module) main(process.argv.slice(2));
+if (require.main === module) {
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    console.error(`checksums: ${error.message}`);
+    process.exitCode = 1;
+  }
+}

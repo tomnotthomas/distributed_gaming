@@ -1508,6 +1508,28 @@ describe("Remove Swiff OS", () => {
     expect(rentalLine(at({ state: "checked", ok: false, checks, at: 1 }))).toBe("Removed, check it");
     expect(rentalReady(at({ state: "finish" }))).toBe(false);
   });
+
+  it("asks for a new drive's recovery key before the disk part, which is a boot change too", () => {
+    // BitLocker turned on for the games drive between the key's restart and the disk part: main refuses
+    // the run until its key is saved, so the screen asks for it instead of offering Try again for ever.
+    const setup = (saved: boolean): RentalSetup => ({
+      reading: false,
+      read: {
+        ...installed(),
+        removal: { state: "finish" },
+        recovery: { drives: ["C", "D"], saved, at: null },
+      },
+      target: null,
+      preview: null,
+      run: IDLE_RUN,
+    });
+    expect(rentalStage(setup(false))).toEqual({ kind: "recovery", drives: ["C", "D"] });
+    expect(rentalStage(setup(true))).toEqual({ kind: "finish" });
+    // The key part's restart, already queued, is not held up.
+    const queued = setup(false);
+    queued.read!.removal = { state: "queued", code: "55554444" };
+    expect(rentalStage(queued).kind).toBe("restart");
+  });
 });
 
 describe("the BitLocker recovery key", () => {
