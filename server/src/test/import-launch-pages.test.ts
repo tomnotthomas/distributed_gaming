@@ -69,6 +69,18 @@ describe("importing the launch set", () => {
     assert.equal(html.slice(html.indexOf("</script>")), PAGE.slice(PAGE.indexOf("</script>")));
   });
 
+  it("rebuilds only the FAQPage script, leaving another JSON-LD script before it as it was", () => {
+    const org = `<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "Organization", "name": "{{brand}}"}
+</script>`;
+    const html = faqJsonLd(`${org}\n${PAGE}`, "en");
+    assert.ok(html.startsWith(org), "the Organization script is kept");
+    const scripts = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+    assert.equal(scripts.length, 2);
+    assert.equal(JSON.parse(scripts[0]![1]!)["@type"], "Organization");
+    assert.equal(JSON.parse(scripts[1]![1]!).inLanguage, "en");
+  });
+
   it("leaves a page without FAQ structured data, or without a visible FAQ, as it is", () => {
     assert.equal(faqJsonLd("<p>no faq</p>", "en"), "<p>no faq</p>");
     const bare = PAGE.slice(0, PAGE.indexOf("<body>"));

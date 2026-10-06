@@ -62,7 +62,8 @@ Code: `web/`, `server/`, `packages/`.
 
 The public launch pages, under the product's new name Lanterel (`server/src/brand.ts`, the one place
 it is set), live in `web/marketing/`, imported from marketing's built set with
-`node server/scripts/import-launch-pages.mjs <built set>`. The same server serves them, off unless
+`node server/scripts/import-launch-pages.mjs <built set>`; the server reads them when it starts, so
+an import takes effect on its next start (every deploy). The same server serves them, off unless
 `MARKETING_PAGES=on`, and then only on the host `SITE_ORIGIN` names, so the app keeps its own `/`,
 `/share` and `/host`. The invite pages (`/crew/<code>`, `/seat/`, `/gift/`, `/night/`) show only
 what the product knows about an invite; the waitlist and Founding Host forms post to

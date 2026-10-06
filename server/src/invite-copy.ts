@@ -1,6 +1,6 @@
 // What an invite page (/crew, /seat, /gift, /night and their /en/ twins, in
 // marketing.ts) says in place of the example people marketing built them with
-// (Max, Lena, Jonas, Tom, "Toms Rig", Friday 10 October…), per invite.
+// (Max, Lena, Jonas, Tom, "Toms Rig", Friday 9 October…), per invite.
 //
 // The product knows little about an invite yet: the marketing server names
 // nobody (its crew page moves into the web app), and seats at a rig, gifted

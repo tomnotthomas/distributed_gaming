@@ -6,6 +6,10 @@
 //
 // (`--target <dir>` imports into another folder instead of web/marketing/.)
 //
+// A server reads web/marketing/ when it starts: its page routes, and each
+// file the first time it is asked for. So an import takes effect on the next
+// start, which every deploy is; restart a server that is running.
+//
 // Run it again for every new build marketing hands over; it replaces
 // web/marketing/ whole, and only once the whole set has been read and
 // written: it builds the new set beside the old one and swaps it in at the
@@ -85,10 +89,10 @@ function plainText(html) {
  * `lang`. A page without both, or whose visible FAQ is empty, is left as it is.
  */
 export function faqJsonLd(html, lang) {
-  const block =
-    /<script type="application\/ld\+json">\s*(\{[\s\S]*?"@type":\s*"FAQPage"[\s\S]*?\})\s*<\/script>/.exec(
-      html,
-    );
+  // Each JSON-LD script on its own, never a match running from one into the next: only the FAQPage one is rebuilt.
+  const block = [
+    ...html.matchAll(/<script type="application\/ld\+json">\s*(\{(?:(?!<\/script>)[\s\S])*\})\s*<\/script>/g),
+  ].find((m) => /"@type":\s*"FAQPage"/.test(m[1]));
   if (!block) return html;
   const asked = [
     ...html.matchAll(
