@@ -23,9 +23,15 @@
 // stream shows the game (`setLive`), nothing is sent on.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
-import { createPeerConnection, relayOnly, type IceConfig } from "./peer";
+import { createPeerConnection, type IceConfig } from "./peer";
 import type { SignalMessage } from "./signaling";
-import { MAX_WATCHERS, type CrewSignal, type VoicePerson, type Watcher } from "../../../server/src/protocol";
+import {
+  MAX_WATCHERS,
+  relayServers,
+  type CrewSignal,
+  type VoicePerson,
+  type Watcher,
+} from "../../../server/src/protocol";
 
 /** What a viewer's copy of the picture may take: 720p-ish at 30 fps, so watching costs the player's link little. */
 export const VIEWER_MAX_BITRATE = 2_500_000;
@@ -244,7 +250,7 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
     const pc = createPeerConnection({
       ...opts,
       // Relay-only: the player and a crewmate never learn each other's address.
-      iceServers: relayOnly(opts.iceServers ?? serverIce),
+      iceServers: relayServers(opts.iceServers ?? serverIce),
       forceRelay: true,
     });
     const video = pc.addTransceiver("video", {

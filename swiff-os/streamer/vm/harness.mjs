@@ -169,13 +169,13 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
   // Its own log beside the results, in this user's build directory, for when it fails.
   stdio: ["ignore", "ignore", openSync(resolve(dirname(values.out), "server.log"), "w")],
 });
-// The server must not outlive the harness, however the harness ends: a normal
-// exit, an uncaught start-up failure, or a signal before stopAll is in place.
 // The TURN relay the renter's and the friend's browsers watch through (TURNSERVER, from run-test.sh).
 const turn = spawn("sh", [resolve(REPO, "e2e/scripts/turn.sh"), String(TURN_PORT)], {
   env: { ...process.env },
   stdio: ["ignore", "ignore", "ignore"],
 });
+// The server must not outlive the harness, however the harness ends: a normal
+// exit, an uncaught start-up failure, or a signal before stopAll is in place.
 let stopping = false;
 process.on("exit", () => {
   server.kill();

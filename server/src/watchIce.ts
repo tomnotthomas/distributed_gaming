@@ -21,17 +21,6 @@ export const MAX_SDP_BYTES = 64_000;
 /** The longest name in a roster passed on. */
 const MAX_NAME = 64;
 
-/** Whether `server` is a TURN relay (turn: or turns:), not just STUN. */
-export function isRelayServer(server: RTCIceServer): boolean {
-  const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-  return urls.some((url) => typeof url === "string" && /^turns?:/i.test(url));
-}
-
-/** The TURN relays among `servers`: all a watch connection may use. Empty: no watching. */
-export function relayServers(servers: RTCIceServer[]): RTCIceServer[] {
-  return servers.filter(isRelayServer);
-}
-
 /** Whether an ICE candidate line is a relay one (`typ relay`). Host, srflx and prflx carry a user's own address. */
 export function isRelayCandidate(candidate: string): boolean {
   return /\styp\s+relay(\s|$)/.test(candidate);

@@ -13,10 +13,10 @@
 // for the microphone.
 
 import { createIceInbox, type IceInbox } from "./iceInbox";
-import { createPeerConnection, relayOnly, type IceConfig } from "./peer";
+import { createPeerConnection, type IceConfig } from "./peer";
 import { readRenterStats, DEFAULT_STATS_INTERVAL_MS, type RenterStats } from "./renterSession";
 import { connectSignaling, type SignalMessage } from "./signaling";
-import type { CrewSignal, VoicePerson } from "../../../server/src/protocol";
+import { relayServers, type CrewSignal, type VoicePerson } from "../../../server/src/protocol";
 import type { MicMode, MyVoice } from "./crewHub";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
@@ -158,7 +158,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     const connection = createPeerConnection({
       ...opts,
       // Relay-only: the player and a crewmate never learn each other's address.
-      iceServers: relayOnly(opts.iceServers ?? serverIce),
+      iceServers: relayServers(opts.iceServers ?? serverIce),
       forceRelay: true,
     });
     const signal = (detach = new AbortController()).signal;

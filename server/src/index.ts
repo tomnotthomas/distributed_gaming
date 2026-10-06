@@ -77,6 +77,7 @@ import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from ".
 import {
   DENIED_CODE,
   isRelayed,
+  relayServers,
   type DeniedMessage,
   type PeerLeftMessage,
   type SessionError,
@@ -98,7 +99,7 @@ import { bearer, HttpError, readJson } from "./http.js";
 import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
 import { createSignups } from "./signups.js";
 import { Watches, type Watch, type WatchEnd } from "./watch.js";
-import { relayServers, watchFrame } from "./watchIce.js";
+import { watchFrame } from "./watchIce.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 

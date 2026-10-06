@@ -66,6 +66,18 @@ export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit; watchId?
 /** The most viewers one session takes, asking or watching. The player's page encodes one picture per viewer. */
 export const MAX_WATCHERS = 4;
 
+/**
+ * The TURN relays among `servers` (turn: or turns:), without STUN: all a watch
+ * connection may use, so neither side learns the other's address. Empty: no watching.
+ */
+export function relayServers(servers: RTCIceServer[]): RTCIceServer[] {
+  return servers.filter((server) =>
+    (Array.isArray(server.urls) ? server.urls : [server.urls]).some(
+      (url) => typeof url === "string" && /^turns?:/i.test(url),
+    ),
+  );
+}
+
 /** Sent by a viewer to take a viewer seat, with the watch ticket POST /api/crew-live/:id/watch gave. */
 export type WatchMessage = { type: "watch"; ticket: string };
 

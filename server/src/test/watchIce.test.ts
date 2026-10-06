@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SignalMessage } from "../protocol.js";
-import { isRelayCandidate, relaySdp, relayServers, watchFrame } from "../watchIce.js";
+import { relayServers } from "../protocol.js";
+import { isRelayCandidate, relaySdp, watchFrame } from "../watchIce.js";
 
 describe("watch connections are relay-only", () => {
   it("takes only TURN relays from the servers a watch may use", () => {
