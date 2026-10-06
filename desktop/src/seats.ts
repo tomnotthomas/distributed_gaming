@@ -124,8 +124,8 @@ export const seatLink = (site: string | null, seat: Pick<HostSeat, "token">): st
   site && seat.token ? `${site}/seat/${seat.token}` : null;
 
 /** The message the owner sends a friend with their seat's link. */
-export const seatMessage = (link: string): string =>
-  `Saved you a seat at my rig. You can play your own Steam games on my PC, from your Mac, right in the browser. It's yours for ${SEAT_DAYS} days: ${link}`;
+export const seatMessage = (link: string, days: number): string =>
+  `Saved you a seat at my rig. You can play your own Steam games on my PC, from your Mac, right in the browser. It's yours for ${days} ${days === 1 ? "day" : "days"}: ${link}`;
 
 /** Whole days an open seat still waits, from `now`: at least 1 while it waits at all. */
 export const daysLeft = (expiresAt: number, now: number): number =>

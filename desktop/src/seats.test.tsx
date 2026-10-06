@@ -98,9 +98,10 @@ describe("the seats client", () => {
     expect(seatLine(seat(), NOW)).toBe("Waiting for Jonas · 12 days left");
     expect(seatLine(seat({ expiresAt: NOW + 3_600_000 }), NOW)).toBe("Waiting for Jonas · 1 day left");
     expect(seatLine(seat({ state: "taken", takenBy: "jonas_k" }), NOW)).toBe("Taken by jonas_k");
-    expect(seatMessage("https://x/seat/t")).toMatch(
-      /^Saved you a seat at my rig\..*14 days: https:\/\/x\/seat\/t$/,
+    expect(seatMessage("https://x/seat/t", 14)).toMatch(
+      /^Saved you a seat at my rig\..*yours for 14 days: https:\/\/x\/seat\/t$/,
     );
+    expect(seatMessage("https://x/seat/t", 1)).toMatch(/yours for 1 day: https:\/\/x\/seat\/t$/);
   });
 
   it("keeps the demo's seats in memory, up to four", async () => {
@@ -190,7 +191,8 @@ describe("seats for friends", () => {
     Object.assign(navigator, { clipboard: { writeText } });
     await renderSeats(fakeClient({ max: 4, seats: [seat()] }));
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy link" })));
-    expect(writeText).toHaveBeenCalledWith(seatMessage(`https://swiff.example/seat/${TOKEN}`));
+    expect(writeText).toHaveBeenCalledWith(seatMessage(`https://swiff.example/seat/${TOKEN}`, 12));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("yours for 12 days"));
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 

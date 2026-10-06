@@ -4,10 +4,12 @@
 
 import { useEffect, useId, useState } from "react";
 import {
+  daysLeft,
   seatErrorLine,
   seatExpired,
   seatLine,
   seatMessage,
+  type HostSeat,
   type SeatClient,
   type SeatError,
   type SeatList,
@@ -70,10 +72,10 @@ export function FriendSeats({ client, now }: { client: SeatClient | null; now: n
     setList(left.value);
   };
 
-  const copy = async (seatId: string, link: string) => {
+  const copy = async (seat: HostSeat, link: string) => {
     try {
-      await navigator.clipboard.writeText(seatMessage(link));
-      setCopied(seatId);
+      await navigator.clipboard.writeText(seatMessage(link, daysLeft(seat.expiresAt, now)));
+      setCopied(seat.id);
     } catch {
       setError("failed");
     }
@@ -114,7 +116,7 @@ export function FriendSeats({ client, now }: { client: SeatClient | null; now: n
                 ) : (
                   <span className="seat-acts">
                     {seat.state === "open" && !seatExpired(seat, now) && link ? (
-                      <button type="button" className="lnk" onClick={() => void copy(seat.id, link)}>
+                      <button type="button" className="lnk" onClick={() => void copy(seat, link)}>
                         {copied === seat.id ? "Copied" : "Copy link"}
                       </button>
                     ) : null}
