@@ -17,6 +17,7 @@ import { join } from "node:path";
 /** Run a program; resolves with its exit code and stdout, never rejects on a non-zero exit. */
 export type Run = (file: string, args: string[]) => Promise<{ code: number; stdout: string }>;
 
+/** Runs with a 10 s timeout; a program that cannot start counts as exit code 1. */
 export const run: Run = (file, args) =>
   new Promise((resolve) => {
     execFile(file, args, { encoding: "utf8", timeout: 10_000 }, (error, stdout) => {
@@ -78,6 +79,7 @@ export type Display = {
  */
 export function x11Display(runner: Run = run): Display {
   return {
+    /** Every code decoded from Steam's windows now on screen. */
     async qrCodes() {
       const tree = await runner("xwininfo", ["-root", "-tree"]);
       if (tree.code !== 0) return [];
@@ -96,6 +98,7 @@ export function x11Display(runner: Run = run): Display {
       }
       return codes;
     },
+    /** The app gamescope has in front, or null when that cannot be read. */
     async focusedApp() {
       const prop = await runner("xprop", ["-root", "-notype", "GAMESCOPE_FOCUSED_APP"]);
       return prop.code === 0 ? parseFocusedApp(prop.stdout) : null;

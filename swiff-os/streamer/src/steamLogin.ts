@@ -54,6 +54,7 @@ export type SteamLoginForwarder = {
   stop(): void;
 };
 
+/** Drive one renter's Play on the steam agent and relay its progress to them as steam-login. */
 export function steamLoginForwarder({
   socketPath,
   appid,
@@ -71,11 +72,13 @@ export function steamLoginForwarder({
   let launchSession: string | null = null;
   let stopped = false;
 
+  /** Send the renter where the sign-in stands, and keep it for when they join again. */
   const tell = (msg: SteamLogin) => {
     latest = msg;
     send?.(msg);
   };
 
+  /** Answer launch-game with game-started, once both have happened. */
   const answerLaunch = () => {
     if (onScreen && launchSession) send?.({ type: "game-started", sessionId: launchSession });
   };
@@ -92,6 +95,7 @@ export function steamLoginForwarder({
     );
   };
 
+  /** One line from the agent: an event of the Play under way. */
   const onEvent = (line: string) => {
     if (finished) return;
     let event: AgentEvent;
@@ -124,6 +128,7 @@ export function steamLoginForwarder({
     }
   };
 
+  /** Connect to the agent and ask it to play `game`, from a clean slate. */
   const startPlay = (game: number) => {
     finished = false;
     onScreen = false;

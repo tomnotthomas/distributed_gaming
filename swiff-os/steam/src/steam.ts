@@ -39,8 +39,10 @@ export type SteamClient = {
   launch(appid: number): Promise<void>;
 };
 
+/** The Steam client of the renter whose home is `home`. */
 export function steamClient(home = homedir()): SteamClient {
   return {
+    /** Signed in once Steam's sign-in log last says `Success`; no log yet means not. */
     async signedIn() {
       try {
         const log = await readFile(join(home, ".steam", "steam", "logs", "steamui_login.txt"), "utf8");

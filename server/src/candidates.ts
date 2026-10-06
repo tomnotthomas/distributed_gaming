@@ -134,6 +134,7 @@ function comingBack(
   byId: Map<string, OfferedMachine>,
   minutes: number,
 ): OfferedMachine[] {
+  /** Free again before its offer ends, with room for the session (and a rental-mode sign-in) after. */
   const fits = (backAt: number, host: OfferedMachine["host"]) =>
     backAt < host.availableUntil && backAt + sessionSpanMs(host, minutes) <= host.availableUntil;
   return later

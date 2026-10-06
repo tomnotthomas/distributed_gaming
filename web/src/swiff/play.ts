@@ -231,6 +231,7 @@ export function startPlay(opts: PlayOptions): Play {
     if (step === "launching" && !signingIn()) armLaunch();
   };
 
+  /** (Re)start the clock after which a launch counts as slow. */
   const armLaunch = () => {
     clearTimeout(timer);
     timer = setTimeout(() => set({ slow: true }), LAUNCH_TIMEOUT_MS);
@@ -444,6 +445,7 @@ export function startPlay(opts: PlayOptions): Play {
 
   return {
     state: () => state,
+    /** Try again after a failed Steam sign-in, until the claim's sign-in time is up. */
     retrySignIn() {
       if (stopped || !state.signInFailed || state.signInFailed === "time-up") return;
       if (signInBy !== undefined && now() >= signInBy && !state.started) return timeUp();

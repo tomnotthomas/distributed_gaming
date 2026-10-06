@@ -39,6 +39,7 @@ export async function serveLogin(path: string, opts: Omit<PlayOptions, "emit" | 
         .slice(0, end === -1 ? undefined : end)
         .trim()
         .split(/\s+/);
+      /** One JSON line to the streamer, unless it already hung up. */
       const write = (reply: object) => {
         if (!conn.destroyed) conn.write(`${JSON.stringify(reply)}\n`);
       };

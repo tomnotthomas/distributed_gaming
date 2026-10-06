@@ -392,6 +392,7 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
       return () => listeners.delete(listener);
     },
     stats: () => latest,
+    /** Ask the PC for a new Steam code, now or once it is back in the room. */
     retrySteamLogin() {
       if (ended) return;
       retryWanted = true;

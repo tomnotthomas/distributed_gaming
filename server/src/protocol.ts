@@ -174,6 +174,7 @@ export type SignalMessage =
 /** Messages the server forwards to the other peer without inspecting them. */
 export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started", "steam-login"] as const;
 
+/** Whether the server passes `msg` on to the other peer as is. */
 export function isRelayed(
   msg: SignalMessage,
 ): msg is SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage | SteamLoginRetryMessage {
