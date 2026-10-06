@@ -16,19 +16,13 @@ for moddir in "$BUILDROOT"/usr/lib/modules/*/; do
 	depmod -b "$BUILDROOT" "$(basename "$moddir")"
 done
 
-# One kernel, and Canonical's signed NVIDIA modules built for it. The NVIDIA
-# metapackage follows its own archive upload, so a snapshot bump can name a
-# kernel the image does not boot; apt would then install a second kernel and
-# the NVIDIA modules would never load. Only Canonical's signature is accepted:
-# the kernel enforces module signatures and has that key built in.
+# One kernel, and Canonical's signed open NVIDIA modules built for it
+# (mkosi.postinst.chroot). Only Canonical's signature is accepted: the kernel
+# enforces module signatures and has that key built in.
 fail() {
 	echo "mkosi.finalize: $*" >&2
 	exit 1
 }
-# The NVIDIA module package also ships an empty lib/modules/kernel/ tree,
-# which is no kernel.
-[ ! -d "$BUILDROOT/usr/lib/modules/kernel" ] ||
-	find "$BUILDROOT/usr/lib/modules/kernel" -depth -type d -empty -delete
 set -- "$BUILDROOT"/usr/lib/modules/*/
 [ $# = 1 ] || fail "expected one kernel, found: $*"
 moddir=${1%/}
@@ -39,16 +33,37 @@ vermagic=$(modinfo -F vermagic "$nvidia" | cut -d' ' -f1)
 [ "$vermagic" = "$kernel" ] || fail "$nvidia is built for $vermagic, not $kernel"
 signer=$(modinfo -F signer "$nvidia")
 [ "$signer" = "Canonical Ltd. Kernel Module Signing" ] || fail "$nvidia is signed by '$signer'"
-# The userspace driver is the same release as the kernel module.
 version=$(modinfo -F version "$nvidia")
-[ -e "$BUILDROOT/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so.$version" ] ||
-	fail "NVIDIA userspace is not release $version, the kernel module's"
-[ -e "$BUILDROOT/usr/lib/i386-linux-gnu/libGLX_nvidia.so.$version" ] ||
-	fail "32-bit NVIDIA userspace is not release $version, the kernel module's"
-[ -e "$BUILDROOT/usr/lib/firmware/nvidia/$version/gsp_ga10x.bin" ] ||
-	fail "no GSP firmware for NVIDIA $version"
-grep -q 'NVIDIA Driver License Agreement' "$BUILDROOT/usr/share/swiff/licenses/nvidia-driver" ||
-	fail "NVIDIA's licence is not in the image (it must go with the driver)"
+
+# None of NVIDIA's proprietary driver is in the image: the owner installs it
+# from the host app (swiff-os/NVIDIA.md). linux-firmware's NVIDIA firmware is
+# for nouveau, which Swiff OS never loads, so it goes too. Only NVIDIA's open
+# egl-wayland (MIT) carries the name.
+rm -rf "$BUILDROOT/usr/lib/firmware/nvidia"
+packages=$(dpkg-query --admindir="$BUILDROOT/var/lib/dpkg" -W -f '${Package}\n' |
+	grep -E '^(lib)?nvidia-' | grep -vx 'libnvidia-egl-wayland1' || true)
+[ -z "$packages" ] || fail "NVIDIA's driver packages are installed: $packages"
+files=$(find "$BUILDROOT/usr" \( -name 'libnvidia-*' ! -name 'libnvidia-egl-wayland*' -o -name 'libcuda*' \
+	-o -name 'nvidia-smi' -o -name 'nvidia_icd*.json' \) -print | head -n5)
+[ -z "$files" ] || fail "NVIDIA's driver files are in the image: $files"
+
+# What the owner's host app downloads is what apt resolves NVIDIA's packages
+# to for this image, and the driver release of the image's modules.
+manifest=$BUILDROOT/usr/lib/swiff/nvidia-driver
+resolved=$BUILDROOT/usr/lib/swiff/nvidia-driver.resolved
+field() { awk -v key="$1" '$1 == key { print $2 }' "$manifest"; }
+[ "$(field version)" = "$version" ] || fail "nvidia-driver names NVIDIA $(field version), the image's modules are $version"
+others=$(awk '$5 !~ /^(lib)?nvidia-/ || $5 ~ /^libnvidia-egl-wayland/ { print $5 }' "$resolved" | sort -u | paste -sd' ' -)
+[ -z "$others" ] || fail "NVIDIA's packages also need $others: add them to the image (mkosi.conf, mkosi.postinst.chroot)"
+mirror=$(awk '{ print $1 }' "$resolved" | sort -u)
+expected=$(awk '{ print "file", $2, $3, $4 }' "$resolved" | sort -k4)
+[ "$mirror" = "$(field mirror)" ] && [ "$expected" = "$(awk '$1 == "file"' "$manifest" | sort -k4)" ] ||
+	fail "apt resolves NVIDIA's driver differently from /usr/lib/swiff/nvidia-driver; its lines should be:
+mirror $mirror
+$expected
+(and the same in desktop/swiff-os-nvidia-driver)"
+rm "$resolved"
+
 # Explicit sync, which gamescope needs on NVIDIA: driver 555 or later,
 # Xwayland 24.1 or later, egl-wayland 1.1.14 or later, and a gamescope that
 # speaks linux-drm-syncobj-v1.

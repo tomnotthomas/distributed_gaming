@@ -1,0 +1,17 @@
+# NVIDIA's driver, which the owner installed from the host app and Swiff does
+# not ship: checked against the image's manifest, merged over /usr and loaded,
+# before the renter's session starts (/usr/libexec/swiff/nvidia). On a PC
+# without an NVIDIA card it does nothing.
+[Unit]
+Description=Swiff NVIDIA driver (installed by the owner, checked at every boot)
+After=home.mount srv-games\x2dlower.mount systemd-udevd.service systemd-tmpfiles-setup.service
+Requires=home.mount
+Before=swiff-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/nvidia
+
+[Install]
+WantedBy=multi-user.target

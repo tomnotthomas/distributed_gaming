@@ -1,0 +1,132 @@
+#!/bin/sh
+# Loads NVIDIA's driver, which Swiff does not ship: the owner installed it with
+# the host app, from Ubuntu's archive, after accepting NVIDIA's licence
+# (swiff-os/NVIDIA.md). Its packages wait on the games drive, which Windows can
+# write, so they are used only if every one matches its SHA-256 in
+# /usr/lib/swiff/nvidia-driver, which the verity root pins. Each boot copies
+# them to the encrypted scratch, checks the copies, unpacks them there and
+# merges them over /usr as a system extension (systemd-sysext): libraries,
+# firmware and the Vulkan, EGL and GBM files land where Ubuntu's packages put
+# them. Then it loads the image's own open kernel modules, which Canonical
+# signed and the kernel trusts. The verdict goes to /run/swiff/nvidia:
+#
+#   state=no-card        no NVIDIA graphics card in this PC
+#   state=not-installed  the owner has not installed NVIDIA's driver
+#   state=refused        a file is missing or does not match: nothing was loaded
+#   state=ready          the driver is loaded
+#
+# `nvidia --check DIR` only checks the packages in DIR, as the boot would,
+# without a card (the VM test).
+set -eu
+manifest=/usr/lib/swiff/nvidia-driver
+version=$(awk '$1 == "version" { print $2 }' "$manifest")
+licence=$(awk '$1 == "licence-sha256" { print $2 }' "$manifest")
+
+verdict() {
+	mkdir -p /run/swiff
+	printf 'state=%s\nversion=%s\ndetail=%s\n' "$1" "$version" "$2" > /run/swiff/nvidia.new
+	mv /run/swiff/nvidia.new /run/swiff/nvidia
+	echo "swiff-nvidia: $1: $2"
+}
+
+# Copy each package from $1 to $2/debs and check the copy, so what is unpacked
+# is exactly what was checked. Prints why it refused, and fails, at the first
+# that does not match.
+check() {
+	mkdir -p "$2/debs"
+	awk '$1 == "file" { print $2, $3, $4 }' "$manifest" > "$2/files"
+	while read -r sha size path; do
+		name=${path##*/}
+		cp -- "$1/$name" "$2/debs/$name" 2> /dev/null || {
+			echo "$name is missing: install NVIDIA's driver again from the host app"
+			return 1
+		}
+		[ "$(stat -c %s "$2/debs/$name")" = "$size" ] || {
+			echo "$name is not $size bytes"
+			return 1
+		}
+		[ "$(sha256sum < "$2/debs/$name" | cut -d' ' -f1)" = "$sha" ] || {
+			echo "$name does not match Swiff OS's copy of NVIDIA's driver"
+			return 1
+		}
+	done < "$2/files"
+}
+
+if [ "${1:-}" = --check ]; then
+	work=$(mktemp -d)
+	trap 'rm -rf "$work"' EXIT
+	check "$2" "$work" && echo "NVIDIA $version: every package matches"
+	exit
+fi
+
+# An NVIDIA display controller (PCI class 03xxxx).
+card=
+for dev in /sys/bus/pci/devices/*; do
+	[ "$(cat "$dev/vendor")" = 0x10de ] || continue
+	case $(cat "$dev/class") in 0x03*) card=$dev ;; esac
+done
+[ -n "$card" ] || {
+	verdict no-card "no NVIDIA graphics card"
+	exit 0
+}
+
+source=/srv/games-lower/SwiffOS/nvidia/$version
+[ -d "$source" ] || {
+	verdict not-installed "install NVIDIA's driver from the host app"
+	exit 0
+}
+
+work=/home/.swiff/nvidia
+rm -rf "$work"
+mkdir -p "$work"
+why=$(check "$source" "$work") || {
+	rm -rf "$work"
+	verdict refused "$why"
+	exit 1
+}
+
+tree=$work/tree
+mkdir -p "$tree"
+for deb in "$work"/debs/*.deb; do
+	dpkg-deb -x "$deb" "$tree"
+done
+rm -rf "$work/debs"
+# The licence the owner accepted is the one this driver carries.
+[ "$(sha256sum < "$tree/usr/share/doc/nvidia-kernel-common-595/copyright" | cut -d' ' -f1)" = "$licence" ] || {
+	rm -rf "$work"
+	verdict refused "the driver's licence is not the one the host app showed"
+	exit 1
+}
+# A system extension carries /usr only: the packages' /lib and /sbin go where
+# the image's merged /usr has them. What is left out: /etc (the image's own
+# modprobe settings are in /usr/lib/modprobe.d/swiff-nvidia.conf), and the
+# suspend and power daemon units, which Swiff OS does not use.
+for top in bin sbin lib lib32 lib64; do
+	[ -d "$tree/$top" ] || continue
+	mkdir -p "$tree/usr/$top"
+	cp -a "$tree/$top/." "$tree/usr/$top/"
+	rm -rf "${tree:?}/$top"
+done
+rm -rf "$tree/etc" "$tree/usr/lib/systemd" "$tree/usr/share/dbus-1" "$tree/usr/share/initramfs-tools" \
+	"$tree/usr/bin/nvidia-powerd" "$tree/usr/bin/nvidia-sleep.sh"
+. /usr/lib/os-release
+mkdir -p "$tree/usr/lib/extension-release.d"
+printf 'ID=%s\nVERSION_ID=%s\n' "$ID" "$VERSION_ID" > "$tree/usr/lib/extension-release.d/extension-release.swiff-nvidia"
+
+mkdir -p /run/extensions/swiff-nvidia
+mount --bind "$tree" /run/extensions/swiff-nvidia
+systemd-sysext refresh
+udevadm control --reload
+
+# nouveau and nova never bind the card, and nvidia does not load before its
+# firmware is here (both in swiff-nvidia.conf); now it may.
+for module in nvidia nvidia-modeset nvidia-drm nvidia-uvm; do
+	modprobe "$module"
+done
+udevadm settle
+/usr/sbin/ub-device-create
+grep -q " $version " /proc/driver/nvidia/version || {
+	verdict refused "the kernel runs NVIDIA $(cat /proc/driver/nvidia/version 2> /dev/null | head -n1), not $version"
+	exit 1
+}
+verdict ready "NVIDIA $version on $(basename "$card")"

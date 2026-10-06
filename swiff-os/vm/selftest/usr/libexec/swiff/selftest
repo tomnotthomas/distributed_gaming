@@ -119,11 +119,12 @@ check no-sshd "" bash -c '! command -v sshd'
 say INFO session-state "$(systemctl show -P ActiveState swiff-session.service) restarts=$(systemctl show -P NRestarts swiff-session.service) (no GPU in the VM)"
 
 # --- NVIDIA ------------------------------------------------------------------------
-# Canonical's prebuilt open modules, signed with a Canonical key the kernel has
-# built in. The VM has no NVIDIA GPU, so nvidia.ko gets past the kernel's
-# signature check and then fails its own start with "No such device". As a
-# control, the same module with its signature cut off is refused before it
-# starts, with "Key was rejected by service".
+# The image carries Canonical's prebuilt open modules, signed with a Canonical
+# key the kernel has built in, and none of NVIDIA's proprietary driver, which
+# the owner installs from the host app. The VM has no NVIDIA GPU, so nvidia.ko
+# gets past the kernel's signature check and then fails its own start with "No
+# such device". As a control, the same module with its signature cut off is
+# refused before it starts, with "Key was rejected by service".
 nv_ko=$(modinfo -n nvidia 2> /dev/null)
 nv_version=$(modinfo -F version nvidia 2> /dev/null)
 check nvidia-module-present "${nv_ko:-none} $nv_version" \
@@ -141,24 +142,34 @@ perl -0777 -ne 'my $magic = "~Module signature appended~\n"; substr($_, -28) eq 
 nv_unsigned=$(insmod /run/swiff-selftest-nvidia/nvidia.ko 2>&1)
 rm -rf /run/swiff-selftest-nvidia
 check nvidia-unsigned-refused "insmod without its signature -> $nv_unsigned" grep -q 'Key was rejected' <<< "$nv_unsigned"
-# The userspace is the kernel module's release: GL, EGL and Vulkan, gamescope's
-# GBM backend, NVENC, CUDA, 32-bit GL for 32-bit games, and the GSP firmware
-# the open module loads.
-nv_missing=$(for f in \
-	/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so."$nv_version" \
-	/usr/lib/x86_64-linux-gnu/libEGL_nvidia.so.0 \
-	/usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so \
-	/usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1 \
-	/usr/lib/x86_64-linux-gnu/libcuda.so.1 \
-	/usr/lib/i386-linux-gnu/libGLX_nvidia.so."$nv_version" \
-	/usr/share/vulkan/icd.d/nvidia_icd.json \
-	/usr/lib/firmware/nvidia/"$nv_version"/gsp_tu10x.bin \
-	/usr/lib/firmware/nvidia/"$nv_version"/gsp_ga10x.bin \
-	/usr/bin/nvidia-smi; do [ -e "$f" ] || echo "$f"; done | paste -sd' ' -)
-check nvidia-userspace "release $nv_version, missing: ${nv_missing:-nothing}" test -n "$nv_version" -a -z "$nv_missing"
+# None of NVIDIA's proprietary driver: no package, library, firmware or tool.
+# Only NVIDIA's open egl-wayland (MIT) has the name.
+nv_shipped=$({
+	dpkg-query -W -f '${Package}\n' | grep -E '^(lib)?nvidia-' | grep -vx libnvidia-egl-wayland1
+	find /usr \( -name 'libnvidia-*' ! -name 'libnvidia-egl-wayland*' -o -name 'libcuda*' -o -name nvidia-smi \
+		-o -name 'nvidia_icd*.json' -o -path /usr/lib/firmware/nvidia \) -print
+} | paste -sd' ' -)
+check nvidia-driver-not-shipped "${nv_shipped:-none of it}" test -z "$nv_shipped"
+nv_pinned=$(awk '$1 == "version" { print $2 }' /usr/lib/swiff/nvidia-driver)
+nv_files=$(grep -c '^file ' /usr/lib/swiff/nvidia-driver)
+check nvidia-driver-pinned "NVIDIA $nv_pinned, $nv_files packages for the owner to install" \
+	test "$nv_pinned" = "$nv_version" -a "$nv_files" -gt 0
+# Without an NVIDIA card the boot loads nothing. Given packages that are
+# missing, or the right size but not NVIDIA's bytes, it refuses them.
+nv_state=$(cat /run/swiff/nvidia 2> /dev/null | paste -sd' ' -)
+check nvidia-no-card "${nv_state:-no verdict}" grep -q '^state=no-card$' /run/swiff/nvidia
+mkdir -p /run/swiff-selftest-nvidia
+nv_missing=$(/usr/libexec/swiff/nvidia --check /run/swiff-selftest-nvidia 2>&1 || true)
+check nvidia-missing-refused "$nv_missing" grep -q 'is missing' <<< "$nv_missing"
+read -r _ _ nv_size nv_path < <(grep -m1 '^file ' /usr/lib/swiff/nvidia-driver)
+truncate -s "$nv_size" "/run/swiff-selftest-nvidia/${nv_path##*/}"
+nv_forged=$(/usr/libexec/swiff/nvidia --check /run/swiff-selftest-nvidia 2>&1 || true)
+rm -rf /run/swiff-selftest-nvidia
+check nvidia-forged-refused "$nv_forged" grep -q 'does not match' <<< "$nv_forged"
 nv_modprobe=$(modprobe -c)
-check nvidia-nouveau-blacklisted "nouveau and nova never bind an NVIDIA card first" \
+check nvidia-nouveau-blacklisted "nouveau and nova never bind an NVIDIA card" \
 	bash -c 'grep -qx "blacklist nouveau" <<< "$1" && grep -qx "blacklist nova_core" <<< "$1"' _ "$nv_modprobe"
+check nvidia-waits-for-driver "udev never loads nvidia before its firmware is merged" grep -qx 'blacklist nvidia' <<< "$nv_modprobe"
 check nvidia-drm-modeset "gamescope needs nvidia-drm's KMS" grep -qx 'options nvidia_drm modeset=1' <<< "$nv_modprobe"
 
 # --- Keyboard: no reboot, no other VT ----------------------------------------------

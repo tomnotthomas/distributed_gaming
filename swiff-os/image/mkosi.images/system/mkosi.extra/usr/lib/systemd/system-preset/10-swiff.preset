@@ -7,4 +7,5 @@ enable systemd-networkd.service
 enable systemd-resolved.service
 enable systemd-timesyncd.service
 enable swiff-hwcheck.service
+enable swiff-nvidia.service
 enable swiff-vtlock.service
