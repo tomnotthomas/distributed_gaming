@@ -255,17 +255,6 @@ export type CrewPc = { name: string | null; owner: string | null; mine: boolean;
 /** A crew as one of its members sees it in full: who is in it, its PCs, and its live link's invite. */
 export type CrewDetail = MyCrew & { inviteId: string | null; members: CrewMember[]; machines: CrewPc[] };
 
-/** A member's own crews and the people in the first they founded (legacy GET /me/invite). */
-export type JoinedCrew = CrewView & { id: string };
-
-/** A live invite link's invite, the crew it joins and who is in it, and the other crews its inviter is in. */
-export type CrewInvite = {
-  inviteId: string;
-  crew: CrewView;
-  members: { id: string; name: string | null }[];
-  joined: JoinedCrew[];
-};
-
 /** What became of opening an invite to join: in the crew now (`id` names it), or why not. */
 export type JoinResult =
   { ok: true; id: string; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" };
@@ -1262,16 +1251,26 @@ export class Platform {
     });
   }
 
-  /** The crews `userId` is in, in the order they joined them. */
-  crews(userId: string): Promise<MyCrew[]> {
+  /**
+   * The crews `userId` is in, in the order they joined them, each saying
+   * whether its first PC came after they joined (`pcArrived`), which they
+   * hear about live or on their next visit.
+   */
+  crews(userId: string): Promise<(MyCrew & { pcArrived: boolean })[]> {
     return this.#read(async () => {
-      const rows = await this.#all<CrewRow & { member_id: string }>(
-        `SELECT ${this.#crewColumns()}, m.id AS member_id FROM crews c JOIN crew_members m ON m.crew_id = c.id
+      const rows = await this.#all<CrewRow & { member_id: string; pc_arrived: boolean }>(
+        `SELECT ${this.#crewColumns()}, m.id AS member_id, (c.ready_at > m.joined_at) IS TRUE AS pc_arrived
+           FROM crews c JOIN crew_members m ON m.crew_id = c.id
            WHERE m.user_id = $1 ORDER BY m.joined_at, m.id`,
         userId,
         ...this.#onlineParams(),
       );
-      return rows.map((c) => ({ id: c.id, memberId: c.member_id, ...crewView(c, userId) }));
+      return rows.map((c) => ({
+        id: c.id,
+        memberId: c.member_id,
+        ...crewView(c, userId),
+        pcArrived: c.pc_arrived,
+      }));
     });
   }
 
@@ -1344,79 +1343,6 @@ export class Platform {
       }
       if (this.#offerChanged) await this.#tick(now);
       return (await this.#crewDetail(crewId, userId))!;
-    });
-  }
-
-  /**
-   * `userId`'s link to the first crew they founded (legacy GET /me/invite):
-   * the crew is made, with its link, the first time they ask, and the same link
-   * comes back after that until they replace it (`renew`), which revokes the
-   * old link for good. `name`, their Steam persona when it could be read, is
-   * kept as whose crew it is. With it, who else is in that crew and the other
-   * crews they are in.
-   */
-  crewInvite(userId: string, name: string | null, { renew = false } = {}): Promise<CrewInvite> {
-    return this.#transaction(async () => {
-      const now = this.#now();
-      let crew = await this.#get<{ id: string }>(
-        "SELECT id FROM crews WHERE owner_id = $1 AND archived_at IS NULL ORDER BY created_at, id LIMIT 1",
-        userId,
-      );
-      if (!crew) {
-        crew = { id: newId() };
-        await this.#run(
-          "INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)",
-          crew.id,
-          userId,
-          name || null,
-          now,
-        );
-        await this.#run(
-          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
-          newId(),
-          crew.id,
-          userId,
-          name || null,
-          now,
-        );
-      } else if (name) {
-        await this.#run("UPDATE crews SET owner_name = $1 WHERE id = $2", name, crew.id);
-      }
-      if (renew) {
-        await this.#run(
-          "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
-          now,
-          crew.id,
-        );
-      }
-      const inviteId =
-        (
-          await this.#get<{ id: string }>(
-            "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
-            crew.id,
-          )
-        )?.id ?? (await this.#newInvite(crew.id, userId, now));
-      const members = await this.#all<{ id: string; name: string | null }>(
-        "SELECT id, name FROM crew_members WHERE crew_id = $1 AND user_id <> $2 ORDER BY joined_at, id",
-        crew.id,
-        userId,
-      );
-      const rows = await this.#all<CrewRow & { member_id: string }>(
-        `SELECT ${this.#crewColumns()}, m.id AS member_id FROM crews c JOIN crew_members m ON m.crew_id = c.id
-           WHERE m.user_id = $1 ORDER BY m.joined_at, m.id`,
-        userId,
-        ...this.#onlineParams(),
-      );
-      const crewId = crew.id;
-      return {
-        inviteId,
-        crew: crewView(
-          rows.find((c) => c.id === crewId)!,
-          userId,
-        ),
-        members,
-        joined: rows.filter((c) => c.id !== crewId).map((c) => ({ id: c.member_id, ...crewView(c, userId) })),
-      };
     });
   }
 

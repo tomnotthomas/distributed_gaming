@@ -17,8 +17,6 @@
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
-//   GET  /api/me/invite                    (legacy: first crew's link)
-//   POST /api/me/invite/renew
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -704,23 +702,6 @@ export function createApi({
       const crew = await platform.bringPc(id, steamId, body.pc);
       if (!crew) throw new HttpError(404, "no such crew");
       reply(res, 200, { crew: crewReply(crew) });
-      return true;
-    }
-
-    // The signed-in player's link to the first crew they founded, made with the
-    // crew on first ask; `renew` replaces it, and the old one stops working.
-    if (resource === "me" && id === "invite" && method === (action === "renew" ? "POST" : "GET")) {
-      if (action !== undefined && action !== "renew") throw new HttpError(404, "no such route");
-      const steamId = requireRenter(req, sessionSecret);
-      // The crew is named after its owner's Steam persona: kept from this read, when Steam answers.
-      const read = await profile(steamId).catch(() => null);
-      const invite = await platform.crewInvite(steamId, read?.persona || null, { renew: action === "renew" });
-      reply(res, 200, {
-        token: inviteToken(sessionSecret!, invite.inviteId),
-        crew: invite.crew,
-        members: invite.members,
-        joined: invite.joined,
-      });
       return true;
     }
 

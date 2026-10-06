@@ -126,6 +126,7 @@ describe("crews", () => {
           size: 1,
           state: "no-pc",
           pcs: 0,
+          pcArrived: false,
         },
       ]);
     });
@@ -221,22 +222,6 @@ describe("crews", () => {
       assert.equal(verifyInviteToken(SESSION, token.slice(0, -1) + (token.endsWith("A") ? "B" : "A")), null);
       assert.equal(verifyInviteToken(SESSION, 42), null);
     });
-
-    it("still hands out the first crew a player founded by the old personal link", async () => {
-      const first = await platform.crewInvite(ALEX, "Alex");
-      assert.equal((await platform.crewInvite(ALEX, null)).inviteId, first.inviteId);
-      assert.ok((await platform.joinCrew(first.inviteId, HOST, "Sam")).ok);
-      const renewed = await platform.crewInvite(ALEX, "Alex", { renew: true });
-      assert.notEqual(renewed.inviteId, first.inviteId);
-      assert.deepEqual(
-        renewed.members.map((m) => m.name),
-        ["Sam"],
-      );
-      assert.deepEqual(
-        (await platform.crewInvite(HOST, "Sam")).joined.map((c) => c.name),
-        ["Alex"],
-      );
-    });
   });
 
   describe("bringing a PC", () => {
@@ -256,6 +241,7 @@ describe("crews", () => {
       const brought = await platform.bringPc(crewId, HOST, "yes");
       assert.equal(brought?.state, "no-pc");
       assert.equal(brought?.members[1]?.pc, "yes");
+      now += 60_000;
       const offered = await offer("pc-1");
       assert.equal(offered.crew.only, true);
       assert.deepEqual(
@@ -263,6 +249,11 @@ describe("crews", () => {
         [[crewId, true]],
       );
       assert.deepEqual(ready, [{ crewId, memberIds: [ALEX, HOST] }]);
+      // Whoever missed it live hears on their next visit; whoever joins later finds it ready.
+      assert.equal((await platform.crews(ALEX))[0]?.pcArrived, true);
+      const { inviteId } = (await platform.crew(crewId, ALEX))!;
+      assert.ok((await platform.joinCrew(inviteId!, JO, "Jo")).ok);
+      assert.equal((await platform.crews(JO))[0]?.pcArrived, false);
 
       const crew = await platform.crew(crewId, ALEX);
       assert.equal(crew?.state, "ready");
@@ -366,7 +357,7 @@ describe("crews", () => {
     });
 
     it("keeps a PC open while its owner is only in a crew of their own without bringing it", async () => {
-      await platform.crewInvite(HOST, "Sam");
+      await platform.createCrew(HOST, "Sam");
       assert.equal((await offer("pc-1")).crew.only, false);
     });
   });
@@ -802,15 +793,9 @@ describe("crew API", () => {
     assert.deepEqual((await call("GET", "/api/crews", HOST)).body.crews, []);
   });
 
-  it("still serves the old personal link to the first crew a player founded", async () => {
-    const { status, body } = await call("GET", "/api/me/invite", ALEX);
-    assert.equal(status, 200);
-    assert.match(body.token, /^[\w-]{44}$/);
-    assert.equal((await call("GET", "/api/me/invite", ALEX)).body.token, body.token);
-    assert.equal((await call("POST", `/api/invites/${body.token}/join`, HOST)).status, 200);
-    assert.deepEqual(
-      (await call("GET", "/api/me/invite", ALEX)).body.members.map((m: { name: string }) => m.name),
-      ["Sam"],
-    );
+  it("founds no crew behind the old personal link, which is gone", async () => {
+    assert.equal((await call("GET", "/api/me/invite", ALEX)).status, 404);
+    assert.equal((await call("POST", "/api/me/invite/renew", ALEX)).status, 404);
+    assert.deepEqual((await call("GET", "/api/crews", ALEX)).body.crews, []);
   });
 });

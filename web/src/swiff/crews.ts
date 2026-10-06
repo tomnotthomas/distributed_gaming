@@ -26,6 +26,9 @@ export type CrewView = {
 /** A crew the player is in: `id` names the crew, `memberId` their membership in it. */
 export type MyCrew = CrewView & { id: string; memberId: string };
 
+/** A crew in the player's list: `pcArrived` says its first PC came after they joined. */
+export type ListedCrew = MyCrew & { pcArrived: boolean };
+
 /** Someone in a crew; `id` names the membership, never them. `pcs` counts their PCs that play for it. */
 export type CrewMember = {
   id: string;
@@ -98,9 +101,38 @@ async function call<T>(
 }
 
 /** The crews the signed-in player is in; null when they could not be read. */
-export async function fetchCrews(get: typeof fetch = fetch): Promise<MyCrew[] | null> {
-  const answer = await call<{ crews: MyCrew[] }>("/api/crews", {}, get);
+export async function fetchCrews(get: typeof fetch = fetch): Promise<ListedCrew[] | null> {
+  const answer = await call<{ crews: ListedCrew[] }>("/api/crews", {}, get);
   return answer.ok ? answer.body.crews : null;
+}
+
+const READY_SEEN_KEY = "swiff.crewsReadySeen";
+
+/** The crews whose first PC was celebrated in this browser until the player closed it. */
+function readySeen(): string[] {
+  try {
+    const seen: unknown = JSON.parse(localStorage.getItem(READY_SEEN_KEY) ?? "[]");
+    return Array.isArray(seen) ? seen.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The first crew whose first PC came while the player was away and this browser has not celebrated yet. */
+export function unseenReady(crews: readonly ListedCrew[]): ListedCrew | undefined {
+  const seen = readySeen();
+  return crews.find((c) => c.pcArrived && !seen.includes(c.id));
+}
+
+/** Remember in this browser that the player closed the celebration of the crew's first PC. */
+export function seeReady(crewId: string): void {
+  const seen = readySeen();
+  if (seen.includes(crewId)) return;
+  try {
+    localStorage.setItem(READY_SEEN_KEY, JSON.stringify([...seen, crewId]));
+  } catch {
+    // Blocked storage: the celebration is back on the next visit, which is harmless.
+  }
 }
 
 /** Found a crew as the signed-in player; null when it could not be made. */

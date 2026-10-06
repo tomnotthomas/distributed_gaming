@@ -310,8 +310,9 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
          WHERE x.crew_only`,
     `UPDATE crew_members SET pc = 'yes'
        WHERE EXISTS (SELECT 1 FROM machines x WHERE x.owner_id = crew_members.user_id AND x.crew_only)`,
-    // Those crews had their PC already: nobody is told it has just arrived.
-    `UPDATE crews SET ready_at = (extract(epoch FROM now()) * 1000)::bigint
+    // Those crews had their PC already: nobody is told it has just arrived,
+    // as if it came with the crew, before anyone joined.
+    `UPDATE crews SET ready_at = created_at
        WHERE EXISTS (SELECT 1 FROM crew_machines c WHERE c.crew_id = crews.id)`,
   ],
 ];

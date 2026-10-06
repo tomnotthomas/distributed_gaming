@@ -45,7 +45,7 @@ import {
   type PlayState,
 } from "./play";
 import { questionOf, useLive } from "./useLive";
-import { CREWS_PATH, crewRouteAt } from "./crews";
+import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
@@ -203,7 +203,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [estimateOpen, setEstimateOpen] = useState(false);
 
   // Crews: the crew page's own address (/crews, /crews/new or /crews/<id>),
-  // and a crew whose first PC just came, which every screen celebrates once.
+  // and a crew whose first PC came, which every screen celebrates until it is
+  // closed: as it happens, or on the next visit for whoever was away.
   const [crewPath, setCrewPath] = useState(() => location.pathname);
   const [crewReady, setCrewReady] = useState<string | null>(null);
 
@@ -244,6 +245,17 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     prefs,
     onCrewReady: setCrewReady,
   });
+  useEffect(() => {
+    if (steamId === null || demo) return;
+    let current = true;
+    void fetchCrews().then((crews) => {
+      const missed = crews && unseenReady(crews);
+      if (current && missed) setCrewReady((was) => was ?? missed.id);
+    });
+    return () => {
+      current = false;
+    };
+  }, [steamId, demo]);
 
   /** What the wall knows about each game, by game id; empty while nothing is known. */
   const spots = useMemo<Map<string, Spot>>(() => {
@@ -881,7 +893,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setCrewPath(path);
   }, []);
   const crewRoute = useMemo(() => crewRouteAt(crewPath) ?? { crew: null, found: false }, [crewPath]);
-  const dismissCrewReady = useCallback(() => setCrewReady(null), []);
+  const dismissCrewReady = useCallback(() => {
+    if (crewReady) seeReady(crewReady);
+    setCrewReady(null);
+  }, [crewReady]);
 
   /** An invite link sent: which way, never the link itself. */
   const inviteShared = useCallback((channel: Channel) => track("invite_shared", { channel }), []);

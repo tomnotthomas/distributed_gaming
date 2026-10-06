@@ -19,8 +19,9 @@
 //
 // Every answer says who may play on this PC (its crew, server/src/platform.ts):
 // crew-only, and the crews its owner is in, each saying whether this PC plays
-// for it. The owner's own choice of crews goes with every offer once they have
-// made one; until then the platform's stands.
+// for it. The owner's own choice of crews goes with the offers after they make
+// it, until the platform has it; otherwise the platform's stands, so a crew the
+// PC was brought to elsewhere (on the web) is never dropped by an old pick.
 
 import { httpOrigin } from "@swiff/rtc";
 import type { Control, Encoder, PcRead } from "../pc.cjs";
@@ -277,7 +278,7 @@ export function createHostReporter(
   let sent: HostReport = {};
   let netSent: Net | null = null;
   let until: number | null = null;
-  /** The owner's choice of the crews this PC plays for; undefined until they make one. */
+  /** The owner's choice of the crews this PC plays for, until the platform has it; undefined otherwise. */
   let crews: string[] | undefined;
   let termsAsked = 0;
   let termsSent = -1;
@@ -329,6 +330,7 @@ export function createHostReporter(
       const net = measured && netMoved(netSent, measured) ? measured : null;
       const body = { ...changes, ...(net ? { net } : {}) };
       const asked = termsAsked;
+      const picked = crews;
       // Until the platform has the offer and its terms, every beat is the offer.
       const offering = termsSent !== asked;
       const call = offering
@@ -338,7 +340,7 @@ export function createHostReporter(
             body: JSON.stringify({
               available: true,
               until: until === null ? undefined : new Date(until).toISOString(),
-              ...(crews === undefined ? {} : { crews }),
+              ...(picked === undefined ? {} : { crews: picked }),
               ...body,
             }),
             signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
@@ -357,7 +359,10 @@ export function createHostReporter(
       if (res.ok || (res.status === 400 && !offering)) {
         sent = { ...sent, ...changes };
         if (net) netSent = net;
-        if (offering) termsSent = asked;
+        if (offering) {
+          termsSent = asked;
+          if (crews === picked) crews = undefined;
+        }
       }
       if (res.ok) {
         const crew = crewOf(await res.json().catch(() => null));

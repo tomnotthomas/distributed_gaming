@@ -181,6 +181,11 @@ describe("migrations", () => {
         { id: "c-alex", name: null, ready: true },
         { id: "c-sam", name: null, ready: true },
       ]);
+      // Nor does anyone in them on their next visit.
+      const { rows: told } = await db.query(
+        "SELECT m.user_id FROM crew_members m JOIN crews c ON c.id = m.crew_id WHERE c.ready_at > m.joined_at",
+      );
+      assert.deepEqual(told, []);
       // A player may found a second crew now, and its link is its own.
       await db.query("INSERT INTO crews (id, owner_id, created_at) VALUES ('c-alex-2', 'alex', 5)");
       await db.query(

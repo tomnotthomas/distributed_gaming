@@ -564,14 +564,17 @@ Steam persona read when they joined.
 A crew is ready once a PC playing for it is on offer, free or busy (`state`: `no-pc`,
 `ready`, or `offline` when every PC is away). The first time, everyone in it hears so: an
 `event: crew` on their open event stream (`events.ts`), which the page celebrates with a
-banner and, in a background tab whose browser allows it, a notification.
+banner and, in a background tab whose browser allows it, a notification. Whoever had no
+tab open sees the same banner on their next visit (`pcArrived` below), until they close
+it in that browser.
 
 ```
 GET  /crews
-  → 200 { crews: [{ id, memberId, name, crewName, own, size, state, pcs }] }
+  → 200 { crews: [{ id, memberId, name, crewName, own, size, state, pcs, pcArrived }] }
   The crews the signed-in player is in. `name` is the admin's Steam persona, `crewName`
   the crew's own name (null until given one), `own` whether they are its admin, `pcs`
-  how many PCs play for it. → 401 signed out.
+  how many PCs play for it, `pcArrived` whether its first PC came after they joined,
+  which the web app celebrates on their next visit. → 401 signed out.
 
 POST /crews { name? }
   → 201 { crew }
@@ -608,10 +611,6 @@ POST /crew-members/:id/remove
   → 200 { removed: true }
   End a membership: the signed-in player's own, leaving the crew, or anyone's in a crew
   they are the admin of. → 404 for one that is not theirs to end, or is gone.
-
-GET  /me/invite, POST /me/invite/renew
-  The link to the first crew the signed-in player founded, made on first ask, as the
-  personal link of before; kept for pages that still read it.
 ```
 
 The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the

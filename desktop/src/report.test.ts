@@ -283,7 +283,7 @@ describe("createHostReporter", () => {
     });
   });
 
-  it("hears who may play from every answer, and sends the owner's choice with every offer after it", async () => {
+  it("hears who may play from every answer, and sends the owner's choice until the platform has it", async () => {
     const mika = { id: "c1", name: "mika_r", crewName: null, own: false, size: 3, state: "ready", pcs: 1 };
     const crew = { only: true, crews: [{ ...mika, plays: true }] };
     replies.availability = { id: "pc 1", status: "available", crew };
@@ -302,15 +302,36 @@ describe("createHostReporter", () => {
     r.setCrews(["c1", "c2"]);
     await vi.advanceTimersByTimeAsync(0);
     expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true, crews: ["c1", "c2"] } });
-    // The choice rides on later offers too, such as a new share-until time.
+    // A later offer, such as a new share-until time, leaves the platform's crews
+    // alone: the PC may have been brought to another crew on the web since.
     r.setUntil(Date.UTC(2026, 9, 3, 23));
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { crews: ["c1", "c2"] } });
-    // The same crews again, in any order, are no news.
-    const sentSoFar = calls.length;
-    r.setCrews(["c2", "c1"]);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true } });
+    expect(calls.at(-1)!.body).not.toHaveProperty("crews");
+    // A new pick goes again.
+    r.setCrews(["c2"]);
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls).toHaveLength(sentSoFar);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { crews: ["c2"] } });
+  });
+
+  it("sends a refused choice again with the next offer, and the same choice once", async () => {
+    const r = reporter({ name: "Nova-01" });
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    answer.availability = "network";
+    r.setCrews(["c1"]);
+    r.setCrews(["c1"]);
+    await vi.advanceTimersByTimeAsync(0);
+    const picks = () =>
+      calls.filter((c) => c.action === "availability" && (c.body as { crews?: unknown }).crews);
+    expect(picks()).toHaveLength(1);
+    delete answer.availability;
+    await beat();
+    expect(picks()).toHaveLength(2);
+    expect(picks().at(-1)).toMatchObject({ method: "PUT", body: { crews: ["c1"] } });
+    await beat();
+    expect(calls.at(-1)!.action).toBe("heartbeat");
+    expect(picks()).toHaveLength(2);
   });
 
   it("does not send a refused section again until it changes", async () => {
