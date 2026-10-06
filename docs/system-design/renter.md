@@ -327,9 +327,11 @@ POST /bookings/:id/claim
   `grace_expired`. Once the PC relays `steam-login signed-in`, what is left of those
   10 minutes gives way, once, to 3 minutes for the game's first frame
   (`STEAM_LAUNCH_GRACE_MS`), still without starting the booked minutes, so an approval
-  just in time still gets its game. Its ticket is valid for those 13 minutes and the
-  booked minutes, and a rental-mode PC counts as free for a session (matching, `ready`,
-  `coversSession`, `backAt`, the page's fit check) only for all of them.
+  just in time still gets its game. The first frame is thus due at most 13 minutes
+  after the claim, sooner when the renter approves early. Its ticket is minted for that
+  longest case plus the booked minutes, and a rental-mode PC counts as free for a
+  session (matching, `ready`, `coversSession`, `backAt`, the page's fit check) only for
+  all of them.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
   is matched to the renter's own machine (the booking goes back to the queue).
   → 403 { error, code } as `POST /bookings`, checked again since the library, or whether
