@@ -1074,7 +1074,12 @@ export class Platform {
         crew.id,
         userId,
       );
-      const joined = await this.#all<{ id: string; owner_id: string; owner_name: string | null; size: number }>(
+      const joined = await this.#all<{
+        id: string;
+        owner_id: string;
+        owner_name: string | null;
+        size: number;
+      }>(
         `SELECT m.id, c.owner_id, c.owner_name,
                 (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size
            FROM crew_members m JOIN crews c ON c.id = m.crew_id

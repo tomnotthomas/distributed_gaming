@@ -61,7 +61,8 @@ export function crewName({ name, own }: Crew["crews"][number]): string {
 }
 
 /** Whether to ask who can play: once the platform says this PC's owner is in a crew, or while it is crew-only. */
-export const asksWhoCanPlay = (crew: Crew | null): crew is Crew => Boolean(crew && (crew.crews.length || crew.only));
+export const asksWhoCanPlay = (crew: Crew | null): crew is Crew =>
+  Boolean(crew && (crew.crews.length || crew.only));
 
 /** The web app's address on the connection's server, where the owner's invite link is; null when it cannot be read. */
 export function siteOf(url: string): string | null {
@@ -139,7 +140,9 @@ export function CrewPicker({
         </>
       ) : (
         <p className="note6">
-          {crew.only ? `Only ${named} can claim this PC.` : `Anyone on Swiff can claim this PC, ${named} too.`}
+          {crew.only
+            ? `Only ${named} can claim this PC.`
+            : `Anyone on Swiff can claim this PC, ${named} too.`}
         </p>
       )}
     </>

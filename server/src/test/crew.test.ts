@@ -449,7 +449,10 @@ describe("crew API", () => {
       theirs.body.joined.map((c: { name: string }) => c.name),
       ["Alex"],
     );
-    assert.equal((await call("POST", `/api/crew-members/${theirs.body.joined[0].id}/remove`, HOST)).status, 200);
+    assert.equal(
+      (await call("POST", `/api/crew-members/${theirs.body.joined[0].id}/remove`, HOST)).status,
+      200,
+    );
     assert.deepEqual((await call("GET", "/api/me/invite", HOST)).body.joined, []);
   });
 });
