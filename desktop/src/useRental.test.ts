@@ -418,7 +418,11 @@ describe("useRental", () => {
       async () => ({ removal: { state: "finish" }, recovery: { drives: ["C", "D"], saved } }) as never,
     );
     host.saveRecoveryKey = vi.fn(async () => (saved = true));
-    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({ status: "done", done: ["partitions"], results: [] }));
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "done",
+      done: ["partitions"],
+      results: [],
+    }));
     const { result } = renderHook(() => useRental());
     await act(async () => {});
     expect(pending).toHaveLength(0);

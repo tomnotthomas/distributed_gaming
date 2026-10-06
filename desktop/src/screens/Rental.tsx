@@ -362,9 +362,7 @@ function RunList({
                     <i />
                   )}
                 </span>
-                <span className="mrun-name">
-                  {row === "now" ? runningTitleOf(plan, s) : s.title}
-                </span>
+                <span className="mrun-name">{row === "now" ? runningTitleOf(plan, s) : s.title}</span>
                 <span className="mrun-bar" aria-hidden="true">
                   {row === "now" ? (
                     bytes ? (

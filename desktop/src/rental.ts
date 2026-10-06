@@ -622,7 +622,9 @@ const REMOVING_TITLE: Record<string, string> = {
 
 /** What the running step is called in this plan: removal wording for a removal's disk part. */
 export const runningTitleOf = (plan: RentalPlan, step: PlanStep | null | undefined): string | undefined =>
-  step ? ((removesDisk(plan) ? REMOVING_TITLE[step.id] : undefined) ?? RUNNING_TITLE[step.id] ?? step.title) : undefined;
+  step
+    ? ((removesDisk(plan) ? REMOVING_TITLE[step.id] : undefined) ?? RUNNING_TITLE[step.id] ?? step.title)
+    : undefined;
 
 /** An honest hint for a step nothing measures, by plan step id. */
 export const STEP_HINT: Record<string, { line: string; short: string }> = {
@@ -1048,9 +1050,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       p ? `${p.name}, at ${gbOne(p.done)} of ${gbOne(p.total)} GB` : far,
     );
   }
-  const running = (runningTitleOf(plan, step) ?? "working").replace(/^\w/, (c) =>
-    c.toLowerCase(),
-  );
+  const running = (runningTitleOf(plan, step) ?? "working").replace(/^\w/, (c) => c.toLowerCase());
   return stopped(installing ? "Install" : "Key", {
     kind: "unknown",
     title: installing
