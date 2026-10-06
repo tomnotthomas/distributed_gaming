@@ -1,33 +1,24 @@
-// The browser half of crews (server/src/platform.ts): the signed-in player's
-// personal invite link, and the invite a friend opens from it. The link is the
+// A crew's link (server/src/platform.ts, crews), and the invite a friend opens
+// from it; the rest of crews is in crews.ts. The link is the
 // whole credential for joining, so it is never sent to analytics (every event
 // passes withoutInviteTokens first) or the console, and is kept out of the
 // address bar and the Steam sign-in round trip: the invite page remembers it
 // in this tab, puts /invite in the address instead, and comes back there from
 // sign-in. Only with storage blocked does it stay in the path.
 
+import type { CrewView } from "./crews";
 import { STEAM_LOGIN_URL } from "./steam";
 
-/** A crew as the server shows it: whose (their Steam persona, when known), and how many are in it. */
-export type Crew = { name: string | null; own: boolean; size: number };
-
-/** Someone in the player's own crew, by their Steam persona when known; `id` names the membership, never them. */
-export type CrewMember = { id: string; name: string | null };
-
-/** A crew the player joined, with `id` their membership in it. */
-export type JoinedCrew = Crew & { id: string };
-
-/** The signed-in player's link: its token, their crew and who is in it, and the crews they joined. */
-export type MyInvite = { token: string; crew: Crew; members: CrewMember[]; joined: JoinedCrew[] };
-
 /** An invite as the friend opening it sees it: the crew, and whether they are in it already. */
-export type OpenedInvite = Crew & { member: boolean };
+export type OpenedInvite = CrewView & { member: boolean };
 
 /** Where invite links point: /invite/<token>. */
 export const INVITE_PATH = "/invite";
 
 /** Where this tab keeps the token of the invite it is signing in for. */
 const PENDING_KEY = "swiff.invite";
+/** Set while this tab is away at Steam to join that invite: only then does coming back join. */
+const JOINING_KEY = "swiff.inviteJoin";
 
 /** The link a token makes, on this site. */
 export const inviteLink = (token: string, origin: string = location.origin) =>
@@ -74,6 +65,40 @@ export function rememberedInvite(): string {
   }
 }
 
+/** Note that this tab is going to Steam to join the invite it remembers; false when storage is blocked. */
+export function meanToJoin(): boolean {
+  try {
+    sessionStorage.setItem(JOINING_KEY, "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether this tab went to Steam to join, which counts once: reading it
+ * clears it, so a reload or Back never joins again.
+ */
+export function cameBackToJoin(): boolean {
+  try {
+    const set = sessionStorage.getItem(JOINING_KEY) === "1";
+    sessionStorage.removeItem(JOINING_KEY);
+    return set;
+  } catch {
+    return false;
+  }
+}
+
+/** Forget the invite this tab was signing in for, once it is joined. */
+export function forgetInvite(): void {
+  try {
+    sessionStorage.removeItem(PENDING_KEY);
+    sessionStorage.removeItem(JOINING_KEY);
+  } catch {
+    // Blocked storage held nothing.
+  }
+}
+
 /**
  * Steam sign-in that comes back to the invite. With the token remembered in
  * this tab, the return is plain /invite, so the token never rides through
@@ -82,21 +107,6 @@ export function rememberedInvite(): string {
 export function signInForInvite(token: string): string {
   const to = rememberInvite(token) ? INVITE_PATH : `${INVITE_PATH}/${token}`;
   return `${STEAM_LOGIN_URL}?to=${encodeURIComponent(to)}`;
-}
-
-/** The signed-in player's link, `renew` making a new one that replaces it; null when it cannot be had. */
-export async function fetchMyInvite(
-  { renew = false } = {},
-  get: typeof fetch = fetch,
-): Promise<MyInvite | null> {
-  try {
-    const response = await get(renew ? "/api/me/invite/renew" : "/api/me/invite", {
-      method: renew ? "POST" : "GET",
-    });
-    return response.ok ? ((await response.json()) as MyInvite) : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The invite a token opens; "invalid" when the server says it opens nothing, null when it gave no answer. */
@@ -113,50 +123,45 @@ export async function openInvite(
   }
 }
 
-/** Join the invite's crew as the signed-in player: the crew joined, or why not. */
+/** Join the invite's crew as the signed-in player: the crew joined (`id` names it), or why not. */
 export async function joinInvite(
   token: string,
   get: typeof fetch = fetch,
-): Promise<{ crew: Crew } | "invalid" | "own" | null> {
+): Promise<{ id: string; crew: CrewView; joined: boolean } | "invalid" | null> {
   try {
     const response = await get(`/api/invites/${encodeURIComponent(token)}/join`, { method: "POST" });
     if (response.status === 404) return "invalid";
-    if (response.status === 409) return "own";
-    return response.ok ? ((await response.json()) as { crew: Crew }) : null;
+    return response.ok ? ((await response.json()) as { id: string; crew: CrewView; joined: boolean }) : null;
   } catch {
     return null;
   }
 }
 
 /**
- * End a crew membership as the signed-in player: leave a crew they joined, or
- * remove someone from their own. One already gone counts as done.
+ * The places a crew's page shares its link to. Discord and Signal take no
+ * message to open, so it is copied for them; "share" is the phone's own share
+ * sheet.
  */
-export async function removeCrewMember(id: string, get: typeof fetch = fetch): Promise<boolean> {
-  try {
-    const response = await get(`/api/crew-members/${encodeURIComponent(id)}/remove`, { method: "POST" });
-    return response.ok || response.status === 404;
-  } catch {
-    return false;
-  }
-}
-
-/** The places the card shares a link to. Discord and Steam chat take no link to open, so the message is copied for them. */
-export type Channel = "share" | "whatsapp" | "discord" | "steam" | "email";
+export type Channel = "share" | "whatsapp" | "telegram" | "discord" | "signal";
 
 /** What sharing to `channel` does: open a URL, or copy the message for the player to paste. */
 export function shareTarget(
   channel: Exclude<Channel, "share">,
   message: string,
-  subject: string,
+  link: string,
 ): { open: string } | { copy: string } {
   switch (channel) {
     case "whatsapp":
       return { open: `https://wa.me/?text=${encodeURIComponent(message)}` };
-    case "email":
-      return { open: `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}` };
+    case "telegram": {
+      // Telegram puts the link above the text itself.
+      const text = message.replace(link, "").trim();
+      return {
+        open: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`,
+      };
+    }
     case "discord":
-    case "steam":
+    case "signal":
       return { copy: message };
   }
 }

@@ -235,7 +235,7 @@ export type MyCrew = CrewView & { id: string; memberId: string };
  * Someone in a crew, by their Steam persona when known: `id` names the
  * membership, never them. `you` is the one looking, `admin` the crew's admin;
  * `pc` whether they bring a gaming PC ('yes'), put it off ('later'), or were
- * not asked (null).
+ * not asked (null); `pcs` how many of their PCs play for it.
  */
 export type CrewMember = {
   id: string;
@@ -243,6 +243,7 @@ export type CrewMember = {
   you: boolean;
   admin: boolean;
   pc: "yes" | "later" | null;
+  pcs: number;
 };
 
 /** How a PC playing for a crew is now: free to play, being played on, or away. */
@@ -1600,6 +1601,7 @@ export class Platform {
       "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
       crewId,
     );
+    const ownerOf = (q: { id: string; owner_id: string | null }) => this.#owners.get(q.id) ?? q.owner_id;
     return {
       id: crewId,
       memberId: me.id,
@@ -1611,9 +1613,10 @@ export class Platform {
         you: m.user_id === userId,
         admin: m.user_id === crew.owner_id,
         pc: m.pc,
+        pcs: machines.filter((q) => ownerOf(q) === m.user_id).length,
       })),
       machines: machines.map((q) => {
-        const owner = this.#owners.get(q.id) ?? q.owner_id;
+        const owner = ownerOf(q);
         const state = pcState(q.status);
         return {
           name: q.name,

@@ -113,7 +113,7 @@ describe("crews", () => {
           machines: [],
         },
       );
-      assert.deepEqual(crew.members, [{ id: crew.memberId, name: "Alex", you: true, admin: true, pc: null }]);
+      assert.deepEqual(crew.members, [{ id: crew.memberId, name: "Alex", you: true, admin: true, pc: null, pcs: 0 }]);
       assert.deepEqual(await platform.crews(ALEX), [
         {
           id: crew.id,

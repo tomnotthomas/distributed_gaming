@@ -10,7 +10,9 @@
 // the server refuses as over budget (429) is tried again once Retry-After has
 // passed, and until then the last answer stays up; a wall read in parts keeps
 // the parts already answered, and the next read of the same question, a retry
-// or a refresh, asks only for the rest.
+// or a refresh, asks only for the rest. The same stream says when a crew the
+// renter is in has its first PC (onCrewReady), and `changes` counts every
+// change it announced, so a crew page can read its crew again.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Prefs } from "./derive";
@@ -52,6 +54,8 @@ export type LiveOptions = {
   fetch?: typeof fetch;
   /** Opens the event stream; null polls only. Defaults to the browser's EventSource where there is one. */
   eventSource?: ((url: string) => EventStream) | null;
+  /** Hears of each crew the renter is in whose first PC is on offer, by its id. */
+  onCrewReady?: (crewId: string) => void;
 };
 
 /** What has been read, and when (Unix ms), to tell its clock times by. */
@@ -61,6 +65,8 @@ export type Live = {
   game: { at: number; machines: GameMachines } | null;
   /** The renter's round trip to the server in ms, as timed against GET /api/ping; null until measured. */
   rttMs: number | null;
+  /** How many changes the stream has announced, or missed while it was down, since the page opened. */
+  changes: number;
 };
 
 /** The session length and settings a read asks about, as one comparable string. */
@@ -75,7 +81,9 @@ export function useLive({
   prefs,
   fetch: get = fetch,
   eventSource = browserEventSource,
+  onCrewReady,
 }: LiveOptions): Live {
+  const [changes, setChanges] = useState(0);
   const [rtt, setRtt] = useState<number | null>(null);
   const [wall, setWall] = useState<Live["wall"]>(null);
   const [game, setGame] = useState<Live["game"]>(null);
@@ -87,8 +95,8 @@ export function useLive({
   const askKey = questionOf(minutes, prefs);
 
   // The latest question, for reads that a timer or the stream starts.
-  const latest = useRef({ wallIds, appid, minutes, prefs, rtt, get, eventSource });
-  latest.current = { wallIds, appid, minutes, prefs, rtt, get, eventSource };
+  const latest = useRef({ wallIds, appid, minutes, prefs, rtt, get, eventSource, onCrewReady });
+  latest.current = { wallIds, appid, minutes, prefs, rtt, get, eventSource, onCrewReady };
 
   /** Which read is current, so an answer to an older question is dropped. */
   const wallRead = useRef(0);
@@ -207,16 +215,32 @@ export function useLive({
 
     const backstop = setInterval(refresh, BACKSTOP_MS);
     const { eventSource } = latest.current;
+    const changed = () => setChanges((n) => n + 1);
     let stream: EventStream | null = null;
     if (!eventSource) startPolling();
     else {
       stream = eventSource("/api/events");
       let dropped = false;
-      stream.addEventListener("availability", refresh);
+      stream.addEventListener("availability", () => {
+        changed();
+        refresh();
+      });
+      stream.addEventListener("crew", (event) => {
+        changed();
+        try {
+          const { crew } = JSON.parse((event as MessageEvent<string>).data) as { crew?: unknown };
+          if (typeof crew === "string") latest.current.onCrewReady?.(crew);
+        } catch {
+          // Not an event this page knows how to read: the next one may be.
+        }
+      });
       // Back after a drop: whatever changed meanwhile was missed, so ask again.
       stream.addEventListener("open", () => {
         stopPolling();
-        if (dropped) refresh();
+        if (dropped) {
+          changed();
+          refresh();
+        }
         dropped = false;
       });
       // Dropped: EventSource retries by itself, and the poll covers the gap. One
@@ -235,5 +259,5 @@ export function useLive({
     };
   }, [enabled, rtt, readWall, readGame]);
 
-  return { wall, game, rttMs: rtt };
+  return { wall, game, rttMs: rtt, changes };
 }

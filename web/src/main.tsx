@@ -4,6 +4,7 @@ import { Client } from "./Client";
 import { Host } from "./Host";
 import { Swiff } from "./swiff/Swiff";
 import "./swiff/swiff.css";
+import "./swiff/crew.css";
 import "./posthog";
 
 // Three routes, one bundle. "/" is the product — the live wall, with Share your
