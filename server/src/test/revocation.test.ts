@@ -96,21 +96,25 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
       ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
       ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
     },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "ignore"],
   });
   servers.push(child);
   const origin = `http://localhost:${port}`;
-  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
-  for (let i = 0; i < 150; i++) {
-    try {
-      await fetch(`${origin}/api/bookings/none`);
-      break;
-    } catch {
-      await wait(100);
-    }
-  }
-  // Another run's server on the same port answers too, while this one has exited.
-  assert.equal(child.exitCode, null, `the server on port ${port} is not this test's`);
+  // Ready once this child says it listens, not once the port answers: another
+  // run's server on the same port answers while this one still opens its
+  // database, or after it exited on the taken port. Up to 30 s: slower under a
+  // full test run. Its output is read to the end, so a full pipe never stalls it.
+  let heard = "";
+  const listening = new Promise<boolean>((resolve) => {
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk: string) => {
+      if (heard.length < 4096) heard += chunk;
+      if (heard.includes(`localhost:${port} `)) resolve(true);
+    });
+    child.once("exit", () => resolve(false));
+  });
+  const ready = await Promise.race([listening, wait(30_000).then(() => false)]);
+  assert.ok(ready, `the server for this test did not listen on port ${port}`);
 
   /** One JSON call: with the machine key as bearer when given one, else as the signed-in renter. */
   const call = async (method: string, path: string, body?: unknown, key?: string) => {
