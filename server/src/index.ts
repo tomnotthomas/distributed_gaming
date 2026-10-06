@@ -1123,16 +1123,17 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       if (msg.type === "watch-share") {
         const open = msg.open === true;
         const was = watches.sharing(sessionId);
-        const crew = msg.crew;
+        // A share names one crew for the session: the one picked, else the first, kept from then on.
+        const crews =
+          msg.crew !== undefined || (open && watches.crew(sessionId) === null)
+            ? await platform.watchCrews(sessionId)
+            : null;
+        if (crews && !crews.length) return;
+        const crew = msg.crew ?? crews?.[0]?.id;
         const picked = crew !== undefined && crew !== watches.crew(sessionId);
         if (picked) {
           // One of the crews the player may open watching to, or nothing changes.
-          if (
-            typeof crew !== "string" ||
-            !(await platform.watchCrews(sessionId)).some((c) => c.id === crew)
-          ) {
-            return;
-          }
+          if (typeof crew !== "string" || !crews!.some((c) => c.id === crew)) return;
           // Only that crew from now on: asks are checked against it at once, and anyone of another stops.
           watches.choose(sessionId, crew);
           const others = watches.list(sessionId);

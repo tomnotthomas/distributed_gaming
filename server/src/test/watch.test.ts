@@ -693,7 +693,7 @@ describe("watching through the signaling server", () => {
    * Mara plays in a fresh room: its PC registered, her booking claimed and
    * started, and her page seated with the ticket. Lea asks to watch and her page takes its seat.
    */
-  async function scene() {
+  async function scene({ crews, viewerId = LEA }: { crews?: string[]; viewerId?: string } = {}) {
     await crew();
     const room = ROOMS[roomIndex++]!;
     assert.equal(
@@ -702,7 +702,7 @@ describe("watching through the signaling server", () => {
           "PUT",
           `/api/machines/${room}/availability`,
           undefined,
-          { available: true, ...REPORT },
+          { available: true, ...REPORT, ...(crews ? { crews } : {}) },
           MACHINE_KEY,
         )
       ).status,
@@ -727,7 +727,7 @@ describe("watching through the signaling server", () => {
     // The game on screen: the PC says so, through the server, to the player.
     send(host, { type: "game-started", sessionId: claim.body.sessionId });
     await heard(player, (m): m is SignalMessage => m.type === "game-started", "game-started");
-    const asked = await call("POST", `/api/crew-live/${claim.body.sessionId}/watch`, LEA);
+    const asked = await call("POST", `/api/crew-live/${claim.body.sessionId}/watch`, viewerId);
     assert.equal(asked.status, 200);
     const viewer = await tracked();
     send(viewer, { type: "watch", ticket: asked.body.ticket });
@@ -1062,6 +1062,40 @@ describe("watching through the signaling server", () => {
     await gone;
     assert.equal(denial(viewer), "not-crew");
     membersIn = false;
+  });
+
+  it("keeps a share with the crew it was made for when the PC comes to play for another", async () => {
+    const first = await crew();
+    // Mara's later crew, which the stranger is in: the room plays for it alone, so it is the session's.
+    const later = await call("POST", "/api/crews", MARA, { name: "Later Squad" });
+    const laterId = later.body.crew.id as string;
+    for (const member of [STRANGER, OWNER]) {
+      assert.equal((await call("POST", `/api/invites/${later.body.crew.token}/join`, member)).status, 200);
+    }
+    const { player, viewer, room, sessionId } = await scene({ crews: [laterId], viewerId: STRANGER });
+    send(player, { type: "watch-share", open: true });
+    await handled(player);
+    assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
+
+    // The PC now plays for her first crew too, which would be the session's had she not shared.
+    assert.equal(
+      (
+        await call(
+          "PUT",
+          `/api/machines/${room}/availability`,
+          undefined,
+          { available: true, ...REPORT, crews: [first, laterId] },
+          MACHINE_KEY,
+        )
+      ).status,
+      200,
+    );
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+    await wait(500);
+    assert.equal(denial(viewer), undefined);
+    const told = await heard(player, isWatchers, "watchers");
+    assert.equal(told.crew?.id, laterId);
+    assert.equal(told.sharing, true);
   });
 
   it("opens watching to the crew the player picks, and stops anyone of the one before", async () => {
