@@ -857,7 +857,8 @@ describe("rental mode", () => {
       expect(
         screen.getByText("RTX 4080: accept NVIDIA's licence again", { selector: ".rck" }),
       ).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Remove it" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Remove it" }));
+      expect(acts.removeNvidia).toHaveBeenCalledOnce();
       fireEvent.click(screen.getByRole("checkbox", { name: "I have read NVIDIA's licence and accept it." }));
       fireEvent.click(screen.getByRole("checkbox", { name: "I accept these terms." }));
       fireEvent.click(screen.getByRole("button", { name: /Install NVIDIA's driver/ }));

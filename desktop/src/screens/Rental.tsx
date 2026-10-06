@@ -207,7 +207,16 @@ function NvidiaZone({
   const gpu = nvidiaCard(read)!;
   const ready = licence && terms && letter !== null && text.state === "ready";
   return (
-    <Zone title="NVIDIA's driver">
+    <Zone
+      title="NVIDIA's driver"
+      action={
+        driver.installed && !running ? (
+          <button type="button" className="lnk" onClick={actions.removeNvidia}>
+            Remove it
+          </button>
+        ) : undefined
+      }
+    >
       <p className="soft rnv">
         Swiff OS runs the {shortGpu(gpu.name)} on NVIDIA's driver, which Swiff does not ship. Read NVIDIA's
         licence and Swiff's terms below and accept both: Swiff then downloads the driver from Ubuntu onto{" "}
