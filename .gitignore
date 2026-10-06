@@ -41,3 +41,6 @@ __pycache__/
 
 # local secrets
 .env
+
+# A launch set being imported (server/scripts/import-launch-pages.mjs), until it replaces web/marketing/
+web/marketing.importing/

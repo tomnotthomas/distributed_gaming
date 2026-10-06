@@ -13,6 +13,7 @@ import type { Database } from "../db.js";
 import { Platform } from "../platform.js";
 import type { InviteType } from "../invite-copy.js";
 import {
+  assetPath,
   createMarketing,
   crewInvites,
   inviteRoute,
@@ -24,7 +25,14 @@ import {
   type InviteResolver,
 } from "../marketing.js";
 import { migrate } from "../schema.js";
-import { createSignups, RESEND_AFTER_MS, signupInvite, type Signups } from "../signups.js";
+import {
+  CLIENT_BURST,
+  clientOf,
+  createSignups,
+  RESEND_AFTER_MS,
+  signupInvite,
+  type Signups,
+} from "../signups.js";
 import { testDatabase } from "./db.js";
 
 const DIR = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
@@ -41,13 +49,13 @@ type Answer = { status: number; headers: Record<string, string | string[] | unde
 function ask(
   origin: string,
   path: string,
-  { host = SITE.host, method = "GET", body = "" } = {},
+  { host = SITE.host, method = "GET", body = "", localAddress = "127.0.0.1" } = {},
 ): Promise<Answer> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, origin);
     const req = request(
       url,
-      { method, headers: { host, ...(body ? { "content-type": "application/json" } : {}) } },
+      { method, localAddress, headers: { host, ...(body ? { "content-type": "application/json" } : {}) } },
       (res) => {
         let text = "";
         res.setEncoding("utf8");
@@ -57,6 +65,21 @@ function ask(
     );
     req.on("error", reject);
     req.end(body);
+  });
+}
+
+/** A GET for `path` exactly as written, past the URL parser's normalizing of dot segments. */
+function askRaw(origin: string, path: string, host = SITE.host): Promise<Answer> {
+  const { hostname, port } = new URL(origin);
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname, port, path, method: "GET", headers: { host } }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => (text += chunk));
+      res.on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body: text }));
+    });
+    req.on("error", reject);
+    req.end();
   });
 }
 
@@ -252,6 +275,86 @@ describe("marketing site", () => {
     ]) {
       assert.equal((await ask(origin, path)).body, "the app", path);
     }
+    // Sent as written: dot segments and encoded separators never leave assets/.
+    for (const path of [
+      "/assets/../emails/signup_confirm.de.html",
+      "/assets/..%2femails/signup_confirm.de.html",
+      "/assets/..%2Fcontent%2Finvite-texts.json",
+      "/assets/%2e%2e/crew/index.html",
+      "/assets/css/..%2f..%2fcrew/index.html",
+      "/assets/..%5cemails%5csignup_confirm.de.html",
+      "/assets/css/%00base.css",
+      "/assets/%E0%A4%A",
+    ]) {
+      assert.equal((await askRaw(origin, path)).body, "the app", path);
+    }
+    assert.equal((await askRaw(origin, "/assets/css/base.css")).status, 200);
+  });
+
+  it("finds an asset only under assets/, however its path is spelled", () => {
+    assert.equal(assetPath("/assets/css/base.css"), "assets/css/base.css");
+    assert.equal(assetPath("/assets/img/a%20b.jpg"), "assets/img/a b.jpg");
+    assert.equal(assetPath("/robots.txt"), "robots.txt");
+    for (const path of [
+      "/assets/../index.html",
+      "/assets/..%2findex.html",
+      "/assets/%2e%2e/index.html",
+      "/assets/.%2e/index.html",
+      "/assets/css/./base.css",
+      "/assets//css/base.css",
+      "/assets/..%5cindex.html",
+      "/assets/%00",
+      "/assets/%E0%A4%A",
+      "/emails/x.html",
+    ]) {
+      assert.equal(assetPath(path), null, path);
+    }
+  });
+
+  it("reads nothing outside the marketing root, whatever path it is asked for", async () => {
+    const files = marketingFiles(DIR, SITE);
+    assert.ok(await files.read("assets/css/base.css"));
+    for (const rel of ["../package.json", "assets/../../package.json", "/etc/passwd", "..", ""]) {
+      assert.equal(await files.read(rel), null, rel);
+    }
+  });
+
+  it("takes sign-ups and their links only on the site's own host", async () => {
+    const other = { host: "swiff.onrender.com" };
+    const body = JSON.stringify({ email: "ana@example.com", kind: "player" });
+    assert.equal((await ask(origin, "/api/signups", { ...other, method: "POST", body })).body, "the app");
+    assert.equal((await ask(origin, "/api/signups/confirm?token=x", other)).body, "the app");
+    assert.equal(
+      (await ask(origin, "/api/signups/unsubscribe?token=x", { ...other, method: "POST" })).body,
+      "the app",
+    );
+    assert.deepEqual(await signupRows(), []);
+    assert.equal((await signUp({ email: "ana@example.com", kind: "player" })).status, 202);
+  });
+
+  it("lets one client send only a few sign-ups at a time, and not take the others' turn", async () => {
+    const send = (email: string, localAddress = "127.0.0.1") =>
+      ask(origin, "/api/signups", {
+        method: "POST",
+        body: JSON.stringify({ email, kind: "player" }),
+        localAddress,
+      });
+    const sent = [];
+    for (let i = 0; i < CLIENT_BURST + 2; i++) sent.push((await send(`a${i}@example.com`)).status);
+    assert.deepEqual(sent, [...Array<number>(CLIENT_BURST).fill(202), 429, 429]);
+    assert.equal((await send("b@example.com", "127.0.0.2")).status, 202);
+  });
+
+  it("knows a client by the address that connected, or by what a trusted proxy appended last", () => {
+    const req = (forwarded: string | undefined, remoteAddress = "10.0.0.1") =>
+      ({
+        headers: forwarded === undefined ? {} : { "x-forwarded-for": forwarded },
+        socket: { remoteAddress },
+      }) as never;
+    assert.equal(clientOf(req("1.2.3.4"), false), "10.0.0.1");
+    assert.equal(clientOf(req("6.6.6.6, 1.2.3.4"), true), "1.2.3.4");
+    assert.equal(clientOf(req(undefined), true), "10.0.0.1");
+    assert.equal(clientOf(req(""), true), "10.0.0.1");
   });
 
   it("leaves every other host to the app", async () => {

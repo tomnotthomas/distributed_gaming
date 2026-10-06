@@ -216,7 +216,11 @@ const serveApi = createApi({
 const site = siteFromEnv(process.env);
 const MARKETING_DIR = fileURLToPath(new URL("../../web/marketing/", import.meta.url));
 const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
-const signups = site && marketing ? createSignups({ database, site, files: marketing }) : null;
+// Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
+const signups =
+  site && marketing
+    ? createSignups({ database, site, files: marketing, trustProxy: process.env.RENDER === "true" })
+    : null;
 const serveMarketing =
   site && marketing && signups
     ? createMarketing({

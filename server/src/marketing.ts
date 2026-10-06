@@ -19,7 +19,7 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { extname, isAbsolute, join, normalize, relative } from "node:path";
+import { extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { verifyInviteToken } from "./access.js";
 import { BRAND, WORDMARK } from "./brand.js";
 import { inviteCopy, UNKNOWN_INVITE, type InviteType, type InviteView, type Lang } from "./invite-copy.js";
@@ -70,9 +70,10 @@ export function marketingFiles(dir: string, site: Site) {
     dir,
     /** The file at `rel`, or null when there is none (or `rel` leaves `dir`). */
     async read(rel: string): Promise<Buffer | null> {
-      const path = join(dir, normalize(rel));
+      // Resolved, and confined to `dir`: whatever `rel` says, nothing outside it is read.
+      const path = resolve(dir, normalize(rel));
       const inside = relative(dir, path);
-      if (!inside || inside.startsWith("..") || isAbsolute(inside)) return null;
+      if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return null;
       let file = cache.get(path);
       if (!file) {
         file = readFile(path).then((raw) =>
@@ -216,6 +217,27 @@ export function renderShare(template: string, code: string | null): string {
   return template.replace(/\/crew\/(DEINCODE|YOURCODE)/g, code ? `/crew/${code}` : "/crew/");
 }
 
+/**
+ * The file a request for robots.txt, sitemap.xml or under /assets/ may be
+ * served from, relative to the marketing root: robots.txt, sitemap.xml, or a
+ * file under assets/ and nowhere else. Null for anything that would leave
+ * assets/ once decoded, however it is spelled (`..`, `%2e%2e`, an encoded `/`
+ * or `\`), or that is not a plain path.
+ */
+export function assetPath(path: string): string | null {
+  if (path === "/robots.txt" || path === "/sitemap.xml") return path.slice(1);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("/assets/") || /[\\\0]/.test(decoded)) return null;
+  const segments = decoded.slice(1).split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) return null;
+  return segments.join("/");
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -305,12 +327,8 @@ export function createMarketing({
     }
 
     if (path === "/robots.txt" || path === "/sitemap.xml" || path.startsWith("/assets/")) {
-      let rel: string;
-      try {
-        rel = decodeURIComponent(path.slice(1));
-      } catch {
-        return false;
-      }
+      const rel = assetPath(path);
+      if (rel === null) return false;
       // An app asset (the SPA's own /assets/) is not here: it falls through.
       const body = await files.read(rel);
       if (!body) return false;

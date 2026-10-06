@@ -13,18 +13,88 @@
 {
   "@context": "https://schema.org",
   "@type": "FAQPage",
-  "inLanguage": "de",
+  "inLanguage": "en",
   "mainEntity": [
-    {"@type": "Question", "name": "Kann ich mit meinem Gaming-PC Geld verdienen?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. In der Beta hostest du unbezahlt, und auch die Spieler zahlen nichts. Dafür bekommst du das Founding-Host-Abzeichen, eine eigene Rig-Seite und reservierte Plätze für deine Freunde."}},
-    {"@type": "Question", "name": "Kommen Gäste an meine Dateien?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu."}},
-    {"@type": "Question", "name": "Was passiert mit meinem Windows?", "acceptedAnswer": {"@type": "Answer", "text": "Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows."}},
-    {"@type": "Question", "name": "Wer spielt auf meinem PC?", "acceptedAnswer": {"@type": "Answer", "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du."}},
-    {"@type": "Question", "name": "Wie viel Strom kostet das?", "acceptedAnswer": {"@type": "Answer", "text": "So viel wie ein Abend, an dem du selbst zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat."}},
-    {"@type": "Question", "name": "Kann ich meinen PC jederzeit zurückholen?", "acceptedAnswer": {"@type": "Answer", "text": "Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist."}},
-    {"@type": "Question", "name": "Ich habe nur Linux auf dem PC. Geht das?", "acceptedAnswer": {"@type": "Answer", "text": "Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert."}},
-    {"@type": "Question", "name": "Ist das wie Steam Remote Play?", "acceptedAnswer": {"@type": "Answer", "text": "Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows."}},
-    {"@type": "Question", "name": "Ist {{brand}} OS ein Dual Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Ja. {{brand}} OS bekommt eigene 24 GB neben Windows. Zum Teilen startet dein PC in {{brand}} OS, danach wieder in Windows."}},
-    {"@type": "Question", "name": "Wie aktiviere ich Secure Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Im BIOS deines Mainboards, meist unter „Boot“ oder „Security“. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel. Unser Check zeigt dir, ob Secure Boot schon an ist, und führt dich Schritt für Schritt durch, mit Anleitungen für MSI, ASUS, Gigabyte und ASRock."}}
+    {
+      "@type": "Question",
+      "name": "Can I make money with my gaming PC?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Hosting is unpaid during the beta, and players don't pay either. What you do get: the Founding Host badge, your own rig page and reserved seats for your friends."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can guests get to my files?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Guests play in {{brand}} OS, a separate, locked-down system. {{brand}} OS never writes to your Windows drives: your Steam drive is read-only, and it doesn't mount any other drive. The PC restarts after every session. How {{brand}} OS works"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens to my Windows?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It stays as it is. {{brand}} OS takes a fixed 24 GB: free space on the disk, or it shrinks a drive that keeps at least 16 GB free. When you're not sharing, your PC starts Windows as usual."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Who plays on my PC?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "At first only friends you invite. They sign in with their own Steam account and play their own games. Whether Mac players from our waitlist join later is up to you."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How much electricity does it use?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "About as much as an evening of playing yourself, and only while a guest is playing. A gaming PC draws roughly 300 to 450 watts under load; at 40 cents per kWh that's 12 to 18 cents an hour. Two three-hour test evenings come to about one euro a month."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I take my PC back at any time?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, right at the PC, as long as no guest is playing. If a session is running, you wait until it ends."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "I only run Linux on my PC. Does that work?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not yet. {{brand}} OS is installed from Windows and switches back to Windows afterwards, so you need a Windows gaming PC. Sign up anyway and we'll let you know if that changes."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is this like Steam Remote Play?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Similar. With Remote Play you stream your PC to your own phone or laptop. With {{brand}} your PC streams to a Mac player who plays their own games on their own Steam account, inside {{brand}} OS, not in your Windows."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is {{brand}} OS a dual boot?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. {{brand}} OS gets its own 24 GB next to Windows. To share, your PC starts {{brand}} OS, and afterwards it goes back to Windows."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I turn on Secure Boot?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "In your motherboard's BIOS, usually under \"Boot\" or \"Security\". Note down your BitLocker recovery key first. Our check shows whether Secure Boot is already on and walks you through it step by step, with guides for MSI, ASUS, Gigabyte and ASRock."
+      }
+    }
   ]
 }
 </script>
