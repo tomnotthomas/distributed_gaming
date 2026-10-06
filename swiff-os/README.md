@@ -19,7 +19,7 @@ stage by stage.
 The server side lives in `server/`, not here: `server/src/attestation.ts`. A machine's rights
 are split in two. The machine key, which stays in the owner's host app, keeps the control
 rights. A short-lived host certificate, which `swiff-hostd` earns by attestation, gets the
-hosting rights: `session-claimed`, session keys and TURN credentials.
+hosting rights: `session-claimed` and session keys.
 
 `HOSTING_ATTESTATION=required` switches an environment to attested-only hosting. The default,
 `optional`, keeps today's desktop hosts working at an explicit `unattested` tier. The verifier
