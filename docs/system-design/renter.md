@@ -554,7 +554,7 @@ queue, as a picked machine, and at the claim, which hands a reservation made bef
 was taken from the renter's crews back to the queue. A PC first heard from while its owner
 shares a crew with anyone starts crew-only, playing for nobody until they pick; a PC whose
 owner was never in a crew is open to anyone, as before crews. A crew-only PC from before
-crews were groups plays for every crew its owner was in (migration 13).
+crews were groups plays for every crew its owner was in.
 
 A member may leave, and the admin may remove anyone; their PCs leave the crew with them,
 from then on they match none of its PCs, and a match made before goes back at the claim. A
