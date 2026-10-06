@@ -1323,8 +1323,13 @@ async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise
   }
 }
 
-/** `ws` closed: give up its seat, and tell its peer and the platform. */
-function onClose(ws: PeerSocket): void {
+/**
+ * `ws` closed with `code`: give up its seat, and tell its peer and the
+ * platform. A viewer whose socket dropped (1006: no close frame) keeps their
+ * place for a moment, to come back on the same ticket; one whose page closed it
+ * (Leave, or the page going) has left, and their watch ends now.
+ */
+function onClose(ws: PeerSocket, code = 1006): void {
   const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return;
 
@@ -1332,7 +1337,8 @@ function onClose(ws: PeerSocket): void {
   if (ws.role === "viewer") {
     if (!ws.watchId || room.viewers.get(ws.watchId) !== ws) return;
     room.viewers.delete(ws.watchId);
-    watches.away(ws.watchId);
+    if (code === 1006) watches.away(ws.watchId);
+    else watches.end(ws.watchId, "watch-left");
     if (ws.watchSession) tellPlayer(ws.hostId!, ws.watchSession);
     if (!room.host && !room.client && !room.viewers.size) rooms.delete(ws.hostId!);
     return;
@@ -1414,9 +1420,9 @@ wss.on("connection", (socket) => {
       }
     });
   });
-  ws.on("close", () => {
+  ws.on("close", (code) => {
     if (ws.certTimer) clearTimeout(ws.certTimer);
-    inTurn(ws, () => onClose(ws));
+    inTurn(ws, () => onClose(ws, code));
   });
 });
 

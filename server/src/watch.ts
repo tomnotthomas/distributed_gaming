@@ -22,11 +22,20 @@ import { MAX_WATCHERS } from "./protocol.js";
 export const ASK_MS = 60_000;
 /** How long a viewer whose page left (a reload, a dropped socket) keeps its place, to come back on the same ticket. */
 export const AWAY_MS = 30_000;
-/** How long a viewer turned down, unanswered or stopped waits before asking the same session again. */
+/**
+ * How long a viewer turned down, unanswered or stopped waits before asking the
+ * same session again. One who left by themselves may ask again at once.
+ */
 export const COOLDOWN_MS = 60_000;
 
 /** Why a watch ended: what the viewer's socket is told (protocol.ts DeniedMessage). */
-export type WatchEnd = "watch-declined" | "watch-unanswered" | "watch-stopped" | "watch-ended" | "not-crew";
+export type WatchEnd =
+  | "watch-declined"
+  | "watch-unanswered"
+  | "watch-stopped"
+  | "watch-ended"
+  | "watch-left"
+  | "not-crew";
 
 export type Watch = {
   id: string;
@@ -219,7 +228,7 @@ export class Watches {
 
   /**
    * What time has ended: a viewer asking past ASK_MS (unanswered), and one whose
-   * page has been away past AWAY_MS (stopped: it left). Also forgets ends and
+   * page has been away past AWAY_MS (it left). Also forgets ends and
    * cooldowns no ticket or ask could still meet. Returns the watches it ended.
    */
   expire(): { watch: Watch; reason: WatchEnd }[] {
@@ -228,7 +237,7 @@ export class Watches {
     for (const watch of this.all()) {
       let reason: WatchEnd | null = null;
       if (watch.state === "asking" && now - watch.askedAt >= this.#askMs) reason = "watch-unanswered";
-      else if (watch.awaySince !== null && now - watch.awaySince >= this.#awayMs) reason = "watch-stopped";
+      else if (watch.awaySince !== null && now - watch.awaySince >= this.#awayMs) reason = "watch-left";
       if (reason) ended.push({ watch: this.end(watch.id, reason)!, reason });
     }
     for (const [id, { until }] of this.#over) if (until <= now) this.#over.delete(id);

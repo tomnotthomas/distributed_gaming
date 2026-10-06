@@ -63,6 +63,13 @@ const voiceEnergy = (page: Page, mid: string, onlyViewerLinks = false) =>
     { mid, onlyViewerLinks },
   );
 
+/** Wake the player's HUD, which the crew panel hides with, so the next click lands on it. */
+async function wakeHud(page: Page) {
+  await page.mouse.move(400, 300);
+  await page.mouse.move(420 + Math.random() * 40, 320);
+  await expect(page.getByTestId("session")).toHaveAttribute("data-hud", "shown");
+}
+
 test.describe("watching a friend play", () => {
   const contexts: BrowserContext[] = [];
 
@@ -158,10 +165,9 @@ test.describe("watching a friend play", () => {
     );
 
     // Voice, both ways: each joins, and each receives the other's voice.
-    await player.mouse.move(400, 300);
-    await player.mouse.move(420, 320);
     const panel = player.getByTestId("crew-panel");
     await expect(panel.getByTestId("crew-watcher")).toHaveCount(1);
+    await wakeHud(player);
     await panel.getByRole("button", { name: "Join voice" }).click();
     await friend.getByTestId("watch-crew").getByRole("button", { name: "Join voice" }).click();
     // The player's voice reaches the friend on the voice line (mid 2), the friend's the player.
@@ -179,8 +185,7 @@ test.describe("watching a friend play", () => {
     expect(await playing()).toBe("playing");
 
     // The player stops it, and the friend is told.
-    await player.mouse.move(400, 300);
-    await player.mouse.move(430, 330);
+    await wakeHud(player);
     await panel.getByRole("button", { name: "Stop" }).click();
     await expect(friend.getByTestId("watch-wait")).toContainText("stopped sharing with you", {
       timeout: 15_000,
@@ -188,7 +193,7 @@ test.describe("watching a friend play", () => {
 
     await friend.getByRole("button", { name: "Back to the wall" }).click();
     await expect(friend.getByTestId("watch")).toHaveCount(0);
-    await player.mouse.move(400, 300);
+    await wakeHud(player);
     await player.getByRole("button", { name: "End session" }).click();
     await expect(player.getByTestId("session")).toHaveCount(0);
     expect(host).toBeTruthy();

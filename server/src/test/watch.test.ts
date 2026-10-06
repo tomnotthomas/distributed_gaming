@@ -122,7 +122,7 @@ describe("watch state", () => {
     assert.ok(watches.ask({ ...live, sessionId: "s2" }, viewer(LEA)).ok);
   });
 
-  it("ends a request the player leaves unanswered, and a viewer who stays away", () => {
+  it("ends a request the player leaves unanswered, and a viewer who stays away, who may ask again at once", () => {
     const lea = asked(LEA);
     const jon = asked(JON);
     watches.back(lea.id);
@@ -132,7 +132,7 @@ describe("watch state", () => {
     now += AWAY_MS;
     assert.deepEqual(
       watches.expire().map(({ watch, reason }) => [watch.name, reason]),
-      [["Jon", "watch-stopped"]],
+      [["Jon", "watch-left"]],
     );
     now += ASK_MS - AWAY_MS;
     assert.deepEqual(
@@ -158,7 +158,7 @@ describe("watch state", () => {
     now += AWAY_MS;
     assert.deepEqual(
       watches.expire().map(({ reason }) => reason),
-      ["watch-stopped"],
+      ["watch-left"],
     );
   });
 
@@ -749,6 +749,29 @@ describe("watching through the signaling server", () => {
       { watchId, name: null, state: "watching", here: true },
     ]);
     assert.ok(room);
+  });
+
+  it("ends the watch at once when the viewer leaves, and lets them ask again", async () => {
+    const { player, viewer, sessionId } = await accepted();
+    viewer.close();
+    await closed(viewer);
+    await handled(player);
+    assert.deepEqual((await heard(player, isWatchers, "watchers")).watchers, []);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
+  });
+
+  it("keeps a viewer whose socket dropped, to come back on the same ticket", async () => {
+    const { player, viewer, ticket, watchId } = await accepted();
+    viewer.terminate();
+    await closed(viewer);
+    await handled(player);
+    assert.deepEqual((await heard(player, isWatchers, "watchers")).watchers, [
+      { watchId, name: null, state: "watching", here: false },
+    ]);
+    const back = await tracked();
+    send(back, { type: "watch", ticket });
+    await handled(back);
+    assert.equal((await heard(back, isWatching, "watching")).state, "watching");
   });
 
   it("refuses a forged watch ticket, and one for another viewer's watch", async () => {

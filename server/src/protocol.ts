@@ -156,6 +156,7 @@ export type JoinedMessage = {
  *   watch-unanswered the player did not answer in time
  *   watch-stopped    the player stopped the viewer watching
  *   watch-ended      the session watched is over
+ *   watch-left       the viewer left: a ticket for a watch they ended opens nothing
  *   watch-replaced   sent to a viewer socket a newer one with the same watch ticket took the seat from
  *   not-crew         the viewer and the player no longer share a crew
  */
@@ -176,6 +177,7 @@ export type DeniedMessage = {
     | "watch-unanswered"
     | "watch-stopped"
     | "watch-ended"
+    | "watch-left"
     | "watch-replaced"
     | "not-crew";
 };

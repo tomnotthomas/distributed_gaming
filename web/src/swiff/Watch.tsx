@@ -22,7 +22,9 @@ export function Watch({ swiff }: { swiff: Swiff }) {
   usePushKey(PUSH_KEY, state.voice.inVoice && state.voice.mode === "push", talk);
   if (!entry) return null;
 
+  // Starting a sentence, and within one.
   const player = nameOf(state.player ?? entry.player, "Your friend");
+  const them = nameOf(state.player ?? entry.player, "your friend");
   const game = swiff.games.find((g) => g.appid === entry.gameId)?.title ?? null;
   const showing = state.phase === "watching" && state.framed;
 
@@ -50,7 +52,7 @@ export function Watch({ swiff }: { swiff: Swiff }) {
         start={
           <>
             {showing ? <StatusDot /> : null}
-            <strong className="hud-title">Watching {player}</strong>
+            <strong className="hud-title">Watching {them}</strong>
             <span className="hud-on">
               {game ?? "their game"}
               {entry.machine ? ` on ${entry.machine}` : ""}
@@ -65,7 +67,7 @@ export function Watch({ swiff }: { swiff: Swiff }) {
         }
       />
 
-      {showing ? null : <WatchWait state={state} player={player} onLeave={swiff.stopWatching} />}
+      {showing ? null : <WatchWait state={state} player={player} them={them} onLeave={swiff.stopWatching} />}
 
       {state.phase === "watching" ? (
         <Surface padding="md" className="crew-panel" data-testid="watch-crew">
@@ -134,20 +136,30 @@ function VoiceRoster({
 }
 
 /** What stands in for the picture: asking, waiting for the stream, or why it is over. */
-function WatchWait({ state, player, onLeave }: { state: WatchState; player: string; onLeave: () => void }) {
+function WatchWait({
+  state,
+  player,
+  them,
+  onLeave,
+}: {
+  state: WatchState;
+  player: string;
+  them: string;
+  onLeave: () => void;
+}) {
   let title: string;
   let body: string;
   if (state.phase === "over") {
     title = "Not watching";
     body = endedLine(state.ended, player);
   } else if (state.phase === "asking-server") {
-    title = `Asking ${player}`;
+    title = `Asking ${them}`;
     body = "One moment.";
   } else if (state.phase === "asking") {
-    title = `Asked ${player}`;
+    title = `Asked ${them}`;
     body = "They see your request over their game, and decide. You watch only if they say yes.";
   } else if (!state.playerHere) {
-    title = `Waiting for ${player}`;
+    title = `Waiting for ${them}`;
     body = "Their connection dropped. Their game shows here again once they're back.";
   } else {
     title = `${player} said yes`;

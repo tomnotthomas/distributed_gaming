@@ -156,6 +156,7 @@ export type WatchEnd =
   | "watch-unanswered"
   | "watch-stopped"
   | "watch-ended"
+  | "watch-left"
   | "watch-replaced"
   | "not-crew"
   | "bad-watch-ticket";

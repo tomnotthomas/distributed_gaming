@@ -960,7 +960,10 @@ viewer frame ever reaches it: the server routes a viewer's frames to the player'
 alone. A viewer's connection has no data channel, made or taken, so there is no way for a
 viewer to send input. The viewer sees the game only while the player does: behind
 Ignition, and while reconnecting, nothing is sent on. If the player's page drops, viewers
-wait for it; it connects them again when it is back.
+wait for it; it connects them again when it is back. The player's page and a
+viewer's connect directly once the player says yes, so each can see the other's network
+address, as on any call between two people; before the yes, the server carries nothing
+between them. Viewers see the names of the others watching in the voice chat.
 
 The voice chat is on the same connections. Joining asks for the microphone, and only
 then. Each person talks on an open mic or push to talk (the player's button; a viewer's
