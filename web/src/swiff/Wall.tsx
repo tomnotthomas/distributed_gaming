@@ -162,7 +162,9 @@ export function Wall({ swiff }: { swiff: Swiff }) {
       </main>
     );
   if (!anythingFree)
-    return <WallEmpty t={t} note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(t, ordered, spots)} />;
+    return (
+      <WallEmpty t={t} note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(t, ordered, spots)} />
+    );
 
   const [hero, ...rest] = wall;
   // Signed out, the hero turns through a few games: ones free right now in the
@@ -234,9 +236,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         </div>
 
         <footer className="band-foot mono">
-          {swiff.steamDenied ? (
-            <p className="band-denied">{t("wall.denied")}</p>
-          ) : null}
+          {swiff.steamDenied ? <p className="band-denied">{t("wall.denied")}</p> : null}
           <p>{t("wall.artCredit")}</p>
         </footer>
       </section>
@@ -408,7 +408,8 @@ function WallHero({ t, games, swiff }: { t: Text; games: Game[]; swiff: Swiff })
             </div>
             <p className="hero-strip-line hero-turn" key={game.id}>
               {best ? t("hero.onGpu") : t("hero.onShared")}{" "}
-              <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : t("hero.sharedPc")}</b>. <b>{t("hero.noDownload")}</b>
+              <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : t("hero.sharedPc")}</b>.{" "}
+              <b>{t("hero.noDownload")}</b>
             </p>
           </div>
           <div className="hero-strip-cell hero-strip-facts">
@@ -523,7 +524,11 @@ function LibraryNote({
       </p>
       {state === "unreadable" || state === "checking" ? (
         <button type="button" className="lpill lpill-sm" onClick={onRetry} disabled={retrying}>
-          {retrying ? t("library.retrying") : state === "checking" ? t("library.checkAgain") : t("library.retry")}
+          {retrying
+            ? t("library.retrying")
+            : state === "checking"
+              ? t("library.checkAgain")
+              : t("library.retry")}
         </button>
       ) : null}
     </div>
@@ -554,7 +559,9 @@ function WallEmpty({
       <EmptyState
         title={t("empty.title")}
         body={signedIn ? t("empty.signedIn", { state }) : t("empty.signedOut", { state })}
-        action={signedIn ? <Button>{t("empty.notify")}</Button> : <SignInWithSteam label={t("signIn.steam")} />}
+        action={
+          signedIn ? <Button>{t("empty.notify")}</Button> : <SignInWithSteam label={t("signIn.steam")} />
+        }
       />
       {/* A gaming PC in the player's crew is the way to play when none is free. */}
       {signedIn ? <CrewsCard swiff={swiff} /> : null}

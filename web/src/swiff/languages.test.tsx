@@ -16,7 +16,8 @@ import { Wall } from "./Wall";
 const TOKEN = "abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUV";
 const noop = () => {};
 
-const words = (lang: Lang) => [...Object.values(CREW_COPY[lang]), ...Object.values(SCREEN_COPY[lang])] as string[];
+const words = (lang: Lang) =>
+  [...Object.values(CREW_COPY[lang]), ...Object.values(SCREEN_COPY[lang])] as string[];
 
 /**
  * The pieces of `lang`'s copy that only `lang` says: each string cut at its
@@ -61,7 +62,17 @@ function serve() {
         url === `/api/invites/${TOKEN}`
           ? [
               200,
-              { crew: { name: "Alex", crewName: null, own: false, size: 1, state: "no-pc", pcs: 0, member: false } },
+              {
+                crew: {
+                  name: "Alex",
+                  crewName: null,
+                  own: false,
+                  size: 1,
+                  state: "no-pc",
+                  pcs: 0,
+                  member: false,
+                },
+              },
             ]
           : url === "/api/crews"
             ? [200, { crews: [] }]
@@ -117,7 +128,11 @@ function signedInScreen(lang: Lang, body: React.ReactNode, signedIn = true) {
         onProfile={noop}
         onShare={noop}
         live={signedIn ? t("live.ready", { n: 0 }) : undefined}
-        renter={signedIn ? { persona: "kai_nx", session: { label: t("session.evening"), onCycle: noop } } : undefined}
+        renter={
+          signedIn
+            ? { persona: "kai_nx", session: { label: t("session.evening"), onCycle: noop } }
+            : undefined
+        }
       />
       {body}
     </>,

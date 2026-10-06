@@ -556,7 +556,9 @@ export function langOf(languages: readonly string[] = navigator.languages ?? [na
 
 /** `text` with each `{slot}` filled from `fill`; a slot `fill` lacks stays as it is. */
 export function fillSlots(text: string, fill: Record<string, string | number>): string {
-  return text.replace(/\{(\w+)\}/g, (slot, name: string) => (Object.hasOwn(fill, name) ? String(fill[name]) : slot));
+  return text.replace(/\{(\w+)\}/g, (slot, name: string) =>
+    Object.hasOwn(fill, name) ? String(fill[name]) : slot,
+  );
 }
 
 /** The words for `lang`, with each `{slot}` filled from `fill`. */

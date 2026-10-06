@@ -44,7 +44,8 @@ export const SCREEN_COPY = {
     "wall.popular": "Popular on Steam",
     "wall.allGames": "All {n} games",
     "wall.denied": "Steam sign-in was cancelled. Sign in with Steam to play.",
-    "wall.artCredit": "Game artwork and trailers are the property of their respective publishers, served from Steam.",
+    "wall.artCredit":
+      "Game artwork and trailers are the property of their respective publishers, served from Steam.",
     "hero.leaderOut": "Now on Lanterel",
     "hero.fromLibrary": "From your library",
     "hero.played": "{n} h played",
