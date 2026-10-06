@@ -354,15 +354,6 @@ body:has(> #root > .sw) {
     display: none;
   }
 }
-/* The bar is paper with ink words on every screen now, the crew pages too:
-   crew.css still darkens it there for the old light words, so this undoes that
-   (selector one step stronger, since crew.css loads after this file). */
-.sw[data-screen="crew"] > .sw-page > .bar,
-.sw[data-screen="invite"] > .sw-page > .bar {
-  background: var(--paper);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 /* who is signed in and how long they have tonight, on one card */
 .bar .bar-acct {
   justify-content: flex-end;
