@@ -107,9 +107,9 @@ option. That input price was wrong by 8×.
 Cloudflare Realtime TURN is $0.05/GB with the first 1,000 GB each month free. At the current
 `maxBitrate` of 10 Mbit/s a relayed hour costs roughly 4.5 GB, so the free tier covers about
 220 relayed hours a month and an hour beyond it is ~$0.23. `server/src/ice.ts` mints a
-credential per renter's seat, for the renter and for the PC, that expires with the session:
-from a self-run coturn's shared secret, or from a provider's credential endpoint such as
-Cloudflare's.
+credential per renter's seat, for the renter and for the PC, that expires with the seat's
+ticket and cannot be revoked if the session ends early: from a self-run coturn's shared
+secret, or from a provider's credential endpoint such as Cloudflare's.
 
 **Decision: Cloudflare Realtime TURN's free tier is the launch provider.** Its free tier is
 1,000 GB a month, shared with its SFU, then about $0.05/GB of egress: about 220 relayed hours

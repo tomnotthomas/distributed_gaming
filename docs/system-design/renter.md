@@ -696,8 +696,8 @@ configured the server lets nobody in (`server/src/access.ts`).
   Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
 
 The server hands both peers the TURN relay when a renter joins: the renter in `joined`, the
-PC in `peer-joined`, each with a credential of its own for that seat, bound to its session
-and expiring when it ends (`server/src/ice.ts`). ICE tries the direct paths first and falls
+PC in `peer-joined`, each with a credential of its own for that seat, expiring with the
+seat's ticket and not revocable if the session ends early (`server/src/ice.ts`). ICE tries the direct paths first and falls
 back to the relay. `npm run test:e2e:relay` (`e2e/relay/`) puts the two on networks with no
 path between them: the stream fails without the relay and comes up through it.
 
