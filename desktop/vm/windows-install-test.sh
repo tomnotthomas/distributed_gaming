@@ -699,7 +699,8 @@ test_run() {
 		app
 		step ui-ask "the app asks whether the code went in" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120"
 		step ui-no "No, or I'm not sure leads to confirming the key with a new code" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'confirm swiff' 60"
-		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click 'Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 240"
+		# Anchored: the rail's Rental mode entry is a button too, and its name lists "Confirm the key".
+		step ui-new-code "Confirm the key shows a new code to write down" bash -c "$ui click '^Confirm the key' > /dev/null; $ui wait-h1 'write down this code' 240"
 		# Administrator declined, through the app's own elevation.
 		uac 2
 		$ui click '^Confirm the key' > "$run/ui-elevate.json" 2>&1 || true
