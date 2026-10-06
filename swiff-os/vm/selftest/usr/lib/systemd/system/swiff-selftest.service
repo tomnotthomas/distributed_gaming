@@ -1,9 +1,9 @@
 # VM test build only (mkosi --profile selftest). Never part of the shipped
-# image: it runs the Stage 1 assertions as root, prints them on the serial
+# image: it runs the assertions as root, prints them on the serial
 # console for vm/run-test.sh and powers the VM off.
 [Unit]
 Description=Swiff OS VM self-test
-After=multi-user.target swiff-games-overlay.service swiff-hwcheck.service systemd-pcrphase.service
+After=multi-user.target swiff-games.service swiff-hwcheck.service systemd-pcrphase.service
 Requires=home.mount
 
 [Service]

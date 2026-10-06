@@ -23,4 +23,4 @@ DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
 apt-get clean
 
 # Mount points on the read-only root.
-mkdir -p /srv/games /srv/games-lower
+mkdir -p /srv/games

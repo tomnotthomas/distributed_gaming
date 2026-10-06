@@ -1,0 +1,20 @@
+#!/bin/bash
+# VM test build only: runs before swiff-games.service starts. In the
+# seal-fails-* phases (from the fixture disk) it makes sealing to the TPM fail
+# for the games service, for this boot only: selftest-creds goes first on the
+# service's PATH (/run/swiff-selftest/bin, see swiff-games.service.d).
+set -u
+
+fix=/run/swiff-selftest/fixtures
+mkdir -p "$fix"
+for _ in $(seq 300); do [ -e /dev/disk/by-label/SWIFFFIX ] && break; sleep 0.1; done
+mount -o ro LABEL=SWIFFFIX "$fix" || exit 0
+phase=$(cat "$fix/phase")
+umount "$fix"
+case $phase in
+seal-fails-*)
+	mkdir -p /run/swiff-selftest/bin
+	ln -sf /usr/libexec/swiff/selftest-creds /run/swiff-selftest/bin/systemd-creds
+	;;
+esac
+exit 0

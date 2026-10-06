@@ -1,0 +1,27 @@
+# The owner's shared games library (report §8), through /usr/libexec/swiff/verify.
+# At boot it checks every game against the verified table and mounts the
+# renter's view at /srv/games: only verified files show, and the renter's
+# writes (updates, shader caches, Proton prefixes) land in an encrypted
+# session layer on the library volume that the next reboot erases. At
+# shutdown, after the renter's session has stopped, it promotes the updates
+# that were sealed and still verify onto the library.
+[Unit]
+Description=Swiff games library (verify, then mount the renter's view)
+After=home.mount systemd-tmpfiles-setup.service tpm2.target
+# The mounts the service makes itself: at shutdown it stops (and promotes)
+# before systemd unmounts them.
+After=srv-games.mount run-swiff-games-view.mount run-swiff-games-session.mount run-swiff-games-volume.mount
+Requires=home.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/verify start
+ExecStop=/usr/libexec/swiff/verify stop
+# A full re-hash after another OS booted reads every offered game; the PC is
+# not offered until it is done. Promotion copies an update onto the library.
+TimeoutStartSec=infinity
+TimeoutStopSec=1h
+
+[Install]
+WantedBy=multi-user.target

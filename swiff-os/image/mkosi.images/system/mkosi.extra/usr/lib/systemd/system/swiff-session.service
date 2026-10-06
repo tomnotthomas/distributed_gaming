@@ -1,11 +1,11 @@
 # The renter's whole UI: gamescope on tty1 running Steam, as the unprivileged
 # renter user. There is no display manager, desktop or login prompt; when the
-# session ends it is simply started again. It never runs without the firewall
-# or with VT switching open.
+# session ends it is simply started again. It never runs without the firewall,
+# with VT switching open or without the verified games view.
 [Unit]
 Description=Swiff renter session (gamescope + Steam)
-After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games-overlay.service nftables.service swiff-vtlock.service
-Requires=home.mount nftables.service swiff-vtlock.service
+After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service
+Requires=home.mount nftables.service swiff-vtlock.service swiff-games.service
 Conflicts=getty@tty1.service
 
 [Service]
@@ -20,6 +20,9 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 WorkingDirectory=~
+# Steam's own UI lets whoever is at it start programs, so from here on
+# nothing in the games library view can be trusted for promotion (report §8).
+ExecStartPre=+/usr/libexec/swiff/verify close-seal
 ExecStart=/usr/libexec/swiff/session
 Restart=always
 RestartSec=2s

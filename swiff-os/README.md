@@ -75,14 +75,14 @@ not itself measured, so the PCR 11 prediction is the same.
 The layout is a fixed 23.6 GiB, inside the ~24 GB budget of decision D6. The owner is not offered a
 size choice.
 
-| Partition      | Size    | Contents                                                           |
-| -------------- | ------- | ------------------------------------------------------------------ |
-| ESP            | 1 GiB   | systemd-boot and the signed UKI                                    |
-| root, slot A   | 8 GiB   | read-only erofs root under dm-verity, labelled `swiffos_<version>` |
-| root-verity, A | 128 MiB | its dm-verity hash tree                                            |
-| root, slot B   | 8 GiB   | empty (`_empty`), for the next version                             |
-| root-verity, B | 128 MiB | empty (`_empty`)                                                   |
-| scratch        | 6.4 GiB | per-boot encrypted scratch: `/home` and the games overlay's writes |
+| Partition      | Size    | Contents                                                                                       |
+| -------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| ESP            | 1 GiB   | systemd-boot and the signed UKI                                                                |
+| root, slot A   | 8 GiB   | read-only erofs root under dm-verity, labelled `swiffos_<version>`                             |
+| root-verity, A | 128 MiB | its dm-verity hash tree                                                                        |
+| root, slot B   | 8 GiB   | empty (`_empty`), for the next version                                                         |
+| root-verity, B | 128 MiB | empty (`_empty`)                                                                               |
+| scratch        | 6.4 GiB | per-boot encrypted scratch: `/home`, and the games view's writes when the library is read-only |
 
 The A/B slots follow systemd-sysupdate's conventions. A UKI finds its own root by UUID, because
 systemd-repart derives the root and hash partition UUIDs from the root hash. An update writes a new
@@ -120,9 +120,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
   gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
   is allowed.
-- **The shared games library is read-only.** It is mounted read-only at `/srv/games-lower`, with an
-  overlay at `/srv/games` whose writes go to the scratch. The VM stubs it with a small ext4 disk
-  labelled `SWIFFGAMES`. Verifying it and promoting verified updates is stage 4.
+- **The renter sees only verified games.** The owner's games library is never written by the renter.
+  The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
+  a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
 - **The kernel is hardened from the signed command line.** It runs with `lockdown=confidentiality`,
   `module.sig_enforce=1`, a forced strict IOMMU, no hibernation, no USB mass storage and
   `systemd.import_credentials=no`. The last one means credentials and units cannot be injected from
@@ -140,6 +140,119 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 `swiff-hwcheck` checks the parts of D3 that Swiff OS can see on its own at boot, and writes the verdict
 to `/run/swiff/hardware-floor`. The EK certificate and the TPM tier are checked by attestation (stage 3).
 
+## Stage 4: the shared games library
+
+The owner's existing Steam library drive is shared with rental mode (report §8). It is usually NTFS
+and written by the owner's Windows, so rental mode trusts none of it as it stands.
+`swiff-games.service` runs `/usr/libexec/swiff/verify` (`swiff-verify`). It finds the volume labelled
+`SWIFFGAMES` and the Steam library on it.
+
+### The verified table
+
+`SwiffOS/verified-games.json` on the library volume holds, per game, the SHA-256, size and mtime of
+every file in Steam's depot manifests, its folders, the manifests' own hashes, a cleaned copy of
+Steam's app manifest, and the files present but not in the manifests ("extras"). It also records the
+TPM `resetCount` and `restartCount` of the last rental-mode boot. It is authenticated with an HMAC whose
+key is sealed to the TPM under PCR 7 (`systemd-creds`, `SwiffOS/table-key.cred`). The owner's Windows
+can delete the table, which costs a new bootstrap, but cannot forge it. A table over 256 MiB, or one
+nested to exhaust the JSON parser, is refused as tampered before its HMAC is checked. Rental mode
+never writes on the volume through a symlink: if `SwiffOS` is not a real folder, the library is used
+read-only for that boot.
+
+The key is created only when there is none. If it no longer unseals, for example after a Secure Boot
+update changed PCR 7, rental mode tries three times, then keeps the credential and blocks every game.
+The report's `table` field tells the host app that the owner must bootstrap the games again. That
+bootstrap is the only thing that seals a new key: the new table then holds just the games it validated.
+If the TPM cannot seal a key, rental mode runs as without one: every game stays unverified, any old
+credential is kept, and nothing is promoted, not even the owner's bootstrap.
+
+A table that cannot be read (an I/O error, or not a regular file) or that has a newer version than
+this OS, as after a rollback to the other slot, is kept as it is: every game shows as not
+bootstrapped, nothing is promoted, not even the owner's bootstrap, and the next boot hashes in full.
+A table that fails its integrity check, including corrupt JSON, is not kept: the next boot replaces
+it with an empty table, so every game shows as not bootstrapped until the owner bootstraps it again.
+If it turns bad while rental mode runs, a renter's update is refused, and the owner's bootstrap
+replaces it with a table of just the games it validated.
+
+### At every boot
+
+- **The check.** Every TPM power-up adds one to `resetCount`. If it is exactly one more than at the
+  last rental-mode boot and `restartCount` is 0, no other OS has run, and each file only has its size
+  and mtime compared. Any other value means the owner's Windows or a live USB may have run, and every
+  file of every game is hashed again. An OS that hibernates, as Windows does with Fast Startup, keeps
+  `resetCount` but leaves `restartCount` above 0. Games that fail are **blocked**:
+  - a verified file is missing or its content changed;
+  - a new program file appeared in the game's folder: an `.exe`, `.dll` or `.so`, or any file that
+    starts like one. It is hidden either way; blocking it marks the tampering.
+
+  A blocked game stays marked in the table and is hashed in full at every boot until it passes or the
+  owner bootstraps it again. A quick check alone would miss a same-size edit that kept the mtime.
+
+- **The games report.** `/run/swiff/games-report.json` lists each game as `verified`, `blocked` (with
+  the reason) or `not-bootstrapped`, which is a game on the library that rental mode has not
+  validated. This is the installed-games report (report §8.4).
+- **The renter's view.** `/srv/games` is an overlay. Above the library sits a layer of whiteouts that
+  hides everything not in the table:
+  - blocked and unvalidated games, and their app manifests;
+  - extras, such as a dropped DLL or the owner's mods;
+  - changed UserConfig files (the game's own settings, which Steam does not restore);
+  - depot manifests not in the table;
+  - anything that is not a game.
+
+  Verified games get their app manifest from the table. Overlay redirects, metacopy and index are
+  off, so overlay xattrs that another OS writes on the drive are never followed.
+
+- **The session layer.** The renter's writes land in a file on the library volume,
+  `SwiffOS/session.img`. It takes half of the volume's free space, and always leaves the owner 5% of
+  the volume (at most 8 GiB). ext4 keeps it sparse; `ntfs3` allocates it in full, without writing it,
+  while rental mode runs. The other half stays free, so that an update the session layer holds fits
+  onto the library when it is promoted. A drop-in for `swiff-games.service` can change the share with
+  `Environment=SWIFF_GAMES_SESSION_SHARE=<percent>`. It is deleted at shutdown. It is opened with plain dm-crypt under a random key that is never stored
+  and formatted fresh. Like the scratch partition, a reboot erases it cryptographically, and the
+  owner's Windows sees only ciphertext. Game updates, shader caches and Proton prefixes use the
+  library's space, not the small Swiff OS partition (D6).
+- **NTFS libraries.** overlayfs cannot keep its writes on NTFS, but it can on ext4 inside a file on
+  NTFS. The volume is mounted with the kernel's `ntfs3`, readable and writable by root only. Every
+  file shows as the renter's, so that Steam can update games through the view. If the volume only
+  mounts read-only, for example when Windows left it hibernated, the session layer falls back to the
+  scratch partition and nothing is promoted.
+
+### Bootstrap, sealing and promotion
+
+Steam's own UI lets whoever is at it start programs (launch options, non-Steam games), and a game can
+run code too. Both run as the renter, who can write into the view. So only what Steam writes **before**
+anything the user drives has started can be trusted:
+
+1. **Bootstrap**, once per shared game. The owner signs in to Steam inside rental mode with a QR code.
+   `swiff-verify view --bootstrap` shows the library as the owner left it, but hides Steam's cached
+   depot manifests, which the owner's Windows wrote. Steam then has to fetch them from Valve while it
+   validates the games (`steam://validate/<appid>`) and repairs them into the session layer.
+   `swiff-verify seal --bootstrap APPID...` checks every file against those manifests:
+   - SHA-1 against the manifest, recording SHA-256;
+   - encrypted file names are decrypted with Steam's depot key;
+   - extras are recorded and stay hidden.
+
+   Steam's validation alone is not enough, because it ignores extra files.
+
+2. **Updates.** The renter's Steam updates a game before the game starts. `swiff-verify seal APPID`
+   checks the result: Steam must report it fully installed, and every file must match the manifests
+   Steam fetched in this boot. A depot whose manifest is unchanged is checked against the table.
+3. **`swiff-verify close-seal`** runs before anything the user drives starts. It waits for a seal
+   that is still running, and afterwards nothing can be sealed in this boot. `swiff-session.service`
+   runs it at start, because the Stage 1 session is Steam's own UI. The session agent will call it
+   just before it launches the game.
+4. **Promotion** runs at shutdown (`ExecStop`), after the session has stopped, so it fits the reboot
+   between renters (D5). For each sealed game, the files that the session layer still holds
+   **byte-identical** to what was sealed are copied onto the library. The table and Steam's app
+   manifest are then updated, the manifest without the renter's SteamID. A sealed file the session
+   layer does not hold is re-hashed on the library first and must still match. One changed or
+   unreadable file keeps the whole update off the library. The game is marked `promoting` while its files are renamed into
+   place, and an interrupted promotion is fully re-hashed at the next boot. An update that does not
+   fit in the library's free space (plus 64 MiB) is not promoted, and the reason is logged; the game
+   stays on its verified version. Nothing half-written is left on the library.
+
+Only games the owner bootstrapped get updates: a renter cannot add games to the owner's library.
+
 ## Building and testing
 
 The test runs in a VM only. It never touches the host's disks, boot entries or UEFI variables. It
@@ -148,7 +261,7 @@ access to `/dev/kvm`, QEMU is started through `sudo` and drops back to the user 
 VM starts.
 
 ```sh
-swiff-os/vm/run-test.sh             # build the test image, boot it twice, check everything
+swiff-os/vm/run-test.sh             # build the test image, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again
 # the shipped image only, as swiffos.raw in the given output directory
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
@@ -161,12 +274,50 @@ a while; later builds reuse the caches. If `image/mkosi.key` and `image/mkosi.cr
 throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs only.
 
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
-`swiff-selftest.service` (`vm/selftest/`). The test then boots the image twice in QEMU, with 2 GiB of
-RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
+`swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
+self-test, so sealing stays open, as it would until a game is launched. The test then boots the
+image twelve times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
 
 1. **Boot 1.** The firmware starts in setup mode. systemd-boot enrols the test certificate as PK, KEK
-   and db, and resets the VM. The signed UKI then boots with Secure Boot enforcing.
-2. **Boot 2.** A cold boot of the same disk, firmware variables and TPM.
+   and db, and resets the VM. The signed UKI then boots with Secure Boot enforcing. The owner
+   bootstraps four games.
+2. **Boot 2.** A cold boot of the same disk, firmware variables and TPM. The renter's Steam updates
+   three games, and the session changes one of them after sealing.
+3. **Boot 3.** Only the update that still verified is on the library.
+4. **A firmware-only boot** stands in for the owner's Windows, after the host plants a DLL in one game
+   and changes a file of another, keeping its size and mtime.
+5. **Boot 4.** The full re-hash blocks both games.
+6. **Boot 5.** No other OS booted, so the check is quick, and both games stay blocked.
+7. **Boot 6.** The host damages the table key's credential, as if it no longer unsealed. Every game is
+   blocked, the credential is kept, and the owner bootstraps one game, which seals a new key.
+8. **Boot 7.** The self-test rewrites the table with a newer version, as the other slot's OS would,
+   and the owner bootstraps one game. Nothing is promoted at shutdown.
+9. **Boot 8.** The newer table was kept as it was. The self-test replaces it with a directory, and
+   the owner bootstraps one game. Nothing is promoted at shutdown.
+10. **Boot 9.** The unreadable table was kept. The self-test replaces it with corrupt JSON. A
+    renter's seal is refused, and the owner's bootstrap replaces the table at shutdown.
+11. **Boot 10.** The host damages the table key's credential again, and in this boot the TPM cannot
+    seal (the self-test's `systemd-creds` refuses to encrypt for the games service). The owner
+    bootstraps one game. At shutdown nothing is promoted, the old credential is kept byte for byte,
+    and no temporary credential or new table is left.
+12. **Boot 11.** The host removes the table key and the table, and the TPM still cannot seal. The
+    games service starts, every game stays unverified, and no credential is left on the library.
+13. **Boot 12.** The same disk with an ext4 library.
+
+Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff-verify`'s decisions on
+plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a
+hibernated OS, the session layer's size, an update that does not fit on the library or whose copy is
+cut short, a block that must survive the next quick check, a table key that does not unseal or a
+TPM that cannot seal one, a newer table that a bootstrap must not replace, symlinks another OS left
+on the library, a close-seal that must wait for a running seal, KeyValues nested too deeply, corrupt
+or mistyped depot manifests, and a table that is too large or nested too deeply. Run them alone with
+`python3 swiff-os/vm/test_verify.py`.
+
+The games library comes from `vm/games-fixture.py`. It writes a 1 GiB NTFS library through
+`ntfs-3g` from the build's tools tree, and the ext4 copy. Its five games carry Steam-format depot
+manifests, one with encrypted file names. A small fixture disk tells the self-test which boot it is
+in and what Steam would write; `vm/selftest/usr/libexec/swiff/selftest-games` plays Steam's part as
+the renter. The host also needs `python3-cryptography`.
 
 The self-test reports each check on the serial console, and the script adds the checks that need the
 host's view. Together they cover:
@@ -189,13 +340,35 @@ host's view. Together they cover:
   while DNS and the internet work. As a control, the same LAN service and IPv6 address answer once
   the firewall is removed.
 - The scratch is encrypted: the renter's marker never appears in the partition's raw bytes. It is
-  re-keyed and empty after the reboot, and the games overlay forgets the renter's writes.
+  re-keyed and empty after the reboot.
+- The games library, on NTFS and ext4:
+  - Nothing is offered before bootstrap.
+  - The session layer is an encrypted file on the library, and the renter's marker never appears in
+    the NTFS image's raw bytes. The renter cannot reach the volume.
+  - The bootstrap seals four games with Steam's fresh manifests, including encrypted file names. The
+    fifth is refused, because its only manifest is the one the owner's Windows left.
+  - Steam's repair reaches the library.
+  - The view hides the owner's planted DLL, mods, changed settings file, unvalidated game and old
+    manifest.
+  - A good update is sealed. An update that does not match its manifest is refused, and so is a
+    game that was never bootstrapped. Sealing is refused once closed.
+  - Only the good update is promoted, onto the NTFS library as Windows reads it. Its app manifest
+    keeps the owner's SteamID. An update the session changed after sealing is not promoted.
+  - Without a `resetCount` gap the check is quick. After the firmware-only boot it is a full
+    re-hash, and the planted DLL and the changed file each block their game and hide it. Both stay
+    blocked at the next quick boot, also after the view is mounted again.
+  - The session layer leaves at least as much of the library free as it can hold.
+  - A table key that does not unseal blocks every game and is kept, until the owner's bootstrap
+    seals a new one. If the TPM cannot seal, the old key is kept and nothing is promoted, and
+    without a key every game stays unverified while the games service still runs.
+  - A newer or unreadable table is kept through the owner's bootstrap, and a corrupt one is
+    refused for a renter's update and replaced by the owner's bootstrap.
 - The disk image fits the 24 GiB budget.
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
 checks the session's wiring, not a running game.
 
-## Follow-ups (not in stage 1)
+## Follow-ups
 
 - **Shim and MOK in the image.** Real PCs boot through a distribution's Microsoft-signed shim, with
   Swiff's key enrolled once as a MOK (the host app queues it and guides the confirmation). The image
@@ -211,6 +384,26 @@ checks the session's wiring, not a running game.
   NVIDIA modules. Redistribution terms need checking.
 - **The `-security` pocket.** mkosi 20 always uses the live `security.ubuntu.com` for it. Pinning it
   too needs a newer mkosi or a local mirror.
+- **Games: the session agent drives sealing.** The agent runs Steam without its UI, lets it update
+  the game, calls `seal`, then `close-seal`, then launches the game. For bootstrap it drives Steam's
+  validation instead. Until then, the shipped image closes sealing when the session starts, so it
+  never promotes.
+- **Games: the table's home.** The table moves into the sealed state partition, under a signed PCR 11
+  policy, with attestation (stage 3). The PCR 7 policy survives OS updates but does not tell two
+  boot chains signed by the same key apart.
+- **Games: offering games one by one.** The view is mounted once every game is checked. Until then
+  the PC is not offered, so no renter waits. Offering each game as it passes a long re-hash needs the
+  rental agent to remount the view between sessions.
+- **Games: a drive changed while the PC is off.** A drive taken out and edited in another PC leaves
+  no `resetCount` gap. Size, mtime and new program files are still checked, but a same-size edit
+  that keeps the mtime is caught only by the next full re-hash.
+- **Games: shader caches.** Shader caches and Proton prefixes live in the session layer, on the
+  library's space, but are not kept across renters. No manifest can verify them.
+- **Games: Stage 0 checks with real Steam.** Still to confirm with a real Steam client:
+  - Steam fetches manifests again when depotcache is empty;
+  - its depotcache format;
+  - where its depot keys live;
+  - which files it marks UserConfig.
 
 ## swiff-streamer
 

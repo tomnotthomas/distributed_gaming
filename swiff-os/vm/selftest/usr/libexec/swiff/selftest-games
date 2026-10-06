@@ -1,0 +1,368 @@
+#!/usr/bin/python3
+"""Swiff OS Stage 4 self-test: the shared games library (report §8).
+
+Run by /usr/libexec/swiff/selftest with the boot's phase, as root. It plays
+Steam's part: what Steam would write as the renter it copies from the fixture
+disk (vm/games-fixture.py) into /srv/games, as the renter. Results are
+SWIFF-SELFTEST lines, as in the Stage 1 self-test.
+
+  bootstrap     first boot: nothing is verified; the owner's validation of
+                1001-1004 is sealed, and promoted at shutdown
+  update        the verified view; renter updates of 1001-1003 are sealed
+                or refused, then sealing is closed and the session changes 1003
+  after-update  only the good update (1001) was promoted
+  tampered      another OS booted and changed the library: full re-hash
+  still-blocked no other OS booted since: both games stay blocked
+  key-locked    the table key no longer unseals: every game is blocked, the
+                key is kept, and the owner bootstraps 1002 again
+  table-newer   the table is rewritten with a newer version, as by the other
+                slot's OS; the owner bootstraps 1002, and nothing is promoted
+  table-unreadable  the newer table was kept; it is replaced with a directory,
+                the owner bootstraps 1002, and nothing is promoted
+  table-corrupt the unreadable table was kept; it is replaced with corrupt
+                JSON, a renter's seal is refused, and the owner's bootstrap of
+                1002 replaces the table
+  seal-fails-rebootstrap  the table key no longer unseals and the TPM cannot
+                seal: the owner bootstraps 1002, and nothing is promoted
+  seal-fails-first  no table key, and the TPM cannot seal one: the service
+                runs and every game stays unverified
+  ext4          the same with an ext4 library
+"""
+
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+
+FIX = "/run/swiff-fixtures"
+VERIFY = "/usr/libexec/swiff/verify"
+GAMES = "/srv/games/steamapps"
+VOLUME = "/run/swiff/games/volume"
+STEAM_HOME = "/home/renter/.local/share/Steam"
+# The systemd-creds that cannot seal, on the games service's PATH (selftest-seal-fails).
+CREDS_STAND_IN = "/run/swiff-selftest/bin/systemd-creds"
+EXPECT = json.load(open(f"{FIX}/expect.json"))
+
+
+def say(status, name, detail=""):
+    """Prints one SWIFF-SELFTEST line."""
+    print(f"SWIFF-SELFTEST {status} games-{name} {detail}".rstrip(), flush=True)
+
+
+def check(name, ok, detail=""):
+    """Prints PASS or FAIL for a named check."""
+    say("PASS" if ok else "FAIL", name, detail)
+
+
+def run(*cmd):
+    """Runs a command and captures its output."""
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def as_renter(*cmd):
+    """Runs a command as the renter, without privileges."""
+    return run("setpriv", "--reuid=renter", "--regid=renter", "--init-groups", "--no-new-privs", "--", *cmd)
+
+
+def verify(*args):
+    """Runs swiff-verify; returns its exit code and its log lines."""
+    r = run(VERIFY, *args)
+    detail = " | ".join(line.removeprefix("swiff-verify: ") for line in r.stderr.splitlines())
+    return r.returncode, detail
+
+
+def report():
+    """The games report swiff-verify wrote at boot."""
+    with open("/run/swiff/games-report.json") as f:
+        return json.load(f)
+
+
+def states(rep):
+    """Each game's state in a report."""
+    return {appid: g["state"] for appid, g in sorted(rep["games"].items())}
+
+
+def sha(path):
+    """A file's SHA-256, or None if it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def visible(rel):
+    """True when the renter's view shows the path under steamapps."""
+    return os.path.lexists(f"{GAMES}/{rel}")
+
+
+def steam(stage):
+    """Steam, as the renter, writing what it downloaded into the library view.
+    Its config, with the depot keys, is in the renter's home, new every boot."""
+    os.makedirs(f"{STEAM_HOME}/config", exist_ok=True)
+    run("cp", f"{FIX}/steam/config/config.vdf", f"{STEAM_HOME}/config/")
+    r = as_renter("cp", "-r", "--no-preserve=ownership", f"{FIX}/{stage}/steamapps/.", f"{GAMES}/")
+    check(f"{stage}-steam-writes", r.returncode == 0, r.stderr.strip())
+
+
+def report_checks(rep, rehash, expected):
+    """Checks the report's re-hash kind and game states."""
+    got = states(rep)
+    check("rehash", rep["rehash"] == rehash, f"{rep['rehash']} (resetCount {rep['previous_reset_count']} -> {rep['reset_count']}, {rep['hashed_files']} files hashed)")
+    check("states", got == expected, " ".join(f"{a}={s}" for a, s in got.items()))
+
+
+def session_layer_checks(fs):
+    """Checks the library mount, the encrypted session layer and the renter's view."""
+    rep = report()
+    check("library-mounted", rep["library"] == {"fs": fs, "writable": True}, json.dumps(rep["library"]))
+    source = run("findmnt", "-no", "SOURCE", "/run/swiff/games/session").stdout.strip()
+    backing = run("losetup", "--noheadings", "--output", "BACK-FILE").stdout.split()
+    check("session-layer-on-library", source == "/dev/mapper/swiff-games-session" and f"{VOLUME}/SwiffOS/session.img" in backing,
+          f"{source} on {' '.join(backing)}")
+    table = run("dmsetup", "table", "swiff-games-session").stdout
+    check("session-layer-encrypted", " crypt aes-xts-plain64 " in table, " ".join(table.split()[2:4]))
+    img = f"{VOLUME}/SwiffOS/session.img"
+    st = os.stat(img)
+    vfs = os.statvfs(VOLUME)
+    free = vfs.f_bavail * vfs.f_frsize
+    # What the session layer holds must fit onto the library at promotion.
+    check("session-layer-leaves-room", st.st_size <= free + (16 << 20),
+          f"apparent {st.st_size >> 20} MiB, allocated {st.st_blocks * 512 >> 20} MiB, {free >> 20} MiB free on the library")
+    r = as_renter("ls", "/run/swiff/games")
+    check("volume-not-reachable", r.returncode != 0, r.stderr.strip())
+    overlay = run("findmnt", "-no", "FSTYPE,OPTIONS", "/srv/games").stdout.strip()
+    check("view-is-overlay", overlay.startswith("overlay") and "nosuid" in overlay, overlay)
+    check("swiffos-folder-hidden", not os.path.lexists("/srv/games/SwiffOS"))
+
+
+def phase_bootstrap():
+    """First boot: nothing offered; the owner's bootstrap of four games is sealed."""
+    session_layer_checks("ntfs3")
+    report_checks(report(), "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
+    # A renter's write lands in the session layer, never on the library.
+    token = "swiff-games-marker-" + os.urandom(8).hex()
+    as_renter("sh", "-c", f"echo {token} > {GAMES}/swiff-selftest-marker")
+    say("INFO", "marker", token)
+    check("write-in-session-layer", sha(f"{GAMES}/swiff-selftest-marker") is not None
+          and os.path.exists(f"/run/swiff/games/session/upper/steamapps/swiff-selftest-marker")
+          and not os.path.lexists(f"{VOLUME}/steamapps/swiff-selftest-marker"))
+
+    rc, detail = verify("view", "--bootstrap")
+    check("bootstrap-view", rc == 0, detail)
+    games = sorted(os.listdir(f"{GAMES}/common"))
+    check("bootstrap-shows-library", games == ["Alpha", "Bravo", "Charlie", "Delta", "Echo"], " ".join(games))
+    check("bootstrap-hides-owner-manifests", os.listdir(f"{GAMES}/depotcache") == [], " ".join(os.listdir(f"{GAMES}/depotcache")))
+    # Steam, signed in as the owner, validates four games.
+    steam("bootstrap")
+    rc, detail = verify("seal", "--bootstrap", "1001", "1002", "1003", "1004")
+    check("bootstrap-sealed", rc == 0, detail)
+    rc, detail = verify("seal", "--bootstrap", "1005")
+    check("owner-manifest-not-trusted", rc != 0 and "did not fetch the manifest" in detail, detail)
+    # Promotion runs at shutdown, after this test.
+
+
+def phase_update():
+    """The verified view; renter updates sealed or refused, then sealing closed."""
+    session_layer_checks("ntfs3")
+    rep = report()
+    report_checks(rep, "quick", {"1001": "verified", "1002": "verified", "1003": "verified", "1004": "verified", "1005": "not-bootstrapped"})
+    check("previous-marker-gone", not os.path.lexists(f"{GAMES}/swiff-selftest-marker"))
+    v1 = EXPECT["v1"]
+    check("charlie-repaired", sha(f"{GAMES}/common/Charlie/data/c.pak") == v1["1003"]["data/c.pak"]
+          and sha(f"{VOLUME}/steamapps/common/Charlie/data/c.pak") == v1["1003"]["data/c.pak"],
+          "Steam's repair was promoted onto the library")
+    readable = as_renter("sha256sum", f"{GAMES}/common/Alpha/Alpha.exe").stdout.split()[:1]
+    check("verified-files-shown", readable == [v1["1001"]["Alpha.exe"]], "Alpha.exe (encrypted manifest names) as the renter")
+    for rel, why in (("common/Bravo/evil.dll", "planted before bootstrap"), ("common/Charlie/mods", "owner's mod"),
+                     ("common/Charlie/readme-mod.txt", "owner's file"), ("common/Alpha/data/settings.ini", "changed UserConfig file"),
+                     ("common/Echo", "never validated"), ("appmanifest_1005.acf", "never validated"),
+                     ("depotcache/10051_1005001.manifest", "owner's manifest"), ("libraryfolder.vdf", "owner's file")):
+        check(f"hidden:{rel}", not visible(rel), why)
+    check("acf-shown", visible("appmanifest_1001.acf") and visible("depotcache/10011_1001001.manifest"))
+
+    # The renter's Steam updates three games.
+    steam("update")
+    for rel in open(f"{FIX}/update-remove").read().split():
+        as_renter("rm", "-f", f"/srv/games/{rel}")
+    rc, detail = verify("seal", "1001")
+    check("good-update-sealed", rc == 0, detail)
+    rc, detail = verify("seal", "1002")
+    check("bad-update-refused", rc != 0 and "does not match its manifest" in detail, detail)
+    rc, detail = verify("seal", "1003")
+    check("update-sealed", rc == 0, detail)
+    rc, detail = verify("seal", "1005")
+    check("unbootstrapped-refused", rc != 0 and "not a verified game" in detail, detail)
+    # A game starts: sealing closes, then the session changes Charlie's update.
+    rc, detail = verify("close-seal")
+    as_renter("sh", "-c", f"echo changed >> {GAMES}/common/Charlie/data/c.pak")
+    rc, detail = verify("seal", "1001")
+    check("seal-closed", rc != 0 and "closed" in detail, detail)
+    pre = run("systemctl", "show", "-P", "ExecStartPre", "swiff-session.service").stdout
+    check("session-closes-seal", "verify close-seal" in pre or "close-seal" in pre, pre.strip()[:120])
+    # Promotion runs at shutdown.
+
+
+def phase_after_update():
+    """Only the good update was promoted."""
+    rep = report()
+    report_checks(rep, "quick", {"1001": "verified", "1002": "verified", "1003": "verified", "1004": "verified", "1005": "not-bootstrapped"})
+    builds = {a: rep["games"][a].get("buildid") for a in ("1001", "1002", "1003")}
+    check("buildids", builds == {"1001": "2", "1002": "1", "1003": "1"}, json.dumps(builds))
+    v1, v2 = EXPECT["v1"], EXPECT["v2"]
+    check("good-update-promoted", all(sha(f"{GAMES}/common/Alpha/{r}") == d for r, d in v2["1001"].items() if r != "data/settings.ini")
+          and all(sha(f"{VOLUME}/steamapps/common/Alpha/{r}") == d for r, d in v2["1001"].items() if r != "data/settings.ini"),
+          "Alpha 2 on the library and in the view")
+    check("removed-file-hidden", not visible("common/Alpha/bin/old.dll") and os.path.exists(f"{VOLUME}/steamapps/common/Alpha/bin/old.dll"),
+          "old.dll stays on the library, hidden")
+    check("bad-update-not-promoted", all(sha(f"{GAMES}/common/Bravo/{r}") == d for r, d in v1["1002"].items()), "Bravo 1")
+    check("changed-update-not-promoted", all(sha(f"{GAMES}/common/Charlie/{r}") == d for r, d in v1["1003"].items()), "Charlie 1")
+    leftovers = [n for n in os.listdir(f"{VOLUME}/steamapps/common/Alpha") + os.listdir(f"{VOLUME}/steamapps/common/Charlie") if n.endswith(".swiff-new")]
+    check("no-leftovers", not leftovers, " ".join(leftovers))
+    acf = open(f"{VOLUME}/steamapps/appmanifest_1001.acf").read()
+    check("library-acf-owner", EXPECT["owner"] in acf and '"buildid"\t\t"2"' in acf, "the renter's SteamID is not written to the library")
+
+
+def phase_tampered():
+    """After another OS changed the library, a full re-hash blocks both games."""
+    rep = report()
+    report_checks(rep, "full", {"1001": "blocked", "1002": "verified", "1003": "verified", "1004": "blocked", "1005": "not-bootstrapped"})
+    reasons = {a: rep["games"][a].get("reason", "") for a in ("1001", "1004")}
+    check("planted-dll-blocks", "unknown program file appeared: bin/version.dll" in reasons["1001"], reasons["1001"])
+    check("modified-file-blocks", "verified file changed: data/d.pak" in reasons["1004"], reasons["1004"])
+    shown = sorted(os.listdir(f"{GAMES}/common"))
+    check("blocked-games-hidden", shown == ["Bravo", "Charlie"] and not visible("appmanifest_1001.acf") and not visible("appmanifest_1004.acf"),
+          " ".join(shown))
+
+
+def phase_still_blocked():
+    """No other OS since: both games stay blocked."""
+    rep = report()
+    report_checks(rep, "quick", {"1001": "blocked", "1002": "verified", "1003": "verified", "1004": "blocked", "1005": "not-bootstrapped"})
+    reason = rep["games"]["1004"].get("reason", "")
+    check("same-size-edit-stays-blocked", "verified file changed: data/d.pak" in reason, reason)
+    rc, detail = verify("view")
+    shown = sorted(os.listdir(f"{GAMES}/common"))
+    check("view-keeps-blocked-hidden", rc == 0 and shown == ["Bravo", "Charlie"], f"{' '.join(shown)} {detail}".strip())
+
+
+def phase_key_locked():
+    """The table key no longer unseals: every game blocked, key kept, owner bootstraps again."""
+    rep = report()
+    report_checks(rep, "full", {a: "blocked" for a in ("1001", "1002", "1003", "1004", "1005")})
+    check("key-locked-reported", "does not unseal" in rep["table"], rep["table"])
+    check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
+    kept = open(f"{FIX}/key-sha256").read().split()[0]
+    check("key-kept", sha(f"{VOLUME}/SwiffOS/table-key.cred") == kept, "the credential that does not unseal is not replaced")
+    # The owner bootstraps Bravo again; promotion at shutdown seals a new key.
+    bootstrap_bravo()
+
+
+def bootstrap_bravo():
+    """The owner bootstraps Bravo again."""
+    rc, detail = verify("view", "--bootstrap")
+    check("rebootstrap-view", rc == 0, detail)
+    steam("bootstrap")
+    rc, detail = verify("seal", "--bootstrap", "1002")
+    check("rebootstrap-sealed", rc == 0, detail)
+
+
+def phase_table_newer():
+    """A newer table version is written; the bootstrap's promotion must leave it alone."""
+    rep = report()
+    check("table-ok", rep["table"] == "ok", rep["table"])
+    check("bravo-verified", rep["games"]["1002"]["state"] == "verified", rep["games"]["1002"]["state"])
+    # The other slot's newer OS rewrites the table, authenticated, with version 2.
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("swiff_verify", VERIFY)
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    key = mod.table_key(create=False)
+    table, problem = mod.load_table(key)
+    check("table-loads", key is not None and problem is None, str(problem))
+    table["version"] = 2
+    mod.save_table(key, table)
+    say("INFO", "table-sha256", sha(f"{VOLUME}/{mod.TABLE}"))
+    # The owner bootstraps Bravo; promotion at shutdown must keep the newer table.
+    bootstrap_bravo()
+
+
+def phase_table_unreadable():
+    """The newer table was kept; the table becomes unreadable, which the bootstrap's promotion must leave alone."""
+    rep = report()
+    check("table-unknown-kept", rep["table"] == "the verified table has an unknown version", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    kept = open(f"{FIX}/table-sha256").read().split()[0]
+    path = f"{VOLUME}/SwiffOS/verified-games.json"
+    check("newer-table-unchanged", sha(path) == kept, "neither the boot nor the bootstrap's promotion replaced it")
+    os.unlink(path)
+    os.mkdir(path)
+    bootstrap_bravo()
+
+
+def phase_table_corrupt():
+    """The unreadable table was kept; a corrupt table is replaced by the owner's bootstrap."""
+    rep = report()
+    check("table-unreadable-kept", rep["table"] == "the verified table is unreadable", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    path = f"{VOLUME}/SwiffOS/verified-games.json"
+    check("unreadable-table-kept", os.path.isdir(path) and not os.path.islink(path), "the directory was not replaced")
+    os.rmdir(path)
+    with open(path, "w") as f:
+        f.write("{")
+    rc, detail = verify("seal", "1002")
+    check("renter-seal-refused", rc != 0, detail)
+    # The owner's bootstrap replaces the corrupt table at shutdown.
+    bootstrap_bravo()
+
+
+def seal_fails_check():
+    """Checks that sealing to the TPM fails for the games service this boot."""
+    check("seal-fails", os.path.islink(CREDS_STAND_IN), "the games service's systemd-creds cannot encrypt")
+
+
+def phase_seal_fails_rebootstrap():
+    """The table key is locked again and the TPM cannot seal: the owner's bootstrap promotes nothing at shutdown."""
+    seal_fails_check()
+    phase_key_locked()
+
+
+def phase_seal_fails_first():
+    """No table key and the TPM cannot seal one: the service runs, and every game stays unverified."""
+    seal_fails_check()
+    rep = report()
+    check("no-key-reported", rep["table"] == "no table key", rep["table"])
+    report_checks(rep, "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    check("nothing-offered", os.listdir(f"{GAMES}/common") == [], " ".join(os.listdir(f"{GAMES}/common")))
+    left = sorted(n for n in os.listdir(f"{VOLUME}/SwiffOS") if n.startswith("table-key"))
+    check("no-key-left", not left, " ".join(left))
+
+
+def phase_ext4():
+    """The same bootstrap on an ext4 library."""
+    session_layer_checks("ext4")
+    report_checks(report(), "full", {a: "not-bootstrapped" for a in ("1001", "1002", "1003", "1004", "1005")})
+    rc, detail = verify("view", "--bootstrap")
+    check("ext4-bootstrap-view", rc == 0, detail)
+    steam("bootstrap")
+    rc, detail = verify("seal", "--bootstrap", "1001", "1003")
+    check("ext4-bootstrap-sealed", rc == 0, detail)
+
+
+PHASES = {"bootstrap": phase_bootstrap, "update": phase_update, "after-update": phase_after_update,
+          "tampered": phase_tampered, "still-blocked": phase_still_blocked, "key-locked": phase_key_locked,
+          "table-newer": phase_table_newer, "table-unreadable": phase_table_unreadable,
+          "table-corrupt": phase_table_corrupt, "seal-fails-rebootstrap": phase_seal_fails_rebootstrap,
+          "seal-fails-first": phase_seal_fails_first, "ext4": phase_ext4}
+
+if __name__ == "__main__":
+    active = run("systemctl", "is-active", "swiff-games.service").stdout.strip()
+    check("service", active == "active", active)
+    try:
+        PHASES[sys.argv[1]]()
+    except Exception as e:  # report, never hang the boot
+        say("FAIL", "selftest-crashed", f"{type(e).__name__}: {e}")
