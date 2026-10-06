@@ -75,7 +75,7 @@
 // to leave, and the crew's owner to remove them.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Control, PicturePref } from "@swiff/rank";
+import { sessionSpanMs, type Control, type PicturePref } from "@swiff/rank";
 import {
   inviteToken,
   mintTicket,
@@ -298,9 +298,10 @@ function ticketOf(req: IncomingMessage, access: Access) {
 }
 
 /** The HTTP answer for a renter call the platform refused. */
-function renterRefusal(result: "not-found" | "wrong-ticket" | "over"): HttpError {
+function renterRefusal(result: "not-found" | "wrong-ticket" | "over" | "signing-in"): HttpError {
   if (result === "not-found") return new HttpError(404, "no such session");
   if (result === "wrong-ticket") return new HttpError(403, "the ticket is not for this session");
+  if (result === "signing-in") return new HttpError(409, "the Steam sign-in is not approved yet");
   return new HttpError(409, "the session is over");
 }
 
@@ -748,7 +749,12 @@ export function createApi({
         reply(res, 409, { error: "the booking cannot be claimed", status: claim.status });
         return true;
       }
-      const ticket = mintTicket(access.secret, claim.roomId, claim.minutes * 60);
+      // On a rental-mode PC the booked minutes run from the start, which may come as late as its sign-in and launch allow.
+      const ticket = mintTicket(
+        access.secret,
+        claim.roomId,
+        sessionSpanMs({ rentalMode: claim.rentalMode }, claim.minutes) / 1000,
+      );
       await platform.recordTicket(claim.sessionId, verifyTicket(access.secret, ticket)!.id);
       const origin = originFrom(req.headers, fallbackOrigin);
       reply(res, 200, {
@@ -756,6 +762,7 @@ export function createApi({
         roomId: claim.roomId,
         signalingUrl: origin.replace(/^http/, "ws"),
         ticket,
+        rentalMode: claim.rentalMode,
       });
       return true;
     }
@@ -777,6 +784,8 @@ export function createApi({
         roomId: session.roomId,
         signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
         ticket: mintTicket(access.secret, session.roomId, ttl, Date.now(), session.ticketId),
+        rentalMode: session.rentalMode,
+        ...(session.signInMs === undefined ? {} : { signInMs: session.signInMs }),
       });
       return true;
     }
@@ -980,6 +989,7 @@ export function createApi({
         action === "start"
           ? await platform.startSession(machineId, id)
           : await platform.endSession(machineId, id, optionalTime(body.endedAt, "endedAt"));
+      if (ok === "signing-in") throw new HttpError(409, "the Steam sign-in is not approved yet");
       if (!ok) throw new HttpError(409, "the session is already over");
       reply(res, 200, { sessionId: id, roomId: machineId });
       return true;

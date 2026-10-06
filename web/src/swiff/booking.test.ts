@@ -1,3 +1,4 @@
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   book,
@@ -299,7 +300,13 @@ describe("watching a booking over the event stream", () => {
   });
 });
 
-const TICKET: Claim = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+const TICKET: Claim = {
+  sessionId: "s-1",
+  roomId: "pc-1",
+  signalingUrl: "ws://localhost",
+  ticket: "t",
+  rentalMode: false,
+};
 
 /** A server for the booking calls: each answers what `routes` says for "METHOD path", 404 otherwise. */
 function routes(answers: Record<string, () => Response>) {
@@ -393,6 +400,20 @@ describe("claiming and ending", () => {
     expect(await claim("b-1", { fetch: ok.fetch })).toEqual(TICKET);
     const lapsed = routes({ "POST /api/bookings/b-1/claim": json(409, { status: "queued" }) });
     expect(await claim("b-1", { fetch: lapsed.fetch })).toBeNull();
+  });
+
+  it("gives a rental-mode claim its Steam sign-in deadline, counted from when it was asked", async () => {
+    vi.useFakeTimers({ now: 50_000 });
+    try {
+      const rental = routes({ "POST /api/bookings/b-1/claim": json(200, { ...TICKET, rentalMode: true }) });
+      expect(await claim("b-1", { fetch: rental.fetch })).toEqual({
+        ...TICKET,
+        rentalMode: true,
+        signInBy: 50_000 + STEAM_SIGN_IN_MS,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ends the booking and forgets it, over already or not", async () => {
@@ -816,6 +837,22 @@ describe("the ticket, never stored", () => {
     const server = routes({ "POST /api/bookings/b-1/rejoin": json(200, TICKET) });
     expect(await resumeTicket("b-1", { fetch: server.fetch })).toEqual(TICKET);
     expect(server.made()).toEqual(["POST /api/bookings/b-1/rejoin"]);
+  });
+
+  it("keeps the Steam sign-in deadline of a rental-mode claim not yet started, counted from when it was asked", async () => {
+    vi.useFakeTimers({ now: 50_000 });
+    try {
+      const server = routes({
+        "POST /api/bookings/b-1/rejoin": json(200, { ...TICKET, rentalMode: true, signInMs: 4 * 60_000 }),
+      });
+      expect(await resumeTicket("b-1", { fetch: server.fetch })).toEqual({
+        ...TICKET,
+        rentalMode: true,
+        signInBy: 50_000 + 4 * 60_000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("gets none for a booking with no session running, and fails on a server error", async () => {

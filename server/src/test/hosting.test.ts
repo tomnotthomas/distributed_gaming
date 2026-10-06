@@ -26,7 +26,7 @@ const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
-const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4", "pc-5", "pc-6"];
+const ROOMS = ["pc-1", "pc-2", "pc-3", "pc-4", "pc-5", "pc-6", "pc-7"];
 const TURN = "turn:turn.example.test:3478";
 /** What the dev verifier is told about a machine that meets the hardware floor. */
 const FACTS: PlatformFacts = {
@@ -184,6 +184,8 @@ describe("hosting requires attestation", () => {
     assert.equal(service.received.at(-1)?.type, "denied", "the service's socket is put out for the session");
     const streamer = await host(room, { sessionKey });
     assert.equal(streamer.received[0]?.type, "registered");
+    // An attested PC runs Swiff OS: its renter's Steam sign-in comes first (signaling.test relays it).
+    await database.exec(`UPDATE sessions SET signed_in_at = 0 WHERE id = '${sessionId}'`);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, {}, grant.hostCert)).status, 200);
 
     // Control stays with the machine key: heartbeat, and the owner's end-early.
@@ -297,6 +299,57 @@ describe("hosting requires attestation", () => {
     assert.equal(matched.body.status, "matched");
     assert.equal(matched.body.machine?.id, room);
     assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+    service.ws.close();
+  });
+
+  it("says rentalMode on the claim once Swiff OS registers with its host certificate, after the owner shared with the machine key", async () => {
+    const room = "pc-7";
+    // The owner shares from Windows with the machine key.
+    const shared = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(shared.status, 200);
+    // The PC reboots into Swiff OS: swiff-hostd attests and registers its hosting socket.
+    const grant = await attest(room);
+    const service = await host(room, { hostCert: grant.hostCert });
+    assert.equal(service.received[0]?.type, "registered");
+    // The host certificate has no owner control rights.
+    assert.equal(
+      (
+        await call(
+          "PUT",
+          `/api/machines/${room}/availability`,
+          { available: true, ...REPORT },
+          grant.hostCert,
+        )
+      ).status,
+      401,
+    );
+
+    const claimed = async () => {
+      const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+      assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+      assert.equal(claim.body.roomId, room);
+      const rejoin = await call("POST", `/api/bookings/${booking.body.bookingId}/rejoin`);
+      assert.equal(rejoin.status, 200, `rejoin answered ${rejoin.status}`);
+      assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+      return [claim.body.rentalMode, rejoin.body.rentalMode];
+    };
+    assert.deepEqual(await claimed(), [true, true]);
+
+    // The owner's machine-key availability calls never clear it.
+    const repriced = await call(
+      "PUT",
+      `/api/machines/${room}/availability`,
+      { available: true, price: 150, ...REPORT },
+      MACHINE_KEY,
+    );
+    assert.equal(repriced.status, 200);
+    assert.deepEqual(await claimed(), [true, true]);
     service.ws.close();
   });
 

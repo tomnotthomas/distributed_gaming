@@ -42,7 +42,7 @@
 // for the time left, matched to the best other machine there and then, or
 // queued for one, which the page claims as it claims any booking.
 
-import type { Control, PicturePref } from "@swiff/rank";
+import { STEAM_SIGN_IN_MS, type Control, type PicturePref } from "@swiff/rank";
 import { chime as defaultChime } from "./chime";
 
 export type BookingStatus = "queued" | "matched" | "claimed" | "playing" | "ended" | "expired";
@@ -129,8 +129,23 @@ async function bookingFailed(response: Response): Promise<never> {
 export type BookMachineResult =
   { kind: "booked"; booking: Booking } | { kind: "taken"; nextBest: NextBest | null };
 
-/** What a claim hands back: the room to join, where, and the ticket that opens it. */
-export type Claim = { sessionId: string; roomId: string; signalingUrl: string; ticket: string };
+/**
+ * What a claim hands back: the room to join, where, and the ticket that opens
+ * it; `rentalMode` for a rental-mode PC, whose renter signs in to Steam first.
+ */
+export type Claim = {
+  sessionId: string;
+  roomId: string;
+  signalingUrl: string;
+  ticket: string;
+  rentalMode: boolean;
+  /**
+   * On a rental-mode claim, Unix ms by which the renter must have signed in to
+   * Steam: the server ends the claim STEAM_SIGN_IN_MS after it, however often
+   * they try again. Counted from when the page asked, so never after the server's.
+   */
+  signInBy?: number;
+};
 
 const KEY = "swiff.booking";
 /** The claimed booking being played, with its session and room (never its ticket), kept to come back to. */
@@ -250,13 +265,15 @@ export async function claim(bookingId: string, options: BookingOptions = {}): Pr
  */
 export async function resumeTicket(bookingId: string, options: BookingOptions = {}): Promise<Claim | null> {
   const { storage = localStorage, fetch: get = fetch } = options;
+  const asked = Date.now();
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/rejoin`);
   if (response.status >= 400 && response.status < 500) {
     forgetPlay(bookingId, storage);
     return null;
   }
   if (!response.ok) throw new Error(`rejoining failed: ${response.status}`);
-  return (await response.json()) as Claim;
+  const { signInMs, ...rejoined } = (await response.json()) as Claim & { signInMs?: number };
+  return signInMs === undefined ? rejoined : { ...rejoined, signInBy: asked + signInMs };
 }
 
 /**
@@ -280,6 +297,7 @@ type ClaimAnswer = { claim: Claim } | { refused: BookingStatus | undefined; refu
 
 async function askToClaim(bookingId: string, options: BookingOptions): Promise<ClaimAnswer> {
   const { fetch: get = fetch } = options;
+  const asked = Date.now();
   const response = await post(get, `/api/bookings/${encodeURIComponent(bookingId)}/claim`);
   if (response.status >= 400 && response.status < 500) {
     const refusal = await refusalOf(response);
@@ -288,7 +306,8 @@ async function askToClaim(bookingId: string, options: BookingOptions): Promise<C
     return { refused: status };
   }
   if (!response.ok) throw new Error(`claim failed: ${response.status}`);
-  return { claim: (await response.json()) as Claim };
+  const claimed = (await response.json()) as Claim;
+  return { claim: claimed.rentalMode ? { ...claimed, signInBy: asked + STEAM_SIGN_IN_MS } : claimed };
 }
 
 /**

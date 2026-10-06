@@ -23,6 +23,8 @@ const playing = (more: Partial<PlayState> = {}): PlayState => ({
   lostAt: null,
   droppedAt: null,
   gaveUp: false,
+  steamLogin: null,
+  signInFailed: null,
   ...more,
 });
 

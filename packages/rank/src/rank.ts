@@ -25,6 +25,25 @@ import type {
   StabilityStats,
 } from "./types.ts";
 
+/**
+ * The most a rental-mode claim waits for its renter's Steam sign-in, counted
+ * from the claim across every retry; the booked minutes start after it.
+ */
+export const STEAM_SIGN_IN_MS = 10 * 60_000;
+
+/**
+ * How long a rental-mode claim waits for the game's first frame once the
+ * renter approved the Steam sign-in: the Play-to-first-frame budget plus
+ * margin. It replaces what is left of STEAM_SIGN_IN_MS, so an approval just in
+ * time still gets its game.
+ */
+export const STEAM_LAUNCH_GRACE_MS = 3 * 60_000;
+
+/** How long a session of `minutes` may hold `host` from its claim: the sign-in and launch first on a rental-mode PC. */
+export function sessionSpanMs(host: Pick<HostProfile, "rentalMode">, minutes: number): number {
+  return minutes * 60_000 + (host.rentalMode ? STEAM_SIGN_IN_MS + STEAM_LAUNCH_GRACE_MS : 0);
+}
+
 /** E6 default: past this round trip a game stops feeling local. */
 export const DEFAULT_MAX_RTT_MS = 80;
 
@@ -133,7 +152,7 @@ function score(
     stability: stabilityOf(candidate.history),
     headroom,
     minutesLeft,
-    coversSession: minutesLeft >= renter.sessionMinutes,
+    coversSession: minutesLeft * 60_000 >= sessionSpanMs(candidate.host, renter.sessionMinutes),
   } satisfies RankedHost;
 }
 

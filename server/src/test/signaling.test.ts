@@ -150,13 +150,19 @@ describe("signaling", () => {
     assert.ok(types(host).includes("peer-joined"), "host was told a renter arrived");
     assert.equal(joinedMessage(client).hostOnline, true);
 
+    // Polls rather than waiting a fixed time, which a loaded machine outruns.
+    const arrived = async (ws: RecordingSocket, type: SignalMessage["type"]) => {
+      for (let waited = 0; waited < 5_000 && !types(ws).includes(type); waited += 10) await wait(10);
+    };
+
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
-    await wait(100);
+    await arrived(client, "offer");
     assert.ok(types(client).includes("offer"), "offer reached the client");
 
     send(client, { type: "answer", sdp: { type: "answer", sdp: "x" } });
     send(client, { type: "ice", candidate: { candidate: "x" } });
-    await wait(100);
+    await arrived(host, "answer");
+    await arrived(host, "ice");
     assert.ok(types(host).includes("answer"), "answer reached the host");
     assert.ok(types(host).includes("ice"), "ice reached the host");
 
@@ -287,6 +293,59 @@ describe("signaling", () => {
     await wait(150);
     assert.ok(types(host).includes("peer-left"));
     host.close();
+  });
+
+  it("relays Steam's sign-in code from the PC to its renter, and never the other way", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+
+    const qr: SignalMessage = {
+      type: "steam-login",
+      state: "qr",
+      url: "https://s.team/q/1/1234567890123456789",
+    };
+    send(host, qr);
+    send(host, { type: "steam-login", state: "signed-in" });
+    send(client, { type: "steam-login", state: "qr", url: "https://s.team/q/1/9" });
+    send(client, { type: "steam-login", state: "failed" });
+    send(host, { type: "steam-login", state: "retry" });
+    await handled(host);
+    await handled(client);
+
+    assert.deepEqual(
+      client.received.filter((m) => m.type === "steam-login"),
+      [qr, { type: "steam-login", state: "signed-in" }],
+    );
+    assert.ok(!types(host).includes("steam-login"), `host saw [${types(host)}]`);
+    host.close();
+    client.close();
+  });
+
+  it("relays the renter's Steam sign-in retry to the PC, and only to the PC", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    const client = await open();
+    send(client, join(room));
+    await handled(client);
+
+    send(client, { type: "steam-login", state: "retry" });
+    await handled(client);
+    await handled(host);
+
+    assert.deepEqual(
+      host.received.filter((m) => m.type === "steam-login"),
+      [{ type: "steam-login", state: "retry" }],
+    );
+    assert.ok(!types(client).includes("steam-login"), `client saw [${types(client)}]`);
+    host.close();
+    client.close();
   });
 
   // Register and join wait on the database; a socket's frames, and its close,
@@ -855,6 +914,98 @@ describe("host sessions", () => {
     await api(room, "DELETE");
   });
 
+  it("says rentalMode on the claim and rejoin for a PC that registers as rental mode with the machine key", async () => {
+    /** What a claim of `room` and its rejoin say of rental mode, with `room`'s service registered by `msg` first. */
+    const rentalMode = async (room: string, msg: SignalMessage) => {
+      const host = await open();
+      send(host, msg);
+      await handled(host);
+      assert.deepEqual(types(host), ["registered"]);
+      // The owner shares with the machine key, after the register.
+      const offered = await call(
+        "PUT",
+        `/api/machines/${room}/availability`,
+        { available: true, ...REPORT },
+        MACHINE_KEY,
+      );
+      assert.equal(offered.status, 200);
+      const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`);
+      assert.equal(claim.status, 200, `claim answered ${claim.status}`);
+      assert.equal(claim.body.roomId, room);
+      const rejoin = await call("POST", `/api/bookings/${booking.body.bookingId}/rejoin`);
+      assert.equal(rejoin.status, 200, `rejoin answered ${rejoin.status}`);
+      assert.equal((await call("POST", `/api/bookings/${booking.body.bookingId}/end`)).status, 200);
+      host.close();
+      return [claim.body.rentalMode, rejoin.body.rentalMode];
+    };
+    // swiff-hostd in Swiff OS, unattested: its register is the PC's first contact.
+    const swiffOs = nextRoom();
+    assert.deepEqual(
+      await rentalMode(swiffOs, { type: "register", hostId: swiffOs, key: MACHINE_KEY, rental: true }),
+      [true, true],
+    );
+    // The desktop host app does not say it.
+    const desktop = nextRoom();
+    assert.deepEqual(await rentalMode(desktop, register(desktop)), [false, false]);
+  });
+
+  it("refuses a register whose rental flag is not a boolean", async () => {
+    const host = await open();
+    const code = closed(host);
+    send(host, { ...register(nextRoom()), rental: "yes" } as unknown as SignalMessage);
+    assert.equal(await code, 4003);
+    assert.deepEqual(denial(host), { type: "denied", reason: "bad-machine-key" });
+  });
+
+  it("records a rental-mode PC's Steam sign-in as it relays it, so the claim's deadline becomes the launch grace", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, { type: "register", hostId: room, key: MACHINE_KEY, rental: true });
+    await handled(host);
+    const { ticket, bookingId } = await claimRoomWithTicket(room);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const signInMs = async () => (await call("POST", `/api/bookings/${bookingId}/rejoin`)).body.signInMs;
+    assert.equal(typeof (await signInMs()), "number", "signing in: the rejoin carries the sign-in deadline");
+
+    send(host, { type: "steam-login", state: "signed-in" });
+    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    assert.equal(await signInMs(), undefined, "approved: no sign-in deadline left");
+    assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
+    renter.close();
+    host.close();
+  });
+
+  it("refuses the renter's start on a rental-mode PC until the PC relays the Steam sign-in, then starts it", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, { type: "register", hostId: room, key: MACHINE_KEY, rental: true });
+    await handled(host);
+    const { sessionId, ticket, bookingId } = await claimRoomWithTicket(room);
+    const renter = await open();
+    send(renter, join(room, ticket));
+    await handled(renter);
+    const start = () => call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket);
+
+    assert.deepEqual(await start(), {
+      status: 409,
+      body: { error: "the Steam sign-in is not approved yet" },
+    });
+
+    send(host, { type: "steam-login", state: "signed-in" });
+    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
+      await wait(5);
+    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    assert.equal((await start()).status, 200);
+    assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
+    renter.close();
+    host.close();
+  });
+
   it("has the session's streamer launch the game on the renter's first frame, and tells the renter it runs", async () => {
     const room = nextRoom();
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
@@ -928,6 +1079,8 @@ describe("host sessions", () => {
     assert.equal(await code, 4003);
 
     const { sessionId, ticket } = await claimRoomWithTicket(room, 45);
+    // An attested PC runs Swiff OS: its renter's Steam sign-in comes first, relayed as tested above.
+    await database.exec(`UPDATE sessions SET signed_in_at = 0 WHERE id = '${sessionId}'`);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
     await wait(100);
     assert.ok(!types(service).includes("launch-game"), `the expired host saw [${types(service)}]`);

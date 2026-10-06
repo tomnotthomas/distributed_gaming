@@ -257,6 +257,18 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // A crew-only machine is offered only to its owner's crewmates (gate E7).
     `ALTER TABLE machines ADD COLUMN crew_only BOOLEAN NOT NULL DEFAULT FALSE`,
   ],
+  [
+    // The PC service's hosting socket registered as rental mode (said
+    // rental: true, or holds an attested host certificate): a rental-mode PC
+    // (Swiff OS), whose renter signs in to Steam before the session starts
+    // (api.ts, claim).
+    `ALTER TABLE machines ADD COLUMN rental_mode BOOLEAN NOT NULL DEFAULT false`,
+  ],
+  [
+    // When the PC said its renter approved the Steam sign-in, on a rental-mode
+    // session not yet started: its deadline is then the launch grace (platform.ts).
+    `ALTER TABLE sessions ADD COLUMN signed_in_at BIGINT`,
+  ],
 ];
 
 /**

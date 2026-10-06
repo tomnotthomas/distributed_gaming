@@ -1,3 +1,4 @@
+import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "@swiff/rtc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Claim } from "./booking";
@@ -15,7 +16,13 @@ import {
   type PlayState,
 } from "./play";
 
-const CLAIM: Claim = { sessionId: "s 1", roomId: "pc-1", signalingUrl: "ws://swiff.test", ticket: "t-1" };
+const CLAIM: Claim = {
+  sessionId: "s 1",
+  roomId: "pc-1",
+  signalingUrl: "ws://swiff.test",
+  ticket: "t-1",
+  rentalMode: false,
+};
 const PC = {} as RTCPeerConnection;
 const STATS: RenterStats = {
   fps: 59.9,
@@ -31,6 +38,7 @@ type FakeSession = RenterSession & {
   options: RenterSessionOptions;
   emit: (event: RenterSessionEvent) => void;
   ended: boolean;
+  retries: number;
 };
 
 let sessions: FakeSession[];
@@ -51,6 +59,10 @@ const start = (options: RenterSessionOptions): RenterSession => {
   const session: FakeSession = {
     options,
     ended: false,
+    retries: 0,
+    retrySteamLogin: () => {
+      session.retries += 1;
+    },
     on: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -69,12 +81,12 @@ const start = (options: RenterSessionOptions): RenterSession => {
 const latest = () => sessions[sessions.length - 1]!;
 
 /** Start playing CLAIM with the fakes, recording every state and every start call. */
-function play(resume = false, droppedAt?: number) {
+function play(resume = false, droppedAt?: number, claim: Claim = CLAIM) {
   const states: PlayState[] = [];
   const fetch = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
   const onFirstFrame = vi.fn();
   const handle = startPlay({
-    claim: CLAIM,
+    claim,
     video,
     onChange: (s) => states.push(s),
     onFirstFrame,
@@ -238,6 +250,15 @@ describe("reconnecting", () => {
     latest().emit({ type: "game-started" });
     expect(handle.state()).toMatchObject({ step: "live", lostAt: null });
     expect(fetch).toHaveBeenCalledWith("/api/sessions/s%201/start", expect.anything());
+  });
+
+  it("starts a resumed rental-mode session on its first frame: its renter signed in before", () => {
+    const { handle, fetch } = play(true, 4_000, { ...CLAIM, rentalMode: true });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s%201/start", expect.anything());
+    latest().emit({ type: "game-started" });
+    expect(handle.state()).toMatchObject({ step: "live", lostAt: null });
   });
 
   it("joins a resumed session again while no frame shows, and gives up after 15 s", async () => {
@@ -551,5 +572,250 @@ describe("Ignition's steps", () => {
     expect(ignitionProgress("waking", 2_000)).toBeGreaterThan(0.25);
     expect(ignitionProgress("waking", 10 * 60_000)).toBeLessThan(0.5);
     expect(ignitionProgress("launching", 10 * 60_000)).toBeLessThan(1);
+  });
+});
+
+describe("startPlay on a rental-mode PC (Steam sign-in)", () => {
+  const QR = { type: "steam-login", state: "qr", url: "https://s.team/q/1/42" } as const;
+
+  it("shows Steam's code as soon as the PC sends it, before the stream connects", () => {
+    const { handle, step } = play();
+
+    latest().emit(QR);
+    expect(step()).toBe("waking");
+    expect(handle.state().steamLogin).toEqual(QR);
+  });
+
+  it("is never slow while the renter scans the code, and goes live only once the game runs", async () => {
+    const { handle, step } = play();
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit(QR);
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS * 4);
+    expect(handle.state()).toMatchObject({ step: "launching", slow: false });
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(handle.state().steamLogin).toEqual({ type: "steam-login", state: "signed-in" });
+    // From approval the game has the launch's own time to come up.
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
+
+    latest().emit({ type: "game-started" });
+    expect(step()).toBe("live");
+  });
+
+  it("says a failed sign-in, never slow and never live, and asks the same PC again on retry", async () => {
+    const { handle, step } = play();
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    latest().emit(QR);
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    latest().emit({ type: "steam-login", state: "failed" });
+
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS * 2);
+    expect(handle.state()).toMatchObject({
+      step: "launching",
+      slow: false,
+      signInFailed: "sign-in-timeout",
+      steamLogin: null,
+    });
+
+    handle.retrySignIn();
+    expect(latest().retries).toBe(1);
+    expect(sessions).toHaveLength(1);
+    expect(handle.state().signInFailed).toBeNull();
+
+    latest().emit({ ...QR, url: "https://s.team/q/1/43" });
+    expect(handle.state().steamLogin).toEqual({ ...QR, url: "https://s.team/q/1/43" });
+    expect(step()).toBe("launching");
+  });
+
+  it("offers Try again until the claim's sign-in time runs out, then nothing from that claim", async () => {
+    vi.setSystemTime(0);
+    const { handle, fetch } = play(false, undefined, {
+      ...CLAIM,
+      rentalMode: true,
+      signInBy: STEAM_SIGN_IN_MS,
+    });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS - 2_000);
+    latest().emit({ type: "steam-login", state: "failed" });
+
+    // A second before the deadline the PC is still asked for a new code.
+    await vi.advanceTimersByTimeAsync(1_000);
+    handle.retrySignIn();
+    expect(latest().retries).toBe(1);
+    latest().emit({ ...QR, url: "https://s.team/q/1/43" });
+    expect(handle.state().steamLogin).toEqual({ ...QR, url: "https://s.team/q/1/43" });
+
+    // At it the code is gone, and no new one, retry or late approval starts anything.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(handle.state()).toMatchObject({ signInFailed: "time-up", steamLogin: null, slow: false });
+    handle.retrySignIn();
+    expect(latest().retries).toBe(1);
+    latest().emit({ ...QR, url: "https://s.team/q/1/44" });
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({
+      signInFailed: "time-up",
+      steamLogin: null,
+      slow: false,
+      started: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("says the sign-in time ran out, not a refusal, when the server ends the claim at its deadline", async () => {
+    vi.setSystemTime(0);
+    const { handle } = play(false, undefined, { ...CLAIM, rentalMode: true, signInBy: STEAM_SIGN_IN_MS });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS);
+    // The server's tick ends the claim and revokes its ticket.
+    latest().emit({ type: "denied", reason: "bad-ticket" });
+    expect(handle.state()).toMatchObject({ signInFailed: "time-up", denied: false, steamLogin: null });
+  });
+
+  it("keeps a session signed in before the claim's sign-in time ran out", async () => {
+    vi.setSystemTime(0);
+    const { handle, fetch } = play(false, undefined, {
+      ...CLAIM,
+      rentalMode: true,
+      signInBy: STEAM_SIGN_IN_MS,
+    });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit(QR);
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(STEAM_SIGN_IN_MS);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(handle.state().signInFailed).toBeNull();
+  });
+
+  it("calls a PC that never answers a retry slow, like any launch", async () => {
+    const { handle } = play();
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "steam-login", state: "failed" });
+
+    handle.retrySignIn();
+    await vi.advanceTimersByTimeAsync(LAUNCH_TIMEOUT_MS);
+    expect(handle.state()).toMatchObject({ step: "launching", slow: true });
+  });
+
+  it("does not start the session while the code is up, and starts it on the first frame after signed-in", async () => {
+    const { fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 3);
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).not.toHaveBeenCalled();
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s%201/start", {
+      method: "POST",
+      headers: { authorization: "Bearer t-1" },
+    });
+  });
+
+  it("starts the session at signed-in when a frame came while the code was up", async () => {
+    const { handle, fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handle.state().started).toBe(true);
+  });
+
+  it("never starts the session on a failed sign-in or its retry, only after the next signed-in", async () => {
+    const { handle, fetch } = play();
+    latest().emit(QR);
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    latest().emit({ type: "steam-login", state: "failed" });
+    handle.retrySignIn();
+    latest().emit({ type: "peer-left" });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    latest().emit({ ...QR, url: "https://s.team/q/1/43" });
+    latest().emit({ type: "first-frame" });
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 3);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(handle.state().started).toBe(false);
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a rental-mode claim, does not start the session on a frame before any code, only on one after signed-in", () => {
+    const { fetch } = play(false, undefined, { ...CLAIM, rentalMode: true });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit(QR);
+    latest().emit({ type: "first-frame" });
+    expect(fetch).not.toHaveBeenCalled();
+
+    latest().emit({ type: "peer-left" });
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).not.toHaveBeenCalled();
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("never posts a lost start's retry once a code is up", async () => {
+    const { fetch } = play();
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    latest().emit({ type: "peer-connection", pc: PC });
+    latest().emit({ type: "connected" });
+    latest().emit({ type: "first-frame" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+
+    latest().emit(QR);
+    await vi.advanceTimersByTimeAsync(START_RETRY_MS * 5);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    latest().emit({ type: "steam-login", state: "signed-in" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps why the sign-in stopped short: the game never coming up after it, or the code by default", () => {
+    const { handle } = play();
+    latest().emit({ type: "steam-login", state: "failed", reason: "launch-timeout" });
+    expect(handle.state().signInFailed).toBe("launch-timeout");
+    handle.retrySignIn();
+    latest().emit({ type: "steam-login", state: "failed" });
+    expect(handle.state().signInFailed).toBe("sign-in-timeout");
+  });
+
+  it("asks for a retry only after a failed sign-in", () => {
+    const { handle } = play();
+    latest().emit(QR);
+
+    handle.retrySignIn();
+    expect(latest().retries).toBe(0);
   });
 });

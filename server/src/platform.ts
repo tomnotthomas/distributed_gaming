@@ -91,6 +91,9 @@ import { randomBytes } from "node:crypto";
 import {
   gpuScore,
   rank,
+  sessionSpanMs,
+  STEAM_LAUNCH_GRACE_MS,
+  STEAM_SIGN_IN_MS,
   type Candidate,
   type Control,
   type Encoder,
@@ -264,7 +267,7 @@ export type BookingView = {
 export type ClaimedSession = { sessionId: string; gameId: number; minutes: number };
 
 export type ClaimResult =
-  | ({ ok: true; roomId: string } & ClaimedSession)
+  | ({ ok: true; roomId: string; rentalMode: boolean } & ClaimedSession)
   | { ok: false; reason: "not-found" | "not-claimable"; status?: BookingStatus };
 
 /**
@@ -297,10 +300,20 @@ export type QosResult = "ok" | "not-found" | "wrong-ticket" | "over";
 
 /**
  * A claimed booking's running session, for handing its ticket out again: the
- * room, the ticket id recorded at claim, and how long the session has left (ms).
+ * room, the ticket id recorded at claim, and how long the session may yet run
+ * (ms): on a rental-mode PC not yet started, its booked minutes run from the start,
+ * and `signInMs` is what is left of its Steam sign-in time.
  */
 export type RunningSession =
-  | { ok: true; sessionId: string; roomId: string; ticketId: string; remainingMs: number }
+  | {
+      ok: true;
+      sessionId: string;
+      roomId: string;
+      ticketId: string;
+      remainingMs: number;
+      rentalMode: boolean;
+      signInMs?: number;
+    }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "not-running"; status: BookingStatus };
 
@@ -337,6 +350,7 @@ type MachineRow = {
   reset_until: number | null;
   /** Offered only to its owner's crewmates (gate E7). */
   crew_only: boolean;
+  rental_mode: boolean;
 };
 type BookingRow = {
   id: string;
@@ -371,6 +385,8 @@ type SessionRow = {
   booking_id: string;
   machine_id: string;
   started_at: number | null;
+  /** When the PC said the renter approved the Steam sign-in, on a rental-mode PC. */
+  signed_in_at: number | null;
   ended_at: number | null;
   expires_at: number;
   price: number | null;
@@ -418,6 +434,7 @@ function hostProfileOf(
     fps120: (display?.refreshHz ?? 0) >= 120,
     priceCentsPerHour: machine.price,
     availableUntil: machine.available_until ?? Number.MAX_SAFE_INTEGER,
+    rentalMode: machine.rental_mode,
   };
 }
 
@@ -555,6 +572,8 @@ export class Platform {
   #offerChanged = false;
   /** Machines whose PC holds a socket open to the server. */
   readonly #present = new Set<string>();
+  /** Whether each PC service's hosting socket registered as rental mode, for a machine created after. */
+  readonly #rentalMode = new Map<string, boolean>();
   /** Open renter event streams per booking: a renter with one open is there for a match. */
   readonly #watched = new Map<string, number>();
   /** The one timer, armed for the next deadline. */
@@ -718,13 +737,21 @@ export class Platform {
    * it stays open, with no heartbeat needed. A machine dropped as offline comes
    * back as it was offered. Nothing is stored for a machine never heard from.
    * The time before the socket opened is counted first, as seen only up to its
-   * last contact.
+   * last contact. `rentalMode`, for the PC service's hosting socket: whether
+   * it registered as a rental-mode PC (Swiff OS: it said so, or it holds an
+   * attested host certificate), which its claims carry. Kept for a machine
+   * not stored yet, so it holds from its first check-in. Left as it was for
+   * the streamer's socket.
    */
-  hostConnected(machineId: string): Promise<void> {
+  hostConnected(machineId: string, rentalMode?: boolean): Promise<void> {
     return this.#transaction(async () => {
       const now = this.#now();
       const machine = await this.#machineRow(machineId);
       if (machine) await this.#touch(machineId, now);
+      if (rentalMode !== undefined) this.#rentalMode.set(machineId, rentalMode);
+      if (machine && rentalMode !== undefined) {
+        await this.#run("UPDATE machines SET rental_mode = $1 WHERE id = $2", rentalMode, machineId);
+      }
       if (this.#offeredOnlyWhilePresent && !this.#present.has(machineId)) this.#offerChanged = true;
       this.#present.add(machineId);
       if (!machine) return;
@@ -831,11 +858,19 @@ export class Platform {
       const backAt = new Map<string, number>();
       if (busy.length) {
         const backs = await this.#all<{ machine_id: string; at: number }>(
-          `SELECT machine_id, expires_at AS at FROM sessions WHERE machine_id = ANY ($1::text[]) AND ended_at IS NULL
+          `SELECT s.machine_id,
+               CASE WHEN m.rental_mode AND s.started_at IS NULL
+                 THEN s.expires_at + CASE WHEN s.signed_in_at IS NULL THEN $3::bigint ELSE 0 END + b.minutes * 60000
+                 ELSE s.expires_at END AS at
+             FROM sessions s JOIN bookings b ON b.id = s.booking_id JOIN machines m ON m.id = s.machine_id
+             WHERE s.machine_id = ANY ($1::text[]) AND s.ended_at IS NULL
            UNION ALL
-           SELECT r.machine_id, r.expires_at + b.minutes * 60000 FROM reservations r JOIN bookings b ON b.id = r.booking_id
+           SELECT r.machine_id, r.expires_at + CASE WHEN m.rental_mode THEN $2::bigint ELSE 0 END + b.minutes * 60000
+             FROM reservations r JOIN bookings b ON b.id = r.booking_id JOIN machines m ON m.id = r.machine_id
              WHERE r.machine_id = ANY ($1::text[])`,
           busy,
+          STEAM_SIGN_IN_MS + STEAM_LAUNCH_GRACE_MS,
+          STEAM_LAUNCH_GRACE_MS,
         );
         for (const { machine_id, at } of backs) if (!backAt.has(machine_id)) backAt.set(machine_id, at);
       }
@@ -947,16 +982,21 @@ export class Platform {
       }),
   };
 
-  /** The renter arrived. False when the session is not this machine's or is already over. */
-  startSession(machineId: string, sessionId: string): Promise<boolean> {
+  /**
+   * The renter arrived. False when the session is not this machine's or is
+   * already over; "signing-in" while its Steam sign-in is not approved yet.
+   */
+  startSession(machineId: string, sessionId: string): Promise<boolean | "signing-in"> {
     return this.#transaction(async () => {
       const now = this.#now();
       await this.#touch(machineId, now);
       const session = await this.#openSession(machineId, sessionId);
       if (!session) return false;
       if (session.started_at === null) {
-        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", now, sessionId);
-        await this.#setBookingStatus(session.booking_id, "playing");
+        // Past its deadline it is over, even while the timer that ends it is still to run.
+        if (session.expires_at <= now) return false;
+        if (await this.#signingIn(session)) return "signing-in";
+        await this.#start(session, now);
       }
       return true;
     });
@@ -971,7 +1011,7 @@ export class Platform {
   renterStarted(
     sessionId: string,
     ticketId: string,
-  ): Promise<{ machineId: string; gameId: number } | Exclude<QosResult, "ok">> {
+  ): Promise<{ machineId: string; gameId: number } | Exclude<QosResult, "ok"> | "signing-in"> {
     return this.#transaction(async () => {
       const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
       if (!session) return "not-found";
@@ -979,8 +1019,8 @@ export class Platform {
       // Past its deadline it is over, even while the timer that ends it is still to run.
       if (session.ended_at !== null || session.expires_at <= this.#now()) return "over";
       if (session.started_at === null) {
-        await this.#run("UPDATE sessions SET started_at = $1 WHERE id = $2", this.#now(), sessionId);
-        await this.#setBookingStatus(session.booking_id, "playing");
+        if (await this.#signingIn(session)) return "signing-in";
+        await this.#start(session, this.#now());
       }
       const { game_id } = (await this.#get<{ game_id: number }>(
         "SELECT game_id FROM bookings WHERE id = $1",
@@ -988,6 +1028,61 @@ export class Platform {
       ))!;
       return { machineId: session.machine_id, gameId: game_id };
     });
+  }
+
+  /**
+   * The PC said its renter approved the Steam sign-in: on a rental-mode
+   * session not yet started, what is left of the sign-in allowance gives way
+   * to STEAM_LAUNCH_GRACE_MS for the game's first frame, once. The booked
+   * minutes still start with that frame. Only the join ticket handed out for
+   * the session counts, and only before its deadline; answers whether it applied.
+   */
+  steamSignedIn(sessionId: string, ticketId: string): Promise<boolean> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const session = await this.#get<SessionRow>("SELECT * FROM sessions WHERE id = $1", sessionId);
+      if (!session || session.ticket_id !== ticketId || session.ended_at !== null) return false;
+      if (session.started_at !== null || session.signed_in_at !== null || session.expires_at <= now)
+        return false;
+      const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+        "SELECT rental_mode FROM machines WHERE id = $1",
+        session.machine_id,
+      ))!;
+      if (!rental_mode) return false;
+      await this.#run(
+        "UPDATE sessions SET signed_in_at = $1, expires_at = $2 WHERE id = $3",
+        now,
+        now + STEAM_LAUNCH_GRACE_MS,
+        session.id,
+      );
+      return true;
+    });
+  }
+
+  /** A rental-mode session whose Steam sign-in the PC has not said is approved: it may not start yet. */
+  async #signingIn(session: SessionRow): Promise<boolean> {
+    if (session.signed_in_at !== null) return false;
+    const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+      "SELECT rental_mode FROM machines WHERE id = $1",
+      session.machine_id,
+    ))!;
+    return rental_mode;
+  }
+
+  /**
+   * Start the session at `now`. On a rental-mode PC the renter signs in to
+   * Steam between the claim and the start, so the booked minutes run from the
+   * start rather than the claim; until then STEAM_SIGN_IN_MS from the claim bounds it.
+   */
+  async #start(session: SessionRow, now: number): Promise<void> {
+    await this.#run(
+      `UPDATE sessions s SET started_at = $1,
+         expires_at = CASE WHEN m.rental_mode THEN $1::bigint + b.minutes * 60000 ELSE s.expires_at END
+         FROM bookings b, machines m WHERE s.id = $2 AND b.id = s.booking_id AND m.id = s.machine_id`,
+      now,
+      session.id,
+    );
+    await this.#setBookingStatus(session.booking_id, "playing");
   }
 
   /**
@@ -1360,8 +1455,8 @@ export class Platform {
       }
       // Never the renter's own machine, even when the reservation predates its
       // owner being known (configured since, the machine not yet checked in).
-      const { owner_id } = (await this.#get<{ owner_id: string | null }>(
-        "SELECT owner_id FROM machines WHERE id = $1",
+      const { owner_id, rental_mode } = (await this.#get<{ owner_id: string | null; rental_mode: boolean }>(
+        "SELECT owner_id, rental_mode FROM machines WHERE id = $1",
         reservation.machine_id,
       ))!;
       const owner = this.#owners.get(reservation.machine_id) ?? owner_id;
@@ -1383,13 +1478,13 @@ export class Platform {
         sessionId,
         bookingId,
         reservation.machine_id,
-        now + booking.minutes * 60_000,
+        now + (rental_mode ? STEAM_SIGN_IN_MS : booking.minutes * 60_000),
       );
       await this.#setBookingStatus(bookingId, "claimed");
       await this.#setStatus(reservation.machine_id, "in_session");
       const claimed = { sessionId, gameId: booking.game_id, minutes: booking.minutes };
       this.#notices.push(() => this.#onSessionClaimed(reservation.machine_id, claimed));
-      return { ok: true, roomId: reservation.machine_id, ...claimed };
+      return { ok: true, roomId: reservation.machine_id, rentalMode: rental_mode, ...claimed };
     });
   }
 
@@ -1415,12 +1510,25 @@ export class Platform {
         session?.ticket_id != null &&
         session.expires_at > now;
       if (!running) return { ok: false, reason: "not-running", status: booking.status };
+      const { rental_mode } = (await this.#get<{ rental_mode: boolean }>(
+        "SELECT rental_mode FROM machines WHERE id = $1",
+        session.machine_id,
+      ))!;
+      const unstarted = rental_mode && session.started_at === null;
+      const signingIn = unstarted && session.signed_in_at === null;
       return {
         ok: true,
         sessionId: session.id,
         roomId: session.machine_id,
         ticketId: session.ticket_id!,
-        remainingMs: session.expires_at - now,
+        // A ticket handed out while signing in outlives a start as late as the launch grace allows.
+        remainingMs:
+          session.expires_at -
+          now +
+          (signingIn ? STEAM_LAUNCH_GRACE_MS : 0) +
+          (unstarted ? booking.minutes * 60_000 : 0),
+        rentalMode: rental_mode,
+        ...(signingIn ? { signInMs: session.expires_at - now } : {}),
       };
     });
   }
@@ -1819,7 +1927,7 @@ export class Platform {
    * The machine rank() puts first for the booking among `free`, or null when
    * none passes its gates: the game installed (E2), the hardware the game asks
    * for (E3), every control the booking asked for (E4), not the renter's own
-   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes is
+   * (E5) and close enough by the renter's round trips (E6). Only a machine free for all of the booking's minutes (after a rental-mode PC's Steam sign-in) is
    * considered, and never the one a booking carrying on a lost session lost it on. The order is the renter's own list's: free all session, most
    * reliable, best response, then picture, lowest latency, lowest price.
    */
@@ -1831,11 +1939,11 @@ export class Platform {
     free: FreeMachine[],
     now: number,
   ): Promise<string | null> {
-    const until = now + booking.minutes * 60_000;
     const fits = free.filter(
       (m) =>
         m.row.id !== booking.avoid_machine_id &&
-        (m.row.available_until === null || m.row.available_until >= until),
+        (m.row.available_until === null ||
+          m.row.available_until >= now + sessionSpanMs({ rentalMode: m.row.rental_mode }, booking.minutes)),
     );
     if (!fits.length) return null;
     const game = await this.#requirements.lookup(booking.game_id);
@@ -2053,16 +2161,17 @@ export class Platform {
     const owner = this.#owners.get(machineId) ?? null;
     // A PC first heard from is crew-only when its owner is in someone else's crew.
     const machine = (await this.#get<MachineRow>(
-      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only)
+      `INSERT INTO machines (id, owner_id, status, last_seen_at, uptime_at, crew_only, rental_mode)
          VALUES ($1, $2, 'idle', $3, $3, EXISTS (
            SELECT 1 FROM crew_members m JOIN crews c ON c.id = m.crew_id
-             WHERE m.user_id = $2 AND c.owner_id <> $2))
+             WHERE m.user_id = $2 AND c.owner_id <> $2), $4)
          ON CONFLICT (id) DO UPDATE SET owner_id = excluded.owner_id, last_seen_at = excluded.last_seen_at,
            uptime_at = excluded.uptime_at
          RETURNING *`,
       machineId,
       owner,
       now,
+      this.#rentalMode.get(machineId) ?? false,
     ))!;
     if (
       owner !== null &&

@@ -21,6 +21,7 @@ const rtc = vi.hoisted(() => ({
     options: RenterSessionOptions;
     emit: (event: RenterSessionEvent) => void;
     ended: boolean;
+    retries: number;
   }[],
 }));
 vi.mock("@swiff/rtc", () => ({
@@ -29,6 +30,7 @@ vi.mock("@swiff/rtc", () => ({
     const session = {
       options,
       ended: false,
+      retries: 0,
       emit: (event: RenterSessionEvent) => listeners.forEach((fn) => fn(event)),
     };
     rtc.sessions.push(session);
@@ -38,6 +40,9 @@ vi.mock("@swiff/rtc", () => ({
         return () => listeners.delete(listener);
       },
       stats: () => null,
+      retrySteamLogin: () => {
+        session.retries += 1;
+      },
       end: () => {
         session.ended = true;
       },
@@ -108,7 +113,13 @@ const booked = (status: string, claimBy?: number) => ({
   ...(claimBy === undefined ? {} : { claimBy }),
 });
 
-const TICKET = { sessionId: "s-1", roomId: "pc-1", signalingUrl: "ws://localhost", ticket: "t" };
+const TICKET = {
+  sessionId: "s-1",
+  roomId: "pc-1",
+  signalingUrl: "ws://localhost",
+  ticket: "t",
+  rentalMode: false,
+};
 
 /** The page's event streams, opened through a stand-in for EventSource that each test drives. */
 function streams() {
@@ -784,6 +795,45 @@ describe("useSwiff", () => {
       expect(session.ended).toBe(true);
       await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
       expect(storedPlay()).toBeNull();
+    });
+
+    it("shows a rental-mode PC's Steam code, retries a failed sign-in on the same claim, and is live only once the game runs", async () => {
+      const calls = serve(unnamed, LIVE, {
+        "POST /api/bookings": json(202, { ...booked("matched", 1_000), machine: { id: "h1" } }),
+        "POST /api/bookings/b-1/claim": json(200, TICKET),
+        "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+      });
+      streams();
+      const result = await openLive();
+      act(() => result.current.launch());
+      await waitFor(() => expect(result.current.claim).toEqual(TICKET));
+      act(() => result.current.attachVideo(document.createElement("video")));
+      const session = rtc.sessions[0]!;
+      const QR = { type: "steam-login", state: "qr", url: "https://s.team/q/1/42" } as const;
+
+      act(() => session.emit(QR));
+      expect(result.current.steamLogin).toEqual(QR);
+      act(() => session.emit({ type: "connected" }));
+      act(() => session.emit({ type: "first-frame" }));
+      act(() => session.emit({ type: "steam-login", state: "failed" }));
+      expect(result.current.steamSignInFailed).toBe("sign-in-timeout");
+      expect(result.current.steamLogin).toBeNull();
+
+      act(() => result.current.retrySignIn());
+      // The same PC is asked for a new code: the booking is neither ended nor made again.
+      expect(session.retries).toBe(1);
+      expect(rtc.sessions).toHaveLength(1);
+      expect(result.current.steamSignInFailed).toBeNull();
+      expect(calls.map((c) => c.call).filter((c) => c.startsWith("POST /api/bookings"))).toEqual([
+        "POST /api/bookings",
+        "POST /api/bookings/b-1/claim",
+      ]);
+
+      act(() => session.emit({ ...QR, url: "https://s.team/q/1/43" }));
+      act(() => session.emit({ type: "steam-login", state: "signed-in" }));
+      expect(result.current.phase).toBe("connecting");
+      act(() => session.emit({ type: "game-started" }));
+      expect(result.current.phase).toBe("live");
     });
 
     it("ends a live session the server ended as a session end, not a failed launch", async () => {

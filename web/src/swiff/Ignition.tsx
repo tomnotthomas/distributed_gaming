@@ -3,6 +3,7 @@ import { Backdrop } from "@swiff/ui";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
 import { gameArt, gameArtFallbacks } from "./steam";
+import { isSteamSignInUrl, signInFailedTitle, SteamSignIn, SteamSignInFailed } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
 
 /**
@@ -16,6 +17,13 @@ import type { Swiff } from "./useSwiff";
  * inert, and focus moves to Cancel while it is up and back to where it was
  * when it closes. A session carried on from a lost machine starts here too,
  * saying which machine it moved from.
+ *
+ * On a rental-mode PC, Steam's sign-in code takes the dial's place until the
+ * renter has approved it from the Steam app: the one sign-in step there is.
+ * If the PC says that sign-in stopped short, Ignition says so instead and
+ * offers to try again, or another machine when the game never came up after
+ * sign-in, or to book again when the claim's sign-in time ran out; it never
+ * goes live on it.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
   const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow, lost } = swiff;
@@ -25,6 +33,9 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
   const pct = Math.round(shown);
   const ignitionStep = ignitionSteps[now]!;
   const title = game?.title ?? "your game";
+  const signIn =
+    swiff.steamLogin?.state === "qr" && isSteamSignInUrl(swiff.steamLogin.url) ? swiff.steamLogin.url : null;
+  const signInFailed = swiff.steamSignInFailed;
 
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -93,10 +104,17 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
 
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
-          {slow ? `${ignitionStep}: taking longer than usual` : ignitionStep}
+          {signInFailed
+            ? signInFailedTitle(signInFailed)
+            : signIn
+              ? "Sign in to Steam"
+              : slow
+                ? `${ignitionStep}: taking longer than usual`
+                : ignitionStep}
         </p>
 
-        {slow ? (
+        {/* The renter scanning a code is not slow; a failed sign-in has its own way on. */}
+        {slow && !signIn && !signInFailed ? (
           <div className="ig-slow" data-testid="ignition-slow">
             <span className="mono">Taking longer than usual</span>
             <button type="button" className="lpill lpill-sm" onClick={swiff.tryAnother}>
@@ -108,16 +126,36 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
           </div>
         ) : null}
 
-        <IgnitionDial pct={shown} />
+        {signInFailed ? (
+          <SteamSignInFailed
+            reason={signInFailed}
+            onRetry={swiff.retrySignIn}
+            onTryAnother={swiff.tryAnother}
+            onBookAgain={swiff.launch}
+          />
+        ) : signIn ? (
+          <SteamSignIn url={signIn} />
+        ) : (
+          <IgnitionDial pct={shown} />
+        )}
 
         <ol className="ig-legend mono">
           {ignitionSteps.map((step, index) => {
-            const state = index < now ? "done" : index === now ? "now" : "next";
+            // A failed sign-in stops the step it held at: no live dot or percentage there.
+            const state = index < now ? "done" : index === now ? (signInFailed ? "stopped" : "now") : "next";
             return (
               <li key={step} data-state={state}>
                 <span className="ig-dot" />
                 <span>{step}</span>
-                <span>{state === "done" ? "Done" : state === "now" ? `${pct}%` : "Next"}</span>
+                <span>
+                  {state === "done"
+                    ? "Done"
+                    : state === "now"
+                      ? `${pct}%`
+                      : state === "stopped"
+                        ? "Stopped"
+                        : "Next"}
+                </span>
               </li>
             );
           })}

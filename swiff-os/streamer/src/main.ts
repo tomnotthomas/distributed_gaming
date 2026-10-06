@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startCapture, type Capture } from "./capture";
 import { ConfigError, parseGrant, readConfig } from "./config";
+import { steamLoginForwarder } from "./steamLogin";
 import { startStreamer, type Streamer } from "./streamer";
 import { startVirtualInput } from "./uinput";
 
@@ -53,6 +54,9 @@ async function main(): Promise<number> {
     grant,
     input: input.sink,
     onKeyframeNeeded: () => capture?.requestKeyframe(),
+    steamLogin: config.steam
+      ? steamLoginForwarder({ socketPath: config.steam.socket, appid: config.steam.appid })
+      : undefined,
   });
 
   const stopped = new Promise<"signal">((resolve) => {

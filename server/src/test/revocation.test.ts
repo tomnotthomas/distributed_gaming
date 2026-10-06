@@ -29,12 +29,18 @@ const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION, "765611980
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const servers: ChildProcess[] = [];
 const databases: ServerDatabase[] = [];
+/** Every socket and database client a test opened: a test that fails midway leaves them open. */
+const sockets: WebSocket[] = [];
+const clients: pg.Client[] = [];
 
 // Each test's server and database go when the test ends, not with the file: a
 // PGlite in this process holds a few hundred MB, and a dozen at once is gigabytes.
-// Every wait here is bounded, so a stuck child or database cannot hang the run.
+// Every wait here is bounded, so a stuck child or database cannot hang the run,
+// and every socket and client goes too: any one left open holds the file open.
 afterEach(
   async () => {
+    for (const ws of sockets.splice(0)) ws.terminate();
+    for (const client of clients.splice(0)) await Promise.race([client.end().catch(() => {}), wait(5_000)]);
     await Promise.all(servers.splice(0).map(stopServer));
     for (const database of databases.splice(0)) {
       await Promise.race([database.close().catch(() => {}), wait(10_000)]);
@@ -77,33 +83,38 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
   const port = freshPort();
   const database = await serverDatabase();
   databases.push(database);
-  servers.push(
-    spawn(process.execPath, [SERVER], {
-      env: {
-        ...process.env,
-        PORT: String(port),
-        ROOM_SECRET: SECRET,
-        SESSION_SECRET: SESSION,
-        MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
-        DATABASE_URL: database.url,
-        // Every game playable, so nothing here waits on or calls Steam (playable.ts).
-        SWIFF_PLAYABILITY: "off",
-        ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
-        ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
-      },
-      stdio: "ignore",
-    }),
-  );
+  const child = spawn(process.execPath, [SERVER], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      ROOM_SECRET: SECRET,
+      SESSION_SECRET: SESSION,
+      MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
+      DATABASE_URL: database.url,
+      // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+      SWIFF_PLAYABILITY: "off",
+      ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
+      ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
+    },
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  servers.push(child);
   const origin = `http://localhost:${port}`;
-  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
-  for (let i = 0; i < 150; i++) {
-    try {
-      await fetch(`${origin}/api/bookings/none`);
-      break;
-    } catch {
-      await wait(100);
-    }
-  }
+  // Ready once this child says it listens, not once the port answers: another
+  // run's server on the same port answers while this one still opens its
+  // database, or after it exited on the taken port. Up to 30 s: slower under a
+  // full test run. Its output is read to the end, so a full pipe never stalls it.
+  let heard = "";
+  const listening = new Promise<boolean>((resolve) => {
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk: string) => {
+      if (heard.length < 4096) heard += chunk;
+      if (heard.includes(`localhost:${port} `)) resolve(true);
+    });
+    child.once("exit", () => resolve(false));
+  });
+  const ready = await Promise.race([listening, wait(30_000).then(() => false)]);
+  assert.ok(ready, `the server for this test did not listen on port ${port}`);
 
   /** One JSON call: with the machine key as bearer when given one, else as the signed-in renter. */
   const call = async (method: string, path: string, body?: unknown, key?: string) => {
@@ -142,6 +153,7 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
    */
   const peer = (first: SignalMessage) => {
     const ws = new WebSocket(`ws://localhost:${port}`);
+    sockets.push(ws);
     const received: SignalMessage[] = [];
     ws.on("message", (raw) => {
       const message = JSON.parse(String(raw)) as SignalMessage;
@@ -160,6 +172,7 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
   /** Hold every read of the sessions table, behind the server's back, until the returned release. */
   const holdSessions = async () => {
     const client = new pg.Client({ connectionString: database.url });
+    clients.push(client);
     await client.connect();
     await client.query("BEGIN");
     await client.query("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE");

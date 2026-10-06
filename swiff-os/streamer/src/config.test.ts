@@ -20,10 +20,25 @@ describe("readConfig", () => {
     });
   });
 
-  it("accepts and ignores whatever SWIFF_APPID hostd sends", () => {
-    expect(readConfig({ ...ENV, SWIFF_APPID: "abc" }, [], "/helpers")).toEqual(
-      readConfig(ENV, [], "/helpers"),
-    );
+  it("serves Steam's sign-in only when the image names the agent's socket, for hostd's SWIFF_APPID", () => {
+    const steam = ["--steam-socket", "/run/swiff/steam/login.sock"];
+    expect(readConfig(ENV, [], "/helpers").steam).toBeNull();
+    expect(readConfig({ ...ENV, SWIFF_APPID: "1245620" }, [], "/helpers").steam).toBeNull();
+    expect(readConfig({ ...ENV, SWIFF_APPID: "1245620" }, steam, "/helpers").steam).toEqual({
+      socket: "/run/swiff/steam/login.sock",
+      appid: 1245620,
+    });
+    expect(() =>
+      readConfig({ ...ENV, SWIFF_APPID: "1245620" }, ["--steam-socket", "login.sock"], "/helpers"),
+    ).toThrow(/absolute/);
+  });
+
+  it("refuses the Steam agent's socket without a valid SWIFF_APPID", () => {
+    const steam = ["--steam-socket", "/run/swiff/steam/login.sock"];
+    for (const appid of [undefined, "", "abc", "0", "012", "12345678901"]) {
+      expect(() => readConfig({ ...ENV, SWIFF_APPID: appid }, steam, "/helpers")).toThrow(ConfigError);
+      expect(() => readConfig({ ...ENV, SWIFF_APPID: appid }, steam, "/helpers")).toThrow(/SWIFF_APPID/);
+    }
   });
 
   it("reads the image's arguments", () => {

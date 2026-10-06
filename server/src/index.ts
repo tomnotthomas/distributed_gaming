@@ -53,6 +53,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { sessionSpanMs } from "@swiff/rank";
 import { createIceSource } from "./ice.js";
 import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
@@ -284,8 +285,11 @@ const rooms = new Map<string, Room>();
  */
 const revokedTickets = new Map<string, number>();
 
-/** A booking's ticket runs for its minutes from the claim, so none outlives its revocation by more. */
-const REVOCATION_KEPT_MS = MAX_MINUTES * 60_000;
+/**
+ * A booking's ticket runs for its minutes from the claim, and a rental-mode
+ * PC's Steam sign-in and launch before them (api.ts), so none outlives its revocation by more.
+ */
+const REVOCATION_KEPT_MS = sessionSpanMs({ rentalMode: true }, MAX_MINUTES);
 
 /** Record that `ticketId` is revoked. */
 function revoke(ticketId: string): void {
@@ -727,7 +731,9 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       // only asserted to be a RegisterMessage. Anything else is refused for
       // the credential it names, and never registered.
       const given = [msg.key, msg.hostCert, msg.sessionKey].filter((c) => c !== undefined);
-      if (given.length !== 1 || typeof given[0] !== "string") {
+      const badRental =
+        msg.rental !== undefined && (msg.sessionKey !== undefined || typeof msg.rental !== "boolean");
+      if (given.length !== 1 || typeof given[0] !== "string" || badRental) {
         if (msg.hostCert !== undefined) return deny(ws, "bad-host-cert");
         return deny(ws, msg.sessionKey !== undefined ? "bad-session-key" : "bad-machine-key");
       }
@@ -776,7 +782,10 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         ws.certTimer.unref?.();
       }
       // The PC is there for as long as this socket stays open.
-      await platform.hostConnected(msg.hostId);
+      await platform.hostConnected(
+        msg.hostId,
+        tier === null ? undefined : msg.rental === true || tier !== "unattested",
+      );
       // A newer host took the seat meanwhile: this one is being hung up on.
       if (room.host !== ws) return;
       send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
@@ -903,6 +912,8 @@ function ticketReadAfter(ticketId: string, arrived: number): TicketRead {
  * until it can, or either side leaves the room. Never rejects.
  */
 async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
+  // Steam sign-in goes from the PC to its renter, but for the renter's retry, which goes only to the PC.
+  if (msg.type === "steam-login" && (ws.role === "host") === (msg.state === "retry")) return;
   const peer = peerOf(ws);
   if (!peer) return;
   const renter = ws.role === "client" ? ws : peer;
@@ -920,7 +931,35 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
     }
   }
   if (seatRevoked(renter) || peerOf(ws) !== peer || !forRenterSession(ws, renter, msg)) return;
+  // Recorded before the renter hears it, so their first frame may start the session. While the
+  // database cannot take it, the frame is held, with the frames behind it, and the write retried.
+  if (msg.type === "steam-login" && msg.state === "signed-in") {
+    while (!(await steamSignedIn(ticketId))) {
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
+      if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
+      if (seatRevoked(renter)) return;
+    }
+  }
   send(peer, msg);
+}
+
+/**
+ * The PC says the renter seated with `ticketId` approved the Steam sign-in:
+ * their claim's deadline becomes the launch grace (platform.ts). Never rejects:
+ * answers false when the database could not take it.
+ */
+async function steamSignedIn(ticketId: string): Promise<boolean> {
+  try {
+    const sessionId = await platform.ticketSession(ticketId);
+    if (sessionId) await platform.steamSignedIn(sessionId, ticketId);
+    return true;
+  } catch (error) {
+    console.error(
+      "[swiff] recording the Steam sign-in failed:",
+      error instanceof Error ? error.name : typeof error,
+    );
+    return false;
+  }
 }
 
 /** One frame from `ws`, which arrived at `arrived` (performance.now() ms): relayed to its peer, or answered. */

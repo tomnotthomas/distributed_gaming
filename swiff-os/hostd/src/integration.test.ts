@@ -188,6 +188,8 @@ describe("swiff-hostd against the server", () => {
       expect(booking.body).toMatchObject({ status: "matched" });
       const claim = await call("POST", `/api/bookings/${booking.body!.bookingId}/claim`, RENTER);
       expect(claim.status).toBe(200);
+      // The agent registered as rental mode: the renter's page holds the clock until Steam signs in.
+      expect(claim.body!.rentalMode).toBe(true);
       const sessionId = claim.body!.sessionId as string;
 
       await until(

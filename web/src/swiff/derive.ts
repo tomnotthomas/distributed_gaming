@@ -9,6 +9,7 @@ import {
   pictureScore,
   rank,
   responseScore,
+  sessionSpanMs,
   type Candidate,
   type GameRequirements,
   type PicturePref,
@@ -79,7 +80,7 @@ export function sessionMinutes(session: SessionLength): number {
 
 /** Whether this machine covers the whole session you said you wanted. */
 export function lasts(machine: Machine, session: SessionLength, now = NOW_MINUTES): boolean {
-  return minsLeft(machine, now) >= sessionMinutes(session);
+  return minsLeft(machine, now) * 60_000 >= sessionSpanMs(machine, sessionMinutes(session));
 }
 
 /** The renter in the seed data: Nova-01's owner, so their own PC stays theirs (gate E5). */
@@ -140,6 +141,7 @@ function candidateOf(machine: SeedMachine, game: Game, now: number): Candidate {
       fps120: machine.quality.endsWith("120"),
       priceCentsPerHour: machine.priceCentsPerHour,
       availableUntil: toMs(now + minsLeft(machine, now)),
+      rentalMode: machine.rentalMode,
     },
     link: linkOf(machine),
     history: machine.history,

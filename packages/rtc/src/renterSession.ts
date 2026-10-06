@@ -5,6 +5,8 @@
 //   join(ticket) ──► joined ──► offer ──► createAnswer ──► answer ──► ontrack ──► <video>
 //                                                            └──► ondatachannel ×2 ──► input
 //   first frame ──► (the page starts the session) ──► the PC launches the game ──► game-started
+//   steam-login (rental mode: the PC's Steam sign-in code, then signed-in or failed) ──► the page shows it
+//   retrySteamLogin() ──► steam-login retry ──► the PC, for a fresh code after a failed one
 //
 // One peer connection at a time. The PC re-offers whenever it re-registers, so
 // a new offer replaces the old connection rather than adding a second one, and
@@ -24,6 +26,7 @@ import {
 import { connectSignaling, type SignalMessage } from "./signaling";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
+export type SteamLogin = Exclude<Extract<SignalMessage, { type: "steam-login" }>, { state: "retry" }>;
 
 /** How often the stats snapshot is refreshed unless the caller says otherwise. */
 export const DEFAULT_STATS_INTERVAL_MS = 1000;
@@ -71,6 +74,8 @@ export type RenterSessionEvent =
   | { type: "game-started" }
   /** A fresh stats snapshot; also readable through `stats()`. */
   | { type: "stats"; stats: RenterStats }
+  /** Rental mode's Steam sign-in: a code to show as a QR code, or the renter approved it. */
+  | SteamLogin
   /** The PC went away. The session stays in the room and answers its next offer. */
   | { type: "peer-left" }
   /** The server refused the ticket. Final: an `ended` follows. */
@@ -97,6 +102,12 @@ export type RenterSession = {
   on(listener: (event: RenterSessionEvent) => void): () => void;
   /** The latest stats snapshot, or null before the first one. */
   stats(): RenterStats | null;
+  /**
+   * Rental mode: ask the PC for a fresh Steam sign-in code after a `failed`, on
+   * the same claim. Held while the room is reconnecting or the PC is away, and
+   * sent once it is back, until the PC answers with a steam-login.
+   */
+  retrySteamLogin(): void;
   /** Release held input, hang up and leave the room. Idempotent. */
   end(): void;
 };
@@ -305,10 +316,18 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
     }
   };
 
+  // Rental mode: whether the PC is in the room as far as this page knows, and
+  // whether the renter asked for a fresh Steam sign-in code it has yet to answer.
+  // A retry is sent at once when the PC is here, and again on each join or
+  // return of the PC, until a steam-login from the PC answers it.
+  let pcHere = false;
+  let retryWanted = false;
+
   const signaling = connectSignaling({
     url: opts.url,
     onOpen: (send) => send({ type: "join", ticket: opts.ticket }),
     onMessage: (msg, send) => {
+      const wasHere = pcHere;
       switch (msg.type) {
         case "denied":
           emit({ type: "denied", reason: msg.reason });
@@ -327,11 +346,32 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
         case "game-started":
           emit({ type: "game-started" });
           break;
+        case "steam-login":
+          if (msg.state === "retry") break;
+          // The PC answered: a retry asked for is done with.
+          retryWanted = false;
+          emit(msg);
+          break;
         case "peer-left":
+          pcHere = false;
           teardown();
           emit({ type: "peer-left" });
           break;
       }
+      // Any frame from the PC shows it is in the room. A retry held while it was
+      // away, or while this page was joining, goes as soon as it is.
+      const fromPc =
+        msg.type === "offer" ||
+        msg.type === "ice" ||
+        msg.type === "game-started" ||
+        msg.type === "steam-login";
+      if (msg.type === "joined") pcHere = msg.hostOnline;
+      else if (fromPc) pcHere = true;
+      const arrived = msg.type === "joined" ? pcHere : pcHere && !wasHere;
+      if (arrived && retryWanted) send({ type: "steam-login", state: "retry" });
+    },
+    onStatus: (status) => {
+      if (status !== "open") pcHere = false;
     },
   });
 
@@ -352,6 +392,12 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
       return () => listeners.delete(listener);
     },
     stats: () => latest,
+    /** Ask the PC for a new Steam code, now or once it is back in the room. */
+    retrySteamLogin() {
+      if (ended) return;
+      retryWanted = true;
+      if (pcHere) signaling.send({ type: "steam-login", state: "retry" });
+    },
     end: () => finish("local"),
   };
 }

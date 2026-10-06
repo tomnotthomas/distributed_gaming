@@ -72,6 +72,8 @@ export type Machine = {
   busy: boolean;
   /** Clock time a busy machine is free again. */
   back?: string;
+  /** A rental-mode PC (Swiff OS): the renter signs in to Steam before the session's minutes start. */
+  rentalMode?: boolean;
   /** Your own PC. Never listed, recommended or matched (gate E5). */
   self?: boolean;
   /** Picture and Response 1-4 as the server's rank() scored them for this game; demo machines are scored here. */
