@@ -20,6 +20,8 @@
 //   GET  /api/seats/:token   (signed out)  GET  /api/machines/:id/seats         control
 //   POST /api/seats/:token/take            POST /api/machines/:id/seats         control
 //                                          DELETE /api/machines/:id/seats?seat= control
+//   GET  /api/crew-live                    (watching a crewmate play: watch.ts)
+//   POST /api/crew-live/:sessionId/watch
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -96,6 +98,7 @@ import {
   inviteToken,
   mintTicket,
   seatToken,
+  mintWatchTicket,
   verifyInviteToken,
   verifySeatToken,
   verifyMachineKey,
@@ -124,6 +127,7 @@ import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
+import type { Watches } from "./watch.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
   emptyProfile,
@@ -193,6 +197,10 @@ export type ApiOptions = {
    * dropped out of it (grace.ts); null while nobody has.
    */
   heldUntil?: (machineId: string) => number | null;
+  /** Who asked to watch which session (watch.ts). Without it the crew-live routes are not served. */
+  watches?: Watches;
+  /** Someone left a crew or was removed from one: whoever watches across it stops. */
+  onCrewLeft?: () => void;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -478,6 +486,8 @@ export function createApi({
   playability = everyGamePlayable,
   onRenterStarted,
   heldUntil = () => null,
+  watches,
+  onCrewLeft,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
@@ -766,6 +776,7 @@ export function createApi({
     if (resource === "crew-members" && id && action === "remove" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       if (!(await platform.leaveCrew(id, steamId))) throw new HttpError(404, "no such crew member");
+      onCrewLeft?.();
       reply(res, 200, { removed: true });
       return true;
     }
@@ -799,6 +810,76 @@ export function createApi({
         return true;
       }
       reply(res, 200, { crewId: taken.crewId, joined: taken.joined, seat: taken.seat });
+      return true;
+    }
+
+    // --- Watching a crewmate play ---------------------------------------------
+
+    // What the signed-in player's crewmates are playing now, and whether each shares with the crew.
+    if (watches && resource === "crew-live" && !id && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const live = await platform.crewLive(steamId);
+      reply(res, 200, {
+        live: live.map((session) => {
+          const mine = watches.list(session.sessionId).find((watch) => watch.viewerId === steamId);
+          return {
+            sessionId: session.sessionId,
+            player: session.playerName,
+            gameId: session.gameId,
+            machine: session.machineName,
+            startedAt: session.startedAt,
+            sharing: watches.sharing(session.sessionId),
+            watching: watches.list(session.sessionId).filter((watch) => watch.state === "watching").length,
+            mine: mine ? { state: mine.state } : null,
+          };
+        }),
+      });
+      return true;
+    }
+
+    // Ask to watch a crewmate's session: a watch ticket for the room, to wait in it for their yes.
+    if (watches && resource === "crew-live" && id && action === "watch" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      const live = await platform.watchable(id, steamId);
+      if (live === "ended" || live === "not-crew") {
+        throw new HttpError(404, "no crewmate of yours is playing that session");
+      }
+      // The player sees them by their Steam persona, when Steam answers.
+      const read = await profile(steamId).catch(() => null);
+      const exp = Math.floor(live.expiresAt / 1000);
+      const asked = watches.ask(
+        { sessionId: live.sessionId, room: live.room, playerName: live.playerName, exp },
+        { id: steamId, name: read?.persona || null },
+      );
+      if (!asked.ok && asked.reason === "full") {
+        reply(res, 409, { error: "as many crewmates as can are watching already", code: "full" });
+        return true;
+      }
+      if (!asked.ok) {
+        const seconds = Math.ceil(asked.retryAfterMs / 1000);
+        reply(
+          res,
+          429,
+          { error: "ask again in a moment", code: "cooldown" },
+          { "retry-after": String(seconds) },
+        );
+        return true;
+      }
+      const { watch } = asked;
+      reply(res, 200, {
+        watchId: watch.id,
+        state: watch.state,
+        player: watch.playerName,
+        signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
+        ticket: mintWatchTicket(access.secret, {
+          room: watch.room,
+          session: watch.sessionId,
+          watch: watch.id,
+          viewer: steamId,
+          exp,
+        }),
+      });
       return true;
     }
 

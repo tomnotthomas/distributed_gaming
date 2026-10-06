@@ -604,6 +604,43 @@ describe("startRenterSession", () => {
   });
 });
 
+describe("startRenterSession with crewmates watching", () => {
+  function withCrew() {
+    const crew = { attach: vi.fn(), message: vi.fn(), source: vi.fn() };
+    const started = start({ crew });
+    return { crew, ...started };
+  }
+
+  it("hands the crew hub the room's socket and the PC's tracks", async () => {
+    const { crew } = withCrew();
+    const pc = await answered();
+    expect(crew.attach).toHaveBeenCalledTimes(1);
+    expect(crew.message).toHaveBeenCalledWith(expect.objectContaining({ type: "joined" }));
+    pc.track("video", { id: "stream" } as unknown as MediaStream);
+    expect(crew.source).toHaveBeenCalledWith({ kind: "video" });
+  });
+
+  it("gives the crew hub every viewer's frame and who watches, and never takes them as the PC's", async () => {
+    const { crew, events } = withCrew();
+    const pc = await answered();
+    const before = events.length;
+    const fromViewer: SignalMessage[] = [
+      { type: "watchers", sharing: false, watchers: [] },
+      { type: "answer", sdp: { type: "answer", sdp: "v=0 viewer" }, watchId: "w1" },
+      { type: "ice", candidate: { candidate: "candidate:viewer" }, watchId: "w1" },
+      { type: "offer", sdp: OFFER, watchId: "w1" },
+      { type: "crew", watchId: "w1", data: { kind: "voice", inVoice: true, muted: false } },
+    ];
+    for (const msg of fromViewer) socket().deliver(msg);
+    await flush();
+    expect(crew.message.mock.calls.slice(1).map(([m]) => m)).toEqual(fromViewer);
+    // The PC's connection is untouched: no new offer answered, no candidate added.
+    expect(FakePeerConnection.instances).toHaveLength(1);
+    expect(pc.candidates).toEqual([]);
+    expect(events.slice(before)).toEqual([]);
+  });
+});
+
 describe("readRenterStats", () => {
   const report = (entries: Record<string, unknown>[]) =>
     ({ forEach: (fn: (r: unknown) => void) => entries.forEach(fn) }) as unknown as RTCStatsReport;

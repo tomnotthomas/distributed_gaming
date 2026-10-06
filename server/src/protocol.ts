@@ -4,9 +4,18 @@
 //
 //   host    register ──► registered, session-claimed, peer-joined, answer, ice, launch-game,
 //                        steam-login retry, peer-left
-//   client  join     ──► joined, offer, ice, game-started, steam-login, peer-left
+//   client  join     ──► joined, offer, ice, game-started, steam-login, peer-left, watchers,
+//                        and from its watchers (watchId set): answer, ice, crew
+//   viewer  watch    ──► watching, and from the player: offer, ice, crew
 //   both    ping     ──► pong
 //   either  refused  ──► denied, then the socket is closed with DENIED_CODE
+//
+// Watching (watch.ts): a crewmate of the renter playing asks to watch over
+// HTTP and gets a watch ticket; with it their socket takes a viewer seat in
+// the room. The renter's page (the player) says yes or no, and on yes it
+// streams to the viewer itself, from the picture and sound it receives: the
+// gaming PC never hears of a viewer, uploads nothing more for one, and no
+// viewer frame ever reaches it.
 //
 // See access.ts for what `key`, `hostCert`, `sessionKey` and `ticket` are,
 // attestation.ts for which of them may host, and
@@ -44,9 +53,76 @@ export type RegisterMessage =
 /** Sent by the renter to join a room. The room is the one the ticket names. */
 export type JoinMessage = { type: "join"; ticket: string };
 
-/** Relayed verbatim between the two peers. The server never reads these. */
-export type SdpMessage = { type: "offer" | "answer"; sdp: RTCSessionDescriptionInit };
-export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit };
+/**
+ * Relayed verbatim between the two peers. The server never reads these.
+ * `watchId` names a viewer: between the player and that viewer, never the PC.
+ * The player sets it; on a viewer's frame the server sets it to the viewer's own.
+ */
+export type SdpMessage = { type: "offer" | "answer"; sdp: RTCSessionDescriptionInit; watchId?: string };
+export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit; watchId?: string };
+
+// --- Watching a crewmate play ------------------------------------------------
+
+/** The most viewers one session takes, asking or watching. The player's page encodes one picture per viewer. */
+export const MAX_WATCHERS = 4;
+
+/** Sent by a viewer to take a viewer seat, with the watch ticket POST /api/crew/live/:id/watch gave. */
+export type WatchMessage = { type: "watch"; ticket: string };
+
+/**
+ * The viewer's seat, as it stands: `asking` until the player says yes, then
+ * `watching`. Sent on every change. `player` is the player's name when known;
+ * `playerHere` whether their page is in the room to stream. `iceServers` as `joined`.
+ */
+export type WatchingMessage = {
+  type: "watching";
+  watchId: string;
+  state: "asking" | "watching";
+  player: string | null;
+  playerHere: boolean;
+  iceServers?: RTCIceServer[];
+};
+
+/** One viewer as the player sees them: who, whether they wait for a yes, and whether their page is here. */
+export type Watcher = { watchId: string; name: string | null; state: "asking" | "watching"; here: boolean };
+
+/**
+ * To the player: everyone asking to watch or watching their session, whole,
+ * on every change, and whether they share with their crew (anyone in it
+ * watches without asking).
+ */
+export type WatchersMessage = { type: "watchers"; sharing: boolean; watchers: Watcher[] };
+
+/** The player's yes or no to a viewer asking. */
+export type WatchAnswerMessage = { type: "watch-answer"; watchId: string; accept: boolean };
+/** The player stops a viewer watching. */
+export type WatchStopMessage = { type: "watch-stop"; watchId: string };
+/** The player opens their screen to their crew, or closes it again (closing stops nobody already watching). */
+export type WatchShareMessage = { type: "watch-share"; open: boolean };
+
+/** One person in the voice chat, as the viewer it is sent to sees them. */
+export type VoicePerson = {
+  /** "player", or a viewer's watchId. */
+  id: string;
+  name: string | null;
+  /** The transceiver on the receiving viewer's own connection that carries their voice; null for the viewer themselves. */
+  mid: string | null;
+  /** In the voice chat, with a microphone. */
+  inVoice: boolean;
+  /** Muted by themselves. */
+  muted: boolean;
+  /** Muted by the player: nobody hears them until the player lets them speak again. */
+  mutedByPlayer: boolean;
+};
+
+/**
+ * The voice chat's own talk between the player and one viewer, relayed as is
+ * between them (the server never reads `data`): the player sends who is in it
+ * (`roster`), a viewer says whether it is in it and muted (`voice`).
+ */
+export type CrewSignal =
+  { kind: "roster"; people: VoicePerson[] } | { kind: "voice"; inVoice: boolean; muted: boolean };
+export type CrewMessage = { type: "crew"; watchId?: string; data: CrewSignal };
 
 /**
  * Server acknowledgements and room events. `iceServers` in `joined` and
@@ -75,6 +151,13 @@ export type JoinedMessage = {
  *   bad-ticket       renter's ticket forged or expired
  *   room-taken       another renter holds the seat
  *   replaced         sent to a renter socket a newer join with the same ticket took the seat from
+ *   bad-watch-ticket a viewer's watch ticket forged, expired, or for a watch that is over
+ *   watch-declined   the player said no
+ *   watch-unanswered the player did not answer in time
+ *   watch-stopped    the player stopped the viewer watching
+ *   watch-ended      the session watched is over
+ *   watch-replaced   sent to a viewer socket a newer one with the same watch ticket took the seat from
+ *   not-crew         the viewer and the player no longer share a crew
  */
 export type DeniedMessage = {
   type: "denied";
@@ -87,7 +170,14 @@ export type DeniedMessage = {
     | "session-ended"
     | "bad-ticket"
     | "room-taken"
-    | "replaced";
+    | "replaced"
+    | "bad-watch-ticket"
+    | "watch-declined"
+    | "watch-unanswered"
+    | "watch-stopped"
+    | "watch-ended"
+    | "watch-replaced"
+    | "not-crew";
 };
 /**
  * Pushed to the PC service's socket (machine key or host certificate, never a
@@ -171,15 +261,23 @@ export type SignalMessage =
   | PeerJoinedMessage
   | PeerLeftMessage
   | PingMessage
-  | PongMessage;
+  | PongMessage
+  | WatchMessage
+  | WatchingMessage
+  | WatchersMessage
+  | WatchAnswerMessage
+  | WatchStopMessage
+  | WatchShareMessage
+  | CrewMessage;
 
 /** Messages the server forwards to the other peer without inspecting them. */
-export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started", "steam-login"] as const;
+export const RELAYED_TYPES = ["offer", "answer", "ice", "game-started", "steam-login", "crew"] as const;
 
 /** Whether the server passes `msg` on to the other peer as is. */
 export function isRelayed(
   msg: SignalMessage,
-): msg is SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage | SteamLoginRetryMessage {
+): msg is
+  SdpMessage | IceMessage | GameStartedMessage | SteamLoginMessage | SteamLoginRetryMessage | CrewMessage {
   return (RELAYED_TYPES as readonly string[]).includes(msg.type);
 }
 

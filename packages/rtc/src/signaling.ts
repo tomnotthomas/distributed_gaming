@@ -24,7 +24,7 @@
 // The wire format lives with the server that relays it — one definition, so a
 // protocol change cannot land on one side only. Type-only import: nothing from
 // the server package ends up in the browser bundle.
-export type { SignalMessage } from "../../../server/src/protocol";
+export type { SignalMessage, VoicePerson } from "../../../server/src/protocol";
 import type { SignalMessage } from "../../../server/src/protocol";
 
 const PING_MS = 25_000;
