@@ -111,15 +111,17 @@ credential per renter's seat, for the renter and for the PC, that expires with t
 from a self-run coturn's shared secret, or from a provider's credential endpoint such as
 Cloudflare's.
 
-**Recommendation: Cloudflare Realtime TURN's free tier for launch, self-run coturn as the
-fallback.** Cloudflare's free tier is 1,000 GB a month, shared with its SFU, then about
-$0.05/GB of egress: about 220 relayed hours a month free at 10 Mbit/s. The fallback is coturn
-on a Hetzner CX23 at about €6/month, IPv4 and 20 TB of traffic included. Nothing has been
-bought or signed up for yet, so the configuration stays provider-neutral: `TURN_SECRET` for
-coturn, `TURN_CREDENTIAL_URL`/`TURN_CREDENTIAL_TOKEN` for an endpoint such as Cloudflare's.
-The relay scenario in `e2e/relay` proves the shared-secret path; the endpoint path is
-unit-tested against Cloudflare's documented answer but has not yet run against the real
-provider.
+**Decision: Cloudflare Realtime TURN's free tier is the launch provider.** Its free tier is
+1,000 GB a month, shared with its SFU, then about $0.05/GB of egress: about 220 relayed hours
+a month free at 10 Mbit/s. Nothing has been bought and no account has been created yet. At
+launch the server is given either `TURN_KEY_ID` + `TURN_KEY_API_TOKEN` (the Cloudflare TURN
+key), or equivalently `TURN_CREDENTIAL_URL`
+(`https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers`) +
+`TURN_CREDENTIAL_TOKEN`; `TURN_URLS` is optional. The endpoint path is unit-tested against
+Cloudflare's documented answer but has not yet run against the real provider.
+
+Later scaling path: a self-hosted coturn relay on Hetzner, tracked in issue #95, configured
+with `TURN_SECRET` + `TURN_URLS` (the path the relay scenario in `e2e/relay` proves).
 
 The TURN variables (`server/src/ice.ts`). Leave all of them blank on one LAN, and set the
 URLs and exactly one way to mint:
