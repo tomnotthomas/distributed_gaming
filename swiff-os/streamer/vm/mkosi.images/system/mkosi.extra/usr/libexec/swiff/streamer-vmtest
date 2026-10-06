@@ -5,8 +5,11 @@ The host's harness (vm/harness.mjs) runs the Swiff server and the renter's
 browser. This agent waits for the renter's session (PipeWire, the synthetic
 gamescope node, the access grant), checks the users and devices are separated,
 fetches the session grant from the harness as hostd would get it from the
-server, and starts the streamer exactly as hostd does: as swiff-stream, with
-no supplementary groups, the grant on stdin and only hostd's environment.
+server, and starts the streamer exactly as hostd does in rental mode: as
+swiff-stream, with no supplementary groups, the grant on stdin, only hostd's
+environment and the Steam agent's socket. A stand-in for that agent says the
+booked game is on screen at once (there is no Steam here), so the streamer
+answers the server's launch-game with game-started, as on a real PC.
 It then watches the virtual devices and tells the harness each input event,
 so the harness can check what the renter typed reached the kernel.
 
@@ -17,6 +20,7 @@ the streamer exits.
 import glob
 import json
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -29,6 +33,8 @@ STREAM_UID = 961
 RUNTIME = f"/run/user/{RENTER_UID}"
 PIPEWIRE = f"{RUNTIME}/pipewire-0"
 STREAMER = "/usr/lib/swiff/streamer/dist/swiff-streamer.mjs"
+STEAM_SOCKET = "/run/swiff-vmtest-steam.sock"
+APPID = "730"
 
 
 def credential(name):
@@ -172,6 +178,37 @@ def watch_input(stop):
         time.sleep(0.02)
 
 
+def steam_agent():
+    """A stand-in for swiff-steam-login on STEAM_SOCKET: each Play's game is on screen at once."""
+    if os.path.exists(STEAM_SOCKET):
+        os.unlink(STEAM_SOCKET)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(STEAM_SOCKET)
+    os.chmod(STEAM_SOCKET, 0o666)
+    server.listen()
+
+    def play(conn):
+        with conn:
+            line = b""
+            while b"\n" not in line:
+                chunk = conn.recv(256)
+                if not chunk:
+                    return
+                line += chunk
+            if line.startswith(f"play {APPID}".encode()):
+                conn.sendall(b'{"event":"game-on-screen"}\n')
+            # The Play lasts until the streamer hangs up, as the agent's does.
+            while conn.recv(256):
+                pass
+
+    def serve():
+        while True:
+            conn, _ = server.accept()
+            threading.Thread(target=play, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
 def main():
     wait_for(lambda: call("/ping") is not None, 120, "the harness")
     say("harness reachable")
@@ -190,17 +227,18 @@ def main():
 
     separation_checks()
 
+    steam_agent()
     grant = call("/grant")
     say("got the session grant from the harness")
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "SWIFF_SERVER_URL": grant["serverUrl"],
            "SWIFF_HOST_ID": grant["hostId"],
-           # hostd sends the game's app id; the streamer must take any value and ignore it.
-           "SWIFF_APPID": "steam:not-a-number"}
+           # The game booked, which the streamer asks the Steam agent to play.
+           "SWIFF_APPID": APPID}
     args = ["node", STREAMER, "--pipewire-remote", PIPEWIRE, "--size", "1280x720", "--fps", "30",
             "--bitrate", "3000000",
             # The harness's server is on the host, which QEMU puts at 10.0.2.2: ws:// off the
             # VM, so the streamer has to be told this plain-text signaling is a test.
-            "--insecure-signaling"]
+            "--insecure-signaling", "--steam-socket", STEAM_SOCKET]
     started = time.time()
     # As swiff-hostd does it: the streamer's uid and gid, no supplementary groups, key on stdin.
     proc = subprocess.Popen(args, user=STREAM_UID, group=STREAM_UID, extra_groups=[], env=env, cwd="/",

@@ -5,8 +5,8 @@
 // Swiff player page, and a crewmate of theirs, on the real wall, asks to watch:
 // the renter says yes over the game, the friend watches the VM's picture view
 // only, and both talk in the voice chat, each hearing the other. The VM runs no
-// game and no Steam, so the harness tells the renter's page the game is on
-// screen, as the PC's Steam agent would. The VM's agent (mkosi.extra/usr/libexec/swiff/streamer-vmtest)
+// game and no Steam: its agent stands in for the PC's Steam agent, so the
+// streamer's game-started goes through the server as on a real PC. The VM's agent (mkosi.extra/usr/libexec/swiff/streamer-vmtest)
 // reaches this harness at 10.0.2.2, QEMU's address for the host, to fetch the
 // session grant and to report what it saw. The grant is made only when the
 // agent asks, as swiff-hostd gets it at claim time, so the 5-minute key is fresh.
@@ -18,7 +18,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { openSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,12 +160,16 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
     // Every game playable, unchecked: the friend's wall must not wait on Steam's verdicts.
     SWIFF_PLAYABILITY: "off",
   },
-  stdio: "ignore",
+  // Its own log beside the results, in this user's build directory, for when it fails.
+  stdio: ["ignore", "ignore", openSync(resolve(dirname(values.out), "server.log"), "w")],
 });
 // The server must not outlive the harness, however the harness ends: a normal
 // exit, an uncaught start-up failure, or a signal before stopAll is in place.
 let stopping = false;
 process.on("exit", () => server.kill());
+server.on("exit", (code, signal) => {
+  if (!stopping) console.log(`the server exited early (${signal ?? `code ${code}`}); its log is server.log`);
+});
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
     if (!stopping) process.exit(1);
@@ -249,9 +253,8 @@ const received = (page, mid) =>
 
 /**
  * The renter (`rtc`, on /rtc so far) comes back to the session on the Swiff
- * player page, where viewers get the game only while the player sees it. The
- * game is on screen once the session plays: the harness says so on the
- * page's signaling socket, standing in for the PC's Steam agent.
+ * player page, where viewers get the game only while the player sees it: once
+ * the streamer's game-started for the new connection has come through.
  */
 async function swiffPlayer(browser, rtc) {
   const context = await browser.newContext({ permissions: ["microphone"] });
@@ -259,10 +262,25 @@ async function swiffPlayer(browser, rtc) {
   const page = await context.newPage();
   page.on("pageerror", (err) => console.log(`renter page error: ${redact(err.message)}`));
   await page.addInitScript(keepConnections);
-  let signaling = null;
-  await page.routeWebSocket(/^wss?:/, (ws) => {
-    ws.connectToServer();
-    signaling = ws;
+  // What the page's signaling says, by type only (tickets stay out), for when it never gets to the game.
+  const frames = [];
+  page.on("websocket", (socket) => {
+    const note = (way) => (frame) => {
+      try {
+        const msg = JSON.parse(String(frame.payload));
+        if (msg.type !== "ping" && msg.type !== "pong")
+          frames.push(`${way}${msg.type}${msg.reason ? `(${msg.reason})` : ""}`);
+      } catch {
+        // Not JSON: not signaling.
+      }
+    };
+    socket.on("framesent", note(">"));
+    socket.on("framereceived", note("<"));
+    socket.on("close", () => frames.push("closed"));
+  });
+  page.on("response", (res) => {
+    const path = new URL(res.url()).pathname;
+    if (path.startsWith("/api/")) frames.push(`${res.request().method()} ${path} ${res.status()}`);
   });
   await rtc.close();
   // The page this browser played the session on went away; the Swiff page offers to go back to it.
@@ -277,9 +295,6 @@ async function swiffPlayer(browser, rtc) {
   await page.getByTestId("away").getByRole("button", { name: "Reconnect" }).click();
   await until(
     async () => {
-      const booking = await call("GET", `/api/bookings/${session.bookingId}`, RENTER);
-      if (booking.body.status === "playing")
-        signaling?.send(JSON.stringify({ type: "game-started", sessionId }));
       await new Promise((r) => setTimeout(r, 1000));
       return (
         (await page.getByTestId("session").count()) > 0 && (await page.getByTestId("ignition").count()) === 0
@@ -287,7 +302,19 @@ async function swiffPlayer(browser, rtc) {
     },
     "the game on screen at the renter",
     120_000,
-  );
+  ).catch(async (e) => {
+    const text = (
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => "")
+    )
+      .replace(/\s+/g, " ")
+      .slice(0, 400);
+    console.log(`renter's Swiff page: ${redact(text)}`);
+    console.log(`renter's Swiff signaling and API: ${redact(frames.join(" "))}`);
+    throw e;
+  });
   return page;
 }
 
