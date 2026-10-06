@@ -328,6 +328,17 @@ describe("CrewPage: signed out, founding and the list", () => {
     expect(calls.filter(([method]) => method === "POST")).toHaveLength(2);
   });
 
+  it("says why when the player is in as many crews as anyone may be, and offers their crews", async () => {
+    const calls = fetchFrom({ "POST /api/crews": [409, { code: "too-many-crews" }] });
+    const swiff = fakeSwiff({ crewRoute: { crew: null, found: true } });
+    render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("You're in 50 crews already");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "To your crews" }));
+    expect(swiff.openCrew).toHaveBeenCalledWith();
+    expect(calls.filter(([method]) => method === "POST")).toHaveLength(1);
+  });
+
   it("lists the crews a player is in, each opening its page, and founds another", async () => {
     const crews: MyCrew[] = [
       { ...crewOf(), size: 1 },
@@ -772,6 +783,19 @@ describe("CrewInvite", () => {
     fireEvent.click(join!);
     await waitFor(() => expect(swiff.openCrew).toHaveBeenCalledWith("c1"));
     expect(calls.filter(([method]) => method === "POST")).toEqual([["POST", `/api/invites/${TOKEN}/join`]]);
+  });
+
+  it("says why a player in as many crews as anyone may be cannot join", async () => {
+    at(`/invite/${TOKEN}`);
+    fetchFrom({
+      [`/api/invites/${TOKEN}`]: [200, { crew: OPEN }],
+      [`POST /api/invites/${TOKEN}/join`]: [409, { code: "too-many-crews" }],
+    });
+    const swiff = fakeSwiff();
+    render(<CrewInvite swiff={swiff} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Join/ }))[0]!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Leave one to start or join another.");
+    expect(swiff.openCrew).not.toHaveBeenCalled();
   });
 
   it("says so when joining did not work, and treats a dead link as one", async () => {

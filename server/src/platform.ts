@@ -259,10 +259,18 @@ export type CrewDetail = MyCrew & { inviteId: string | null; members: CrewMember
 
 /** What became of opening an invite to join: in the crew now (`id` names it), or why not. */
 export type JoinResult =
-  { ok: true; id: string; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" };
+  { ok: true; id: string; crew: CrewView; joined: boolean } | { ok: false; reason: "not-found" | "too-many" };
 
 /** The longest name a crew may have, in characters. */
 export const CREW_NAME_MAX = 24;
+
+/**
+ * The most crews one player may be in, founded and joined alike: far more than
+ * anyone plays with, and so many that every crew can be picked for one PC.
+ * Unready crews are checked on each change of offer (#crewsReady), so their
+ * number is kept bounded.
+ */
+export const MAX_CREWS = 50;
 
 /** How the host takes the machine off offer. */
 export type OffOffer = {
@@ -1224,9 +1232,15 @@ export class Platform {
    * Found a crew: `userId` is its admin and first member, `persona` their
    * Steam persona when it could be read, and `name` its own name, if they gave
    * one. It has its link at once. Every PC they own plays for it from now on.
+   * "too-many" when they are in MAX_CREWS crews already.
    */
-  createCrew(userId: string, persona: string | null, name: string | null = null): Promise<CrewDetail> {
+  createCrew(
+    userId: string,
+    persona: string | null,
+    name: string | null = null,
+  ): Promise<CrewDetail | "too-many"> {
     return this.#transaction(async () => {
+      if ((await this.#crewCount(userId)) >= MAX_CREWS) return "too-many";
       const now = this.#now();
       const crewId = newId();
       await this.#run(
@@ -1374,13 +1388,19 @@ export class Platform {
    * link. Nothing about their PCs changes: they bring one when they say so
    * (bringPc). Joining a crew they are in already changes nothing (`joined`
    * false). `name`, their Steam persona when it could be read, is how the crew
-   * sees them.
+   * sees them. "too-many" when they would be in more than MAX_CREWS crews.
    */
   joinCrew(inviteId: string, userId: string, name: string | null = null): Promise<JoinResult> {
     return this.#transaction(async (): Promise<JoinResult> => {
       const now = this.#now();
       const crew = await this.#inviteCrew(inviteId);
       if (!crew) return { ok: false, reason: "not-found" };
+      const member = await this.#get(
+        "SELECT 1 FROM crew_members WHERE crew_id = $1 AND user_id = $2",
+        crew.id,
+        userId,
+      );
+      if (!member && (await this.#crewCount(userId)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
       const joined =
         (await this.#run(
           `INSERT INTO crew_members (id, crew_id, user_id, name, invite_id, joined_at)
@@ -1452,6 +1472,15 @@ export class Platform {
       await this.#tick(now);
       return true;
     });
+  }
+
+  /** How many crews `userId` is in. */
+  async #crewCount(userId: string): Promise<number> {
+    const { n } = (await this.#get<{ n: number }>(
+      "SELECT count(*)::int AS n FROM crew_members WHERE user_id = $1",
+      userId,
+    ))!;
+    return n;
   }
 
   /** The columns of a crew read (CREW_COLUMNS with what counts as on offer), its parameters last: see #onlineParams. */

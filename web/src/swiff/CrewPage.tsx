@@ -92,14 +92,15 @@ function FoundSignedOut() {
 /** /crews/new: the crew is founded at once, and the page becomes its lobby. */
 function Founding({ swiff }: { swiff: Swiff }) {
   const { t } = useCrewText();
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<"full" | true | false>(false);
   const started = useRef(false);
-  const { replaceCrew } = swiff;
+  const { replaceCrew, openCrew } = swiff;
 
   const found = useCallback(() => {
     setFailed(false);
     void createCrew().then((crew) => {
-      if (crew) replaceCrew(crew.id);
+      if (crew === "full") setFailed("full");
+      else if (crew) replaceCrew(crew.id);
       else setFailed(true);
     });
   }, [replaceCrew]);
@@ -116,10 +117,16 @@ function Founding({ swiff }: { swiff: Swiff }) {
       <div className="lb-wrap crew-wait">
         {failed ? (
           <div role="alert" className="crew-gone">
-            <p>{t("found.failed")}</p>
-            <button type="button" className="lpill solid" onClick={found}>
-              {t("crews.retry")}
-            </button>
+            <p>{t(failed === "full" ? "crews.full" : "found.failed")}</p>
+            {failed === "full" ? (
+              <button type="button" className="lpill solid" onClick={() => openCrew()}>
+                {t("gone.back")}
+              </button>
+            ) : (
+              <button type="button" className="lpill solid" onClick={found}>
+                {t("crews.retry")}
+              </button>
+            )}
           </div>
         ) : (
           <p>{t("found.starting")}</p>

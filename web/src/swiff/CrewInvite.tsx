@@ -35,7 +35,7 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
   const { signedIn, signInKnown, openCrew, goHome } = swiff;
   const [opened, setOpened] = useState<Opened>(token ? null : "invalid");
   const [joining, setJoining] = useState(false);
-  const [joinFailed, setJoinFailed] = useState(false);
+  const [joinFailed, setJoinFailed] = useState<"full" | boolean>(false);
   const [attempt, setAttempt] = useState(0);
   const joinedOnce = useRef(false);
 
@@ -64,6 +64,7 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
     void joinInvite(token).then((answer) => {
       setJoining(false);
       if (answer === "invalid") setOpened("invalid");
+      else if (answer === "full") setJoinFailed("full");
       else if (answer) {
         forgetInvite();
         openCrew(answer.id);
@@ -244,7 +245,9 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
                 <p>{t("jn.note")}</p>
               </>
             )}
-            {joinFailed ? <p role="alert">{t("jn.joinFailed")}</p> : null}
+            {joinFailed ? (
+              <p role="alert">{t(joinFailed === "full" ? "crews.full" : "jn.joinFailed")}</p>
+            ) : null}
           </div>
         </div>
       </section>

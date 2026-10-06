@@ -135,17 +135,18 @@ export function seeReady(crewId: string): void {
   }
 }
 
-/** Found a crew as the signed-in player; null when it could not be made. */
+/** Found a crew as the signed-in player; "full" when they are in as many crews as anyone may be, null when it could not be made. */
 export async function createCrew(
   name: string | null = null,
   get: typeof fetch = fetch,
-): Promise<CrewDetail | null> {
+): Promise<CrewDetail | "full" | null> {
   const answer = await call<{ crew: CrewDetail }>(
     "/api/crews",
     { method: "POST", body: JSON.stringify(name ? { name } : {}) },
     get,
   );
-  return answer.ok ? answer.body.crew : null;
+  if (!answer.ok) return answer.status === 409 ? "full" : null;
+  return answer.body.crew;
 }
 
 /** A crew the signed-in player is in; "gone" when it is not theirs to read (or not there), null for no answer. */

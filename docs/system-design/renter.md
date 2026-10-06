@@ -529,7 +529,8 @@ a session all end the booking (POST /bookings/:id/end).
 A crew is a group of friends who play on each other's gaming PCs (`server/src/platform.ts`,
 crews). A signed-in player founds one in a tap (`POST /crews`): it exists at once, named
 after its founder until someone gives it a name of its own, with its link. Anyone founds
-several crews and joins several. The founder is the crew's admin, who renames it, replaces
+several crews and joins several, up to 50 in all (`MAX_CREWS`), the most one PC can be
+picked for; that also bounds the unready crews checked on each change of offer. The founder is the crew's admin, who renames it, replaces
 its link and removes members; when the admin leaves, whoever has been in the crew longest
 takes over, and the last one out archives it, which also kills its link.
 
@@ -579,6 +580,7 @@ GET  /crews
 POST /crews { name? }
   → 201 { crew }
   Found a crew; its PCs are the founder's. `crew` is a crew in full, as below.
+  → 409 { error, code: "too-many-crews" } for a player in 50 crews already.
 
 GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token,
@@ -605,7 +607,8 @@ GET  /invites/:token
 POST /invites/:token/join
   → 200 { id, crew, joined }
   Join the crew as the signed-in player. `joined` is false for a crew they were in
-  already, which changes nothing. → 404 as above. → 401 signed out.
+  already, which changes nothing. → 409 { error, code: "too-many-crews" } for a player
+  in 50 crews already. → 404 as above. → 401 signed out.
 
 POST /crew-members/:id/remove
   → 200 { removed: true }

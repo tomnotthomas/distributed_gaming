@@ -32,6 +32,8 @@ export const CREW_COPY = {
     "crews.loading": "Loading your crews…",
     "crews.failed": "Your crews couldn't be loaded.",
     "crews.retry": "Try again",
+    "crews.full":
+      "You're in 50 crews already, the most anyone can be in. Leave one to start or join another.",
     "crews.line": "Play your Steam games with your people on a gaming PC from your crew. Macs included.",
     "strip.line": "Play with your people: start a crew and share the link.",
     "strip.start": "Start a crew",
@@ -246,6 +248,8 @@ export const CREW_COPY = {
     "crews.loading": "Deine Crews werden geladen…",
     "crews.failed": "Deine Crews konnten nicht geladen werden.",
     "crews.retry": "Nochmal versuchen",
+    "crews.full":
+      "Du bist schon in 50 Crews, mehr geht nicht. Verlass eine, dann kannst du eine neue gründen oder beitreten.",
     "crews.line":
       "Zock deine Steam-Spiele mit deinen Leuten, auf einem Gaming-PC aus eurer Crew. Auch auf dem Mac.",
     "strip.line": "Zock mit deinen Leuten: gründe eine Crew und teil den Link.",

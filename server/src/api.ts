@@ -98,7 +98,7 @@ import { popularGames } from "./catalog.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
 import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
-import { MAX_MINUTES, type CrewDetail, type Platform, type Rtts } from "./platform.js";
+import { MAX_CREWS, MAX_MINUTES, type CrewDetail, type Platform, type Rtts } from "./platform.js";
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
@@ -259,8 +259,8 @@ const optionalTime = (value: unknown, field: string): number | undefined => {
   return Math.round(ms);
 };
 
-/** The most crews a host app may pick for one PC: far more than anyone is in. */
-const MAX_PICKED_CREWS = 50;
+/** The most crews a host app may pick for one PC: every crew its owner may be in. */
+const MAX_PICKED_CREWS = MAX_CREWS;
 
 /** The crews a host app picked for its PC (platform.ts MachineSpec.crews), or a 400; omitted is undefined. */
 function crewIds(value: unknown): string[] | undefined {
@@ -663,6 +663,10 @@ export function createApi({
       // The founder is shown by their Steam persona: kept from this read, when Steam answers.
       const read = await profile(steamId).catch(() => null);
       const crew = await platform.createCrew(steamId, read?.persona || null, (body.name as string) ?? null);
+      if (crew === "too-many") {
+        reply(res, 409, { error: `you are in ${MAX_CREWS} crews already`, code: "too-many-crews" });
+        return true;
+      }
       reply(res, 201, { crew: crewReply(crew) });
       return true;
     }
@@ -721,6 +725,10 @@ export function createApi({
       // The crew's owner sees them by their Steam persona, kept from this read, when Steam answers.
       const read = inviteId ? await profile(steamId).catch(() => null) : null;
       const joined = inviteId ? await platform.joinCrew(inviteId, steamId, read?.persona || null) : null;
+      if (joined && !joined.ok && joined.reason === "too-many") {
+        reply(res, 409, { error: `you are in ${MAX_CREWS} crews already`, code: "too-many-crews" });
+        return true;
+      }
       if (!joined?.ok) throw new HttpError(404, "this invite link is not valid any more");
       reply(res, 200, { id: joined.id, crew: joined.crew, joined: joined.joined });
       return true;

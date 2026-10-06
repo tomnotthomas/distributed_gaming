@@ -19,7 +19,14 @@ import {
 } from "../access.js";
 import { createApi } from "../api.js";
 import { RequestBudget } from "../budget.js";
-import { CREW_NAME_MAX, crewNameOf, PC_ARRIVED_MS, Platform, type MachineSpec } from "../platform.js";
+import {
+  CREW_NAME_MAX,
+  crewNameOf,
+  MAX_CREWS,
+  PC_ARRIVED_MS,
+  Platform,
+  type MachineSpec,
+} from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { emptyProfile } from "../steam.js";
 import { testDatabase } from "./db.js";
@@ -62,12 +69,19 @@ const open = async () => {
   });
 };
 
+/** Found a crew, as someone in fewer than MAX_CREWS crews. */
+async function found(...args: Parameters<Platform["createCrew"]>) {
+  const crew = await platform.createCrew(...args);
+  assert.ok(crew !== "too-many");
+  return crew;
+}
+
 const offer = (machineId: string, spec: MachineSpec = {}) =>
   platform.setAvailability(machineId, true, { ...REPORT, ...spec });
 
 /** Alex's crew, and its link's invite. */
 async function alexFounds() {
-  const crew = await platform.createCrew(ALEX, "Alex");
+  const crew = await found(ALEX, "Alex");
   return { crewId: crew.id, inviteId: crew.inviteId! };
 }
 
@@ -95,7 +109,7 @@ describe("crews", () => {
 
   describe("founding and naming", () => {
     it("founds a crew in one tap, with its link, asking nothing about a PC", async () => {
-      const crew = await platform.createCrew(ALEX, "Alex");
+      const crew = await found(ALEX, "Alex");
       assert.ok(crew.inviteId);
       assert.deepEqual(
         { ...crew, id: undefined, memberId: undefined, inviteId: undefined, members: undefined },
@@ -132,12 +146,12 @@ describe("crews", () => {
     });
 
     it("lets anyone found several crews and be in several, each with a link of its own", async () => {
-      const first = await platform.createCrew(ALEX, "Alex", "Freitagsrunde");
+      const first = await found(ALEX, "Alex", "Freitagsrunde");
       now += 1000;
-      const second = await platform.createCrew(ALEX, "Alex");
+      const second = await found(ALEX, "Alex");
       now += 1000;
       assert.notEqual(first.inviteId, second.inviteId);
-      assert.ok((await platform.joinCrew((await platform.createCrew(JO, "Jo")).inviteId!, ALEX)).ok);
+      assert.ok((await platform.joinCrew((await found(JO, "Jo")).inviteId!, ALEX)).ok);
       assert.deepEqual(
         (await platform.crews(ALEX)).map((c) => [c.crewName, c.name, c.own]),
         [
@@ -166,6 +180,18 @@ describe("crews", () => {
       assert.equal(crewNameOf("Zocker‮bande\u0007"), "Zockerbande");
       assert.equal(crewNameOf(`${"🎮".repeat(30)}`), "🎮".repeat(CREW_NAME_MAX));
       assert.equal(crewNameOf(42), null);
+    });
+    it("keeps anyone to MAX_CREWS crews, founded and joined alike", async () => {
+      const joinable = await found(JO, "Jo");
+      for (let i = 0; i < MAX_CREWS; i++) await found(ALEX, "Alex");
+      assert.equal(await platform.createCrew(ALEX, "Alex"), "too-many");
+      assert.deepEqual(await platform.joinCrew(joinable.inviteId!, ALEX), { ok: false, reason: "too-many" });
+      // Leaving one makes room again; a crew they are in already still opens.
+      const [first] = await platform.crews(ALEX);
+      const again = await platform.joinCrew((await platform.crew(first!.id, ALEX))!.inviteId!, ALEX);
+      assert.equal(again.ok && again.joined, false);
+      assert.equal(await platform.leaveCrew(first!.memberId, ALEX), true);
+      assert.equal((await platform.joinCrew(joinable.inviteId!, ALEX)).ok, true);
     });
   });
 
@@ -295,7 +321,7 @@ describe("crews", () => {
 
     it("has a founder's PC play for the crew they found", async () => {
       await offer("pc-1");
-      const crew = await platform.createCrew(HOST, "Sam");
+      const crew = await found(HOST, "Sam");
       assert.equal(crew.state, "ready");
       assert.equal(crew.members[0]?.pc, "yes");
       assert.deepEqual(ready, [{ crewId: crew.id, memberIds: [HOST] }]);
@@ -306,7 +332,7 @@ describe("crews", () => {
     it("lets a crew have several PCs, and a PC owner be in several crews with a choice per crew", async () => {
       const alex = await hostJoinsAlex();
       now += 1000;
-      const jo = await platform.createCrew(JO, "Jo");
+      const jo = await found(JO, "Jo");
       assert.ok((await platform.joinCrew(jo.inviteId!, HOST, "Sam")).ok);
       assert.ok((await platform.joinCrew(alex.inviteId, JO, "Jo")).ok);
       await offer("pc-1");
@@ -337,7 +363,7 @@ describe("crews", () => {
       assert.equal((await platform.crew(alex.crewId, ALEX))?.pcs, 1);
       assert.deepEqual(await crewOf("pc-1"), [HOST, JO].sort());
       // A crew its owner is not in is ignored.
-      const stranger = await platform.createCrew(STRANGER, "Kim");
+      const stranger = await found(STRANGER, "Kim");
       assert.deepEqual(
         (await offer("pc-1", { crews: [stranger.id, jo.id] })).crew.crews
           .filter((c) => c.plays)
@@ -368,7 +394,7 @@ describe("crews", () => {
     });
 
     it("keeps a PC open while its owner is only in a crew of their own without bringing it", async () => {
-      await platform.createCrew(HOST, "Sam");
+      await found(HOST, "Sam");
       assert.equal((await offer("pc-1")).crew.only, false);
     });
   });
@@ -610,6 +636,18 @@ describe("crew API", () => {
       [null, "Freitagsrunde"],
     );
     assert.equal((await call("GET", "/api/crews")).status, 401);
+  });
+
+  it("refuses to found or join past MAX_CREWS crews with 409", async () => {
+    const { body } = await call("POST", "/api/crews", JO, {});
+    for (let i = 0; i < MAX_CREWS; i++)
+      assert.equal((await call("POST", "/api/crews", ALEX, {})).status, 201);
+    const founding = await call("POST", "/api/crews", ALEX, {});
+    assert.equal(founding.status, 409);
+    assert.equal(founding.body.code, "too-many-crews");
+    const joining = await call("POST", `/api/invites/${body.crew.token}/join`, ALEX);
+    assert.equal(joining.status, 409);
+    assert.equal(joining.body.code, "too-many-crews");
   });
 
   it("shows a crew only to the people in it, never by Steam id", async () => {

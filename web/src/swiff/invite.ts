@@ -123,14 +123,16 @@ export async function openInvite(
   }
 }
 
-/** Join the invite's crew as the signed-in player: the crew joined (`id` names it), or why not. */
+/** Join the invite's crew as the signed-in player: the crew joined (`id` names it), or why not ("full": in too many crews). */
 export async function joinInvite(
   token: string,
   get: typeof fetch = fetch,
-): Promise<{ id: string; crew: CrewView; joined: boolean } | "invalid" | null> {
+): Promise<{ id: string; crew: CrewView; joined: boolean } | "invalid" | "full" | null> {
   try {
     const response = await get(`/api/invites/${encodeURIComponent(token)}/join`, { method: "POST" });
     if (response.status === 404) return "invalid";
+    // In as many crews as anyone may be: leaving one makes room.
+    if (response.status === 409) return "full";
     return response.ok ? ((await response.json()) as { id: string; crew: CrewView; joined: boolean }) : null;
   } catch {
     return null;
