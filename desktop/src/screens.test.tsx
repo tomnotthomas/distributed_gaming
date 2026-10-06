@@ -135,6 +135,7 @@ function actions(): HostActions {
     saveRecoveryKey: vi.fn(),
     openBitLocker: vi.fn(),
     seenRemoval: vi.fn(),
+    finishRemoval: vi.fn(),
     goLiveRental: vi.fn(),
     retryRental: vi.fn(),
     reportRental: vi.fn(),
@@ -1277,13 +1278,41 @@ describe("rental mode", () => {
       rental({ read: { ...installed(), removal: { state: "finish" } } }),
     );
     expect(h1()).toHaveTextContent("Finishing removing Swiff OS");
+    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
     expect(
-      within(screen.getByRole("main")).queryByRole("button", { name: /Finish|Remove|Check again/ }),
+      within(screen.getByRole("main")).queryByRole("button", { name: /Finish|Remove|Check again|Try again/ }),
     ).toBeNull();
-    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Try again/ }));
-    expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: false });
     fireEvent.click(screen.getByRole("button", { name: "The blue screen didn't take the code" }));
     expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: true });
+    cleanup();
+
+    // The automatic go is being planned: still by itself.
+    renderReal(
+      "rental",
+      off,
+      rental({ read: { ...installed(), removal: { state: "finish" } }, removalTried: true, planning: true }),
+    );
+    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: /Try again/ })).toBeNull();
+    cleanup();
+
+    // It ran, and nothing runs now: one plain sentence, and Try again runs the rest at once.
+    const tried = renderReal(
+      "rental",
+      off,
+      rental({
+        read: { ...installed(), removal: { state: "finish" } },
+        removalTried: true,
+        run: { ...IDLE_RUN, status: "failed", failed: { step: "plan", error: "x" } },
+      }),
+    );
+    expect(
+      screen.getByText("Swiff OS is still on the disk. Press Try again to remove it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/by itself/)).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Try again/ }));
+    expect(tried.finishRemoval).toHaveBeenCalledOnce();
+    expect(tried.previewRental).not.toHaveBeenCalled();
     cleanup();
 
     renderReal(

@@ -403,6 +403,12 @@ describe("useRental", () => {
     await act(async () => {});
     expect(pending).toHaveLength(2);
     expect(host.runRental).toHaveBeenCalledOnce();
+    expect(result.current.removalTried).toBe(true);
+    // Try again: the disk's part, planned and run at once.
+    act(() => result.current.finishRemoval());
+    expect(pending[2]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(2, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledTimes(2);
   });
 
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {

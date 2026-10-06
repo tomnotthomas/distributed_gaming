@@ -539,6 +539,7 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
       })),
     openBitLocker: () => {},
     seenRemoval: () => setS((cur) => ({ ...cur, read: ready })),
+    finishRemoval: () => start(REMOVE_DISK),
     retryRental: () => s.preview && start(s.preview),
     reportRental: () => setS((cur) => ({ ...cur, run: { ...cur.run, reportedAt: Date.now() } })),
     seenLastLive: () => setS((cur) => ({ ...cur, read: cur.read && { ...cur.read, lastLive: null } })),

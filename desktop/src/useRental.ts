@@ -62,6 +62,7 @@ export function useRental(): RentalSetup & {
   saveRecovery(): void;
   openBitLocker(): void;
   seenRemoval(): void;
+  finishRemoval(): void;
 } {
   const [read, setRead] = useState<RentalRead | null>(null);
   const [reading, setReading] = useState(true);
@@ -227,17 +228,11 @@ export function useRental(): RentalSetup & {
 
   // Remove Swiff OS goes on by itself once its key's restart is behind it, once per app start:
   // the owner asked once. After that, only the owner's own Try again or the key's removal again.
-  const continued = useRef(false);
+  const [removalTried, setRemovalTried] = useState(false);
   useEffect(() => {
-    if (
-      read?.removal?.state !== "finish" ||
-      preview ||
-      planning ||
-      run.status !== "idle" ||
-      continued.current
-    )
+    if (read?.removal?.state !== "finish" || preview || planning || run.status !== "idle" || removalTried)
       return;
-    continued.current = true;
+    setRemovalTried(true);
     again("remove", false);
   });
 
@@ -248,6 +243,7 @@ export function useRental(): RentalSetup & {
     planning,
     liveSeen,
     bitlockerPage,
+    removalTried,
     target,
     preview,
     run,
@@ -319,6 +315,7 @@ export function useRental(): RentalSetup & {
         .catch(() => false)
         .then((opened) => setBitlockerPage(opened ? "opened" : "failed"));
     },
+    finishRemoval: () => again("remove", false),
     seenRemoval: () => {
       void bridge()
         ?.seenRemoval()

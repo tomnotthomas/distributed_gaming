@@ -130,6 +130,8 @@ export type RentalSetup = {
   liveSeen?: number | null;
   /** Whether Windows' BitLocker page opened when the owner asked for it; null until they did. */
   bitlockerPage?: "opened" | "failed" | null;
+  /** The app's one automatic go at Remove Swiff OS's disk part has started, this app start. */
+  removalTried?: boolean;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -365,6 +367,8 @@ export type HostActions = {
   openBitLocker(): void;
   /** The owner has seen how Remove Swiff OS ended. */
   seenRemoval(): void;
+  /** Remove Swiff OS's disk part, planned and run at once: Try again after its key's restart. */
+  finishRemoval(): void;
   /** Go live in rental mode: the PC restarts into Swiff OS. */
   goLiveRental(): void;
   /** Try a failed plan again: planned afresh and run at once, the owner's OK given already. */

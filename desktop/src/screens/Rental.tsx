@@ -821,15 +821,18 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       links.push({ id: "home", label: "No Back up option?", body: <RecoveryHome /> });
       break;
     }
-    case "finish":
+    case "finish": {
+      const waits = Boolean(setup.removalTried) && !setup.planning;
       title = "Finishing removing Swiff OS";
-      line =
-        "Swiff now takes Swiff OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
-      action = (
-        <Pill icon="undo" onClick={() => actions.previewRental("remove", { key: false })}>
-          Try again
-        </Pill>
-      );
+      line = waits
+        ? "Swiff OS is still on the disk. Press Try again to remove it."
+        : "Swiff now takes Swiff OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
+      if (waits)
+        action = (
+          <Pill icon="undo" onClick={actions.finishRemoval}>
+            Try again
+          </Pill>
+        );
       plate = (
         <Plate caption={["Remove Swiff OS", "Windows may ask once"]}>
           <Dial progress={0.5} big="Last part" small="then a restart" />
@@ -837,6 +840,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       );
       links.push(rekeyLink(actions));
       break;
+    }
     case "removed": {
       const fine = s.ok !== false;
       title = fine ? "Swiff OS is off this PC" : "Swiff OS is off, but check this";
