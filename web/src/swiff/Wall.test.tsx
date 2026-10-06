@@ -193,7 +193,7 @@ describe("Wall", () => {
   it("drafts a signed-out visitor's hero as tonight's game, with the pitch and no live machine count", () => {
     render(<Wall swiff={swiffWith(GAMES, null)} />);
     const hero = within(screen.getByTestId("hero"));
-    expect(hero.getByText("Tonight on Swiff")).toBeInTheDocument();
+    expect(hero.getByText("Tonight on Lanterel")).toBeInTheDocument();
     expect(hero.getByText(/We read your Steam library/)).toBeInTheDocument();
     expect(hero.queryByText(/free near you/)).toBeNull();
     expect(hero.queryByRole("button", { name: /resume|play/i })).toBeNull();

@@ -103,7 +103,7 @@ function ComeBack(props: ComeBackProps) {
           />
         ) : null}
         <div className="ig-shade" />
-        <span className="wm ig-wm">Swiff</span>
+        <span className="wm ig-wm">Lanterel</span>
         <div className="ig-copy">
           <div className="mono">{props.kicker}</div>
           <div className="ig-title">{game?.title ?? "Your game"}</div>
@@ -193,7 +193,7 @@ export function QueueBackDialog({ swiff }: { swiff: Swiff }) {
       reading="In the queue"
       timeTestId="queue-back-held"
       time="Held"
-      line="Your place in the queue is held while Swiff stays open, and kept for 2 minutes if you close it. Your game starts by itself the moment a machine is free."
+      line="Your place in the queue is held while Lanterel stays open, and kept for 2 minutes if you close it. Your game starts by itself the moment a machine is free."
       primary={{ label: "Keep waiting", onClick: swiff.keepQueue }}
       secondary={{ label: "Leave the queue", onClick: swiff.leaveQueue }}
     />

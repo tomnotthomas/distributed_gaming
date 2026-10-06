@@ -31,7 +31,7 @@ export type Release = {
 
 /**
  * Where the host installer is downloaded from, or null while none is published:
- * CI's package-desktop job builds SwiffHost-<version>.exe but keeps it only as a
+ * CI's package-desktop job builds LanterelHost-<version>.exe but keeps it only as a
  * three-day workflow artifact. Until release.json names an address the button
  * says Coming soon and goes nowhere; with one, the button is the download link.
  */

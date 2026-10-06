@@ -180,7 +180,7 @@ describe("GameMenu", () => {
 
     it("tells the renter when Swiff cannot run the game", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { bookingFailed: true, refusal: "not-playable" })} />);
-      expect(screen.getByRole("alert")).toHaveTextContent(/can't run on Swiff/);
+      expect(screen.getByRole("alert")).toHaveTextContent(/can't run on Lanterel/);
       expect(screen.queryByText(/Try again/)).toBeNull();
     });
 

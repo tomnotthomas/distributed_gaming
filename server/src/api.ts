@@ -202,7 +202,7 @@ const UNLICENSED_MESSAGE = {
 } as const;
 
 /** What a game Swiff cannot run (playable.ts) answers, with code not-playable. */
-const NOT_PLAYABLE = { error: "Swiff cannot run this game", code: "not-playable" } as const;
+const NOT_PLAYABLE = { error: "Lanterel cannot run this game", code: "not-playable" } as const;
 
 /** Answer with a JSON body that no cache keeps. */
 function reply(

@@ -73,7 +73,7 @@ export function Client() {
 
   return (
     <PageShell
-      title="Swiff"
+      title="Lanterel"
       subtitle="Rent a gaming PC. Play it in this tab."
       meta={room ? <Tag label="Room">{room}</Tag> : undefined}
     >

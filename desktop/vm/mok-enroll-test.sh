@@ -78,7 +78,7 @@ cp "$shim/mmx64.efi" "$run/esp/EFI/BOOT/mmx64.efi"
 
 # Swiff's certificate's stand-in.
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$run/key.pem" -out "$run/cert.pem" \
-	-days 1 -subj "/CN=Swiff OS test MOK" 2> /dev/null
+	-days 1 -subj "/CN=Lanterel OS test MOK" 2> /dev/null
 openssl x509 -in "$run/cert.pem" -outform DER -out "$run/swiffos-key.cer"
 cp "$ovmf_vars" "$run/vars.fd"
 

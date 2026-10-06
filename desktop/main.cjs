@@ -422,7 +422,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: "swiff-art", privileges: { stand
 app.commandLine.appendSwitch("disable-features", "WebRtcHideLocalIpsWithMdns");
 
 // Toasts on Windows ("Notify me at 22:40") need the app's own id.
-if (process.platform === "win32") app.setAppUserModelId("com.swiff.host");
+if (process.platform === "win32") app.setAppUserModelId("com.lanterel.host");
 
 // `titleBarOverlay` is Windows and Linux only. Passing it on macOS throws and
 // the window never appears, with nothing logged. The overlay takes the rail's
@@ -560,13 +560,13 @@ function toggleGlance() {
 /** The tray icon: a click toggles the glance, its menu opens or quits Swiff. */
 function createTray() {
   tray = new Tray(trayIcon());
-  tray.setToolTip("Swiff Host");
+  tray.setToolTip("Lanterel Host");
   tray.on("click", toggleGlance);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open Swiff", click: showWindow },
+      { label: "Open Lanterel", click: showWindow },
       { type: "separator" },
-      { label: "Quit Swiff Host", click: () => app.quit() },
+      { label: "Quit Lanterel Host", click: () => app.quit() },
     ]),
   );
 }
@@ -581,7 +581,7 @@ ipcMain.on("glance:set", (event, snapshot) => {
   }
   latest = snapshot;
   if (tray && typeof snapshot.status === "string")
-    tray.setToolTip(`Swiff Host: ${snapshot.status}`.slice(0, 120));
+    tray.setToolTip(`Lanterel Host: ${snapshot.status}`.slice(0, 120));
   glance?.webContents.send("glance", latest);
 });
 

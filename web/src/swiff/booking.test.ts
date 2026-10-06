@@ -376,7 +376,7 @@ describe("booking a picked machine", () => {
     });
 
     const unplayable = routes({
-      "POST /api/bookings": json(403, { error: "Swiff cannot run this game", code: "not-playable" }),
+      "POST /api/bookings": json(403, { error: "Lanterel cannot run this game", code: "not-playable" }),
     });
     await expect(book(578080, 30, { fetch: unplayable.fetch })).rejects.toMatchObject({
       refusal: "not-playable",

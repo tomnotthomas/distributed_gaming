@@ -68,7 +68,7 @@ export function Profile({ swiff }: { swiff: Swiff }) {
           <SettingRow
             layout="stacked"
             label="Picture"
-            hint="Swiff picks the machine that can deliver it."
+            hint="Lanterel picks the machine that can deliver it."
             control={
               <Segment
                 name="quality"

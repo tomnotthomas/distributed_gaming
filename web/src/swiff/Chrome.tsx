@@ -39,15 +39,15 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed
             title="All games · Esc"
           >
             <Glyph name="back" size={20} />
-            <span className="wm">Swiff</span>
+            <span className="wm">Lanterel</span>
           </button>
         ) : (
           <button type="button" className="bar-home" onClick={onHome} aria-label="Home">
-            <span className="wm">Swiff</span>
+            <span className="wm">Lanterel</span>
           </button>
         )}
       </div>
-      <nav className="bar-nav" aria-label="Swiff">
+      <nav className="bar-nav" aria-label="Lanterel">
         <button type="button" aria-current={screen === "home" ? "page" : undefined} onClick={onHome}>
           Home
         </button>

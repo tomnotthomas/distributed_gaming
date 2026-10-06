@@ -2,7 +2,7 @@
 # starts the streamer as its own user, and restarts the machine. The image
 # stage installs it; the paths below are where that stage puts things.
 [Unit]
-Description=Swiff rental-mode agent
+Description=Lanterel rental-mode agent
 Wants=network-online.target
 After=network-online.target
 

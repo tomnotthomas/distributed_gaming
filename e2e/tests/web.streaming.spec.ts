@@ -50,7 +50,7 @@ test.describe("host to renter streaming", () => {
     await expect(host.getByText("Waiting for a renter…")).toBeVisible();
 
     await renter.goto(joinLink());
-    await expect(renter.getByRole("heading", { name: "Swiff" })).toBeVisible();
+    await expect(renter.getByRole("heading", { name: "Lanterel" })).toBeVisible();
     await renter.getByRole("button", { name: "Connect" }).click();
 
     // Each side learns about the other through the signaling server.

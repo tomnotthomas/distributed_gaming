@@ -1,5 +1,5 @@
 [Unit]
-Description=Re-run the Swiff LAN firewall update when the network changes
+Description=Re-run the Lanterel LAN firewall update when the network changes
 
 [Path]
 PathChanged=/run/systemd/resolve/resolv.conf

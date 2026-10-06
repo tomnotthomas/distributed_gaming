@@ -180,7 +180,7 @@ describe("C: a place in the queue kept", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Still finding a machine" });
     expect(dialog).toHaveTextContent("In the queue");
-    expect(dialog).toHaveTextContent("held while Swiff stays open");
+    expect(dialog).toHaveTextContent("held while Lanterel stays open");
     expect(dialog).toHaveTextContent("kept for 2 minutes if you close it");
     expect(dialog.textContent).not.toMatch(/\d:\d\d/);
     fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));

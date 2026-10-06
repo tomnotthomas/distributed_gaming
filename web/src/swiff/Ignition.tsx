@@ -64,7 +64,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
           />
         ) : null}
         <div className="ig-shade" />
-        <span className="wm ig-wm">Swiff</span>
+        <span className="wm ig-wm">Lanterel</span>
         <div className="ig-copy">
           <div className="mono" data-testid="ignition-kicker">
             {lost ? (lost.taken ? `${lost.host} was taken back` : `${lost.host} went offline`) : "Starting"}

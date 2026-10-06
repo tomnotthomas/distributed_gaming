@@ -291,7 +291,7 @@ function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
   const spot = swiff.spots.get(game.id);
   const best = spot?.best ?? null;
   const title = useFitTitle(game.title);
-  const leader = !signedIn ? "Tonight on Swiff" : game.owned ? "From your library" : "Free to play";
+  const leader = !signedIn ? "Tonight on Lanterel" : game.owned ? "From your library" : "Free to play";
 
   return (
     <section
@@ -489,7 +489,7 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
   },
   checking: {
     title: "Checking your games…",
-    body: "Each one shows up here once we know Swiff can run it.",
+    body: "Each one shows up here once we know Lanterel can run it.",
   },
   none: {
     title: "None of your Steam games can be played here yet.",

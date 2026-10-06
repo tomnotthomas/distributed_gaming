@@ -35,7 +35,7 @@ export const REFUSAL_COPY: Record<Refusal, string> = {
     "You don't own this game on Steam. You play with your own Steam licence, so only games in your Steam library and free-to-play games can start.",
   "library-unreadable":
     "We can't see your Steam library, so only free-to-play games can start. In Steam, set Profile → Privacy → Game details to Public, then try again.",
-  "not-playable": "This game can't run on Swiff right now, so it's off the wall. Pick another one.",
+  "not-playable": "This game can't run on Lanterel right now, so it's off the wall. Pick another one.",
 };
 
 /**

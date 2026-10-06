@@ -1,5 +1,5 @@
 [Unit]
-Description=Swiff streamer VM test agent
+Description=Lanterel streamer VM test agent
 Wants=network-online.target user@1000.service
 After=network-online.target user@1000.service
 

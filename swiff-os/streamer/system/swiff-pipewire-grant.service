@@ -5,7 +5,7 @@
 # (a restart, or a stop and start), this runs again: PartOf= restarts it with
 # the socket, and WantedBy=pipewire.socket starts it whenever the socket starts.
 [Unit]
-Description=Let the Swiff streamer capture this session
+Description=Let the Lanterel streamer capture this session
 ConditionUser=renter
 After=pipewire.socket
 Requires=pipewire.socket

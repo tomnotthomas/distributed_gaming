@@ -63,7 +63,7 @@ Code: `web/`, `server/`, `packages/`.
 ```bash
 npm run desktop        # run the Electron app locally
 npm run desktop:demo   # the same app on labelled demo data, to walk every screen
-npm run desktop:pack   # build desktop/release/SwiffHost-<version>.exe
+npm run desktop:pack   # build desktop/release/LanterelHost-<version>.exe
 ```
 
 The download page (`/share`) publishes the SHA-256 of the installer and of the Swiff OS image

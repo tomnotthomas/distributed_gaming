@@ -840,7 +840,7 @@ describe("booking and host API", () => {
       );
       const machines = await renter("GET", "/api/games/570/machines?minutes=60&rtt=0");
       assert.equal(machines.status, 404);
-      assert.deepEqual(machines.body, { error: "Swiff cannot run this game", code: "not-playable" });
+      assert.deepEqual(machines.body, { error: "Lanterel cannot run this game", code: "not-playable" });
     });
 
     it("refuses to book the others, queued or picked, and books nothing", async () => {

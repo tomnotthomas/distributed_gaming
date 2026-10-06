@@ -166,7 +166,7 @@ export function Rail({
   return (
     <nav className="path" aria-label="Steps">
       <div className="pwm">
-        <span className="wm">SWIFF</span>
+        <span className="wm">LANTEREL</span>
         <span className="mono">{view.machine}</span>
       </div>
       {view.demo ? (
