@@ -181,12 +181,13 @@ function NvidiaZone({
   const driver = read.nvidiaDriver!;
   const letter = read.games?.letter ?? null;
   const running = install.state === "running";
+  const done = driver.installed && driver.accepted !== null;
   // The licence comes up on its own: the owner's first step is reading it.
   useEffect(() => {
-    if (!driver.installed && text.state === "idle") actions.readNvidiaLicence();
-  }, [driver.installed, text.state, actions]);
+    if (!done && text.state === "idle") actions.readNvidiaLicence();
+  }, [done, text.state, actions]);
 
-  if (driver.installed && !running)
+  if (done && !running)
     return (
       <Zone
         title="NVIDIA's driver"
@@ -197,9 +198,8 @@ function NvidiaZone({
         }
       >
         <p className="soft">
-          NVIDIA {driver.version} is on {letter}:, {mb(driver.bytes)} from Ubuntu
-          {driver.accepted ? `. You accepted NVIDIA's licence on ${day(driver.accepted.at)}` : ""}. Swiff OS
-          checks every file of it each time it starts.
+          NVIDIA {driver.version} is on {letter}:, {mb(driver.bytes)} from Ubuntu. You accepted NVIDIA's
+          licence on {day(driver.accepted!.at)}. Swiff OS checks every file of it each time it starts.
         </p>
       </Zone>
     );

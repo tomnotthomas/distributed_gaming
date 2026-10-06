@@ -852,6 +852,19 @@ describe("rental mode", () => {
       expect(acts.removeNvidia).toHaveBeenCalledOnce();
     });
 
+    it("asks for NVIDIA's licence and Swiff's terms again when the driver is there but not the acceptance", () => {
+      const acts = renderReal("rental", off, ready({ read: nvidiaPc({ installed: true, accepted: null }) }));
+      expect(
+        screen.getByText("RTX 4080: accept NVIDIA's licence again", { selector: ".rck" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove it" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("checkbox", { name: "I have read NVIDIA's licence and accept it." }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "I accept these terms." }));
+      fireEvent.click(screen.getByRole("button", { name: /Install NVIDIA's driver/ }));
+      expect(acts.installNvidia).toHaveBeenCalledWith({ licence: true, terms: true });
+      expect(screen.getByRole("button", { name: /Review the install/ })).toBeDisabled();
+    });
+
     it("offers no driver while NVIDIA is in testing, or while Swiff has paused it", () => {
       renderReal("rental", off, rental({ read: { ...nvidiaPc(), nvidiaRental: false, nvidiaDriver: null } }));
       expect(screen.queryByText("NVIDIA's driver")).not.toBeInTheDocument();

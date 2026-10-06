@@ -135,7 +135,9 @@ Windows works as before.
   then shows the card as "paused" and offers no driver. Sharing from Windows is not affected.
   Turn it on only after the hardware test. swiff-hostd's attestation client (not built yet) must
   send `graphics: "nvidia"` when NVIDIA's driver runs the card (`/run/swiff/nvidia`
-  `state=ready`).
+  `state=ready`). Until it does, `graphics` is self-reported and absent counts as AMD or Intel,
+  so for now the switch is enforced by the host app's gate plus the certificate claim; a
+  certificate without the claim, such as one minted before it, is not NVIDIA and keeps hosting.
 
 Nothing in Swiff's apps or pages says "earn with your NVIDIA card".
 

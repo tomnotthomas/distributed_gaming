@@ -3,7 +3,7 @@
 // hosting.test.ts covers a server enforcing it end to end.
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 import {
   accessFromEnv,
@@ -208,6 +208,16 @@ describe("NVIDIA rental hosting (NVIDIA_RENTAL)", () => {
       kind: "machine-key",
       hosting: "unattested",
     });
+  });
+
+  it("keeps a certificate minted before the NVIDIA claim hosting while it is off", () => {
+    const iat = Math.floor(Date.now() / 1000);
+    const body = { room: "pc-1", tier: "attested", id: "legacy-cert", exp: iat + 600, iat, boot: null };
+    const payload = Buffer.from(JSON.stringify(body)).toString("base64url");
+    const signature = createHmac("sha256", SECRET).update(`host.${payload}`).digest("base64url");
+    const legacy = `${payload}.${signature}`;
+    assert.equal(verifyHostCert(SECRET, legacy)?.nvidia, false);
+    assert.equal(switched(false).credential("pc-1", legacy)?.hosting, "attested");
   });
 
   it("refuses graphics it does not know", async () => {

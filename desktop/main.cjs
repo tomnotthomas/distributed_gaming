@@ -156,7 +156,7 @@ const nvidiaDriver = (letter) =>
     ? driverState({ manifest: NVIDIA_MANIFEST, letter, dataDir: app.getPath("userData") })
     : null;
 const readRentalHere = () => readRental({ nvidiaRental: NVIDIA_RENTAL, nvidiaDriver });
-/** The install under way, to stop it; null when none is. */
+/** The install or removal under way, to stop it; null when none is. */
 let nvidiaInstall = null;
 /** Progress to the window at most this often: a download is thousands of chunks. */
 const NVIDIA_PROGRESS_MS = 200;
@@ -170,13 +170,13 @@ ipcMain.handle("rental:nvidia-install", async (event, ask) => {
   if (!fromApp(event) || !NVIDIA_RENTAL || !NVIDIA_MANIFEST || nvidiaInstall) return null;
   // The owner ticks both on the screen, each time they install.
   if (ask?.licence !== true || ask?.terms !== true) return null;
-  const rental = await readRentalHere();
-  const games = rental?.games;
-  if (!games || games.bitlocker === "on" || !supportedCard(rental.facts.gpus)) return null;
   const sender = event.sender;
   let sent = 0;
   nvidiaInstall = new AbortController();
   try {
+    const rental = await readRentalHere();
+    const games = rental?.games;
+    if (!games || games.bitlocker === "on" || !supportedCard(rental.facts.gpus)) return null;
     return await installDriver({
       manifest: NVIDIA_MANIFEST,
       folder: driverFolder(games.letter, NVIDIA_MANIFEST.version),
@@ -199,12 +199,17 @@ ipcMain.handle("rental:nvidia-cancel", (event) => {
 });
 ipcMain.handle("rental:nvidia-remove", async (event) => {
   if (!fromApp(event) || !NVIDIA_MANIFEST || nvidiaInstall) return null;
-  const games = (await readRentalHere())?.games;
-  if (!games) return null;
-  return removeDriver({
-    folder: driverFolder(games.letter, NVIDIA_MANIFEST.version),
-    dataDir: app.getPath("userData"),
-  });
+  nvidiaInstall = new AbortController();
+  try {
+    const games = (await readRentalHere())?.games;
+    if (!games) return null;
+    return removeDriver({
+      folder: driverFolder(games.letter, NVIDIA_MANIFEST.version),
+      dataDir: app.getPath("userData"),
+    });
+  } finally {
+    nvidiaInstall = null;
+  }
 });
 
 // Seconds since anyone touched this PC's keyboard or mouse. The app injects no

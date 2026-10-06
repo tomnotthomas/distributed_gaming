@@ -37,6 +37,7 @@ import {
   codeGroups,
   firmwareChecks,
   isReady,
+  nvidiaStage,
   nvidiaSupported,
   nvidiaVersion,
   pcChecks,
@@ -622,6 +623,23 @@ describe("what the screen says", () => {
         title: "One thing to change first",
         fixes: [
           "Install NVIDIA's driver for the RTX 4080 below: you accept NVIDIA's licence, and it comes from Ubuntu onto C:.",
+        ],
+        canInstall: false,
+      });
+    });
+
+    it("asks the owner to accept again when the driver is there but not their acceptance of this licence and the current terms", () => {
+      const read = on([RTX_4080], { ...INSTALLED, accepted: null });
+      expect(nvidiaStage(read, null)).toBe("driver");
+      expect(pcChecks(read, null).find((c) => c.id === "gpu")).toMatchObject({
+        value: "RTX 4080: accept NVIDIA's licence again",
+        state: "blocked",
+        detail:
+          "Swiff OS runs it on NVIDIA's 595.91.07 driver, once you accept its licence and Swiff's terms below, Windows on 560.94.",
+      });
+      expect(status(read)).toMatchObject({
+        fixes: [
+          "Accept NVIDIA's licence and Swiff's terms for the RTX 4080 again below: the driver already on C: stays.",
         ],
         canInstall: false,
       });

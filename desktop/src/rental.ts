@@ -185,8 +185,9 @@ export const day = (iso: string): string =>
  *            --nvidia-rental flag lifts that, for the test)
  *   paused   Swiff has switched NVIDIA rental hosting off for everyone (the
  *            server's NVIDIA_RENTAL, GET /api/hosting)
- *   driver   the owner has not installed NVIDIA's driver yet
- *   ready    it is installed
+ *   driver   the owner has not installed NVIDIA's driver yet, or has not
+ *            accepted this driver's licence and Swiff's current terms
+ *   ready    it is installed, and they accepted both
  * `hosting` is the server's switch; null when it was not read, which holds
  * nothing back here: the server refuses an NVIDIA machine itself while it is off.
  */
@@ -195,7 +196,7 @@ export type NvidiaStage = "testing" | "paused" | "driver" | "ready";
 export function nvidiaStage(read: RentalRead, hosting: boolean | null): NvidiaStage {
   if (!read.nvidiaRental) return "testing";
   if (hosting === false) return "paused";
-  return read.nvidiaDriver?.installed ? "ready" : "driver";
+  return read.nvidiaDriver?.installed && read.nvidiaDriver.accepted ? "ready" : "driver";
 }
 
 /** The card, when rental mode would run on an NVIDIA card Swiff OS runs; null otherwise. */
@@ -240,21 +241,26 @@ function gpuCheck(read: RentalRead, hosting: boolean | null): RentalCheck {
             detail: "Swiff has paused rental mode on NVIDIA cards for now.",
           };
         case "driver":
-          return {
-            ...check,
-            value: `${name}: needs NVIDIA's driver`,
-            state: "blocked",
-            detail: `Swiff OS runs it on NVIDIA's ${SWIFF_OS_NVIDIA} driver, which you install below${windows}.`,
-          };
-        case "ready": {
-          const accepted = read.nvidiaDriver?.accepted;
+          return read.nvidiaDriver?.installed
+            ? {
+                ...check,
+                value: `${name}: accept NVIDIA's licence again`,
+                state: "blocked",
+                detail: `Swiff OS runs it on NVIDIA's ${read.nvidiaDriver.version} driver, once you accept its licence and Swiff's terms below${windows}.`,
+              }
+            : {
+                ...check,
+                value: `${name}: needs NVIDIA's driver`,
+                state: "blocked",
+                detail: `Swiff OS runs it on NVIDIA's ${SWIFF_OS_NVIDIA} driver, which you install below${windows}.`,
+              };
+        case "ready":
           return {
             ...check,
             value: name,
             state: "ok",
-            detail: `Swiff OS runs it on NVIDIA's ${read.nvidiaDriver!.version} driver${accepted ? `, installed ${day(accepted.at)}` : ""}${windows}.`,
+            detail: `Swiff OS runs it on NVIDIA's ${read.nvidiaDriver!.version} driver, installed ${day(read.nvidiaDriver!.accepted!.at)}${windows}.`,
           };
-        }
       }
     case false:
       return {
@@ -354,7 +360,9 @@ export function windowsFixes(
           ? `NVIDIA support is in testing: rental mode takes the ${name} once it passes. Sharing from Windows works as before.`
           : stage === "paused"
             ? `Swiff has paused rental mode on NVIDIA cards for now: the ${name} cannot host in Swiff OS until it is back. Sharing from Windows works as before.`
-            : `Install NVIDIA's driver for the ${name} below: you accept NVIDIA's licence, and it comes from Ubuntu onto ${read.games ? `${read.games.letter}:` : "your games drive"}.`,
+            : read.nvidiaDriver?.installed
+              ? `Accept NVIDIA's licence and Swiff's terms for the ${name} again below: the driver already on ${read.games ? `${read.games.letter}:` : "your games drive"} stays.`
+              : `Install NVIDIA's driver for the ${name} below: you accept NVIDIA's licence, and it comes from Ubuntu onto ${read.games ? `${read.games.letter}:` : "your games drive"}.`,
       );
     }
   }

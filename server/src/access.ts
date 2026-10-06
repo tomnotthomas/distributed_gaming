@@ -313,8 +313,8 @@ export function verifyHostCert(secret: string, token: unknown, now = Date.now())
     exp: cert.exp,
     iat: count(cert.iat),
     boot: count(cert.boot),
-    // Anything but false is an NVIDIA card: a certificate never hosts past the switch by omission.
-    nvidia: cert.nvidia !== false,
+    // Only an explicit claim is an NVIDIA card: one minted before the claim, or without it, is AMD or Intel.
+    nvidia: cert.nvidia === true,
   };
 }
 
