@@ -1,34 +1,45 @@
-/* The renter app in the Paper Band look (prototypes/Swiff v7.dc.html): full-colour
-   key art, black, white and paper chrome, hairline instruments, and lime only as
-   a mark. Colours live here rather than in @swiff/ui because the host app keeps
-   the library's own palette; the renter screens re-point the library's tokens
-   below so the primitives they still use (Button, Segment, EmptyState) match. */
-@import url("https://fonts.googleapis.com/css2?family=Michroma&family=Outfit:wght@200;300;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+/* The renter app in the launch set's light world, the Impeccable lobby
+   (data/swiff-landing-design, launch/assets/css/lobby-impeccable.css): paper
+   ground, card panels on hairlines, ink type and pills, and one dark screen
+   that the game's key art lights. Lime is only ever a mark. Colours live here
+   rather than in @swiff/ui because the host app keeps the library's own
+   palette; the renter screens re-point the library's tokens below so the
+   primitives they still use (Button, Segment, EmptyState) match. */
+@import "./fonts.css";
 
 .sw {
-  --bg: #121212;
-  --ink: #efefed;
-  --ink-2: rgb(239 239 237 / 0.72);
-  --ink-3: rgb(239 239 237 / 0.45);
-  --line: rgb(239 239 237 / 0.16);
-  --line-2: rgb(239 239 237 / 0.34);
+  --bg: #e8e9e8;
+  --ink: #131313;
+  --ink-2: #4a4b4b;
+  --ink-3: #636464;
+  --line: rgb(19 19 19 / 0.16);
+  --line-2: rgb(19 19 19 / 0.34);
   --paper: #e8e9e8;
   --on-paper: #131313;
-  --on-paper-2: #4f5050;
-  --on-paper-3: #838484;
+  --on-paper-2: #4a4b4b;
+  --on-paper-3: #636464;
   --pline: rgb(19 19 19 / 0.16);
   --pline-2: rgb(19 19 19 / 0.34);
   --grey: #d3d4d3;
+  /* panels on the paper, and the one screen the key art lights */
+  --card: #f4f4f2;
+  --screen: #131313;
+  --screen-2: #1d1e1d;
+  --on-screen: #e8e9e8;
+  --on-screen-2: rgb(232 233 232 / 0.78);
+  --r: 16px;
   --lime: #d4f53c;
-  /* lime that holds up on paper: hover, focus and the Free outline */
+  /* lime that holds up on paper: hover and the done ticks' edge */
   --lime-edge: #9cb52a;
+  /* lime's ink on paper: underlines and the Free outline */
+  --lime-deep: #5f6f12;
   --wide: "Michroma", system-ui, sans-serif;
   --f: "Outfit", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* The 1440 × 900 mockup's grid, made fluid: a 300 / 1fr / 400 strip under an
-     80px bar, with copy set in 64px from the left edge. */
+  /* The 1440 × 900 grid, made fluid: a 300 / 1fr / 400 strip under an 80px
+     bar, with copy set in 64px from the left edge. */
   --bar: 80px;
   --cl: clamp(220px, 20.83vw, 400px);
   --cr: clamp(320px, 27.78vw, 520px);
@@ -47,12 +58,23 @@
   scrollbar-color: var(--line-2) transparent;
   background: var(--bg);
   color: var(--ink);
+  color-scheme: light;
+  caret-color: var(--ink);
   font: 300 16px/1.5 var(--f);
   -webkit-font-smoothing: antialiased;
 }
+/* Paper under the app too, so an overscroll or a slow first paint never shows black. */
+html:has(> body > #root > .sw),
+body:has(> #root > .sw) {
+  background: #e8e9e8;
+}
+.sw ::selection {
+  background: var(--ink);
+  color: var(--paper);
+}
 
 /* The library's tokens, re-pointed for every renter screen except the in-session
-   HUD, which keeps its own look. */
+   HUD, which keeps its own look over the stream. */
 .bar,
 .wall,
 .menu,
@@ -65,33 +87,34 @@
   --color-text-2: var(--ink-2);
   --color-text-3: var(--ink-3);
   --color-accent: var(--ink);
-  --color-accent-hover: #d6d7d6;
+  --color-accent-hover: #000000;
   --color-accent-100: var(--ink);
   --color-accent-200: var(--ink);
   --color-accent-300: var(--ink);
-  --color-accent-800: #2a2a2a;
-  --color-accent-900: #1d1d1d;
-  --color-on-accent: var(--on-paper);
+  --color-accent-800: #dcdddc;
+  --color-accent-900: var(--grey);
+  --color-on-accent: var(--paper);
   --btn-primary-from: var(--ink);
   --btn-primary-to: var(--ink);
-  --btn-primary-hover-from: #ffffff;
-  --btn-primary-hover-to: #ffffff;
+  --btn-primary-hover-from: #000000;
+  --btn-primary-hover-to: #000000;
   --color-live: var(--lime);
   --color-time: var(--ink-2);
   --color-divider: var(--line);
-  --color-neutral-200: #dcdddc;
-  --color-neutral-300: #c4c5c4;
-  --color-neutral-400: #9a9b9a;
-  --color-neutral-500: #7a7b7a;
-  --color-neutral-700: #4f5050;
-  --glass: rgb(239 239 237 / 0.06);
-  --glass-strong: rgb(239 239 237 / 0.1);
+  --color-neutral-200: var(--ink);
+  --color-neutral-300: #3f4040;
+  --color-neutral-400: var(--ink-2);
+  --color-neutral-500: var(--ink-3);
+  --color-neutral-700: #8a8b8b;
+  --glass: var(--card);
+  --glass-strong: #ffffff;
   --glass-edge: var(--line-2);
   --glass-hi: none;
-  --selected-bg: rgb(212 245 60 / 0.12);
-  --selected-border: var(--lime);
+  --dialog-fill: var(--card);
+  --selected-bg: var(--card);
+  --selected-border: var(--ink);
   --selected-fg: var(--ink);
-  --focus-ring: 0 0 0 2px var(--lime-edge);
+  --focus-ring: 0 0 0 2px var(--ink);
   --font-body: var(--f);
   --font-heading: var(--f);
   --font-heading-weight: 500;
@@ -100,14 +123,14 @@
   --radius-md: 999px;
 }
 
-/* One static grain layer over the screens, lighter than the photos' own. */
+/* One static grain layer over the screens, as on the launch pages. */
 .sw::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 15;
   pointer-events: none;
-  opacity: 0.14;
+  opacity: 0.12;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -122,7 +145,7 @@
   color: inherit;
 }
 .sw :focus-visible {
-  outline: 2px solid var(--lime-edge);
+  outline: 2px solid var(--ink);
   outline-offset: 3px;
 }
 .mono {
@@ -132,16 +155,17 @@
 }
 .wm {
   font: 400 17px/1 var(--wide);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .live-dot {
   display: inline-block;
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--lime-deep);
 }
 .glyph {
   display: block;
@@ -159,11 +183,14 @@
   border: 0;
 }
 
-/* outline pill with a hairline circle arrow: sign in, retry, cancel */
+/* outline pill with a hairline circle arrow: sign in, retry, cancel. Pressing
+   it turns the circle a quarter, as on the launch pages. */
 .lpill {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
+  min-height: 52px;
   border: 1px solid currentColor;
   border-radius: 999px;
   background: transparent;
@@ -173,7 +200,14 @@
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.3s var(--ease);
+  transition:
+    background-color 0.35s var(--ease),
+    color 0.35s var(--ease),
+    border-color 0.35s var(--ease),
+    transform 0.2s var(--ease);
+}
+.lpill:active {
+  transform: translateY(1px) scale(0.99);
 }
 .lpill-c {
   width: 38px;
@@ -182,17 +216,39 @@
   border: 1px solid currentColor;
   display: grid;
   place-items: center;
-  transition: border-color 0.3s var(--ease);
+  flex: none;
+  transition:
+    border-color 0.35s var(--ease),
+    transform 0.45s var(--ease);
 }
-.lpill:hover,
+.lpill:hover {
+  background: rgb(19 19 19 / 0.05);
+}
 .lpill:hover .lpill-c {
-  border-color: var(--lime-edge);
+  transform: rotate(45deg);
+}
+/* the primary: filled in ink */
+.lpill.solid {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.lpill.solid:hover {
+  background: #000000;
+  border-color: #000000;
 }
 .lpill:disabled {
   opacity: 0.5;
   cursor: progress;
 }
+.lpill:disabled:hover {
+  background: transparent;
+}
+.lpill:disabled:hover .lpill-c {
+  transform: none;
+}
 .lpill-sm {
+  min-height: 42px;
   padding: 4px 4px 4px 18px;
   font-size: 14px;
 }
@@ -204,7 +260,7 @@
   height: 32px;
 }
 
-/* — top bar: the cell strip — */
+/* — top bar: wordmark, the nav, and the account on a card — */
 .bar {
   position: absolute;
   inset: 0 0 auto;
@@ -213,6 +269,7 @@
   display: grid;
   grid-template-columns: var(--cl) minmax(0, 1fr) var(--cr);
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
 }
 .bar > * {
   display: flex;
@@ -220,7 +277,6 @@
   gap: 12px;
   min-width: 0;
   padding: 0 28px;
-  border-right: 1px solid var(--line);
 }
 .bar-home {
   display: flex;
@@ -229,6 +285,7 @@
   margin-left: -6px;
   padding: 8px 6px;
   border: 0;
+  border-radius: 999px;
   background: none;
   cursor: pointer;
 }
@@ -238,6 +295,7 @@
   padding: 0;
 }
 .bar-nav > * {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -245,27 +303,39 @@
   min-width: 0;
   height: 100%;
   border: 0;
-  border-right: 1px solid var(--line);
   background: none;
-  color: var(--ink-3);
+  color: var(--ink-2);
   padding: 0 12px;
-  font: 500 14px/1.3 var(--f);
+  font: 500 13px/1.3 var(--f);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-align: center;
-}
-.bar-nav > :last-child {
-  border-right: 0;
 }
 .bar-nav button {
   cursor: pointer;
   transition: color 0.3s var(--ease);
 }
 .bar-nav button:hover {
-  color: var(--ink-2);
+  color: var(--ink);
 }
+.bar-nav button:focus-visible {
+  outline-offset: -14px;
+  border-radius: 999px;
+}
+/* the page you are on: ink, with the lime mark under it */
 .bar-nav [aria-current="page"] {
   color: var(--ink);
+}
+.bar-nav [aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  width: 18px;
+  height: 3px;
+  margin-left: -9px;
+  background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--lime-edge);
 }
 .bar-nav .bar-live {
   color: var(--ink-2);
@@ -278,43 +348,50 @@
   }
   .bar-nav > * {
     font-size: 12px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
   }
   .bar-nav .bar-live {
     display: none;
   }
 }
+/* who is signed in and how long they have tonight, on one card */
 .bar .bar-acct {
-  justify-content: space-between;
-  padding-right: 20px;
-  border-right: 0;
-  background: var(--paper);
-  color: var(--on-paper);
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 var(--gut) 0 0;
 }
 .acct {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 6px;
-  margin-left: -6px;
-  border: 0;
-  background: none;
+  padding: 5px 16px 5px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--card);
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.3s var(--ease);
+}
+.acct:hover {
+  border-color: var(--ink);
 }
 .acct-out {
-  color: var(--on-paper-3);
+  padding: 0 18px;
+  min-height: 42px;
+  color: var(--ink-2);
 }
 .acct-avatar {
   display: grid;
   place-items: center;
   flex: none;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  border: 1px solid currentColor;
+  background: var(--ink);
+  color: var(--paper);
   font: 500 13px/1 var(--f);
+  letter-spacing: 0.04em;
 }
 .acct-who {
   min-width: 0;
@@ -328,30 +405,34 @@
   white-space: nowrap;
 }
 .acct-who b {
-  font-weight: 600;
+  font-weight: 500;
 }
 .acct-who span {
   font-size: 13px;
-  opacity: 0.6;
+  color: var(--ink-2);
 }
 .acct-session {
   display: grid;
   justify-items: end;
-  gap: 2px;
+  gap: 3px;
   flex: none;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
+  padding: 7px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: transparent;
   cursor: pointer;
-  transition: background 0.3s var(--ease);
+  transition:
+    border-color 0.3s var(--ease),
+    background-color 0.3s var(--ease);
 }
 .acct-session:hover {
-  background: rgb(19 19 19 / 0.06);
+  border-color: var(--ink);
+  background: var(--card);
 }
 .acct-session .mono {
-  font-size: 10.5px;
-  color: var(--on-paper-3);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-2);
 }
 .acct-session b {
   font-weight: 500;
@@ -373,16 +454,71 @@
 }
 .wall-bare .library-note {
   max-width: 60ch;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
 }
 
-/* Share your PC's estimate over full-colour art (.share-hero sizes it) */
+/* Signed in, the wall waits for the server to say which games can run: the
+   screen is there already, off, its dashed lime frame breathing until a game
+   lights it. */
+.wall:not(.wall-bare):not(:has(.hero-3b)) {
+  display: flex;
+  flex-direction: column;
+}
+.wall:not(.wall-bare):not(:has(.hero-3b))::before {
+  content: "";
+  order: 0;
+  align-self: center;
+  width: min(720px, calc(100% - 2 * var(--gut) - 12px));
+  aspect-ratio: 16 / 9;
+  margin-top: calc(var(--bar) + clamp(40px, 8vh, 88px));
+  border-radius: var(--r);
+  background: radial-gradient(120% 90% at 30% 0%, var(--screen-2), var(--screen) 70%);
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55);
+  outline: 1.5px dashed var(--lime);
+  outline-offset: -12px;
+}
+.wall:not(.wall-bare):not(:has(.hero-3b))::after {
+  content: "";
+  order: 1;
+  align-self: center;
+  width: 132px;
+  height: 22px;
+  margin-bottom: clamp(32px, 6vh, 64px);
+  background:
+    linear-gradient(var(--screen), var(--screen)) center 0 / 30px 17px no-repeat,
+    linear-gradient(var(--screen), var(--screen)) center bottom / 100% 5px no-repeat;
+  border-radius: 0 0 5px 5px;
+}
+.wall:not(.wall-bare):not(:has(.hero-3b)) > .band {
+  order: 2;
+  flex: 1 0 auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wall:not(.wall-bare):not(:has(.hero-3b))::before {
+    animation: screen-breathe 2.8s ease-in-out infinite;
+  }
+}
+@keyframes screen-breathe {
+  0%,
+  100% {
+    outline-color: rgb(212 245 60 / 0.4);
+  }
+  50% {
+    outline-color: var(--lime);
+  }
+}
+
+/* Share your PC's estimate under a band of key art fading into the paper (.share-hero sizes it) */
 .hero {
   position: relative;
   overflow: hidden;
 }
 /* Signed out the wall hero turns through a few games: each one's art is
-   painted, only the current one is opaque, and they crossfade. */
+   painted on the screen, only the current one is opaque, and they crossfade. */
 .hero-slide {
   transition: opacity 1.4s var(--ease);
 }
@@ -400,62 +536,75 @@
     transform: translateY(6px);
   }
 }
-/* — wall hero 3b, "Drafted title" (prototypes/Swiff v7.dc.html): the art shown
-   whole, the name drafted bottom left between cap and base lines with a tick
-   ruler along the art's foot, and a grey strip under the art holding the line,
-   the machine or the pitch, and Resume or Sign in with Steam — */
-.sw[data-screen="home"] .bar {
-  background: rgb(18 18 18 / 0.32);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-}
+/* — wall hero, "the screen": the name drafted on the paper between cap and
+   base lines, the game's art lit on the one screen beside it with its stand,
+   and a card strip under both holding the line, the machine or the pitch, and
+   Resume or Sign in with Steam — */
 .hero-3b {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  /* header, art and strip are the first screen: the strip ends at its bottom
-     edge and the band starts just below the fold */
-  height: max(560px, 100vh);
-  height: max(560px, 100dvh);
+  grid-template-rows: auto auto;
+  align-content: center;
+  row-gap: clamp(22px, 3.4vh, 36px);
+  /* the bar, the screen and the strip are the first screen; the band starts just below the fold */
+  min-height: max(620px, 100vh);
+  min-height: max(620px, 100dvh);
+  padding: calc(var(--bar) + clamp(24px, 4.4vh, 48px)) var(--gut) clamp(24px, 4.4vh, 44px);
 }
 .hero-3b-art {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  grid-template-rows: auto 30px;
+  grid-template-areas:
+    "draft screen"
+    "draft stand";
+  column-gap: clamp(32px, 4.4vw, 88px);
+  align-items: center;
   min-height: 0;
-  overflow: hidden;
+}
+/* every layer of the screen shares its box: the art, the frame, the freed ring */
+.hero-3b-art > .backdrop {
+  grid-area: screen;
+  border-radius: var(--r);
+  background: var(--screen);
 }
 .hero-3b-scrim {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  z-index: 2;
+  grid-area: screen;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r);
   pointer-events: none;
-  background:
-    linear-gradient(90deg, rgb(18 18 18 / 0.72), rgb(18 18 18 / 0.28) 32%, transparent 52%),
-    linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 22%);
+  /* the bezel, the shadow it casts, and the warm light the lit screen spills onto the paper */
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55),
+    0 46px 56px -34px rgb(236 140 24 / 0.5);
 }
-/* a tick every 10px, a long one every 100px, along the art's foot */
+/* the stand under the screen */
 .hero-3b-ruler {
-  position: absolute;
-  left: 40px;
-  right: 40px;
-  bottom: 30px;
-  height: 10px;
+  grid-area: stand;
+  justify-self: center;
+  align-self: end;
+  width: 132px;
+  height: 22px;
   pointer-events: none;
   background:
-    repeating-linear-gradient(90deg, rgb(239 239 237 / 0.6) 0 1px, transparent 1px 100px) bottom / 100% 10px
-      no-repeat,
-    repeating-linear-gradient(90deg, rgb(239 239 237 / 0.3) 0 1px, transparent 1px 10px) bottom / 100% 5px
-      no-repeat;
+    linear-gradient(var(--screen), var(--screen)) center 0 / 30px 17px no-repeat,
+    linear-gradient(var(--screen), var(--screen)) center bottom / 100% 5px no-repeat;
+  border-radius: 0 0 5px 5px;
 }
 .hero-3b-draft {
-  position: absolute;
-  z-index: 5;
-  left: var(--gut);
-  bottom: clamp(56px, 7.6vh, 72px);
-  width: min(820px, calc(100% - 2 * var(--gut)));
+  grid-area: draft;
+  align-self: center;
+  min-width: 0;
 }
 .hero-3b-leader {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 22px;
   color: var(--ink-2);
 }
 .hero-3b-leader::before {
@@ -470,11 +619,13 @@
   max-width: 100%;
 }
 .hero-3b-title {
-  max-width: min(760px, 100%);
+  max-width: 100%;
   margin: 0;
-  font: 400 clamp(48px, 7.8vw, 112px) / 1 var(--wide);
+  color: var(--ink);
+  font: 400 clamp(40px, 5.6vw, 96px) / 1 var(--wide);
   letter-spacing: 0.01em;
   text-transform: uppercase;
+  overflow-wrap: break-word;
   /* Fitted by measuring (useFitTitle): a size change must land at once. Under
      reduced motion the library gives every element a short transition, which
      would make each step read the old size and shrink the title to nothing. */
@@ -482,43 +633,51 @@
 }
 .hero-3b-rule {
   position: absolute;
-  left: -24px;
-  width: calc(100% + 64px);
-  border-top: 1px solid rgb(239 239 237 / 0.45);
+  left: -14px;
+  width: calc(100% + 28px);
+  border-top: 1px solid var(--line-2);
   pointer-events: none;
 }
+.hero-3b-rule::before,
 .hero-3b-rule::after {
   content: "";
   position: absolute;
-  right: 0;
   top: -5px;
   height: 9px;
-  border-left: 1px solid rgb(239 239 237 / 0.7);
+  border-left: 1px solid var(--line-2);
+}
+.hero-3b-rule::before {
+  left: 0;
+}
+.hero-3b-rule::after {
+  right: 0;
 }
 .hero-3b-cap {
-  top: -10px;
+  top: -12px;
 }
 .hero-3b-base {
-  bottom: -8px;
+  bottom: -10px;
 }
 
+/* the card strip under the screen */
 .hero-strip {
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.25fr) minmax(320px, 1fr);
-  min-height: clamp(150px, 20vh, 190px);
-  border-top: 1px solid var(--pline);
-  background: var(--grey);
-  color: var(--on-paper);
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.25fr) minmax(300px, 1fr);
+  min-height: clamp(132px, 17vh, 176px);
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--card);
+  color: var(--ink);
 }
 .hero-strip-cell {
   display: flex;
   flex-direction: column;
   justify-content: center;
   min-width: 0;
-  padding: 18px 32px;
-  border-right: 1px solid var(--pline);
+  padding: 16px 30px;
+  border-right: 1px solid var(--line);
 }
 .hero-strip-cell:last-child {
   border-right: 0;
@@ -527,11 +686,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .hero-strip-line {
   margin: 10px 0 0;
-  font: 200 clamp(20px, 1.7vw, 24px) / 1.2 var(--f);
+  font: 300 clamp(20px, 1.7vw, 24px) / 1.25 var(--f);
 }
 .hero-strip-line b {
   font-weight: 600;
@@ -544,7 +703,7 @@
   margin: 0;
 }
 .hero-kv dt {
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .hero-kv dd {
   margin: 0;
@@ -553,7 +712,7 @@
 .hero-strip-pitch {
   max-width: 38ch;
   margin: 0;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
   font-size: 15px;
 }
 .hero-strip-act {
@@ -561,8 +720,12 @@
   gap: 12px;
   padding-block: 10px;
 }
+/* Resume and the dial sit at the strip's right edge */
+.hero-strip:not(.hero-strip-out) .hero-strip-act {
+  align-items: center;
+}
 .hero-strip-fine {
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 
 /* Resume: the paper disc in a tick ring and corner brackets; the ring turns and
@@ -572,12 +735,13 @@
   display: grid;
   place-items: center;
   align-self: center;
-  width: clamp(150px, 10.5vw, 160px);
+  width: clamp(140px, 10vw, 156px);
   aspect-ratio: 1;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: none;
-  color: var(--on-paper);
+  color: var(--ink);
   cursor: pointer;
 }
 .resume-face {
@@ -589,7 +753,9 @@
 }
 .resume-disc {
   fill: var(--paper);
-  transition: stroke 0.3s var(--ease);
+  transition:
+    fill 0.3s var(--ease),
+    stroke-width 0.3s var(--ease);
 }
 .resume-ticks,
 .resume-brackets {
@@ -613,7 +779,8 @@
 }
 .resume:hover .resume-disc,
 .resume:focus-visible .resume-disc {
-  stroke: var(--lime-edge);
+  fill: #ffffff;
+  stroke-width: 1.6;
 }
 @media (prefers-reduced-motion: no-preference) {
   .resume:hover .resume-ticks,
@@ -637,19 +804,28 @@
 }
 .resume-label small {
   margin-top: 4px;
-  font: 400 10.5px/1.4 var(--mono);
+  font: 400 11px/1.4 var(--mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--ink-2);
 }
 
+/* the key art as a band at the top of the page, fading into the paper under the copy */
+.share-hero > .backdrop {
+  bottom: auto;
+  height: min(64vw, 480px);
+}
 .hero-scrim {
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto;
+  height: min(64vw, 480px);
   pointer-events: none;
-  background:
-    linear-gradient(90deg, rgb(18 18 18 / 0.84) 0, rgb(18 18 18 / 0.45) 34%, transparent 54%),
-    linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 18%);
+  background: linear-gradient(
+    to bottom,
+    rgb(232 233 232 / 0.6) 0%,
+    rgb(232 233 232 / 0.84) 46%,
+    var(--paper) 94%
+  );
 }
 .hero-kicker {
   display: flex;
@@ -658,42 +834,27 @@
   color: var(--ink-2);
 }
 
-/* the instrument column: translucent grey under the account cell, art showing through */
+/* the instrument column: a card at the right of the page, the dial in ink */
 .inst {
   position: absolute;
   z-index: 4;
-  top: calc(var(--bar) - 1px);
-  right: 0;
-  bottom: 0;
-  width: var(--cr);
-  border-top: 1px solid var(--pline);
-  border-left: 1px solid var(--pline);
-  background: rgb(211 212 211 / 0.76);
-  -webkit-backdrop-filter: blur(8px) saturate(0.7);
-  backdrop-filter: blur(8px) saturate(0.7);
-  color: var(--on-paper);
-}
-/* Signed in, the art behind is usually darker: brighten it before the glass. */
-.inst-lift {
-  background: rgb(211 212 211 / 0.5);
-  -webkit-backdrop-filter: blur(8px) brightness(1.9) saturate(0.75);
-  backdrop-filter: blur(8px) brightness(1.9) saturate(0.75);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .inst,
-  .inst-lift {
-    background: var(--grey);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+  top: calc(var(--bar) + 28px);
+  right: var(--gut);
+  bottom: 28px;
+  width: calc(var(--cr) - var(--gut));
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--card);
+  color: var(--ink);
+  overflow: hidden;
 }
 .dial-box {
   position: absolute;
   left: 50%;
   top: 50%;
-  height: min(100%, calc(var(--cr) * 1.2));
+  height: min(calc(100% - 64px), calc(var(--cr) * 1.1));
   aspect-ratio: 400 / 480;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -54%);
 }
 .dial-box > svg {
   position: absolute;
@@ -714,29 +875,26 @@
 }
 .dial-count span {
   margin-top: 10px;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .inst-cap {
   position: absolute;
-  left: 28px;
-  right: 28px;
-  bottom: 22px;
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: var(--on-paper-2);
-}
-.inst-lift .inst-cap {
-  color: var(--on-paper);
+  color: var(--ink-2);
 }
 
-/* — the band: a ruled grid on paper, on the bar's columns, with a tick ruler underneath — */
+/* — the band: the games as player cards on the paper, under four tabs, with a tick ruler underneath — */
 .band {
   position: relative;
   min-height: var(--band-h);
-  padding-bottom: 12px;
+  padding: 4px var(--gut) 28px;
   background: var(--paper);
-  color: var(--on-paper);
+  color: var(--ink);
 }
 .band::before {
   content: "";
@@ -757,11 +915,11 @@
 .band-tabs,
 .band-tiles {
   display: grid;
-  grid-template-columns: var(--cl) minmax(0, 1fr) minmax(0, 1fr) var(--cr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 14px;
 }
 .band-tabs {
-  height: 46px;
-  border-bottom: 1px solid var(--pline);
+  border-bottom: 1px solid var(--line-2);
 }
 .band-tab {
   position: relative;
@@ -770,14 +928,14 @@
   align-items: baseline;
   gap: 12px;
   min-width: 0;
-  padding: 16px 28px 0;
+  min-height: 48px;
+  padding: 18px 4px 12px;
   border: 0;
-  border-right: 1px solid var(--pline);
   background: none;
-  color: var(--on-paper-3);
-  font: 500 14px/1 var(--f);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--f);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-align: left;
   text-decoration: none;
   white-space: nowrap;
@@ -788,7 +946,7 @@
 }
 .band-tab .glyph {
   align-self: center;
-  margin-top: -14px;
+  margin-top: -4px;
 }
 a.band-tab,
 button.band-tab {
@@ -797,76 +955,86 @@ button.band-tab {
 }
 a.band-tab:hover,
 button.band-tab:hover {
-  color: var(--on-paper);
-}
-.band-tab:nth-child(4) {
-  border-right: 0;
-  background: rgb(198 199 198 / 0.32);
+  color: var(--ink);
 }
 .band-tab.on {
-  color: var(--on-paper);
+  color: var(--ink);
 }
 .band-tab.on::after {
   content: "";
   position: absolute;
-  left: 28px;
-  right: 28px;
+  left: 0;
+  right: 0;
   bottom: -1px;
   height: 1px;
-  background: var(--on-paper);
+  background: var(--ink);
 }
 .band-tab.on::before {
   content: "";
   position: absolute;
-  left: 28px;
+  left: 0;
   bottom: -2px;
   width: 18px;
   height: 3px;
   background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--lime-edge);
 }
 .band-n {
   font: 400 12px/1 var(--mono);
 }
 
+.band-tiles {
+  row-gap: 14px;
+  padding: 18px 0 30px;
+}
 .band-tile {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 10px;
   min-width: 0;
-  padding: 16px 28px 26px;
-  border: 0;
-  border-right: 1px solid var(--pline);
-  background: transparent;
-  color: var(--on-paper);
+  padding: 8px 8px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 0.3s var(--ease),
+    background-color 0.3s var(--ease),
+    transform 0.3s var(--ease);
 }
-.band-tile:nth-child(4n) {
-  border-right: 0;
-  background: rgb(198 199 198 / 0.32);
+.band-tile:hover {
+  border-color: var(--ink);
+  background: #ffffff;
 }
-.band-tile:nth-child(n + 5) {
-  border-top: 1px solid var(--pline);
+.band-tile:active {
+  transform: translateY(1px);
 }
 .sw .band-tile:focus-visible {
-  outline: none;
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.band-tile > :not(.band-tile-frame) {
+  padding-inline: 6px;
 }
 .band-tile-frame {
   position: relative;
   display: block;
-  height: clamp(150px, 13.6vw, 260px);
+  height: clamp(140px, 12.6vw, 248px);
   overflow: hidden;
+  border-radius: 9px;
+  background: var(--screen);
 }
 .band-tile-frame::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
-  box-shadow: inset 0 0 0 1px var(--pline);
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgb(19 19 19 / 0.12);
   pointer-events: none;
-}
-.band-tile:focus-visible .band-tile-frame::after {
-  box-shadow: inset 0 0 0 2px var(--lime-edge);
 }
 /* a machine frees up: the game that just became playable rings once in lime,
    and so does the live dot in the bar. The class is only set with motion on. */
@@ -882,8 +1050,10 @@ button.band-tab:hover {
 .hero-3b.freed .hero-3b-art::after {
   content: "";
   position: absolute;
-  inset: 0;
   z-index: 3;
+  grid-area: screen;
+  inset: 0;
+  border-radius: var(--r);
   pointer-events: none;
 }
 @keyframes freed {
@@ -899,7 +1069,7 @@ button.band-tab:hover {
 }
 @keyframes freed-dot {
   50% {
-    box-shadow: 0 0 0 6px rgb(212 245 60 / 0.35);
+    box-shadow: 0 0 0 6px rgb(212 245 60 / 0.45);
   }
 }
 .band-tile-art {
@@ -910,7 +1080,7 @@ button.band-tab:hover {
 .band-tile:hover .band-tile-art {
   transform: scale(1.03);
 }
-/* Locked: grey art under an ink veil, so the band-tile reads as unavailable but its text stays readable. */
+/* Locked: grey art under an ink veil, so the card reads as unavailable but its text stays readable. */
 .band-tile-locked .band-tile-art {
   filter: grayscale(1) contrast(1.05) brightness(0.9);
   transform: none !important;
@@ -928,16 +1098,17 @@ button.band-tab:hover {
   margin: -20px 0 0 -20px;
   display: grid;
   place-items: center;
-  border: 1px solid rgb(239 239 237 / 0.75);
+  border: 1px solid rgb(232 233 232 / 0.75);
   border-radius: 50%;
   background: rgb(19 19 19 / 0.35);
-  color: var(--ink);
+  color: var(--on-screen);
 }
 .band-tile-title {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  margin-top: 4px;
   font: 500 17px/1.2 var(--f);
 }
 .band-tile-title > span:first-child {
@@ -945,29 +1116,33 @@ button.band-tab:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.band-tile:focus-visible .band-tile-title > span:first-child {
-  text-decoration: underline;
-  text-decoration-color: var(--lime-edge);
-  text-underline-offset: 4px;
-}
+/* free to play: an ink-ringed chip with the lime mark */
 .free-mark {
   flex: none;
-  padding: 1px 8px;
-  border: 1px solid var(--lime-edge);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--ink);
   border-radius: 999px;
-  font: 500 10px/1.5 var(--mono);
+  font: 500 11px/1.4 var(--mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+.free-mark::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--lime-deep);
 }
 .band-tile-meta {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-top: -2px;
-  color: var(--on-paper-3);
-}
-.band-tile-locked .band-tile-meta {
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .band-tile-left {
   display: inline-flex;
@@ -975,19 +1150,15 @@ button.band-tab:hover {
   gap: 8px;
   white-space: nowrap;
 }
-/* time free: an ink arc out of eight hours, in a hairline ring; lime-dark on hover */
+/* time free: an ink arc out of eight hours, in a hairline ring */
 .time-mark {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px var(--pline-2);
-  background: conic-gradient(var(--on-paper) calc(var(--h) * 1%), transparent 0);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  background: conic-gradient(var(--ink) calc(var(--h) * 1%), transparent 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-}
-.band-tile:hover .time-mark,
-.band-tile:focus-visible .time-mark {
-  background: conic-gradient(var(--lime-edge) calc(var(--h) * 1%), transparent 0);
 }
 
 .library-note {
@@ -995,8 +1166,11 @@ button.band-tab:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 18px;
-  padding: 14px 28px;
-  border-bottom: 1px solid var(--pline);
+  margin-top: 14px;
+  padding: 14px 18px 14px 22px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
   font-size: 15px;
 }
 .library-note p {
@@ -1006,38 +1180,68 @@ button.band-tab:hover {
   font-weight: 600;
 }
 .band-foot {
-  padding: 18px 28px 14px;
-  border-top: 1px solid var(--pline);
-  color: var(--on-paper-3);
-  font-size: 10.5px;
+  padding: 16px 0 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  /* a sentence, not a label: set in its own case */
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 .band-foot p {
   margin: 0;
 }
 .band-foot .band-denied {
   margin-bottom: 6px;
-  color: var(--on-paper);
+  color: var(--ink);
 }
 
-/* — game page — */
+/* — game page: the name and its promise on the paper, the art on the screen
+   under a grey veil with the lens left in full colour, the readings under the
+   stand, and the ranked machines as cards beside it — */
 .menu {
-  --lx: 63.46%;
-  --ly: 55.56%;
-  --lr: min(calc((100vw - var(--cr)) * 0.202), 23.3vh);
+  --lx: 62%;
+  --ly: 52%;
+  --lr: min(calc((100vw - var(--cr)) * 0.13), 15vh);
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--cr);
   height: 100%;
+  min-height: 640px;
   overflow: hidden;
 }
 .menu-art {
-  position: absolute;
-  inset: 0 var(--cr) 0 0;
-  overflow: hidden;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) 30px auto;
+  grid-template-areas:
+    "copy"
+    "screen"
+    "stand"
+    "reads";
+  row-gap: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--bar) + clamp(20px, 3.4vh, 36px)) var(--gut) clamp(20px, 3.4vh, 36px);
+}
+/* every layer of the screen shares its grid area */
+.menu-art > .backdrop,
+.menu-veil,
+.menu-shade,
+.menu-cross,
+.lens-dial {
+  grid-area: screen;
+}
+.menu-art > .backdrop {
+  border-radius: var(--r);
+  background: var(--screen);
 }
 /* A light grey veil over the art, with the lens circle left in full colour. */
 .menu-veil {
   position: absolute;
   inset: 0;
   z-index: 1;
+  border-radius: var(--r);
   background: rgb(128 129 128 / 0.3);
   -webkit-backdrop-filter: saturate(0.3);
   backdrop-filter: saturate(0.3);
@@ -1048,29 +1252,43 @@ button.band-tab:hover {
   );
   mask: radial-gradient(circle var(--lr) at var(--lx) var(--ly), transparent calc(100% - 0.5px), #000 100%);
 }
+/* the screen's frame: the bezel, its shadow, and the light it spills onto the paper */
 .menu-shade {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  background: linear-gradient(
-    180deg,
-    rgb(18 18 18 / 0.7),
-    transparent 34%,
-    transparent 76%,
-    rgb(18 18 18 / 0.7)
-  );
+  z-index: 4;
+  border-radius: var(--r);
+  pointer-events: none;
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55),
+    0 46px 56px -34px rgb(236 140 24 / 0.45);
+}
+.menu-art::after {
+  content: "";
+  grid-area: stand;
+  justify-self: center;
+  align-self: end;
+  width: 132px;
+  height: 22px;
+  background:
+    linear-gradient(var(--screen), var(--screen)) center 0 / 30px 17px no-repeat,
+    linear-gradient(var(--screen), var(--screen)) center bottom / 100% 5px no-repeat;
+  border-radius: 0 0 5px 5px;
 }
 .menu-cross {
   position: absolute;
   inset: 0;
   z-index: 3;
+  overflow: hidden;
+  border-radius: var(--r);
   pointer-events: none;
 }
 .menu-cross::before,
 .menu-cross::after {
   content: "";
   position: absolute;
-  background: rgb(239 239 237 / 0.3);
+  background: rgb(232 233 232 / 0.3);
 }
 .menu-cross::before {
   left: 0;
@@ -1079,7 +1297,7 @@ button.band-tab:hover {
   height: 1px;
 }
 .menu-cross::after {
-  top: var(--bar);
+  top: 0;
   bottom: 0;
   left: var(--lx);
   width: 1px;
@@ -1092,23 +1310,23 @@ button.band-tab:hover {
   width: calc(var(--lr) * 600 / 210);
   height: calc(var(--lr) * 600 / 210);
   transform: translate(-50%, -50%);
-  color: var(--ink);
+  color: var(--on-screen);
   pointer-events: none;
 }
 .menu-copy {
-  position: absolute;
+  grid-area: copy;
+  position: relative;
   z-index: 5;
-  left: var(--gut);
-  right: var(--gut);
-  top: calc(var(--bar) + clamp(24px, 4.9vh, 48px));
+  min-width: 0;
+  padding-bottom: clamp(20px, 3.4vh, 34px);
 }
 .menu-kicker {
   color: var(--ink-2);
 }
 .menu-title {
-  max-width: 14ch;
-  margin: 16px 0 14px;
-  font: 400 clamp(34px, 3.9vw, 56px) / 1.02 var(--wide);
+  max-width: 22ch;
+  margin: 12px 0 10px;
+  font: 400 clamp(32px, 3.6vw, 54px) / 1.02 var(--wide);
   letter-spacing: 0.01em;
   text-transform: uppercase;
   overflow-wrap: break-word;
@@ -1116,7 +1334,8 @@ button.band-tab:hover {
 }
 .menu-line {
   margin: 0;
-  font: 200 clamp(20px, 1.8vw, 26px) / 1.2 var(--f);
+  font: 300 clamp(19px, 1.6vw, 24px) / 1.25 var(--f);
+  color: var(--ink-2);
 }
 /* A launcher account the game asks for at start: "Needs your Ubisoft sign-in". */
 .menu-signin {
@@ -1124,19 +1343,19 @@ button.band-tab:hover {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.8;
+  color: var(--ink-2);
 }
 .menu-reads {
-  position: absolute;
+  grid-area: reads;
+  position: relative;
   z-index: 5;
-  left: var(--gut);
-  bottom: clamp(24px, 4.9vh, 44px);
   display: flex;
-  margin: 0;
+  justify-content: center;
+  margin: 16px 0 0;
 }
 .menu-reads div {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   padding: 0 26px;
   border-left: 1px solid var(--line-2);
 }
@@ -1145,86 +1364,88 @@ button.band-tab:hover {
   border-left: 0;
 }
 .menu-reads dt {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .menu-reads dd {
   margin: 0;
-  font: 500 20px/1 var(--f);
+  font: 500 19px/1 var(--f);
   white-space: nowrap;
 }
 
-/* the Ledger: latency as the large figure, the chosen machine printed in ink */
+/* the Ledger: latency as the large figure, each machine a card, the chosen one printed in ink */
 .ledger-panel {
-  position: absolute;
+  position: relative;
   z-index: 4;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: var(--cr);
   display: flex;
   flex-direction: column;
-  padding: calc(var(--bar) + 28px) 28px clamp(24px, 4.9vh, 44px);
+  min-height: 0;
+  padding: calc(var(--bar) + 28px) var(--gut) clamp(24px, 4.9vh, 44px) 28px;
   overflow-y: auto;
-  border-left: 1px solid var(--pline);
-  background: var(--paper);
-  color: var(--on-paper);
+  border-left: 1px solid var(--line);
+  color: var(--ink);
   scrollbar-width: thin;
 }
 .ledger-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
-  color: var(--on-paper-3);
+  margin-bottom: 12px;
+  color: var(--ink-2);
+}
+.ledger {
+  display: grid;
+  gap: 8px;
 }
 .ledger-row {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
+  grid-template-columns: 86px minmax(0, 1fr);
   align-items: center;
-  gap: 0 16px;
+  gap: 0 14px;
   width: 100%;
-  padding: 16px 16px 16px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--pline);
-  background: none;
+  padding: 14px 16px 14px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
   text-align: left;
   cursor: pointer;
-  transition: background 0.3s var(--ease);
-}
-.ledger-row:first-child {
-  border-top: 1px solid var(--on-paper);
+  transition:
+    background-color 0.3s var(--ease),
+    border-color 0.3s var(--ease),
+    color 0.3s var(--ease);
 }
 .sw .ledger-row:focus-visible {
-  outline-offset: -2px;
+  outline-offset: 3px;
 }
 .ledger-row:not(.on):hover {
-  background: rgb(19 19 19 / 0.05);
+  border-color: var(--ink);
+  background: #ffffff;
 }
 .ledger-row.on {
-  background: var(--on-paper);
-  color: var(--paper);
+  border-color: var(--screen);
+  background: var(--screen);
+  color: var(--on-screen);
 }
 .ledger-ms {
-  font: 400 40px/1 var(--wide);
+  font: 400 38px/1 var(--wide);
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .ledger-ms small {
   margin-left: 4px;
   font: 400 13px/1 var(--mono);
-  opacity: 0.6;
+  opacity: 0.7;
 }
 .ledger-body {
   min-width: 0;
 }
 .ledger-body b {
   display: block;
-  font: 600 19px/1.2 var(--f);
+  font: 600 18px/1.2 var(--f);
 }
 .ledger-who {
   display: block;
   margin-top: 2px;
-  color: var(--on-paper-3);
+  color: var(--ink-2);
   font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1236,11 +1457,11 @@ button.band-tab:hover {
   align-items: center;
   gap: 12px;
   margin-top: 7px;
-  color: var(--on-paper-3);
+  color: var(--ink-2);
   /* the tag and the time left wrap onto two lines rather than run into each other */
   flex-wrap: wrap;
   row-gap: 2px;
-  font: 400 10.5px/1.6 var(--mono);
+  font: 400 11px/1.6 var(--mono);
   letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1250,32 +1471,32 @@ button.band-tab:hover {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  color: var(--on-paper-2);
+  color: var(--ink);
   font-weight: 500;
   letter-spacing: 0.05em;
 }
 .ledger-tag.best::before {
   content: "";
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--lime);
-  box-shadow: 0 0 0 1px var(--lime-edge);
+  box-shadow: inset 0 0 0 1px var(--lime-deep);
 }
 .ledger-row.on .ledger-who,
 .ledger-row.on .ledger-meta {
-  color: rgb(232 233 232 / 0.66);
+  color: var(--on-screen-2);
 }
 .ledger-row.on .ledger-tag {
-  color: var(--paper);
+  color: var(--on-screen);
 }
 .ledger-row.on .ledger-tag.best::before {
   box-shadow: none;
 }
 .ledger-busy {
   margin: 12px 0 0;
-  color: var(--on-paper-3);
+  color: var(--ink-2);
 }
 .ledger-launch {
   flex: 1 0 auto;
@@ -1294,7 +1515,7 @@ button.band-tab:hover {
 .ledger-signin p {
   max-width: 30ch;
   margin: 0;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
   font-size: 15px;
 }
 /* the booking under the Reticle: queued, taken with the next best, or failed */
@@ -1308,12 +1529,12 @@ button.band-tab:hover {
 }
 .ledger-note p {
   margin: 0;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
   font-size: 14px;
 }
 .ledger-foot {
   margin: 0;
-  color: var(--on-paper-3);
+  color: var(--ink-2);
   text-align: center;
 }
 
@@ -1347,15 +1568,17 @@ button.band-tab:hover {
 .reticle-face {
   fill: var(--paper);
   transition:
+    fill 0.3s var(--ease),
     stroke 0.3s var(--ease),
     stroke-width 0.3s var(--ease);
 }
 .reticle:hover .reticle-face,
 .reticle:focus-visible .reticle-face {
-  stroke: var(--lime-edge);
+  fill: #ffffff;
+  stroke-width: 1.6;
 }
 .reticle:focus-visible .reticle-face {
-  stroke-width: 2;
+  stroke-width: 2.2;
 }
 .reticle-brackets {
   transform-box: view-box;
@@ -1401,7 +1624,8 @@ button.band-tab:hover {
   }
 }
 
-/* — ignition — */
+/* — ignition: the game named on the paper and its screen powering on step by
+   step, beside the paper with the dial and the legend — */
 .ignition {
   position: fixed;
   inset: 0;
@@ -1414,37 +1638,132 @@ button.band-tab:hover {
 }
 .ig-art {
   position: relative;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto 30px;
+  grid-template-areas:
+    "copy"
+    "screen"
+    "stand";
+  align-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(clamp(28px, 4.9vh, 44px) + 40px) var(--gut) clamp(28px, 4.9vh, 44px);
+  border-right: 1px solid var(--line);
+}
+/* the screen: the key art behind a bezel, lit as the connection comes up */
+.ig-art > .backdrop {
+  grid-area: screen;
+  border-radius: var(--r);
+  background: var(--screen);
+  clip-path: inset(49.6% 0 49.6% 0 round var(--r));
+  filter: brightness(2.4) saturate(0.2);
 }
 .ig-shade {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 55%, rgb(18 18 18 / 0.85));
+  position: relative;
+  z-index: 2;
+  grid-area: screen;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r);
+  pointer-events: none;
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55);
+  outline: 1.5px dashed var(--lime);
+  outline-offset: -12px;
+}
+/* each step done opens the picture further, from one bright line to the whole frame */
+.ignition:has(.ig-legend li:nth-child(1)[data-state="done"]) .ig-art > .backdrop {
+  clip-path: inset(40% 0 40% 0 round var(--r));
+  filter: brightness(1.8) saturate(0.4);
+}
+.ignition:has(.ig-legend li:nth-child(2)[data-state="done"]) .ig-art > .backdrop {
+  clip-path: inset(22% 0 22% 0 round var(--r));
+  filter: brightness(1.3) saturate(0.7);
+}
+.ignition:has(.ig-legend li:nth-child(3)[data-state="done"]) .ig-art > .backdrop,
+.comeback .ig-art > .backdrop {
+  clip-path: inset(0 0 0 0 round var(--r));
+  filter: none;
+}
+/* lit, the dashed frame goes and the screen spills its light onto the paper */
+.ignition:has(.ig-legend li:nth-child(3)[data-state="done"]) .ig-shade,
+.comeback .ig-shade {
+  outline-color: transparent;
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55),
+    0 46px 56px -34px rgb(236 140 24 / 0.5);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ig-art > .backdrop {
+    transition:
+      clip-path 0.9s var(--ease),
+      filter 1.2s var(--ease);
+  }
+  .ig-shade {
+    transition:
+      outline-color 0.6s var(--ease),
+      box-shadow 1.2s var(--ease);
+    animation: ig-breathe 2.8s ease-in-out infinite;
+  }
+  .ignition:has(.ig-legend li:nth-child(3)[data-state="done"]) .ig-shade,
+  .comeback .ig-shade {
+    animation: none;
+  }
+}
+@keyframes ig-breathe {
+  0%,
+  100% {
+    outline-color: rgb(212 245 60 / 0.4);
+  }
+  50% {
+    outline-color: var(--lime);
+  }
+}
+/* the screen, dark while it waits for its picture */
+.ig-art::before {
+  content: "";
+  grid-area: screen;
+  border-radius: var(--r);
+  background: radial-gradient(120% 90% at 30% 0%, var(--screen-2), var(--screen) 70%);
+}
+.ig-art::after {
+  content: "";
+  grid-area: stand;
+  justify-self: center;
+  align-self: end;
+  width: 132px;
+  height: 22px;
+  background:
+    linear-gradient(var(--screen), var(--screen)) center 0 / 30px 17px no-repeat,
+    linear-gradient(var(--screen), var(--screen)) center bottom / 100% 5px no-repeat;
+  border-radius: 0 0 5px 5px;
 }
 .ig-wm {
   position: absolute;
   z-index: 5;
-  left: 28px;
-  top: 30px;
+  left: var(--gut);
+  top: clamp(28px, 4.9vh, 44px);
 }
 .ig-copy {
-  position: absolute;
+  grid-area: copy;
+  position: relative;
   z-index: 5;
-  left: var(--gut);
-  right: var(--gut);
-  bottom: clamp(28px, 6.2vh, 56px);
+  min-width: 0;
+  padding-bottom: clamp(22px, 3.6vh, 36px);
 }
 .ig-copy .mono {
   color: var(--ink-2);
 }
 .ig-title {
   margin: 12px 0 10px;
-  font: 400 clamp(34px, 4.2vw, 60px) / 1.05 var(--wide);
+  font: 400 clamp(32px, 3.8vw, 56px) / 1.05 var(--wide);
   text-transform: uppercase;
   overflow-wrap: break-word;
 }
 .ig-where {
-  font: 200 clamp(20px, 1.8vw, 26px) / 1.2 var(--f);
+  font: 300 clamp(19px, 1.6vw, 24px) / 1.25 var(--f);
 }
 .ig-where b {
   font-weight: 600;
@@ -1456,11 +1775,11 @@ button.band-tab:hover {
   min-height: 0;
   padding: 40px var(--gut) clamp(28px, 4.9vh, 44px) 44px;
   background: var(--paper);
-  color: var(--on-paper);
+  color: var(--ink);
   overflow: hidden;
 }
 .ig-step {
-  color: var(--on-paper-3);
+  color: var(--ink-2);
 }
 .ig-pct {
   font: 400 64px/1.1 var(--wide);
@@ -1468,13 +1787,13 @@ button.band-tab:hover {
 }
 .ig-pct span {
   font-size: 24px;
-  color: var(--on-paper-3);
+  color: var(--ink-2);
 }
 .ig-cancel {
   position: absolute;
   top: 52px;
   right: var(--gut);
-  color: var(--on-paper);
+  color: var(--ink);
 }
 .ig-slow {
   display: flex;
@@ -1483,9 +1802,11 @@ button.band-tab:hover {
   justify-content: space-between;
   gap: 12px;
   margin-top: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--pline);
-  color: var(--on-paper);
+  padding: 12px 14px 12px 18px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
   animation: swiff-rise 0.5s ease both;
 }
 .ig-dial {
@@ -1493,16 +1814,15 @@ button.band-tab:hover {
   min-height: 0;
   width: calc(100% + 44px + var(--gut));
   margin: 0 calc(-1 * var(--gut)) 12px -44px;
-  color: var(--on-paper);
+  color: var(--ink);
 }
 .ig-dial-n {
-  fill: var(--on-paper-2);
+  fill: var(--ink-2);
   font: 400 11px var(--mono);
 }
 /* Steam's sign-in code, in the dial's place until the renter approves it. It
    never shrinks under its copy (that would run it into the legend); the code
-   scales with the screen's height instead, and a hairline ring sets it in the
-   paper like the dial's. */
+   scales with the screen's height instead, set on a card like the lobby's. */
 .ig-qr {
   flex: 1 0 auto;
   display: flex;
@@ -1514,8 +1834,10 @@ button.band-tab:hover {
   flex: none;
   width: clamp(160px, min(18vw, 34vh), 280px);
   height: auto;
-  outline: 1px solid var(--pline-2);
-  outline-offset: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: #ffffff;
 }
 .ig-qr-copy {
   max-width: 36ch;
@@ -1529,7 +1851,7 @@ button.band-tab:hover {
   margin: 0 0 10px;
 }
 .ig-qr-note {
-  color: var(--on-paper-2);
+  color: var(--ink-2);
   font-size: 14px;
 }
 .ig-qr-actions {
@@ -1550,44 +1872,48 @@ button.band-tab:hover {
   align-items: center;
   gap: 14px;
   padding: 10px 0;
-  border-top: 1px solid var(--pline);
+  border-top: 1px solid var(--line);
 }
 .ig-dot {
   display: grid;
   place-items: center;
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--on-paper);
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ink);
   border-radius: 50%;
 }
 .ig-legend [data-state="done"] {
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .ig-legend [data-state="done"] .ig-dot {
-  background: var(--on-paper);
+  border-color: var(--lime-edge);
+  background: var(--lime);
 }
 .ig-legend [data-state="now"] {
-  color: var(--on-paper);
+  color: var(--ink);
+}
+.ig-legend [data-state="now"] .ig-dot {
+  border-width: 1.5px;
 }
 .ig-legend [data-state="now"] .ig-dot::after {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--lime);
-  box-shadow: 0 0 0 1px var(--lime-edge);
+  background: var(--ink);
 }
 .ig-legend [data-state="stopped"] {
-  color: var(--on-paper);
+  color: var(--ink);
 }
 .ig-legend [data-state="next"] {
-  color: var(--on-paper-3);
+  color: var(--ink-2);
 }
 .ig-legend [data-state="next"] .ig-dot {
-  border-color: var(--on-paper-3);
+  border-style: dashed;
+  border-color: var(--ink-3);
 }
 
-/* — coming back (Reconnect.tsx): Ignition's layout, one number on the paper — */
+/* — coming back (Reconnect.tsx): Ignition's layout, the screen on, one number on the paper — */
 .comeback {
   /* Over a session whose HUD may have hidden the pointer. */
   cursor: auto;
@@ -1610,7 +1936,7 @@ button.band-tab:hover {
 .cb-line {
   max-width: 34ch;
   margin: 10px 0 0;
-  color: var(--on-paper-2);
+  color: var(--ink-2);
 }
 .cb-actions {
   display: flex;
@@ -1618,7 +1944,16 @@ button.band-tab:hover {
   align-items: center;
   gap: 14px;
   margin-top: 28px;
-  color: var(--on-paper);
+  color: var(--ink);
+}
+/* the way back in is the primary: filled in ink */
+.cb-actions > .lpill:first-child {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.cb-actions > .lpill:first-child:hover {
+  background: #000000;
 }
 
 /* — live session (the HUD keeps its own look) — */
@@ -1689,7 +2024,26 @@ button.band-tab:hover {
 }
 .profile > * {
   width: 100%;
-  max-width: 780px;
+  max-width: 860px;
+}
+/* the crews and each group of settings on its own card, as the lobby's panels */
+.profile {
+  gap: 16px;
+}
+.profile > .profile-head {
+  margin-bottom: 12px;
+}
+.profile > .divider {
+  display: none;
+}
+.profile > .profile-section {
+  padding: clamp(20px, 2.6vw, 30px);
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--card);
+}
+.profile > :last-child {
+  margin-top: 12px;
 }
 .profile-head {
   display: flex;
@@ -1746,7 +2100,9 @@ button.band-tab:hover {
   gap: var(--space-2);
 }
 .profile input[type="checkbox"] {
-  accent-color: var(--lime);
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ink);
 }
 
 /* — Ask your PC friend: the player's invite link and the ways to send it, on
@@ -1754,8 +2110,10 @@ button.band-tab:hover {
 .ask {
   display: grid;
   gap: 18px;
-  padding-top: 22px;
-  border-top: 1px solid var(--line);
+  padding: clamp(20px, 2.6vw, 30px);
+  border: 1px solid var(--line-2);
+  border-radius: 22px;
+  background: var(--card);
 }
 .ask-head {
   display: grid;
@@ -1858,7 +2216,7 @@ button.band-tab:hover {
 .ask-skeleton {
   height: 92px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(90deg, transparent, rgb(239 239 237 / 0.06), transparent) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, transparent, rgb(19 19 19 / 0.06), transparent) 0 0 / 200% 100%;
 }
 @media (prefers-reduced-motion: no-preference) {
   .ask-skeleton {
@@ -1903,7 +2261,7 @@ button.band-tab:hover {
   max-width: 22ch;
 }
 
-/* — Share your PC: the estimate over full-colour art, the tier picker and the
+/* — Share your PC: the estimate under a band of key art, the tier picker and the
    download; How we got this number as a paper sheet over the dimmed page — */
 .share {
   position: relative;
@@ -1920,19 +2278,6 @@ button.band-tab:hover {
   height: auto;
   min-height: max(560px, calc(100vh - var(--band-h)));
   min-height: max(560px, calc(100dvh - var(--band-h)));
-}
-/* The copy is set over the art's darkest reading: dark enough under every line
-   that ink-2 text keeps 4.5:1 even over a white frame, then the art opens up
-   between the copy and the instrument column. */
-.share-hero .hero-scrim {
-  background:
-    linear-gradient(
-      90deg,
-      rgb(18 18 18 / 0.8) 0,
-      rgb(18 18 18 / 0.8) calc(var(--gut) + min(820px, 100% - var(--cr) - var(--gut))),
-      rgb(18 18 18 / 0.35) calc(100% - var(--cr))
-    ),
-    linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 18%);
 }
 .share-copy {
   position: relative;
@@ -1973,12 +2318,13 @@ button.band-tab:hover {
   color: var(--ink);
   font: inherit;
   text-decoration: underline;
-  text-decoration-color: var(--lime-edge);
-  text-underline-offset: 3px;
+  text-decoration-color: var(--lime-deep);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
   cursor: pointer;
 }
 .share-link:hover {
-  text-decoration-color: var(--lime);
+  text-decoration-thickness: 2px;
 }
 .share-actions {
   display: flex;
@@ -2005,7 +2351,7 @@ button.band-tab:hover {
 .dial-n {
   fill: currentColor;
   opacity: 0.7;
-  font: 400 10.5px var(--mono);
+  font: 400 11px var(--mono);
 }
 
 /* the tier picker: four cells on a hairline ruler; the chosen one in ink with a lime tick */
@@ -2104,7 +2450,6 @@ button.band-tab:hover {
 }
 .share-path {
   border-right: 0;
-  background: rgb(198 199 198 / 0.32);
 }
 .share-path h2.mono {
   margin: 0 0 4px;
@@ -2141,11 +2486,11 @@ button.band-tab:hover {
   box-sizing: border-box;
   border: 1px solid var(--on-paper-3);
   border-radius: 50%;
-  background: #d6d7d6;
+  background: var(--paper);
 }
 .share-path li[aria-current]::before {
-  border-color: var(--on-paper);
-  background: radial-gradient(circle, var(--lime) 0 3px, #d6d7d6 3.5px);
+  border-color: var(--lime-edge);
+  background: var(--lime);
 }
 .share-path b {
   font: 500 13.5px/1.2 var(--f);
@@ -2200,7 +2545,7 @@ button.band-tab:hover {
 .estimate-dim {
   position: absolute;
   inset: 0;
-  background: rgb(18 18 18 / 0.55);
+  background: rgb(19 19 19 / 0.32);
 }
 .estimate-sheet {
   position: absolute;
@@ -2245,7 +2590,7 @@ button.band-tab:hover {
   transition: border-color 0.3s var(--ease);
 }
 .estimate-x:hover {
-  border-color: var(--lime-edge);
+  background: rgb(19 19 19 / 0.06);
 }
 .sum-row {
   display: flex;
@@ -2338,7 +2683,7 @@ button.band-tab:hover {
   cursor: pointer;
 }
 .slider-track:has(input:focus-visible) .slider-knob {
-  outline: 2px solid var(--lime-edge);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 .estimate-more {
@@ -2413,8 +2758,8 @@ button.band-tab:hover {
   }
 }
 
-/* — phones and narrow windows: one column; the instrument column and the
-   Ledger sit under the art instead of beside it — */
+/* — phones and narrow windows: one column; the screen sits under the name, and
+   the instrument card and the Ledger under the screen — */
 @media (max-width: 860px) {
   .sw {
     --bar: 64px;
@@ -2431,12 +2776,18 @@ button.band-tab:hover {
     display: none;
   }
   .bar .bar-acct {
-    padding-right: 10px;
-    gap: 8px;
+    padding-right: 12px;
+    gap: 6px;
+  }
+  .acct {
+    padding-right: 12px;
   }
   .acct-avatar {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
+  }
+  .acct-session {
+    padding: 6px 11px;
   }
 
   .hero {
@@ -2444,48 +2795,44 @@ button.band-tab:hover {
     flex-direction: column;
     height: auto;
   }
-  /* The wall hero still fills the first screen: the art takes whatever the
-     stacked strip leaves, and a screen too short for both lets it grow. */
   .hero-3b {
-    display: flex;
-    flex-direction: column;
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
+    min-height: 0;
+    row-gap: 22px;
+    padding: calc(var(--bar) + 26px) var(--gut) 26px;
   }
   .hero-3b-art {
-    flex: 1 0 clamp(300px, 46vh, 420px);
-  }
-  .hero-3b-scrim {
-    background:
-      linear-gradient(90deg, rgb(18 18 18 / 0.7), rgb(18 18 18 / 0.2) 55%, transparent 80%),
-      linear-gradient(180deg, rgb(18 18 18 / 0.55), transparent 30%);
-  }
-  .hero-3b-ruler {
-    left: 18px;
-    right: 18px;
-    bottom: 22px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 30px;
+    grid-template-areas:
+      "draft"
+      "screen"
+      "stand";
   }
   .hero-3b-draft {
-    bottom: 44px;
+    padding-bottom: 30px;
   }
   .hero-3b-leader {
-    margin-bottom: 10px;
+    margin-bottom: 18px;
   }
   .hero-3b-leader::before {
     display: none;
   }
   .hero-3b-title {
-    font-size: clamp(34px, 13.8vw, 54px);
+    font-size: clamp(34px, 11.5vw, 54px);
+  }
+  .hero-3b-rule {
+    left: -8px;
+    width: calc(100% + 16px);
   }
   /* signed in: the line, then Resume beside the machine */
   .hero-strip {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "say say" "act facts";
     align-items: center;
-    gap: 18px;
+    gap: 16px 18px;
     min-height: 0;
-    padding: 22px var(--gut) 26px;
+    padding: 20px 20px 22px;
+    border-radius: 18px;
   }
   /* signed out: the line, the sign-in, then the count; the pitch is the band's job here */
   .hero-strip-out {
@@ -2498,6 +2845,8 @@ button.band-tab:hover {
   }
   .hero-strip-say {
     grid-area: say;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
   }
   .hero-strip-facts {
     grid-area: facts;
@@ -2520,7 +2869,7 @@ button.band-tab:hover {
     margin: 0;
   }
   .resume {
-    width: 140px;
+    width: 128px;
   }
   /* too small a disc for the time left; it is beside the button already */
   .resume-label small {
@@ -2529,80 +2878,57 @@ button.band-tab:hover {
   .inst {
     position: relative;
     top: auto;
+    right: auto;
+    bottom: auto;
     width: auto;
     height: 380px;
-    border-left: 0;
+    margin: 0 var(--gut) 28px;
   }
   .dial-box {
-    height: 100%;
+    height: calc(100% - 52px);
   }
 
+  .band {
+    padding-bottom: 22px;
+  }
   .band-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    height: auto;
   }
   .band-tab {
     min-height: 46px;
-    padding: 16px 20px 14px;
-    border-bottom: 1px solid var(--pline);
-  }
-  .band-tab:nth-child(2n) {
-    border-right: 0;
-  }
-  .band-tab:nth-child(n + 3) {
-    border-bottom: 0;
-  }
-  .band-tab.on::after,
-  .band-tab.on::before {
-    left: 20px;
-  }
-  .band-tab.on::after {
-    right: 20px;
-  }
-  .band-tab .glyph {
-    margin-top: 0;
+    padding: 16px 2px 12px;
   }
   .band-tiles {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .band-tile,
-  .band-tile:nth-child(4n) {
-    padding: 16px 20px 22px;
-    border-right: 0;
-    background: none;
-  }
-  .band-tile:nth-child(n + 2) {
-    border-top: 1px solid var(--pline);
+    row-gap: 12px;
   }
   .band-tile-frame {
     height: auto;
     aspect-ratio: 16 / 9;
   }
-  .library-note,
-  .band-foot {
-    padding-inline: 20px;
-  }
 
   .menu {
-    --lx: 50%;
-    --ly: 60%;
-    --lr: min(30vw, 16vh);
+    --lx: 56%;
+    --ly: 52%;
+    --lr: min(17vw, 15vh);
+    display: block;
     height: auto;
+    min-height: 0;
     overflow: visible;
   }
   .menu-art {
-    position: relative;
-    inset: auto;
-    height: max(560px, 82vh);
+    grid-template-rows: auto auto 30px auto;
+    padding: calc(var(--bar) + 24px) var(--gut) 8px;
   }
-  .menu-copy {
-    top: calc(var(--bar) + 24px);
+  /* the frame sizes the screen here: the whole width, at 16:9 */
+  .menu-shade {
+    position: relative;
+    aspect-ratio: 16 / 9;
   }
   .menu-reads {
-    left: var(--gut);
-    right: var(--gut);
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: start;
     gap: 14px 0;
   }
   .menu-reads div:nth-child(odd) {
@@ -2614,30 +2940,37 @@ button.band-tab:hover {
     white-space: normal;
   }
   .ledger-panel {
-    position: relative;
-    inset: auto;
-    width: auto;
-    padding: 28px var(--gut) 36px;
+    padding: 24px var(--gut) 36px;
     overflow: visible;
     border-left: 0;
   }
   .ledger-row {
-    grid-template-columns: 74px minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr);
     padding-inline: 12px;
   }
   .ledger-ms {
-    font-size: 32px;
+    font-size: 30px;
   }
 
   .ignition {
     grid-template-columns: minmax(0, 1fr);
     /* the paper grows to its content (the sign-in code runs taller than the dial) */
-    grid-template-rows: 34vh minmax(min-content, 1fr);
+    grid-template-rows: auto minmax(min-content, 1fr);
     overflow-y: auto;
   }
+  .ig-art {
+    padding: 64px var(--gut) 20px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
   .ig-wm {
-    left: 20px;
-    top: 22px;
+    top: 24px;
+  }
+  .ig-copy {
+    padding-bottom: 20px;
+  }
+  .ig-title {
+    font-size: clamp(26px, 8.4vw, 40px);
   }
   .ig-paper {
     min-height: 560px;
@@ -2661,7 +2994,7 @@ button.band-tab:hover {
     font-size: 64px;
   }
   .ig-cancel {
-    top: 30px;
+    top: 24px;
   }
   .ig-qr {
     flex-direction: column;
@@ -2680,16 +3013,6 @@ button.band-tab:hover {
 
   .share-hero {
     min-height: 0;
-  }
-  /* the copy runs the full width over the art here, so the dark goes under all
-     of it and lifts only behind the instrument column */
-  .share-hero .hero-scrim {
-    background: linear-gradient(
-      180deg,
-      rgb(18 18 18 / 0.8) 0,
-      rgb(18 18 18 / 0.8) calc(100% - 380px),
-      rgb(18 18 18 / 0.3) calc(100% - 300px)
-    );
   }
   .share-copy {
     width: auto;
@@ -2718,11 +3041,11 @@ button.band-tab:hover {
     grid-template-columns: minmax(0, 1fr);
   }
   .share-cell {
-    padding: 20px var(--gut) 22px;
+    padding: 20px 0 22px;
     border-right: 0;
   }
   .share-cell + .share-cell {
-    border-top: 1px solid var(--pline);
+    border-top: 1px solid var(--line);
   }
   .share-sums {
     grid-column: auto;
@@ -2734,5 +3057,8 @@ button.band-tab:hover {
 @media (max-width: 520px) {
   .acct-who {
     display: none;
+  }
+  .acct {
+    padding: 4px;
   }
 }
