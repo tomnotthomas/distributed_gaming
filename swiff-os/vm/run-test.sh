@@ -36,7 +36,7 @@ image_dir=$(cd "$here/../image" && pwd)
 # Build output and caches stay outside the source tree (see image/mkosi.conf).
 build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 out=$build_dir/output
-# The VM's disk copy (24 GiB, sparse), firmware variables, TPM state and logs.
+# The VM's disk copy (24 GiB, sparse), firmware variables and logs.
 run=$build_dir/vm
 
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
@@ -117,10 +117,14 @@ fi
 
 # --- Prepare the VM ----------------------------------------------------------
 log "Preparing the VM in $run"
-rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games"
+rm -rf "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games"
 cp --sparse=always "$disk_src" "$run/disk.raw"
 cp "$ovmf_vars" "$run/vars.fd"
-mkdir -p "$run/tpm"
+# The TPM's state, socket and log. Ubuntu's AppArmor profile for swtpm lets
+# it write only under /tmp, $HOME and libvirt's directories, and the build
+# directory may be elsewhere (CI uses /mnt).
+tpm=$(mktemp -d /tmp/swiff-tpm.XXXXXX)
+trap 'rm -rf "$tpm"' EXIT
 
 # The shared games library, stubbed: a small read-only ext4 disk labelled
 # SWIFFGAMES with a Steam library the renter (uid 1000) may update.
@@ -173,11 +177,11 @@ boot_vm() { # boot number
 	local n=$1 serial=$run/serial-$1.log
 	log "Boot $n"
 	swtpm socket --tpm2 --terminate \
-		--tpmstate dir="$run/tpm" \
-		--ctrl type=unixio,path="$run/tpm/sock" \
-		--log file="$run/swtpm-$n.log" &
+		--tpmstate dir="$tpm" \
+		--ctrl type=unixio,path="$tpm/sock" \
+		--log file="$tpm/swtpm-$n.log" &
 	local swtpm_pid=$!
-	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
+	for _ in $(seq 50); do [ -S "$tpm/sock" ] && break; sleep 0.1; done
 	# QEMU's monitor on a pair of pipes, which the calling user owns even
 	# when QEMU is started through sudo.
 	rm -f "$run"/monitor.*
@@ -196,7 +200,7 @@ boot_vm() { # boot number
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
 		-drive if=pflash,format=raw,unit=1,file="$run/vars.fd" \
 		-device intel-iommu,intremap=on \
-		-chardev socket,id=chrtpm,path="$run/tpm/sock" \
+		-chardev socket,id=chrtpm,path="$tpm/sock" \
 		-tpmdev emulator,id=tpm0,chardev=chrtpm \
 		-device tpm-crb,tpmdev=tpm0 \
 		-drive if=none,id=os,format=raw,file="$run/disk.raw" \
@@ -209,6 +213,7 @@ boot_vm() { # boot number
 		-serial "file:$serial" || rc=$?
 	kill "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	wait "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
+	cp "$tpm/swtpm-$n.log" "$run/" 2> /dev/null || true
 	[ "$rc" = 124 ] && echo "boot $n timed out after ${boot_timeout}s" >&2
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
