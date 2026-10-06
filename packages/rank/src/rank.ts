@@ -1,6 +1,6 @@
 // Host ranking on objective criteria, no AI and no weights.
 //
-// Six hard gates decide who is listed at all. Four scores come from fixed
+// Seven hard gates decide who is listed at all. Four scores come from fixed
 // buckets. One fixed sort orders what is left, first difference wins, and the
 // rule that separated the top two is the "Recommended" reason. Pure: the clock
 // is an argument, so the same inputs always give the same order.
@@ -56,6 +56,8 @@ export function failedGates(
   // The renter's own PC is never listed, recommended or matched.
   if (host.ownerId === renter.id) failed.push("E5");
   if (!link || !(link.rttMs <= maxRtt)) failed.push("E6");
+  // A crew-only PC hosts only its owner's crew: anyone else never sees it, busy or free.
+  if (host.crew && !host.crew.includes(renter.id)) failed.push("E7");
   return failed;
 }
 

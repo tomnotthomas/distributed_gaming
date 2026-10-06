@@ -34,6 +34,12 @@
 //                            Set as an HttpOnly cookie after Steam sign-in and
 //                            required to book or claim — see signin.ts.
 //
+//   Friend     invite link   An invite's random id followed by its HMAC-SHA256
+//                            (SESSION_SECRET, its own domain), cut short to
+//                            share. Never expires; its inviter revokes it by
+//                            asking for a new one. Opens nothing but joining
+//                            the inviter's crew, signed in — see platform.ts.
+//
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default
 // worth having on a machine that streams its screen to strangers.
@@ -56,7 +62,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest";
+type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest" | "invite";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -232,6 +238,33 @@ export function verifySignInState(secret: string, token: unknown, now = Date.now
   if (!state || typeof state.nonce !== "string" || !state.nonce) return null;
   if (typeof state.exp !== "number" || state.exp * 1000 <= now) return null;
   return state.nonce;
+}
+
+/** An invite link's signature is cut to this many bytes: still unguessable, and short enough to share. */
+const INVITE_SIGNATURE_BYTES = 16;
+/** Invite ids are 16 random bytes (platform.ts), 22 characters in base64url. */
+const INVITE_ID = /^[\w-]{22}$/;
+
+/**
+ * The token of a personal invite link: the invite's id (platform.ts, crews)
+ * and its signature under `secret`, run together with no separator, so a
+ * link path has no dot and is served as the web app. The same id always gives
+ * the same token, so a link can be shown again; the database holds only the
+ * id, which opens nothing without the secret.
+ */
+export function inviteToken(secret: string, id: string): string {
+  return id + b64url(sign(secret, id, "invite").subarray(0, INVITE_SIGNATURE_BYTES));
+}
+
+/** The invite id in a token `secret` signed, or null. Whether that invite is still live is the platform's to say. */
+export function verifyInviteToken(secret: string, token: unknown): string | null {
+  if (typeof token !== "string" || token.length !== 44) return null;
+  const id = token.slice(0, 22);
+  if (!INVITE_ID.test(id)) return null;
+  const expected = sign(secret, id, "invite").subarray(0, INVITE_SIGNATURE_BYTES);
+  const given = Buffer.from(token.slice(22), "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  return id;
 }
 
 /** How far a machine may be trusted to host, by what vouched for it (attestation.ts). */

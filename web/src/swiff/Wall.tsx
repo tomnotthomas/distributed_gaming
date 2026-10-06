@@ -12,6 +12,8 @@ import type { Game, Machine, Spot } from "./data";
 import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
+import { AskFriend, AskFriendStrip } from "./AskFriend";
+import type { Channel } from "./invite";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -155,7 +157,16 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         {note}
       </main>
     );
-  if (!anythingFree) return <WallEmpty note={note} signedIn={signedIn} state={emptyLine(ordered, spots)} />;
+  if (!anythingFree)
+    return (
+      <WallEmpty
+        note={note}
+        signedIn={signedIn}
+        persona={swiff.profile?.persona ?? ""}
+        onShared={swiff.inviteShared}
+        state={emptyLine(ordered, spots)}
+      />
+    );
 
   const [hero, ...rest] = wall;
   // Signed out, the hero turns through a few games: ones free right now in the
@@ -173,6 +184,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
       <section className="band" aria-label="Games">
         {note}
+        {signedIn && !swiff.demo ? <AskFriendStrip onOpen={() => swiff.setScreen("profile")} /> : null}
         <div className="band-tabs">
           {signedIn && library === "ok" ? (
             <>
@@ -529,7 +541,19 @@ function LibraryNote({
  * `state` says why (emptyLine). Signed out (the demo), the way in is still the
  * one Sign in with Steam.
  */
-function WallEmpty({ note, signedIn, state }: { note?: ReactNode; signedIn: boolean; state: string }) {
+function WallEmpty({
+  note,
+  signedIn,
+  persona,
+  onShared,
+  state,
+}: {
+  note?: ReactNode;
+  signedIn: boolean;
+  persona: string;
+  onShared?: (channel: Channel) => void;
+  state: string;
+}) {
   return (
     <main className="wall wall-bare" data-testid="wall">
       {note}
@@ -542,6 +566,8 @@ function WallEmpty({ note, signedIn, state }: { note?: ReactNode; signedIn: bool
         }
         action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
+      {/* A friend's PC, hosting the crew, is the way to a machine when none is free. */}
+      {signedIn ? <AskFriend persona={persona} onShared={onShared} /> : null}
     </main>
   );
 }

@@ -45,6 +45,7 @@ import {
   type PlayState,
 } from "./play";
 import { questionOf, useLive } from "./useLive";
+import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
@@ -64,7 +65,7 @@ import {
   type StoreData,
 } from "./steam";
 
-export type Screen = "home" | "game" | "profile" | "share";
+export type Screen = "home" | "game" | "profile" | "share" | "invite";
 export type Phase = "idle" | "connecting" | "live";
 export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";
@@ -813,8 +814,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
 
   // --- navigation ------------------------------------------------------------
 
-  // Only Share your PC changes the address: /share while it is up, / once it
-  // is left, so Back and Forward move between it and the wall.
+  // Only Share your PC and an invite change the address: /share or the
+  // invite's own while one is up, / once it is left, so Back and Forward move
+  // between it and the wall.
   useEffect(() => {
     const path = pathOf(screen);
     if (screenAt(location.pathname) !== screenAt(path)) history.pushState(null, "", path + location.search);
@@ -841,6 +843,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     track("share_opened");
     setScreen("share");
   }, []);
+
+  /** An invite link sent: which way, never the link itself. */
+  const inviteShared = useCallback((channel: Channel) => track("invite_shared", { channel }), []);
 
   const elapsedNow = useRef(elapsedMs);
   elapsedNow.current = elapsedMs;
@@ -1236,6 +1241,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setShowAll,
     signOut,
     retryLibrary,
+    inviteShared,
   };
 }
 

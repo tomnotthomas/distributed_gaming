@@ -1706,6 +1706,160 @@ button.band-tab:hover {
   accent-color: var(--lime);
 }
 
+/* — Ask your PC friend: the player's invite link and the ways to send it, on
+   the profile and under an empty wall; one line of it on the wall's band — */
+.ask {
+  display: grid;
+  gap: 18px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.ask-head {
+  display: grid;
+  gap: 8px;
+}
+.ask-title {
+  margin: 0;
+  font: 400 22px/1.15 var(--wide);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.ask-line {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+.ask-link {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.ask-field {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ask-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: 400 13px/1.4 var(--mono);
+  text-overflow: ellipsis;
+}
+.ask-ways {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+.ask-note {
+  min-height: 1.55em;
+  margin: -6px 0 0;
+  color: var(--ink-2);
+  font: 400 12.5px/1.55 var(--mono);
+}
+.ask-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  color: var(--ink-3);
+}
+.ask-renew {
+  font-size: 13px;
+}
+.ask-renew:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+.ask-hint {
+  font-size: 12px;
+}
+/* who is in the crew, and the crews the player joined: a name and its one action per row */
+.ask-crew {
+  display: grid;
+  gap: 4px;
+}
+.ask-crew h3 {
+  margin: 0;
+  color: var(--ink-3);
+}
+.ask-members {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ask-members li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.ask-members .share-link {
+  font-size: 13px;
+}
+.ask-members .share-link:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+/* while the link loads: the field's shape, still */
+.ask-skeleton {
+  height: 92px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, transparent, rgb(239 239 237 / 0.06), transparent) 0 0 / 200% 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ask-skeleton {
+    animation: ask-shimmer 1.6s linear infinite;
+  }
+}
+@keyframes ask-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.wall-bare .ask {
+  width: min(640px, 100%);
+}
+/* on the paper band, the strip's quiet link is ink on paper */
+.ask-strip .ask-later {
+  color: var(--on-paper);
+  font-size: 14px;
+}
+
+/* — an invite link: the host side's way in, with who asked; a dead link says so plainly — */
+.invite-crew b {
+  font-size: 72px;
+  letter-spacing: 0.02em;
+}
+.invite-crew span {
+  margin-top: 14px;
+}
+.invite-in {
+  margin-top: 14px;
+  color: var(--ink);
+}
+.invite-gone {
+  min-height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 16px;
+  padding: calc(var(--bar) + 32px) var(--gut) 48px;
+}
+.invite-gone .share-title {
+  max-width: 22ch;
+}
+
 /* — Share your PC: the estimate over full-colour art, the tier picker and the
    download; How we got this number as a paper sheet over the dimmed page — */
 .share {

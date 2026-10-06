@@ -8,6 +8,11 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
 //   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
 //   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//   GET  /api/me/invite                    (crews: invite links)
+//   POST /api/me/invite/renew
+//   GET  /api/invites/:token (signed out)
+//   POST /api/invites/:token/join
+//   POST /api/crew-members/:id/remove
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -60,10 +65,26 @@
 // booking's endReason, and continue carries it on elsewhere: a new booking for
 // the time left, matched to the best other machine at once or queued, which the
 // page claims as it claims any, for a game the renter may still play.
+//
+// Every signed-in player has a personal invite link to their own crew
+// (platform.ts, crews), signed with the session secret (access.ts) so the id
+// the database holds opens nothing. Anyone may read whose crew a link is to,
+// so the friend who opens it sees who asked; joining takes signing in. The
+// link is never logged, and a forged one is refused before the database is.
+// A membership is named by its own id, never a Steam id: its member removes it
+// to leave, and the crew's owner to remove them.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
-import { mintTicket, verifyMachineKey, verifyTicket, type Access, type RenterSession } from "./access.js";
+import {
+  inviteToken,
+  mintTicket,
+  verifyInviteToken,
+  verifyMachineKey,
+  verifyTicket,
+  type Access,
+  type RenterSession,
+} from "./access.js";
 import { createAttestation, looksLikeHostCert, type Attestation, type Credential } from "./attestation.js";
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
@@ -597,6 +618,58 @@ export function createApi({
       return true;
     }
 
+    // --- Crews ---------------------------------------------------------------
+
+    // The signed-in player's personal invite link; `renew` replaces it, and the old one stops working.
+    if (resource === "me" && id === "invite" && method === (action === "renew" ? "POST" : "GET")) {
+      if (action !== undefined && action !== "renew") throw new HttpError(404, "no such route");
+      const steamId = requireRenter(req, sessionSecret);
+      // The crew is named after its owner's Steam persona: kept from this read, when Steam answers.
+      const read = await profile(steamId).catch(() => null);
+      const invite = await platform.crewInvite(steamId, read?.persona || null, { renew: action === "renew" });
+      reply(res, 200, {
+        token: inviteToken(sessionSecret!, invite.inviteId),
+        crew: invite.crew,
+        members: invite.members,
+        joined: invite.joined,
+      });
+      return true;
+    }
+
+    if (resource === "invites" && id && !action && method === "GET") {
+      const inviteId = sessionSecret ? verifyInviteToken(sessionSecret, id) : null;
+      const crew = inviteId
+        ? await platform.invite(inviteId, renterSessionOf(req, sessionSecret)?.steamId)
+        : null;
+      if (!crew) throw new HttpError(404, "this invite link is not valid any more");
+      reply(res, 200, { crew });
+      return true;
+    }
+
+    if (resource === "invites" && id && action === "join" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const inviteId = verifyInviteToken(sessionSecret!, id);
+      // The crew's owner sees them by their Steam persona, kept from this read, when Steam answers.
+      const read = inviteId ? await profile(steamId).catch(() => null) : null;
+      const joined = inviteId ? await platform.joinCrew(inviteId, steamId, read?.persona || null) : null;
+      if (!joined || (!joined.ok && joined.reason === "not-found")) {
+        throw new HttpError(404, "this invite link is not valid any more");
+      }
+      if (!joined.ok) {
+        reply(res, 409, { error: "this is your own invite link", code: joined.reason });
+        return true;
+      }
+      reply(res, 200, { crew: joined.crew, joined: joined.joined });
+      return true;
+    }
+
+    if (resource === "crew-members" && id && action === "remove" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      if (!(await platform.leaveCrew(id, steamId))) throw new HttpError(404, "no such crew member");
+      reply(res, 200, { removed: true });
+      return true;
+    }
+
     if (resource === "bookings" && !id && method === "POST") {
       const renter = requireRenter(req, sessionSecret);
       const body = await readJson(req);
@@ -751,10 +824,18 @@ export function createApi({
       // A rental-mode restart between renters (platform.ts, the reset hold).
       if (body.reset && body.available) throw new HttpError(400, "reset takes the machine off offer");
       const price = body.price === undefined ? undefined : positiveIntOrZero(body.price, "price");
+      if (body.crewOnly !== undefined && typeof body.crewOnly !== "boolean") {
+        throw new HttpError(400, "crewOnly must be true or false");
+      }
       const machine = await platform.setAvailability(
         id,
         body.available,
-        { ...hostReport(body), price, availableUntil: optionalTime(body.until, "until") },
+        {
+          ...hostReport(body),
+          price,
+          availableUntil: optionalTime(body.until, "until"),
+          crewOnly: body.crewOnly,
+        },
         { reset: body.reset === true },
       );
       reply(res, 200, machine);

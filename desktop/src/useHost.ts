@@ -4,7 +4,7 @@ import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
-import { createHostReporter, hostReport, type HostReporter } from "./report";
+import { createHostReporter, hostReport, type Crew, type HostReporter } from "./report";
 import {
   countSession,
   loadMachineId,
@@ -174,6 +174,10 @@ export function useHost(): Host {
     [name, machineId, pc, offered],
   );
   const [upMbps, setUpMbps] = useState<number | null>(null);
+  // Who may play on this PC, as the platform says with every answer, and the
+  // owner's choice made while it was off offer, which the next offer carries.
+  const [crew, setCrew] = useState<Crew | null>(null);
+  const crewChoice = useRef<boolean | null>(null);
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
 
@@ -184,8 +188,11 @@ export function useHost(): Host {
     const mine = createHostReporter(sharedWith.current, {
       report: latest.current.report,
       onUpload: setUpMbps,
+      onCrew: setCrew,
       after: withdrawn.current,
     });
+    if (crewChoice.current !== null) mine.setCrewOnly(crewChoice.current);
+    crewChoice.current = null;
     mine.offer(latest.current.until);
     reporter.current = mine;
     return () => {
@@ -288,6 +295,7 @@ export function useHost(): Host {
     sessionsToday,
     connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
     payoutSaved: false,
+    crew,
   };
 
   const settings = { url, machineId, machineKey };
@@ -350,6 +358,13 @@ export function useHost(): Host {
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
+      // The platform holds the choice, sent now or with the next offer; the screen
+      // shows it at once, and the next answer confirms it.
+      setCrewOnly: (on) => {
+        if (reporter.current) reporter.current.setCrewOnly(on);
+        else crewChoice.current = on;
+        setCrew((was) => (was ? { ...was, only: on } : was));
+      },
     },
   };
 }

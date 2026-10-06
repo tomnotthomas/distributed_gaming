@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  DEMO_CREWS,
   DEMO_DEMAND,
   DEMO_EARLY_END_RELIABILITY,
   DEMO_EARNINGS,
@@ -35,6 +36,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
   const [rentalTarget, setRentalTarget] = useState<string | null>(null);
+  const [crewOnly, setCrewOnly] = useState(true);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -76,6 +78,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
       preview: null,
     },
     payoutSaved: state.payoutSaved,
+    crew: { only: crewOnly, crews: DEMO_CREWS },
   };
 
   const waiting = (until: number | null): Live => ({ kind: "waiting", since: now, until, registered: true });
@@ -136,6 +139,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     chooseRentalTarget: setRentalTarget,
     previewRental: () => {},
     closeRentalPreview: () => {},
+    setCrewOnly,
   };
 
   return {

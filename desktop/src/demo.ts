@@ -16,6 +16,7 @@ import type {
   SteamSetup,
 } from "./model";
 import { MINUTE } from "./format";
+import type { CrewOf } from "./report";
 import { localArt, type ArtSource } from "./ui/art";
 import art730 from "./demo-art/730.jpg";
 import art553850 from "./demo-art/553850.jpg";
@@ -154,6 +155,9 @@ export const demoArt: ArtSource = (appid) => (DEMO_ART[appid] ? [DEMO_ART[appid]
 
 /** Players looking for a PC near Nova-01 right now. */
 export const DEMO_NEAR = 14;
+
+/** The crew Nova-01's owner joined from a friend's invite link. */
+export const DEMO_CREWS: CrewOf[] = [{ name: "mika_r", own: false, size: 3 }];
 
 export const DEMO_STANDING: Standing = {
   reliability: 96,

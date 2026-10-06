@@ -951,6 +951,14 @@ body {
   height: 3px;
   background: var(--lime);
 }
+/* who can play: the same two-cell choice, under the share-until one */
+.crew-pick {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 280px;
+}
+.ctl .note6 + .label {
+  margin-top: 22px;
+}
 .ucustom {
   display: flex;
   align-items: center;

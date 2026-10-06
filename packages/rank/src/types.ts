@@ -15,7 +15,7 @@ export type PicturePref = "best" | "4k" | "120fps";
 export type Stability = "steady" | "ok" | "shaky" | "new";
 
 /** The hard gates. A host that fails any of them is never listed. */
-export type GateId = "E1" | "E2" | "E3" | "E4" | "E5" | "E6";
+export type GateId = "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7";
 
 /** The sort rules, in the order they are tried. */
 export type RuleId = "O1" | "O2" | "O3" | "O4" | "O5" | "O6";
@@ -25,6 +25,11 @@ export type HostProfile = {
   id: string;
   /** The owner's account id, compared with the renter's for E5. */
   ownerId: string;
+  /**
+   * E7: when set, the host is crew-only and only these account ids (its
+   * owner's crewmates) may play on it. Left out, anyone may.
+   */
+  crew?: readonly string[];
   status: "available" | "busy" | "offline";
   /** Last heartbeat, epoch ms. */
   lastHeartbeatAt: number;

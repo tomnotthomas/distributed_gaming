@@ -10,6 +10,7 @@ const PATHS = {
   clock: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 7.5V12l3 2",
   download: "M12 5v10M7.5 10.5 12 15l4.5-4.5M6 19h12",
   card: "M4 6.5h16v11H4zM4 10h16M7 14.5h4",
+  crew: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3.5 19c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5M16 11a2.5 2.5 0 1 0 0-5M17.5 14.6c1.7.4 2.8 1.8 3.1 4.4",
 } as const;
 
 export type GlyphName = keyof typeof PATHS;
