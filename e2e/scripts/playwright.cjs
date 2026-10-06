@@ -10,9 +10,9 @@
 const { spawnSync } = require("node:child_process");
 
 function playwright(args) {
-  const cmd = ["playwright", "test", ...args];
+  const cmd = [process.execPath, require.resolve("@playwright/test/cli"), "test", ...args];
   if (process.platform === "linux") {
-    const run = spawnSync("prlimit", ["--core=1", "--", "npx", ...cmd], { stdio: "inherit" });
+    const run = spawnSync("prlimit", ["--core=1", "--", ...cmd], { stdio: "inherit" });
     if (run.error) {
       console.error(
         "prlimit (util-linux) is missing: it is needed to keep a crashing Electron from writing a core dump.",
@@ -21,7 +21,7 @@ function playwright(args) {
     }
     process.exit(run.status ?? 1);
   }
-  const run = spawnSync("npx", cmd, { stdio: "inherit", shell: process.platform === "win32" });
+  const run = spawnSync(cmd[0], cmd.slice(1), { stdio: "inherit" });
   process.exit(run.status ?? 1);
 }
 
