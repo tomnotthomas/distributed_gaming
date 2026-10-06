@@ -694,7 +694,8 @@ test_run() {
 		code=$(new_code)
 		on_vm "$cli run install --image $img --code $code" | tr -d '\r' > "$run/ui-install.json" || true
 		expect ui-installed "the installer modules installed Swiff OS for the key's screens" grep -q '"outcome":{"status":"done"' "$run/ui-install.json"
-		"$python" "$here/mok-drive.py" "$run/ui-mok-0.log" confirm "$code" --loose --socket "$run/serial.sock" || true
+		expect ui-install-mok "the key confirmed at MokManager after the modules' install" \
+			"$python" "$here/mok-drive.py" "$run/ui-mok-0.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-install
 		app
 		step ui-ask "the app asks whether the code went in" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120"
