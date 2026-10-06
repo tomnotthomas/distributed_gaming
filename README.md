@@ -72,8 +72,9 @@ whose button does it, so a mail scanner opening a link changes nothing. See
 
 Settings (server environment):
 
-- `MARKETING_PAGES=on` turns the pages and the sign-ups on. Leave it off until the Impressum's
-  `[PLACEHOLDER]`s (the founder's name and address) are filled in.
+- `MARKETING_PAGES=on` turns the pages and the sign-ups on. Leave it off until the bracketed
+  placeholders in the Impressum and legal notice (the founder's name, address and contact, e.g.
+  `[VOR- UND NACHNAME]`) are filled in.
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
   requests for its host, and it is the origin in the pages' canonical, Open Graph and mail links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.
