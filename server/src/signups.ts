@@ -3,23 +3,26 @@
 // while MARKETING_PAGES=on, on any host: the site's forms post here.
 //
 //   POST /api/signups               {email, kind: "player" | "host", lang, page, invite}
-//   GET  /api/signups/confirm?token=     the link in signup_confirm
-//   GET  /api/signups/unsubscribe?token= the link in every mail (POST too, for one-click)
+//   GET  /api/signups/confirm?token=     the link in signup_confirm: a page with a button
+//   POST /api/signups/confirm?token=     that button: confirms
+//   GET  /api/signups/unsubscribe?token= the link in every mail: a page with a button
+//   POST /api/signups/unsubscribe?token= that button (and one-click): unsubscribes
 //
-// A sign-up is kept per address and kind, unconfirmed, and gets the confirm
-// mail (emails/signup_confirm). Confirming it puts it on the list; a player
+// Nothing changes on a GET: mail scanners open every link in a mail, and only
+// a click on the button proves a person did. A sign-up is kept per address and
+// kind, unconfirmed, and gets the confirm mail (emails/signup_confirm).
+// Confirming it puts it on the list and spends its confirm link; a player
 // then gets their own crew link (/crew/<referral>) in emails/ask_pc_friend and
 // on the share page. The invite a form came with (`invite`, {type, code} from
 // an invite page's path or "type:code" from its ?i=) is kept with the sign-up.
 // The answer to a sign-up never says whether the address was known.
 //
 // The server has no way to send mail yet, so every mail is rendered into
-// marketing_outbox and stays there: MARKETING_MAIL=send is where a transport
-// goes, and until one exists it only warns.
+// marketing_outbox and stays there.
 
 import { createHash, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { BRAND } from "./brand.js";
+import { BRAND, WORDMARK } from "./brand.js";
 import type { Database, Queryable } from "./db.js";
 import { HttpError, readJson } from "./http.js";
 import type { Lang } from "./invite-copy.js";
@@ -45,6 +48,34 @@ export type Kind = "player" | "host";
 export type Invite = { type: string; code: string };
 
 type Json = Record<string, unknown>;
+
+const LINK_ACTIONS = ["confirm", "unsubscribe"] as const;
+type LinkAction = (typeof LINK_ACTIONS)[number];
+
+/** A link page's words in one language. */
+type Copy = { title: string; text: string; button?: string };
+
+/** What the page a mail's link opens asks for. */
+const ASK: Record<LinkAction, Record<Lang, Copy>> = {
+  confirm: {
+    de: { title: "Anmeldung bestätigen", text: "Ein Klick, und du bist dabei.", button: "Bestätigen" },
+    en: { title: "Confirm your sign-up", text: "One click and you're in.", button: "Confirm" },
+  },
+  unsubscribe: {
+    de: { title: "Abmelden", text: "Danach schicken wir dir keine Mails mehr.", button: "Abmelden" },
+    en: { title: "Unsubscribe", text: "We won't email you again after this.", button: "Unsubscribe" },
+  },
+};
+
+const UNSUBSCRIBED: Record<Lang, Copy> = {
+  de: { title: "Abgemeldet", text: "Du bist abgemeldet. Wir schicken dir keine Mails mehr." },
+  en: { title: "Unsubscribed", text: "You're unsubscribed. We won't email you again." },
+};
+
+const INVALID: Record<Lang, Copy> = {
+  de: { title: "Ungültiger Link", text: "Dieser Link ist ungültig." },
+  en: { title: "Invalid link", text: "This link is not valid." },
+};
 
 const token = () => randomBytes(24).toString("base64url");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -221,7 +252,8 @@ export function createSignups({
 
   /**
    * Confirm the sign-up `value` was sent for: where its page goes next, or
-   * null for a link that is unknown or too old. A player's first confirmation
+   * null for a link that is unknown, too old or already used. The link is
+   * spent: its hash is replaced by one nobody holds. A player's confirmation
    * queues ask_pc_friend with their crew link.
    */
   async function confirm(value: string): Promise<string | null> {
@@ -233,22 +265,18 @@ export function createSignups({
       );
       const row = rows[0];
       if (!row || at - row.confirm_sent_at > CONFIRM_TTL_MS) return null;
-      const first = row.confirmed_at === null || row.unsubscribed_at !== null;
-      if (first) {
-        await tx.query(
-          `UPDATE marketing_signups SET confirmed_at = $2, unsubscribed_at = NULL WHERE id = $1`,
-          [row.id, at],
-        );
-      }
+      await tx.query(
+        `UPDATE marketing_signups SET confirmed_at = $2, unsubscribed_at = NULL, confirm_hash = $3
+         WHERE id = $1`,
+        [row.id, at, hash(token())],
+      );
       if (row.kind === "host") return pageUrl(row.lang, "/host/");
       const share = pageUrl(row.lang, `/share/?code=${row.referral}`);
-      if (first) {
-        const mail = await renderMail(files, "ask_pc_friend", row.lang, row.email, {
-          share_url: share,
-          unsubscribe_url: linkUrl("unsubscribe", row.unsubscribe),
-        });
-        if (mail) await enqueue(tx, mail, at);
-      }
+      const mail = await renderMail(files, "ask_pc_friend", row.lang, row.email, {
+        share_url: share,
+        unsubscribe_url: linkUrl("unsubscribe", row.unsubscribe),
+      });
+      if (mail) await enqueue(tx, mail, at);
       return share;
     });
   }
@@ -273,10 +301,41 @@ export function createSignups({
     return rows.length > 0;
   }
 
-  const UNSUBSCRIBED: Record<Lang, string> = {
-    de: "Du bist abgemeldet. Wir schicken dir keine Mails mehr.",
-    en: "You're unsubscribed. We won't email you again.",
-  };
+  /** The language of the sign-up a confirm or unsubscribe link is for, or null for an unknown one. */
+  async function linkLang(action: LinkAction, value: string): Promise<Lang | null> {
+    const { rows } = await database.query<{ lang: Lang }>(
+      action === "confirm"
+        ? `SELECT lang FROM marketing_signups WHERE confirm_hash = $1`
+        : `SELECT lang FROM marketing_signups WHERE unsubscribe = $1`,
+      [action === "confirm" ? hash(value) : value],
+    );
+    return rows[0]?.lang ?? null;
+  }
+
+  /** A small page on the site's look, in `lang`, or in both for an unknown link. */
+  function page(res: ServerResponse, status: number, lang: Lang | null, copy: Record<Lang, Copy>, form = "") {
+    const both = (pick: (c: Copy) => string) =>
+      lang ? pick(copy[lang]) : `${pick(copy.de)} · ${pick(copy.en)}`;
+    res.writeHead(status, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex",
+      "referrer-policy": "no-referrer",
+    });
+    res.end(
+      `<!doctype html><html lang="${lang ?? "de"}"><head><meta charset="utf-8">` +
+        `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+        `<meta name="robots" content="noindex"><title>${both((c) => c.title)} | ${BRAND}</title>` +
+        `<link rel="stylesheet" href="${site.origin}/assets/css/fonts.css">` +
+        `<link rel="stylesheet" href="${site.origin}/assets/css/base.css">` +
+        `<link rel="stylesheet" href="${site.origin}/assets/css/legal.css"></head>` +
+        `<body class="legal"><header class="lg-nav"><a class="wordmark" href="${site.origin}/">${WORDMARK}</a></header>` +
+        `<main class="lg-main"><h1>${both((c) => c.title)}</h1><p class="lead">${both((c) => c.text)}</p>` +
+        (form &&
+          `<form method="post" action="${form}"><button class="copy" type="submit">${both((c) => c.button ?? "")}</button></form>`) +
+        `</main></body></html>`,
+    );
+  }
 
   async function route(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
     const method = req.method ?? "GET";
@@ -296,26 +355,27 @@ export function createSignups({
       res.end(JSON.stringify({ ok: true }));
       return true;
     }
+    const action = LINK_ACTIONS.find((a) => path === `/api/signups/${a}`);
+    if (!action) return false;
     const value = url.searchParams.get("token") ?? "";
-    if (path === "/api/signups/confirm" && method === "GET") {
+    if (method === "GET") {
+      // An unknown, old or used link offers nothing to press.
+      const lang = value ? await linkLang(action, value) : null;
+      if (lang)
+        page(res, 200, lang, ASK[action], `/api/signups/${action}?token=${encodeURIComponent(value)}`);
+      else page(res, 404, null, INVALID);
+      return true;
+    }
+    if (method !== "POST") return false;
+    if (action === "confirm") {
       const next = value ? await confirm(value) : null;
-      // An unknown or old link still lands on the site, which offers signing up again.
+      // An unknown, old or used link still lands on the site, which offers signing up again.
       res.writeHead(303, { location: next ?? `${site.origin}/`, "cache-control": "no-store" }).end();
       return true;
     }
-    if (path === "/api/signups/unsubscribe" && (method === "GET" || method === "POST")) {
-      const lang = value ? await unsubscribe(value) : null;
-      const text = lang ? UNSUBSCRIBED[lang] : "Dieser Link ist ungültig. · This link is not valid.";
-      res.writeHead(lang ? 200 : 404, {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      });
-      res.end(
-        `<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>${BRAND}</title><p>${text}</p>`,
-      );
-      return true;
-    }
-    return false;
+    const lang = value ? await unsubscribe(value) : null;
+    page(res, lang ? 200 : 404, lang, lang ? UNSUBSCRIBED : INVALID);
+    return true;
   }
 
   return {

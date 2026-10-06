@@ -369,7 +369,7 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       UNIQUE (email, kind)
     )`,
     // The mails the marketing site has to send, rendered, until a mail
-    // transport sends them (sent_at). None does yet: see MARKETING_MAIL.
+    // transport sends them (sent_at). None does yet.
     `CREATE TABLE marketing_outbox (
       id         TEXT PRIMARY KEY,
       to_address TEXT NOT NULL,

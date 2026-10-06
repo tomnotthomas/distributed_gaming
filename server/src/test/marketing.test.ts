@@ -171,11 +171,15 @@ describe("marketing site", () => {
     return ask(origin, "/api/signups", { method: "POST", body: JSON.stringify(body) });
   }
 
-  /** Follow a confirm link, a second later than whatever came before. */
+  /** Press the button a confirm link's page has, a second later than whatever came before. */
   async function confirm(token: string) {
     now += 1_000;
-    return ask(origin, `/api/signups/confirm?token=${token}`);
+    return ask(origin, `/api/signups/confirm?token=${token}`, { method: "POST" });
   }
+
+  /** The sign-ups as kept. */
+  const signupRows = async () =>
+    (await db.query<Record<string, unknown>>("SELECT * FROM marketing_signups ORDER BY id")).rows;
 
   /** The token in the last mail's link to `action`. */
   async function linkToken(action: string): Promise<string> {
@@ -303,6 +307,14 @@ describe("marketing site", () => {
     );
   });
 
+  it("names an inviter with $ patterns in it as they are", async () => {
+    names.set("crew:CASH", "Ca$$h $& $' $`");
+    const page = (await ask(origin, "/crew/CASH")).body;
+    assert.match(page, /<title>Ca\$\$h \$&#38; \$&#39; \$` möchte bei dir zocken \| Lanterel<\/title>/);
+    assert.match(page, /<b>Ca\$\$h \$&#38; \$&#39; \$`<\/b>/);
+    assert.doesNotMatch(page, /<b>Max<\/b>|<title>[^<]*<b>/);
+  });
+
   it("takes a waitlist sign-up with double opt-in, then hands out the player's crew link", async () => {
     const taken = await signUp({
       email: "  Ana@Example.COM ",
@@ -389,10 +401,53 @@ describe("marketing site", () => {
     assert.equal((await signUp({ email: "a@b.de", kind: "admin" })).status, 400);
     assert.equal((await ask(origin, "/api/signups", { method: "POST", body: "[" })).status, 400);
     assert.equal((await outbox()).length, 0);
-    const bad = await ask(origin, "/api/signups/confirm?token=forged");
+    const bad = await confirm("forged");
     assert.equal(bad.status, 303);
     assert.equal(bad.headers.location, `${SITE.origin}/`);
-    assert.equal((await ask(origin, "/api/signups/unsubscribe?token=forged")).status, 404);
+    assert.equal(
+      (await ask(origin, "/api/signups/unsubscribe?token=forged", { method: "POST" })).status,
+      404,
+    );
+    // A link nobody knows says so in both languages, with nothing to press.
+    for (const action of ["confirm", "unsubscribe"]) {
+      const unknown = await ask(origin, `/api/signups/${action}?token=%22%3E%3Cscript%3E`);
+      assert.equal(unknown.status, 404);
+      assert.match(unknown.body, /Dieser Link ist ungültig. · This link is not valid./);
+      assert.doesNotMatch(unknown.body, /<form|<button|<script>/);
+    }
+  });
+
+  it("only asks on a link's GET, which mail scanners open too: nothing changes", async () => {
+    await signUp({ email: "dee@example.com", kind: "player", lang: "en" });
+    const confirmToken = await linkToken("confirm");
+    const unsubscribeToken = await linkToken("unsubscribe");
+    const before = await signupRows();
+
+    const asked = await ask(origin, `/api/signups/confirm?token=${confirmToken}`);
+    assert.equal(asked.status, 200);
+    assert.equal(asked.headers["cache-control"], "no-store");
+    assert.match(asked.body, /<a class="wordmark" href="https:\/\/lanterel.test\/">LANTEREL<\/a>/);
+    assert.match(asked.body, new RegExp(`<link rel="stylesheet" href="${SITE.origin}/assets/css/base.css">`));
+    assert.match(
+      asked.body,
+      new RegExp(
+        `<form method="post" action="/api/signups/confirm\\?token=${confirmToken}"><button[^>]*>Confirm</button>`,
+      ),
+    );
+    assert.doesNotMatch(asked.body, /Bestätigen/);
+    const leave = await ask(origin, `/api/signups/unsubscribe?token=${unsubscribeToken}`);
+    assert.match(
+      leave.body,
+      new RegExp(
+        `<form method="post" action="/api/signups/unsubscribe\\?token=${unsubscribeToken}"><button[^>]*>Unsubscribe</button>`,
+      ),
+    );
+
+    assert.deepEqual(await signupRows(), before);
+    assert.deepEqual(
+      (await outbox()).map((m) => m.template),
+      ["signup_confirm"],
+    );
   });
 
   it("does not confirm with a link a week old", async () => {
@@ -413,6 +468,22 @@ describe("marketing site", () => {
     assert.equal(gone.status, 200);
     assert.match(gone.body, /Du bist abgemeldet/);
     assert.equal(await signups.isShareCode(rows[0]!.referral), false);
+  });
+
+  it("spends a confirm link: used again after an unsubscribe, it does nothing", async () => {
+    await signUp({ email: "ed@example.com", kind: "player" });
+    const confirmToken = await linkToken("confirm");
+    assert.equal((await confirm(confirmToken)).status, 303);
+    const unsubscribeToken = await linkToken("unsubscribe");
+    await ask(origin, `/api/signups/unsubscribe?token=${unsubscribeToken}`, { method: "POST" });
+    const mails = (await outbox()).length;
+
+    const again = await confirm(confirmToken);
+    assert.equal(again.headers.location, `${SITE.origin}/`);
+    const [row] = await signupRows();
+    assert.notEqual(row!.unsubscribed_at, null);
+    assert.equal(await signups.isShareCode(row!.referral as string), false);
+    assert.equal((await outbox()).length, mails);
   });
 });
 
