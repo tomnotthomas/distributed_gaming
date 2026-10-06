@@ -14,6 +14,7 @@ import io
 import json
 import os
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -389,6 +390,25 @@ class UntrustedBytes(Library):
         for data in (b"PK\x03\x04" + b"\0" * 60, b"PK\x03\x04" + empty.getvalue()):
             with self.assertRaisesRegex(ValueError, "not a readable zipped manifest"):
                 verify.read_manifest(data)
+
+    def test_a_mistyped_manifest_field_is_a_value_error(self):
+        """A file name sent as a varint or flags sent as bytes refuse only that game."""
+
+        def field(num, value):
+            if isinstance(value, int):
+                return bytes([num << 3, value])
+            return bytes([num << 3 | 2, len(value)]) + value
+
+        def manifest(mapping):
+            payload, meta = field(1, mapping), field(1, 7) + field(2, 9)
+            return (struct.pack("<II", verify.PAYLOAD, len(payload)) + payload
+                    + struct.pack("<II", verify.METADATA, len(meta)) + meta + struct.pack("<I", verify.END))
+
+        good = field(1, b"game.exe") + field(2, 3) + field(3, 0) + field(5, b"\1" * 20)
+        self.assertIn("game.exe", verify.read_manifest(manifest(good))["files"])
+        for mapping in (field(1, 5) + field(3, 0), field(1, b"game.exe") + field(3, b"\0")):
+            with self.assertRaisesRegex(ValueError, "not a Steam depot manifest"):
+                verify.read_manifest(manifest(mapping))
 
     def test_an_oversized_table_is_tampered_and_not_parsed(self):
         """A table larger than the limit is refused before any parsing."""

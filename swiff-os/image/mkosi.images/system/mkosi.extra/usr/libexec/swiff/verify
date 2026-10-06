@@ -333,6 +333,14 @@ def decrypt_name(text, key):
     return plain[:-pad].decode()
 
 
+def typed(fields, num, kind):
+    """A manifest field's first value, which must be of the given type (absent: empty)."""
+    value = fields.get(num, [kind()])[0]
+    if not isinstance(value, kind):
+        raise ValueError("not a Steam depot manifest")
+    return value
+
+
 def read_manifest(data, depot_key=None):
     """Reads a Steam depot manifest (the binary protobuf format of depotcache)."""
     if data[:4] == b"PK\x03\x04":
@@ -357,24 +365,26 @@ def read_manifest(data, depot_key=None):
     if PAYLOAD not in sections or METADATA not in sections:
         raise ValueError("not a Steam depot manifest")
     meta = protobuf(sections[METADATA])
-    encrypted = bool(meta.get(4, [0])[0])
+    encrypted = bool(typed(meta, 4, int))
     if encrypted and depot_key is None:
         raise ValueError("its file names are encrypted and Steam holds no key for the depot")
     files = {}
     for mapping in protobuf(sections[PAYLOAD]).get(1, []):
+        if not isinstance(mapping, bytes):
+            raise ValueError("not a Steam depot manifest")
         f = protobuf(mapping)
-        name = f.get(1, [b""])[0].decode()
-        target = f.get(7, [b""])[0].decode()
+        name = typed(f, 1, bytes).decode()
+        target = typed(f, 7, bytes).decode()
         if encrypted:
             name = decrypt_name(name, depot_key)
             target = target and decrypt_name(target, depot_key)
         files[manifest_path(name)] = {
-            "size": f.get(2, [0])[0],
-            "flags": f.get(3, [0])[0],
-            "sha1": f.get(5, [b""])[0].hex(),
+            "size": typed(f, 2, int),
+            "flags": typed(f, 3, int),
+            "sha1": typed(f, 5, bytes).hex(),
             "target": target.replace("\\", "/"),
         }
-    return {"depot": str(meta.get(1, [0])[0]), "gid": str(meta.get(2, [0])[0]), "files": files}
+    return {"depot": str(typed(meta, 1, int)), "gid": str(typed(meta, 2, int)), "files": files}
 
 
 def depot_keys():
