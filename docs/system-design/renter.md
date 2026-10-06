@@ -32,10 +32,11 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
    confirms ending it early. Ending early gives the renter 5 minutes to save and costs the
    owner reliability; the host app shows this flow only on its labelled demo data (see
    [`host.md`](host.md), requirement 3).
-10. A signed-in player can ask a friend with a gaming PC to host their crew, with a
-    personal invite link they share to WhatsApp, Discord, Steam chat or email. The friend
-    who opens it sees who asked, and once they join, their PC is crew-only: it is offered
-    and matched to that crew and nobody else (gate E7, "Crews" below).
+10. A signed-in player founds a crew in one tap and shares its link, to WhatsApp first;
+    anyone in the crew may share it. Nobody is asked about a PC to found or join: anyone
+    in the crew brings a gaming PC now or later, a crew may have several, and a PC owner
+    picks per crew which crews their PC plays for. A PC that plays for crews is offered
+    and matched to the people in them and nobody else (gate E7, "Crews" below).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.
@@ -84,17 +85,18 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 
 ## 4. Core entities
 
-| Entity          | What it is                                                      | Key fields                                                                                                            |
-| --------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at` |
-| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                     |
-| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `matched_at`, `expires_at`                                                          |
-| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `end_reason`, `price`, `ticket_id`, `qos`                 |
-| **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
-| **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
-| **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
-| **Crew**        | A player and the friends they invited.                          | `id`, `owner_id`, `owner_name`; members `id`, `crew_id`, `user_id`, `name`, `invite_id`, `joined_at`                  |
-| **Invite**      | A player's personal invite link to their crew.                  | `id`, `crew_id`, `inviter_id`, `created_at`, `revoked_at`                                                             |
+| Entity          | What it is                                                      | Key fields                                                                                                                                            |
+| --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Machine**     | A gaming PC offered for rent.                                   | `id`, `owner_id`, `name`, hardware, installed games, `controls`, `price`, `status`, `available_until`, `last_seen_at`                                 |
+| **Booking**     | A renter's request to play a game for N minutes.                | `id`, `renter_id`, `game_id`, `minutes`, `status`, `last_seen_at`                                                                                     |
+| **Reservation** | A machine held for one booking, for a limited time.             | `id`, `booking_id`, `machine_id`, `matched_at`, `expires_at`                                                                                          |
+| **Session**     | Time actually played on a machine. What gets charged.           | `id`, `booking_id`, `machine_id`, `started_at`, `ended_at`, `end_reason`, `price`, `ticket_id`, `qos`                                                 |
+| **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                                                  |
+| **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                                                      |
+| **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                                                           |
+| **Crew**        | A group of friends who play on each other's gaming PCs.         | `id`, `owner_id` (admin), `owner_name`, `name`, `ready_at`, `archived_at`; members `id`, `crew_id`, `user_id`, `name`, `invite_id`, `joined_at`, `pc` |
+| **Invite**      | A crew's link, which anyone in it may share.                    | `id`, `crew_id`, `inviter_id`, `created_at`, `revoked_at`                                                                                             |
+| **Crew PC**     | A PC its owner picked to play for a crew.                       | `crew_id`, `machine_id`, `added_by`, `added_at`                                                                                                       |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
 becomes `expired` when its reservation lapses unclaimed, or when it is queued and the
@@ -119,8 +121,8 @@ saves have no table yet: a user is their Steam id (a booking's `renter_id`, a ma
 ## 5. API
 
 All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
-`/availability`, `/games/:appid/machines`, `/bookings`, `/events`, `/invites/:token/join`
-and `/crew-members` calls carry the renter's sign-in session and answer `401` without one;
+`/availability`, `/games/:appid/machines`, `/bookings`, `/events`, `/crews`,
+`/invites/:token/join` and `/crew-members` calls carry the renter's sign-in session and answer `401` without one;
 `GET /games`, `GET /ping`, `POST /signout` and `GET /invites/:token` work signed out, and
 the `/sessions` calls carry the join ticket instead.
 
@@ -418,8 +420,8 @@ POST /sessions/:id/leave
 signed-in renter: gates E1–E7, then the fixed sort, with the game's requirements from
 the requirements table. Both are signed in only: working them out for every visitor
 would cost too much, so signed-out visitors see no availability (requirement 2). The
-renter's own machine is never counted or listed (E5), nor a crew-only one outside their
-crews (E7, not even as coming back), nor one whose offer has run
+renter's own machine is never counted or listed (E5), nor a crew-only one that plays for
+none of their crews (E7, not even as coming back), nor one whose offer has run
 out (its `available_until` has passed). Query parameters say how the renter plays:
 `rtt`, their round trip to the server in ms as the page measured it (required, 0 to
 10000), and, optionally, `controls`, a comma-separated list of `kb`, `mouse`, `pad`
@@ -464,7 +466,7 @@ minutes (and a rental-mode PC's Steam sign-in before them), and the machine is r
 (see "What can be played where"), not merely the cheapest: a machine must have the game
 installed and meet the game's minimum hardware (gates E2 and E3), take every control the
 renter turned on (E4), not be the renter's own (E5), be within 80 ms of the renter
-(E6) and, when it is crew-only, be in a crew with them (E7), and the best of those is the one free all session, then not Shaky, then with the
+(E6) and, when it is crew-only, play for a crew they are in (E7), and the best of those is the one free all session, then not Shaky, then with the
 best response, then picture, then the lowest latency, then the lowest price. The controls
 and Picture setting are the ones the booking was made with; a booking made without them
 asks for no controls and the best picture.
@@ -524,71 +526,111 @@ a session all end the booking (POST /bookings/:id/end).
 
 ### Crews
 
-A crew is a player and the friends they invited (`server/src/platform.ts`, crews). Every
-signed-in player has one personal invite link to their own crew, made with the crew the
-first time they ask for it. The link is `/invite/<token>`: the invite's random id followed
-by its HMAC-SHA256 under `SESSION_SECRET` in a domain of its own, cut to 16 bytes
+A crew is a group of friends who play on each other's gaming PCs (`server/src/platform.ts`,
+crews). A signed-in player founds one in a tap (`POST /crews`): it exists at once, named
+after its founder until someone gives it a name of its own, with its link. Anyone founds
+several crews and joins several. The founder is the crew's admin, who renames it, replaces
+its link and removes members; when the admin leaves, whoever has been in the crew longest
+takes over, and the last one out archives it, which also kills its link.
+
+A crew has one link, `/invite/<token>`, which anyone in it may share: whoever opens it and
+joins is in that crew, attributed to the invite. The token is the invite's random id
+followed by its HMAC-SHA256 under `SESSION_SECRET` in a domain of its own, cut to 16 bytes
 (`server/src/access.ts`). The database holds only the id, so a leak of it opens nothing,
-and a forged token is refused before the database is asked. A link never expires; its
-player replaces it with a new one, which stops the old one for good. Links are never
-logged or sent to analytics: every PostHog event has invite tokens cut from its URLs
-first (`withoutInviteTokens`, `web/src/swiff/invite.ts`), and the page only reports
-which way one was shared.
+and a forged token is refused before the database is asked. A link never expires; the admin
+replaces it with a new one, which stops the old one for good and removes nobody. Links are
+never logged or sent to analytics: every PostHog event has invite tokens cut from its URLs
+first (`withoutInviteTokens`, `web/src/swiff/invite.ts`), and the page only reports which
+way one was shared.
 
-Whoever opens a link and joins is in the inviter's crew, attributed to the invite they
-joined by. Joining makes every PC they own crew-only, and a PC of theirs first heard from
-later starts crew-only too. A crew-only PC is offered and matched only to its owner's
-crewmates, everyone in any crew its owner is in (gate E7 in `packages/rank`): on the
-wall, on the game page, in the queue, as a picked machine, and at the claim, which hands
-a reservation made before the PC became crew-only back to the queue. The owner can open
-it to anyone from the host app (`crewOnly`, host.md).
+Nobody is asked about a PC to found or join, and joining changes no PC. A PC plays for the
+crews its owner picks (`crew_machines`): a member brings their PCs to a crew (`POST
+/crews/:id/pc`, `yes`), which also brings any PC of theirs first heard from later, a
+founder's PCs play for the crew they found, and the host app picks crews per PC (`crews` on
+availability, host.md). A member may put the question off (`later`) or take their PCs out
+again (`off`). A PC that plays for crews is crew-only: it is offered and matched only to the
+people in those crews (gate E7 in `packages/rank`): on the wall, on the game page, in the
+queue, as a picked machine, and at the claim, which hands a reservation made before the PC
+was taken from the renter's crews back to the queue. A PC first heard from while its owner
+shares a crew with anyone starts crew-only, playing for nobody until they pick; a PC whose
+owner was never in a crew is open to anyone, as before crews. A crew-only PC from before
+crews were groups plays for every crew its owner was in (migration 13).
 
-A member may leave a crew they joined, and a crew's owner may remove anyone from it; from
-then on they match none of its crew-only PCs, and a match made before goes back at the
-claim. A membership is named by its own random id, never a Steam id, and a member is
-shown by the Steam persona read when they joined. A new link stops new joins only; it
-removes nobody.
+A member may leave, and the admin may remove anyone; their PCs leave the crew with them,
+from then on they match none of its PCs, and a match made before goes back at the claim. A
+membership is named by its own random id, never a Steam id, and a member is shown by the
+Steam persona read when they joined.
+
+A crew is ready once a PC playing for it is on offer, free or busy (`state`: `no-pc`,
+`ready`, or `offline` when every PC is away). The first time, everyone in it hears so: an
+`event: crew` on their open event stream (`events.ts`), which the page celebrates with a
+banner and, in a background tab whose browser allows it, a notification.
 
 ```
-GET  /me/invite
-  → 200 { token, crew: { name, own, size }, members: [{ id, name }],
-           joined: [{ id, name, own, size }] }
-  The signed-in player's link (its token) and their crew, named after their Steam
-  persona as last read; who else is in it, and the crews they joined, each with the
-  membership's id. → 401 signed out.
+GET  /crews
+  → 200 { crews: [{ id, memberId, name, crewName, own, size, state, pcs }] }
+  The crews the signed-in player is in. `name` is the admin's Steam persona, `crewName`
+  the crew's own name (null until given one), `own` whether they are its admin, `pcs`
+  how many PCs play for it. → 401 signed out.
 
-POST /me/invite/renew
-  → 200 { token, crew, members, joined }
-  A new link in place of the old one, which opens nothing from now on. → 401 signed out.
+POST /crews { name? }
+  → 201 { crew }
+  Found a crew; its PCs are the founder's. `crew` is a crew in full, as below.
+
+GET  /crews/:id
+  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token,
+                  members: [{ id, name, you, admin, pc, pcs }],
+                  machines: [{ name, owner, mine, state }] } }
+  The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
+  or `offline`. → 404 for anyone else, or none. → 401 signed out.
+
+POST /crews/:id/name { name }   → 200 { crew }
+POST /crews/:id/link            → 200 { crew }
+  As its admin: give the crew a name of its own (up to 24 characters; empty names it after
+  the admin again), or a new link in place of the old one. → 403 for a member who is not
+  the admin. → 404 as above.
+
+POST /crews/:id/pc { pc: "yes" | "later" | "off" }
+  → 200 { crew }
+  Whether the signed-in member brings their PCs to the crew. → 404 as above.
 
 GET  /invites/:token
-  → 200 { crew: { name, own, size, member } }
-  Whose crew a link joins and how many are in it, for anyone who opens it; signed in,
-  whether it is their own and whether they are in it already. → 404 for a forged,
-  unknown or replaced link.
+  → 200 { crew: { name, crewName, own, size, state, pcs, member } }
+  Which crew a link joins, for anyone who opens it; signed in, whether they are in it
+  already. → 404 for a forged, unknown, replaced or archived crew's link.
 
 POST /invites/:token/join
-  → 200 { crew, joined }
+  → 200 { id, crew, joined }
   Join the crew as the signed-in player. `joined` is false for a crew they were in
-  already, which changes nothing. → 409 { error, code: "own-invite" } for their own
-  link. → 404 as above. → 401 signed out.
+  already, which changes nothing. → 404 as above. → 401 signed out.
 
 POST /crew-members/:id/remove
   → 200 { removed: true }
-  End a membership: the signed-in player's own, leaving a crew they joined, or anyone's
-  in their own crew. → 404 for one that is not theirs to end, or is gone. → 401 signed out.
+  End a membership: the signed-in player's own, leaving the crew, or anyone's in a crew
+  they are the admin of. → 404 for one that is not theirs to end, or is gone.
+
+GET  /me/invite, POST /me/invite/renew
+  The link to the first crew the signed-in player founded, made on first ask, as the
+  personal link of before; kept for pages that still read it.
 ```
 
-The web app (`web/src/swiff/AskFriend.tsx`, `Invite.tsx`) shows the link under Ask your
-PC friend on the profile, under an empty wall, and as one line on the wall's band until
-the player puts it away. Below the link it lists who is in the crew, each with Remove,
-and the crews the player joined, each with Leave crew. It shares through the browser's share sheet where there is one,
-WhatsApp and email by link, and Discord and Steam chat by copying the message to paste.
-The invite page names who asked, signs the friend in with Steam (the token waits in the
-tab, the address shows `/invite` rather than the token, and sign-in returns there; only
-with storage blocked does the token stay in the path), joins them, and
-leads on to the host app's download. Its words, in German and English, are placeholders
-in `web/src/swiff/crewCopy.ts` for marketing's texts.
+The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the
+decided "Sofort-Crew" flow in the launch set's lobby look: `/crews/new` founds a crew and
+becomes its page, `/crews` lists the player's crews, `/crews/<id>` is one crew. The crew page
+reads "Almost ready." until a PC is in, leads with one next step per state (bring your
+people, with one WhatsApp message that invites and asks who has a gaming PC, through the
+phone's share sheet where there is one and `wa.me` otherwise; got a gaming PC?; play now; or
+every PC away), has an open PC slot anyone in the crew fills, a "Plan a session" panel that
+posts the session to WhatsApp, the crew link with other ways to share, and leaving. Someone
+who joined is shown once what the crew sees on their PC and what it does not, with a
+one-minute PC check and an equally plain "Later", which stays as a "Check my PC later" chip.
+The crew page reads its crew again on every change its event stream announces. The invite
+page names who asks and which crew, explains in three lines how it works, and joins with one
+button: signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the
+address shows `/invite` rather than the token; only with storage blocked does the token stay
+in the path) and joins at once, then the friend lands on the crew's page. The profile and the
+wall carry the player's crews and a way to found one. Their words, in German and English
+kept apart, are in `web/src/swiff/crewCopy.ts`.
 
 ### Connection setup (WebSocket)
 
