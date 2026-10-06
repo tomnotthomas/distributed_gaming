@@ -67,7 +67,7 @@ npm run desktop:demo   # the same app on labelled demo data, to walk every scree
 npm run desktop:pack   # build desktop/release/LanterelHost-<version>.exe
 ```
 
-The download page (`/share`) publishes the SHA-256 of the installer and of the Swiff OS image
+The download page (`/share`) publishes the SHA-256 of the installer and of the Lanterel OS image
 set as text, to check with `Get-FileHash` before running it. The release step writes them:
 CI's package job leaves `SHA256SUMS` beside each installer, `swiff-os/image-set.sh` beside the
 image set, and `node desktop/checksums.cjs release web/src/swiff/release.json --host <exe>

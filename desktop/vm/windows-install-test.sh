@@ -727,7 +727,7 @@ test_run() {
 		# C: is BitLocker's: before the key's restart, the recovery key is saved, on the owner's word alone.
 		step ui-recovery "No, or I'm not sure: first, save the BitLocker recovery key" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'save your bitlocker recovery key' 60"
 		ui_has ui-recovery 'never reads, sends or keeps' || result FAIL ui-recovery-text "the screen does not say the key stays the owner's"
-		step ui-no "I saved my key leads to confirming the key with a new code" bash -c "$ui click 'I saved my key' > /dev/null; $ui wait-h1 'confirm swiff' 60"
+		step ui-no "I saved my key leads to confirming the key with a new code" bash -c "$ui click 'I saved my key' > /dev/null; $ui wait-h1 'confirm lanterel' 60"
 		on_vm "Get-Content 'C:\Users\swiff\AppData\Roaming\@swiff\desktop\bitlocker-recovery.json'" | tr -d '\r' > "$run/ui-recovery-saved.json" || true
 		expect ui-recovery-kept "only the owner's word is kept, for C:, and no key: $(cat "$run/ui-recovery-saved.json")" \
 			bash -c "grep -q '\"drives\":\\[\"C\"\\]' '$run/ui-recovery-saved.json' && ! grep -Eq '[0-9]{6}-[0-9]{6}' '$run/ui-recovery-saved.json'"
@@ -764,7 +764,7 @@ test_run() {
 		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
 		# Remove Swiff OS through the app from its one click: the key's code, its restart to MokManager,
 		# the rest by itself, the restart that shows Windows, and the app's check of that start.
-		step ui-remove-code "Remove Swiff OS starts with a code for the key" bash -c "$ui click '^Rental mode' > /dev/null; $ui click '^Remove Swiff OS' > /dev/null; $ui wait-h1 'write down this code' 240"
+		step ui-remove-code "Remove Lanterel OS starts with a code for the key" bash -c "$ui click '^Rental mode' > /dev/null; $ui click '^Remove Lanterel OS' > /dev/null; $ui wait-h1 'write down this code' 240"
 		code=$($ui code)
 		step ui-remove-restart "the key's part ends at Restart now" bash -c "$ui click '^Remove the key' > /dev/null; $ui wait-h1 'restart to remove the key' 300"
 		$ui click 'Restart now' > "$run/ui-remove-restart-click.json" 2>&1 || true
@@ -777,7 +777,7 @@ test_run() {
 		sleep 30
 		windows_back ui-windows-after-remove
 		app
-		step ui-removed "the app checked the start: Swiff OS is off, Windows started as usual" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'swiff os is off this pc' 120"
+		step ui-removed "the app checked the start: Lanterel OS is off, Windows started as usual" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'lanterel os is off this pc' 120"
 		step ui-done "Done, and rental mode starts over" bash -c "$ui click '^Done' > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
