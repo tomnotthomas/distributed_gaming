@@ -78,7 +78,7 @@ import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
-import { createMarketing, crewInvites, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
+import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
 import { createSignups } from "./signups.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -211,9 +211,9 @@ const serveApi = createApi({
 });
 
 // The public marketing site (marketing.ts) and its sign-ups (signups.ts), only
-// with MARKETING_PAGES=on and SITE_ORIGIN set; the pages only on that origin's
+// with MARKETING_PAGES=on and SITE_ORIGIN and PUBLIC_ORIGIN set; the pages only on that origin's
 // host, so the app keeps its own routes everywhere else. Off, nothing changes.
-const site = siteFromEnv(process.env);
+const site = siteFromEnv(process.env, publicOrigin);
 const MARKETING_DIR = fileURLToPath(new URL("../../web/marketing/", import.meta.url));
 const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
 // Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
@@ -227,7 +227,6 @@ const serveMarketing =
         site,
         files: marketing,
         routes: await pageRoutes(MARKETING_DIR),
-        invites: crewInvites(sessionSecret, platform),
         isShareCode: signups.isShareCode,
       })
     : null;

@@ -15,7 +15,9 @@
 // Confirming it puts it on the list and spends its confirm link; a player
 // then gets their own crew link (/crew/<referral>) in emails/ask_pc_friend and
 // on the share page. The invite a form came with (`invite`, {type, code} from
-// an invite page's path or "type:code" from its ?i=) is kept with the sign-up.
+// an invite page's path or "type:code" from its ?i=) is kept with the sign-up,
+// a crew invite's by its type alone, and the page it came from without it: its
+// code may be the app's crew link token, which lets anyone holding it join the crew.
 // The answer to a sign-up never says whether the address was known.
 //
 // The server has no way to send mail yet, so every mail is rendered into
@@ -64,7 +66,7 @@ export function clientOf(req: IncomingMessage, trustProxy: boolean): string {
 }
 
 export type Kind = "player" | "host";
-export type Invite = { type: string; code: string };
+export type Invite = { type: string; code: string | null };
 
 type Json = Record<string, unknown>;
 
@@ -112,6 +114,14 @@ export function signupEmail(value: unknown): string | null {
   return email.length <= MAX_EMAIL_LENGTH && EMAIL.test(email) ? email : null;
 }
 
+/** The page a form was on; a crew invite's path without its code. */
+export function signupPage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return value
+    .slice(0, MAX_PAGE_LENGTH)
+    .replace(/^(\/en)?\/crew\/[^/]*/, (_, en?: string) => `${en ?? ""}/crew/`);
+}
+
 /** The invite a form sent, {type, code} or "type:code"; null for none or anything else. */
 export function signupInvite(value: unknown): Invite | null {
   let type: unknown;
@@ -119,7 +129,8 @@ export function signupInvite(value: unknown): Invite | null {
   if (typeof value === "string") [type, code] = value.split(":", 2);
   else if (value && typeof value === "object") ({ type, code } = value as Json);
   if (typeof type !== "string" || typeof code !== "string") return null;
-  return (INVITE_TYPES as readonly string[]).includes(type) && INVITE_CODE.test(code) ? { type, code } : null;
+  if (!(INVITE_TYPES as readonly string[]).includes(type) || !INVITE_CODE.test(code)) return null;
+  return { type, code: type === "crew" ? null : code };
 }
 
 /** One rendered mail. */
@@ -237,7 +248,7 @@ export function createSignups({
       throw new HttpError(400, "kind must be player or host");
     const kind: Kind = body.kind;
     const lang: Lang = body.lang === "en" ? "en" : "de";
-    const page = typeof body.page === "string" ? body.page.slice(0, MAX_PAGE_LENGTH) : null;
+    const page = signupPage(body.page);
     const invite = signupInvite(body.invite);
     const at = now();
     const confirm = token();
@@ -279,7 +290,8 @@ export function createSignups({
       // The first invite it came with stays.
       await tx.query(
         `UPDATE marketing_signups SET lang = $2, confirm_hash = $3, confirm_sent_at = $4,
-           invite_type = coalesce(invite_type, $5), invite_code = coalesce(invite_code, $6)
+           invite_code = CASE WHEN invite_type IS NULL THEN $6 ELSE invite_code END,
+           invite_type = coalesce(invite_type, $5)
          WHERE id = $1`,
         [known.id, lang, hash(confirm), at, invite?.type ?? null, invite?.code ?? null],
       );

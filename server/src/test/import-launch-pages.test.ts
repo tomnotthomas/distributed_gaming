@@ -75,6 +75,36 @@ describe("importing the launch set", () => {
     assert.equal(faqJsonLd(bare, "en"), bare);
   });
 
+  it("turns the brand, the site's origin and the app's origin into tokens", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-set-"));
+    const source = join(dir, "source");
+    const target = join(dir, "marketing");
+    try {
+      mkdirSync(source);
+      writeFileSync(
+        join(source, "index.html"),
+        '<title>Lanterel</title><link rel="canonical" href="https://lanterel.de/"><a href="https://swiff.onrender.com/">Prüf deine Bibliothek</a>',
+      );
+      await promisify(execFile)(process.execPath, [SCRIPT, source, "--target", target]);
+      assert.equal(
+        readFileSync(join(target, "index.html"), "utf8"),
+        '<title>{{brand}}</title><link rel="canonical" href="{{site}}/"><a href="{{app}}/">Prüf deine Bibliothek</a>',
+      );
+      writeFileSync(join(source, "index.html"), '<a href="https://app.example/x">x</a>');
+      await promisify(execFile)(process.execPath, [
+        SCRIPT,
+        source,
+        "--target",
+        target,
+        "--app",
+        "https://app.example",
+      ]);
+      assert.equal(readFileSync(join(target, "index.html"), "utf8"), '<a href="{{app}}/x">x</a>');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("leaves the target as it was when it refuses a set", async () => {
     const dir = mkdtempSync(join(tmpdir(), "launch-set-"));
     const source = join(dir, "source");

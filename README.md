@@ -78,6 +78,8 @@ Settings (server environment):
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages and sign-ups are served only to
   requests for its host, and it is the origin in the pages' canonical, Open Graph and mail links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.
+- `PUBLIC_ORIGIN`, the app's own origin (Steam sign-in needs it too): every link on the pages into the
+  app, such as "Prüf deine Bibliothek", goes there. Without it the pages stay off as well.
 
 The server has no mail sender yet: every sign-up mail is rendered into the `marketing_outbox`
 table and stays there until one exists.

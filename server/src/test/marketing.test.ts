@@ -8,14 +8,11 @@ import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { inviteToken } from "../access.js";
 import type { Database } from "../db.js";
-import { Platform } from "../platform.js";
 import type { InviteType } from "../invite-copy.js";
 import {
   assetPath,
   createMarketing,
-  crewInvites,
   inviteRoute,
   marketingFiles,
   pageRoutes,
@@ -36,7 +33,7 @@ import {
 import { testDatabase } from "./db.js";
 
 const DIR = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
-const SITE = { origin: "https://lanterel.test", host: "lanterel.test" };
+const SITE = { origin: "https://lanterel.test", host: "lanterel.test", app: "https://app.lanterel.test" };
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const TYPES: InviteType[] = ["crew", "seat", "gift", "night"];
 /** The example people and facts marketing built the invite pages with. */
@@ -84,14 +81,17 @@ function askRaw(origin: string, path: string, host = SITE.host): Promise<Answer>
 }
 
 describe("marketing configuration", () => {
-  it("is off unless MARKETING_PAGES=on, and on only with a usable SITE_ORIGIN", () => {
-    assert.equal(siteFromEnv({}), null);
-    assert.equal(siteFromEnv({ SITE_ORIGIN: "https://lanterel.de" }), null);
-    assert.equal(siteFromEnv({ MARKETING_PAGES: "on" }), null);
-    assert.equal(siteFromEnv({ MARKETING_PAGES: "on", SITE_ORIGIN: "ftp://lanterel.de" }), null);
-    assert.deepEqual(siteFromEnv({ MARKETING_PAGES: "on", SITE_ORIGIN: "https://lanterel.de/x" }), {
+  it("is off unless MARKETING_PAGES=on, and on only with a usable SITE_ORIGIN and app origin", () => {
+    const app = "https://app.lanterel.de";
+    assert.equal(siteFromEnv({}, app), null);
+    assert.equal(siteFromEnv({ SITE_ORIGIN: "https://lanterel.de" }, app), null);
+    assert.equal(siteFromEnv({ MARKETING_PAGES: "on" }, app), null);
+    assert.equal(siteFromEnv({ MARKETING_PAGES: "on", SITE_ORIGIN: "ftp://lanterel.de" }, app), null);
+    assert.equal(siteFromEnv({ MARKETING_PAGES: "on", SITE_ORIGIN: "https://lanterel.de" }, null), null);
+    assert.deepEqual(siteFromEnv({ MARKETING_PAGES: "on", SITE_ORIGIN: "https://lanterel.de/x" }, app), {
       origin: "https://lanterel.de",
       host: "lanterel.de",
+      app,
     });
   });
 
@@ -126,7 +126,10 @@ describe("marketing configuration", () => {
   });
 
   it("reads an invite from a form as {type, code} or type:code, and nothing else", () => {
-    assert.deepEqual(signupInvite({ type: "crew", code: "AB12" }), { type: "crew", code: "AB12" });
+    assert.deepEqual(signupInvite({ type: "night", code: "AB12" }), { type: "night", code: "AB12" });
+    // A crew invite's code may be the app's crew link token: only its type is kept.
+    assert.deepEqual(signupInvite({ type: "crew", code: "AB12" }), { type: "crew", code: null });
+    assert.deepEqual(signupInvite("crew:AB12"), { type: "crew", code: null });
     assert.deepEqual(signupInvite("seat:x_y-z"), { type: "seat", code: "x_y-z" });
     assert.equal(signupInvite(null), null);
     assert.equal(signupInvite("party:x"), null);
@@ -141,35 +144,6 @@ describe("marketing configuration", () => {
       setText(html, "a", "Hi <b>there</b>"),
       '<h1 data-t="a" id="h">Hi <b>there</b></h1><p data-t="b"><span>y</span></p><h1 data-t="a">Hi <b>there</b></h1>',
     );
-  });
-});
-
-describe("crew invites from the app's invite links", () => {
-  const SECRET = "test-session-secret-that-is-long-enough-too";
-
-  it("names a live link's crew owner, and nobody for anything else", async () => {
-    const platform = await Platform.open({ database: await testDatabase() });
-    try {
-      const resolve = crewInvites(SECRET, platform);
-      const crew = await platform.createCrew("76561198000000001", "Ana");
-      assert.ok(crew !== "too-many" && crew.inviteId);
-      const token = inviteToken(SECRET, crew.inviteId);
-      assert.deepEqual(await resolve("crew", token), { inviter: "Ana" });
-      // Signed with another secret, another type, a sign-up's own code, or replaced since.
-      assert.deepEqual(
-        await resolve("crew", inviteToken("another-secret-that-is-long-enough-too!!", crew.inviteId)),
-        {
-          inviter: null,
-        },
-      );
-      assert.deepEqual(await resolve("seat", token), { inviter: null });
-      assert.deepEqual(await resolve("crew", "AB12cdEF"), { inviter: null });
-      await platform.renewCrewLink(crew.id, "76561198000000001");
-      assert.deepEqual(await resolve("crew", token), { inviter: null });
-      assert.deepEqual(await crewInvites(null, platform)("crew", token), { inviter: null });
-    } finally {
-      await platform.close();
-    }
   });
 });
 
@@ -255,7 +229,19 @@ describe("marketing site", () => {
       // The old name nowhere a reader sees it (a script's event name may keep it).
       assert.doesNotMatch(page.body, /\{\{|\bSwiff|\bSWIFF\b/, path);
       assert.match(page.body, new RegExp(`<link rel="canonical" href="${SITE.origin}${path}">`), path);
+      assert.doesNotMatch(page.body, /onrender\.com/, path);
     }
+  });
+
+  it("links the library check into the app at its configured origin", async () => {
+    assert.match(
+      (await ask(origin, "/")).body,
+      new RegExp(`<a href="${SITE.app}/" data-t="lib.check">Prüf deine Bibliothek</a>`),
+    );
+    assert.match(
+      (await ask(origin, "/en/")).body,
+      new RegExp(`<a href="${SITE.app}/" data-t="lib.check">Check your library</a>`),
+    );
   });
 
   it("sends a page path without its slash to the page", async () => {
@@ -461,7 +447,9 @@ describe("marketing site", () => {
     const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM marketing_signups");
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.invite_type, "crew");
-    assert.equal(rows[0]!.invite_code, "AB12");
+    assert.equal(rows[0]!.invite_code, null);
+    assert.equal(rows[0]!.page, "/crew/");
+    assert.doesNotMatch(JSON.stringify(rows[0]), /AB12/);
     assert.equal(rows[0]!.confirmed_at, null);
     const referral = rows[0]!.referral as string;
 
@@ -516,7 +504,32 @@ describe("marketing site", () => {
     const { rows } = await db.query<Record<string, unknown>>(
       "SELECT kind, invite_code FROM marketing_signups",
     );
-    assert.deepEqual(rows[0], { kind: "host", invite_code: "AB12" });
+    assert.deepEqual(rows[0], { kind: "host", invite_code: null });
+  });
+
+  it("keeps a crew invite's type, never its code, also when a resend comes with another invite", async () => {
+    await signUp({
+      email: "cy@example.com",
+      kind: "player",
+      page: "/en/crew/CREWTOKEN",
+      invite: "crew:CREWTOKEN",
+    });
+    now += RESEND_AFTER_MS;
+    await signUp({ email: "cy@example.com", kind: "player", invite: "seat:S1" });
+    assert.equal((await outbox()).length, 2);
+    const { rows } = await db.query<Record<string, unknown>>(
+      "SELECT invite_type, invite_code FROM marketing_signups",
+    );
+    assert.deepEqual(rows[0], { invite_type: "crew", invite_code: null });
+    assert.doesNotMatch(JSON.stringify(await signupRows()), /CREWTOKEN/);
+
+    await signUp({ email: "di@example.com", kind: "player" });
+    now += RESEND_AFTER_MS;
+    await signUp({ email: "di@example.com", kind: "player", invite: { type: "crew", code: "CREWTOKEN" } });
+    const later = await db.query<Record<string, unknown>>(
+      "SELECT invite_type, invite_code FROM marketing_signups WHERE email = 'di@example.com'",
+    );
+    assert.deepEqual(later.rows[0], { invite_type: "crew", invite_code: null });
   });
 
   it("refuses what is not a sign-up and lands a bad link on the site", async () => {
@@ -683,10 +696,15 @@ describe("MARKETING_PAGES on the real server", () => {
   });
 
   it("on: the site on its own host, the app everywhere else", async () => {
-    await start({ MARKETING_PAGES: "on", SITE_ORIGIN: `http://${HOST}` });
+    await start({
+      MARKETING_PAGES: "on",
+      SITE_ORIGIN: `http://${HOST}`,
+      PUBLIC_ORIGIN: "https://app.lanterel.test",
+    });
     try {
       const landing = await ask(HTTP, "/", { host: HOST });
       assert.equal(landing.status, 200);
+      assert.match(landing.body, /<a href="https:\/\/app\.lanterel\.test\/" data-t="lib.check">/);
       assert.match(landing.body, /<meta name="form-endpoint" content="\/api\/signups">/);
       assert.match(landing.body, new RegExp(`<link rel="canonical" href="http://${HOST}/">`));
       assert.doesNotMatch((await ask(HTTP, "/", { host: `127.0.0.1:${PORT}` })).body, /form-endpoint/);

@@ -13,10 +13,11 @@
 // files are not edited beyond three things:
 //
 // - The brand becomes one token. The product name (`--name`, default the name
-//   the set was built with), its wordmark (the name in capitals) and the
-//   site's origin (`--site`) turn into {{brand}}, {{wordmark}}, {{site}} and
-//   {{siteHost}}, which the server fills in from server/src/brand.ts and
-//   SITE_ORIGIN as it serves each file. Routes and file names keep what the
+//   the set was built with), its wordmark (the name in capitals), the site's
+//   origin (`--site`) and the app's origin its links into the app go to
+//   (`--app`) turn into {{brand}}, {{wordmark}}, {{site}}, {{siteHost}} and
+//   {{app}}, which the server fills in from server/src/brand.ts, SITE_ORIGIN
+//   and PUBLIC_ORIGIN as it serves each file. Routes and file names keep what the
 //   build made of them (/lanterel-os/).
 // - Every form posts to the server's sign-up endpoint (the form-endpoint meta).
 // - An English page's FAQ structured data (FAQPage JSON-LD) says what the page
@@ -50,9 +51,10 @@ const SKIPPED = new Set(["_redirects", "README.md"]);
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The set's text with its brand and origin turned into tokens. Lower-case names stay: they are URLs. */
-function tokenize(text, name, site) {
+/** The set's text with its brand and origins turned into tokens. Lower-case names stay: they are URLs. */
+function tokenize(text, name, site, app) {
   return text
+    .replace(new RegExp(escape(app), "g"), "{{app}}")
     .replace(new RegExp(escape(site), "g"), "{{site}}")
     .replace(new RegExp(`\\b${escape(new URL(site).host)}\\b`, "g"), "{{siteHost}}")
     .replace(new RegExp(`\\b${escape(name)}\\b`, "g"), "{{brand}}")
@@ -128,7 +130,7 @@ function* files(dir) {
  * set an interrupted import left aside (`<target>.previous`), with no `target`,
  * is put back first.
  */
-function importSet(source, target, name, site) {
+function importSet(source, target, name, site, app) {
   const previous = `${target}.previous`;
   // An import stopped between promote's two renames left the only copy of the old pages aside: they come back first.
   if (!existsSync(target) && existsSync(previous)) renameSync(previous, target);
@@ -148,7 +150,7 @@ function importSet(source, target, name, site) {
         const english = rel.startsWith(`en${sep}`) && extname(rel) === ".html";
         writeFileSync(
           out,
-          english ? faqJsonLd(tokenize(text, name, site), "en") : tokenize(text, name, site),
+          english ? faqJsonLd(tokenize(text, name, site, app), "en") : tokenize(text, name, site, app),
         );
       } else cpSync(path, out);
       count++;
@@ -188,17 +190,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     options: {
       name: { type: "string", default: "Lanterel" },
       site: { type: "string", default: "https://lanterel.de" },
+      app: { type: "string", default: "https://swiff.onrender.com" },
       target: { type: "string", default: TARGET },
     },
   });
   const source = positionals[0];
   if (!source || !existsSync(join(source, "index.html"))) {
     console.error(
-      "usage: node server/scripts/import-launch-pages.mjs <built launch set> [--name Lanterel] [--site https://lanterel.de] [--target web/marketing]",
+      "usage: node server/scripts/import-launch-pages.mjs <built launch set> [--name Lanterel] [--site https://lanterel.de] [--app https://swiff.onrender.com] [--target web/marketing]",
     );
     process.exit(1);
   }
   const target = resolve(values.target);
-  const count = importSet(source, target, values.name, new URL(values.site).origin);
+  const count = importSet(
+    source,
+    target,
+    values.name,
+    new URL(values.site).origin,
+    new URL(values.app).origin,
+  );
   console.log(`imported ${count} files into ${relative(process.cwd(), target) || "."}`);
 }

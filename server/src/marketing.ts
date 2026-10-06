@@ -11,16 +11,16 @@
 //
 // Off, or on another host, every one of these paths does what it did before.
 //
-// The pages hold the product's name and the site's origin as tokens, filled in
-// here from brand.ts and SITE_ORIGIN. An invite page names only what the
-// product knows about its invite (invite-copy.ts), and its buttons carry the
+// The pages hold the product's name, the site's origin and the app's origin as
+// tokens, filled in here from brand.ts, SITE_ORIGIN and PUBLIC_ORIGIN. An
+// invite page names only what the product knows about its invite
+// (invite-copy.ts), and its buttons carry the
 // invite's code on to the sign-up form (?i=type:code), which posts it with the
 // email (signups.ts). The share page shows a confirmed sign-up's own crew link.
 
 import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import { verifyInviteToken } from "./access.js";
 import { BRAND, WORDMARK } from "./brand.js";
 import { inviteCopy, UNKNOWN_INVITE, type InviteType, type InviteView, type Lang } from "./invite-copy.js";
 
@@ -29,16 +29,21 @@ export const INVITE_TYPES: readonly InviteType[] = ["crew", "seat", "gift", "nig
 /** An invite code in a path or a form: what the product's codes and tokens are made of. */
 export const INVITE_CODE = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** The site's origin, and its host as a request names it. */
-export type Site = { origin: string; host: string };
+/** The site's origin, its host as a request names it, and the app's origin its links into the app go to. */
+export type Site = { origin: string; host: string; app: string };
 
 /**
- * The marketing site from MARKETING_PAGES and SITE_ORIGIN: null while the
- * pages are off. On without a usable SITE_ORIGIN serves nothing: every link
- * and preview on the pages needs the real origin.
+ * The marketing site from MARKETING_PAGES and SITE_ORIGIN, linking into the
+ * app at `app` (publicOriginFromEnv): null while the pages are off. On without
+ * a usable SITE_ORIGIN or app origin serves nothing: every link and preview on
+ * the pages needs the real origins.
  */
-export function siteFromEnv(env: NodeJS.ProcessEnv): Site | null {
+export function siteFromEnv(env: NodeJS.ProcessEnv, app: string | null): Site | null {
   if (env.MARKETING_PAGES?.trim().toLowerCase() !== "on") return null;
+  if (!app) {
+    console.warn("[swiff] MARKETING_PAGES=on needs PUBLIC_ORIGIN, the app's origin: the pages stay off");
+    return null;
+  }
   const configured = env.SITE_ORIGIN?.trim() ?? "";
   const url = URL.canParse(configured) ? new URL(configured) : null;
   if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
@@ -47,7 +52,7 @@ export function siteFromEnv(env: NodeJS.ProcessEnv): Site | null {
     );
     return null;
   }
-  return { origin: url.origin, host: url.host };
+  return { origin: url.origin, host: url.host, app };
 }
 
 /** The language a page path is in. */
@@ -59,7 +64,8 @@ export function fillTokens(text: string, site: Site): string {
     .replaceAll("{{brand}}", BRAND)
     .replaceAll("{{wordmark}}", WORDMARK)
     .replaceAll("{{site}}", site.origin)
-    .replaceAll("{{siteHost}}", site.host);
+    .replaceAll("{{siteHost}}", site.host)
+    .replaceAll("{{app}}", site.app);
 }
 
 /** The marketing files under `dir`, read once each with their tokens filled. */
@@ -130,25 +136,6 @@ export type InviteResolver = (type: InviteType, code: string) => Promise<InviteV
 
 /** Nothing: every invite page says it without names. */
 export const knownInvites: InviteResolver = async () => UNKNOWN_INVITE;
-
-/**
- * Crew invites by their link token (the one the app hands out, signed with
- * SESSION_SECRET, access.ts): a live one names its crew's owner as the crew
- * shows them (their Steam persona). A forged, revoked or unknown token, a
- * sign-up's own crew link code, and every other type name nobody. TODO: seats,
- * gifts and Nights once they exist.
- */
-export function crewInvites(
-  sessionSecret: string | null,
-  platform: { invite(inviteId: string): Promise<{ name: string | null } | null> },
-): InviteResolver {
-  return async (type, code) => {
-    if (type !== "crew" || !sessionSecret) return UNKNOWN_INVITE;
-    const inviteId = verifyInviteToken(sessionSecret, code);
-    const crew = inviteId ? await platform.invite(inviteId) : null;
-    return { inviter: crew?.name ?? null };
-  };
-}
 
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
