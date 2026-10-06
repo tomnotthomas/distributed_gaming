@@ -5,8 +5,43 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { E2E_MACHINE_KEY, E2E_ROOM } from "./credentials";
 
-/** Open the browser host page and start sharing into the e2e room. */
-export async function startHost(page: Page, key = E2E_MACHINE_KEY) {
+/**
+ * Open the browser host page and start sharing into the e2e room, or into
+ * `room` with its `key`. The page always names the e2e room (HOST_ID), so for
+ * another room its signaling socket, both ways, and its Host API calls say
+ * that room's name in its place.
+ */
+export async function startHost(page: Page, key = E2E_MACHINE_KEY, room = E2E_ROOM) {
+  if (room !== E2E_ROOM) {
+    await page.addInitScript(
+      ({ from, to }) => {
+        const swap = (text: string, a: string, b: string) =>
+          text.split(`"hostId":"${a}"`).join(`"hostId":"${b}"`);
+        const fetch = window.fetch;
+        window.fetch = (input, init) =>
+          fetch(
+            typeof input === "string"
+              ? input.replace(`/api/machines/${from}/`, `/api/machines/${to}/`)
+              : input,
+            init,
+          );
+        const send = WebSocket.prototype.send;
+        WebSocket.prototype.send = function (data) {
+          return send.call(this, typeof data === "string" ? swap(data, from, to) : data);
+        };
+        const data = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data")!.get!;
+        Object.defineProperty(MessageEvent.prototype, "data", {
+          get() {
+            const value = data.call(this);
+            return this.target instanceof WebSocket && typeof value === "string"
+              ? swap(value, to, from)
+              : value;
+          },
+        });
+      },
+      { from: E2E_ROOM, to: room },
+    );
+  }
   await page.goto("/host");
   await page.getByLabel("Machine key").fill(key);
   await page.getByRole("button", { name: "Start sharing" }).click();

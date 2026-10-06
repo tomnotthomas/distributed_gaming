@@ -170,7 +170,7 @@ test.describe("watching a friend play", () => {
       contexts.push(context);
       const page = await context.newPage();
       await fakeScreenCapture(page);
-      await startHost(page, E2E_WATCH_PC_KEY);
+      await startHost(page, E2E_WATCH_PC_KEY, E2E_WATCH_PC);
       return page;
     });
     await expect(player.getByTestId("ignition")).toHaveCount(0, { timeout: 60_000 });
