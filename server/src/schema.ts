@@ -347,7 +347,8 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
   [
     // Sign-ups from the marketing site (signups.ts): the waitlist (player) and
     // Founding Host applications (host), one per address and kind. The confirm
-    // token is kept only as its SHA-256 hash (hex); the unsubscribe token,
+    // token is kept here only as its SHA-256 hash (hex), though the outbox
+    // mails carry the confirm link itself until sent; the unsubscribe token,
     // which can do nothing but unsubscribe, as it is, since every mail carries
     // the same one. referral is the sign-up's own crew link code, shown once it
     // is confirmed. The invite it came with, if any, is invite_type and invite_code.
