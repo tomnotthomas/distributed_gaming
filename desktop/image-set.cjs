@@ -436,7 +436,7 @@ if (require.main === module) {
       );
     else if (cmd === "verify")
       console.log(
-        `A release build reads Swiff OS ${readImageSet(a, { trust: trustOf({ dev: false }) }).version} in ${a}.`,
+        `A release build reads Lanterel OS ${readImageSet(a, { trust: trustOf({ dev: false }) }).version} in ${a}.`,
       );
     else if (cmd === "manifest") writeManifest(a, b, c).catch(failed);
     else {

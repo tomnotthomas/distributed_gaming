@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { MotionContext } from "@swiff/ui";
 import { Chrome } from "./Chrome";
-import { langOf } from "./crewCopy";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { CrewInvite } from "./CrewInvite";
@@ -11,7 +10,7 @@ import { CrewReadyBanner } from "./CrewsCard";
 import { Profile } from "./Profile";
 import { AwayDialog, MachineLost, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
-import { screenText } from "./screenCopy";
+import { screenLang, screenText } from "./screenCopy";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";
@@ -21,8 +20,8 @@ import { useSwiff } from "./useSwiff";
 export function Swiff() {
   const swiff = useSwiff();
   useDisplay();
-  const t = useMemo(() => screenText(langOf()), []);
   const { screen, phase, profile, signedIn } = swiff;
+  const t = useMemo(() => screenText(screenLang(screen)), [screen]);
 
   // The app scrolls as one page; a new screen starts at its top.
   const page = useRef<HTMLDivElement>(null);

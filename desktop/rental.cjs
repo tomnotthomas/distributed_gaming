@@ -659,7 +659,7 @@ function commandsOf(op) {
         `# Read back, as administrator: no Boot#### starts ${BOOT_PATH}, BootNext names none, no request for shim is left`,
         ...(op.disk !== null
           ? [
-              `#   and disk ${op.disk}'s partition table has none of Swiff OS's partitions: ${op.ids.join(", ")}`,
+              `#   and disk ${op.disk}'s partition table has none of Lanterel OS's partitions: ${op.ids.join(", ")}`,
             ]
           : []),
       ];
@@ -993,7 +993,7 @@ function keyRemovalPlan(code = mokCode(), rental = null) {
  */
 function removePlan(rental, { key = false, code = mokCode() } = {}) {
   const install = rental?.facts.install;
-  if (!install) throw new Error("Swiff OS is not installed on this PC.");
+  if (!install) throw new Error("Lanterel OS is not installed on this PC.");
   if (key && install.partitions.length && install.bootEntry !== null) {
     const unkey = keyRemovalPlan(code, rental);
     return { ...unkey, kind: "remove", phase: "key" };
@@ -1002,7 +1002,9 @@ function removePlan(rental, { key = false, code = mokCode() } = {}) {
   const forget = steps.pop();
   const ids = install.partitions.map((p) => p.id);
   steps.push(
-    step("verify", "Check nothing of Swiff OS is left", [{ op: "removal-check", disk: install.disk, ids }]),
+    step("verify", "Check nothing of Lanterel OS is left", [
+      { op: "removal-check", disk: install.disk, ids },
+    ]),
     forget,
     step(
       "restart",

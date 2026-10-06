@@ -10,8 +10,11 @@ import { GAMES, MACHINES, type Game, type SeedMachine } from "./data";
 import { DEFAULT_PREFS, demoNow, seedSpots } from "./derive";
 import { SCREEN_COPY, screenText } from "./screenCopy";
 import { applySteam, type SteamProfile } from "./steam";
+import { Swiff as App } from "./Swiff";
 import type { Swiff } from "./useSwiff";
 import { Wall } from "./Wall";
+
+vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
 
 const TOKEN = "abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUV";
 const noop = () => {};
@@ -51,6 +54,13 @@ function expectOnly(lang: Lang) {
 function browserIn(lang: Lang) {
   const tag = lang === "de" ? "de-DE" : "en-GB";
   vi.stubGlobal("navigator", { ...navigator, languages: [tag], language: tag });
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: noop,
+    removeEventListener: noop,
+  }));
+  Element.prototype.scrollTo ??= noop;
 }
 
 /** Every request answered: the invite to Alex's crew, the renter's crews (none yet), anything else a 404. */
@@ -74,9 +84,11 @@ function serve() {
                 },
               },
             ]
-          : url === "/api/crews"
-            ? [200, { crews: [] }]
-            : [404, { error: "no" }];
+          : url === "/api/me"
+            ? [200, { steamId: "76561198000000001", profile }]
+            : url === "/api/crews"
+              ? [200, { crews: [] }]
+              : [404, { error: "no" }];
       return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     }),
   );
@@ -186,6 +198,44 @@ describe.each(["de", "en"] as const)("a browser in %s", (lang) => {
     signedInScreen(lang, <CrewInvite swiff={swiffOn([], MACHINES, signedIn)} />, signedIn);
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Alex");
     expectOnly(lang);
+  });
+});
+
+describe.each(["de", "en"] as const)("the whole app in a browser in %s", (lang) => {
+  const bar = (t: ReturnType<typeof screenText>) => [t("bar.home"), t("bar.profile"), t("bar.share")];
+
+  it("puts the bar, its live count and its play time in the browser's language over the wall", async () => {
+    browserIn(lang);
+    serve();
+    history.replaceState(null, "", "/?demo=1");
+    render(<App />);
+    const t = screenText(lang);
+    const nav = await screen.findByRole("navigation", { name: "Lanterel" });
+    expect([...nav.querySelectorAll("button")].map((b) => b.textContent)).toEqual(bar(t));
+    expect(nav).toHaveTextContent(new RegExp(t("live.near", { n: "\\d+" })));
+    await screen.findByText("kai_nx");
+    expect(screen.getByTitle(t("bar.playTimeTitle"))).toHaveTextContent(t("bar.playTime"));
+    expect(screen.getByTitle(t("bar.playTimeTitle")).querySelector("b")?.textContent).toBeOneOf(
+      (["quick", "evening", "night"] as const).map((s) => t(`session.${s}`)),
+    );
+    expectOnly(lang);
+  });
+
+  it("keeps the bar English over a screen that is English only", async () => {
+    browserIn(lang);
+    serve();
+    history.replaceState(null, "", "/share?demo=1");
+    render(<App />);
+    const t = screenText("en");
+    const nav = await screen.findByRole("navigation", { name: "Lanterel" });
+    expect([...nav.querySelectorAll("button")].map((b) => b.textContent)).toEqual(bar(t));
+    expect(nav).toHaveTextContent(new RegExp(t("live.near", { n: "\\d+" })));
+    await screen.findByText("kai_nx");
+    expect(screen.getByTitle(t("bar.playTimeTitle"))).toHaveTextContent(t("bar.playTime"));
+    expect(screen.getByTitle(t("bar.playTimeTitle")).querySelector("b")?.textContent).toBeOneOf(
+      (["quick", "evening", "night"] as const).map((s) => t(`session.${s}`)),
+    );
+    expectOnly("en");
   });
 });
 

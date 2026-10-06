@@ -785,7 +785,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       extra = (
         <p className="mstatus">
           <Glyph name="info" size={15} />
-          Swiff never reads, sends or keeps your key.
+          Lanterel never reads, sends or keeps your key.
         </p>
       );
       action = (
@@ -830,10 +830,10 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
     }
     case "finish": {
       const waits = Boolean(setup.removalTried) && !setup.planning;
-      title = "Finishing removing Swiff OS";
+      title = "Finishing removing Lanterel OS";
       line = waits
-        ? "Swiff OS is still on the disk. Press Try again to remove it."
-        : "Swiff now takes Swiff OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
+        ? "Lanterel OS is still on the disk. Press Try again to remove it."
+        : "Lanterel now takes Lanterel OS off the disk by itself, and its space goes back to Windows. Windows may ask once more for permission.";
       if (waits)
         action = (
           <Pill icon="undo" onClick={actions.finishRemoval}>
@@ -841,7 +841,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           </Pill>
         );
       plate = (
-        <Plate caption={["Remove Swiff OS", "Windows may ask once"]}>
+        <Plate caption={["Remove Lanterel OS", "Windows may ask once"]}>
           <Dial progress={0.5} big="Last part" small="then a restart" />
         </Plate>
       );
@@ -850,10 +850,10 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
     }
     case "removed": {
       const fine = s.ok !== false;
-      title = fine ? "Swiff OS is off this PC" : "Swiff OS is off, but check this";
+      title = fine ? "Lanterel OS is off this PC" : "Lanterel OS is off, but check this";
       line = fine
         ? "Windows started as usual after the restart, and the space is Windows' again."
-        : "Something isn't as it was before Swiff OS. It's marked below.";
+        : "Something isn't as it was before Lanterel OS. It's marked below.";
       action = (
         <Pill icon="check" onClick={actions.seenRemoval}>
           Done
@@ -882,10 +882,10 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           <p className="mstatus">
             <Glyph name="info" size={15} />
             {plan.kind === "install"
-              ? "Then Swiff runs every step by itself. Windows asks once for permission."
+              ? "Then Lanterel runs every step by itself. Windows asks once for permission."
               : plan.kind === "remove"
-                ? "Windows asks once for permission. Back in Windows, open Swiff: it takes Swiff OS off the disk by itself."
-                : "Windows asks once for permission. Then Swiff gets the restart ready."}
+                ? "Windows asks once for permission. Back in Windows, open Lanterel: it takes Lanterel OS off the disk by itself."
+                : "Windows asks once for permission. Then Lanterel gets the restart ready."}
           </p>
         );
         action = (
@@ -902,17 +902,17 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         below = <Strip tiles={blueScreen(remove)} label="After the restart, on the blue screen" />;
       } else {
         const off = removesDisk(plan);
-        title = off ? "Remove Swiff OS" : "Start Swiff OS";
+        title = off ? "Remove Lanterel OS" : "Start Lanterel OS";
         line =
           plan.kind === "remove"
-            ? "Swiff OS comes off this PC, and the drive it came from gets its space back. One restart then checks Windows starts as usual. Your files stay where they are."
+            ? "Lanterel OS comes off this PC, and the drive it came from gets its space back. One restart then checks Windows starts as usual. Your files stay where they are."
             : off
-              ? "Swiff OS comes off this PC, and the drive it came from gets its space back. Your files stay where they are."
-              : "The PC restarts into Swiff OS. Its next restart after that starts Windows.";
+              ? "Lanterel OS comes off this PC, and the drive it came from gets its space back. Your files stay where they are."
+              : "The PC restarts into Lanterel OS. Its next restart after that starts Windows.";
         action = (
           <>
             <Pill icon={off ? "undo" : "play"} onClick={actions.runRental}>
-              {off ? "Remove Swiff OS" : "Start Swiff OS"}
+              {off ? "Remove Lanterel OS" : "Start Lanterel OS"}
             </Pill>
             <button type="button" className="lnk" onClick={actions.closeRentalPreview}>
               Back
@@ -932,7 +932,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
     case "elevating":
       title = "Waiting for Windows";
       line = continuesRemoval(s.plan, read)
-        ? "Windows asks once more for permission, to take Swiff OS off the disk. Click Yes."
+        ? "Windows asks once more for permission, to take Lanterel OS off the disk. Click Yes."
         : "Windows asks for permission to make changes. Click Yes.";
       extra = (
         <p className="mstatus mlive">
@@ -985,16 +985,16 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       const check = s.removing === "check";
       const once = s.plan?.kind === "once";
       title = once
-        ? "Restart into Swiff OS"
+        ? "Restart into Lanterel OS"
         : check
           ? "Restart to check Windows"
           : remove
             ? "Restart to remove the key"
             : "Restart to confirm the key";
       line = once
-        ? "Swiff OS starts on the next restart only. Then Windows again."
+        ? "Lanterel OS starts on the next restart only. Then Windows again."
         : check
-          ? "Swiff OS is off this PC. Restart once, then open Swiff: it checks Windows started as usual."
+          ? "Lanterel OS is off this PC. Restart once, then open Lanterel: it checks Windows started as usual."
           : "Have your code at hand. The PC restarts to a blue screen, and this app closes.";
       if (!once && !check)
         extra = (
@@ -1178,7 +1178,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       );
       links.push({
         id: "remove",
-        label: "Remove Swiff OS",
+        label: "Remove Lanterel OS",
         onClick: () => actions.previewRental("remove"),
       });
       break;
@@ -1230,7 +1230,11 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         </Pill>
       );
       plate = <ReadyPlate small="for rental mode" />;
-      links.push({ id: "remove", label: "Remove Swiff OS", onClick: () => actions.previewRental("remove") });
+      links.push({
+        id: "remove",
+        label: "Remove Lanterel OS",
+        onClick: () => actions.previewRental("remove"),
+      });
       break;
   }
 

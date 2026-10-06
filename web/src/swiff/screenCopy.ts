@@ -2,7 +2,8 @@
 // in the same language: German for a browser set to German (langOf), English
 // for everyone else. `{name}`-style slots are filled where they appear.
 
-import { fillSlots, type Lang } from "./crewCopy";
+import { fillSlots, langOf, type Lang } from "./crewCopy";
+import type { Screen } from "./useSwiff";
 
 export const SCREEN_COPY = {
   en: {
@@ -170,6 +171,13 @@ export const SCREEN_COPY = {
 export type ScreenKey = keyof (typeof SCREEN_COPY)["en"];
 
 /** The words for `lang`, with each `{slot}` filled from `fill`. */
+/** The screens translated whole: the wall, an invite and the crew pages. Every other screen is English only. */
+const TRANSLATED: ReadonlySet<Screen> = new Set(["home", "invite", "crew"]);
+
+/** The language `screen` speaks, and the top bar over it with it: the browser's on a translated screen, else English. */
+export const screenLang = (screen: Screen, lang: Lang = langOf()): Lang =>
+  TRANSLATED.has(screen) ? lang : "en";
+
 export function screenText(lang: Lang) {
   return (key: ScreenKey, fill: Record<string, string | number> = {}) =>
     fillSlots(SCREEN_COPY[lang][key], fill);

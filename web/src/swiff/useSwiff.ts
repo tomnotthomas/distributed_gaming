@@ -23,7 +23,6 @@ import {
   type Refusal,
 } from "./booking";
 import { chime } from "./chime";
-import { langOf } from "./crewCopy";
 import {
   GAMES,
   MACHINES,
@@ -49,7 +48,7 @@ import { questionOf, useLive } from "./useLive";
 import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
-import { screenText } from "./screenCopy";
+import { screenLang, screenText } from "./screenCopy";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
   applySteam,
@@ -144,8 +143,6 @@ const track = (event: string, props?: Record<string, unknown>) => {
 const NO_MACHINES: Record<string, SeedMachine> = {};
 
 export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
-  // The top bar's live count speaks the browser's language, like the bar around it.
-  const t = useMemo(() => screenText(langOf()), []);
   const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
   const [gameId, setGameId] = useState<string | null>(null);
@@ -1213,7 +1210,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     };
   }
 
-  // The live count in the top bar; signed out there is none.
+  // The live count in the top bar, in the bar's language; signed out there is none.
+  const t = screenText(screenLang(screen));
   let liveLine: string | undefined;
   if (seesAvailability) {
     if (screen === "game") {

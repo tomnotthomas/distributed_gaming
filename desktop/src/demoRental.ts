@@ -88,7 +88,7 @@ const REMOVE_KEY: RentalPlan = {
   kind: "remove",
   phase: "key",
   steps: [
-    step("mok-remove", "Make a one-time code to remove Swiff's key"),
+    step("mok-remove", "Make a one-time code to remove Lanterel's key"),
     { ...restart("Restart once to confirm the removal"), id: "restart" },
   ],
   mok: { code: NEW_CODE },
@@ -98,10 +98,10 @@ const REMOVE_DISK: RentalPlan = {
   kind: "remove",
   phase: "disk",
   steps: [
-    step("boot-entry", "Take Swiff OS out of the boot menu"),
-    step("partitions", "Remove Swiff OS's 6 partitions from disk 0"),
+    step("boot-entry", "Take Lanterel OS out of the boot menu"),
+    step("partitions", "Remove Lanterel OS's 6 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
-    step("verify", "Check nothing of Swiff OS is left"),
+    step("verify", "Check nothing of Lanterel OS is left"),
     step("forget", "Forget the install"),
     { ...restart("Restart once to check Windows starts"), id: "restart" },
   ],
@@ -180,7 +180,7 @@ const CHECKED: NonNullable<RentalRead["removal"]> = {
   at: AT,
   checks: [
     { id: "windows", label: "Windows", ok: true, value: "Started as usual" },
-    { id: "partitions", label: "Swiff OS", ok: true, value: "Gone from the disk" },
+    { id: "partitions", label: "Lanterel OS", ok: true, value: "Gone from the disk" },
     { id: "space", label: "C:", ok: true, value: "Its 1863 GB again" },
     { id: "bitlocker-C", label: "C: BitLocker", ok: true, value: "On" },
     { id: "record", label: "Install record", ok: true, value: "Gone" },

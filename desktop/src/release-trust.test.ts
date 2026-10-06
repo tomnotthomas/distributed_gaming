@@ -210,28 +210,28 @@ describe.skipIf(!tools)("Lanterel's release keys", () => {
     const devSet = path.join(dir, "dev");
     imageSet(devSet, devCert, devSigned(devSet));
     expect(readImageSet(devSet, { trust: test }).version).toBe("0.1.0");
-    expect(() => readImageSet(devSet, { trust: release })).toThrow(/Swiff did not sign this image set/);
+    expect(() => readImageSet(devSet, { trust: release })).toThrow(/Lanterel did not sign this image set/);
     // Nor with the release certificate in it.
     const devWithRelease = path.join(dir, "dev-release-cert");
     imageSet(devWithRelease, releaseCert, devSigned(devWithRelease));
     expect(() => readImageSet(devWithRelease, { trust: release })).toThrow(
-      /Swiff did not sign this image set/,
+      /Lanterel did not sign this image set/,
     );
 
     // Signed with the release key, but built with another Secure Boot certificate.
     const otherCert = path.join(dir, "other-cert");
     imageSet(otherCert, devCert, releaseSigned(otherCert));
-    expect(() => readImageSet(otherCert, { trust: release })).toThrow(/certificate is not Swiff's/);
+    expect(() => readImageSet(otherCert, { trust: release })).toThrow(/certificate is not Lanterel's/);
 
     // Changed after it was signed: the manifest, or the signature.
     const manifest = JSON.parse(fs.readFileSync(path.join(good, MANIFEST), "utf8"));
     fs.writeFileSync(path.join(good, MANIFEST), JSON.stringify({ ...manifest, version: "0.1.1" }));
-    expect(() => readImageSet(good, { trust: release })).toThrow(/Swiff did not sign this image set/);
+    expect(() => readImageSet(good, { trust: release })).toThrow(/Lanterel did not sign this image set/);
     imageSet(good, releaseCert, releaseSigned(good));
     const signature = fs.readFileSync(path.join(good, SIGNATURE));
     signature[0]! ^= 1;
     fs.writeFileSync(path.join(good, SIGNATURE), signature);
-    expect(() => readImageSet(good, { trust: release })).toThrow(/Swiff did not sign this image set/);
+    expect(() => readImageSet(good, { trust: release })).toThrow(/Lanterel did not sign this image set/);
   });
 });
 

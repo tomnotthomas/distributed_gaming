@@ -910,7 +910,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         });
         must(
           !left.length,
-          `Swiff OS is still in the boot menu: ${left.map((n) => efi.bootName(n)).join(", ")}.`,
+          `Lanterel OS is still in the boot menu: ${left.map((n) => efi.bootName(n)).join(", ")}.`,
         );
         const next = (await win.firmware([{ get: "BootNext", guid: efi.GLOBAL }])).BootNext;
         must(
@@ -925,7 +925,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         if (op.disk !== null)
           await withDisk(op.disk, async (_disk, gpt) => {
             const still = gpt.entries.filter((e) => op.ids.includes(e.id));
-            must(!still.length, `Swiff OS's partitions are still on disk ${op.disk}.`);
+            must(!still.length, `Lanterel OS's partitions are still on disk ${op.disk}.`);
           });
         return {};
       }

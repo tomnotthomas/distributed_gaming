@@ -248,10 +248,10 @@ describe("demo", () => {
     "rental-back": "You were live 21:00 to 23:40",
     "rental-recovery": "Save your BitLocker recovery key",
     "rental-remove-code": "Write down this code",
-    "rental-remove-finish": "Finishing removing Swiff OS",
+    "rental-remove-finish": "Finishing removing Lanterel OS",
     "rental-remove-continue": "Waiting for Windows",
     "rental-remove-check": "Restart to check Windows",
-    "rental-removed": "Swiff OS is off this PC",
+    "rental-removed": "Lanterel OS is off this PC",
     "rental-fail-admin": "Windows didn't give permission",
     "rental-fail-write": "Writing Lanterel OS stopped",
     "rental-fail-space": "Not enough space on C:",
@@ -1233,10 +1233,10 @@ describe("rental mode", () => {
     expect(screen.getByText("Rental mode, installed")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /^Go live/ }));
     expect(go).toHaveBeenCalledWith("live");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Swiff OS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lanterel OS" }));
     expect(host.actions.previewRental).toHaveBeenCalledWith("remove");
-    // One way off: the key and the disk are Remove Swiff OS's two parts, never two links.
-    expect(screen.queryByRole("button", { name: "Remove Swiff's key" })).not.toBeInTheDocument();
+    // One way off: the key and the disk are Remove Lanterel OS's two parts, never two links.
+    expect(screen.queryByRole("button", { name: "Remove Lanterel's key" })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".psub .done")).toHaveLength(3);
   });
 
@@ -1293,9 +1293,9 @@ describe("rental mode", () => {
       off,
       rental({ read: installed(), preview: uninstallPlan(installed()) }),
     );
-    expect(h1()).toHaveTextContent("Remove Swiff OS");
-    expect(screen.getByText("Take Swiff OS out of the boot menu")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Remove Swiff OS/ }));
+    expect(h1()).toHaveTextContent("Remove Lanterel OS");
+    expect(screen.getByText("Take Lanterel OS out of the boot menu")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Remove Lanterel OS/ }));
     expect(acts.runRental).toHaveBeenCalledOnce();
   });
 
@@ -1311,7 +1311,7 @@ describe("rental mode", () => {
       }),
     );
     expect(h1()).toHaveTextContent("Save your BitLocker recovery key");
-    expect(screen.getByText(/Swiff never reads, sends or keeps your key/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel never reads, sends or keeps your key/)).toBeInTheDocument();
     // Where the key can be, and Windows' own way there.
     expect(document.querySelector(".plate")).toHaveTextContent(/Microsoft account.*A file.*Paper/);
     expect(screen.getByText("Back up your recovery key")).toBeInTheDocument();
@@ -1345,7 +1345,7 @@ describe("rental mode", () => {
     expect(screen.queryByRole("button", { name: /^Go live/ })).not.toBeInTheDocument();
   });
 
-  it("removes Swiff OS from one click: the key's code first, the rest by itself, then Windows checked", () => {
+  it("removes Lanterel OS from one click: the key's code first, the rest by itself, then Windows checked", () => {
     const code = renderReal(
       "rental",
       off,
@@ -1353,7 +1353,9 @@ describe("rental mode", () => {
     );
     expect(h1()).toHaveTextContent("Write down this code");
     expect(screen.getByText("Rental mode, removing")).toBeInTheDocument();
-    expect(screen.getByText(/open Swiff: it takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/open Lanterel: it takes Lanterel OS off the disk by itself/),
+    ).toBeInTheDocument();
     expect(screen.getByText("Choose Delete MOK")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Remove the key/ }));
     expect(code.runRental).toHaveBeenCalledOnce();
@@ -1364,8 +1366,8 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...installed(), removal: { state: "finish" } } }),
     );
-    expect(h1()).toHaveTextContent("Finishing removing Swiff OS");
-    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(h1()).toHaveTextContent("Finishing removing Lanterel OS");
+    expect(screen.getByText(/Lanterel now takes Lanterel OS off the disk by itself/)).toBeInTheDocument();
     expect(
       within(screen.getByRole("main")).queryByRole("button", { name: /Finish|Remove|Check again|Try again/ }),
     ).toBeNull();
@@ -1379,7 +1381,7 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...installed(), removal: { state: "finish" } }, removalTried: true, planning: true }),
     );
-    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel now takes Lanterel OS off the disk by itself/)).toBeInTheDocument();
     expect(within(screen.getByRole("main")).queryByRole("button", { name: /Try again/ })).toBeNull();
     cleanup();
 
@@ -1394,7 +1396,7 @@ describe("rental mode", () => {
       }),
     );
     expect(
-      screen.getByText("Swiff OS is still on the disk. Press Try again to remove it."),
+      screen.getByText("Lanterel OS is still on the disk. Press Try again to remove it."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/by itself/)).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Try again/ }));
@@ -1413,7 +1415,7 @@ describe("rental mode", () => {
     );
     expect(h1()).toHaveTextContent("Waiting for Windows");
     expect(
-      screen.getByText(/Windows asks once more for permission, to take Swiff OS off the disk/),
+      screen.getByText(/Windows asks once more for permission, to take Lanterel OS off the disk/),
     ).toBeInTheDocument();
     cleanup();
 
@@ -1434,7 +1436,7 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...read(), removal: { state: "checked", ok: false, checks, at: 1 } } }),
     );
-    expect(h1()).toHaveTextContent("Swiff OS is off, but check this");
+    expect(h1()).toHaveTextContent("Lanterel OS is off, but check this");
     expect(screen.getByText("976 GB, not its 1000 GB")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Done/ }));
     expect(done.seenRemoval).toHaveBeenCalledOnce();

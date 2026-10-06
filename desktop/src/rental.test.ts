@@ -1,4 +1,4 @@
-// Rental mode: reading what Swiff OS needs from a PC (rental.cjs), where it
+// Rental mode: reading what Lanterel OS needs from a PC (rental.cjs), where it
 // goes, the exact install and switch steps, and how the screen words it all
 // (rental.ts). The facts fixture is what the read-only script returned on a
 // real host PC: a Ryzen laptop with a 1 TB NVMe disk, C: and a recovery
@@ -1326,7 +1326,7 @@ const CRYPT = {
   open: (sealed: Buffer) => Buffer.from(sealed).reverse().toString(),
 };
 
-describe("Remove Swiff OS", () => {
+describe("Remove Lanterel OS", () => {
   const ESP = "11111111-2222-4333-8444-555555555555";
   const ROOT = "66666666-7777-4888-9999-aaaaaaaaaaaa";
   const record = {
@@ -1347,7 +1347,7 @@ describe("Remove Swiff OS", () => {
   const installed = (change = {}, raw: (r: typeof FACTS) => object = (r) => r) =>
     pc((r) => ({ ...raw(r), install: { ...record, ...change } }));
 
-  it("starts with Swiff's key, through MokManager while it is still on the disk, and BitLocker paused for it", () => {
+  it("starts with Lanterel's key, through MokManager while it is still on the disk, and BitLocker paused for it", () => {
     const plan = removePlan(
       installed({}, (r) => ({ ...r, volumes: r.volumes.map((v) => ({ ...v, bitlocker: 1 })) })),
       {
@@ -1366,7 +1366,7 @@ describe("Remove Swiff OS", () => {
     expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("55554444");
   });
 
-  it("then takes Swiff OS off, checks nothing is left, and restarts once to show Windows starts", () => {
+  it("then takes Lanterel OS off, checks nothing is left, and restarts once to show Windows starts", () => {
     const plan = removePlan(installed(), { key: false });
     expect(plan).toMatchObject({ kind: "remove", phase: "disk" });
     expect(plan.mok).toBeUndefined();
@@ -1404,8 +1404,8 @@ describe("Remove Swiff OS", () => {
     expect(
       ["boot-entry", "partitions", "room", "fast-startup"].map((id) => runningTitleOf(plan, step(id))),
     ).toEqual([
-      "Taking Swiff OS out of the boot menu",
-      "Removing Swiff OS's partitions",
+      "Taking Lanterel OS out of the boot menu",
+      "Removing Lanterel OS's partitions",
       "Giving the space back to Windows",
       "Turning Fast Startup back on",
     ]);
@@ -1419,7 +1419,7 @@ describe("Remove Swiff OS", () => {
     };
     const s = rentalScreen(setup);
     if (s.kind !== "failed") throw new Error(`not failed: ${s.kind}`);
-    expect(failureOf(setup, s).why).toBe("It stopped while taking swiff os out of the boot menu.");
+    expect(failureOf(setup, s).why).toBe("It stopped while taking lanterel os out of the boot menu.");
     // The install keeps its own wording for the same step.
     const install = installPlan(pc());
     expect(
@@ -1427,7 +1427,7 @@ describe("Remove Swiff OS", () => {
         install,
         install.steps.find((s) => s.id === "boot-entry")!,
       ),
-    ).toBe("Adding Swiff OS to the boot menu");
+    ).toBe("Adding Lanterel OS to the boot menu");
   });
 
   it("goes straight to the disk when the key never went in, or after a partial install", () => {
@@ -1516,7 +1516,7 @@ describe("Remove Swiff OS", () => {
     expect(facts.partitions[0]!.id).toBe(ESP);
   });
 
-  it("puts Remove Swiff OS before anything else on the screen, across its restarts", () => {
+  it("puts Remove Lanterel OS before anything else on the screen, across its restarts", () => {
     const at = (removal: RentalRead["removal"]): RentalSetup => ({
       reading: false,
       read: { ...installed(), key: { state: "confirmed", code: null }, removal },

@@ -375,15 +375,15 @@ describe("the elevated worker", () => {
     const plan = installPlan(rental, { layout, code: "48217730" });
     const outcome = await runPlan(plan, { apply: skipping(worker.apply) });
     expect(outcome).toMatchObject({ status: "done" });
-    // BitLocker suspended, Fast Startup off, C: named for Swiff OS.
+    // BitLocker suspended, Fast Startup off, C: named for Lanterel OS.
     expect(pc.shell.join("\n")).toMatch(/manage-bde -protectors -disable C: -RebootCount 3/);
     expect(pc.hiberboot()).toBe("0");
     expect(pc.label()).toBe("SWIFFGAMES");
-    // C: gave Swiff OS its room, and the image's six partitions are in it, with its ids and names.
+    // C: gave Lanterel OS its room, and the image's six partitions are in it, with its ids and names.
     expect(pc.cSize()).toBeLessThan(before);
     const added = pc.gpt().entries.filter((e) => e.index > 3);
     expect(added.map((e) => [e.id, e.name])).toEqual(layout.map((p) => [p.id, p.name]));
-    // The boot entry starts the shim on Swiff OS's ESP, last in the order; BootNext for the restart.
+    // The boot entry starts the shim on Lanterel OS's ESP, last in the order; BootNext for the restart.
     const option = efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!);
     expect(option).toMatchObject({
       title: "Lanterel OS",
@@ -392,7 +392,7 @@ describe("the elevated worker", () => {
     });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
-    // Swiff's key queued with the owner's code, as mokutil would.
+    // Lanterel's key queued with the owner's code, as mokutil would.
     const { MokNew, MokAuth } = mokRequest(CERT, "48217730");
     expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokNew"))!.equals(MokNew)).toBe(true);
     expect(pc.vars.get(pc.key(efi.SHIM_LOCK, "MokAuth"))!.equals(MokAuth)).toBe(true);
@@ -423,7 +423,7 @@ describe("the elevated worker", () => {
     expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({ status: "done" });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
-    // Sharing: Swiff OS first; stopping: Windows first.
+    // Sharing: Lanterel OS first; stopping: Windows first.
     await runPlan(switchPlan("start"), { apply: worker.apply });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([1, 0]);
     await runPlan(switchPlan("stop"), { apply: worker.apply });
@@ -446,14 +446,14 @@ describe("the elevated worker", () => {
     expect(pc.vars.has(pc.key(efi.GLOBAL, "BootNext"))).toBe(false);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0]);
     expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokNew"))).toBe(false);
-    // No request for shim is left: shim and MokManager went with Swiff OS's boot partition.
+    // No request for shim is left: shim and MokManager went with Lanterel OS's boot partition.
     expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDel"))).toBe(false);
     expect(pc.vars.has(pc.key(efi.SHIM_LOCK, "MokDelAuth"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "state", "rental-install.json"))).toBe(false);
     expect(rentalOf(pc.facts()).facts.install).toBeNull();
   });
 
-  it("removes Swiff OS in one go after a full install: the key through MokManager, then the disk, checked", async () => {
+  it("removes Lanterel OS in one go after a full install: the key through MokManager, then the disk, checked", async () => {
     const { pc, worker, layout } = await setup();
     const before = pc.cSize();
     await runPlan(
@@ -462,7 +462,7 @@ describe("the elevated worker", () => {
         apply: skipping(worker.apply),
       },
     );
-    // The key's part: MokDel with its own code, BootNext into MokManager on Swiff OS's ESP.
+    // The key's part: MokDel with its own code, BootNext into MokManager on Lanterel OS's ESP.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
     const key = removePlan(rentalOf(pc.facts()), { key: true, code: "55554444" });
     expect(await runPlan(key, { apply: worker.apply })).toMatchObject({ status: "done" });
@@ -503,7 +503,7 @@ describe("the elevated worker", () => {
     expect(rentalOf(pc.facts()).facts.install).toBeNull();
   });
 
-  it("fails the removal's check while a boot entry, a request for shim or a partition of Swiff OS is left", async () => {
+  it("fails the removal's check while a boot entry, a request for shim or a partition of Lanterel OS is left", async () => {
     const { pc, worker } = await withEntry();
     const ids = installOf(worker.state())!.partitions.map((p) => p.id);
     // Still in the boot menu, under any number.
@@ -524,7 +524,7 @@ describe("the elevated worker", () => {
     expect(() => checkOp({ op: "removal-check", disk: 0, ids: ["not-a-guid"] })).toThrow(/bad removal check/);
   });
 
-  it("uses only an image set Swiff signed, carrying the certificate Swiff's key's sets carry", async () => {
+  it("uses only an image set Lanterel signed, carrying the certificate Lanterel's key's sets carry", async () => {
     const image = path.join(dir, "image");
     const pc = fakeWindows(path.join(dir, "state"));
     const mok = { op: "mok-import", cert: "swiffos-key.cer", code: "48217730" } as const;
@@ -702,7 +702,7 @@ describe("the elevated worker", () => {
     await expect(worker.apply({ op: "forget" })).resolves.toEqual({});
   });
 
-  /** Swiff OS installed up to its boot entry, Boot0001. */
+  /** Lanterel OS installed up to its boot entry, Boot0001. */
   async function withEntry() {
     const set = await setup();
     const plan = installPlan(rentalOf(set.pc.facts(), []), { layout: set.layout });

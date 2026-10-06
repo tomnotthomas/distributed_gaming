@@ -345,7 +345,7 @@ describe("useRental", () => {
     expect(result.current.bitlockerPage).toBe("failed");
   });
 
-  it("asks for Remove Swiff OS with or without its key, and goes on with the part that stopped", async () => {
+  it("asks for Remove Lanterel OS with or without its key, and goes on with the part that stopped", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.seenRemoval = vi.fn(async () => true);
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
@@ -368,7 +368,7 @@ describe("useRental", () => {
     expect(host.seenRemoval).toHaveBeenCalledOnce();
   });
 
-  it("goes on with Remove Swiff OS by itself once its key's restart is behind it, and only once", async () => {
+  it("goes on with Remove Lanterel OS by itself once its key's restart is behind it, and only once", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.readRental = vi.fn(async () => ({ removal: { state: "finish" } }) as never);
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
@@ -411,7 +411,7 @@ describe("useRental", () => {
     expect(host.runRental).toHaveBeenCalledTimes(2);
   });
 
-  it("waits with Remove Swiff OS's disk part until the BitLocker recovery key is saved, then goes on once", async () => {
+  it("waits with Remove Lanterel OS's disk part until the BitLocker recovery key is saved, then goes on once", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     let saved = false;
     host.readRental = vi.fn(

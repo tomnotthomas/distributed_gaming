@@ -82,7 +82,7 @@ test.describe("share your PC", () => {
     await expect(page).toHaveURL(/\/share#trust$/);
     const trust = page.locator("#trust");
     await expect(trust).toBeInViewport();
-    await expect(trust).toContainText("Swiff never reads, sends or keeps it");
+    await expect(trust).toContainText("Lanterel never reads, sends or keeps it");
     await expect(trust).toContainText("One click starts its removal");
     await expect(trust).toContainText(HOST ? HOST.sha256 : "SHA-256 is published here with it");
     await expect(page.getByTestId("share")).toBeVisible();

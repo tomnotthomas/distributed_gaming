@@ -613,8 +613,8 @@ export const RUNNING_TITLE: Record<string, string> = {
 
 /** What a removal's running step is called, where its id is shared with the install's. */
 const REMOVING_TITLE: Record<string, string> = {
-  "boot-entry": "Taking Swiff OS out of the boot menu",
-  partitions: "Removing Swiff OS's partitions",
+  "boot-entry": "Taking Lanterel OS out of the boot menu",
+  partitions: "Removing Lanterel OS's partitions",
   room: "Giving the space back to Windows",
   "fast-startup": "Turning Fast Startup back on",
   bitlocker: "Resuming BitLocker",
@@ -936,7 +936,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
     return {
       kind: "recovery",
       title: "Save your BitLocker recovery key first",
-      why: "Swiff changes nothing about how this PC starts until you've saved the key.",
+      why: "Lanterel changes nothing about how this PC starts until you've saved the key.",
       changed: "Nothing on this PC has changed.",
       action: "check",
       label: "Check again",
@@ -1015,7 +1015,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       title: "Removing rental mode stopped",
       why:
         step?.id === "room"
-          ? `Swiff OS's space couldn't be given back to ${install(read)?.shrink?.letter ?? "C"}:.`
+          ? `Lanterel OS's space couldn't be given back to ${install(read)?.shrink?.letter ?? "C"}:.`
           : `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
       changed: `${changedSoFar(plan, run)}${step?.id === "room" ? ` The ${gb(SWIFF_GB)} stays unused until this finishes.` : ""}`,
       action: "again",
@@ -1025,9 +1025,9 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
   if (plan.kind === "remove")
     return stopped("Key", {
       kind: "removal",
-      title: "Removing Swiff's key stopped",
+      title: "Removing Lanterel's key stopped",
       why: `It stopped while ${(runningTitleOf(plan, step) ?? "removing").toLowerCase()}.`,
-      changed: `${changedSoFar(plan, run)} Swiff OS is still installed.`,
+      changed: `${changedSoFar(plan, run)} Lanterel OS is still installed.`,
       action: "again",
       label: "Try again",
       rail: "Removal stopped",

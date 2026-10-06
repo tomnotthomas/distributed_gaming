@@ -70,12 +70,12 @@ function checksOf(expect, facts, trail) {
     id: "windows",
     label: "Windows",
     ok: !trail?.shim,
-    value: trail?.shim ? "Started through Swiff OS's loader" : "Started as usual",
+    value: trail?.shim ? "Started through Lanterel OS's loader" : "Started as usual",
   });
   const still = facts.partitions.filter((p) => p.id && expect.ids.includes(p.id));
   checks.push({
     id: "partitions",
-    label: "Swiff OS",
+    label: "Lanterel OS",
     ok: still.length === 0,
     value: still.length ? `${still.length} of its partitions are still on the disk` : "Gone from the disk",
   });
