@@ -135,6 +135,27 @@ describe.skipIf(!tools)("Lanterel's release keys", () => {
     expect(fs.existsSync(path.join(dir, "other.tar.gpg"))).toBe(false);
   });
 
+  it("are taken back when a run stops part way, so the next run is not refused", () => {
+    const failing = path.join(dir, "failing");
+    const bin = path.join(dir, "bin");
+    fs.mkdirSync(bin);
+    // A gpg that leaves half a backup where it was to write one, and fails.
+    fs.writeFileSync(
+      path.join(bin, "gpg"),
+      '#!/bin/sh\nfor a; do out=$a; done\necho half > "$out"\nexit 1\n',
+      { mode: 0o755 },
+    );
+    const run = (env: NodeJS.ProcessEnv) =>
+      execFileSync("bash", [SCRIPT, failing, path.join(dir, "failing.tar.gpg")], { stdio: "pipe", env });
+    expect(() => run({ ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` })).toThrow();
+    expect(fs.readdirSync(failing)).toEqual([]);
+    expect(fs.existsSync(path.join(dir, "failing.tar.gpg"))).toBe(false);
+
+    const gnupg = path.join(dir, "gnupg");
+    run({ ...process.env, GNUPGHOME: gnupg });
+    expect(fs.readFileSync(path.join(failing, "public.txt"), "utf8")).toMatch(/BEGIN CERTIFICATE/);
+  });
+
   it("go into image-trust.json from the printed output, once", () => {
     expect(addTrust(printed, trustFile)).toBe(true);
     expect(addTrust(printed, trustFile)).toBe(false);

@@ -49,6 +49,14 @@ done
 
 mkdir -p "$dir" "$(dirname "$backup")"
 chmod 700 "$dir"
+# A run that stops part way takes back what it made, so the next run is not refused
+# over a half-made key: none of these files was there when it started.
+made() {
+	rm -f "$dir/image-signing-key.pem" "$dir/image-signing-key.passphrase" "$dir/secure-boot.key" \
+		"$dir/secure-boot.crt" "$dir/backup.passphrase" "$dir/public.txt" "$backup"
+}
+trap made ERR
+trap 'made; exit 130' INT TERM
 openssl rand -base64 33 | tr -d '\n' > "$dir/image-signing-key.passphrase"
 openssl rand -base64 33 | tr -d '\n' > "$dir/backup.passphrase"
 SWIFF_OS_KEY_PASSPHRASE=$(cat "$dir/image-signing-key.passphrase")
@@ -63,5 +71,6 @@ tar -C "$dir" -cf - image-signing-key.pem image-signing-key.passphrase secure-bo
 node "$image_set" public "$dir/image-signing-key.pem" "$dir/secure-boot.crt" > "$dir/public.txt"
 chmod 600 "$dir"/* "$backup"
 chmod 644 "$dir/public.txt"
+trap - ERR INT TERM
 cat "$dir/public.txt"
 echo "Keys in $dir, encrypted backup in $backup; move $dir/backup.passphrase offline."
