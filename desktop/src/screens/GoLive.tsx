@@ -156,6 +156,7 @@ export function CrewPicker({
 /**
  * Go live, in rental mode: the PC restarts into Swiff OS, where players book
  * it. Holding the button is the owner's OK: the restart follows by itself.
+ * Who can play is asked here, as the platform holds it for Swiff OS's offers.
  */
 export function GoLive(props: ScreenProps) {
   const { view, actions } = props;
@@ -184,6 +185,15 @@ export function GoLive(props: ScreenProps) {
               ? failed.why
               : "Hold the button. The PC restarts into Swiff OS, and players can book it. For now its next restart is Windows again."}
           </p>
+          {!status && !failed && asksWhoCanPlay(view.crew) ? (
+            <div className="ctl">
+              <CrewPicker
+                crew={view.crew}
+                site={siteOf(view.connection.url)}
+                onChange={actions.setCrewOnly}
+              />
+            </div>
+          ) : null}
           {status ? (
             <p className="mstatus mlive">
               <i className="mpulse" aria-hidden="true" />

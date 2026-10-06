@@ -9,6 +9,8 @@ import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
 import { BUSY_MS, IDLE_MS } from "./useSteam";
+import { rentalOf } from "../rental.cjs";
+import FACTS from "./test/rental-facts.json";
 import type { ShareEvents } from "./useScreenShare";
 
 type Share = {
@@ -32,8 +34,14 @@ let gamesChanged: ((games: SteamGame[]) => void) | null = null;
 /** Every Host API call the app made: method, path and parsed body. */
 let calls: { method: string; path: string; body: Record<string, unknown> | null; keepalive: boolean }[] = [];
 
-// Sharing this Windows desktop is a development path (devShare.ts): these tests drive it.
-vi.mock("./devShare", () => ({ WINDOWS_SHARE: true }));
+// Sharing this Windows desktop is a development path (devShare.ts): these tests
+// drive it, unless one turns it off as in the build hosts download.
+const devShare = vi.hoisted(() => ({ on: true }));
+vi.mock("./devShare", () => ({
+  get WINDOWS_SHARE() {
+    return devShare.on;
+  },
+}));
 
 vi.mock("./useScreenShare", () => ({
   useScreenShare: (e: ShareEvents) => {
@@ -365,6 +373,69 @@ describe("useHost", () => {
     expect(offers[0]!.body).not.toHaveProperty("crewOnly");
     expect(offers[1]!.body).toMatchObject({ crewOnly: false });
     expect(result.current.view.crew?.only).toBe(false);
+  });
+
+  it("in rental mode, reads and sets who can play with the PC off offer in Windows", async () => {
+    devShare.on = false;
+    let only = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+        const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+        calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
+        if (typeof body?.crewOnly === "boolean") only = body.crewOnly;
+        return Response.json({ crew: { only, crews: [{ name: "Alex", own: false, size: 2 }] } });
+      }),
+    );
+    try {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      const { result } = await host();
+      // Not ready to go live yet: the platform is not asked.
+      expect(result.current.view.crew).toBeNull();
+      expect(reports()).toEqual([]);
+
+      const ready = rentalOf(
+        {
+          ...structuredClone(FACTS),
+          install: {
+            complete: true,
+            disk: 0,
+            bootEntry: { partition: null, path: "\\EFI\\swiff\\shimx64.efi" },
+            partitions: [],
+            shrink: null,
+            mok: true,
+          },
+        },
+        [],
+      );
+      bridge.readRental = vi.fn(async () => ({ ...ready, key: { state: "confirmed" as const, code: null } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports()).toEqual([
+        {
+          method: "PUT",
+          path: "/api/machines/gaming-pc-1/availability",
+          body: { available: false },
+          keepalive: false,
+        },
+      ]);
+      expect(result.current.view.crew).toEqual({
+        only: true,
+        crews: [{ name: "Alex", own: false, size: 2 }],
+      });
+
+      act(() => result.current.actions.setCrewOnly(false));
+      expect(result.current.view.crew?.only).toBe(false);
+      await settle();
+      expect(reports().at(-1)!.body).toEqual({ available: false, crewOnly: false });
+      expect(result.current.view.crew?.only).toBe(false);
+      // Nothing offers this PC from Windows.
+      expect(reports().some((c) => c.body?.available === true)).toBe(false);
+    } finally {
+      devShare.on = true;
+    }
   });
 
   it("turns down a claim for a game the owner does not offer", async () => {

@@ -5,7 +5,8 @@ import { demandRows, useDemand } from "./demand";
 import { WINDOWS_SHARE } from "./devShare";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
-import { createHostReporter, hostReport, type Crew, type HostReporter } from "./report";
+import { createHostReporter, hostReport, offOffer, type Crew, type HostReporter } from "./report";
+import { rentalReady } from "./rental";
 import {
   countSession,
   loadMachineId,
@@ -14,6 +15,7 @@ import {
   loadNotOffered,
   loadSessionsToday,
   loadUrl,
+  refusedAddress,
   saveMachineId,
   saveMachineKey,
   saveName,
@@ -312,6 +314,23 @@ export function useHost(): Host {
   };
 
   const settings = { url, machineId, machineKey };
+  // Rental mode's Go live: who may play, read from and set on the platform
+  // while this PC is in Windows and so off offer (Swiff OS offers it).
+  const socket = toSocketUrl(url);
+  const rentalMachine =
+    !WINDOWS_SHARE && rentalReady(view.rental) && connectionReady(settings) && !refusedAddress(socket)
+      ? { url: socket, machineId: machineId.trim(), machineKey: machineKey.trim() }
+      : null;
+  const rentalCrew = useRef(rentalMachine);
+  rentalCrew.current = rentalMachine;
+  useEffect(() => {
+    if (!rentalCrew.current) return;
+    let current = true;
+    void offOffer(rentalCrew.current).then((read) => current && read && setCrew(read));
+    return () => {
+      current = false;
+    };
+  }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey]);
   return {
     view,
     actions: {
@@ -374,7 +393,8 @@ export function useHost(): Host {
       // The platform holds the choice, sent now or with the next offer; the screen
       // shows it at once, and the next answer confirms it.
       setCrewOnly: (on) => {
-        if (reporter.current) reporter.current.setCrewOnly(on);
+        if (rentalCrew.current) void offOffer(rentalCrew.current, on).then((read) => read && setCrew(read));
+        else if (reporter.current) reporter.current.setCrewOnly(on);
         else crewChoice.current = on;
         setCrew((was) => (was ? { ...was, only: on } : was));
       },

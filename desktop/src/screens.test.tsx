@@ -304,6 +304,34 @@ describe("demo", () => {
   });
 });
 
+/** Rental mode installed, with its key at `key`; `ready` is ready to go live. */
+const installed = (key: RentalRead["key"]): Partial<HostView> => ({
+  rental: {
+    reading: false,
+    read: {
+      ...rentalOf(
+        {
+          ...structuredClone(FACTS),
+          install: {
+            complete: true,
+            disk: 0,
+            bootEntry: { partition: null, path: "\\EFI\\swiff\\shimx64.efi" },
+            partitions: [],
+            shrink: null,
+            mok: true,
+          },
+        },
+        [],
+      ),
+      key,
+    },
+    target: null,
+    preview: null,
+    run: IDLE_RUN,
+  },
+});
+const ready = installed({ state: "confirmed", code: null });
+
 describe("going live", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: [...FAKE] });
@@ -311,34 +339,6 @@ describe("going live", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
-  const GiB = 1024 ** 3;
-  const installed = (key: RentalRead["key"]): Partial<HostView> => ({
-    rental: {
-      reading: false,
-      read: {
-        ...rentalOf(
-          {
-            ...structuredClone(FACTS),
-            install: {
-              complete: true,
-              disk: 0,
-              bootEntry: { partition: null, path: "\\EFI\\swiff\\shimx64.efi" },
-              partitions: [],
-              shrink: null,
-              mok: true,
-            },
-          },
-          [],
-        ),
-        key,
-      },
-      target: null,
-      preview: null,
-      run: IDLE_RUN,
-    },
-  });
-  const ready = installed({ state: "confirmed", code: null });
-  void GiB;
 
   it("stays locked until rental mode is ready: the rail says so, and the window shows rental mode", () => {
     const go = vi.fn();
@@ -584,27 +584,34 @@ describe("this PC's screens", () => {
     expect(screen.getByText(/send your link from Ask your PC friend on your profile/)).toBeInTheDocument();
     cleanup();
 
-    // Go live offers sharing this Windows desktop only in development builds.
-    share.on = true;
-    renderReal("live", off, { now: evening(21), crew: { only: true, crews: [] } });
+    // Rental mode's Go live, as in the build hosts download.
+    const golive = renderReal("live", off, { ...ready, crew: { only: true, crews: [] } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.getByRole("radiogroup", { name: "Who can play" })).toBeInTheDocument();
     expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open to everyone" }));
+    expect(golive.setCrewOnly).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Invite a friend" }));
+    expect(screen.getByText("https://signal.example")).toBeInTheDocument();
     cleanup();
 
-    renderReal("live", off, { now: evening(21), crew: { only: false, crews: [] } });
+    renderReal("live", off, { ...ready, crew: { only: false, crews: [] } });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
   });
 
   it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
-    share.on = true;
-    renderReal("live", off, {
-      now: evening(21),
+    const acts = renderReal("live", off, {
+      ...ready,
       crew: { only: false, crews: [{ name: null, own: false, size: 2 }] },
     });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
     expect(screen.getByRole("radio", { name: /Anyone/ })).toHaveAttribute("aria-checked", "true");
     expect(
       screen.getByText("Anyone on Swiff can claim this PC, your friend's crew too."),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Crew only/ }));
+    expect(acts.setCrewOnly).toHaveBeenCalledWith(true);
   });
 
   it("changes the end time while live", () => {
