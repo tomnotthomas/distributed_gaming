@@ -240,8 +240,9 @@ export const CREW_COPY = {
     "st.stubTaken": "This seat is taken",
     "st.stubExpired": "This seat has expired",
     "st.pcAnon": "The gaming PC",
+    "st.pcAnonIn": "the gaming PC",
     "st.noteOs":
-      "{pc} runs Lanterel OS, a separate system. Your Steam login doesn't stick around: it's gone once you're done.",
+      "Lanterel OS runs on {pc}, a separate system. Your Steam login doesn't stick around: it's gone once you're done.",
     "st.noteOwn": "You play with your own Steam account and your own games. Nobody shares an account.",
     "st.seatKey": "Seat",
     "st.seatValue": "{n} of {of}, for {friend}",
@@ -508,6 +509,7 @@ export const CREW_COPY = {
     "st.stubTaken": "Der Platz ist vergeben",
     "st.stubExpired": "Der Platz ist abgelaufen",
     "st.pcAnon": "Der Gaming-PC",
+    "st.pcAnonIn": "dem Gaming-PC",
     "st.noteOs":
       "Auf {pc} läuft Lanterel OS, ein eigenes System. Dein Steam-Login bleibt dort nicht hängen: Nach dem Zocken ist er weg.",
     "st.noteOwn":
@@ -527,7 +529,7 @@ export const CREW_COPY = {
     "st.step1Line": "Mit Steam, ohne Passwort. Damit bist du in der Crew, die an diesem PC zockt.",
     "st.step2": "Spiel aussuchen",
     "st.step2Line":
-      "In Chrome auf deinem Mac. Du siehst deine eigene Steam-Bibliothek und wann {pc} frei ist.",
+      "In Chrome auf deinem Mac. Du siehst deine eigene Steam-Bibliothek und wann du an {pc} zocken kannst.",
     "st.step3": "Spiel starten",
     "st.step3Line": "Einmal den QR-Code mit der Steam-App scannen, dann läuft das Spiel auf {pc}.",
     "st.yours": "Der Platz gehört dir.",

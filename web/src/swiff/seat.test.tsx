@@ -133,7 +133,7 @@ describe("SeatInvite", () => {
     expect(screen.getByText("2 of 3, for Jonas")).toBeInTheDocument();
     expect(screen.getByText("Radeon RX 7900 XT")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Lena's PC" })).toBeInTheDocument();
-    expect(screen.getByText(/Lena's PC runs Lanterel OS/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel OS runs on Lena's PC/)).toBeInTheDocument();
     expect(screen.getByText(/your own Steam account and your own games/)).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Grab your seat/ });
     expect(link).toHaveAttribute("href", "/auth/steam/login?to=%2Fseat");
@@ -171,7 +171,21 @@ describe("SeatInvite", () => {
       "Someone saved you a seat at their gaming PC.",
     );
     expect(screen.queryByText(/Lanterel OS/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Nova-01" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How to play on Nova-01" })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/null|undefined/);
+  });
+
+  it("speaks of the gaming PC in the sentence's own case when neither its owner nor its name is known", async () => {
+    inGerman();
+    at(`/seat/${TOKEN}`);
+    fetchFrom({
+      [`/api/seats/${TOKEN}`]: [200, { seat: seatOf({ host: null, pc: { ...seatOf().pc, name: null } }) }],
+    });
+    render(<SeatInvite swiff={fakeSwiff({ signedIn: false })} />);
+    expect(await screen.findByRole("heading", { name: "Der Gaming-PC" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "So zockst du an dem Gaming-PC" })).toBeInTheDocument();
+    expect(screen.getByText(/Auf dem Gaming-PC läuft Lanterel OS/)).toBeInTheDocument();
   });
 
   it("takes the seat for a signed-in friend with one button and opens the crew", async () => {

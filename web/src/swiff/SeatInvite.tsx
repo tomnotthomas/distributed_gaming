@@ -129,7 +129,10 @@ export function SeatInvite({ swiff }: { swiff: Swiff }) {
 
   const seat = opened;
   const host = seat.host ?? t("st.someone");
-  const pc = seat.host ? possessive(lang, "pc.of", seat.host) : t("st.pcAnon");
+  // The PC by its owner, else by the name its host gave it; plainly, in the sentence's own case, when neither is known.
+  const pcName = seat.host ? possessive(lang, "pc.of", seat.host) : seat.pc.name;
+  const pcTitle = pcName ?? t("st.pcAnon");
+  const pc = pcName ?? t("st.pcAnonIn");
   const days = daysLeft(seat.expiresAt);
   const stub =
     seat.state === "open" || seat.state === "host"
@@ -244,7 +247,7 @@ export function SeatInvite({ swiff }: { swiff: Swiff }) {
       <div className="lb-wrap">
         <section className="st-facts" aria-labelledby="st-fh">
           <div>
-            <h2 id="st-fh">{pc}</h2>
+            <h2 id="st-fh">{pcTitle}</h2>
             {seat.pc.rentalMode ? <p className="st-note">{t("st.noteOs", { pc })}</p> : null}
             <p className="st-note">{t("st.noteOwn")}</p>
           </div>
