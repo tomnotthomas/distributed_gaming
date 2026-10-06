@@ -29,7 +29,7 @@ fail() {
 # which is no kernel.
 [ ! -d "$BUILDROOT/usr/lib/modules/kernel" ] ||
 	find "$BUILDROOT/usr/lib/modules/kernel" -depth -type d -empty -delete
-set --"$BUILDROOT"/usr/lib/modules/*/
+set -- "$BUILDROOT"/usr/lib/modules/*/
 [ $# = 1 ] || fail "expected one kernel, found: $*"
 moddir=${1%/}
 kernel=$(basename "$moddir")
