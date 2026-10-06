@@ -40,6 +40,7 @@ bootstraps games again, which seals a new key.
 import base64
 import contextlib
 import errno
+import fcntl
 import hashlib
 import hmac
 import io
@@ -63,6 +64,7 @@ SESSION = STATE + "/session"  # the per-boot encrypted session layer
 VIEW = STATE + "/view"  # the layer that hides what is not verified
 SEALED = STATE + "/sealed"
 SEAL_CLOSED = STATE + "/seal-closed"
+SEAL_LOCK = STATE + "/seal.lock"
 SETUP = STATE + "/setup.json"
 SCRATCH_SESSION = "/home/.swiff/games"  # fallback when the library is read-only
 GAMES = "/srv/games"
@@ -970,12 +972,32 @@ def seal_app(appid, bootstrap, setup, table, keys, report):
     }
 
 
+@contextlib.contextmanager
+def seal_lock():
+    """Held by a seal from its check that sealing is open until its last
+    candidate is written, and by close-seal: once close-seal returns, no seal
+    is still reading files the session can change."""
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    fd = os.open(SEAL_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def cmd_seal(args):
     """Seals each named game for promotion at shutdown, unless sealing is closed for this boot."""
     bootstrap = "--bootstrap" in args
     appids = [a for a in args if a != "--bootstrap"]
     if not appids or not all(a.isdigit() for a in appids):
         raise Refused("usage: seal [--bootstrap] APPID...")
+    with seal_lock():
+        return seal_all(appids, bootstrap)
+
+
+def seal_all(appids, bootstrap):
+    """Seals the games while holding the seal lock."""
     if os.path.exists(SEAL_CLOSED):
         raise Refused("sealing is closed for this boot: the session may have run code since, so nothing it installed can be trusted")
     setup = load_setup()
@@ -999,9 +1021,10 @@ def cmd_seal(args):
 
 
 def cmd_close_seal(_):
-    """Closes sealing for the rest of this boot, before anything the user drives can run."""
-    os.makedirs(STATE, mode=0o700, exist_ok=True)
-    open(SEAL_CLOSED, "a").close()
+    """Closes sealing for the rest of this boot, before anything the user drives can run.
+    It waits for a seal already running to finish."""
+    with seal_lock():
+        open(SEAL_CLOSED, "a").close()
 
 
 def copy_verified(src, dst, owner):

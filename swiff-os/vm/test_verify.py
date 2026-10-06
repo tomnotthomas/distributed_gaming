@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -373,6 +374,49 @@ class Robustness(Library):
             self.assertIsNone(verify.table_key(create=True))
         self.assertFalse(os.path.lexists(os.path.join(self.volume, verify.KEY)))
         self.assertEqual(verify.load_table(None)[1], "no table key")
+
+
+class SealOrdering(unittest.TestCase):
+    """Once close-seal returns, no seal is still running and none can start."""
+
+    def setUp(self):
+        """Points swiff-verify's state folder at a temporary one."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for name in ("STATE", "SEAL_LOCK", "SEAL_CLOSED"):
+            patch = mock.patch.object(verify, name, os.path.join(tmp.name, name.lower()))
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_close_seal_waits_for_a_running_seal(self):
+        """close-seal returns only after a seal that already started has finished."""
+        started, release, order = threading.Event(), threading.Event(), []
+
+        def seal_all(appids, bootstrap):
+            """A seal still reading the session's files."""
+            started.set()
+            release.wait(5)
+            order.append("seal")
+            return 0
+
+        with mock.patch.object(verify, "seal_all", seal_all):
+            seal = threading.Thread(target=verify.cmd_seal, args=(["1004"],))
+            seal.start()
+            self.assertTrue(started.wait(5))
+            close = threading.Thread(target=lambda: (verify.cmd_close_seal([]), order.append("closed")))
+            close.start()
+            close.join(0.3)
+            self.assertTrue(close.is_alive())
+            release.set()
+            seal.join(5)
+            close.join(5)
+        self.assertEqual(order, ["seal", "closed"])
+
+    def test_a_seal_after_close_seal_is_refused(self):
+        """A seal that starts after close-seal is refused."""
+        verify.cmd_close_seal([])
+        with self.assertRaisesRegex(verify.Refused, "sealing is closed"):
+            verify.cmd_seal(["1004"])
 
 
 class Symlinks(Library):

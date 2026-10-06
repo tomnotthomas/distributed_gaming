@@ -236,9 +236,10 @@ anything the user drives has started can be trusted:
 2. **Updates.** The renter's Steam updates a game before the game starts. `swiff-verify seal APPID`
    checks the result: Steam must report it fully installed, and every file must match the manifests
    Steam fetched in this boot. A depot whose manifest is unchanged is checked against the table.
-3. **`swiff-verify close-seal`** runs before anything the user drives starts. Afterwards nothing can
-   be sealed in this boot. `swiff-session.service` runs it at start, because the Stage 1 session is
-   Steam's own UI. The session agent will call it just before it launches the game.
+3. **`swiff-verify close-seal`** runs before anything the user drives starts. It waits for a seal
+   that is still running, and afterwards nothing can be sealed in this boot. `swiff-session.service`
+   runs it at start, because the Stage 1 session is Steam's own UI. The session agent will call it
+   just before it launches the game.
 4. **Promotion** runs at shutdown (`ExecStop`), after the session has stopped, so it fits the reboot
    between renters (D5). For each sealed game, the files that the session layer still holds
    **byte-identical** to what was sealed are copied onto the library. The table and Steam's app
