@@ -141,7 +141,9 @@ PUT  /machines/:id/availability
   out, it stays as it was. `crew` (in this answer and the heartbeat's) is `{ only,
   crews: [{ name, own, size }] }`: whether it is crew-only, and the crews its owner is
   in with anyone else. The app sends the owner's choice with every offer once they have
-  made one, and shows Who can play while the owner is in a crew or the PC is crew-only.
+  made one (in rental mode, where swiff-hostd makes the offers, at once on its own; one
+  that fails to save goes back to the last confirmed choice, with a note), and shows Who
+  can play while the owner is in a crew or the PC is crew-only.
   A crew-only PC whose owner shares no crew with anyone (they left, or were removed)
   stays crew-only and matches nobody; the app says so and offers to open it to everyone
   or to invite a friend from the web app's profile.
