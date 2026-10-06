@@ -685,7 +685,7 @@ test_run() {
 		on_vm "Copy-Item -Recurse -Force '$appdata' C:\\swiff\\tampered; \$f = [IO.File]::Open('C:\\swiff\\tampered\\swiffos_0.1.0.esp.raw', 'Open', 'ReadWrite'); \$f.Seek(1048576, 'Begin') | Out-Null; \$f.WriteByte(0x5A); \$f.Close()" || true
 		printf '%s\n' "plan install" "run check" quit | on_vm "Set-Content C:\\swiff\\cmd-tampered.txt -Value (\$input | Out-String).Trim()"
 		on_vm "$cli serve --image C:\\swiff\\tampered --commands C:\\swiff\\cmd-tampered.txt --code $(new_code)" | tr -d '\r' > "$run/serve-tampered.json" || true
-		expect tampered-image "the install's check refuses a changed image before any change: $(json "$run/serve-tampered.json" outcome '.outcome.failed.error' || true)" grep -q '"failed"' "$run/serve-tampered.json"
+		expect tampered-image "the install's check refuses a changed image before any change: $(json "$run/serve-tampered.json" outcome '.outcome.failed.error' || true)" grep -q 'is not the file its image set lists' "$run/serve-tampered.json"
 		on_vm "Remove-Item -Recurse -Force C:\\swiff\\tampered" || true
 		read_as after-tamper
 		expect tampered-nothing "nothing on the PC changed: no install record" test "$(json "$run/read-after-tamper.json" read '.read.facts.install')" = null
