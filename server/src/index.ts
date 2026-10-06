@@ -227,11 +227,6 @@ const serveMarketing =
         isShareCode: signups.isShareCode,
       })
     : null;
-// No mail transport yet: sign-up mails are kept in marketing_outbox (signups.ts).
-if (signups && process.env.MARKETING_MAIL === "send")
-  console.warn(
-    "[swiff] MARKETING_MAIL=send, but there is no mail transport yet: mails stay in marketing_outbox",
-  );
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.

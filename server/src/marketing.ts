@@ -195,12 +195,12 @@ export function renderInvite(
   view: InviteView,
 ): string {
   const copy = inviteCopy(type, lang, view);
-  let html = template.replace(/<title>[^<]*<\/title>/, `<title>${copy.title} | {{brand}}</title>`);
+  let html = template.replace(/<title>[^<]*<\/title>/, () => `<title>${copy.title} | {{brand}}</title>`);
   html = setMeta(html, "name", "description", copy.description);
   html = setMeta(html, "property", "og:title", copy.ogTitle);
   html = setMeta(html, "property", "og:description", copy.description);
   for (const [key, inner] of Object.entries(copy.text)) html = setText(html, key, inner);
-  for (const [from, to] of copy.literal) html = html.replaceAll(from, to);
+  for (const [from, to] of copy.literal) html = html.replaceAll(from, () => to);
   if (code) {
     // To the host application (#bewerben) or the waitlist (#beta), with the invite.
     html = html.replace(
