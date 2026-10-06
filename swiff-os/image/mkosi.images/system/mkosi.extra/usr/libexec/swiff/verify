@@ -1026,6 +1026,13 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
             # Sealed from the library's own copy, which no boot changes.
             if not os.path.isfile(final) or os.path.islink(final):
                 raise Refused(f"{rel} is gone from the session")
+            # The table only records it once it is seen to match.
+            try:
+                digest = hash_file(final)[1]
+            except OSError as e:
+                raise Refused(f"{rel} cannot be read on the library: {e.strerror}") from e
+            if digest != record[1]:
+                raise Refused(f"{rel} on the library does not match what was verified")
             continue
         if src == "deleted":
             # Deleted in the session since: the library's copy must match.

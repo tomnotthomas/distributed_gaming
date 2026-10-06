@@ -203,6 +203,23 @@ class Promotion(Library):
                 verify.promote_app("1004", self.update, self.setup, self.table, KEY, True)
         self.assertEqual(os.listdir(self.game), ["d.pak"])
 
+    def test_a_library_copy_is_promoted_only_when_it_still_matches(self):
+        """A file sealed from the library's own copy is hashed again before it is recorded."""
+        os.remove(os.path.join(self.session, "upper/steamapps/common/Delta/d.pak"))
+        verify.promote_app("1004", self.entry, self.setup, self.table, KEY, False)
+        self.assertEqual(verify.load_table(KEY)[0]["apps"]["1004"]["files"]["d.pak"][1], sha(b"d-1" * 1000))
+
+    def test_a_changed_library_copy_is_refused(self):
+        """A library copy that no longer matches its record, or cannot be read, is not promoted."""
+        os.remove(os.path.join(self.session, "upper/steamapps/common/Delta/d.pak"))
+        write(self.pak, b"d-X" * 1000)
+        with self.assertRaisesRegex(verify.Refused, "does not match what was verified"):
+            verify.promote_app("1004", self.entry, self.setup, self.table, KEY, False)
+        with mock.patch.object(verify, "hash_file", side_effect=OSError(5, "Input/output error")):
+            with self.assertRaisesRegex(verify.Refused, "cannot be read on the library"):
+                verify.promote_app("1004", self.entry, self.setup, self.table, KEY, False)
+        self.assertFalse(os.path.exists(os.path.join(self.volume, verify.TABLE)))
+
 
 class FakeCreds:
     """systemd-creds: decrypt fails (a changed PCR 7), encrypt writes the key."""
