@@ -502,19 +502,28 @@ describe("MARKETING_PAGES on the real server", () => {
   let server: ChildProcess | null = null;
 
   async function start(env: Record<string, string>) {
+    // The port is free again only once the last server has exited.
+    await stop();
     server = spawn(process.execPath, [SERVER], {
       env: { ...process.env, PORT: String(PORT), SWIFF_PLAYABILITY: "off", DATABASE_URL: "", ...env },
       stdio: "ignore",
     });
-    for (let i = 0; i < 150; i++) {
+    const child = server;
+    // A loaded machine can take a while to boot the server; a child that dies
+    // fails the test at once instead of waiting out the deadline.
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`server exited before answering: code ${child.exitCode}, signal ${child.signalCode}`);
+      }
       try {
-        await fetch(`${HTTP}/api/ping`);
+        await fetch(`${HTTP}/api/ping`, { signal: AbortSignal.timeout(5_000) });
         return;
       } catch {
         await new Promise((r) => setTimeout(r, 100));
       }
     }
-    throw new Error("server did not start");
+    throw new Error("server did not answer /api/ping within 60s");
   }
 
   async function stop() {
