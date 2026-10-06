@@ -44,8 +44,7 @@
 // service's credential cannot register it at all. See sessions.ts.
 //
 // Only a credential that may host serves a renter: the service's socket, which
-// hears session-claimed and gets TURN, and starting a host session, which mints
-// session keys. That is a host certificate from attestation, or the machine
+// hears session-claimed, and starting a host session, which mints session keys. That is a host certificate from attestation, or the machine
 // key while hosting does not require attestation. See attestation.ts.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -54,7 +53,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { sessionSpanMs } from "@swiff/rank";
-import { createIceSource } from "./ice.js";
+import { relayFromEnv } from "./ice.js";
 import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
 import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from "./state-key.js";
@@ -81,14 +80,11 @@ import { bearer, HttpError, readJson } from "./http.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
-// Sent to both peers on register/join. Omitted entirely when unset, so a
-// server with no TURN behaves exactly as before. Read per message rather than
-// captured once: credentials are re-minted while the process runs.
-const ice = createIceSource(process.env);
-const iceServers = () => {
-  const servers = ice.servers();
-  return servers.length ? { iceServers: servers } : {};
-};
+// TURN, minted for each renter's seat when they join: theirs in `joined`, the
+// PC's in `peer-joined`, both expiring with the seat (ice.ts). Omitted entirely
+// when there are none, so a server with no TURN behaves exactly as before.
+const turn = relayFromEnv(process.env);
+const iceServers = (servers: RTCIceServer[]) => (servers.length ? { iceServers: servers } : {});
 
 const access = accessFromEnv(process.env);
 
@@ -247,6 +243,8 @@ type PeerSocket = WebSocket & {
    * dropping out of it starts the reconnect grace. A ticket minted by hand has none.
    */
   inSession: boolean;
+  /** The PC's TURN credentials for a renter's seat, sent with every `peer-joined` about them. */
+  hostRelay: RTCIceServer[];
   /**
    * When the last database read that found a renter's ticket not revoked began
    * (performance.now() ms): at join, before a relayed frame, and each reconcile.
@@ -790,12 +788,12 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       );
       // A newer host took the seat meanwhile: this one is being hung up on.
       if (room.host !== ws) return;
-      send(ws, { type: "registered", hostId: msg.hostId, ...iceServers() });
+      send(ws, { type: "registered", hostId: msg.hostId });
       // A client that arrived first is still waiting; tell the host now,
       // unless its ticket died meanwhile, or it left while that was checked.
       const client = room.client;
       if (client && (await seatStillValid(client)) && room.client === client) {
-        send(ws, { type: "peer-joined" });
+        send(ws, { type: "peer-joined", ...iceServers(client.hostRelay) });
       }
       // A PC that missed its claim, or lost it before starting the session,
       // hears it again: the service only registers with no session live.
@@ -816,14 +814,24 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         platform.ticketSession(ticket.id),
       ]);
       if (revoked) revoke(ticket.id);
-      // Revoked in the database, or by a notice while the database was asked.
+      // The seat's relay, one credential for each side, bound to its session
+      // (the ticket, for one minted by hand) and good until the ticket ends.
+      // Only for a ticket still honoured: a revoked one is refused just below.
+      const seat = { id: running ?? ticket.id, expiresAt: ticket.exp };
+      const [renterRelay, hostRelay] = revokedTickets.has(ticket.id)
+        ? [[], []]
+        : await Promise.all([
+            turn.relay.credentials({ ...seat, side: "renter" }),
+            turn.relay.credentials({ ...seat, side: "host" }),
+          ]);
+      // Revoked in the database, or by a notice while the database or the relay was asked.
       if (revokedTickets.has(ticket.id)) {
         // A renter still seated on it is put out too.
         const seated = rooms.get(ticket.room)?.client;
         if (seated && seatRevoked(seated)) putOut(seated);
         return deny(ws, "bad-ticket");
       }
-      // Run out while the database was asked: nothing changes for it.
+      // Run out while the database or the relay was asked: nothing changes for it.
       if (ticket.exp * 1000 <= Date.now()) return deny(ws, "bad-ticket");
       const room = roomFor(ticket.room);
       if (room.client && room.client !== ws) {
@@ -837,12 +845,18 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.role = "client";
       ws.ticketId = ticket.id;
       ws.inSession = running !== null;
+      ws.hostRelay = hostRelay;
       confirm(ws, began);
       room.client = ws;
       // A renter back within the reconnect grace keeps their session.
       grace.cancel(ticket.room, ticket.id);
-      send(ws, { type: "joined", hostId: ticket.room, hostOnline: Boolean(room.host), ...iceServers() });
-      send(room.host, { type: "peer-joined" });
+      send(ws, {
+        type: "joined",
+        hostId: ticket.room,
+        hostOnline: Boolean(room.host),
+        ...iceServers(renterRelay),
+      });
+      send(room.host, { type: "peer-joined", ...iceServers(hostRelay) });
       return;
     }
 
@@ -1017,6 +1031,7 @@ wss.on("connection", (socket) => {
   ws.role = null;
   ws.ticketId = null;
   ws.inSession = false;
+  ws.hostRelay = [];
   ws.confirmedAt = 0;
   ws.sessionId = null;
   ws.tier = null;
@@ -1155,6 +1170,7 @@ server.listen(PORT, () => {
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
   if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
   for (const warning of attestationConfig.warnings) console.warn(`[swiff] ${warning}`);
+  for (const warning of turn.warnings) console.warn(`[swiff] ${warning}`);
   // Only where a machine can attest is a missing state key secret news.
   if (attestationConfig.verifier) {
     for (const warning of stateKeySecret.warnings) console.warn(`[swiff] ${warning}`);
@@ -1168,8 +1184,3 @@ server.listen(PORT, () => {
   // Warm the catalog so the first visitor's wall does not wait on Steam.
   void popularGames();
 });
-
-// Not awaited before listening: minting talks to a third party, and the LAN
-// case needs no relay at all. Peers that register before the first credential
-// lands simply get none, exactly as they would with no TURN configured.
-void ice.start();

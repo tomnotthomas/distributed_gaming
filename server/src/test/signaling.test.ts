@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mintHostCert, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
@@ -27,6 +27,9 @@ const SESSION_SECRET = "test-session-secret-that-is-long-enough-too";
 /** A signed-in renter, who alone may book and claim. */
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`;
 const MACHINE_KEY = "test-machine-key";
+/** The relay the server mints credentials for, and its shared secret (ice.ts). */
+const TURN_URLS = "turn:relay.test:3478";
+const TURN_SECRET = "test-turn-secret-that-is-long-enough-to-pass";
 const ROOMS = Array.from({ length: 60 }, (_, i) => `pc-${i}`);
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 let roomIndex = 0;
@@ -56,6 +59,21 @@ const GRACE_MS = 1_500;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const send = (ws: WebSocket, msg: SignalMessage) => ws.send(JSON.stringify(msg));
 const types = (ws: RecordingSocket) => ws.received.map((m) => m.type);
+
+/** The seat a ticket names, read without verifying it. */
+const ticketOf = (ticket: string) =>
+  JSON.parse(Buffer.from(ticket.split(".")[0]!, "base64url").toString("utf8")) as { id: string; exp: number };
+
+/** The TURN entry `msg` carries, after checking its credential is the relay's own for its username. */
+function relayIn(msg: SignalMessage | undefined): RTCIceServer {
+  assert.ok(msg && "iceServers" in msg && msg.iceServers, `expected TURN in ${JSON.stringify(msg)}`);
+  const [server] = msg.iceServers;
+  assert.deepEqual(server!.urls, [TURN_URLS]);
+  assert.equal(server!.credential, createHmac("sha1", TURN_SECRET).update(server!.username!).digest("base64"));
+  return server!;
+}
+
+const peerJoined = (ws: RecordingSocket) => ws.received.find((m) => m.type === "peer-joined");
 
 function joinedMessage(ws: RecordingSocket): JoinedMessage {
   const msg = ws.received.find((m): m is JoinedMessage => m.type === "joined");
@@ -108,6 +126,8 @@ before(async () => {
       MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
       DATABASE_URL: database.url,
       SWIFF_RECONNECT_GRACE_MS: String(GRACE_MS),
+      TURN_URLS,
+      TURN_SECRET,
       // Every game playable, so nothing here waits on or calls Steam (playable.ts).
       SWIFF_PLAYABILITY: "off",
     },
@@ -170,6 +190,27 @@ describe("signaling", () => {
     client.close();
   });
 
+  it("hands each side of a renter's seat a TURN credential of its own that ends with the ticket", async () => {
+    const room = nextRoom();
+    const host = await open();
+    send(host, register(room));
+    await handled(host);
+    // In no seat yet: no relay.
+    assert.ok(!("iceServers" in host.received.find((m) => m.type === "registered")!));
+
+    const ticket = mintTicket(SECRET, room, 600);
+    const { id, exp } = ticketOf(ticket);
+    const client = await open();
+    send(client, join(room, ticket));
+    await handled(client);
+
+    // A ticket minted by hand has no session: the seat is the ticket's.
+    assert.equal(relayIn(joinedMessage(client)).username, `${exp}:${id}-renter`);
+    assert.equal(relayIn(peerJoined(host)).username, `${exp}:${id}-host`);
+    host.close();
+    client.close();
+  });
+
   it("answers ping so an idle socket is not culled by the proxy", async () => {
     const ws = await open();
     send(ws, { type: "ping" });
@@ -197,6 +238,8 @@ describe("signaling", () => {
     await handled(host);
 
     assert.ok(types(host).includes("peer-joined"));
+    // With the waiting renter's seat's relay.
+    assert.match(relayIn(peerJoined(host)).username!, /-host$/);
     host.close();
     client.close();
   });
@@ -1223,8 +1266,7 @@ describe("host sessions", () => {
 
   describe("reconnect grace", () => {
     /** The seat a ticket holds, read without verifying it. */
-    const seat = (ticket: string) =>
-      (JSON.parse(Buffer.from(ticket.split(".")[0]!, "base64url").toString("utf8")) as { id: string }).id;
+    const seat = (ticket: string) => ticketOf(ticket).id;
 
     /** `room` claimed and its session's streamer serving the renter, seated with the claim's ticket. */
     async function playing(room: string) {
@@ -1237,6 +1279,17 @@ describe("host sessions", () => {
       assert.ok(types(host).includes("peer-joined"));
       return { ...claimed, host, renter };
     }
+
+    it("binds a claimed session's relay to the session, both sides, until it ends", async () => {
+      const room = nextRoom();
+      const { sessionId, ticket, host, renter } = await playing(room);
+      const { exp } = ticketOf(ticket);
+      assert.ok(Math.abs(exp - (Date.now() / 1000 + 30 * 60)) < 60, "the ticket ends with the 30-minute session");
+      assert.equal(relayIn(joinedMessage(renter)).username, `${exp}:${sessionId}-renter`);
+      assert.equal(relayIn(peerJoined(host)).username, `${exp}:${sessionId}-host`);
+      host.close();
+      renter.close();
+    });
 
     const peerLefts = (ws: RecordingSocket) => ws.received.filter((m) => m.type === "peer-left");
     const ended = (ws: RecordingSocket) =>

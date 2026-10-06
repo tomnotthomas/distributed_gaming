@@ -10,6 +10,7 @@ import {
   type HostSessionOptions,
   type SessionClaim,
 } from "./hostSession";
+import { DEFAULT_ICE_SERVERS } from "./peer";
 import { FakeSocket } from "./test/fakes";
 
 beforeEach(() => {
@@ -69,9 +70,9 @@ function fakePeer() {
     "RTCPeerConnection",
     class extends EventTarget {
       localDescription: RTCSessionDescriptionInit | null = null;
-      constructor() {
+      constructor(config: RTCConfiguration) {
         super();
-        offered();
+        offered(config);
       }
       addTrack() {
         return { getParameters: () => ({}), setParameters: async () => {} };
@@ -121,6 +122,26 @@ describe("startHostSession", () => {
   it("registers with the machine key", () => {
     const { session, socket } = start();
     expect(socket.messages).toEqual([{ type: "register", hostId: "pc-1", key: "test-machine-key" }]);
+    session.stop();
+  });
+
+  it("offers each renter on the TURN their peer-joined brought, and on no earlier renter's", async () => {
+    const { offered, stream } = fakePeer();
+    const { session, socket } = start(false, { stream });
+    const turn = [{ urls: "turn:relay.test:3478", username: "1700000000:s1-host", credential: "c" }];
+    socket.deliver({ type: "registered", hostId: "pc-1" });
+    socket.deliver({ type: "peer-joined", iceServers: turn });
+    await settle();
+    expect(offered).toHaveBeenLastCalledWith(
+      expect.objectContaining({ iceServers: [...DEFAULT_ICE_SERVERS, ...turn], iceTransportPolicy: "all" }),
+    );
+
+    // The next renter's seat came with none: the last one's credential is not reused.
+    socket.deliver({ type: "peer-left" });
+    socket.deliver({ type: "peer-joined" });
+    await settle();
+    expect(offered).toHaveBeenCalledTimes(2);
+    expect(offered).toHaveBeenLastCalledWith(expect.objectContaining({ iceServers: DEFAULT_ICE_SERVERS }));
     session.stop();
   });
 

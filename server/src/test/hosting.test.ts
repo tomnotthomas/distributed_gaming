@@ -117,8 +117,7 @@ before(async () => {
       HOSTING_ATTESTATION: "required",
       ATTESTATION_VERIFIER: "insecure-dev",
       TURN_URLS: TURN,
-      TURN_USERNAME: "user",
-      TURN_CREDENTIAL: "pass",
+      TURN_SECRET: "hosting-test-turn-secret-long-enough-to-pass",
     },
     stdio: "ignore",
   });
@@ -144,7 +143,7 @@ after(async () => {
 });
 
 describe("hosting requires attestation", () => {
-  it("refuses the machine key's socket: it would hear claims and get TURN", async () => {
+  it("refuses the machine key's socket: it would hear claims", async () => {
     const { received, closed } = await host("pc-1", { key: MACHINE_KEY });
     assert.equal(await closed, 4003);
     assert.deepEqual(received, [{ type: "denied", reason: "attestation-required" }]);
@@ -158,7 +157,8 @@ describe("hosting requires attestation", () => {
     const service = await host(room, { hostCert: grant.hostCert });
     const registered = service.received[0];
     assert.equal(registered?.type, "registered");
-    assert.deepEqual(registered.type === "registered" && registered.iceServers?.[0]?.urls, [TURN]);
+    // No renter's seat yet, so no relay: TURN comes with a renter (signaling.test.ts).
+    assert.deepEqual(registered, { type: "registered", hostId: room });
 
     // The claim reaches the attested socket at once.
     const sessionId = await claimRoom(room);

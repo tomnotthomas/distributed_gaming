@@ -149,8 +149,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
   let pc: RTCPeerConnection | null = null;
   // Holds the renter's candidates until the answer has been applied.
   let inbox: IceInbox | null = null;
-  // TURN from the server's `registered`, which always precedes `peer-joined`.
-  let serverIce: RTCIceServer[] = [];
 
   /** Close the renter's peer connection, if any. */
   const teardown = () => {
@@ -160,8 +158,11 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
     opts.onPeerConnection(null);
   };
 
-  /** A fresh peer connection with the screen's tracks, offered to the renter through `send`. */
-  const offerTo = async (send: (m: SignalMessage) => void) => {
+  /**
+   * A fresh peer connection with the screen's tracks, offered to the renter
+   * through `send`; `serverIce` is the TURN their `peer-joined` brought.
+   */
+  const offerTo = async (send: (m: SignalMessage) => void, serverIce: RTCIceServer[]) => {
     teardown();
     pc = createPeerConnection({
       ...opts,
@@ -359,9 +360,6 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
         } else if (opts.serveClaims && msg.reason === "session-active") reclaim();
         else opts.onDenied?.();
         break;
-      case "registered":
-        serverIce = msg.iceServers ?? [];
-        break;
       case "session-claimed": {
         const next = { sessionId: msg.sessionId, appid: msg.appid, minutes: msg.minutes };
         if (!claim && opts.acceptClaim && !opts.acceptClaim(next)) {
@@ -393,7 +391,7 @@ export function startHostSession(opts: HostSessionOptions): { stop: () => void }
           break;
         }
         opts.onPeerHere(true);
-        void offerTo(send);
+        void offerTo(send, msg.iceServers ?? []);
         break;
       case "answer":
         if (msg.sdp) {
