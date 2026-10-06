@@ -2431,6 +2431,7 @@ button.band-tab:hover {
   width: 18px;
   height: 3px;
   background: var(--lime);
+  box-shadow: inset 0 0 0 1px var(--lime-edge);
 }
 
 /* the band: three reasons and the four steps, on the bar's columns */
