@@ -111,6 +111,18 @@ describe("useRental", () => {
     expect(result.current.preview).toBeNull();
   });
 
+  it("puts away the preview on screen when the owner asks for another plan", async () => {
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.plan("uninstall"));
+    await answer(0, plan("uninstall", "Remove rental mode"));
+    expect(result.current.preview).not.toBeNull();
+    act(() => result.current.plan("unkey"));
+    // Main dropped the old plan for this ask: its button must not come back while this one is got ready.
+    expect(result.current.preview).toBeNull();
+    expect(result.current.planning).toBe(true);
+  });
+
   it("stops getting a plan ready when Go live plans afresh over it", async () => {
     const { result } = renderHook(() => useRental());
     await act(async () => {});

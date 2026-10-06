@@ -241,6 +241,7 @@ export function useRental(): RentalSetup & {
     plan: (kind) => {
       if (busy) return;
       const n = nextPlan();
+      setPreview(null);
       setRun(IDLE_RUN);
       const asked = bridge()?.planRental({ kind, target });
       if (!asked) return;
