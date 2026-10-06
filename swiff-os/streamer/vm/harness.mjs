@@ -273,6 +273,9 @@ async function watching(browser, page) {
       () => false,
     );
   record("renter gets the friend's request over the stream", asked);
+  // The renter's click on the picture took the pointer; a person lets it go with
+  // Escape, which the browser keeps for itself, before they can click anything else.
+  await page.evaluate(() => document.exitPointerLock());
   await asks.getByRole("button", { name: "Let them watch" }).click();
 
   const watched = friend.getByTestId("watch-video");
