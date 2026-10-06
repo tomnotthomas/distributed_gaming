@@ -100,6 +100,7 @@ export type MarketingFiles = ReturnType<typeof marketingFiles>;
 export async function pageRoutes(dir: string): Promise<Map<string, string>> {
   const routes = new Map<string, string>();
   const hidden = new Set(["assets", "emails", "content", ...INVITE_TYPES]);
+  /** Add the routes of every page folder under `rel`, skipping the folders served some other way. */
   async function walk(rel: string): Promise<void> {
     for (const entry of await readdir(join(dir, rel), { withFileTypes: true })) {
       const child = rel ? `${rel}/${entry.name}` : entry.name;
@@ -149,6 +150,7 @@ export function crewInvites(
   };
 }
 
+/** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** `html` with the inner HTML of every element marked data-t="`key`" replaced by `inner`. */
@@ -269,6 +271,7 @@ export function createMarketing({
   invites = knownInvites,
   isShareCode,
 }: MarketingOptions) {
+  /** Answer 200 with `body` as `type` (by extension), and no body to a HEAD. */
   function send(
     res: ServerResponse,
     req: IncomingMessage,

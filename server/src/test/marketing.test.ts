@@ -338,6 +338,7 @@ describe("marketing site", () => {
   });
 
   it("lets one client send only a few sign-ups at a time, and not take the others' turn", async () => {
+    /** Sign `email` up from `localAddress`, a client of its own. */
     const send = (email: string, localAddress = "127.0.0.1") =>
       ask(origin, "/api/signups", {
         method: "POST",
@@ -351,6 +352,7 @@ describe("marketing site", () => {
   });
 
   it("knows a client by the address that connected, or by what a trusted proxy appended last", () => {
+    /** A request from `remoteAddress` carrying `forwarded` as its X-Forwarded-For. */
     const req = (forwarded: string | undefined, remoteAddress = "10.0.0.1") =>
       ({
         headers: forwarded === undefined ? {} : { "x-forwarded-for": forwarded },
@@ -622,6 +624,7 @@ describe("MARKETING_PAGES on the real server", () => {
   const HOST = `lanterel.localhost:${PORT}`;
   let server: ChildProcess | null = null;
 
+  /** Start the real server with `env` and wait until it answers. */
   async function start(env: Record<string, string>) {
     // The port is free again only once the last server has exited.
     await stop();
@@ -647,6 +650,7 @@ describe("MARKETING_PAGES on the real server", () => {
     throw new Error("server did not answer /api/ping within 60s");
   }
 
+  /** Stop the server started last, and wait until it has exited. */
   async function stop() {
     if (server && server.exitCode === null && server.signalCode === null) {
       const exited = new Promise((resolve) => server!.once("exit", resolve));

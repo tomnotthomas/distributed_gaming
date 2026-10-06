@@ -47,6 +47,7 @@ const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
 const SKIPPED = new Set(["_redirects", "README.md"]);
 
+/** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The set's text with its brand and origin turned into tokens. Lower-case names stay: they are URLs. */
@@ -111,6 +112,7 @@ export function faqJsonLd(html, lang) {
   return html.replace(block[1], () => data.replace(/</g, "\\u003c"));
 }
 
+/** Every file under `dir`, depth first, leaving out macOS metadata (._ files and .DS_Store). */
 function* files(dir) {
   for (const entry of readdirSync(dir)) {
     if (entry.startsWith("._") || entry === ".DS_Store") continue;
@@ -147,9 +149,29 @@ function importSet(source, target, name, site) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
   }
-  rmSync(target, { recursive: true, force: true });
-  renameSync(staging, target);
+  promote(staging, target);
   return count;
+}
+
+/**
+ * Put the built set at `staging` in place of `target`. The old `target` is
+ * moved aside (`<target>.previous`) rather than deleted until the new one is
+ * in, and moved back if that fails, so `target` is never left missing.
+ * `rename` is renameSync, or a stand-in for a test.
+ */
+export function promote(staging, target, rename = renameSync) {
+  const previous = `${target}.previous`;
+  rmSync(previous, { recursive: true, force: true });
+  const had = existsSync(target);
+  if (had) rename(target, previous);
+  try {
+    rename(staging, target);
+  } catch (error) {
+    if (had) rename(previous, target);
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  rmSync(previous, { recursive: true, force: true });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
