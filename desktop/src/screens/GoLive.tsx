@@ -203,8 +203,20 @@ export function GoLive(props: ScreenProps) {
           ) : null}
           {failed ? (
             <div className="acts">
-              <Pill icon="refresh" onClick={actions.retryRental}>
-                {failed.label === "Ask again" ? "Ask again" : "Try again"}
+              {/* The failure's own next step, as on the rental screen. */}
+              <Pill
+                icon={failed.action === "send" ? "arrow" : "refresh"}
+                onClick={() => {
+                  if (failed.action === "send") return actions.reportRental();
+                  if (failed.action === "restart") return actions.restartRental();
+                  if (failed.action === "check") {
+                    actions.closeRentalPreview();
+                    return actions.checkRental();
+                  }
+                  actions.retryRental();
+                }}
+              >
+                {failed.label}
               </Pill>
             </div>
           ) : null}

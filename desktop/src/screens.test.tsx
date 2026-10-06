@@ -12,7 +12,14 @@ import {
   type Step,
 } from "./model";
 import { HOLD_MS } from "./ui/hold";
-import { installPlan, keyRemovalPlan, rentalOf, uninstallPlan, type RentalRead } from "../rental.cjs";
+import {
+  installPlan,
+  keyRemovalPlan,
+  rentalOf,
+  switchPlan,
+  uninstallPlan,
+  type RentalRead,
+} from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 
 /** Sharing this Windows desktop: off, as in every build hosts download, unless a test turns it on. */
@@ -1131,6 +1138,26 @@ describe("rental mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove rental mode" }));
     expect(host.actions.previewRental).toHaveBeenCalledWith("uninstall");
     expect(document.querySelectorAll(".psub .done")).toHaveLength(3);
+  });
+
+  it("leads a Go live that stopped to the failure's own next step", () => {
+    const failedAt = (step: string, error: string) =>
+      rental({
+        read: installed(),
+        preview: switchPlan("once"),
+        run: { ...IDLE_RUN, status: "failed", failed: { step, error }, endedAt: evening(21, 4) },
+      });
+    let acts = renderReal("live", off, failedAt("restart", "Windows did not start the restart."));
+    expect(h1()).toHaveTextContent("The PC didn't restart");
+    fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+    expect(acts.restartRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
+    cleanup();
+
+    acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
+    fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
+    expect(acts.reportRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
   });
 
   it("offers to continue an install that stopped part way, and to undo it", () => {
