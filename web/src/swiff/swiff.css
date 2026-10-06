@@ -819,23 +819,6 @@ body:has(> #root > .sw) {
   color: var(--ink-2);
 }
 
-/* the key art as a band at the top of the page, fading into the paper under the copy */
-.share-hero > .backdrop {
-  bottom: auto;
-  height: min(64vw, 480px);
-}
-.hero-scrim {
-  position: absolute;
-  inset: 0 0 auto;
-  height: min(64vw, 480px);
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    rgb(232 233 232 / 0.6) 0%,
-    rgb(232 233 232 / 0.84) 46%,
-    var(--paper) 94%
-  );
-}
 .hero-kicker {
   display: flex;
   align-items: center;
