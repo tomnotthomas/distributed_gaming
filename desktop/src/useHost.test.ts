@@ -557,6 +557,33 @@ describe("useHost", () => {
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
     });
 
+    it("lets nothing still under way for the last PC touch the new one's reads", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      let last: (ok: boolean) => void = () => {};
+      answers.push((land) => (last = land), "fail");
+      const { result } = await ready();
+      expect(reports().at(-1)!.path).toBe("/api/machines/gaming-pc-1/availability");
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      expect(result.current.view.crew).toBeNull();
+      last(true);
+      await settle();
+      expect(result.current.view.crew).toBeNull();
+      const sent = reports().length;
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS)));
+      await settle();
+      expect(reports()).toHaveLength(sent + 1);
+      expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
+      expect(result.current.view.crew).toEqual(crewOf(true));
+    });
+
     it("forgets the last PC's crew when the connection changes, and reads the new one again", async () => {
       const { result } = await ready();
       expect(result.current.view.crew).toEqual(crewOf(true));

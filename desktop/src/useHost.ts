@@ -34,6 +34,13 @@ const INPUT_POLL_MS = 2_000;
 /** Input this recent means someone is at the PC; none for this long means they left. */
 const AT_PC_S = 5;
 const AWAY_S = 60;
+/**
+ * One rental machine's asks of who may play: how many were made, the last
+ * answer the platform confirmed and which ask it answered, the owner's choices
+ * on their way, and the retry of a first read that failed.
+ */
+type CrewAsks = { n: number; confirmed: Crew | null; at: number; sets: number; retry?: number };
+const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, sets: 0 });
 /** A first read of who may play that failed is tried again this much later, once. */
 export const CREW_RETRY_MS = 10_000;
 
@@ -327,48 +334,46 @@ export function useHost(): Host {
       : null;
   const rentalCrew = useRef(rentalMachine);
   rentalCrew.current = rentalMachine;
-  // Only the answer to the latest ask counts; a choice that did not save goes
-  // back to what the platform last confirmed.
-  const crewAsks = useRef(0);
-  const crewConfirmed = useRef<{ crew: Crew | null; at: number }>({ crew: null, at: 0 });
-  const crewSets = useRef(0);
-  const crewRetry = useRef<number | undefined>(undefined);
+  // Each rental machine has its own asks: anything still under way for the one
+  // before does nothing. Only the answer to the latest ask counts; a choice that
+  // did not save goes back to what the platform last confirmed.
+  const crewAsks = useRef<CrewAsks>(noCrewAsks());
   const askCrew = async (only?: boolean): Promise<boolean> => {
-    if (!rentalCrew.current) return false;
-    const n = ++crewAsks.current;
-    if (only !== undefined) crewSets.current++;
-    const read = await offOffer(rentalCrew.current, only).finally(() => {
-      if (only !== undefined) crewSets.current--;
-    });
-    if (read) window.clearTimeout(crewRetry.current);
-    if (read && n > crewConfirmed.current.at) crewConfirmed.current = { crew: read, at: n };
-    if (n !== crewAsks.current) return true;
+    const machine = rentalCrew.current;
+    if (!machine) return false;
+    const asks = crewAsks.current;
+    const n = ++asks.n;
+    if (only !== undefined) asks.sets++;
+    const read = await offOffer(machine, only);
+    if (asks !== crewAsks.current) return true;
+    if (only !== undefined) asks.sets--;
+    if (read) window.clearTimeout(asks.retry);
+    if (read && n > asks.at) Object.assign(asks, { confirmed: read, at: n });
+    if (n !== asks.n) return true;
     if (read) {
       setCrew(read);
       setCrewNote(null);
     } else if (only !== undefined) {
-      setCrew(crewConfirmed.current.crew);
+      setCrew(asks.confirmed);
       setCrewNote("Couldn't save who can play. Try again.");
     }
     return read !== null;
   };
   /** A read of who may play, never once the platform has said or while the owner's choice is on its way. */
   const readCrew = () => {
-    if (!crewConfirmed.current.crew && !crewSets.current) void askCrew();
+    if (!crewAsks.current.confirmed && !crewAsks.current.sets) void askCrew();
   };
   useEffect(() => {
-    crewConfirmed.current = { crew: null, at: crewAsks.current };
+    const asks = crewAsks.current;
     setCrew(null);
     setCrewNote(null);
-    let current = true;
     void askCrew().then((ok) => {
-      if (!ok && current && rentalCrew.current)
-        crewRetry.current = window.setTimeout(readCrew, CREW_RETRY_MS);
+      if (!ok && asks === crewAsks.current && rentalCrew.current)
+        asks.retry = window.setTimeout(readCrew, CREW_RETRY_MS);
     });
     return () => {
-      current = false;
-      crewAsks.current++;
-      window.clearTimeout(crewRetry.current);
+      window.clearTimeout(asks.retry);
+      crewAsks.current = noCrewAsks();
     };
   }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey]);
   return {
