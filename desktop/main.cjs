@@ -29,7 +29,7 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
-const { BITLOCKER_PANEL, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
+const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const { expectOf, removalOf, removalStep, removalStore } = require("./rental-removal.cjs");
 const {
@@ -193,8 +193,15 @@ let restartReady = false;
 /** The PC's last read: which drives BitLocker protects, for the recovery key's gate. */
 let lastRead = null;
 
-/** Whether the owner still has to save a BitLocker recovery key before a boot change (recovery-key.cjs). */
-const recoveryNow = (read) => recoveryOf(recoveries().read(), bitlockerDrives(read));
+/**
+ * Whether the owner still has to save a BitLocker recovery key before a boot change (recovery-key.cjs),
+ * from this read: a drive it saw without BitLocker loses its confirmation first, so protecting it again
+ * asks again.
+ */
+function recoveryNow(read) {
+  recoveries().forget(drivesOff(read));
+  return recoveryOf(recoveries().read(), bitlockerDrives(read));
+}
 
 ipcMain.handle("rental:read", async (event) => {
   if (!fromApp(event)) return null;
@@ -262,14 +269,19 @@ ipcMain.handle("rental:run", async (event) => {
   if (!fromApp(event) || !rentalPlan || rentalRun) return null;
   const plan = rentalPlan;
   const expect = rentalExpect;
-  // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved.
-  if (BOOT_CHANGES.has(plan.kind) && !recoveryNow(lastRead ?? (await readRental())).saved)
-    return {
-      status: "failed",
-      done: [],
-      failed: { step: "recovery", op: "recovery", error: "Save your BitLocker recovery key first." },
-      results: [],
-    };
+  // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved: read the
+  // PC now, since BitLocker may have been turned on since the screen's read, and refuse when it cannot be read.
+  if (BOOT_CHANGES.has(plan.kind)) {
+    const now = await readRental();
+    if (now) lastRead = now;
+    if (!now || !recoveryNow(now).saved)
+      return {
+        status: "failed",
+        done: [],
+        failed: { step: "recovery", op: "recovery", error: "Save your BitLocker recovery key first." },
+        results: [],
+      };
+  }
   rentalRun = {};
   restartReady = false;
   const tell = (e) => {

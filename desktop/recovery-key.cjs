@@ -34,6 +34,18 @@ function recoveryOf(saved, drives) {
   return { drives: [...drives], saved: missing.length === 0, at: saved?.at ?? null };
 }
 
+/**
+ * The drives a read saw without BitLocker, of those a boot change asks about
+ * (C: and the games drive): a confirmation for them no longer stands, so the
+ * owner is asked again should BitLocker protect them later, with a new key.
+ * A drive whose state was not read keeps its confirmation.
+ */
+function drivesOff(rental) {
+  if (!rental) return [];
+  const letters = [...new Set(["C", ...(rental.games ? [rental.games.letter] : [])])];
+  return letters.filter((l) => rental.facts.volumes.find((v) => v.letter === l)?.bitlocker === "off");
+}
+
 /** The confirmation's file in `dir` (the app's user data). Never a key: only which drives, and when. */
 function recoveryStore(dir, files = fs) {
   const file = path.join(dir, "bitlocker-recovery.json");
@@ -52,6 +64,14 @@ function recoveryStore(dir, files = fs) {
       files.mkdirSync(dir, { recursive: true });
       files.writeFileSync(file, `${JSON.stringify({ at, drives: all })}\n`);
     },
+    /** Drop the confirmation of each of `drives` (drivesOff): BitLocker no longer protects them. */
+    forget(drives) {
+      const saved = this.read();
+      if (!saved || !drives.some((l) => saved.drives.includes(l))) return;
+      const left = saved.drives.filter((l) => !drives.includes(l));
+      if (!left.length) files.rmSync(file, { force: true });
+      else files.writeFileSync(file, `${JSON.stringify({ at: saved.at, drives: left })}\n`);
+    },
   };
 }
 
@@ -63,4 +83,4 @@ function recoveryStore(dir, files = fs) {
  */
 const BITLOCKER_PANEL = { file: "control.exe", args: ["/name", "Microsoft.BitLockerDriveEncryption"] };
 
-module.exports = { ACCOUNT_URL, BITLOCKER_PANEL, savedOf, recoveryOf, recoveryStore };
+module.exports = { ACCOUNT_URL, BITLOCKER_PANEL, savedOf, recoveryOf, recoveryStore, drivesOff };

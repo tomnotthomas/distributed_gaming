@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
-import { recoveryOf, recoveryStore } from "../recovery-key.cjs";
+import { drivesOff, recoveryOf, recoveryStore } from "../recovery-key.cjs";
 import { keyOf, keyStep, keyStore } from "../rental-key.cjs";
 import { checksOf, expectOf, removalOf, removalStep, removalStore } from "../rental-removal.cjs";
 import {
@@ -1588,6 +1588,28 @@ describe("the BitLocker recovery key", () => {
     expect(bitlockerDrives(pc(on(["D"]), [{ letter: "C", games: 4 }]))).toEqual([]);
     expect(bitlockerDrives(pc(on([])))).toEqual([]);
     expect(bitlockerDrives(null)).toEqual([]);
+  });
+
+  it("asks again for a drive seen without BitLocker, should BitLocker protect it later", () => {
+    const { files, disk } = memoryFiles();
+    const store = recoveryStore("/data", files);
+    store.saved(["C", "D"], 1000);
+    // A read sees D: (the games drive) without BitLocker: its confirmation goes, C:'s stays.
+    const offD = pc(on(["C"]), [{ letter: "D", games: 4 }]);
+    expect(drivesOff(offD)).toEqual(["D"]);
+    store.forget(drivesOff(offD));
+    expect(store.read()).toEqual({ at: 1000, drives: ["C"] });
+    // BitLocker on D: again, with a new key: the owner is asked again.
+    expect(
+      recoveryOf(store.read(), bitlockerDrives(pc(on(["C", "D"]), [{ letter: "D", games: 4 }]))).saved,
+    ).toBe(false);
+    // A drive whose state was not read keeps its confirmation; with none left, nothing is kept.
+    const unread = pc((raw) => ({ ...raw, volumes: raw.volumes.map((v) => ({ ...v, bitlocker: null })) }));
+    expect(drivesOff(unread)).toEqual([]);
+    store.forget(drivesOff(pc(on([]))));
+    expect(store.read()).toBeNull();
+    expect(disk.size).toBe(0);
+    expect(drivesOff(null)).toEqual([]);
   });
 
   it("keeps the owner's word that they saved it, for which drives and when, and never a key", () => {

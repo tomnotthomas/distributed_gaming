@@ -13,4 +13,10 @@ export function recoveryOf(saved: SavedRecovery | null, drives: string[]): Recov
 export function recoveryStore(
   dir: string,
   files?: typeof import("node:fs"),
-): { read(): SavedRecovery | null; saved(drives: string[], at: number): void };
+): {
+  read(): SavedRecovery | null;
+  saved(drives: string[], at: number): void;
+  forget(drives: string[]): void;
+};
+/** C: and the games drive where the read saw BitLocker off: their confirmations no longer stand. */
+export function drivesOff(rental: import("./rental.cjs").RentalRead | null): string[];
