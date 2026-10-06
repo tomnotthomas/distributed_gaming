@@ -549,13 +549,10 @@ export const CREW_COPY = {
 
 export type CopyKey = keyof (typeof CREW_COPY)["en"];
 
-/**
- * The web app's one language. Every other screen is English only, so the crew
- * screens speak English too, whatever the browser is set to: a German card on
- * an English wall would mix two languages on one screen. The German words wait
- * here for the whole app to have German.
- */
-export const APP_LANG: Lang = "en";
+/** German for a browser set to German, English for everyone else. */
+export function langOf(languages: readonly string[] = navigator.languages ?? [navigator.language]): Lang {
+  return languages.some((l) => /^de\b/i.test(l)) ? "de" : "en";
+}
 
 /** The words for `lang`, with each `{slot}` filled from `fill`. */
 export function crewText(lang: Lang) {
