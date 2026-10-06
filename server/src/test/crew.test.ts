@@ -588,7 +588,7 @@ describe("crew API", () => {
   /** One JSON call, as `steamId` signed in when given one, with the machine key when `key` is set. */
   async function call(method: string, path: string, steamId?: string, body?: unknown, key = false) {
     const headers: Record<string, string> = {};
-    if (steamId) headers.cookie = `${SESSION_COOKIE}=${mintRenterSession(SESSION, steamId, 3600, now)}`;
+    if (steamId) headers.cookie = `${SESSION_COOKIE}=${mintRenterSession(SESSION, steamId, 3600)}`;
     if (key) headers.authorization = `Bearer ${MACHINE_KEY}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await fetch(`${origin}${path}`, {
