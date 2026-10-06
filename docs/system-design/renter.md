@@ -708,7 +708,9 @@ and the page ends it there as End does, counted as `session_ended`. This holds b
 Ignition too once the session has started, after the PC left mid-session. A ticket
 refused before the session started, or a session start the server refuses then (the
 session is already over, or the ticket is not its own), is a failed launch instead: the booking is ended and
-the page says the launch did not go through.
+the page says the launch did not go through. The exception is a rental-mode claim refused
+once its sign-in time has run out before the renter approved: the page shows that the
+sign-in time ran out, as above.
 
 ### Coming back
 
