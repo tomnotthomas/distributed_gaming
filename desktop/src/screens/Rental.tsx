@@ -1066,7 +1066,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
   // and the screen says so, rather than look as if the press did nothing.
   if (setup.planning && !setup.preview)
     action = (
-      <p className="mstatus mlive">
+      <p className="mstatus mlive" role="status">
         <i className="mpulse" aria-hidden="true" />
         Getting it ready. This can take up to a minute.
       </p>

@@ -1071,7 +1071,8 @@ describe("rental mode", () => {
   it("says a plan is being got ready, instead of a button that seems to do nothing", () => {
     renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }), planning: true }));
     expect(h1()).toHaveTextContent("Confirm Swiff's key");
-    expect(screen.getByText(/Getting it ready\. This can take up to a minute\./)).toBeInTheDocument();
+    // Announced to screen readers too: it replaces the button they were on.
+    expect(screen.getByRole("status")).toHaveTextContent("Getting it ready. This can take up to a minute.");
     expect(pills()).toHaveLength(0);
   });
 
