@@ -460,6 +460,10 @@ describe("going live", () => {
 });
 
 describe("this PC's screens", () => {
+  afterEach(() => {
+    share.on = false;
+  });
+
   it("reads the PC's parts, with no rate the platform does not set", () => {
     renderReal("pc", off);
     expect(within(screen.getByRole("main")).getByText("RTX 4080")).toBeInTheDocument();
@@ -580,6 +584,8 @@ describe("this PC's screens", () => {
     expect(screen.getByText(/send your link from Ask your PC friend on your profile/)).toBeInTheDocument();
     cleanup();
 
+    // Go live offers sharing this Windows desktop only in development builds.
+    share.on = true;
     renderReal("live", off, { now: evening(21), crew: { only: true, crews: [] } });
     expect(screen.getByRole("radiogroup", { name: "Who can play" })).toBeInTheDocument();
     expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
@@ -590,6 +596,7 @@ describe("this PC's screens", () => {
   });
 
   it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
+    share.on = true;
     renderReal("live", off, {
       now: evening(21),
       crew: { only: false, crews: [{ name: null, own: false, size: 2 }] },
