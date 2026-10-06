@@ -411,6 +411,24 @@ describe("useRental", () => {
     expect(host.runRental).toHaveBeenCalledTimes(2);
   });
 
+  it("waits with Remove Swiff OS's disk part until the BitLocker recovery key is saved, then goes on once", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    let saved = false;
+    host.readRental = vi.fn(
+      async () => ({ removal: { state: "finish" }, recovery: { drives: ["C", "D"], saved } }) as never,
+    );
+    host.saveRecoveryKey = vi.fn(async () => (saved = true));
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({ status: "done", done: ["partitions"], results: [] }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    expect(pending).toHaveLength(0);
+    expect(result.current.removalTried).toBe(false);
+    await act(async () => result.current.saveRecovery());
+    expect(pending.map((p) => p.ask)).toEqual([{ kind: "remove", target: null, key: false }]);
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    expect(host.runRental).toHaveBeenCalledOnce();
+  });
+
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({

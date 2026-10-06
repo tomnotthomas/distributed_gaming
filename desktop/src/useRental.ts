@@ -4,7 +4,7 @@ import type { RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
 import { IDLE_RUN, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
-import { endsInRestart, fileName, firmwareChecks, pcChecks, writesOf } from "./rental";
+import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
 
 const LIVE_SEEN = "swiff.rental.liveSeen";
 
@@ -230,7 +230,14 @@ export function useRental(): RentalSetup & {
   // the owner asked once. After that, only the owner's own Try again or the key's removal again.
   const [removalTried, setRemovalTried] = useState(false);
   useEffect(() => {
-    if (read?.removal?.state !== "finish" || preview || planning || run.status !== "idle" || removalTried)
+    if (
+      read?.removal?.state !== "finish" ||
+      recoveryDue(read) ||
+      preview ||
+      planning ||
+      run.status !== "idle" ||
+      removalTried
+    )
       return;
     setRemovalTried(true);
     again("remove", false);
