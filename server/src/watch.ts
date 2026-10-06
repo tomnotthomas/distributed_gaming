@@ -159,7 +159,7 @@ export class Watches {
     return this.#sessions.get(sessionId)?.sharing ?? false;
   }
 
-  /** The crew the player of `sessionId` picked to ask or watch; null while they picked none. */
+  /** The crew the player of `sessionId` picked, or the one fixed when they shared, to ask or watch; null while neither. */
   crew(sessionId: string): string | null {
     return this.#sessions.get(sessionId)?.crew ?? null;
   }
