@@ -499,6 +499,31 @@ describe("useHost", () => {
       expect(result.current.view.crewNote).toBeNull();
     });
 
+    it("sends no read once Check again got the answer, so none can overtake the owner's choice", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      answers.push("fail");
+      const { result } = await ready();
+      expect(result.current.view.crew).toBeNull();
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(result.current.view.crew).toEqual(crewOf(true));
+
+      let set: (ok: boolean) => void = () => {};
+      answers.push((land) => (set = land));
+      act(() => result.current.actions.setCrewOnly(false));
+      await settle();
+      const sent = reports().length;
+      await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS * 2)));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(reports()).toHaveLength(sent);
+      set(true);
+      await settle();
+      expect(only).toBe(false);
+      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crewNote).toBeNull();
+    });
+
     it("shows the answer to the owner's latest choice, whatever order the answers land in", async () => {
       const { result } = await ready();
       let first: (ok: boolean) => void = () => {};

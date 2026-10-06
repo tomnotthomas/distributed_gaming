@@ -331,10 +331,16 @@ export function useHost(): Host {
   // back to what the platform last confirmed.
   const crewAsks = useRef(0);
   const crewConfirmed = useRef<{ crew: Crew | null; at: number }>({ crew: null, at: 0 });
+  const crewSets = useRef(0);
+  const crewRetry = useRef<number | undefined>(undefined);
   const askCrew = async (only?: boolean): Promise<boolean> => {
     if (!rentalCrew.current) return false;
     const n = ++crewAsks.current;
-    const read = await offOffer(rentalCrew.current, only);
+    if (only !== undefined) crewSets.current++;
+    const read = await offOffer(rentalCrew.current, only).finally(() => {
+      if (only !== undefined) crewSets.current--;
+    });
+    if (read) window.clearTimeout(crewRetry.current);
     if (read && n > crewConfirmed.current.at) crewConfirmed.current = { crew: read, at: n };
     if (n !== crewAsks.current) return true;
     if (read) {
@@ -346,17 +352,23 @@ export function useHost(): Host {
     }
     return read !== null;
   };
+  /** A read of who may play, never once the platform has said or while the owner's choice is on its way. */
+  const readCrew = () => {
+    if (!crewConfirmed.current.crew && !crewSets.current) void askCrew();
+  };
   useEffect(() => {
     crewConfirmed.current = { crew: null, at: crewAsks.current };
     setCrew(null);
     setCrewNote(null);
-    let retry: number | undefined;
+    let current = true;
     void askCrew().then((ok) => {
-      if (!ok && rentalCrew.current) retry = window.setTimeout(() => void askCrew(), CREW_RETRY_MS);
+      if (!ok && current && rentalCrew.current)
+        crewRetry.current = window.setTimeout(readCrew, CREW_RETRY_MS);
     });
     return () => {
+      current = false;
       crewAsks.current++;
-      window.clearTimeout(retry);
+      window.clearTimeout(crewRetry.current);
     };
   }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey]);
   return {
@@ -416,7 +428,7 @@ export function useHost(): Host {
       askInstall: steam.askInstall,
       checkRental: () => {
         rental.check();
-        if (!crewConfirmed.current.crew) void askCrew();
+        readCrew();
       },
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
