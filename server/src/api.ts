@@ -12,6 +12,7 @@
 //   POST /api/me/invite/renew
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
+//   POST /api/crew-members/:id/remove
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -70,6 +71,8 @@
 // the database holds opens nothing. Anyone may read whose crew a link is to,
 // so the friend who opens it sees who asked; joining takes signing in. The
 // link is never logged, and a forged one is refused before the database is.
+// A membership is named by its own id, never a Steam id: its member removes it
+// to leave, and the crew's owner to remove them.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Control, PicturePref } from "@swiff/rank";
@@ -624,7 +627,12 @@ export function createApi({
       // The crew is named after its owner's Steam persona: kept from this read, when Steam answers.
       const read = await profile(steamId).catch(() => null);
       const invite = await platform.crewInvite(steamId, read?.persona || null, { renew: action === "renew" });
-      reply(res, 200, { token: inviteToken(sessionSecret!, invite.inviteId), crew: invite.crew });
+      reply(res, 200, {
+        token: inviteToken(sessionSecret!, invite.inviteId),
+        crew: invite.crew,
+        members: invite.members,
+        joined: invite.joined,
+      });
       return true;
     }
 
@@ -641,7 +649,9 @@ export function createApi({
     if (resource === "invites" && id && action === "join" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const inviteId = verifyInviteToken(sessionSecret!, id);
-      const joined = inviteId ? await platform.joinCrew(inviteId, steamId) : null;
+      // The crew's owner sees them by their Steam persona, kept from this read, when Steam answers.
+      const read = inviteId ? await profile(steamId).catch(() => null) : null;
+      const joined = inviteId ? await platform.joinCrew(inviteId, steamId, read?.persona || null) : null;
       if (!joined || (!joined.ok && joined.reason === "not-found")) {
         throw new HttpError(404, "this invite link is not valid any more");
       }
@@ -650,6 +660,13 @@ export function createApi({
         return true;
       }
       reply(res, 200, { crew: joined.crew, joined: joined.joined });
+      return true;
+    }
+
+    if (resource === "crew-members" && id && action === "remove" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      if (!(await platform.leaveCrew(id, steamId))) throw new HttpError(404, "no such crew member");
+      reply(res, 200, { removed: true });
       return true;
     }
 

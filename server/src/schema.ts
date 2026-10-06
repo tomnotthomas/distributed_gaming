@@ -229,11 +229,15 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       owner_name TEXT,
       created_at BIGINT NOT NULL
     )`,
-    // Who is in each crew, its owner included. invite_id is the invite they
-    // joined by, which names who invited them; null for the owner.
+    // Who is in each crew, its owner included. id is the membership's own
+    // random id, what leaving or removing names instead of a Steam id; name is
+    // their Steam persona as read when they joined. invite_id is the invite
+    // they joined by, which names who invited them; null for the owner.
     `CREATE TABLE crew_members (
+      id        TEXT NOT NULL UNIQUE,
       crew_id   TEXT NOT NULL REFERENCES crews (id),
       user_id   TEXT NOT NULL,
+      name      TEXT,
       invite_id TEXT,
       joined_at BIGINT NOT NULL,
       PRIMARY KEY (crew_id, user_id)

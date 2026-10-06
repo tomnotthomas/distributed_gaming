@@ -322,6 +322,43 @@ describe("useHost", () => {
     expect(calls).toHaveLength(sent);
   });
 
+  it("keeps a Who can play choice made off offer, shows it at once, and offers with it on going live", async () => {
+    // The platform answers each offer and beat with who may play, as it holds it.
+    let only = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+        if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+        const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+        calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
+        if (typeof body?.crewOnly === "boolean") only = body.crewOnly;
+        return Response.json({ crew: { only, crews: [{ name: "Alex", own: false, size: 2 }] } });
+      }),
+    );
+    const { result, rerender } = await host();
+    await act(async () => result.current.actions.goLive());
+    rerender();
+    await settle();
+    expect(result.current.view.crew?.only).toBe(true);
+
+    act(() => result.current.actions.pause());
+    rerender();
+    await settle();
+    act(() => result.current.actions.setCrewOnly(false));
+    expect(result.current.view.crew?.only).toBe(false);
+
+    await act(async () => result.current.actions.resume());
+    rerender();
+    await settle();
+    const offers = reports().filter((c) => c.method === "PUT" && c.body?.available === true);
+    expect(offers).toHaveLength(2);
+    expect(offers[0]!.body).not.toHaveProperty("crewOnly");
+    expect(offers[1]!.body).toMatchObject({ crewOnly: false });
+    expect(result.current.view.crew?.only).toBe(false);
+  });
+
   it("turns down a claim for a game the owner does not offer", async () => {
     const { result } = await host();
     const claim = { sessionId: "s1", appid: 730, minutes: 45 };

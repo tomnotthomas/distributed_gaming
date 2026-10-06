@@ -174,8 +174,10 @@ export function useHost(): Host {
     [name, machineId, pc, offered],
   );
   const [upMbps, setUpMbps] = useState<number | null>(null);
-  // Who may play on this PC, as the platform says with every answer.
+  // Who may play on this PC, as the platform says with every answer, and the
+  // owner's choice made while it was off offer, which the next offer carries.
   const [crew, setCrew] = useState<Crew | null>(null);
+  const crewChoice = useRef<boolean | null>(null);
   const latest = useRef({ report, until, claimed: false });
   latest.current = { report, until, claimed: Boolean(claimId) };
 
@@ -189,6 +191,8 @@ export function useHost(): Host {
       onCrew: setCrew,
       after: withdrawn.current,
     });
+    if (crewChoice.current !== null) mine.setCrewOnly(crewChoice.current);
+    crewChoice.current = null;
     mine.offer(latest.current.until);
     reporter.current = mine;
     return () => {
@@ -354,10 +358,11 @@ export function useHost(): Host {
       chooseRentalTarget: rental.choose,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
-      // The platform holds the choice; the screen shows it at once, and the next answer confirms it.
+      // The platform holds the choice, sent now or with the next offer; the screen
+      // shows it at once, and the next answer confirms it.
       setCrewOnly: (on) => {
-        if (!reporter.current) return;
-        reporter.current.setCrewOnly(on);
+        if (reporter.current) reporter.current.setCrewOnly(on);
+        else crewChoice.current = on;
         setCrew((was) => (was ? { ...was, only: on } : was));
       },
     },

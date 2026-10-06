@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import posthog from "posthog-js";
+import { withoutInviteTokens } from "./swiff/invite";
 
 const projectToken = import.meta.env.VITE_POSTHOG_KEY;
 const apiHost = import.meta.env.VITE_POSTHOG_HOST;
@@ -28,6 +29,8 @@ if (!projectToken) {
       capture_console_errors: false,
     },
     defaults: "2026-05-30",
+    // An invite link is the whole credential for joining a crew: no event carries one.
+    before_send: withoutInviteTokens,
   });
 }
 

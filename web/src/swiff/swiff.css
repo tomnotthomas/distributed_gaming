@@ -1781,6 +1781,36 @@ button.band-tab:hover {
 .ask-hint {
   font-size: 12px;
 }
+/* who is in the crew, and the crews the player joined: a name and its one action per row */
+.ask-crew {
+  display: grid;
+  gap: 4px;
+}
+.ask-crew h3 {
+  margin: 0;
+  color: var(--ink-3);
+}
+.ask-members {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ask-members li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.ask-members .share-link {
+  font-size: 13px;
+}
+.ask-members .share-link:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
 /* while the link loads: the field's shape, still */
 .ask-skeleton {
   height: 92px;

@@ -1,7 +1,8 @@
 // The browser half of crews (server/src/platform.ts): the signed-in player's
 // personal invite link, and the invite a friend opens from it. The link is the
-// whole credential for joining, so it is never sent to analytics or the
-// console, and is kept out of the Steam sign-in round trip: the invite page
+// whole credential for joining, so it is never sent to analytics (every event
+// passes withoutInviteTokens first) or the console, and is kept out of the
+// Steam sign-in round trip: the invite page
 // remembers it in this tab while the friend signs in, and comes back to
 // /invite without it.
 
@@ -10,8 +11,14 @@ import { STEAM_LOGIN_URL } from "./steam";
 /** A crew as the server shows it: whose (their Steam persona, when known), and how many are in it. */
 export type Crew = { name: string | null; own: boolean; size: number };
 
-/** The signed-in player's link: its token, and their crew. */
-export type MyInvite = { token: string; crew: Crew };
+/** Someone in the player's own crew, by their Steam persona when known; `id` names the membership, never them. */
+export type CrewMember = { id: string; name: string | null };
+
+/** A crew the player joined, with `id` their membership in it. */
+export type JoinedCrew = Crew & { id: string };
+
+/** The signed-in player's link: its token, their crew and who is in it, and the crews they joined. */
+export type MyInvite = { token: string; crew: Crew; members: CrewMember[]; joined: JoinedCrew[] };
 
 /** An invite as the friend opening it sees it: the crew, and whether they are in it already. */
 export type OpenedInvite = Crew & { member: boolean };
@@ -30,6 +37,22 @@ export const inviteLink = (token: string, origin: string = location.origin) =>
 export function inviteTokenAt(pathname: string): string | null {
   const match = /^\/invite(?:\/([\w-]+))?\/*$/.exec(pathname);
   return match ? (match[1] ?? "") : null;
+}
+
+/** An invite link's token in a URL, plain or encoded as a sign-in's return. */
+const TOKEN_IN_URL = /(\/|%2F)invite(?:\/|%2F)[\w-]+/gi;
+
+/**
+ * `value` with every invite link in it cut back to /invite, however deep: an
+ * analytics event's URLs, referrer, person properties and clicked links alike.
+ */
+export function withoutInviteTokens<T>(value: T): T {
+  if (typeof value === "string") return value.replace(TOKEN_IN_URL, "$1invite") as T;
+  if (Array.isArray(value)) return value.map(withoutInviteTokens) as T;
+  if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withoutInviteTokens(v)])) as T;
+  }
+  return value;
 }
 
 /** Remember the invite this tab is signing in for; false when storage is blocked. */
@@ -102,6 +125,15 @@ export async function joinInvite(
     return response.ok ? ((await response.json()) as { crew: Crew }) : null;
   } catch {
     return null;
+  }
+}
+
+/** End a crew membership as the signed-in player: leave a crew they joined, or remove someone from their own. */
+export async function removeCrewMember(id: string, get: typeof fetch = fetch): Promise<boolean> {
+  try {
+    return (await get(`/api/crew-members/${encodeURIComponent(id)}/remove`, { method: "POST" })).ok;
+  } catch {
+    return false;
   }
 }
 

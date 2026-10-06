@@ -83,7 +83,9 @@
 // whose owner is in someone's crew. A crew-only machine is offered and matched
 // only to its owner's crewmates, everyone in any crew they are in (gate E7);
 // its owner can open it to anyone with crewOnly on availability. A claim checks
-// again, so a machine made crew-only after it was matched goes back.
+// again, so a machine made crew-only after it was matched goes back. A member
+// may leave a crew, and its owner may remove anyone from it (leaveCrew); from
+// then on they match none of its crew-only PCs. A new link stops new joins only.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -186,8 +188,14 @@ export type MachineView = {
 /** A crew as its members see it: whose it is, by their Steam persona when known, and how many are in it. */
 export type CrewView = { name: string | null; own: boolean; size: number };
 
-/** A live invite link's invite, and the crew it joins. */
-export type CrewInvite = { inviteId: string; crew: CrewView };
+/** Someone in a player's own crew besides them, by their Steam persona when known; `id` names the membership, never them. */
+export type CrewMember = { id: string; name: string | null };
+
+/** A crew a player joined, with `id` their membership in it, which leaving names. */
+export type JoinedCrew = CrewView & { id: string };
+
+/** A live invite link's invite, the crew it joins and who is in it, and the crews its inviter joined. */
+export type CrewInvite = { inviteId: string; crew: CrewView; members: CrewMember[]; joined: JoinedCrew[] };
 
 /** What became of opening an invite to join: in the crew now, or why not. */
 export type JoinResult =
@@ -1033,7 +1041,9 @@ export class Platform {
         userId,
       ))!;
       await this.#run(
-        `INSERT INTO crew_members (crew_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        `INSERT INTO crew_members (id, crew_id, user_id, joined_at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING`,
+        newId(),
         crew.id,
         userId,
         now,
@@ -1059,9 +1069,23 @@ export class Platform {
           now,
         );
       }
+      const members = await this.#all<CrewMember>(
+        `SELECT id, name FROM crew_members WHERE crew_id = $1 AND user_id <> $2 ORDER BY joined_at, id`,
+        crew.id,
+        userId,
+      );
+      const joined = await this.#all<{ id: string; owner_id: string; owner_name: string | null; size: number }>(
+        `SELECT m.id, c.owner_id, c.owner_name,
+                (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size
+           FROM crew_members m JOIN crews c ON c.id = m.crew_id
+           WHERE m.user_id = $1 AND c.owner_id <> $1 ORDER BY m.joined_at, m.id`,
+        userId,
+      );
       return {
         inviteId: invite.id,
-        crew: crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId),
+        crew: crewView({ ...crew, size: members.length + 1 }, userId),
+        members,
+        joined: joined.map((c) => ({ id: c.id, ...crewView(c, userId) })),
       };
     });
   }
@@ -1095,8 +1119,10 @@ export class Platform {
    * they own becomes crew-only: it is offered to their new crew and no one
    * else, until they open it to anyone again. Joining a crew they are in
    * already changes nothing (`joined` false). Their own link joins nothing.
+   * `name`, their Steam persona when it could be read, is how the crew's owner
+   * sees them.
    */
-  joinCrew(inviteId: string, userId: string): Promise<JoinResult> {
+  joinCrew(inviteId: string, userId: string, name: string | null = null): Promise<JoinResult> {
     return this.#transaction(async (): Promise<JoinResult> => {
       const now = this.#now();
       const crew = await this.#get<{ id: string; owner_id: string; owner_name: string | null }>(
@@ -1108,10 +1134,12 @@ export class Platform {
       if (crew.owner_id === userId) return { ok: false, reason: "own-invite" };
       const joined =
         (await this.#run(
-          `INSERT INTO crew_members (crew_id, user_id, invite_id, joined_at) VALUES ($1, $2, $3, $4)
-             ON CONFLICT DO NOTHING`,
+          `INSERT INTO crew_members (id, crew_id, user_id, name, invite_id, joined_at)
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+          newId(),
           crew.id,
           userId,
+          name || null,
           inviteId,
           now,
         )) > 0;
@@ -1127,6 +1155,30 @@ export class Platform {
         await this.#tick(now);
       }
       return { ok: true, joined, crew: crewView({ ...crew, size: await this.#crewSize(crew.id) }, userId) };
+    });
+  }
+
+  /**
+   * End the membership `memberId`, as `userId`: their own, leaving a crew they
+   * joined, or anyone's in their own crew, removing them. An owner never leaves
+   * their own crew. From now on the one gone matches none of the crew's
+   * crew-only PCs (gate E7), and one matched to them before goes back at the
+   * claim. False when it is not theirs to end, or is gone already.
+   */
+  leaveCrew(memberId: string, userId: string): Promise<boolean> {
+    return this.#transaction(async () => {
+      const left =
+        (await this.#run(
+          `DELETE FROM crew_members m USING crews c
+             WHERE m.id = $1 AND c.id = m.crew_id AND m.user_id <> c.owner_id AND $2 IN (m.user_id, c.owner_id)`,
+          memberId,
+          userId,
+        )) > 0;
+      if (left) {
+        this.#offerChanged = true;
+        await this.#tick(this.#now());
+      }
+      return left;
     });
   }
 

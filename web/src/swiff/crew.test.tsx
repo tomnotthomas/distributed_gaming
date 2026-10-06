@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AskFriend, AskFriendStrip } from "./AskFriend";
 import { CREW_COPY, crewText, langOf } from "./crewCopy";
 import { Invite } from "./Invite";
-import { inviteLink, inviteTokenAt, shareTarget, signInForInvite } from "./invite";
+import { inviteLink, inviteTokenAt, shareTarget, signInForInvite, withoutInviteTokens } from "./invite";
 import { pathOf, screenAt } from "./route";
 import type { Swiff } from "./useSwiff";
 
@@ -70,6 +70,34 @@ describe("invite links", () => {
     expect(sessionStorage.getItem("swiff.invite")).toBe(TOKEN);
   });
 
+  it("cuts every invite token out of an analytics event, wherever it sits", () => {
+    const timestamp = new Date(0);
+    const event = {
+      uuid: "u",
+      event: "$autocapture",
+      timestamp,
+      properties: {
+        $current_url: `https://swiff.example/invite/${TOKEN}?ref=wa`,
+        $pathname: `/invite/${TOKEN}/`,
+        $referrer: `https://swiff.example/invite/${TOKEN}`,
+        $elements: [{ tag_name: "a", attr__href: `/auth/steam/login?to=%2Finvite%2F${TOKEN}` }],
+        $elements_chain: `a:href="/invite/${TOKEN}"`,
+        $screen_height: 900,
+      },
+      $set_once: { $initial_current_url: `https://swiff.example/invite/${TOKEN}` },
+      $set: { $session_entry_url: `https://swiff.example/invite/${TOKEN}`, $other: "/invitee/x" },
+    };
+    const sent = withoutInviteTokens(event);
+    expect(JSON.stringify(sent)).not.toContain(TOKEN);
+    expect(sent.properties.$current_url).toBe("https://swiff.example/invite?ref=wa");
+    expect(sent.properties.$pathname).toBe("/invite/");
+    expect(sent.properties.$elements[0]!.attr__href).toBe("/auth/steam/login?to=%2Finvite");
+    expect(sent.$set_once.$initial_current_url).toBe("https://swiff.example/invite");
+    expect(sent.$set.$other).toBe("/invitee/x");
+    expect(sent.properties.$screen_height).toBe(900);
+    expect(sent.timestamp).toBe(timestamp);
+  });
+
   it("sends WhatsApp and email the message, and copies it for Discord and Steam chat", () => {
     expect(shareTarget("whatsapp", "play & host", "s")).toEqual({
       open: "https://wa.me/?text=play%20%26%20host",
@@ -87,7 +115,7 @@ describe("AskFriend", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   });
 
-  const MINE = { token: TOKEN, crew: { name: "Alex", own: true, size: 1 } };
+  const MINE = { token: TOKEN, crew: { name: "Alex", own: true, size: 1 }, members: [], joined: [] };
 
   it("shows the player's personal link and copies it", async () => {
     fetchFrom({ "/api/me/invite": [200, MINE] });
@@ -161,6 +189,50 @@ describe("AskFriend", () => {
     answer = [200, MINE];
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByLabelText("Your invite link")).toBeInTheDocument();
+  });
+
+  it("lists the crew by name, lets the owner remove a member, and leaves a crew the player joined", async () => {
+    let mine = {
+      ...MINE,
+      crew: { ...MINE.crew, size: 3 },
+      members: [
+        { id: "m-sam", name: "Sam" },
+        { id: "m-anon", name: null },
+      ],
+      joined: [{ id: "m-mine", name: "Jo", own: false, size: 2 }],
+    };
+    const calls = fetchFrom({
+      "/api/me/invite": () => [200, mine],
+      "/api/crew-members/m-sam/remove": () => {
+        mine = { ...mine, crew: { ...mine.crew, size: 2 }, members: [{ id: "m-anon", name: null }] };
+        return [200, { removed: true }];
+      },
+      "/api/crew-members/m-mine/remove": () => {
+        mine = { ...mine, joined: [] };
+        return [200, { removed: true }];
+      },
+    });
+    render(<AskFriend persona="Alex" />);
+    expect(await screen.findByText("Sam")).toBeInTheDocument();
+    expect(screen.getByText("A crewmate")).toBeInTheDocument();
+    expect(screen.getByText("Jo's crew")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Sam" }));
+    await waitFor(() => expect(screen.queryByText("Sam")).toBeNull());
+    expect(calls).toContainEqual(["POST", "/api/crew-members/m-sam/remove"]);
+    expect(screen.getByText("2 in your crew")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave Jo's crew" }));
+    await waitFor(() => expect(screen.queryByText("Crews you're in")).toBeNull());
+    expect(calls).toContainEqual(["POST", "/api/crew-members/m-mine/remove"]);
+  });
+
+  it("says so when a member could not be removed", async () => {
+    fetchFrom({ "/api/me/invite": [200, { ...MINE, members: [{ id: "m-sam", name: "Sam" }] }] });
+    render(<AskFriend persona="Alex" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Sam" }));
+    expect(await screen.findByText("That did not work. Try again.")).toBeInTheDocument();
+    expect(screen.getByText("Sam")).toBeInTheDocument();
   });
 
   it("puts the wall's strip away for good once the player says not now", () => {

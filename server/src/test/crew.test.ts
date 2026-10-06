@@ -34,6 +34,8 @@ const ALEX = "76561198000000011";
 const HOST = "76561198000000012";
 /** Someone in no crew of theirs. */
 const STRANGER = "76561198000000013";
+/** Another friend of Alex's, who plays and hosts nothing. */
+const JO = "76561198000000014";
 /** pc-1 and pc-2 are the host's; pc-3 is someone else's, open to anyone. */
 const MACHINE_KEYS = `pc-1:${HASH}:${HOST},pc-2:${HASH}:${HOST},pc-3:${HASH}:76561198000000099`;
 const PERSONA: Record<string, string> = { [ALEX]: "Alex", [HOST]: "Sam" };
@@ -48,7 +50,7 @@ const offer = (machineId: string, spec: MachineSpec = {}) =>
 /** Alex's invite, and the host joined by it. */
 async function hostJoinsAlex() {
   const { inviteId } = await platform.crewInvite(ALEX, "Alex");
-  const joined = await platform.joinCrew(inviteId, HOST);
+  const joined = await platform.joinCrew(inviteId, HOST, "Sam");
   assert.ok(joined.ok);
   return inviteId;
 }
@@ -186,6 +188,67 @@ describe("crews", () => {
       const crewOf = (id: string) => machines.find((m) => m.host.id === id)?.host.crew;
       assert.deepEqual(crewOf("pc-1"), [ALEX, HOST].sort());
       assert.equal(crewOf("pc-3"), undefined);
+    });
+  });
+
+  describe("leaving and removing", () => {
+    it("lets the crew's owner remove a member, who from then on matches none of its crew-only PCs", async () => {
+      const inviteId = await hostJoinsAlex();
+      now += 60_000;
+      await platform.joinCrew(inviteId, JO, "Jo");
+      await offer("pc-1");
+      const { members } = await platform.crewInvite(ALEX, "Alex");
+      assert.deepEqual(
+        members.map((m) => m.name),
+        ["Sam", "Jo"],
+      );
+      const jo = members[1]!;
+      // Nobody else may remove them: not another member, not the member removing someone else.
+      assert.equal(await platform.leaveCrew(jo.id, HOST), false);
+      assert.equal(await platform.leaveCrew(members[0]!.id, JO), false);
+      assert.equal(await platform.leaveCrew("no-such-member", ALEX), false);
+
+      assert.equal(await platform.leaveCrew(jo.id, ALEX), true);
+      assert.equal(await platform.leaveCrew(jo.id, ALEX), false);
+      assert.equal((await platform.book(730, 30, JO)).status, "queued");
+      assert.equal(await platform.bookMachine("pc-1", 730, 30, JO), null);
+      const { machines } = await platform.offeredMachines();
+      assert.deepEqual(machines.find((m) => m.host.id === "pc-1")?.host.crew, [ALEX, HOST].sort());
+      assert.equal((await platform.crewInvite(ALEX, "Alex")).crew.size, 2);
+    });
+
+    it("lets a member leave, and their PC hosts that crew no more until they join again", async () => {
+      const inviteId = await hostJoinsAlex();
+      await offer("pc-1");
+      const [joined] = (await platform.crewInvite(HOST, "Sam")).joined;
+      assert.deepEqual({ ...joined, id: undefined }, { id: undefined, name: "Alex", own: false, size: 2 });
+
+      assert.equal(await platform.leaveCrew(joined!.id, HOST), true);
+      assert.deepEqual((await platform.heartbeat("pc-1")).crew, { only: true, crews: [] });
+      assert.deepEqual((await platform.crewInvite(HOST, "Sam")).joined, []);
+      assert.deepEqual((await platform.crewInvite(ALEX, "Alex")).members, []);
+      const queued = await platform.book(730, 30, ALEX);
+      assert.equal(queued.status, "queued");
+
+      // Joining again by a live link puts them back, and the queue is matched anew.
+      assert.ok((await platform.joinCrew(inviteId, HOST, "Sam")).ok);
+      assert.equal((await platform.booking(queued.bookingId, ALEX))?.status, "matched");
+    });
+
+    it("sends a match made before the removal back to the queue at the claim", async () => {
+      const inviteId = await hostJoinsAlex();
+      await platform.joinCrew(inviteId, JO, "Jo");
+      await offer("pc-1");
+      const booked = await platform.book(730, 30, JO);
+      assert.equal(booked.machine?.id, "pc-1");
+
+      const { members } = await platform.crewInvite(ALEX, "Alex");
+      assert.equal(await platform.leaveCrew(members.find((m) => m.name === "Jo")!.id, ALEX), true);
+      assert.deepEqual(await platform.claim(booked.bookingId, JO), {
+        ok: false,
+        reason: "not-claimable",
+        status: "queued",
+      });
     });
   });
 });
@@ -347,5 +410,31 @@ describe("crew API", () => {
     assert.equal((await offerPc("pc-1", { crewOnly: false })).body.crew.only, false);
     assert.equal((await call("GET", "/api/availability?appids=730&rtt=10", STRANGER)).body[0].free, 1);
     assert.equal((await offerPc("pc-1", { crewOnly: "yes" })).status, 400);
+  });
+
+  it("lists the crew by Steam persona, never Steam id, and lets its owner remove and a member leave", async () => {
+    await joinByLink();
+    const mine = await call("GET", "/api/me/invite", ALEX);
+    assert.deepEqual(
+      mine.body.members.map((m: { name: string }) => m.name),
+      ["Sam"],
+    );
+    assert.doesNotMatch(JSON.stringify(mine.body), new RegExp(HOST));
+    const [sam] = mine.body.members;
+
+    assert.equal((await call("POST", `/api/crew-members/${sam.id}/remove`)).status, 401);
+    assert.equal((await call("POST", `/api/crew-members/${sam.id}/remove`, STRANGER)).status, 404);
+    assert.equal((await call("POST", `/api/crew-members/${sam.id}/remove`, ALEX)).status, 200);
+    assert.deepEqual((await call("GET", "/api/me/invite", ALEX)).body.members, []);
+
+    // Back in by the link, the host leaves on their own.
+    await call("POST", `/api/invites/${mine.body.token}/join`, HOST);
+    const theirs = await call("GET", "/api/me/invite", HOST);
+    assert.deepEqual(
+      theirs.body.joined.map((c: { name: string }) => c.name),
+      ["Alex"],
+    );
+    assert.equal((await call("POST", `/api/crew-members/${theirs.body.joined[0].id}/remove`, HOST)).status, 200);
+    assert.deepEqual((await call("GET", "/api/me/invite", HOST)).body.joined, []);
   });
 });

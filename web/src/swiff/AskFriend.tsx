@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { crewText, langOf, type CopyKey } from "./crewCopy";
 import { Glyph } from "./Glyph";
-import { fetchMyInvite, inviteLink, shareTarget, type Channel, type MyInvite } from "./invite";
+import {
+  fetchMyInvite,
+  inviteLink,
+  removeCrewMember,
+  shareTarget,
+  type Channel,
+  type MyInvite,
+} from "./invite";
 
 const CHANNELS = [
   { id: "whatsapp", label: "ask.whatsapp" },
@@ -47,7 +54,9 @@ function useMyInvite() {
  * to send it, the phone's own share sheet first where the browser has one.
  * Whoever opens it lands on the host side with this player named, and their PC
  * hosts this player's crew alone. `onShared` hears which way it was sent,
- * never the link: that is the whole credential for joining.
+ * never the link: that is the whole credential for joining. Below it, who is
+ * in the crew, each with Remove, and the crews the player joined, each with
+ * Leave crew.
  */
 export function AskFriend({ persona, onShared }: { persona: string; onShared?: (channel: Channel) => void }) {
   const t = useMemo(() => crewText(langOf()), []);
@@ -91,6 +100,12 @@ export function AskFriend({ persona, onShared }: { persona: string; onShared?: (
       field.current?.select();
       say("ask.copyFailed");
     }
+  };
+
+  const end = async (id: string) => {
+    setNote(null);
+    if (await removeCrewMember(id)) load();
+    else say("ask.removeFailed");
   };
 
   const size = invite?.crew.size ?? 1;
@@ -163,6 +178,56 @@ export function AskFriend({ persona, onShared }: { persona: string; onShared?: (
               {t("ask.renewHint")}
             </span>
           </div>
+
+          {invite.members.length ? (
+            <div className="ask-crew">
+              <h3 className="mono">{t("ask.members")}</h3>
+              <ul className="ask-members">
+                {invite.members.map((m) => {
+                  const name = m.name || t("ask.memberAnon");
+                  return (
+                    <li key={m.id}>
+                      <span>{name}</span>
+                      <button
+                        type="button"
+                        className="share-link"
+                        disabled={busy}
+                        aria-label={t("ask.removeLabel", { name })}
+                        onClick={() => void end(m.id)}
+                      >
+                        {t("ask.remove")}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+
+          {invite.joined.length ? (
+            <div className="ask-crew">
+              <h3 className="mono">{t("ask.joinedTitle")}</h3>
+              <ul className="ask-members">
+                {invite.joined.map((c) => {
+                  const crew = c.name ? t("ask.joinedCrew", { name: c.name }) : t("ask.joinedCrewAnon");
+                  return (
+                    <li key={c.id}>
+                      <span>{crew}</span>
+                      <button
+                        type="button"
+                        className="share-link"
+                        disabled={busy}
+                        aria-label={t("ask.leaveLabel", { crew })}
+                        onClick={() => void end(c.id)}
+                      >
+                        {t("ask.leave")}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
         </>
       ) : failed ? (
         <div className="ask-ways" role="alert">

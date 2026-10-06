@@ -93,7 +93,7 @@ Source: [`../diagrams/workflow.mmd`](../diagrams/workflow.mmd).
 | **Save**        | A renter's save data for one game, kept in object storage (S3). | `id`, `renter_id`, `game_id`, `s3_key`, `updated_at`                                                                  |
 | **User**        | A renter or owner, identified by their Steam account.           | `id`, `steam_id`                                                                                                      |
 | **Game**        | Something in the catalogue. Comes from Steam.                   | `id` (Steam app id), `name`                                                                                           |
-| **Crew**        | A player and the friends they invited.                          | `id`, `owner_id`, `owner_name`; members `crew_id`, `user_id`, `invite_id`, `joined_at`                                |
+| **Crew**        | A player and the friends they invited.                          | `id`, `owner_id`, `owner_name`; members `id`, `crew_id`, `user_id`, `name`, `invite_id`, `joined_at`                  |
 | **Invite**      | A player's personal invite link to their crew.                  | `id`, `crew_id`, `inviter_id`, `created_at`, `revoked_at`                                                             |
 
 Booking `status`: `queued` → `matched` → `claimed` → `playing` → `ended`. A booking
@@ -517,7 +517,9 @@ by its HMAC-SHA256 under `SESSION_SECRET` in a domain of its own, cut to 16 byte
 (`server/src/access.ts`). The database holds only the id, so a leak of it opens nothing,
 and a forged token is refused before the database is asked. A link never expires; its
 player replaces it with a new one, which stops the old one for good. Links are never
-logged or sent to analytics; the page only reports which way one was shared.
+logged or sent to analytics: every PostHog event has invite tokens cut from its URLs
+first (`withoutInviteTokens`, `web/src/swiff/invite.ts`), and the page only reports
+which way one was shared.
 
 Whoever opens a link and joins is in the inviter's crew, attributed to the invite they
 joined by. Joining makes every PC they own crew-only, and a PC of theirs first heard from
@@ -527,14 +529,22 @@ wall, on the game page, in the queue, as a picked machine, and at the claim, whi
 a reservation made before the PC became crew-only back to the queue. The owner can open
 it to anyone from the host app (`crewOnly`, host.md).
 
+A member may leave a crew they joined, and a crew's owner may remove anyone from it; from
+then on they match none of its crew-only PCs, and a match made before goes back at the
+claim. A membership is named by its own random id, never a Steam id, and a member is
+shown by the Steam persona read when they joined. A new link stops new joins only; it
+removes nobody.
+
 ```
 GET  /me/invite
-  → 200 { token, crew: { name, own, size } }
+  → 200 { token, crew: { name, own, size }, members: [{ id, name }],
+           joined: [{ id, name, own, size }] }
   The signed-in player's link (its token) and their crew, named after their Steam
-  persona as last read. → 401 signed out.
+  persona as last read; who else is in it, and the crews they joined, each with the
+  membership's id. → 401 signed out.
 
 POST /me/invite/renew
-  → 200 { token, crew }
+  → 200 { token, crew, members, joined }
   A new link in place of the old one, which opens nothing from now on. → 401 signed out.
 
 GET  /invites/:token
@@ -548,11 +558,17 @@ POST /invites/:token/join
   Join the crew as the signed-in player. `joined` is false for a crew they were in
   already, which changes nothing. → 409 { error, code: "own-invite" } for their own
   link. → 404 as above. → 401 signed out.
+
+POST /crew-members/:id/remove
+  → 200 { removed: true }
+  End a membership: the signed-in player's own, leaving a crew they joined, or anyone's
+  in their own crew. → 404 for one that is not theirs to end, or is gone. → 401 signed out.
 ```
 
 The web app (`web/src/swiff/AskFriend.tsx`, `Invite.tsx`) shows the link under Ask your
 PC friend on the profile, under an empty wall, and as one line on the wall's band until
-the player puts it away. It shares through the browser's share sheet where there is one,
+the player puts it away. Below the link it lists who is in the crew, each with Remove,
+and the crews the player joined, each with Leave crew. It shares through the browser's share sheet where there is one,
 WhatsApp and email by link, and Discord and Steam chat by copying the message to paste.
 The invite page names who asked, signs the friend in with Steam (the token waits in the
 tab rather than riding through Steam, and the return is `/invite`), joins them, and

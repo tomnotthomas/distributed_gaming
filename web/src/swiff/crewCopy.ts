@@ -31,6 +31,16 @@ export const CREW_COPY = {
     "ask.loading": "Getting your link…",
     "ask.failed": "Your link could not be loaded.",
     "ask.retry": "Try again",
+    "ask.members": "In your crew",
+    "ask.memberAnon": "A crewmate",
+    "ask.remove": "Remove",
+    "ask.removeLabel": "Remove {name}",
+    "ask.joinedTitle": "Crews you're in",
+    "ask.joinedCrew": "{name}'s crew",
+    "ask.joinedCrewAnon": "A friend's crew",
+    "ask.leave": "Leave crew",
+    "ask.leaveLabel": "Leave {crew}",
+    "ask.removeFailed": "That did not work. Try again.",
     "ask.message":
       "{name} wants to play on your gaming PC with Swiff. It only ever hosts your crew. Set it up here: {link}",
     "ask.messageAnon":
@@ -103,6 +113,16 @@ export const CREW_COPY = {
     "ask.loading": "Dein Link wird geladen…",
     "ask.failed": "Dein Link konnte nicht geladen werden.",
     "ask.retry": "Nochmal versuchen",
+    "ask.members": "In deiner Crew",
+    "ask.memberAnon": "Ein Crewmitglied",
+    "ask.remove": "Entfernen",
+    "ask.removeLabel": "{name} entfernen",
+    "ask.joinedTitle": "Crews, in denen du bist",
+    "ask.joinedCrew": "Crew von {name}",
+    "ask.joinedCrewAnon": "Crew eines Freundes",
+    "ask.leave": "Crew verlassen",
+    "ask.leaveLabel": "{crew} verlassen",
+    "ask.removeFailed": "Das hat nicht geklappt. Versuch es nochmal.",
     "ask.message":
       "{name} will mit Swiff auf deinem Gaming-PC spielen. Er hostet immer nur eure Crew. Hier einrichten: {link}",
     "ask.messageAnon":
