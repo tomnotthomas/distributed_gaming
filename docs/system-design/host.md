@@ -39,9 +39,10 @@ The renter side, and the whole-system architecture: [`renter.md`](renter.md).
    and install any game their account owns (or that is free to play), following its
    progress. Renters always play with their own Steam licence: a game the host installs
    only puts its files on the PC.
-10. An owner who joined a friend's crew from an invite link hosts that crew only: the app
-    says whose crew, and lets the owner open the PC to anyone, or close it to the crew
-    again ([`renter.md`](renter.md), "Crews").
+10. An owner picks, per crew they are in, which crews their PC plays for: the app shows
+    each crew by its name (or whose it is), how many people and PCs it has, and a switch
+    per crew; any pick makes the PC crew-only. A PC still open to anyone says so, and the
+    app offers no way to open it to anyone ([`renter.md`](renter.md), "Crews").
 
 ---
 
@@ -128,8 +129,8 @@ can call them from its `file://` page: the bearer credential is the only one.
 
 ```
 PUT  /machines/:id/availability
-  { available: true, until?, price?, crewOnly?, ...report }
-  { available: false, reset?: true, until?, price?, crewOnly?, ...report }
+  { available: true, until?, price?, crewOnly?, crews?, ...report }
+  { available: false, reset?: true, until?, price?, crewOnly?, crews?, ...report }
   → 200 { id, status, gpu, cpu, price, until?, session?, resetUntil?, crew }
   Offer the PC, or take it back (available: false), which ends whatever it was doing.
   `until` is an ISO date or Unix ms; `price` is cents per hour. `report` is below. Every
@@ -137,19 +138,25 @@ PUT  /machines/:id/availability
   when set) is what to send back to offer the PC again on the same terms.
   `reset: true` is the rental-mode PC taking itself off offer to restart between
   renters (the reset hold, below); only with `available: false`, else 400.
-  `crewOnly` offers the PC only to its owner's crews (true) or to anyone (false); left
-  out, it stays as it was. `crew` (in this answer and the heartbeat's) is `{ only,
-  crews: [{ name, own, size }] }`: whether it is crew-only, and the crews its owner is
-  in with anyone else. The app sends the owner's choice with every offer once they have
-  made one (in rental mode, where swiff-hostd makes the offers, at once on its own; one
-  that fails to save goes back to the last confirmed choice, with a note), and shows Who
-  can play while the owner is in a crew or the PC is crew-only. In rental mode the host
-  app sends this call (`available: false`, with or without `crewOnly`) only from
-  Windows, where the PC is already off offer, so it never ends a session; Swiff OS's
-  next offer applies the saved crew choice.
-  A crew-only PC whose owner shares no crew with anyone (they left, or were removed)
-  stays crew-only and matches nobody; the app says so and offers to open it to everyone
-  or to invite a friend from the web app's profile.
+  `crews` is the ids of the crews the PC plays for, of those its owner is in, which
+  replace its whole set and make it crew-only; left out, unchanged. `crewOnly` offers the
+  PC only to the crews it plays for (true) or to anyone (false); left out, it stays as it
+  was, and made crew-only while it plays for no crew it plays for every crew its owner is
+  in, as the app's one switch did before crews were picked one by one. `crew` (in this
+  answer and the heartbeat's) is `{ only, crews: [{ id, name, crewName, own, size, state,
+  pcs, plays }] }`: whether it is crew-only, and every crew its owner is in, each saying
+  whether this PC plays for it. The app sends the owner's choice of crews (`crews`) with
+  the offers after they make it, until the platform has it, and never again after, so a
+  crew the PC was brought to on the web is never dropped by an old pick (in rental mode,
+  where swiff-hostd makes the offers, at once on its own; one that fails to save goes back
+  to the last confirmed choice, with a note), and shows "Who does your PC play for?" while the owner is in a
+  crew or the PC is crew-only. In rental mode the host app sends this call (`available:
+  false`, with or without `crews`) only from Windows, where the PC is already off offer,
+  so it never ends a session; Swiff OS's next offer applies the saved crew choice.
+  A crew-only PC that plays for no crew (its owner picked none, or left the crews it
+  played for) matches nobody; the app says so and, when the owner is in no crew, points
+  them to the web app's `/crews` page to start one; when they are in crews but the PC
+  plays for none, it asks them to pick one.
 
 POST /machines/:id/heartbeat
   { ...report }

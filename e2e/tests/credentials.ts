@@ -8,6 +8,11 @@ import { mintRenterSession, mintTicket } from "../../server/src/access";
 
 export const E2E_ROOM = "gaming-pc-1"; // what the /host page registers
 export const E2E_MACHINE_KEY = "e2e-machine-key";
+/** A crewmate's own gaming PC, which the crew spec brings to a crew; nothing else offers it. */
+export const E2E_CREW_PC = "crew-pc-1";
+export const E2E_CREW_PC_KEY = "e2e-crew-pc-key";
+/** Its owner, the friend the crew spec invites. */
+export const E2E_CREW_PC_OWNER = "76561198000000102";
 const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 const E2E_SESSION_SECRET = "e2e-session-secret-that-is-long-enough-to-pass";
 
@@ -15,7 +20,10 @@ export const E2E_ENV = {
   ROOM_SECRET: E2E_SECRET,
   // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
   SESSION_SECRET: E2E_SESSION_SECRET,
-  MACHINE_KEYS: `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
+  MACHINE_KEYS: [
+    `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
+    `${E2E_CREW_PC}:${createHash("sha256").update(E2E_CREW_PC_KEY).digest("hex")}:${E2E_CREW_PC_OWNER}`,
+  ].join(","),
   // Every game playable, unchecked: the wall's games must not hang on Steam
   // verdicts (server/src/playable.ts, tested on its own with recordings).
   SWIFF_PLAYABILITY: "off",

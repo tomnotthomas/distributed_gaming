@@ -353,8 +353,8 @@ export type HostActions = {
    */
   previewRental(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
   closeRentalPreview(): void;
-  /** Offer this PC to its owner's crew only, or to anyone. */
-  setCrewOnly(on: boolean): void;
+  /** Offer this PC only to the crews with these ids, in place of the ones it played for. */
+  setCrews(ids: string[]): void;
   /** Run the plan on screen, the owner's one OK: Windows asks once for administrator rights. */
   runRental(): void;
   /** Restart now, after a run that ended at its restart, or with Swiff's key queued. */

@@ -341,9 +341,18 @@ describe("useHost", () => {
     expect(calls).toHaveLength(sent);
   });
 
-  it("keeps a Who can play choice made off offer, shows it at once, and offers with it on going live", async () => {
+  it("keeps a choice of crews made off offer, shows it at once, and offers with it on going live", async () => {
     // The platform answers each offer and beat with who may play, as it holds it.
-    let only = true;
+    let playing = ["c1"];
+    const crews = () =>
+      ["c1", "c2"].map((id) => ({
+        id,
+        name: "Alex",
+        crewName: null,
+        own: false,
+        size: 2,
+        plays: playing.includes(id),
+      }));
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init: RequestInit) => {
@@ -352,38 +361,43 @@ describe("useHost", () => {
         if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
         const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
         calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
-        if (typeof body?.crewOnly === "boolean") only = body.crewOnly;
-        return Response.json({ crew: { only, crews: [{ name: "Alex", own: false, size: 2 }] } });
+        if (Array.isArray(body?.crews)) playing = body.crews;
+        return Response.json({ crew: { only: true, crews: crews() } });
       }),
     );
+    const plays = () => result.current.view.crew?.crews.map((c) => c.plays);
     const { result, rerender } = await host();
     await act(async () => result.current.actions.goLive());
     rerender();
     await settle();
-    expect(result.current.view.crew?.only).toBe(true);
+    expect(plays()).toEqual([true, false]);
 
     act(() => result.current.actions.pause());
     rerender();
     await settle();
-    act(() => result.current.actions.setCrewOnly(false));
-    expect(result.current.view.crew?.only).toBe(false);
+    act(() => result.current.actions.setCrews(["c2"]));
+    expect(plays()).toEqual([false, true]);
 
     await act(async () => result.current.actions.resume());
     rerender();
     await settle();
     const offers = reports().filter((c) => c.method === "PUT" && c.body?.available === true);
     expect(offers).toHaveLength(2);
-    expect(offers[0]!.body).not.toHaveProperty("crewOnly");
-    expect(offers[1]!.body).toMatchObject({ crewOnly: false });
-    expect(result.current.view.crew?.only).toBe(false);
+    expect(offers[0]!.body).not.toHaveProperty("crews");
+    expect(offers[1]!.body).toMatchObject({ crews: ["c2"] });
+    expect(plays()).toEqual([false, true]);
   });
 
   describe("who can play, in rental mode", () => {
     /** The platform's answers, in turn: who may play, a failure, or one held until the test lets it land. */
     type Answer = "ok" | "fail" | ((land: (ok: boolean) => void) => void);
     let answers: Answer[];
-    let only: boolean;
-    const crewOf = (o: boolean) => ({ only: o, crews: [{ name: "Alex", own: false, size: 2 }] });
+    let playing: string[];
+    /** Who may play, as the platform says it: crew-only, playing for Alex's crew or for none. */
+    const crewOf = (plays: boolean) => ({
+      only: true,
+      crews: [{ id: "c1", name: "Alex", crewName: null, own: false, size: 2, state: null, pcs: null, plays }],
+    });
     const READY = {
       ...rentalOf(
         {
@@ -405,7 +419,7 @@ describe("useHost", () => {
     beforeEach(() => {
       devShare.on = false;
       answers = [];
-      only = true;
+      playing = ["c1"];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string, init: RequestInit) => {
@@ -419,9 +433,8 @@ describe("useHost", () => {
               ? await new Promise<boolean>((land) => answer(land))
               : answer === "ok";
           if (!ok) throw new TypeError("offline");
-          const said = typeof body?.crewOnly === "boolean" ? body.crewOnly : only;
-          only = said;
-          return Response.json({ crew: crewOf(said) });
+          if (Array.isArray(body?.crews)) playing = body.crews;
+          return Response.json({ crew: crewOf(playing.includes("c1")) });
         }),
       );
     });
@@ -458,11 +471,11 @@ describe("useHost", () => {
       ]);
       expect(result.current.view.crew).toEqual(crewOf(true));
 
-      act(() => result.current.actions.setCrewOnly(false));
-      expect(result.current.view.crew?.only).toBe(false);
+      act(() => result.current.actions.setCrews([]));
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       await settle();
-      expect(reports().at(-1)!.body).toEqual({ available: false, crewOnly: false });
-      expect(result.current.view.crew?.only).toBe(false);
+      expect(reports().at(-1)!.body).toEqual({ available: false, crews: [] });
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       expect(result.current.view.crewNote).toBeNull();
       // Nothing offers this PC from Windows.
       expect(reports().some((c) => c.body?.available === true)).toBe(false);
@@ -471,16 +484,16 @@ describe("useHost", () => {
     it("puts a choice that did not save back to the platform's, and says so", async () => {
       const { result } = await ready();
       answers.push("fail");
-      act(() => result.current.actions.setCrewOnly(false));
-      expect(result.current.view.crew?.only).toBe(false);
+      act(() => result.current.actions.setCrews([]));
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       await settle();
       expect(result.current.view.crew).toEqual(crewOf(true));
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
 
-      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrews([]));
       expect(result.current.view.crewNote).toBeNull();
       await settle();
-      expect(result.current.view.crew?.only).toBe(false);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       expect(result.current.view.crewNote).toBeNull();
     });
 
@@ -513,7 +526,7 @@ describe("useHost", () => {
 
       let set: (ok: boolean) => void = () => {};
       answers.push((land) => (set = land));
-      act(() => result.current.actions.setCrewOnly(false));
+      act(() => result.current.actions.setCrews([]));
       await settle();
       const sent = reports().length;
       await act(async () => void (await vi.advanceTimersByTimeAsync(CREW_RETRY_MS * 2)));
@@ -522,8 +535,8 @@ describe("useHost", () => {
       expect(reports()).toHaveLength(sent);
       set(true);
       await settle();
-      expect(only).toBe(false);
-      expect(result.current.view.crew?.only).toBe(false);
+      expect(playing).toEqual([]);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       expect(result.current.view.crewNote).toBeNull();
     });
 
@@ -531,13 +544,13 @@ describe("useHost", () => {
       const { result } = await ready();
       let first: (ok: boolean) => void = () => {};
       answers.push((land) => (first = land));
-      act(() => result.current.actions.setCrewOnly(false));
-      act(() => result.current.actions.setCrewOnly(true));
+      act(() => result.current.actions.setCrews([]));
+      act(() => result.current.actions.setCrews(["c1"]));
       await settle();
-      expect(result.current.view.crew?.only).toBe(true);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(true);
       first(true);
       await settle();
-      expect(result.current.view.crew?.only).toBe(true);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(true);
     });
 
     it("goes back to a choice the platform took after a newer one did not save", async () => {
@@ -548,15 +561,15 @@ describe("useHost", () => {
         (land) => (first = land),
         (land) => (second = land),
       );
-      act(() => result.current.actions.setCrewOnly(false));
-      act(() => result.current.actions.setCrewOnly(true));
+      act(() => result.current.actions.setCrews([]));
+      act(() => result.current.actions.setCrews(["c1"]));
       await settle();
       first(true);
       await settle();
       second(false);
       await settle();
-      expect(only).toBe(false);
-      expect(result.current.view.crew?.only).toBe(false);
+      expect(playing).toEqual([]);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
     });
 
@@ -564,15 +577,15 @@ describe("useHost", () => {
       const { result } = await ready();
       let first: (ok: boolean) => void = () => {};
       answers.push((land) => (first = land), "fail");
-      act(() => result.current.actions.setCrewOnly(false));
-      act(() => result.current.actions.setCrewOnly(true));
+      act(() => result.current.actions.setCrews([]));
+      act(() => result.current.actions.setCrews(["c1"]));
       await settle();
-      expect(result.current.view.crew?.only).toBe(true);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(true);
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
       first(true);
       await settle();
-      expect(only).toBe(false);
-      expect(result.current.view.crew?.only).toBe(false);
+      expect(playing).toEqual([]);
+      expect(result.current.view.crew?.crews[0]!.plays).toBe(false);
       expect(result.current.view.crewNote).toBe("Couldn't save who can play. Try again.");
     });
 

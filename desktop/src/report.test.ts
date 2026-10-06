@@ -8,9 +8,11 @@ import {
   BEAT_TIMEOUT_MS,
   changedSections,
   createHostReporter,
+  crewOf,
   hostReport,
   netMoved,
   netOf,
+  playingFor,
   reportHardware,
   UPLOAD_TEST_BYTES,
   UPLOAD_TEST_EVERY_MS,
@@ -281,8 +283,9 @@ describe("createHostReporter", () => {
     });
   });
 
-  it("hears who may play from every answer, and sends the owner's choice with every offer after it", async () => {
-    const crew = { only: true, crews: [{ name: "mika_r", own: false, size: 3 }] };
+  it("hears who may play from every answer, and sends the owner's choice until the platform has it", async () => {
+    const mika = { id: "c1", name: "mika_r", crewName: null, own: false, size: 3, state: "ready", pcs: 1 };
+    const crew = { only: true, crews: [{ ...mika, plays: true }] };
     replies.availability = { id: "pc 1", status: "available", crew };
     replies.heartbeat = { id: "pc 1", status: "available", crew: { ...crew, only: false } };
     const onCrew = vi.fn();
@@ -296,18 +299,39 @@ describe("createHostReporter", () => {
     await beat();
     expect(onCrew).toHaveBeenLastCalledWith({ ...crew, only: false });
 
-    r.setCrewOnly(false);
+    r.setCrews(["c1", "c2"]);
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true, crewOnly: false } });
-    // The choice rides on later offers too, such as a new share-until time.
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true, crews: ["c1", "c2"] } });
+    // A later offer, such as a new share-until time, leaves the platform's crews
+    // alone: the PC may have been brought to another crew on the web since.
     r.setUntil(Date.UTC(2026, 9, 3, 23));
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { crewOnly: false } });
-    // The same choice again is no news.
-    const sentSoFar = calls.length;
-    r.setCrewOnly(false);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { available: true } });
+    expect(calls.at(-1)!.body).not.toHaveProperty("crews");
+    // A new pick goes again.
+    r.setCrews(["c2"]);
     await vi.advanceTimersByTimeAsync(0);
-    expect(calls).toHaveLength(sentSoFar);
+    expect(calls.at(-1)).toMatchObject({ method: "PUT", body: { crews: ["c2"] } });
+  });
+
+  it("sends a refused choice again with the next offer, and the same choice once", async () => {
+    const r = reporter({ name: "Nova-01" });
+    r.offer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    answer.availability = "network";
+    r.setCrews(["c1"]);
+    r.setCrews(["c1"]);
+    await vi.advanceTimersByTimeAsync(0);
+    const picks = () =>
+      calls.filter((c) => c.action === "availability" && (c.body as { crews?: unknown }).crews);
+    expect(picks()).toHaveLength(1);
+    delete answer.availability;
+    await beat();
+    expect(picks()).toHaveLength(2);
+    expect(picks().at(-1)).toMatchObject({ method: "PUT", body: { crews: ["c1"] } });
+    await beat();
+    expect(calls.at(-1)!.action).toBe("heartbeat");
+    expect(picks()).toHaveLength(2);
   });
 
   it("does not send a refused section again until it changes", async () => {
@@ -463,5 +487,64 @@ describe("createHostReporter", () => {
 
     fetch.mockImplementation(answering);
     release();
+  });
+});
+
+describe("who may play", () => {
+  it("reads every crew the owner is in, and whether this PC plays for it", () => {
+    const friday = {
+      id: "c1",
+      name: "mika_r",
+      crewName: "Friday Squad",
+      own: false,
+      size: 3,
+      state: "ready",
+      pcs: 1,
+      plays: true,
+    };
+    const own = {
+      id: "c2",
+      name: "nova",
+      crewName: null,
+      own: true,
+      size: 4,
+      state: "no-pc",
+      pcs: 0,
+      plays: false,
+    };
+    expect(crewOf({ crew: { only: true, crews: [friday, own] } })).toEqual({
+      only: true,
+      crews: [friday, own],
+    });
+    expect(crewOf({ crew: { only: "yes", crews: [] } })).toBeNull();
+    expect(crewOf({})).toBeNull();
+  });
+
+  it("reads an older server's crews: playing for a crew-only PC, and not to be picked without an id", () => {
+    const old = { name: "mika_r", own: false, size: 3 };
+    const read = { id: null, name: "mika_r", crewName: null, own: false, size: 3, state: null, pcs: null };
+    expect(crewOf({ crew: { only: true, crews: [old] } })).toEqual({
+      only: true,
+      crews: [{ ...read, plays: true }],
+    });
+    expect(crewOf({ crew: { only: false, crews: [old, { name: 7 }] } })).toEqual({
+      only: false,
+      crews: [{ ...read, plays: false }],
+    });
+  });
+
+  it("makes the PC crew-only, playing for exactly the crews picked", () => {
+    const crew = crewOf({
+      crew: {
+        only: false,
+        crews: [
+          { id: "c1", name: "mika_r", own: false, size: 3, plays: true },
+          { id: "c2", name: null, own: false, size: 2, plays: false },
+          { name: "old", own: false, size: 2 },
+        ],
+      },
+    })!;
+    expect(playingFor(crew, ["c2"]).only).toBe(true);
+    expect(playingFor(crew, ["c2"]).crews.map((c) => c.plays)).toEqual([false, true, false]);
   });
 });

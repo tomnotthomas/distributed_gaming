@@ -214,6 +214,32 @@ describe("useSwiff", () => {
     delete (navigator as { locks?: LockManager }).locks;
   });
 
+  it("celebrates a crew's first PC on the next visit of a player who was away, until they close it", async () => {
+    const crew = { memberId: "m", name: "Lena", crewName: null, own: false, size: 2 };
+    serve(
+      unnamed,
+      {},
+      {
+        "GET /api/crews": json(200, {
+          crews: [
+            { ...crew, id: "c0", state: "ready", pcs: 1, pcArrived: false },
+            { ...crew, id: "c1", state: "ready", pcs: 1, pcArrived: true },
+          ],
+        }),
+      },
+    );
+    const first = renderHook(() => useSwiff({ demo: false }));
+    await waitFor(() => expect(first.result.current.crewReady).toBe("c1"));
+    act(() => first.result.current.dismissCrewReady());
+    expect(first.result.current.crewReady).toBeNull();
+    first.unmount();
+
+    const next = renderHook(() => useSwiff({ demo: false }));
+    await waitFor(() => expect(next.result.current.signedIn).toBe(true));
+    await act(async () => {});
+    expect(next.result.current.crewReady).toBeNull();
+  });
+
   it("is the demo only at ?demo=1", () => {
     expect(isDemo("?demo=1")).toBe(true);
     expect(isDemo("")).toBe(false);

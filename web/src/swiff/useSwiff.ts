@@ -45,6 +45,7 @@ import {
   type PlayState,
 } from "./play";
 import { questionOf, useLive } from "./useLive";
+import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
@@ -65,7 +66,7 @@ import {
   type StoreData,
 } from "./steam";
 
-export type Screen = "home" | "game" | "profile" | "share" | "invite";
+export type Screen = "home" | "game" | "profile" | "share" | "invite" | "crew";
 export type Phase = "idle" | "connecting" | "live";
 export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";
@@ -153,6 +154,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // Who the session cookie signs in. The profile can be empty (no Steam Web API
   // key, or Steam did not answer), so being signed in is read from this alone.
   const [steamId, setSteamId] = useState<string | null>(null);
+  // Whether the server has said who is signed in yet: founding a crew waits for it.
+  const [signInKnown, setSignInKnown] = useState(false);
   const [profile, setProfile] = useState<SteamProfile | null>(null);
   const [steamDenied, setSteamDenied] = useState(false);
   const [signOutFailed, setSignOutFailed] = useState(false);
@@ -199,6 +202,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [estimateOpen, setEstimateOpen] = useState(false);
 
+  // Crews: the crew page's own address (/crews, /crews/new or /crews/<id>),
+  // and a crew whose first PC came, which every screen celebrates until it is
+  // closed: as it happens, or on the next visit for whoever was away.
+  const [crewPath, setCrewPath] = useState(() => location.pathname);
+  const [crewReady, setCrewReady] = useState<string | null>(null);
+
   const clock = useClock(demo);
 
   // The demo's machines. Moss is busy in them; freeing it later is the only
@@ -234,7 +243,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     appid: screen === "game" ? (game?.appid ?? null) : null,
     minutes: sessionMinutes(session),
     prefs,
+    onCrewReady: setCrewReady,
   });
+  useEffect(() => {
+    if (steamId === null || demo) return;
+    let current = true;
+    void fetchCrews().then((crews) => {
+      const missed = crews && unseenReady(crews);
+      if (current && missed) setCrewReady((was) => was ?? missed.id);
+    });
+    return () => {
+      current = false;
+    };
+  }, [steamId, demo]);
 
   /** What the wall knows about each game, by game id; empty while nothing is known. */
   const spots = useMemo<Map<string, Spot>>(() => {
@@ -305,6 +326,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     ({ steamId, profile: next }: Renter) => {
       const load = ++libraryLoad.current;
       setSteamId(steamId);
+      setSignInKnown(true);
       setProfile(next);
       const kept = storeGames(lastCatalog.current);
       const library = applySteam(next, sharedMachineIds, kept, vouched.current);
@@ -333,6 +355,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const showSignedOut = useCallback(() => {
     ++libraryLoad.current;
     setSteamId(null);
+    setSignInKnown(true);
     setProfile(null);
     if (!demo) {
       setGames((prev) => prev.filter((g) => phaseNow.current !== "idle" && g.id === openGameId.current));
@@ -838,8 +861,10 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   useEffect(() => {
     const onPop = () => {
       const { screen, phase } = covered.current;
-      if (phase === "idle") setScreen(screenAt(location.pathname));
-      else if (screenAt(location.pathname) !== screenAt(pathOf(screen)))
+      if (phase === "idle") {
+        setScreen(screenAt(location.pathname));
+        setCrewPath(location.pathname);
+      } else if (screenAt(location.pathname) !== screenAt(pathOf(screen)))
         history.pushState(null, "", pathOf(screen) + location.search);
     };
     window.addEventListener("popstate", onPop);
@@ -850,6 +875,28 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     track("share_opened");
     setScreen("share");
   }, []);
+
+  /**
+   * Open the crew pages: one crew by its id, "new" to found one, or the
+   * player's crews. Each is an address of its own, so Back returns to the last.
+   */
+  const openCrew = useCallback((id?: string) => {
+    const path = id ? `${CREWS_PATH}/${id}` : CREWS_PATH;
+    if (location.pathname !== path) history.pushState(null, "", path + location.search);
+    setCrewPath(path);
+    setScreen("crew");
+  }, []);
+  /** Put the crew page's address in place of the one it is at, as founding a crew does once it has an id. */
+  const replaceCrew = useCallback((id: string) => {
+    const path = `${CREWS_PATH}/${id}`;
+    history.replaceState(history.state, "", path + location.search);
+    setCrewPath(path);
+  }, []);
+  const crewRoute = useMemo(() => crewRouteAt(crewPath) ?? { crew: null, found: false }, [crewPath]);
+  const dismissCrewReady = useCallback(() => {
+    if (crewReady) seeReady(crewReady);
+    setCrewReady(null);
+  }, [crewReady]);
 
   /** An invite link sent: which way, never the link itself. */
   const inviteShared = useCallback((channel: Channel) => track("invite_shared", { channel }), []);
@@ -1257,6 +1304,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     signOut,
     retryLibrary,
     inviteShared,
+    signInKnown,
+    openCrew,
+    replaceCrew,
+    crewRoute,
+    crewChanges: live.changes,
+    crewReady,
+    dismissCrewReady,
   };
 }
 

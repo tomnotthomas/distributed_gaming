@@ -116,11 +116,7 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
           )}
           {asksWhoCanPlay(view.crew) ? (
             <div className="ctl">
-              <CrewPicker
-                crew={view.crew}
-                site={siteOf(view.connection.url)}
-                onChange={actions.setCrewOnly}
-              />
+              <CrewPicker crew={view.crew} site={siteOf(view.connection.url)} onChange={actions.setCrews} />
             </div>
           ) : null}
         </div>

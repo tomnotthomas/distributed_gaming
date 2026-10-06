@@ -1,7 +1,7 @@
 // A3: go live. In rental mode the PC restarts into Swiff OS; development builds
 // can still share this Windows desktop until a chosen time.
 
-import { useState } from "react";
+import { useId } from "react";
 import { httpOrigin } from "@swiff/rtc";
 import { clock, count, HOUR, shortGpu } from "../format";
 import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
@@ -12,7 +12,7 @@ import { failureOf, rentalScreen } from "../rental";
 import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
 import { Sent } from "./Rental";
-import type { Crew } from "../report";
+import type { Crew, CrewOf } from "../report";
 import { toSocketUrl } from "../settings";
 import { listedGames, tonight, type ScreenProps } from "./types";
 
@@ -60,16 +60,23 @@ export function UntilPicker({
   );
 }
 
-/** "mika_r's crew", "your crew", or "your friend's crew" when the platform has no name for it. */
-export function crewName({ name, own }: Crew["crews"][number]): string {
-  return own ? "your crew" : name ? `${name}'s crew` : "your friend's crew";
+/** The crew's own name, else whose it is: "Your crew", "mika_r's crew", or "A friend's crew" when the platform has no name for them. */
+export function crewName({ crewName, name, own }: CrewOf): string {
+  return crewName ?? (own ? "Your crew" : name ? `${name}'s crew` : "A friend's crew");
 }
 
-/** Whether to ask who can play: once the platform says this PC's owner is in a crew, or while it is crew-only. */
+/** How a crew stands: "4 people, no PC yet", "3 people, 1 PC", or its size alone when the platform does not say. */
+export function crewLine({ size, state, pcs }: CrewOf): string {
+  const people = count(size, "person", "people");
+  if (state === "no-pc" || pcs === 0) return `${people}, no PC yet`;
+  return pcs === null ? people : `${people}, ${count(pcs, "PC", "PCs")}`;
+}
+
+/** Whether to ask who the PC plays for: once the platform says this PC's owner is in a crew, or while it is crew-only. */
 export const asksWhoCanPlay = (crew: Crew | null): crew is Crew =>
   Boolean(crew && (crew.crews.length || crew.only));
 
-/** The web app's address on the connection's server, where the owner's invite link is; null when it cannot be read. */
+/** The web app's address on the connection's server, where the owner's crews are; null when it cannot be read. */
 export function siteOf(url: string): string | null {
   try {
     return httpOrigin(toSocketUrl(url));
@@ -79,11 +86,11 @@ export function siteOf(url: string): string | null {
 }
 
 /**
- * Who can play on this PC: only the crews its owner joined from a friend's
- * invite link, or anyone on Swiff. Shown once the platform has said this PC's
- * owner is in a crew, and while it is crew-only, so a crew-only PC nobody else
- * may play on can still be opened; the platform holds the choice. `site` is
- * where the owner finds their invite link.
+ * Who this PC plays for: one switch per crew its owner is in, each sending the
+ * whole new set of crews, which makes the PC crew-only. Shown once the platform
+ * has said this PC's owner is in a crew, and while it is crew-only; a PC still
+ * open to anyone says so, and one that plays for nobody says that. `site` is
+ * where the owner starts a crew; the platform holds the choice.
  */
 export function CrewPicker({
   crew,
@@ -92,64 +99,57 @@ export function CrewPicker({
 }: {
   crew: Crew | null;
   site: string | null;
-  onChange: (only: boolean) => void;
+  onChange: (ids: string[]) => void;
 }) {
-  const [inviting, setInviting] = useState(false);
+  const id = useId();
   if (!asksWhoCanPlay(crew)) return null;
-  const crews = crew.crews.map(crewName);
-  const named = crews.length === 1 ? crews[0]! : `${crews.slice(0, -1).join(", ")} and ${crews.at(-1)}`;
-  const size = crew.crews.reduce((n, c) => n + c.size - 1, 0);
-  const choices = [
-    { only: true, b: "Crew only", span: `${count(size, "player", "players")} you know` },
-    { only: false, b: "Anyone", span: "Every player on Swiff" },
-  ];
+  // A PC open to anyone plays for no crew in particular: a pick starts the set afresh.
+  const playing = crew.only ? crew.crews.filter((c) => c.plays && c.id !== null).map((c) => c.id!) : [];
+  const toggle = (crewId: string) =>
+    onChange(playing.includes(crewId) ? playing.filter((p) => p !== crewId) : [...playing, crewId]);
   return (
     <>
-      <p className="mono label" id="crew-label">
-        Who can play
+      <p className="mono label" id={`${id}-label`}>
+        Who does your PC play for?
       </p>
-      <div className="until crew-pick" role="radiogroup" aria-labelledby="crew-label">
-        {choices.map((c) => (
-          <button
-            key={c.b}
-            type="button"
-            role="radio"
-            aria-checked={crew.only === c.only}
-            className="ut"
-            onClick={() => onChange(c.only)}
-          >
-            <b>{c.b}</b>
-            <span>{c.span}</span>
-          </button>
-        ))}
-      </div>
-      {crew.only && !crew.crews.length ? (
-        <>
-          <p className="note6">
-            Nobody in your crew can play on this PC right now.{" "}
-            <button type="button" className="lnk" onClick={() => onChange(false)}>
-              Open to everyone
-            </button>{" "}
-            or{" "}
-            <button type="button" className="lnk" onClick={() => setInviting(true)}>
-              Invite a friend
-            </button>
-            .
-          </p>
-          {inviting ? (
-            <p className="note6">
-              Open <b>{site ?? "Swiff"}</b> in your browser, sign in with Steam, and send your link from Ask
-              your PC friend on your profile.
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <p className="note6">
-          {crew.only
-            ? `Only ${named} can claim this PC.`
-            : `Anyone on Swiff can claim this PC, ${named} too.`}
+      {!crew.only ? (
+        <p className="note6 crew-now">
+          Right now anyone on Lanterel can play on this PC. Pick a crew to keep it to your friends.
         </p>
-      )}
+      ) : !crew.crews.length ? (
+        <>
+          <p className="note6 crew-now">Nobody can play on this PC right now.</p>
+          <p className="note6 crew-now">
+            Open <b>{site ? `${site}/crews` : "Lanterel"}</b> in your browser, sign in with Steam, and start a
+            crew.
+          </p>
+        </>
+      ) : !playing.length ? (
+        <p className="note6 crew-now">Nobody can play on this PC right now. Pick a crew below.</p>
+      ) : null}
+      {crew.crews.length ? (
+        <div className="until crew-pick" role="group" aria-labelledby={`${id}-label`}>
+          {crew.crews.map((c, i) => (
+            <button
+              key={c.id ?? i}
+              type="button"
+              role="switch"
+              aria-checked={crew.only && c.plays}
+              aria-labelledby={`${id}-${i}`}
+              aria-describedby={`${id}-${i}-line`}
+              className="ut"
+              disabled={c.id === null}
+              onClick={() => c.id !== null && toggle(c.id)}
+            >
+              <b id={`${id}-${i}`}>{crewName(c)}</b>
+              <span id={`${id}-${i}-line`}>{crewLine(c)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {crew.only ? (
+        <p className="note6">Strangers never get on your PC. You can change this anytime.</p>
+      ) : null}
     </>
   );
 }
@@ -188,11 +188,7 @@ export function GoLive(props: ScreenProps) {
           </p>
           {!status && !failed && asksWhoCanPlay(view.crew) ? (
             <div className="ctl">
-              <CrewPicker
-                crew={view.crew}
-                site={siteOf(view.connection.url)}
-                onChange={actions.setCrewOnly}
-              />
+              <CrewPicker crew={view.crew} site={siteOf(view.connection.url)} onChange={actions.setCrews} />
               {view.crewNote ? <Notice>{view.crewNote}</Notice> : null}
             </div>
           ) : null}
@@ -260,7 +256,7 @@ function GoLiveWindows({ view, actions, go }: ScreenProps) {
             </p>
             <UntilPicker now={now} value={plan} onChange={actions.plan} />
             <p className="note6">{untilSentence(machine, plan)}</p>
-            <CrewPicker crew={view.crew} site={siteOf(connection.url)} onChange={actions.setCrewOnly} />
+            <CrewPicker crew={view.crew} site={siteOf(connection.url)} onChange={actions.setCrews} />
             {!ready ? (
               <p className="note6">
                 Add your connection details in{" "}

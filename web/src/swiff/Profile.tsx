@@ -1,6 +1,6 @@
 import { Avatar, Button, Divider, IconButton, Kicker, Segment, SettingRow, StatusDot } from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
-import { AskFriend } from "./AskFriend";
+import { CrewsCard } from "./CrewsCard";
 import { initials } from "./Chrome";
 import { Glyph } from "./Glyph";
 import { SignInWithSteam } from "./SignIn";
@@ -58,7 +58,7 @@ export function Profile({ swiff }: { swiff: Swiff }) {
         </div>
       </header>
 
-      {signedIn ? <AskFriend persona={persona} onShared={swiff.inviteShared} /> : null}
+      {signedIn ? <CrewsCard swiff={swiff} /> : null}
 
       <Divider />
 

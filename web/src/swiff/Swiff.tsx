@@ -3,7 +3,9 @@ import { MotionContext } from "@swiff/ui";
 import { Chrome } from "./Chrome";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
-import { Invite } from "./Invite";
+import { CrewInvite } from "./CrewInvite";
+import { CrewPage } from "./CrewPage";
+import { CrewReadyBanner } from "./CrewsCard";
 import { Profile } from "./Profile";
 import { AwayDialog, MachineLost, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
@@ -62,7 +64,9 @@ export function Swiff() {
           {screen === "game" ? <GameMenu swiff={swiff} /> : null}
           {screen === "profile" ? <Profile swiff={swiff} /> : null}
           {screen === "share" ? <SharePC swiff={swiff} /> : null}
-          {screen === "invite" ? <Invite swiff={swiff} /> : null}
+          {screen === "invite" ? <CrewInvite swiff={swiff} /> : null}
+          {screen === "crew" ? <CrewPage swiff={swiff} /> : null}
+          {phase === "idle" ? <CrewReadyBanner swiff={swiff} /> : null}
         </div>
         {sheet ? <EstimateSheet swiff={swiff} /> : null}
         {phase === "idle" && swiff.lost ? <MachineLost swiff={swiff} /> : null}

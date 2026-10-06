@@ -12,8 +12,7 @@ import type { Game, Machine, Spot } from "./data";
 import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
-import { AskFriend, AskFriendStrip } from "./AskFriend";
-import type { Channel } from "./invite";
+import { CrewsCard, CrewStrip } from "./CrewsCard";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -158,15 +157,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
       </main>
     );
   if (!anythingFree)
-    return (
-      <WallEmpty
-        note={note}
-        signedIn={signedIn}
-        persona={swiff.profile?.persona ?? ""}
-        onShared={swiff.inviteShared}
-        state={emptyLine(ordered, spots)}
-      />
-    );
+    return <WallEmpty note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(ordered, spots)} />;
 
   const [hero, ...rest] = wall;
   // Signed out, the hero turns through a few games: ones free right now in the
@@ -184,7 +175,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
       <section className="band" aria-label="Games">
         {note}
-        {signedIn && !swiff.demo ? <AskFriendStrip onOpen={() => swiff.setScreen("profile")} /> : null}
+        {signedIn && !swiff.demo ? <CrewStrip swiff={swiff} /> : null}
         <div className="band-tabs">
           {signedIn && library === "ok" ? (
             <>
@@ -544,14 +535,12 @@ function LibraryNote({
 function WallEmpty({
   note,
   signedIn,
-  persona,
-  onShared,
+  swiff,
   state,
 }: {
   note?: ReactNode;
   signedIn: boolean;
-  persona: string;
-  onShared?: (channel: Channel) => void;
+  swiff: Swiff;
   state: string;
 }) {
   return (
@@ -566,8 +555,8 @@ function WallEmpty({
         }
         action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
       />
-      {/* A friend's PC, hosting the crew, is the way to a machine when none is free. */}
-      {signedIn ? <AskFriend persona={persona} onShared={onShared} /> : null}
+      {/* A gaming PC in the player's crew is the way to play when none is free. */}
+      {signedIn ? <CrewsCard swiff={swiff} /> : null}
     </main>
   );
 }
