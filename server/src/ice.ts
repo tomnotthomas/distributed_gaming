@@ -5,8 +5,11 @@
 //
 // Every credential is one seat's in one session: minted when the renter joins,
 // one for them (in `joined`) and one for the PC (in `peer-joined`), and good
-// only until their ticket, and so the session, ends. Nobody is ever handed the
-// relay's own secret or a credential that outlives the session it was given
+// until their ticket expires. A session that ends sooner (ended early, its
+// ticket revoked, the renter put out) cannot take it back: neither coturn nor
+// Cloudflare can revoke a REST-style TURN credential, so what one exposes is
+// bounded by its ticket, not by the session's end. Nobody is ever handed the
+// relay's own secret or a credential that outlives the ticket it was minted
 // for, and a peer that is in no session gets none.
 //
 //   TURN_URLS             The relay's URLs, comma-separated.
