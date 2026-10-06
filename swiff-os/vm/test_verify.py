@@ -10,13 +10,16 @@ Usage: python3 vm/test_verify.py
 import hashlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from unittest import mock
 
 sys.dont_write_bytecode = True
@@ -374,6 +377,49 @@ class Robustness(Library):
             self.assertIsNone(verify.table_key(create=True))
         self.assertFalse(os.path.lexists(os.path.join(self.volume, verify.KEY)))
         self.assertEqual(verify.load_table(None)[1], "no table key")
+
+
+class UntrustedBytes(Library):
+    """Bytes another OS wrote are refused as data, never by crashing the service."""
+
+    def test_an_unreadable_zipped_manifest_is_a_value_error(self):
+        """A corrupt or empty zipped manifest refuses only the game that holds it."""
+        empty = io.BytesIO()
+        zipfile.ZipFile(empty, "w").close()
+        for data in (b"PK\x03\x04" + b"\0" * 60, b"PK\x03\x04" + empty.getvalue()):
+            with self.assertRaisesRegex(ValueError, "not a readable zipped manifest"):
+                verify.read_manifest(data)
+
+    def test_an_oversized_table_is_tampered_and_not_parsed(self):
+        """A table larger than the limit is refused before any parsing."""
+        verify.save_table(KEY, self.table)
+        with mock.patch.object(verify, "TABLE_LIMIT", 16), mock.patch.object(verify.json, "loads", side_effect=AssertionError("parsed")):
+            self.assertEqual(verify.load_table(KEY)[1], verify.TABLE_TAMPERED)
+
+    def test_a_deeply_nested_table_is_tampered(self):
+        """JSON nested past the parser's recursion limit is a tampered table."""
+        write(os.path.join(self.volume, verify.TABLE), b"[" * 200000 + b"]" * 200000)
+        self.assertEqual(verify.load_table(KEY)[1], verify.TABLE_TAMPERED)
+
+    def test_a_table_over_the_limit_is_not_written(self):
+        """Saving a table the next boot would refuse fails and writes nothing."""
+        with mock.patch.object(verify, "TABLE_LIMIT", 16):
+            with self.assertRaises(OSError):
+                verify.save_table(KEY, self.table)
+        self.assertFalse(os.path.lexists(os.path.join(self.volume, verify.TABLE)))
+
+    def test_a_replaced_file_has_its_folder_synced(self):
+        """write_atomic syncs the folder after the rename."""
+        synced, real_fsync = [], os.fsync
+
+        def fsync(fd):
+            """Records whether each synced descriptor is a folder."""
+            synced.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+            real_fsync(fd)
+
+        with mock.patch.object(verify.os, "fsync", fsync):
+            verify.save_table(KEY, self.table)
+        self.assertEqual(synced, [False, True])
 
 
 class SealOrdering(unittest.TestCase):

@@ -154,9 +154,10 @@ every file in Steam's depot manifests, its folders, the manifests' own hashes, a
 Steam's app manifest, and the files present but not in the manifests ("extras"). It also records the
 TPM `resetCount` and `restartCount` of the last rental-mode boot. It is authenticated with an HMAC whose
 key is sealed to the TPM under PCR 7 (`systemd-creds`, `SwiffOS/table-key.cred`). The owner's Windows
-can delete the table, which costs a new bootstrap, but cannot forge it. Rental mode never writes on the
-volume through a symlink: if `SwiffOS` is not a real folder, the library is used read-only for that
-boot.
+can delete the table, which costs a new bootstrap, but cannot forge it. A table over 256 MiB, or one
+nested to exhaust the JSON parser, is refused as tampered before its HMAC is checked. Rental mode
+never writes on the volume through a symlink: if `SwiffOS` is not a real folder, the library is used
+read-only for that boot.
 
 The key is created only when there is none. If it no longer unseals, for example after a Secure Boot
 update changed PCR 7, rental mode tries three times, then keeps the credential and blocks every game.

@@ -55,6 +55,7 @@ import subprocess
 import sys
 import time
 import zipfile
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 
 LABEL = "SWIFFGAMES"
@@ -87,6 +88,9 @@ TABLE_TAMPERED = "the verified table failed its integrity check"
 # A table that is only unreadable (an I/O error) or newer than this OS (a
 # rollback to the other slot) is still the owner's: nothing replaces it.
 TABLE_KEPT = (TABLE_UNREADABLE, TABLE_UNKNOWN)
+# Far above any real library (about 200 bytes a file), far below what parsing
+# another OS's bytes before the HMAC check should be allowed to cost.
+TABLE_LIMIT = 256 << 20
 # The session layer's share of the library's free space, in percent. The rest
 # stays free, so that an update the session layer holds fits onto the library.
 SESSION_SHARE = int(os.environ.get("SWIFF_GAMES_SESSION_SHARE", "50"))
@@ -135,6 +139,12 @@ def write_atomic(path, data, mode=0o644, owner=None):
     if owner:
         own(tmp, owner)
     os.replace(tmp, path)
+    # The rename itself must survive a power cut too.
+    dfd = os.open(os.path.dirname(path) or ".", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def own(path, owner):
@@ -326,8 +336,14 @@ def decrypt_name(text, key):
 def read_manifest(data, depot_key=None):
     """Reads a Steam depot manifest (the binary protobuf format of depotcache)."""
     if data[:4] == b"PK\x03\x04":
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            data = z.read(z.namelist()[0])
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                first = z.infolist()[0]
+                if first.file_size > 256 << 20:
+                    raise ValueError("its compressed manifest is too large")
+                data = z.read(first)
+        except (zipfile.BadZipFile, IndexError, NotImplementedError, RuntimeError, EOFError, zlib.error) as e:
+            raise ValueError(f"not a readable zipped manifest ({e or type(e).__name__})") from e
     sections, pos = {}, 0
     while pos + 4 <= len(data):
         magic = struct.unpack_from("<I", data, pos)[0]
@@ -455,10 +471,17 @@ def load_table(key):
     empty = {"version": 1, "reset_count": None, "restart_count": None, "apps": {}}
     if key is None:
         return empty, KEY_LOCKED if os.path.lexists(os.path.join(VOLUME, KEY)) else "no table key"
+    path = os.path.join(VOLUME, TABLE)
     try:
-        doc = json.loads(read_regular(os.path.join(VOLUME, TABLE), 1 << 30))
+        st = os.lstat(path)
+        if stat.S_ISREG(st.st_mode) and st.st_size > TABLE_LIMIT:
+            return empty, TABLE_TAMPERED
+        doc = json.loads(read_regular(path, TABLE_LIMIT))
     except FileNotFoundError:
         return empty, "no verified table yet"
+    except (RecursionError, MemoryError):
+        # Nested or sized to exhaust the parser: no table Swiff wrote.
+        return empty, TABLE_TAMPERED
     except OSError:
         return empty, TABLE_UNREADABLE
     except ValueError:
@@ -475,9 +498,12 @@ def load_table(key):
 
 def save_table(key, table):
     """Writes the table and its HMAC to the library volume."""
-    doc = {"hmac": mac(key, table), "table": table}
+    doc = json.dumps({"hmac": mac(key, table), "table": table}, sort_keys=True).encode()
+    if len(doc) > TABLE_LIMIT:
+        # The next boot would refuse it as tampered.
+        raise OSError(errno.EFBIG, "the verified table would exceed its size limit", TABLE)
     swiff_dir()
-    write_atomic(os.path.join(VOLUME, TABLE), json.dumps(doc, sort_keys=True).encode())
+    write_atomic(os.path.join(VOLUME, TABLE), doc)
 
 
 # --- Mounts -------------------------------------------------------------------
