@@ -95,6 +95,32 @@ describe("useRental", () => {
     expect(result.current.preview).toBeNull();
   });
 
+  it("stops getting a plan ready when a read of the PC throws it away, so the stage keeps its action", async () => {
+    let land: (read: null) => void = () => {};
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    host.readRental = vi.fn(() => new Promise<null>((done) => (land = done)));
+    act(() => result.current.check());
+    act(() => result.current.plan("uninstall"));
+    expect(result.current.planning).toBe(true);
+    await act(async () => land(null));
+    expect(result.current.planning).toBe(false);
+    await answer(0, plan("uninstall", "late"));
+    expect(result.current.planning).toBe(false);
+    expect(result.current.preview).toBeNull();
+  });
+
+  it("stops getting a plan ready when Go live plans afresh over it", async () => {
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.plan("uninstall"));
+    act(() => result.current.goLive());
+    expect(result.current.planning).toBe(false);
+    await answer(0, plan("uninstall", "late"));
+    expect(result.current.planning).toBe(false);
+  });
+
   it("shows only the latest plan when an earlier one answers last", async () => {
     const { result } = renderHook(() => useRental());
     await act(async () => {}); // the first read has landed: the screen offers plans only then

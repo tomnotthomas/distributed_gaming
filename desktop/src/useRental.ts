@@ -80,9 +80,12 @@ export function useRental(): RentalSetup & {
   // The plan being run, for its events: they name steps, the plan says what each writes.
   const running = useRef<RentalPlan | null>(null);
   const busy = run.status === "starting" || run.status === "running" || run.status === "restarting";
-  const drop = () => {
-    plans.current++;
+  const nextPlan = () => {
     setPlanning(false);
+    return ++plans.current;
+  };
+  const drop = () => {
+    nextPlan();
     setPreview(null);
     setRun(IDLE_RUN);
   };
@@ -100,7 +103,7 @@ export function useRental(): RentalSetup & {
         if (n !== reads.current) return;
         // A plan asked for during the read was built from the old one: it describes a PC that has moved on.
         if (!keep) {
-          plans.current++;
+          nextPlan();
           setPreview(null);
         }
         setRead(next);
@@ -199,7 +202,7 @@ export function useRental(): RentalSetup & {
   const again = (kind: RentalPlan["kind"]) => {
     const host = bridge();
     if (!host || busy) return;
-    const n = ++plans.current;
+    const n = nextPlan();
     void host
       .planRental({ kind, target })
       .catch(() => null)
@@ -237,7 +240,7 @@ export function useRental(): RentalSetup & {
     },
     plan: (kind) => {
       if (busy) return;
-      const n = ++plans.current;
+      const n = nextPlan();
       setRun(IDLE_RUN);
       const asked = bridge()?.planRental({ kind, target });
       if (!asked) return;
@@ -299,7 +302,7 @@ export function useRental(): RentalSetup & {
       if (!host || busy) return;
       // Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on
       // Swiff OS handing the PC back. Holding Go live is the owner's OK, so it restarts by itself.
-      const n = ++plans.current;
+      const n = nextPlan();
       void host
         .planRental({ kind: "once" })
         .catch(() => null)
