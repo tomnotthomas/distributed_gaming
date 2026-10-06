@@ -16,10 +16,10 @@
 // Nothing is written from a file whose size or SHA-256 differs from the
 // manifest's, and no manifest is read that a key the app trusts did not sign.
 // The app ships the keys it trusts in image-trust.json, each with the SHA-256
-// of the certificate its sets must carry. The release key's private half is a
-// secret of the image release step (SWIFF_OS_SIGNING_KEY in
-// swiff-os/image-set.sh), never in the repository, and still to be made: until
-// then a release build refuses every set. A test build (build-kind.cjs) also
+// of the certificate its sets must carry. Lanterel's release keys are made and
+// kept on the machine that signs releases (swiff-os/release-key.sh), never in
+// the repository: image-trust.json holds only their public halves, which
+// `image-set.cjs add-trust` writes there. A test build (build-kind.cjs) also
 // trusts image-trust.dev.json beside this file: the public half of a key pair
 // made on the developer's own machine.
 
@@ -281,6 +281,82 @@ function trustEntry(key, cert, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE)
   };
 }
 
+/** SHA-256 of a public key's SPKI DER: the fingerprint image-trust.json lists it by. */
+const fingerprintOf = (publicKey) =>
+  crypto
+    .createHash("sha256")
+    .update(publicKey.export({ type: "spki", format: "der" }))
+    .digest("hex");
+
+/**
+ * The public halves of a release key pair, as text: the image signing key in
+ * encrypted PEM file `key`, the Secure Boot certificate (PEM) in `cert`, and
+ * both fingerprints. What release-key.sh prints, and what add-trust reads.
+ */
+function publicOf(key, cert, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
+  const publicKey = crypto.createPublicKey(signingKeyOf(key, passphrase));
+  const x509 = new crypto.X509Certificate(fs.readFileSync(cert));
+  return [
+    "Image signing public key (Ed25519):",
+    publicKey.export({ type: "spki", format: "pem" }).trim(),
+    `Image signing key fingerprint (SHA-256 of SPKI DER): ${fingerprintOf(publicKey)}`,
+    `Secure Boot certificate (${x509.subject.replace(/\n/g, ", ")}):`,
+    x509.toString().trim(),
+    `Secure Boot certificate SHA-256 (DER, swiffos-key.cer): ${crypto.createHash("sha256").update(x509.raw).digest("hex")}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * The image-trust.json entry for the public halves in `text` (publicOf's
+ * output): its Ed25519 public key and the SHA-256 of its certificate's DER,
+ * which is what swiffos-key.cer holds. Each is worked out from the PEM itself,
+ * and a fingerprint printed beside it must agree.
+ */
+function releaseTrustOf(text) {
+  if (/PRIVATE KEY-----/.test(text))
+    throw new Error("This holds a private key: give only the public halves release-key.sh prints.");
+  const pem = (label) => {
+    const found =
+      text.match(new RegExp(`-----BEGIN ${label}-----[\\s\\S]*?-----END ${label}-----`, "g")) ?? [];
+    if (found.length !== 1) throw new Error(`Expected one ${label} block, found ${found.length}.`);
+    return found[0];
+  };
+  const publicKey = crypto.createPublicKey(pem("PUBLIC KEY"));
+  if (publicKey.asymmetricKeyType !== "ed25519")
+    throw new Error("The image signing key is not an Ed25519 key.");
+  const cert = new crypto.X509Certificate(pem("CERTIFICATE"));
+  const entry = {
+    publicKey: publicKey.export({ type: "spki", format: "pem" }),
+    fingerprint: fingerprintOf(publicKey),
+    certSha256: crypto.createHash("sha256").update(cert.raw).digest("hex"),
+  };
+  const printed = (what) => text.match(new RegExp(`${what}[^:\\n]*: ([0-9a-f]{64})`))?.[1];
+  for (const [what, want] of [
+    ["Image signing key fingerprint", entry.fingerprint],
+    ["Secure Boot certificate SHA-256", entry.certSha256],
+  ]) {
+    const got = printed(what);
+    if (got !== undefined && got !== want) throw new Error(`The printed ${what} is not the one its PEM has.`);
+  }
+  return entry;
+}
+
+/**
+ * Add the release entry for the public halves in `text` (releaseTrustOf) to
+ * the trust list in `file`, after the keys there: each stays trusted until it
+ * is taken out by hand. Returns whether it was added (not already listed).
+ */
+function addTrust(text, file = path.join(__dirname, "image-trust.json")) {
+  const entry = releaseTrustOf(text);
+  const list = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!Array.isArray(list)) throw new Error(`${file} is not a list.`);
+  if (list.some((t) => t?.fingerprint === entry.fingerprint && t.certSha256 === entry.certSha256))
+    return false;
+  fs.writeFileSync(file, `${JSON.stringify([...list, entry], null, 2)}\n`);
+  return true;
+}
+
 /**
  * Write the manifest of the image set in `dir`: the layout of the full disk
  * image `image` it was split from, and every file's size and SHA-256.
@@ -335,6 +411,10 @@ module.exports = {
   newSigningKey,
   signManifest,
   trustEntry,
+  fingerprintOf,
+  publicOf,
+  releaseTrustOf,
+  addTrust,
   writeManifest,
 };
 
@@ -342,7 +422,10 @@ module.exports = {
 //   node image-set.cjs manifest <dir> <full-image.raw> <version>
 //   node image-set.cjs devkey <private-key.pem>                     a new key, encrypted with $SWIFF_OS_KEY_PASSPHRASE
 //   node image-set.cjs sign <dir> <private-key.pem>
-//   node image-set.cjs trust <private-key.pem> <swiffos-key.cer>     the image-trust.json entry, as JSON
+//   node image-set.cjs trust <private-key.pem> <swiffos-key.cer>     the image-trust.dev.json entry, as JSON
+//   node image-set.cjs public <private-key.pem> <secure-boot.crt>    a release key pair's public halves (release-key.sh)
+//   node image-set.cjs add-trust <public.txt>                        add them to image-trust.json
+//   node image-set.cjs verify <dir>                                  whether a release build reads the set in <dir>
 if (require.main === module) {
   const [cmd, a, b, c] = process.argv.slice(2);
   const failed = (error) => {
@@ -354,10 +437,19 @@ if (require.main === module) {
     else if (cmd === "devkey") newSigningKey(a);
     else if (cmd === "sign") signManifest(a, b);
     else if (cmd === "trust") console.log(JSON.stringify([trustEntry(a, b)], null, 2));
+    else if (cmd === "public") process.stdout.write(publicOf(a, b));
+    else if (cmd === "add-trust")
+      console.log(
+        addTrust(fs.readFileSync(a, "utf8")) ? "Added to image-trust.json." : "Already in image-trust.json.",
+      );
+    else if (cmd === "verify")
+      console.log(
+        `A release build reads Swiff OS ${readImageSet(a, { trust: trustOf({ dev: false }) }).version} in ${a}.`,
+      );
     else if (cmd === "manifest") writeManifest(a, b, c).catch(failed);
     else {
       console.error(
-        "usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version> | devkey <key.pem> | sign <dir> <key.pem> | trust <key.pem> <cert>",
+        "usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version> | devkey <key.pem> | sign <dir> <key.pem> | trust <key.pem> <cert> | public <key.pem> <cert.pem> | add-trust <public.txt> | verify <dir>",
       );
       process.exit(2);
     }
