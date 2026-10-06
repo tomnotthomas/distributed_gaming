@@ -150,13 +150,19 @@ describe("signaling", () => {
     assert.ok(types(host).includes("peer-joined"), "host was told a renter arrived");
     assert.equal(joinedMessage(client).hostOnline, true);
 
+    // Polls rather than waiting a fixed time, which a loaded machine outruns.
+    const arrived = async (ws: RecordingSocket, type: SignalMessage["type"]) => {
+      for (let waited = 0; waited < 5_000 && !types(ws).includes(type); waited += 10) await wait(10);
+    };
+
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
-    await wait(100);
+    await arrived(client, "offer");
     assert.ok(types(client).includes("offer"), "offer reached the client");
 
     send(client, { type: "answer", sdp: { type: "answer", sdp: "x" } });
     send(client, { type: "ice", candidate: { candidate: "x" } });
-    await wait(100);
+    await arrived(host, "answer");
+    await arrived(host, "ice");
     assert.ok(types(host).includes("answer"), "answer reached the host");
     assert.ok(types(host).includes("ice"), "ice reached the host");
 
