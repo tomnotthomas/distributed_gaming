@@ -160,6 +160,8 @@ The key is created only when there is none. If it no longer unseals, for example
 update changed PCR 7, rental mode tries three times, then keeps the credential and blocks every game.
 The report's `table` field tells the host app that the owner must bootstrap the games again. That
 bootstrap is the only thing that seals a new key: the new table then holds just the games it validated.
+If the TPM cannot seal a key, rental mode runs as without one: every game stays unverified, any old
+credential is kept, and nothing is promoted, not even the owner's bootstrap.
 
 A table that cannot be read (an I/O error, or not a regular file) or that has a newer version than
 this OS, as after a rollback to the other slot, is kept as it is: every game shows as not
@@ -300,8 +302,9 @@ image twelve times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secur
 Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff-verify`'s decisions on
 plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a
 hibernated OS, the session layer's size, an update that does not fit on the library or whose copy is
-cut short, a block that must survive the next quick check, a table key that does not unseal, and a
-newer table that a bootstrap must not replace. Run
+cut short, a block that must survive the next quick check, a table key that does not unseal or a
+TPM that cannot seal one, a newer table that a bootstrap must not replace, and KeyValues nested too
+deeply. Run
 them alone with `python3 swiff-os/vm/test_verify.py`.
 
 The games library comes from `vm/games-fixture.py`. It writes a 1 GiB NTFS library through
@@ -350,7 +353,8 @@ host's view. Together they cover:
     blocked at the next quick boot, also after the view is mounted again.
   - The session layer leaves at least as much of the library free as it can hold.
   - A table key that does not unseal blocks every game and is kept, until the owner's bootstrap
-    seals a new one.
+    seals a new one. If the TPM cannot seal, the old key is kept and nothing is promoted, and
+    without a key every game stays unverified while the games service still runs.
   - A newer or unreadable table is kept through the owner's bootstrap, and a corrupt one is
     refused for a renter's update and replaced by the owner's bootstrap.
 - The disk image fits the 24 GiB budget.
