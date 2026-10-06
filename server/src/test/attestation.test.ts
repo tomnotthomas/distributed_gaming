@@ -167,7 +167,11 @@ describe("credentials", () => {
 });
 
 describe("NVIDIA rental hosting (NVIDIA_RENTAL)", () => {
-  const nvidiaOff = { ok: false, status: 403, body: { error: "attestation-refused", reason: "nvidia-rental-off" } };
+  const nvidiaOff = {
+    ok: false,
+    status: 403,
+    body: { error: "attestation-refused", reason: "nvidia-rental-off" },
+  };
   const switched = (nvidiaRental: boolean) =>
     createAttestation({ access: ACCESS, verifier: devVerifier, attestedOnly: true, nvidiaRental });
 
@@ -179,7 +183,10 @@ describe("NVIDIA rental hosting (NVIDIA_RENTAL)", () => {
     const other = await attestation.attest("pc-1", nonce, evidence(), undefined, "other");
     assert.ok(other.ok, "the same challenge still earns a certificate on other graphics");
     assert.equal(verifyHostCert(SECRET, other.grant.hostCert)?.nvidia, false);
-    assert.ok((await attestation.attest("pc-1", nonceFor(attestation), evidence())).ok, "nothing said is other");
+    assert.ok(
+      (await attestation.attest("pc-1", nonceFor(attestation), evidence())).ok,
+      "nothing said is other",
+    );
   });
 
   it("mints a certificate that says NVIDIA while it is on", async () => {

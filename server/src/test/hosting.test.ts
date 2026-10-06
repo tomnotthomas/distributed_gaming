@@ -290,7 +290,10 @@ describe("hosting requires attestation", () => {
       evidence: { machineKey: MACHINE_KEY, facts: FACTS },
       graphics: "nvidia",
     });
-    assert.deepEqual(nvidia, { status: 403, body: { error: "attestation-refused", reason: "nvidia-rental-off" } });
+    assert.deepEqual(nvidia, {
+      status: 403,
+      body: { error: "attestation-refused", reason: "nvidia-rental-off" },
+    });
   });
 
   it("keeps a machine the machine key offers off the market until an attested socket is open", async () => {
