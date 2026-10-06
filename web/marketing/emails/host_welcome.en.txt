@@ -1,0 +1,15 @@
+Subject: Welcome, Founding Host. Your seats are ready.
+
+Your rig is in
+
+Thanks for sharing your gaming PC. To start with, only people you invite can play on it.
+
+You've got three seats at your rig. Send them to friends on a Mac or laptop, and each seat is held for 14 days. You decide in the {{brand}} app when your PC is free.
+
+Hosting is unpaid during the beta. In return, you get your own rig page and Founding Host status.
+
+Share my seats: {seats_url}
+
+--
+You're getting this email because you applied as a {{brand}} Founding Host. What {{brand}} OS does on your PC is explained at {{siteHost}}/lanterel-os.
+{{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}

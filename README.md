@@ -58,6 +58,17 @@ their own games there. See [Friend seats](docs/system-design/renter.md#friend-se
 
 Code: `web/`, `server/`, `packages/`.
 
+## Marketing site
+
+The public launch pages, under the product's new name Lanterel (`server/src/brand.ts`, the one place
+it is set), live in `web/marketing/`, imported from marketing's built set with
+`node server/scripts/import-launch-pages.mjs <built set>`. The same server serves them, off unless
+`MARKETING_PAGES=on`, and then only on the host `SITE_ORIGIN` names, so the app keeps its own `/`,
+`/share` and `/host`. The invite pages (`/crew/<code>`, `/seat/`, `/gift/`, `/night/`) show only
+what the product knows about an invite; the waitlist and Founding Host forms post to
+`POST /api/signups`, with double opt-in. The mails go into the `marketing_outbox` table: nothing
+sends them yet. See `server/src/marketing.ts` and `server/src/signups.ts`.
+
 ## Host side (gaming PC app)
 
 ```bash

@@ -1,0 +1,106 @@
+{
+ "crew": {
+  "title": {
+   "de": "PC-Freund fragen (Spieler an Freund mit Gaming-PC)",
+   "en": "Ask your PC friend (player to a friend with a gaming PC)"
+  },
+  "whatsapp": {
+   "de": "Hey, ich hab jetzt einen Mac und vermisse unsere Runden. Mit {{brand}} könnte ich mit meinem eigenen Steam-Konto auf deinem PC zocken, wenn du nicht dran bist. Kostet nix. Ob dein PC passt, siehst du hier: {link}",
+   "en": "Hey, I've got a Mac now and I miss our sessions. With {{brand}} I could play on your PC when you're not using it, with my own Steam account. Costs nothing. You can check if your PC can handle it here: {link}"
+  },
+  "discord": {
+   "de": "Kurze Frage an die PC-Fraktion: Ich bin auf Mac umgestiegen und würde gern weiter mitzocken. Mit {{brand}} ginge das über einen eurer PCs, wenn ihr gerade nicht dran seid, nur für unsere Crew. Hat jemand Lust? {link}",
+   "en": "Question for the PC people here: I've switched to a Mac but I'd love to keep playing with you. With {{brand}} I could use one of your PCs when you're not on it, crew only. Anyone up for it? {link}"
+  },
+  "steam": {
+   "de": "Hab jetzt nen Mac. Darf ich auf deinem PC zocken, wenn du nicht dran bist? Läuft über {{brand}}, kostet nix: {link}",
+   "en": "Got a Mac now. Mind if I play on your PC when you're not on it? It runs through {{brand}} and it's free: {link}"
+  },
+  "email_subject": {
+   "de": "Darf ich auf deinem PC zocken?",
+   "en": "Can I borrow your rig?"
+  },
+  "email_body": {
+   "de": "Hi {name},\n\nich hab jetzt einen Mac, und mir fehlen unsere Runden. Es gibt da was Neues, das heißt {{brand}}: Damit könnte ich mit meinem eigenen Steam-Konto auf deinem Gaming-PC spielen, wenn du ihn nicht brauchst. {{brand}} läuft als eigenes System neben deinem Windows, an deine Sachen kommt keiner ran.\n\nOb dein PC passt, siehst du hier in einer Minute: {link}\n\nWürde mich echt freuen!\n{sender}",
+   "en": "Hi {name},\n\nI've got a Mac now and I miss our sessions. There's this new thing called {{brand}}: it would let me play on your gaming PC when you're not using it, with my own Steam account. {{brand}} runs as its own system alongside Windows, so nobody gets near your stuff.\n\nYou can check in a minute whether your PC can handle it: {link}\n\nLet me know if you're up for it!\n{sender}"
+  }
+ },
+ "rig": {
+  "title": {
+   "de": "Platz an meinem Rig (Host an Freund)",
+   "en": "A seat at my rig (host to a friend)"
+  },
+  "whatsapp": {
+   "de": "Hab dir einen Platz an meinem Rig freigehalten. Damit zockst du deine Steam-Spiele auf meinem PC, vom Mac aus, direkt im Browser. Gilt 14 Tage: {link}",
+   "en": "I saved you a seat at my rig. You can play your Steam games on my PC, from your Mac, right in the browser. It's yours for 14 days: {link}"
+  },
+  "discord": {
+   "de": "Mein PC hat abends Platz für zwei, drei Leute aus der Crew. Wer auf dem Mac oder Laptop hängt und mitzocken will: Hier ist euer Link, die Plätze sind 14 Tage reserviert. {link}",
+   "en": "My PC has room for two or three people from the crew in the evenings. If you're stuck on a Mac or a laptop and want in, grab a seat here. Seats are held for 14 days: {link}"
+  },
+  "steam": {
+   "de": "Hab dir einen Platz an meinem Rig reserviert, 14 Tage: {link}",
+   "en": "Saved you a seat at my rig, good for 14 days: {link}"
+  },
+  "email_subject": {
+   "de": "Ein Platz an meinem Rig für dich",
+   "en": "Saved you a seat at my rig"
+  },
+  "email_body": {
+   "de": "Hi {name},\n\nich teile meinen Gaming-PC über {{brand}}, und einer der Plätze ist für dich. Du zockst deine eigenen Steam-Spiele darauf, von deinem Mac aus, direkt in Chrome. Kein Download, kein eigener Gaming-PC nötig.\n\nDer Platz ist 14 Tage für dich freigehalten: {link}\n\nBis bald beim Zocken!\n{sender}",
+   "en": "Hi {name},\n\nI'm sharing my gaming PC through {{brand}}, and one of the seats is yours. You can play your own Steam games on it from your Mac, right in Chrome. No download, and you don't need a gaming PC of your own.\n\nI'm holding the seat for you for 14 days: {link}\n\nSee you in game!\n{sender}"
+  }
+ },
+ "gift": {
+  "title": {
+   "de": "Platz verschenken (nach einer guten Runde)",
+   "en": "Gift a seat (after a good session)"
+  },
+  "whatsapp": {
+   "de": "Hab grad auf meinem MacBook Counter-Strike gezockt, über {{brand}}, ganz ohne Windows. Und ich hab einen Platz für dich, damit sparst du dir die Warteliste. Gilt 14 Tage: {link}",
+   "en": "Just played Counter-Strike on my MacBook through {{brand}}, no Windows needed. Got you a seat so you can skip the waitlist. Good for 14 days: {link}"
+  },
+  "discord": {
+   "de": "Hab {{brand}} ausprobiert: Steam-Spiele auf dem Mac, gestreamt von einem Gaming-PC in Deutschland. Läuft echt gut. Ich hab zwei Plätze zu verschenken, wer zuerst klickt, kriegt einen: {link}",
+   "en": "Just tried {{brand}}: Steam games on a Mac, streamed from a gaming PC in Germany. Works really well. I've got two seats to give away, first come, first served: {link}"
+  },
+  "steam": {
+   "de": "Hab einen {{brand}}-Platz für dich: deine Steam-Spiele auf dem Mac. Gilt 14 Tage: {link}",
+   "en": "Got you a {{brand}} seat: Steam games on your Mac. Good for 14 days: {link}"
+  },
+  "email_subject": {
+   "de": "Ich schenk dir einen Platz bei {{brand}}",
+   "en": "I got you a seat on {{brand}}"
+  },
+  "email_body": {
+   "de": "Hi {name},\n\nich hab gerade auf meinem MacBook gezockt, über {{brand}}: Das Spiel läuft auf einem Gaming-PC in Deutschland, ich seh's im Browser. Hat richtig Spaß gemacht.\n\nIch hab einen Platz für dich bekommen. Damit musst du nicht auf die nächste Einladungswelle warten. Der Platz gilt 14 Tage: {link}\n\nViel Spaß!\n{sender}",
+   "en": "Hi {name},\n\nI've just been gaming on my MacBook with {{brand}}: the game runs on a gaming PC in Germany and streams to my browser. Really fun.\n\nI got you a seat, so you don't have to wait for the next wave of invites. It's good for 14 days: {link}\n\nHave fun!\n{sender}"
+  }
+ },
+ "night": {
+  "title": {
+   "de": "Crew-Abend (2 bis 4 Leute)",
+   "en": "Crew Night (2 to 4 people)"
+  },
+  "whatsapp": {
+   "de": "Freitag 21 Uhr Crew-Abend? Zwei PCs sind am Start, einer ist für dich. Sag kurz zu, dann ist dein Platz sicher: {link}",
+   "en": "Crew Night on Friday at 9? Two PCs are ready and one's yours. Say yes and your seat's locked in: {link}"
+  },
+  "discord": {
+   "de": "@crew Freitag ab 21 Uhr wird gezockt. Zwei Rigs sind am Start, Platz für vier. Wer dabei ist, sagt hier zu: {link}",
+   "en": "@crew Game night Friday from 9 pm. Two rigs confirmed, room for four. If you're in, hit yes here: {link}"
+  },
+  "steam": {
+   "de": "Freitag 21 Uhr, Crew-Abend. Bist du dabei? {link}",
+   "en": "Crew Night, Friday 9 pm. You in? {link}"
+  },
+  "email_subject": {
+   "de": "Freitag, 21 Uhr: Crew-Abend",
+   "en": "Crew Night, Friday at 9 pm"
+  },
+  "email_body": {
+   "de": "Hi {name},\n\nFreitag ab 21 Uhr zocken wir zusammen. Zwei Gaming-PCs stehen bereit, einer davon ist für dich. Du brauchst nur deinen Mac mit Chrome, dein Steam-Konto und die Steam-App auf dem Handy.\n\nSag hier kurz zu: {link}\n\nBis Freitag!\n{sender}",
+   "en": "Hi {name},\n\nWe're having a game night on Friday from 9 pm. Two gaming PCs are ready and one of them is yours. All you need is your Mac with Chrome, your Steam account and the Steam app on your phone.\n\nSay yes here: {link}\n\nSee you Friday!\n{sender}"
+  }
+ }
+}

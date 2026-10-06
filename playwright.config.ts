@@ -69,7 +69,14 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: `http://127.0.0.1:${PORT}`,
-    env: { PORT: String(PORT), ...E2E_ENV },
+    // The marketing site on a host of its own (*.localhost is loopback to the
+    // browser), so every other spec keeps the app at 127.0.0.1.
+    env: {
+      PORT: String(PORT),
+      ...E2E_ENV,
+      MARKETING_PAGES: "on",
+      SITE_ORIGIN: `http://lanterel.localhost:${PORT}`,
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     stdout: "pipe",

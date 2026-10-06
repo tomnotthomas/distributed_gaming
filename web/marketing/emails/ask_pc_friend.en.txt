@@ -1,0 +1,15 @@
+Subject: You're on the list. Know someone with a gaming PC?
+
+You're on the list
+
+We're sending invites in waves, Germany first. There's a faster way: ask a friend with a gaming PC if you can play on it when they're not using it.
+
+They install {{brand}} OS alongside Windows, and you play from your Mac on your own Steam account. It's just your crew to start with.
+
+Here's your link to share. You'll find ready-made messages for WhatsApp, Discord and Steam on the page.
+
+Get my link: {share_url}
+
+--
+You're getting this email because you signed up for the {{brand}} beta. You can unsubscribe anytime with one click.
+{{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}
