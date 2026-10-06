@@ -37,10 +37,18 @@ export type SeatList = { seats: HostSeat[]; max: number };
 /**
  * Why a call did not go through: the PC is not known to the platform yet, has
  * no owner on record, has every seat given out, its owner is in too many crews
- * to found one for it, the name was refused, the seat is gone, or no answer.
+ * to found one for it, the name was refused, the seat is gone, the machine key
+ * was refused, or no answer.
  */
 export type SeatError =
-  "unknown-machine" | "no-owner" | "full" | "too-many-crews" | "bad-name" | "not-found" | "failed";
+  | "unknown-machine"
+  | "no-owner"
+  | "full"
+  | "too-many-crews"
+  | "bad-name"
+  | "not-found"
+  | "bad-key"
+  | "failed";
 
 export type SeatResult<T> = { ok: true; value: T } | { ok: false; error: SeatError };
 
@@ -58,6 +66,8 @@ const CODES: readonly SeatError[] = ["unknown-machine", "no-owner", "full", "too
 /** The error a refused answer names. */
 async function errorOf(res: Response): Promise<SeatError> {
   if (res.status === 400) return "bad-name";
+  // A wrong machine key: waiting never fixes it.
+  if (res.status === 401) return "bad-key";
   if (res.status === 404) return "not-found";
   if (res.status === 409) {
     const code = ((await res.json().catch(() => null)) as { code?: unknown } | null)?.code;
@@ -148,6 +158,8 @@ export function seatErrorLine(error: SeatError, max: number): string {
       return "Give your friend a name.";
     case "not-found":
       return "That seat is gone already.";
+    case "bad-key":
+      return "Lanterel refused this PC's machine key. Check it in Settings.";
     case "failed":
       return "Lanterel isn't answering. Try again in a moment.";
   }

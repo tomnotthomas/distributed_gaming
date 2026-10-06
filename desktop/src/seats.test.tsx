@@ -7,6 +7,7 @@ import {
   daysLeft,
   demoSeatClient,
   seatClient,
+  seatErrorLine,
   seatLine,
   seatMessage,
   type HostSeat,
@@ -78,11 +79,16 @@ describe("the seats client", () => {
     expect(await refusing(409, { code: "other" }).make("J")).toEqual({ ok: false, error: "failed" });
     expect(await refusing(400, {}).make(" ")).toEqual({ ok: false, error: "bad-name" });
     expect(await refusing(404, {}).revoke("s1")).toEqual({ ok: false, error: "not-found" });
-    expect(await refusing(401, {}).list()).toEqual({ ok: false, error: "failed" });
+    expect(await refusing(401, {}).list()).toEqual({ ok: false, error: "bad-key" });
     const offline = seatClient(MACHINE, null, async () => {
       throw new TypeError("network");
     });
     expect(await offline.list()).toEqual({ ok: false, error: "failed" });
+  });
+
+  it("sends the owner to Settings for a refused machine key, rather than to wait", () => {
+    expect(seatErrorLine("bad-key", 4)).toBe("Lanterel refused this PC's machine key. Check it in Settings.");
+    expect(seatErrorLine("failed", 4)).toMatch(/Try again/);
   });
 
   it("says how long a seat waits, and what the friend is sent", () => {
