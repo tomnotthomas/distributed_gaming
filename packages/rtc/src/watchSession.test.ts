@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SignalMessage } from "./signaling";
 import { FakeSocket } from "./test/fakes";
-import { FakeMediaPeer, FakeMediaStream, FakeTrack } from "./test/media";
+import { FakeMediaPeer, FakeMediaStream, FakeSender, FakeTrack } from "./test/media";
 import { startWatchSession, type WatchSessionEvent } from "./watchSession";
 
 const URL = "wss://signal.test";
@@ -147,6 +147,43 @@ describe("startWatchSession", () => {
     expect(FakeMediaPeer.instances).toHaveLength(2);
     expect(FakeMediaPeer.instances[0]!.closed).toBe(true);
     expect(peer().sending()[2]).toBe(mic.id);
+  });
+
+  it("keeps only the newest connection's voices and stats when a new offer comes while the microphone goes on", async () => {
+    const { session } = start();
+    await session.joinVoice();
+    let release = () => {};
+    const replaceTrack = FakeSender.prototype.replaceTrack;
+    const held = vi.spyOn(FakeSender.prototype, "replaceTrack").mockImplementationOnce(function (
+      this: FakeSender,
+      track: FakeTrack | null,
+    ) {
+      return new Promise<void>((resolve) => {
+        release = () => void replaceTrack.call(this, track).then(resolve);
+      });
+    });
+    socket().deliver({ type: "watching", watchId: "w1", state: "watching", player: "Mara", playerHere: true });
+    socket().deliver({ type: "offer", sdp: OFFER, watchId: "w1" });
+    await flush();
+    const first = peer();
+    socket().deliver({ type: "offer", sdp: OFFER, watchId: "w1" });
+    await flush();
+    release();
+    await flush();
+    held.mockRestore();
+
+    expect(FakeMediaPeer.instances).toHaveLength(2);
+    expect(first.closed).toBe(true);
+    expect(
+      [...document.querySelectorAll("audio")].map((a) => (a as HTMLAudioElement).dataset.voiceMid),
+    ).toEqual(["2", "3", "4", "5"]);
+    const firstStats = vi.spyOn(first, "getStats");
+    const latestStats = vi.spyOn(peer(), "getStats");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(firstStats).not.toHaveBeenCalled();
+    expect(latestStats).toHaveBeenCalled();
+    session.end();
+    expect(document.querySelectorAll("audio")).toHaveLength(0);
   });
 
   it("goes quiet when the player mutes the viewer, and hears again when the player lets them", async () => {

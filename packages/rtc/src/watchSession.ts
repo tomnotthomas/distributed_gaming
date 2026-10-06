@@ -196,6 +196,7 @@ export function startWatchSession(opts: WatchSessionOptions): WatchSession {
     voiceLine = line;
     line.direction = "sendrecv";
     if (voice.inVoice) await line.sender.replaceTrack(micTrack()).catch(() => {});
+    if (pc !== connection) return;
 
     const picture = new MediaStream([video.receiver.track, game.receiver.track]);
     const element = opts.video;
