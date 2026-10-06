@@ -30,12 +30,7 @@ export const COOLDOWN_MS = 60_000;
 
 /** Why a watch ended: what the viewer's socket is told (protocol.ts DeniedMessage). */
 export type WatchEnd =
-  | "watch-declined"
-  | "watch-unanswered"
-  | "watch-stopped"
-  | "watch-ended"
-  | "watch-left"
-  | "not-crew";
+  "watch-declined" | "watch-unanswered" | "watch-stopped" | "watch-ended" | "watch-left" | "not-crew";
 
 export type Watch = {
   id: string;
