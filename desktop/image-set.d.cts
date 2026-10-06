@@ -43,4 +43,7 @@ export function certFromAuth(auth: Uint8Array): Buffer;
 export function newSigningKey(file: string, passphrase?: string): void;
 export function signManifest(dir: string, key: string, passphrase?: string): void;
 export function trustEntry(key: string, cert: string, passphrase?: string): Trust;
+export function publicOf(key: string, cert: string, passphrase?: string): string;
+export function releaseTrustOf(text: string): Trust;
+export function addTrust(text: string, file?: string): boolean;
 export function writeManifest(dir: string, image: string, version: string): Promise<void>;

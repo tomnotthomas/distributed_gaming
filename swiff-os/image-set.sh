@@ -24,18 +24,20 @@
 #   SHA256SUMS                   every file's SHA-256 as sha256sum prints it: what
 #                                the download page publishes as text
 #
-# The release signs with the private key in the file $SWIFF_OS_SIGNING_KEY,
-# which the release step writes from its secret store: it is never in the
-# repository. The app ships the release key's public half, with the SHA-256 of
-# the certificate its sets carry, in desktop/image-trust.json: the entry
-# `node desktop/image-set.cjs trust <key> <swiffos-key.cer>` prints. Without
-# $SWIFF_OS_SIGNING_KEY the set is signed with this developer's own key,
+# The release signs with the private key in the file $SWIFF_OS_SIGNING_KEY:
+# Lanterel's release image signing key, made and kept on the machine that signs
+# releases by swiff-os/release-key.sh, never in the repository (README, "Release
+# keys"). The app ships its public half, with the SHA-256 of the Secure Boot
+# certificate its sets carry, in desktop/image-trust.json, and a release set is
+# checked against that list once signed: one a release build would refuse (built
+# with another Secure Boot certificate, or signed with a key not listed yet) fails
+# here. Without $SWIFF_OS_SIGNING_KEY the set is signed with this developer's own key,
 # made once in ${XDG_CONFIG_HOME:-~/.config}/swiff/image-dev-key.pem, and its
 # entry is written to desktop/image-trust.dev.json, which only a test build
 # (`npm run pack:test` in desktop/) and the VM tests' console installer trust.
 # Either key file is kept encrypted, never as a plain PEM: its passphrase comes
-# from $SWIFF_OS_KEY_PASSPHRASE (the release's secret store, or asked for here
-# on a terminal), and a key file that is not encrypted is refused.
+# from $SWIFF_OS_KEY_PASSPHRASE (the release key's passphrase file, or asked for
+# here on a terminal), and a key file that is not encrypted is refused.
 #
 # Ubuntu's shim comes from the image's own pinned archive snapshot
 # (shim-signed, checked against SHIM_SHA256 below), or from $SHIM_DIR (a
@@ -132,6 +134,7 @@ if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ]; then
 	mv "$work/image-trust.dev.json" "$desktop/image-trust.dev.json"
 fi
 node "$desktop/image-set.cjs" sign "$out" "$key"
+[ -z "${SWIFF_OS_SIGNING_KEY:-}" ] || node "$desktop/image-set.cjs" verify "$out" || die "a release build would refuse this set"
 # The SHA-256 of each file, as sha256sum prints them: what the download page publishes as text
 # (desktop/checksums.cjs release --image), and what `sha256sum -c SHA256SUMS` checks.
 (cd "$out" && node "$desktop/checksums.cjs" sums SHA256SUMS swiffos_"$version".*.raw swiffos-key.cer swiffos.json swiffos.json.sig > /dev/null)

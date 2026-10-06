@@ -123,16 +123,67 @@ shows as that on the rental screen, with Check again. The installer's administra
 set in `%ProgramData%\Swiff\swiff-os`, which only administrators can write: its check reads the
 signed manifest and the certificate there and hashes each image where it is, before anything on
 the PC changes, and each image is copied there, checked again as it is copied, only at its write (after C: has given Swiff OS its room), then removed once written. The
-release signs with the private key in `$SWIFF_OS_SIGNING_KEY`, a file the release step writes
-from its secret store: it never enters the repository, and its public half and certificate go
-into `desktop/image-trust.json` as `node desktop/image-set.cjs trust <key> <swiffos-key.cer>`
-prints them. **The release key is still pending** (the owner decides it): until it exists,
-`image-trust.json` is empty and a release build (`npm run pack`, or an unpackaged run) refuses
-every image set. Without `$SWIFF_OS_SIGNING_KEY`, `image-set.sh` signs with the developer's own
+release signs with Lanterel's release image signing key in `$SWIFF_OS_SIGNING_KEY` (below,
+**Release keys**): it never enters the repository, and its public half and the
+SHA-256 of the Secure Boot certificate release sets carry are what `desktop/image-trust.json`
+lists. A release build (`npm run pack`, or an unpackaged run) reads no set signed by another key,
+nor one built with another Secure Boot certificate, and refuses every set while that list is
+empty. Without `$SWIFF_OS_SIGNING_KEY`, `image-set.sh` signs with the developer's own
 key (`~/.config/swiff/image-dev-key.pem`, made on first use) and writes
 `desktop/image-trust.dev.json`. Either key file is kept encrypted (PKCS#8, AES-256), never as a
-plain PEM, and unlocked with `$SWIFF_OS_KEY_PASSPHRASE` (the release's secret store, or asked for
-on a terminal); a key file that is not encrypted is refused.
+plain PEM, and unlocked with `$SWIFF_OS_KEY_PASSPHRASE` (the release key's passphrase file, or
+asked for on a terminal); a key file that is not encrypted is refused.
+
+**Release keys.** Lanterel signs real Swiff OS builds with two keys of its own, made by
+`swiff-os/release-key.sh <key-dir> <backup-file>` on the machine that signs releases, the GEEKOM,
+and kept there in `~/.lanterel-keys/release/` (0700, owned by its user, every secret file 0600):
+
+| File                           | What it is                                                              |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `image-signing-key.pem`        | the Ed25519 key that signs each set's `swiffos.json` (encrypted PKCS#8) |
+| `image-signing-key.passphrase` | what unlocks it                                                         |
+| `secure-boot.key`, `.crt`      | the Secure Boot key pair: the certificate is the MOK each host enrols   |
+| `backup.passphrase`            | unlocks the encrypted backup, nothing else: it belongs offline          |
+| `public.txt`                   | the public halves and their fingerprints, as the script printed them    |
+
+The Secure Boot key pair (RSA-2048, self-signed, `CN=Lanterel OS Secure Boot`, as `mkosi genkey`
+makes one) signs systemd-boot, the UKI and its expected PCR values. Its key is not encrypted, so
+mkosi signs without asking; the folder's permissions are what keep it.
+
+The backup, `~/fm-swiff/data/secrets/lanterel-release-keys.tar.gpg` on the GEEKOM, holds both
+keys and the image key's passphrase, encrypted with gpg (symmetric, AES-256) under
+`backup.passphrase`. None of it is ever copied into a repository, a log, CI or a chat: CI holds no
+release key, and releases are signed on the GEEKOM. `node desktop/image-set.cjs add-trust
+~/.lanterel-keys/release/public.txt` adds the public halves to `desktop/image-trust.json`
+(the public key and the certificate's SHA-256), working each out from the PEM itself
+and refusing input with a private key in it. The image signing key's fingerprint (SHA-256 of its
+SPKI DER) is for people only: keep the one `release-key.sh` printed when it made the key, and
+before trusting or rotating compare it with the one `node desktop/image-set.cjs public
+"$k/image-signing-key.pem" "$k/secure-boot.crt"` prints now (with `k` and
+`SWIFF_OS_KEY_PASSPHRASE` set as for a release, below).
+
+A release is built and signed on the GEEKOM with those files in place of the VM test key pair:
+
+```sh
+k=~/.lanterel-keys/release
+sudo mkosi -C swiff-os/image --secure-boot-key="$k/secure-boot.key" --secure-boot-certificate="$k/secure-boot.crt" \
+  --output-dir ~/.cache/swiff-os/release --cache-dir ~/.cache/swiff-os/cache -f build
+SWIFF_OS_SIGNING_KEY=$k/image-signing-key.pem SWIFF_OS_KEY_PASSPHRASE=$(cat "$k/image-signing-key.passphrase") \
+  swiff-os/image-set.sh ~/.cache/swiff-os/release swiffos <set-dir>
+```
+
+`image-set.sh` checks a release set as a release build would once it is signed, so a set built
+with the VM test certificate, or signed before `image-trust.json` lists its key, fails there and
+is never published.
+
+To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
+any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>
+<backup-file>`), `add-trust` its `public.txt` beside the old entry, and ship an app release that
+trusts both. A set carries one signature and one certificate, so during the transition sets stay
+signed with the old pair while app releases that trust the new one reach hosts, and hosts enrol
+the new certificate as a MOK before they boot a build signed with it. Then sign with the new pair,
+take the old entry out of `image-trust.json` in the next app release, and destroy the old key and
+its backup.
 
 **Test builds.** `npm run pack:test` in `desktop/` packages the portable app as `npm run pack`
 does, with `swiffBuild: "test"` baked into its `package.json` (`desktop/build-kind.cjs`). Only
