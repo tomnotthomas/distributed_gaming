@@ -20,6 +20,7 @@ import {
 import { CrewReadyBanner, CrewStrip, CrewsCard } from "./CrewsCard";
 import { inviteLink, inviteTokenAt, shareTarget, signInForInvite, withoutInviteTokens } from "./invite";
 import { pathOf, screenAt } from "./route";
+import { ScreenLang } from "./screenCopy";
 import type { Swiff } from "./useSwiff";
 
 const TOKEN = "abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUV";
@@ -562,13 +563,16 @@ describe("CrewPage: a crew's lobby", () => {
   });
 
   it("offers another PC in German too, and from a crew whose PCs are all off", async () => {
-    vi.spyOn(navigator, "languages", "get").mockReturnValue(["de-DE"]);
     const crew = readyCrew({
       state: "offline",
       machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "offline" }],
     });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
-    render(<CrewPage swiff={atCrew("c1")} />);
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1")} />
+      </ScreenLang.Provider>,
+    );
     fireEvent.click(await screen.findByRole("button", { name: /Noch einen Gaming-PC hinzufügen/ }));
     expect(screen.getByTestId("pc-card")).toHaveTextContent("Die Crew sieht");
     expect(screen.getByRole("button", { name: "Ich hab einen Gaming-PC" })).toBeInTheDocument();

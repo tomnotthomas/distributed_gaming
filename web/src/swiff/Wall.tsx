@@ -12,9 +12,8 @@ import type { Game, Machine, Spot } from "./data";
 import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
-import { langOf } from "./crewCopy";
 import { CrewsCard, CrewStrip } from "./CrewsCard";
-import { screenText, type ScreenKey } from "./screenCopy";
+import { useScreenText, type ScreenKey, type ScreenText } from "./screenCopy";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -83,21 +82,18 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
-/** The wall's words, in the browser's language. */
-type Text = ReturnType<typeof screenText>;
-
 /** "4 h 30" or "All night": the time a machine stays free from `now` (Unix ms), as the band prints it. */
-const leftLabel = (t: Text, machine: Machine, now: number) => {
+const leftLabel = (t: ScreenText, machine: Machine, now: number) => {
   const left = fmtLeft(leftAt(machine, now));
   return left === "all night" ? t("wall.allNight") : left;
 };
 
 /** "free until 00:30", or "free all night" for a machine its owner leaves on. */
-const untilLabel = (t: Text, machine: Machine) =>
+const untilLabel = (t: ScreenText, machine: Machine) =>
   machine.until === "late" ? t("wall.freeAllNight") : t("wall.freeUntil", { at: machine.until });
 
 /** Why a game cannot start now: who comes back and when, or why nothing will. */
-function waitLabel(t: Text, spot: Spot | undefined): string {
+function waitLabel(t: ScreenText, spot: Spot | undefined): string {
   if (spot?.back) return t("wall.backAt", { at: spot.back.at });
   if (spot?.free) return t("wall.freeShort");
   if (spot?.busy) return t("wall.inUse");
@@ -116,7 +112,7 @@ function soonestBack(spots: (Spot | undefined)[]): Spot | undefined {
  * first and when, or that what is free does not last the session, or that
  * nothing is on offer at all.
  */
-function emptyLine(t: Text, games: Game[], spots: ReadonlyMap<string, Spot>): string {
+function emptyLine(t: ScreenText, games: Game[], spots: ReadonlyMap<string, Spot>): string {
   const known = games.flatMap((g) => spots.get(g.id) ?? []);
   const back = soonestBack(known)?.back;
   if (back) return t("wall.emptyBack", { name: back.name, at: back.at });
@@ -130,7 +126,7 @@ const freedClass = (swiff: Swiff, game: Game) => (swiff.motion && swiff.freed.ha
 
 export function Wall({ swiff }: { swiff: Swiff }) {
   const { games, spots, signedIn, showAll } = swiff;
-  const t = useMemo(() => screenText(langOf()), []);
+  const { t } = useScreenText();
 
   const ordered = useMemo(() => wallOrder(games, spots), [games, spots]);
   // Nothing is ready only once something is known: signed out, nothing ever is,
@@ -290,7 +286,7 @@ function useFitTitle(text: string) {
  * the machine (signed in) or the pitch (signed out), and Resume or the one
  * Sign in with Steam.
  */
-function WallHero({ t, games, swiff }: { t: Text; games: Game[]; swiff: Swiff }) {
+function WallHero({ t, games, swiff }: { t: ScreenText; games: Game[]; swiff: Swiff }) {
   const { signedIn, clock } = swiff;
   const at = useRotation(games.length, swiff.motion);
   const game = games[at.index] ?? games[0]!;
@@ -426,7 +422,7 @@ function WallHero({ t, games, swiff }: { t: Text; games: Game[]; swiff: Swiff })
 }
 
 type TileProps = {
-  t: Text;
+  t: ScreenText;
   game: Game;
   /** The pointer has rested on this tile: play its trailer. */
   preview: boolean;
@@ -511,7 +507,7 @@ function LibraryNote({
   retrying,
   onRetry,
 }: {
-  t: Text;
+  t: ScreenText;
   state: Exclude<LibraryState, "ok">;
   retrying: boolean;
   onRetry: () => void;
@@ -547,7 +543,7 @@ function WallEmpty({
   swiff,
   state,
 }: {
-  t: Text;
+  t: ScreenText;
   note?: ReactNode;
   signedIn: boolean;
   swiff: Swiff;

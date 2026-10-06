@@ -2,6 +2,7 @@ import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import type { RenterSession, RenterSessionEvent, RenterSessionOptions, RenterStats } from "@swiff/rtc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Claim } from "./booking";
+import { screenText } from "./screenCopy";
 import {
   ignitionLabels,
   ignitionProgress,
@@ -552,17 +553,23 @@ describe("startPlay", () => {
 
 describe("Ignition's steps", () => {
   it("names the host and the game, with fallbacks", () => {
-    expect(ignitionLabels("Basement rig", "Counter-Strike 2")).toEqual([
+    expect(ignitionLabels(screenText("en"), "Basement rig", "Counter-Strike 2")).toEqual([
       "Reserving a machine",
       "Waking Basement rig",
       "Negotiating stream",
       "Launching Counter-Strike 2",
     ]);
-    expect(ignitionLabels(null, undefined)).toEqual([
+    expect(ignitionLabels(screenText("en"), null, undefined)).toEqual([
       "Reserving a machine",
       "Waking the machine",
       "Negotiating stream",
       "Launching your game",
+    ]);
+    expect(ignitionLabels(screenText("de"), "Basement rig", null)).toEqual([
+      "PC wird reserviert",
+      "Basement rig wird geweckt",
+      "Übertragung wird eingerichtet",
+      "Dein Spiel wird gestartet",
     ]);
   });
 

@@ -637,8 +637,9 @@ in the path) and joins at once, then the friend lands on the crew's page. The pr
 wall carry the player's crews and a way to found one. Their words, in German and English
 kept apart, are in `web/src/swiff/crewCopy.ts`. The crew screens, the invite and the wall
 (`screenCopy.ts`) speak German to a browser set to German and English to everyone else. The
-other screens are still English only, and the top bar speaks the language of the screen under
-it (`screenLang`), so no screen mixes the two.
+other screens are still English only. A screen's language is decided once (`screenLang`) and
+everything shown on it follows: the top bar, the crew card and banner, the come-back dialogs
+and Ignition. The session's own screen is English only. So no screen mixes the two.
 
 ### Friend seats
 

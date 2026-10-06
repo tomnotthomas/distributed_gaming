@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { Backdrop } from "@swiff/ui";
 import { Glyph } from "./Glyph";
 import { IgnitionDial, useEased } from "./instruments";
+import { withHost } from "./Reconnect";
+import { useScreenText } from "./screenCopy";
 import { gameArt, gameArtFallbacks } from "./steam";
 import { isSteamSignInUrl, signInFailedTitle, SteamSignIn, SteamSignInFailed } from "./SteamSignIn";
 import type { Swiff } from "./useSwiff";
@@ -26,13 +28,14 @@ import type { Swiff } from "./useSwiff";
  * goes live on it.
  */
 export function Ignition({ swiff }: { swiff: Swiff }) {
+  const { t } = useScreenText();
   const { game, picked, progress, ignitionSteps, ignitionIndex: now, slow, lost } = swiff;
   // A machine carried on to may not be on the list the game's page last read.
   const host = picked?.name ?? swiff.booking?.machine?.name;
   const shown = useEased(progress * 100);
   const pct = Math.round(shown);
   const ignitionStep = ignitionSteps[now]!;
-  const title = game?.title ?? "your game";
+  const title = game?.title ?? t("game.yours");
   const signIn =
     swiff.steamLogin?.state === "qr" && isSteamSignInUrl(swiff.steamLogin.url) ? swiff.steamLogin.url : null;
   const signInFailed = swiff.steamSignInFailed;
@@ -52,7 +55,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
       data-testid="ignition"
       role="dialog"
       aria-modal="true"
-      aria-label={`Starting ${title}`}
+      aria-label={t("ig.starting", { title })}
     >
       <div className="ig-art">
         {game ? (
@@ -67,13 +70,12 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         <span className="wm ig-wm">Lanterel</span>
         <div className="ig-copy">
           <div className="mono" data-testid="ignition-kicker">
-            {lost ? (lost.taken ? `${lost.host} was taken back` : `${lost.host} went offline`) : "Starting"}
+            {lost ? t(lost.taken ? "lost.taken" : "lost.offline", { host: lost.host }) : t("ig.kicker")}
           </div>
           <div className="ig-title">{title}</div>
           <div className="ig-where">
-            {lost ? "now on " : "on "}
-            <b>{host ?? "a machine"}</b>
-            {picked ? `, ${picked.ping} ms away` : null}
+            {withHost(t(lost ? "ig.nowOn" : "ig.on"), host ?? t("ig.aMachine"))}
+            {picked ? t("ig.away", { ms: picked.ping }) : null}
           </div>
         </div>
       </div>
@@ -82,7 +84,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         <div
           className="ig-read"
           role="progressbar"
-          aria-label={`Starting ${title}`}
+          aria-label={t("ig.starting", { title })}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
@@ -96,7 +98,7 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         </div>
         <button type="button" className="lpill ig-cancel" onClick={swiff.goHome} ref={cancel}>
           {/* Once the session's clock runs, leaving ends a session rather than a launch. */}
-          {swiff.play?.started ? "End" : "Cancel"}
+          {swiff.play?.started ? t("ig.end") : t("ig.cancel")}
           <span className="lpill-c">
             <Glyph name="close" size={18} />
           </span>
@@ -105,20 +107,20 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
         {/* Steps are announced once each; the eased percentage is not. */}
         <p className="sr-only" aria-live="polite">
           {signInFailed
-            ? signInFailedTitle(signInFailed)
+            ? signInFailedTitle(t, signInFailed)
             : signIn
-              ? "Sign in to Steam"
+              ? t("qr.title")
               : slow
-                ? `${ignitionStep}: taking longer than usual`
+                ? t("ig.slowSay", { step: ignitionStep })
                 : ignitionStep}
         </p>
 
         {/* The renter scanning a code is not slow; a failed sign-in has its own way on. */}
         {slow && !signIn && !signInFailed ? (
           <div className="ig-slow" data-testid="ignition-slow">
-            <span className="mono">Taking longer than usual</span>
+            <span className="mono">{t("ig.slow")}</span>
             <button type="button" className="lpill lpill-sm" onClick={swiff.tryAnother}>
-              Try another machine
+              {t("ig.tryAnother")}
               <span className="lpill-c">
                 <Glyph name="arrow" size={16} />
               </span>
@@ -149,12 +151,12 @@ export function Ignition({ swiff }: { swiff: Swiff }) {
                 <span>{step}</span>
                 <span>
                   {state === "done"
-                    ? "Done"
+                    ? t("ig.done")
                     : state === "now"
                       ? `${pct}%`
                       : state === "stopped"
-                        ? "Stopped"
-                        : "Next"}
+                        ? t("ig.stopped")
+                        : t("ig.next")}
                 </span>
               </li>
             );

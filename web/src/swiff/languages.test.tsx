@@ -1,17 +1,22 @@
-// One language per screen: the top bar, the wall and the crew screens under it
-// all speak the browser's language, German or English, never both at once.
+// One language per screen: a translated screen (the wall, an invite, the crew
+// pages) speaks the browser's language, every other screen English, and all
+// on it with it: the top bar, the crew card and banner, the dialogs, Ignition.
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Chrome } from "./Chrome";
 import { CREW_COPY, type Lang } from "./crewCopy";
 import { CrewInvite } from "./CrewInvite";
 import { GAMES, MACHINES, type Game, type SeedMachine } from "./data";
 import { DEFAULT_PREFS, demoNow, seedSpots } from "./derive";
-import { SCREEN_COPY, screenText } from "./screenCopy";
+import { Ignition } from "./Ignition";
+import { ignitionLabels } from "./play";
+import { MachineLost, Reconnecting } from "./Reconnect";
+import { SCREEN_COPY, ScreenLang, screenLang, screenText } from "./screenCopy";
 import { applySteam, type SteamProfile } from "./steam";
 import { Swiff as App } from "./Swiff";
-import type { Swiff } from "./useSwiff";
+import type { Screen as AppScreen, Swiff } from "./useSwiff";
 import { Wall } from "./Wall";
 
 vi.mock("../posthog", () => ({ default: { capture: () => {} }, isPostHogEnabled: false }));
@@ -63,13 +68,17 @@ function browserIn(lang: Lang) {
   Element.prototype.scrollTo ??= noop;
 }
 
-/** Every request answered: the invite to Alex's crew, the renter's crews (none yet), anything else a 404. */
-function serve() {
+/**
+ * Every request answered: the invite to Alex's crew, kai_nx signed in, the
+ * renter's crews (none yet), each of `more` as it says, anything else a 404.
+ */
+function serve(more: Record<string, unknown> = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      const [status, body] =
-        url === `/api/invites/${TOKEN}`
+      const [status, body] = Object.hasOwn(more, url)
+        ? [200, more[url]]
+        : url === `/api/invites/${TOKEN}`
           ? [
               200,
               {
@@ -129,11 +138,11 @@ function swiffOn(games: Game[], machines: Record<string, SeedMachine>, signedIn:
   } as unknown as Swiff;
 }
 
-/** The top bar as a signed-in renter sees it, with its live count, over `body`. */
-function signedInScreen(lang: Lang, body: React.ReactNode, signedIn = true) {
+/** The top bar as a signed-in renter sees it, with its live count, over `body`, all on a screen in `lang`. */
+function signedInScreen(lang: Lang, body: ReactNode, signedIn = true) {
   const t = screenText(lang);
   render(
-    <>
+    <ScreenLang.Provider value={lang}>
       <Chrome
         screen="home"
         onHome={noop}
@@ -147,7 +156,7 @@ function signedInScreen(lang: Lang, body: React.ReactNode, signedIn = true) {
         }
       />
       {body}
-    </>,
+    </ScreenLang.Provider>,
   );
 }
 
@@ -201,41 +210,191 @@ describe.each(["de", "en"] as const)("a browser in %s", (lang) => {
   });
 });
 
-describe.each(["de", "en"] as const)("the whole app in a browser in %s", (lang) => {
-  const bar = (t: ReturnType<typeof screenText>) => [t("bar.home"), t("bar.profile"), t("bar.share")];
+/** A crew the renter is in got its first PC since their last visit: the banner shows on every screen. */
+const READY_CREW = {
+  id: "c1",
+  memberId: "m",
+  name: "Lena",
+  crewName: null,
+  own: false,
+  size: 2,
+  state: "ready",
+  pcs: 1,
+  pcArrived: true,
+};
 
-  it("puts the bar, its live count and its play time in the browser's language over the wall", async () => {
+/** b-1, Counter-Strike 2: still running on Glasshouse after the page closed, or queued for a machine. */
+const booking = (status: "playing" | "queued") => ({
+  bookingId: "b-1",
+  status,
+  gameId: 730,
+  minutes: 180,
+  ...(status === "playing"
+    ? {
+        machine: { id: "h1", name: "Glasshouse", gpu: null, cpu: null, price: 0 },
+        sessionId: "s-1",
+        heldUntil: Date.now() + 100_000,
+      }
+    : {}),
+});
+
+/** The dialogs a page load can open over any screen, and what the page kept for each. */
+const DIALOGS = {
+  away: () =>
+    localStorage.setItem(
+      "swiff.play",
+      JSON.stringify({ bookingId: "b-1", sessionId: "s-1", roomId: "pc-1" }),
+    ),
+  "queue-back": () => localStorage.setItem("swiff.booking", "b-1"),
+} as const;
+
+/** Each player screen: the address it opens at, or the top bar's button that leads to it from the wall. */
+const SCREENS: { screen: AppScreen; path: string; via?: "bar.profile" }[] = [
+  { screen: "home", path: "/" },
+  { screen: "invite", path: `/invite/${TOKEN}` },
+  { screen: "crew", path: "/crews/new" },
+  { screen: "share", path: "/share" },
+  { screen: "profile", path: "/", via: "bar.profile" },
+];
+
+describe.each(["de", "en"] as const)("the whole app in a browser in %s", (lang) => {
+  describe.each(SCREENS)("on $screen", ({ screen: shown, path, via }) => {
+    const expected = screenLang(shown, lang);
+
+    it.each(Object.keys(DIALOGS) as (keyof typeof DIALOGS)[])(
+      "speaks one language, with the crew banner and the %s dialog over it",
+      async (dialog) => {
+        browserIn(lang);
+        vi.stubGlobal(
+          "EventSource",
+          class {
+            addEventListener(type: string, listener: (event: Event) => void) {
+              if (type !== "booking") return;
+              const data = JSON.stringify(booking(dialog === "away" ? "playing" : "queued"));
+              queueMicrotask(() => listener(new MessageEvent("booking", { data })));
+            }
+            close() {}
+          },
+        );
+        DIALOGS[dialog]();
+        serve({
+          "/api/crews": { crews: [READY_CREW] },
+          "/api/bookings/b-1": booking(dialog === "away" ? "playing" : "queued"),
+        });
+        history.replaceState(null, "", path);
+        render(<App />);
+        await screen.findByText("kai_nx");
+        if (via) fireEvent.click(screen.getByRole("button", { name: screenText(lang)(via) }));
+        expect(document.querySelector(".sw")).toHaveAttribute("data-screen", shown);
+        await screen.findByTestId("crew-ready");
+        await screen.findByTestId(dialog);
+        const t = screenText(expected);
+        const nav = screen.getByRole("navigation", { name: "Lanterel" });
+        expect([...nav.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+          t("bar.home"),
+          t("bar.profile"),
+          t("bar.share"),
+        ]);
+        expect(screen.getByTitle(t("bar.playTimeTitle")).querySelector("b")?.textContent).toBeOneOf(
+          (["quick", "evening", "night"] as const).map((s) => t(`session.${s}`)),
+        );
+        expectOnly(expected);
+      },
+    );
+  });
+
+  it("counts what is free in the bar's language: the browser's over the wall, English over the estimate", async () => {
     browserIn(lang);
     serve();
     history.replaceState(null, "", "/?demo=1");
+    const { unmount } = render(<App />);
+    let nav = await screen.findByRole("navigation", { name: "Lanterel" });
+    expect(nav).toHaveTextContent(new RegExp(screenText(lang)("live.near", { n: "\\d+" })));
+    expectOnly(lang);
+    unmount();
+
+    history.replaceState(null, "", "/share?demo=1");
     render(<App />);
-    const t = screenText(lang);
-    const nav = await screen.findByRole("navigation", { name: "Lanterel" });
-    expect([...nav.querySelectorAll("button")].map((b) => b.textContent)).toEqual(bar(t));
-    expect(nav).toHaveTextContent(new RegExp(t("live.near", { n: "\\d+" })));
-    await screen.findByText("kai_nx");
-    expect(screen.getByTitle(t("bar.playTimeTitle"))).toHaveTextContent(t("bar.playTime"));
-    expect(screen.getByTitle(t("bar.playTimeTitle")).querySelector("b")?.textContent).toBeOneOf(
-      (["quick", "evening", "night"] as const).map((s) => t(`session.${s}`)),
+    nav = await screen.findByRole("navigation", { name: "Lanterel" });
+    expect(nav).toHaveTextContent(new RegExp(screenText("en")("live.near", { n: "\\d+" })));
+    expectOnly("en");
+  });
+});
+
+describe.each(["de", "en"] as const)("the overlays on a screen in %s", (lang) => {
+  const t = screenText(lang);
+  const onScreen = (node: ReactNode) =>
+    render(<ScreenLang.Provider value={lang}>{node}</ScreenLang.Provider>);
+  const starting = (more: Record<string, unknown>) =>
+    ({
+      game: GAMES[0],
+      picked: MACHINES.glass,
+      progress: 0.3,
+      ignitionSteps: ignitionLabels(t, MACHINES.glass!.name, GAMES[0]!.title),
+      ignitionIndex: 1,
+      slow: false,
+      lost: null,
+      goHome: noop,
+      tryAnother: noop,
+      ...more,
+    }) as unknown as Swiff;
+
+  it("speaks one language in Ignition, taking long, after a lost machine", () => {
+    onScreen(
+      <Ignition
+        swiff={starting({
+          slow: true,
+          lost: { host: "Basement rig", taken: true },
+        })}
+      />,
     );
+    expect(screen.getByTestId("ignition-slow")).toBeInTheDocument();
     expectOnly(lang);
   });
 
-  it("keeps the bar English over a screen that is English only", async () => {
-    browserIn(lang);
-    serve();
-    history.replaceState(null, "", "/share?demo=1");
-    render(<App />);
-    const t = screenText("en");
-    const nav = await screen.findByRole("navigation", { name: "Lanterel" });
-    expect([...nav.querySelectorAll("button")].map((b) => b.textContent)).toEqual(bar(t));
-    expect(nav).toHaveTextContent(new RegExp(t("live.near", { n: "\\d+" })));
-    await screen.findByText("kai_nx");
-    expect(screen.getByTitle(t("bar.playTimeTitle"))).toHaveTextContent(t("bar.playTime"));
-    expect(screen.getByTitle(t("bar.playTimeTitle")).querySelector("b")?.textContent).toBeOneOf(
-      (["quick", "evening", "night"] as const).map((s) => t(`session.${s}`)),
+  it("speaks one language in Steam's sign-in code, and in each way it stops short", () => {
+    const { unmount } = onScreen(
+      <Ignition
+        swiff={starting({ steamLogin: { type: "steam-login", state: "qr", url: "https://s.team/q/1/123" } })}
+      />,
     );
-    expectOnly("en");
+    expect(screen.getByTestId("steam-sign-in")).toBeInTheDocument();
+    expectOnly(lang);
+    unmount();
+    for (const reason of ["launch-timeout", "time-up", "not-approved"]) {
+      const { unmount } = onScreen(<Ignition swiff={starting({ steamSignInFailed: reason })} />);
+      expect(screen.getByTestId("steam-sign-in-failed")).toBeInTheDocument();
+      expectOnly(lang);
+      unmount();
+    }
+  });
+
+  it("speaks one language when the machine is lost: moving, waiting, or with none to move to", () => {
+    const lost = { booking: { gameId: GAMES[0]!.appid }, host: "Basement rig", at: Date.now() };
+    for (const state of [
+      { taken: false, failed: false, next: null },
+      { taken: true, failed: false, next: { status: "queued" } },
+      { taken: false, failed: true, next: null },
+    ]) {
+      const { unmount } = onScreen(
+        <MachineLost swiff={{ games: GAMES, lost: { ...lost, ...state } } as unknown as Swiff} />,
+      );
+      expect(screen.getByTestId("machine-lost")).toBeInTheDocument();
+      expectOnly(lang);
+      unmount();
+    }
+  });
+
+  it("speaks one language while reconnecting, and once it gave up", () => {
+    for (const gaveUp of [false, true]) {
+      const play = { lostAt: Date.now(), droppedAt: Date.now(), gaveUp };
+      const { unmount } = onScreen(
+        <Reconnecting swiff={{ game: GAMES[0], play } as unknown as Swiff} host="Glasshouse" />,
+      );
+      expect(screen.getByTestId("reconnecting")).toBeInTheDocument();
+      expectOnly(lang);
+      unmount();
+    }
   });
 });
 

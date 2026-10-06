@@ -1,6 +1,5 @@
-import { useMemo } from "react";
 import { Glyph } from "./Glyph";
-import { screenLang, screenText } from "./screenCopy";
+import { useScreenText } from "./screenCopy";
 import type { Screen } from "./useSwiff";
 
 type Props = {
@@ -29,7 +28,7 @@ export function initials(persona: string): string {
  * paper account cell, on the same 300 / 1fr / 400 columns as the band below.
  */
 export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed, renter }: Props) {
-  const t = useMemo(() => screenText(screenLang(screen)), [screen]);
+  const { t } = useScreenText();
   return (
     <header className="bar">
       <div className="bar-brand">

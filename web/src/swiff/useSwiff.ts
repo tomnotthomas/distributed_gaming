@@ -1189,9 +1189,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, [goHome]);
 
+  // The language of the screen shown, and of everything on it: the top bar, Ignition, the dialogs.
+  const lang = screenLang(screen);
+  const t = screenText(lang);
+
   // Ignition: the demo's beats, or where the real launch stands on its connection.
   // A machine carried on to may not be on the list the game's page last read.
-  const labels = ignitionLabels(picked?.name ?? booking?.machine?.name, game?.title);
+  const labels = ignitionLabels(t, picked?.name ?? booking?.machine?.name, game?.title);
   let ignition: { ignitionSteps: string[]; ignitionIndex: number; progress: number; slow: boolean };
   if (demo) {
     ignition = {
@@ -1210,8 +1214,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     };
   }
 
-  // The live count in the top bar, in the bar's language; signed out there is none.
-  const t = screenText(screenLang(screen));
+  // The live count in the top bar; signed out there is none.
   let liveLine: string | undefined;
   if (seesAvailability) {
     if (screen === "game") {
@@ -1227,6 +1230,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   return {
     demo,
     screen,
+    lang,
     phase,
     booking,
     claim,

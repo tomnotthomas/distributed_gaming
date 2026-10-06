@@ -2,6 +2,7 @@
 // in the same language: German for a browser set to German (langOf), English
 // for everyone else. `{name}`-style slots are filled where they appear.
 
+import { createContext, useContext, useMemo } from "react";
 import { fillSlots, langOf, type Lang } from "./crewCopy";
 import type { Screen } from "./useSwiff";
 
@@ -85,6 +86,82 @@ export const SCREEN_COPY = {
     "empty.signedOut": "{state}Sign in with Steam and we'll tell you when a PC frees up.",
     "empty.notify": "Notify me",
     "signIn.steam": "Sign in with Steam",
+    "game.yours": "your game",
+    "game.Yours": "Your game",
+    "ig.starting": "Starting {title}",
+    "ig.kicker": "Starting",
+    "ig.on": "on {host}",
+    "ig.nowOn": "now on {host}",
+    "ig.aMachine": "a machine",
+    "ig.away": ", {ms} ms away",
+    "ig.end": "End",
+    "ig.cancel": "Cancel",
+    "ig.slowSay": "{step}: taking longer than usual",
+    "ig.slow": "Taking longer than usual",
+    "ig.tryAnother": "Try another machine",
+    "ig.done": "Done",
+    "ig.stopped": "Stopped",
+    "ig.next": "Next",
+    "ig.reserving": "Reserving a machine",
+    "ig.waking": "Waking {host}",
+    "ig.wakingAny": "Waking the machine",
+    "ig.negotiating": "Negotiating stream",
+    "ig.launching": "Launching {game}",
+    "ig.launchingAny": "Launching your game",
+    "qr.code": "Steam sign-in QR code",
+    "qr.title": "Sign in to Steam",
+    "qr.scan": "Scan this with the Steam app on your phone and approve. Your game starts as soon as you do.",
+    "qr.note": "Steam shows where the PC is on a map. Approve only while this screen is open.",
+    "qr.launchFailed": "Your game didn't start",
+    "qr.timeUp": "Sign-in time ran out",
+    "qr.failed": "Sign-in didn't work",
+    "qr.launchFailedText": "Steam signed you in, but your game didn't come up on this machine.",
+    "qr.timeUpText": "Your {n} minutes to sign in to Steam ran out, so this machine went back.",
+    "qr.failedText":
+      "Steam didn't finish signing you in, so your game hasn't started. Try again for a new code.",
+    "qr.bookAgain": "Book again",
+    "qr.retry": "Try again",
+    "back.on": "on {host}",
+    "back.end": "End session",
+    "back.reconnect": "Reconnect",
+    "away.label": "{game} is still yours",
+    "away.kicker": "Still yours",
+    "away.yourMachine": "your machine",
+    "away.running": "Still running",
+    "away.held": "Held for you",
+    "away.live": "Live",
+    "away.line": "It kept running when the page closed. Pick it up where you left off.",
+    "away.reconnecting": "Reconnecting…",
+    "queue.finding": "Still finding a machine",
+    "queue.reading": "In the queue",
+    "queue.held": "Held",
+    "queue.line":
+      "Your place in the queue is held while Lanterel stays open, and kept for 2 minutes if you close it. Your game starts by itself the moment a machine is free.",
+    "queue.keep": "Keep waiting",
+    "queue.leave": "Leave the queue",
+    "rc.cantReach": "Can't reach {host}",
+    "rc.label": "Reconnecting to {host}",
+    "rc.lost": "Connection lost",
+    "rc.kicker": "Reconnecting",
+    "rc.timeAway": "Time away",
+    "rc.gaveUp": "Your game is still running on {host}. Try again while it is held.",
+    "rc.line": "Your game keeps running while we get you back.",
+    "lost.taken": "{host} was taken back",
+    "lost.offline": "{host} went offline",
+    "lost.ownerTook": "{host}’s owner took it back",
+    "lost.none": "No machine to move to",
+    "lost.moving": "Moving you to another machine",
+    "lost.takenKicker": "Taken back",
+    "lost.kicker": "Machine lost",
+    "lost.cantMove": "Couldn't move you",
+    "lost.waiting": "Waiting for a machine",
+    "lost.finding": "Finding another machine",
+    "lost.failedLine": "No other machine could carry {title} on. Choose one yourself, or stop for now.",
+    "lost.waitingLine":
+      "Every machine with {title} is busy. You keep your place, and it starts by itself the moment one is free.",
+    "lost.movingLine": "Your session carries on by itself on the best other machine with {title}.",
+    "lost.choose": "Choose a machine",
+    "lost.stop": "Stop for now",
   },
   de: {
     "bar.back": "Zurück zu allen Spielen",
@@ -165,20 +242,115 @@ export const SCREEN_COPY = {
     "empty.signedOut": "{state}Melde dich mit Steam an, dann sagen wir dir, wenn ein PC frei wird.",
     "empty.notify": "Bescheid geben",
     "signIn.steam": "Mit Steam anmelden",
+    "game.yours": "dein Spiel",
+    "game.Yours": "Dein Spiel",
+    "ig.starting": "{title} startet",
+    "ig.kicker": "Startet",
+    "ig.on": "auf {host}",
+    "ig.nowOn": "jetzt auf {host}",
+    "ig.aMachine": "einem PC",
+    "ig.away": ", {ms} ms entfernt",
+    "ig.end": "Beenden",
+    "ig.cancel": "Abbrechen",
+    "ig.slowSay": "{step}: dauert länger als sonst",
+    "ig.slow": "Dauert länger als sonst",
+    "ig.tryAnother": "Anderen PC versuchen",
+    "ig.done": "Fertig",
+    "ig.stopped": "Angehalten",
+    "ig.next": "Als Nächstes",
+    "ig.reserving": "PC wird reserviert",
+    "ig.waking": "{host} wird geweckt",
+    "ig.wakingAny": "Der PC wird geweckt",
+    "ig.negotiating": "Übertragung wird eingerichtet",
+    "ig.launching": "{game} wird gestartet",
+    "ig.launchingAny": "Dein Spiel wird gestartet",
+    "qr.code": "QR-Code zur Anmeldung bei Steam",
+    "qr.title": "Bei Steam anmelden",
+    "qr.scan":
+      "Scanne den Code mit der Steam-App auf deinem Handy und bestätige. Dein Spiel startet, sobald du bestätigst.",
+    "qr.note":
+      "Steam zeigt auf einer Karte, wo der PC steht. Bestätige nur, solange dieser Bildschirm offen ist.",
+    "qr.launchFailed": "Dein Spiel ist nicht gestartet",
+    "qr.timeUp": "Die Zeit zum Anmelden ist abgelaufen",
+    "qr.failed": "Die Anmeldung hat nicht geklappt",
+    "qr.launchFailedText": "Steam hat dich angemeldet, aber dein Spiel ist auf diesem PC nicht gestartet.",
+    "qr.timeUpText":
+      "Deine {n} Minuten zum Anmelden bei Steam sind abgelaufen, deshalb ist dieser PC nicht mehr für dich reserviert.",
+    "qr.failedText":
+      "Steam hat die Anmeldung nicht abgeschlossen, dein Spiel ist also nicht gestartet. Versuch es noch einmal mit einem neuen Code.",
+    "qr.bookAgain": "Neu buchen",
+    "qr.retry": "Noch einmal",
+    "back.on": "auf {host}",
+    "back.end": "Sitzung beenden",
+    "back.reconnect": "Neu verbinden",
+    "away.label": "{game} gehört noch dir",
+    "away.kicker": "Noch deins",
+    "away.yourMachine": "deinem PC",
+    "away.running": "Läuft noch",
+    "away.held": "Für dich reserviert",
+    "away.live": "Läuft",
+    "away.line": "Es lief weiter, als die Seite zuging. Mach da weiter, wo du aufgehört hast.",
+    "away.reconnecting": "Verbindet neu…",
+    "queue.finding": "Wir suchen noch einen PC",
+    "queue.reading": "In der Warteschlange",
+    "queue.held": "Gehalten",
+    "queue.line":
+      "Dein Platz in der Warteschlange bleibt, solange Lanterel offen ist, und noch 2 Minuten, wenn du es schließt. Dein Spiel startet von selbst, sobald ein PC frei ist.",
+    "queue.keep": "Weiter warten",
+    "queue.leave": "Warteschlange verlassen",
+    "rc.cantReach": "{host} ist nicht erreichbar",
+    "rc.label": "Neue Verbindung zu {host}",
+    "rc.lost": "Verbindung verloren",
+    "rc.kicker": "Verbindet neu",
+    "rc.timeAway": "Weg seit",
+    "rc.gaveUp": "Dein Spiel läuft noch auf {host}. Versuch es noch einmal, solange es gehalten wird.",
+    "rc.line": "Dein Spiel läuft weiter, während wir dich zurückholen.",
+    "lost.taken": "{host} wurde zurückgeholt",
+    "lost.offline": "{host} ist nicht mehr erreichbar",
+    "lost.ownerTook": "Der Besitzer von {host} hat ihn zurückgeholt",
+    "lost.none": "Kein PC zum Wechseln",
+    "lost.moving": "Wir bringen dich auf einen anderen PC",
+    "lost.takenKicker": "Zurückgeholt",
+    "lost.kicker": "PC verloren",
+    "lost.cantMove": "Wechsel nicht möglich",
+    "lost.waiting": "Wir warten auf einen PC",
+    "lost.finding": "Wir suchen einen anderen PC",
+    "lost.failedLine":
+      "Kein anderer PC konnte {title} übernehmen. Such dir selbst einen aus oder hör erst mal auf.",
+    "lost.waitingLine":
+      "Jeder PC mit {title} ist belegt. Du behältst deinen Platz, und es startet von selbst, sobald einer frei ist.",
+    "lost.movingLine": "Deine Sitzung geht von selbst auf dem besten anderen PC mit {title} weiter.",
+    "lost.choose": "PC auswählen",
+    "lost.stop": "Erst mal aufhören",
   },
 } as const satisfies Record<Lang, Record<string, string>>;
 
 export type ScreenKey = keyof (typeof SCREEN_COPY)["en"];
 
-/** The words for `lang`, with each `{slot}` filled from `fill`. */
-/** The screens translated whole: the wall, an invite and the crew pages. Every other screen is English only. */
-const TRANSLATED: ReadonlySet<Screen> = new Set(["home", "invite", "crew"]);
+/** The screens translated whole: the wall, an invite, a seat and the crew pages. Every other screen is English only. */
+const TRANSLATED: ReadonlySet<Screen> = new Set(["home", "invite", "seat", "crew"]);
 
-/** The language `screen` speaks, and the top bar over it with it: the browser's on a translated screen, else English. */
+/**
+ * The language `screen` speaks, and everything on it with it: the top bar, the
+ * crew card and banner, the dialogs and Ignition. The browser's on a translated
+ * screen, else English.
+ */
 export const screenLang = (screen: Screen, lang: Lang = langOf()): Lang =>
   TRANSLATED.has(screen) ? lang : "en";
 
+/** The words for `lang`, with each `{slot}` filled from `fill`. */
 export function screenText(lang: Lang) {
   return (key: ScreenKey, fill: Record<string, string | number> = {}) =>
     fillSlots(SCREEN_COPY[lang][key], fill);
+}
+
+export type ScreenText = ReturnType<typeof screenText>;
+
+/** The language of the screen being shown (Swiff.tsx sets it from screenLang); English outside one. */
+export const ScreenLang = createContext<Lang>("en");
+
+/** The words of the screen being shown, and its language. */
+export function useScreenText(): { lang: Lang; t: ScreenText } {
+  const lang = useContext(ScreenLang);
+  return useMemo(() => ({ lang, t: screenText(lang) }), [lang]);
 }
