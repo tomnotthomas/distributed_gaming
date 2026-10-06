@@ -19,7 +19,7 @@ import {
 } from "../access.js";
 import { createApi } from "../api.js";
 import { RequestBudget } from "../budget.js";
-import { CREW_NAME_MAX, crewNameOf, Platform, type MachineSpec } from "../platform.js";
+import { CREW_NAME_MAX, crewNameOf, PC_ARRIVED_MS, Platform, type MachineSpec } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { emptyProfile } from "../steam.js";
 import { testDatabase } from "./db.js";
@@ -271,6 +271,17 @@ describe("crews", () => {
       assert.equal(booked.machine?.id, "pc-1");
       assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.state, "busy");
       assert.equal((await platform.crew(crewId, ALEX))?.state, "ready");
+    });
+
+    it("tells a member who was away about the first PC for a week after it came, then no more", async () => {
+      const { crewId } = await hostJoinsAlex();
+      await platform.bringPc(crewId, HOST, "yes");
+      now += 60_000;
+      await offer("pc-1");
+      now += PC_ARRIVED_MS - 1;
+      assert.equal((await platform.crews(ALEX))[0]?.pcArrived, true);
+      now += 1;
+      assert.equal((await platform.crews(ALEX))[0]?.pcArrived, false);
     });
 
     it("brings a PC its owner already offers at once", async () => {

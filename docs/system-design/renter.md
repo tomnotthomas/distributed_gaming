@@ -565,8 +565,8 @@ A crew is ready once a PC playing for it is on offer, free or busy (`state`: `no
 `ready`, or `offline` when every PC is away). The first time, everyone in it hears so: an
 `event: crew` on their open event stream (`events.ts`), which the page celebrates with a
 banner and, in a background tab whose browser allows it, a notification. Whoever had no
-tab open sees the same banner on their next visit (`pcArrived` below), until they close
-it in that browser.
+tab open sees the same banner on their next visit within a week (`pcArrived` below),
+until they close it in that browser.
 
 ```
 GET  /crews
@@ -574,7 +574,7 @@ GET  /crews
   The crews the signed-in player is in. `name` is the admin's Steam persona, `crewName`
   the crew's own name (null until given one), `own` whether they are its admin, `pcs`
   how many PCs play for it, `pcArrived` whether its first PC came after they joined,
-  which the web app celebrates on their next visit. → 401 signed out.
+  within the last 7 days, which the web app celebrates on their next visit. → 401 signed out.
 
 POST /crews { name? }
   → 201 { crew }

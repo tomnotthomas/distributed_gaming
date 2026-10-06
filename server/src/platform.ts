@@ -159,6 +159,8 @@ export const MAX_MINUTES = 12 * 60;
 export const QOS_GRACE_MS = 60_000;
 /** A host's end this close to the session's expiry is time_up, to absorb clock skew between host and server. */
 export const TIME_UP_GRACE_MS = 10_000;
+/** How long a crew's first PC is news to a member who was away when it came. */
+export const PC_ARRIVED_MS = 7 * 24 * 60 * 60_000;
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
 /** Every status but idle: the owner is offering the machine, whether or not it is answering. */
 const OFFERED: MachineStatus[] = ["available", "reserved", "in_session", "offline"];
@@ -1253,17 +1255,18 @@ export class Platform {
 
   /**
    * The crews `userId` is in, in the order they joined them, each saying
-   * whether its first PC came after they joined (`pcArrived`), which they
-   * hear about live or on their next visit.
+   * whether its first PC came after they joined and within PC_ARRIVED_MS
+   * (`pcArrived`), which they hear about live or on their next visit.
    */
   crews(userId: string): Promise<(MyCrew & { pcArrived: boolean })[]> {
     return this.#read(async () => {
       const rows = await this.#all<CrewRow & { member_id: string; pc_arrived: boolean }>(
-        `SELECT ${this.#crewColumns()}, m.id AS member_id, (c.ready_at > m.joined_at) IS TRUE AS pc_arrived
+        `SELECT ${this.#crewColumns()}, m.id AS member_id, (c.ready_at > m.joined_at AND c.ready_at > $4) IS TRUE AS pc_arrived
            FROM crews c JOIN crew_members m ON m.crew_id = c.id
            WHERE m.user_id = $1 ORDER BY m.joined_at, m.id`,
         userId,
         ...this.#onlineParams(),
+        this.#now() - PC_ARRIVED_MS,
       );
       return rows.map((c) => ({
         id: c.id,
