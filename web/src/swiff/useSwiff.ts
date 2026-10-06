@@ -23,6 +23,7 @@ import {
   type Refusal,
 } from "./booking";
 import { chime } from "./chime";
+import { langOf } from "./crewCopy";
 import {
   GAMES,
   MACHINES,
@@ -48,6 +49,7 @@ import { questionOf, useLive } from "./useLive";
 import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
+import { screenText } from "./screenCopy";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
   applySteam,
@@ -142,6 +144,8 @@ const track = (event: string, props?: Record<string, unknown>) => {
 const NO_MACHINES: Record<string, SeedMachine> = {};
 
 export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
+  // The top bar's live count speaks the browser's language, like the bar around it.
+  const t = useMemo(() => screenText(langOf()), []);
   const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
   const [gameId, setGameId] = useState<string | null>(null);
@@ -1213,12 +1217,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   let liveLine: string | undefined;
   if (seesAvailability) {
     if (screen === "game") {
-      if (!machinesLoading) liveLine = `${machines.filter((m) => !m.busy).length} free for this game`;
+      if (!machinesLoading) liveLine = t("live.game", { n: machines.filter((m) => !m.busy).length });
     } else if (demo) {
-      liveLine = `${Object.values(pool).filter((m) => !m.busy && !m.self).length} free near you`;
+      liveLine = t("live.near", { n: Object.values(pool).filter((m) => !m.busy && !m.self).length });
     } else if (spots.size) {
       const ready = games.filter((g) => readyFor(spots, g) > 0).length;
-      liveLine = `${ready} ${ready === 1 ? "game" : "games"} ready now`;
+      liveLine = ready === 1 ? t("live.ready1") : t("live.ready", { n: ready });
     }
   }
 

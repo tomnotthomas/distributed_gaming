@@ -12,7 +12,9 @@ import type { Game, Machine, Spot } from "./data";
 import { fmtLeft, leftAt, readyFor, wallOrder } from "./derive";
 import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
+import { langOf } from "./crewCopy";
 import { CrewsCard, CrewStrip } from "./CrewsCard";
+import { screenText, type ScreenKey } from "./screenCopy";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -81,22 +83,25 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
+/** The wall's words, in the browser's language. */
+type Text = ReturnType<typeof screenText>;
+
 /** "4 h 30" or "All night": the time a machine stays free from `now` (Unix ms), as the band prints it. */
-const leftLabel = (machine: Machine, now: number) => {
+const leftLabel = (t: Text, machine: Machine, now: number) => {
   const left = fmtLeft(leftAt(machine, now));
-  return left === "all night" ? "All night" : left;
+  return left === "all night" ? t("wall.allNight") : left;
 };
 
 /** "free until 00:30", or "free all night" for a machine its owner leaves on. */
-const untilLabel = (machine: Machine) =>
-  machine.until === "late" ? "free all night" : `free until ${machine.until}`;
+const untilLabel = (t: Text, machine: Machine) =>
+  machine.until === "late" ? t("wall.freeAllNight") : t("wall.freeUntil", { at: machine.until });
 
 /** Why a game cannot start now: who comes back and when, or why nothing will. */
-function waitLabel(spot: Spot | undefined): string {
-  if (spot?.back) return `Back at ${spot.back.at}`;
-  if (spot?.free) return "Free, not all session";
-  if (spot?.busy) return "In use";
-  return "On no machine yet";
+function waitLabel(t: Text, spot: Spot | undefined): string {
+  if (spot?.back) return t("wall.backAt", { at: spot.back.at });
+  if (spot?.free) return t("wall.freeShort");
+  if (spot?.busy) return t("wall.inUse");
+  return t("wall.noMachine");
 }
 
 /** Of these games' spots, the one whose busy machine is back soonest; none when no machine says. */
@@ -111,14 +116,13 @@ function soonestBack(spots: (Spot | undefined)[]): Spot | undefined {
  * first and when, or that what is free does not last the session, or that
  * nothing is on offer at all.
  */
-function emptyLine(games: Game[], spots: ReadonlyMap<string, Spot>): string {
+function emptyLine(t: Text, games: Game[], spots: ReadonlyMap<string, Spot>): string {
   const known = games.flatMap((g) => spots.get(g.id) ?? []);
   const back = soonestBack(known)?.back;
-  if (back) return `Every shared machine is in use. ${back.name} is back at ${back.at}. `;
-  if (known.some((s) => s.free))
-    return "No free machine lasts all of tonight. Try a shorter Tonight, up top. ";
-  if (known.some((s) => s.busy)) return "Every shared machine is in use. ";
-  return "No shared machine is free right now. ";
+  if (back) return t("wall.emptyBack", { name: back.name, at: back.at });
+  if (known.some((s) => s.free)) return t("wall.emptyShort");
+  if (known.some((s) => s.busy)) return t("wall.emptyBusy");
+  return t("wall.emptyNone");
 }
 
 /** A game that just became playable pulses, unless motion is off. */
@@ -126,6 +130,7 @@ const freedClass = (swiff: Swiff, game: Game) => (swiff.motion && swiff.freed.ha
 
 export function Wall({ swiff }: { swiff: Swiff }) {
   const { games, spots, signedIn, showAll } = swiff;
+  const t = useMemo(() => screenText(langOf()), []);
 
   const ordered = useMemo(() => wallOrder(games, spots), [games, spots]);
   // Nothing is ready only once something is known: signed out, nothing ever is,
@@ -146,7 +151,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
   const library = swiff.profile ? libraryState(swiff.profile) : "ok";
   const note =
     library === "ok" ? null : (
-      <LibraryNote state={library} retrying={swiff.libraryRetrying} onRetry={swiff.retryLibrary} />
+      <LibraryNote t={t} state={library} retrying={swiff.libraryRetrying} onRetry={swiff.retryLibrary} />
     );
 
   // A renter with nothing to show still needs to hear why, not "everything is busy".
@@ -157,7 +162,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
       </main>
     );
   if (!anythingFree)
-    return <WallEmpty note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(ordered, spots)} />;
+    return <WallEmpty t={t} note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(t, ordered, spots)} />;
 
   const [hero, ...rest] = wall;
   // Signed out, the hero turns through a few games: ones free right now in the
@@ -171,43 +176,43 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
   return (
     <main className="wall" data-testid="wall">
-      {hero ? <WallHero games={showcase.length ? showcase : [hero]} swiff={swiff} /> : null}
+      {hero ? <WallHero t={t} games={showcase.length ? showcase : [hero]} swiff={swiff} /> : null}
 
-      <section className="band" aria-label="Games">
+      <section className="band" aria-label={t("wall.games")}>
         {note}
         {signedIn && !swiff.demo ? <CrewStrip swiff={swiff} /> : null}
         <div className="band-tabs">
           {signedIn && library === "ok" ? (
             <>
-              <BandTab on label="Your library" n={ordered.length} />
-              <BandTab label="Free to play" n={ordered.filter((g) => g.f2p).length} />
-              <BandTab label="Ready now" n={ordered.length - busy.length} />
+              <BandTab on label={t("wall.library")} n={ordered.length} />
+              <BandTab label={t("wall.f2p")} n={ordered.filter((g) => g.f2p).length} />
+              <BandTab label={t("wall.readyNow")} n={ordered.length - busy.length} />
             </>
           ) : signedIn ? (
             // Nothing of their own to show: the wall is free-to-play only, and says so.
             <>
-              <BandTab on label="Free to play" n={ordered.length} />
-              <BandTab label="Ready now" n={ordered.length - busy.length} />
-              <BandTab label="Your library" n={0} />
+              <BandTab on label={t("wall.f2p")} n={ordered.length} />
+              <BandTab label={t("wall.readyNow")} n={ordered.length - busy.length} />
+              <BandTab label={t("wall.library")} n={0} />
             </>
           ) : (
             <>
-              <BandTab on label="Free to play" n={ordered.filter((g) => g.f2p).length} />
-              <BandTab label="Popular on Steam" n={ordered.length} />
+              <BandTab on label={t("wall.f2p")} n={ordered.filter((g) => g.f2p).length} />
+              <BandTab label={t("wall.popular")} n={ordered.length} />
               <span className="band-tab">
-                <span>Your library</span>
+                <span>{t("wall.library")}</span>
                 <Glyph name="lock" size={16} />
               </span>
             </>
           )}
           {more ? (
             <button type="button" className="band-tab" onClick={() => swiff.setShowAll(true)}>
-              <span>All {ordered.length} games</span>
+              <span>{t("wall.allGames", { n: ordered.length })}</span>
               <Glyph name="arrow" size={16} />
             </button>
           ) : busy.length ? (
             <BandTab
-              label={waitLabel(soonestBack(busy.map((g) => spots.get(g.id))) ?? spots.get(busy[0]!.id))}
+              label={waitLabel(t, soonestBack(busy.map((g) => spots.get(g.id))) ?? spots.get(busy[0]!.id))}
               n={busy.length}
             />
           ) : (
@@ -219,6 +224,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
           {rest.map((game) => (
             <BandTile
               key={game.id}
+              t={t}
               game={game}
               preview={previewId === game.id}
               swiff={swiff}
@@ -229,9 +235,9 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
         <footer className="band-foot mono">
           {swiff.steamDenied ? (
-            <p className="band-denied">Steam sign-in was cancelled. Sign in with Steam to play.</p>
+            <p className="band-denied">{t("wall.denied")}</p>
           ) : null}
-          <p>Game artwork and trailers are the property of their respective publishers, served from Steam.</p>
+          <p>{t("wall.artCredit")}</p>
         </footer>
       </section>
     </main>
@@ -284,14 +290,20 @@ function useFitTitle(text: string) {
  * the machine (signed in) or the pitch (signed out), and Resume or the one
  * Sign in with Steam.
  */
-function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
+function WallHero({ t, games, swiff }: { t: Text; games: Game[]; swiff: Swiff }) {
   const { signedIn, clock } = swiff;
   const at = useRotation(games.length, swiff.motion);
   const game = games[at.index] ?? games[0]!;
   const spot = swiff.spots.get(game.id);
   const best = spot?.best ?? null;
   const title = useFitTitle(game.title);
-  const leader = !signedIn ? "Tonight on Lanterel" : game.owned ? "From your library" : "Free to play";
+  const leader = !signedIn ? t("hero.leaderOut") : game.owned ? t("hero.fromLibrary") : t("wall.f2p");
+  // What the renter has of this game, worded here rather than taken from the card, so it speaks the wall's language.
+  const kick = !game.owned
+    ? t("wall.f2p")
+    : game.hours
+      ? t("hero.played", { n: game.hours })
+      : t("hero.inLibrary");
 
   return (
     <section
@@ -340,30 +352,30 @@ function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
       {signedIn ? (
         <div className="hero-strip">
           <div className="hero-strip-cell hero-strip-say">
-            <div className="mono hero-strip-kick">{game.personal}</div>
+            <div className="mono hero-strip-kick">{kick}</div>
             <p className="hero-strip-line">
               {best ? (
                 <>
-                  On <b>{best.name}</b>, {untilLabel(best)}
+                  {t("hero.on")} <b>{best.name}</b>, {untilLabel(t, best)}
                 </>
               ) : spot ? (
-                waitLabel(spot)
+                waitLabel(t, spot)
               ) : (
-                "Finding you a machine…"
+                t("hero.finding")
               )}
             </p>
           </div>
           <div className="hero-strip-cell hero-strip-facts">
             {best ? (
               <dl className="hero-kv mono">
-                <dt>On</dt>
+                <dt>{t("hero.on")}</dt>
                 <dd>{best.name}</dd>
-                <dt>GPU</dt>
+                <dt>{t("hero.gpu")}</dt>
                 <dd>{best.gpu}</dd>
-                <dt>Response</dt>
+                <dt>{t("hero.response")}</dt>
                 <dd>{best.ping} ms</dd>
-                <dt>Free until</dt>
-                <dd>{best.until === "late" ? "All night" : best.until}</dd>
+                <dt>{t("hero.freeUntil")}</dt>
+                <dd>{best.until === "late" ? t("wall.allNight") : best.until}</dd>
               </dl>
             ) : null}
           </div>
@@ -377,10 +389,10 @@ function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
               <ResumeFace />
               <span className="resume-label">
                 <Glyph name="play" size={20} />
-                {game.owned ? "Resume" : "Play"}
+                {game.owned ? t("hero.resume") : t("hero.play")}
                 {best ? (
                   <small id="hero-left" aria-hidden="true">
-                    {leftLabel(best, clock)} free
+                    {t("hero.left", { left: leftLabel(t, best, clock) })}
                   </small>
                 ) : null}
               </span>
@@ -392,22 +404,19 @@ function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
           <div className="hero-strip-cell hero-strip-say">
             <div className="mono hero-strip-kick">
               <span className="live-dot" />
-              Tonight, no download
+              {t("hero.kickOut")}
             </div>
             <p className="hero-strip-line hero-turn" key={game.id}>
-              on a <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : "shared PC"}</b>. Tonight.{" "}
-              <b>No download.</b>
+              {best ? t("hero.onGpu") : t("hero.onShared")}{" "}
+              <b>{best ? best.gpu.replace(/^(RTX|RX) /, "") : t("hero.sharedPc")}</b>. <b>{t("hero.noDownload")}</b>
             </p>
           </div>
           <div className="hero-strip-cell hero-strip-facts">
-            <p className="hero-strip-pitch">
-              We read your Steam library and stream the games you own from players&rsquo; idle PCs. Your saves
-              come with you.
-            </p>
+            <p className="hero-strip-pitch">{t("hero.pitch")}</p>
           </div>
           <div className="hero-strip-cell hero-strip-act">
-            <SignInWithSteam />
-            <span className="mono hero-strip-fine">We only read your game library.</span>
+            <SignInWithSteam label={t("signIn.steam")} />
+            <span className="mono hero-strip-fine">{t("hero.fine")}</span>
           </div>
         </div>
       )}
@@ -416,6 +425,7 @@ function WallHero({ games, swiff }: { games: Game[]; swiff: Swiff }) {
 }
 
 type TileProps = {
+  t: Text;
   game: Game;
   /** The pointer has rested on this tile: play its trailer. */
   preview: boolean;
@@ -424,7 +434,7 @@ type TileProps = {
 };
 
 /** One game in the ruled band: art flush in its cell, the title, and where it would run. */
-function BandTile({ game, preview, swiff, signedIn }: TileProps) {
+function BandTile({ t, game, preview, swiff, signedIn }: TileProps) {
   const spot = swiff.spots.get(game.id);
   const best = spot?.best ?? null;
   const signInFirst = !signedIn && !game.f2p;
@@ -434,20 +444,20 @@ function BandTile({ game, preview, swiff, signedIn }: TileProps) {
   const locked = signInFirst || waiting;
 
   let meta: ReactNode;
-  if (signInFirst) meta = <span>Sign in to play if you own it</span>;
-  else if (waiting) meta = <span>{waitLabel(spot)}</span>;
+  if (signInFirst) meta = <span>{t("tile.signInOwn")}</span>;
+  else if (waiting) meta = <span>{waitLabel(t, spot)}</span>;
   else if (best)
     meta = (
       <>
         <span>{best.name}</span>
         <span className="band-tile-left">
           <TimeMark minutes={leftAt(best, swiff.clock)} />
-          {leftLabel(best, swiff.clock)}
+          {leftLabel(t, best, swiff.clock)}
         </span>
       </>
     );
   // Signed out nothing is shown about machines; signed in they are on their way.
-  else meta = <span>{signedIn ? "Finding a machine…" : "Sign in to play"}</span>;
+  else meta = <span>{signedIn ? t("tile.finding") : t("tile.signIn")}</span>;
 
   return (
     <button
@@ -475,27 +485,18 @@ function BandTile({ game, preview, swiff, signedIn }: TileProps) {
       <span className="band-tile-title">
         <span>{game.title}</span>
         {/* Free-to-play is marked wherever it is not one of your own games. */}
-        {game.f2p && (!signedIn || !game.owned) ? <span className="free-mark">Free</span> : null}
+        {game.f2p && (!signedIn || !game.owned) ? <span className="free-mark">{t("tile.free")}</span> : null}
       </span>
       <span className="band-tile-meta mono">{meta}</span>
     </button>
   );
 }
 
-const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: string }> = {
-  unreadable: {
-    title: "We couldn't read your Steam library.",
-    body: "In Steam, set Profile → Privacy → Game details to Public, then retry.",
-  },
-  checking: {
-    title: "Checking your games…",
-    body: "Each one shows up here once we know Lanterel can run it.",
-  },
-  none: {
-    title: "None of your Steam games can be played here yet.",
-    body: "Free-to-play games still work.",
-  },
-};
+const LIBRARY_COPY = {
+  unreadable: { title: "library.unreadable", body: "library.unreadableBody" },
+  checking: { title: "library.checking", body: "library.checkingBody" },
+  none: { title: "library.none", body: "library.noneBody" },
+} as const satisfies Record<Exclude<LibraryState, "ok">, { title: ScreenKey; body: ScreenKey }>;
 
 /**
  * Why a signed-in renter sees none of their own games. Only free-to-play games
@@ -504,10 +505,12 @@ const LIBRARY_COPY: Record<Exclude<LibraryState, "ok">, { title: string; body: s
  * gets none.
  */
 function LibraryNote({
+  t,
   state,
   retrying,
   onRetry,
 }: {
+  t: Text;
   state: Exclude<LibraryState, "ok">;
   retrying: boolean;
   onRetry: () => void;
@@ -516,11 +519,11 @@ function LibraryNote({
   return (
     <div className="library-note" role="status" data-testid="library-state">
       <p>
-        <strong>{title}</strong> {body}
+        <strong>{t(title)}</strong> {t(body)}
       </p>
       {state === "unreadable" || state === "checking" ? (
         <button type="button" className="lpill lpill-sm" onClick={onRetry} disabled={retrying}>
-          {retrying ? "Checking…" : state === "checking" ? "Check again" : "Retry"}
+          {retrying ? t("library.retrying") : state === "checking" ? t("library.checkAgain") : t("library.retry")}
         </button>
       ) : null}
     </div>
@@ -533,11 +536,13 @@ function LibraryNote({
  * one Sign in with Steam.
  */
 function WallEmpty({
+  t,
   note,
   signedIn,
   swiff,
   state,
 }: {
+  t: Text;
   note?: ReactNode;
   signedIn: boolean;
   swiff: Swiff;
@@ -547,13 +552,9 @@ function WallEmpty({
     <main className="wall wall-bare" data-testid="wall">
       {note}
       <EmptyState
-        title="Nothing is ready right now"
-        body={
-          signedIn
-            ? `${state}We'll tell you the moment something frees up.`
-            : `${state}Sign in with Steam and we'll tell you when a PC frees up.`
-        }
-        action={signedIn ? <Button>Notify me</Button> : <SignInWithSteam />}
+        title={t("empty.title")}
+        body={signedIn ? t("empty.signedIn", { state }) : t("empty.signedOut", { state })}
+        action={signedIn ? <Button>{t("empty.notify")}</Button> : <SignInWithSteam label={t("signIn.steam")} />}
       />
       {/* A gaming PC in the player's crew is the way to play when none is free. */}
       {signedIn ? <CrewsCard swiff={swiff} /> : null}

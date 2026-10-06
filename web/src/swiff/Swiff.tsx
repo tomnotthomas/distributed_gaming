@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { MotionContext } from "@swiff/ui";
 import { Chrome } from "./Chrome";
+import { langOf } from "./crewCopy";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { CrewInvite } from "./CrewInvite";
@@ -10,17 +11,17 @@ import { CrewReadyBanner } from "./CrewsCard";
 import { Profile } from "./Profile";
 import { AwayDialog, MachineLost, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
+import { screenText } from "./screenCopy";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";
 import { useSwiff } from "./useSwiff";
 
-const SESSION_LABEL = { quick: "1 h", evening: "3 h", night: "All night" } as const;
-
 /** Screen switch plus the shared chrome. Every screen reads one hook. */
 export function Swiff() {
   const swiff = useSwiff();
   useDisplay();
+  const t = useMemo(() => screenText(langOf()), []);
   const { screen, phase, profile, signedIn } = swiff;
 
   // The app scrolls as one page; a new screen starts at its top.
@@ -56,7 +57,7 @@ export function Swiff() {
               signedIn
                 ? {
                     persona: profile?.persona ?? "",
-                    session: { label: SESSION_LABEL[swiff.session], onCycle: swiff.cycleSession },
+                    session: { label: t(`session.${swiff.session}`), onCycle: swiff.cycleSession },
                   }
                 : undefined
             }
