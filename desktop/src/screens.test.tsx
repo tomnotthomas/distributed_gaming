@@ -382,6 +382,32 @@ describe("this PC's screens", () => {
     expect(acts.setCrewOnly).toHaveBeenCalledWith(false);
   });
 
+  it("keeps asking on a crew-only PC nobody else may play on, with the ways out", () => {
+    const acts = renderReal(
+      "live",
+      { kind: "waiting", since: evening(21), until: evening(1), registered: true },
+      { crew: { only: true, crews: [] } },
+    );
+    const group = screen.getByRole("radiogroup", { name: "Who can play" });
+    expect(within(group).getByRole("radio", { name: /Crew only/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open to everyone" }));
+    expect(acts.setCrewOnly).toHaveBeenCalledWith(false);
+    expect(screen.queryByText(/in your browser/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Invite a friend" }));
+    expect(screen.getByText("https://signal.example")).toBeInTheDocument();
+    expect(screen.getByText(/send your link from Ask your PC friend on your profile/)).toBeInTheDocument();
+    cleanup();
+
+    renderReal("live", off, { now: evening(21), crew: { only: true, crews: [] } });
+    expect(screen.getByRole("radiogroup", { name: "Who can play" })).toBeInTheDocument();
+    expect(screen.getByText(/Nobody in your crew can play on this PC right now\./)).toBeInTheDocument();
+    cleanup();
+
+    renderReal("live", off, { now: evening(21), crew: { only: false, crews: [] } });
+    expect(screen.queryByRole("radiogroup", { name: "Who can play" })).not.toBeInTheDocument();
+  });
+
   it("says anyone may claim a PC its owner opened, and names a crew Steam gave no name for", () => {
     renderReal("live", off, {
       now: evening(21),

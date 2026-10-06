@@ -235,6 +235,21 @@ describe("crews", () => {
       assert.equal((await platform.booking(queued.bookingId, ALEX))?.status, "matched");
     });
 
+    it("keeps a removed host's PC crew-only, matched to nobody, and tells the host app so", async () => {
+      await hostJoinsAlex();
+      await offer("pc-1");
+      const [sam] = (await platform.crewInvite(ALEX, "Alex")).members;
+      assert.equal(await platform.leaveCrew(sam!.id, ALEX), true);
+
+      assert.deepEqual((await platform.heartbeat("pc-1")).crew, { only: true, crews: [] });
+      assert.equal((await platform.book(730, 30, ALEX)).status, "queued");
+      assert.equal(await platform.bookMachine("pc-1", 730, 30, STRANGER), null);
+      const { machines } = await platform.offeredMachines();
+      assert.deepEqual(machines.find((m) => m.host.id === "pc-1")?.host.crew, []);
+      // A PC of theirs first heard from now starts open: its owner shares no crew with anyone.
+      assert.equal((await offer("pc-2")).crew.only, false);
+    });
+
     it("sends a match made before the removal back to the queue at the claim", async () => {
       const inviteId = await hostJoinsAlex();
       await platform.joinCrew(inviteId, JO, "Jo");

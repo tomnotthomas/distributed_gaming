@@ -1,11 +1,14 @@
 // A3: choose until when players can claim this PC, then hold to go live.
 
+import { useState } from "react";
+import { httpOrigin } from "@swiff/rtc";
 import { clock, count, HOUR, shortGpu } from "../format";
 import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
 import { Reticle } from "../ui/Reticle";
 import type { Crew } from "../report";
+import { toSocketUrl } from "../settings";
 import { listedGames, tonight, type ScreenProps } from "./types";
 
 /** Four plain choices and an exact time. */
@@ -57,13 +60,36 @@ export function crewName({ name, own }: Crew["crews"][number]): string {
   return own ? "your crew" : name ? `${name}'s crew` : "your friend's crew";
 }
 
+/** Whether to ask who can play: once the platform says this PC's owner is in a crew, or while it is crew-only. */
+export const asksWhoCanPlay = (crew: Crew | null): crew is Crew => Boolean(crew && (crew.crews.length || crew.only));
+
+/** The web app's address on the connection's server, where the owner's invite link is; null when it cannot be read. */
+export function siteOf(url: string): string | null {
+  try {
+    return httpOrigin(toSocketUrl(url));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Who can play on this PC: only the crews its owner joined from a friend's
  * invite link, or anyone on Swiff. Shown once the platform has said this PC's
- * owner is in a crew; the platform holds the choice.
+ * owner is in a crew, and while it is crew-only, so a crew-only PC nobody else
+ * may play on can still be opened; the platform holds the choice. `site` is
+ * where the owner finds their invite link.
  */
-export function CrewPicker({ crew, onChange }: { crew: Crew | null; onChange: (only: boolean) => void }) {
-  if (!crew?.crews.length) return null;
+export function CrewPicker({
+  crew,
+  site,
+  onChange,
+}: {
+  crew: Crew | null;
+  site: string | null;
+  onChange: (only: boolean) => void;
+}) {
+  const [inviting, setInviting] = useState(false);
+  if (!asksWhoCanPlay(crew)) return null;
   const crews = crew.crews.map(crewName);
   const named = crews.length === 1 ? crews[0]! : `${crews.slice(0, -1).join(", ")} and ${crews.at(-1)}`;
   const size = crew.crews.reduce((n, c) => n + c.size - 1, 0);
@@ -91,9 +117,31 @@ export function CrewPicker({ crew, onChange }: { crew: Crew | null; onChange: (o
           </button>
         ))}
       </div>
-      <p className="note6">
-        {crew.only ? `Only ${named} can claim this PC.` : `Anyone on Swiff can claim this PC, ${named} too.`}
-      </p>
+      {crew.only && !crew.crews.length ? (
+        <>
+          <p className="note6">
+            Nobody in your crew can play on this PC right now.{" "}
+            <button type="button" className="lnk" onClick={() => onChange(false)}>
+              Open to everyone
+            </button>{" "}
+            or{" "}
+            <button type="button" className="lnk" onClick={() => setInviting(true)}>
+              Invite a friend
+            </button>
+            .
+          </p>
+          {inviting ? (
+            <p className="note6">
+              Open <b>{site ?? "Swiff"}</b> in your browser, sign in with Steam, and send your link from Ask
+              your PC friend on your profile.
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="note6">
+          {crew.only ? `Only ${named} can claim this PC.` : `Anyone on Swiff can claim this PC, ${named} too.`}
+        </p>
+      )}
     </>
   );
 }
@@ -125,7 +173,7 @@ export function GoLive({ view, actions, go }: ScreenProps) {
             </p>
             <UntilPicker now={now} value={plan} onChange={actions.plan} />
             <p className="note6">{untilSentence(machine, plan)}</p>
-            <CrewPicker crew={view.crew} onChange={actions.setCrewOnly} />
+            <CrewPicker crew={view.crew} site={siteOf(connection.url)} onChange={actions.setCrewOnly} />
             {!ready ? (
               <p className="note6">
                 Add this PC&rsquo;s connection details in{" "}
