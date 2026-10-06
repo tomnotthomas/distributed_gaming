@@ -345,8 +345,7 @@ function addTrust(text, file = path.join(__dirname, "image-trust.json")) {
   const entry = releaseTrustOf(text);
   const list = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!Array.isArray(list)) throw new Error(`${file} is not a list.`);
-  if (list.some((t) => t?.publicKey === entry.publicKey && t.certSha256 === entry.certSha256))
-    return false;
+  if (list.some((t) => t?.publicKey === entry.publicKey && t.certSha256 === entry.certSha256)) return false;
   fs.writeFileSync(file, `${JSON.stringify([...list, entry], null, 2)}\n`);
   return true;
 }
