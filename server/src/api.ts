@@ -824,6 +824,7 @@ export function createApi({
           const mine = watches.list(session.sessionId).find((watch) => watch.viewerId === steamId);
           return {
             sessionId: session.sessionId,
+            starting: session.starting,
             player: session.playerName,
             gameId: session.gameId,
             machine: session.machineName,

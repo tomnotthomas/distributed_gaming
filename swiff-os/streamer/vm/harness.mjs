@@ -1,9 +1,12 @@
 // The streamer VM test, on the host: the platform and the renter.
 //
 // Runs the real Swiff server (in memory) and a real renter: a headless Chromium
-// on the real /rtc page. Then a crewmate of the renter's, on the real wall, asks
-// to watch: the renter says yes, the friend watches the VM's picture view only,
-// and both talk in the voice chat, each hearing the other. The VM's agent (mkosi.extra/usr/libexec/swiff/streamer-vmtest)
+// on the real /rtc page. Then the renter goes back to the same session on the
+// Swiff player page, and a crewmate of theirs, on the real wall, asks to watch:
+// the renter says yes over the game, the friend watches the VM's picture view
+// only, and both talk in the voice chat, each hearing the other. The VM runs no
+// game and no Steam, so the harness tells the renter's page the game is on
+// screen, as the PC's Steam agent would. The VM's agent (mkosi.extra/usr/libexec/swiff/streamer-vmtest)
 // reaches this harness at 10.0.2.2, QEMU's address for the host, to fetch the
 // session grant and to report what it saw. The grant is made only when the
 // agent asks, as swiff-hostd gets it at claim time, so the 5-minute key is fresh.
@@ -139,9 +142,8 @@ async function until(check, what, ms = 30_000) {
 const { mintRenterSession } = await import(resolve(REPO, "server/dist/access.js"));
 const { SESSION_COOKIE } = await import(resolve(REPO, "server/dist/signin.js"));
 const { REPORT } = await import(resolve(REPO, "server/dist/test/report.js"));
-const RENTER = {
-  cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`,
-};
+const RENTER_SESSION = mintRenterSession(SESSION_SECRET, "76561198000000001", 3600);
+const RENTER = { cookie: `${SESSION_COOKIE}=${RENTER_SESSION}` };
 // The renter's crewmate, who watches.
 const FRIEND_SESSION = mintRenterSession(SESSION_SECRET, "76561198000000002", 3600);
 const FRIEND = { cookie: `${SESSION_COOKIE}=${FRIEND_SESSION}` };
@@ -240,11 +242,63 @@ const received = (page, mid) =>
     return { energy, bytes };
   }, mid);
 
-/** The renter's crewmate asks to watch from the wall; the renter (`page`, on /rtc) says yes; they talk. */
-async function watching(browser, page) {
+/**
+ * The renter (`rtc`, on /rtc so far) comes back to the session on the Swiff
+ * player page, where viewers get the game only while the player sees it. The
+ * game is on screen once the session plays: the harness says so on the
+ * page's signaling socket, standing in for the PC's Steam agent.
+ */
+async function swiffPlayer(browser, rtc) {
+  const context = await browser.newContext({ permissions: ["microphone"] });
+  await context.addCookies([{ name: SESSION_COOKIE, value: RENTER_SESSION, url: HTTP }]);
+  const page = await context.newPage();
+  page.on("pageerror", (err) => console.log(`renter page error: ${redact(err.message)}`));
+  await page.addInitScript(keepConnections);
+  let signaling = null;
+  await page.routeWebSocket(/^wss?:/, (ws) => {
+    ws.connectToServer();
+    signaling = ws;
+  });
+  await rtc.close();
+  // The page this browser played the session on went away; the Swiff page offers to go back to it.
+  await page.goto(`${HTTP}/`);
+  const { sessionId, roomId } = session.claim;
+  await page.evaluate((play) => localStorage.setItem("swiff.play", JSON.stringify(play)), {
+    bookingId: session.bookingId,
+    sessionId,
+    roomId,
+  });
+  await page.reload();
+  await page.getByTestId("away").getByRole("button", { name: "Reconnect" }).click();
+  await until(
+    async () => {
+      const booking = await call("GET", `/api/bookings/${session.bookingId}`, RENTER);
+      if (booking.body.status === "playing")
+        signaling?.send(JSON.stringify({ type: "game-started", sessionId }));
+      await new Promise((r) => setTimeout(r, 1000));
+      return (
+        (await page.getByTestId("session").count()) > 0 && (await page.getByTestId("ignition").count()) === 0
+      );
+    },
+    "the game on screen at the renter",
+    120_000,
+  );
+  return page;
+}
+
+/** Wake the renter's HUD, which the crew panel hides with, so the next click lands on it. */
+async function wakeHud(page) {
+  await page.mouse.move(400, 300);
+  await page.mouse.move(420 + Math.random() * 40, 320);
+  await page.getByTestId("session").and(page.locator('[data-hud="shown"]')).waitFor({ timeout: 10_000 });
+}
+
+/** The renter plays on the Swiff page; their crewmate asks to watch from the wall, the renter says yes; they talk. */
+async function watching(browser, rtc) {
   const invite = await call("GET", "/api/me/invite", RENTER);
   const joined = await call("POST", `/api/invites/${invite.body.token}/join`, FRIEND);
   if (joined.status !== 200) throw new Error(`joining the crew answered ${joined.status}`);
+  const page = await swiffPlayer(browser, rtc);
   const before = await call("GET", `/api/bookings/${session.bookingId}`, RENTER);
 
   const context = await browser.newContext({ permissions: ["microphone"] });
@@ -273,8 +327,8 @@ async function watching(browser, page) {
       () => false,
     );
   record("renter gets the friend's request over the stream", asked);
-  // The renter's click on the picture took the pointer; a person lets it go with
-  // Escape, which the browser keeps for itself, before they can click anything else.
+  // A click on the picture takes the pointer; a person lets it go with Escape,
+  // which the browser keeps for itself, before they can click anything else.
   await page.evaluate(() => document.exitPointerLock());
   await asks.getByRole("button", { name: "Let them watch" }).click();
 
@@ -299,7 +353,9 @@ async function watching(browser, page) {
   record("friend's connections carry no data channel", channels.length === 0, channels.join(", "));
 
   // Voice, both ways: each joins, and each receives the other's voice on the voice line.
-  await page.locator(".rtc-crew").getByRole("button", { name: "Join voice" }).click();
+  const panel = page.getByTestId("crew-panel");
+  await wakeHud(page);
+  await panel.getByRole("button", { name: "Join voice" }).click();
   await friend.getByTestId("watch-crew").getByRole("button", { name: "Join voice" }).click();
   const heard = (who, what) =>
     until(async () => (await received(who, "2")).energy > 0, what, 30_000).then(
@@ -316,7 +372,8 @@ async function watching(browser, page) {
     `${before.body.status} -> ${after.body.status}`,
   );
 
-  await page.locator(".rtc-crew").getByRole("button", { name: "Stop" }).click();
+  await wakeHud(page);
+  await panel.getByRole("button", { name: "Stop" }).click();
   const told = await friend
     .getByTestId("watch-wait")
     .filter({ hasText: "stopped sharing with you" })
@@ -327,6 +384,7 @@ async function watching(browser, page) {
     );
   record("renter stops the watch, and the friend is told", told);
   await context.close();
+  await page.context().close();
 }
 
 async function renter() {
@@ -340,8 +398,7 @@ async function renter() {
     ],
   });
   try {
-    const page = await (await browser.newContext({ permissions: ["microphone"] })).newPage();
-    await page.addInitScript(keepConnections);
+    const page = await browser.newPage();
     page.on("pageerror", (err) => console.log(`renter page error: ${redact(err.message)}`));
     await page.goto(`${HTTP}/rtc#ticket=${session.claim.ticket}`);
     const connectAt = Date.now();

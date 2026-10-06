@@ -16,6 +16,7 @@ afterEach(() => {
 
 const ENTRY: CrewLiveEntry = {
   sessionId: "s1",
+  starting: false,
   player: "Mara",
   gameId: 1245620,
   machine: "Glasshouse",
@@ -86,6 +87,14 @@ describe("the wall's crew band", () => {
     expect(screen.getByRole("button", { name: "Watch" })).toBeEnabled();
     expect(screen.getByText("2 watching.", { exact: false })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Asked" })).toBeDisabled();
+  });
+
+  it("says a crewmate still starting is starting, with nothing to ask yet", () => {
+    render(<CrewLiveBand swiff={swiff([{ ...ENTRY, starting: true }])} />);
+    expect(screen.getByTestId("crew-live-line").textContent).toContain(
+      "Mara is starting Elden Ring on Glasshouse.",
+    );
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("shows nothing while no crewmate plays", () => {

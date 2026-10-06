@@ -20,7 +20,7 @@ import { MAX_WATCHERS } from "./protocol.js";
 
 /** How long a player has to answer a viewer asking, before it counts as no. */
 export const ASK_MS = 60_000;
-/** How long a viewer whose page left (a reload, a dropped socket) keeps its place, to come back on the same ticket. */
+/** How long a viewer whose socket dropped (close 1006) keeps its place, to come back on the same ticket. A page closed or reloaded leaves at once. */
 export const AWAY_MS = 30_000;
 /**
  * How long a viewer turned down, unanswered or stopped waits before asking the

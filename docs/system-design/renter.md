@@ -905,19 +905,21 @@ nothing is recorded or kept.
 
 ```
 GET  /crew-live
-  → 200 { live: [{ sessionId, player, gameId, machine, startedAt, sharing, watching, mine }] }
+  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
   The sessions the signed-in player's crewmates are playing now (claimed or playing), on
-  any machine, never their own: who plays (`player`, their Steam persona as their crew
+  any machine, never their own: whether the player is still behind Ignition (`starting`,
+  booking `claimed`: not yet to be asked), who plays (`player`, their Steam persona as their crew
   knows it), which game on which machine, whether they share with the crew (`sharing`),
   how many watch, and this player's own watch on it (`mine`, `{ state }`, or null).
   → 401 signed out.
 
 POST /crew-live/:sessionId/watch
   → 200 { watchId, state, player, signalingUrl, ticket }
-  Ask to watch: a watch ticket for the session's room, valid until the session's
-  deadline. `state` is `asking`, or `watching` at once when the player shares with the
+  Ask to watch a session past Ignition (booking `playing`, so the player sees the ask
+  while its 60 s run): a watch ticket for the session's room, valid until the session's
+  deadline, final by then. `state` is `asking`, or `watching` at once when the player shares with the
   crew. Asked again while the watch is on, it is the same watch.
-  → 404 when no crewmate of theirs plays that session now. → 409 { code: "full" } when
+  → 404 when no crewmate of theirs plays that session now, or it is still starting. → 409 { code: "full" } when
   4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
   Retry-After for 60 s after the player said no, did not answer, or stopped them.
   → 503 when ROOM_SECRET is not set. → 401 signed out.
@@ -939,8 +941,9 @@ The watch state (`server/src/watch.ts`) lives in the signaling process beside th
 5. A watch ends when the player says no or stops it, when the session ends (the viewer
    is told `watch-ended`), when the viewer or the player leaves the crew or is removed
    from it (`not-crew`, checked at once on a removal through the API and every 5 s in
-   one read for all), or when the viewer's page has been gone for 30 s. A viewer whose
-   socket drops comes back on the same ticket within those 30 s.
+   one read for all), when the viewer's page closes or reloads (`watch-left`, at once), or
+   when the viewer's socket has dropped (close 1006) and not come back within 30 s. Only
+   a dropped socket keeps its place, to come back on the same ticket within those 30 s.
 
 Watching costs the player nothing: no booking, no machine and no minute of theirs. The
 session runs to its own deadline, and the watch ends with it.
@@ -975,6 +978,6 @@ the pages (or through the TURN relay), never through the server, and nothing is 
 The player hears the game and the crew; viewers hear the game and the crew.
 
 On the wall, a band names each crewmate playing now with Ask to watch (Watch when they
-share), read from GET /crew-live whenever the wall's event stream says something changed,
+share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed,
 or `event: crew` says a player shared or stopped sharing. The watch itself covers the
 page: Asked, the player's yes, the game, and plainly why it ended.

@@ -47,16 +47,19 @@ function CrewLiveLine({
   return (
     <div className="library-note crew-live-line" data-testid="crew-live-line">
       <p>
-        <strong>{player}</strong> is playing {game ? <strong>{game}</strong> : "a game"}
+        <strong>{player}</strong> is {entry.starting ? "starting" : "playing"}{" "}
+        {game ? <strong>{game}</strong> : "a game"}
         {entry.machine ? ` on ${entry.machine}` : ""}.
         {entry.watching ? <span className="crew-live-count"> {entry.watching} watching.</span> : null}
       </p>
-      <button type="button" className="lpill lpill-sm" onClick={onWatch} disabled={asked}>
-        {asked ? "Asked" : entry.sharing ? "Watch" : "Ask to watch"}
-        <span className="lpill-c">
-          <Glyph name="arrow" size={16} />
-        </span>
-      </button>
+      {entry.starting ? null : (
+        <button type="button" className="lpill lpill-sm" onClick={onWatch} disabled={asked}>
+          {asked ? "Asked" : entry.sharing ? "Watch" : "Ask to watch"}
+          <span className="lpill-c">
+            <Glyph name="arrow" size={16} />
+          </span>
+        </button>
+      )}
     </div>
   );
 }

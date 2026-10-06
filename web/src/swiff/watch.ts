@@ -21,6 +21,8 @@ import {
 /** A session a crewmate is playing now (server/src/api.ts, GET /api/crew-live). */
 export type CrewLiveEntry = {
   sessionId: string;
+  /** The player is still behind Ignition: not yet to be asked. */
+  starting: boolean;
   /** The player's Steam persona, as their crew knows it. */
   player: string | null;
   /** The Steam appid played. */

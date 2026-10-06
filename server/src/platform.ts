@@ -273,10 +273,13 @@ export type CrewDetail = MyCrew & { inviteId: string | null; members: CrewMember
 /**
  * A session a crewmate is playing now, as their crew sees it: who plays which
  * game on which machine, and until when (`expiresAt`, Unix ms: the session's
- * deadline). `playerId` stays on the server.
+ * deadline, final once it is no longer `starting`). `starting` while the
+ * player is still behind Ignition (booking `claimed`). `playerId` stays on the
+ * server.
  */
 export type CrewLiveSession = {
   sessionId: string;
+  starting: boolean;
   room: string;
   machineName: string | null;
   gameId: number;
@@ -289,7 +292,7 @@ export type CrewLiveSession = {
 /** Live sessions with their machine and player, for crewLive and watchable to filter. */
 const LIVE_SESSIONS = `SELECT s.id AS "sessionId", s.machine_id AS room, m.name AS "machineName",
          b.game_id AS "gameId", b.renter_id AS "playerId", s.started_at AS "startedAt",
-         s.expires_at AS "expiresAt",
+         s.expires_at AS "expiresAt", b.status = 'claimed' AS starting,
          coalesce((SELECT c.owner_name FROM crews c WHERE c.owner_id = b.renter_id AND c.owner_name IS NOT NULL
                     ORDER BY c.created_at DESC LIMIT 1),
                   (SELECT n.name FROM crew_members n WHERE n.user_id = b.renter_id AND n.name IS NOT NULL
@@ -1887,9 +1890,9 @@ export class Platform {
 
   /**
    * The sessions `userId`'s crewmates are playing now (claimed or playing),
-   * on any machine: what a crewmate may ask to watch (watch.ts). Their own is
-   * never listed. A player is named by their Steam persona as their crew last
-   * read it.
+   * on any machine: what a crewmate may ask to watch (watch.ts) once it is no
+   * longer starting. Their own is never listed. A player is named by their
+   * Steam persona as their crew last read it.
    */
   crewLive(userId: string): Promise<CrewLiveSession[]> {
     return this.#read(() =>
@@ -1905,16 +1908,17 @@ export class Platform {
   }
 
   /**
-   * Session `sessionId`, when `viewerId` may watch it: it is being played now
-   * (claimed or playing), by someone other than them who shares a crew with
-   * them. Otherwise why not: the session is not running (`ended`, unknown
-   * ones included) or they share no crew with its player (`not-crew`). Whether
+   * Session `sessionId`, when `viewerId` may ask to watch it: it is being
+   * played now (playing, past Ignition, so the player sees the ask), by someone
+   * other than them who shares a crew with them. Otherwise why not: the
+   * session is not live (`ended`, starting and unknown ones included) or they
+   * share no crew with its player (`not-crew`). Whether
    * the player says yes is watch.ts's.
    */
   watchable(sessionId: string, viewerId: string): Promise<CrewLiveSession | "ended" | "not-crew"> {
     return this.#read(async () => {
       const live = await this.#get<CrewLiveSession>(
-        `${LIVE_SESSIONS} WHERE s.id = $1 AND s.ended_at IS NULL AND b.status IN ('claimed', 'playing')`,
+        `${LIVE_SESSIONS} WHERE s.id = $1 AND s.ended_at IS NULL AND b.status = 'playing'`,
         sessionId,
       );
       if (!live) return "ended";

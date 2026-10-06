@@ -2145,17 +2145,6 @@ button.band-tab:hover {
   }
 }
 
-/* /rtc, the bare handshake page: the same crew controls, in the page's flow */
-.rtc-crew {
-  display: grid;
-  gap: var(--space-4);
-  margin-top: var(--space-6);
-}
-.rtc-crew :is(.crew-asks, .crew-panel) {
-  position: static;
-  width: min(360px, 100%);
-}
-
 /* — profile — */
 .profile {
   position: relative;

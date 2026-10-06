@@ -254,12 +254,13 @@ describe("crew live sessions", () => {
     return (await platform.crewInvite(MARA, "Mara")).members.find((m) => m.name === "Lea")!;
   }
 
-  /** `renter` books and claims pc-1. */
-  async function plays(renter: string) {
+  /** `renter` books and claims pc-1, and (unless still `starting`, behind Ignition) plays on it. */
+  async function plays(renter: string, { starting = false } = {}) {
     await platform.setAvailability("pc-1", true, REPORT);
     const booking = await platform.book(730, 60, renter);
     const claim = await platform.claim(booking.bookingId, renter);
     assert.ok(claim.ok);
+    if (!starting) assert.equal(await platform.startSession("pc-1", claim.sessionId), true);
     return { bookingId: booking.bookingId, sessionId: claim.sessionId };
   }
 
@@ -310,10 +311,11 @@ describe("crew live sessions", () => {
     assert.deepEqual(listed.body.live, [
       {
         sessionId,
+        starting: false,
         player: "Mara",
         gameId: 730,
         machine: REPORT.name,
-        startedAt: null,
+        startedAt: now,
         sharing: false,
         watching: 0,
         mine: null,
@@ -354,6 +356,23 @@ describe("crew live sessions", () => {
     assert.equal((await call("POST", "/api/crew-live/nope/watch", LEA)).status, 404);
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`)).status, 401);
     assert.deepEqual(watches.all(), []);
+  });
+
+  it("lists a crewmate still behind Ignition as starting, and takes no ask until they play", async () => {
+    await maraCrew();
+    const { sessionId } = await plays(MARA, { starting: true });
+    assert.equal(await platform.watchable(sessionId, LEA), "ended");
+    const listed = await call("GET", "/api/crew-live", LEA);
+    assert.deepEqual(
+      listed.body.live.map((s: { sessionId: string; starting: boolean }) => [s.sessionId, s.starting]),
+      [[sessionId, true]],
+    );
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+    assert.deepEqual(watches.all(), []);
+
+    assert.equal(await platform.startSession("pc-1", sessionId), true);
+    assert.equal((await call("GET", "/api/crew-live", LEA)).body.live[0].starting, false);
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 200);
   });
 
   it("says when the session is full, and when a viewer turned down must wait", async () => {
@@ -537,8 +556,8 @@ describe("watching through the signaling server", () => {
   }
 
   /**
-   * Mara plays in a fresh room: its PC registered, her booking claimed and her
-   * page seated with the ticket. Lea asks to watch and her page takes its seat.
+   * Mara plays in a fresh room: its PC registered, her booking claimed and
+   * started, and her page seated with the ticket. Lea asks to watch and her page takes its seat.
    */
   async function scene() {
     await crew();
@@ -562,6 +581,10 @@ describe("watching through the signaling server", () => {
     const booking = await call("POST", "/api/bookings", MARA, { gameId: 730, minutes: 30, machineId: room });
     const claim = await call("POST", `/api/bookings/${booking.body.bookingId}/claim`, MARA);
     assert.equal(claim.status, 200);
+    assert.equal(
+      (await call("POST", `/api/sessions/${claim.body.sessionId}/start`, undefined, {}, MACHINE_KEY)).status,
+      200,
+    );
     const player = await tracked();
     send(player, { type: "join", ticket: claim.body.ticket });
     await handled(player);
