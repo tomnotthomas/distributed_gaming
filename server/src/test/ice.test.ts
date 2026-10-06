@@ -285,6 +285,13 @@ describe("a relay with a credential endpoint", () => {
     assert.ok(!calls[0]!.url.includes("super-secret"));
   });
 
+  it("follows no redirect away from the endpoint it was given", async () => {
+    const { fetch, calls } = fakeFetch(ok(MINTED));
+    const { relay } = relayFromEnv(env, { fetch });
+    await relay.credentials(seat(), NOW);
+    assert.equal(calls[0]!.init.redirect, "error");
+  });
+
   it("puts the minted credential on TURN_URLS when they are given", async () => {
     const { fetch } = fakeFetch(ok(MINTED));
     const { relay } = relayFromEnv({ ...env, TURN_URLS: "turns:relay.example:443" }, { fetch });

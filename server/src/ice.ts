@@ -190,6 +190,9 @@ function endpointRelay(endpoint: string, token: string, urls: string[], doFetch:
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ ttl }),
           signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
+          // Only the endpoint that was checked mints: a redirect would resend the
+          // request elsewhere and take its answer for the relay.
+          redirect: "error",
         });
         if (!response.ok) {
           // Deliberately not logging the body: on an auth failure it can echo
