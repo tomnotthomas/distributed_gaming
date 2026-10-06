@@ -351,7 +351,8 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // mails carry the confirm link itself until sent; the unsubscribe token,
     // which can do nothing but unsubscribe, as it is, since every mail carries
     // the same one. referral is the sign-up's own crew link code, shown once it
-    // is confirmed. The invite it came with, if any, is invite_type and invite_code.
+    // is confirmed. The invite it came with, if any, is invite_type and invite_code
+    // (never a crew invite's: it may be the app's crew join token).
     `CREATE TABLE marketing_signups (
       id               TEXT PRIMARY KEY,
       email            TEXT NOT NULL,

@@ -2,10 +2,11 @@
 // marketing.ts) says in place of the example people marketing built them with
 // (Max, Lena, Jonas, Tom, "Toms Rig", Friday 10 October…), per invite.
 //
-// The product knows little about an invite yet: a crew invite link names its
-// crew's owner; seats at a rig, gifted seats and crew Nights do not exist at
-// all. So every page says it without anyone's name or facts it does not have,
-// and a crew invite whose inviter is known names them in its headlines.
+// The product knows little about an invite yet: the marketing server names
+// nobody (its crew page moves into the web app), and seats at a rig, gifted
+// seats and crew Nights do not exist at all. So every page says it without
+// anyone's name or facts it does not have; a resolver that does know a crew
+// invite's inviter gets them named in its headlines.
 // Nothing here makes up a person.
 //
 // Each page's copy replaces the text of the elements marked with its data-t
