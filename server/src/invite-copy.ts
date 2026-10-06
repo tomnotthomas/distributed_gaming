@@ -2,11 +2,11 @@
 // marketing.ts) says in place of the example people marketing built them with
 // (Max, Lena, Jonas, Tom, "Toms Rig", Friday 10 October…), per invite.
 //
-// The product knows little about an invite yet: crew invites will name their
-// inviter once crews land (PR #96); seats at a rig, gifted seats and crew
-// Nights do not exist at all. So every page says it without anyone's name or
-// facts it does not have, and a crew invite whose inviter is known names them
-// in its headlines. Nothing here makes up a person.
+// The product knows little about an invite yet: a crew invite link names its
+// crew's owner; seats at a rig, gifted seats and crew Nights do not exist at
+// all. So every page says it without anyone's name or facts it does not have,
+// and a crew invite whose inviter is known names them in its headlines.
+// Nothing here makes up a person.
 //
 // Each page's copy replaces the text of the elements marked with its data-t
 // key, its title and its link-preview tags, and a few literal bits of the
@@ -23,7 +23,7 @@ export type Lang = "de" | "en";
  * members, once seats, gifts and Nights exist; each page below says where.
  */
 export type InviteView = {
-  /** The inviter's first name; null when unknown. */
+  /** The inviter's name as the product shows them (a Steam persona); null when unknown. */
   inviter: string | null;
 };
 
