@@ -1,6 +1,7 @@
 // Share your PC is the website half of hosting, reached from the renter app's
-// top bar and at its own address: the estimate, How we got this number, and the
-// one download. Everything after the download happens in the desktop app.
+// top bar and at its own address: the estimate, How we got this number, the
+// one download, and what a host can check for themselves (its SHA-256).
+// Everything after the download happens in the desktop app.
 
 import { expect, test } from "@playwright/test";
 import { signIn } from "./credentials";
@@ -58,10 +59,24 @@ test.describe("share your PC", () => {
     const download = page.getByRole("button", { name: /Download for Windows/ });
     await expect(download).toBeDisabled();
     await expect(download).toHaveAccessibleDescription("Coming soon");
-    await expect(page.getByTestId("share").getByRole("link")).toHaveCount(0);
+    await expect(page.getByTestId("share").getByRole("link", { name: /Download/ })).toHaveCount(0);
 
     await download.click({ force: true });
     await expect(page).toHaveURL(/\/share$/);
+  });
+
+  test("says what a host can check for themselves, and where the download's SHA-256 goes", async ({
+    page,
+  }) => {
+    await page.goto("/share");
+    await page.getByRole("link", { name: "Check the download" }).click();
+    await expect(page).toHaveURL(/\/share#trust$/);
+    const trust = page.locator("#trust");
+    await expect(trust).toBeInViewport();
+    await expect(trust).toContainText("Swiff never reads, sends or keeps it");
+    await expect(trust).toContainText("Remove it in one click");
+    await expect(trust).toContainText("SHA-256 is published here with it");
+    await expect(page.getByTestId("share")).toBeVisible();
   });
 
   test("keeps a running launch in place on Back", async ({ page, context, baseURL }) => {
