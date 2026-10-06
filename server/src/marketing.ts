@@ -20,6 +20,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
+import { verifyInviteToken } from "./access.js";
 import { BRAND, WORDMARK } from "./brand.js";
 import { inviteCopy, UNKNOWN_INVITE, type InviteType, type InviteView, type Lang } from "./invite-copy.js";
 
@@ -125,12 +126,27 @@ export function inviteRoute(path: string): { type: InviteType; lang: Lang; code:
 /** What the product knows about an invite, by its code. */
 export type InviteResolver = (type: InviteType, code: string) => Promise<InviteView>;
 
-/**
- * Nothing yet. TODO: a crew invite names its inviter once crews and their
- * signed invite tokens are on main (PR #96, verifyInviteToken in access.ts
- * and the inviter it names); seats, gifts and Nights once they exist.
- */
+/** Nothing: every invite page says it without names. */
 export const knownInvites: InviteResolver = async () => UNKNOWN_INVITE;
+
+/**
+ * Crew invites by their link token (the one the app hands out, signed with
+ * SESSION_SECRET, access.ts): a live one names its crew's owner as the crew
+ * shows them (their Steam persona). A forged, revoked or unknown token, a
+ * sign-up's own crew link code, and every other type name nobody. TODO: seats,
+ * gifts and Nights once they exist.
+ */
+export function crewInvites(
+  sessionSecret: string | null,
+  platform: { invite(inviteId: string): Promise<{ name: string | null } | null> },
+): InviteResolver {
+  return async (type, code) => {
+    if (type !== "crew" || !sessionSecret) return UNKNOWN_INVITE;
+    const inviteId = verifyInviteToken(sessionSecret, code);
+    const crew = inviteId ? await platform.invite(inviteId) : null;
+    return { inviter: crew?.name ?? null };
+  };
+}
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

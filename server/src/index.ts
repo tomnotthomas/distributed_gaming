@@ -78,7 +78,7 @@ import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
-import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
+import { createMarketing, crewInvites, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
 import { createSignups } from "./signups.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -223,6 +223,7 @@ const serveMarketing =
         site,
         files: marketing,
         routes: await pageRoutes(MARKETING_DIR),
+        invites: crewInvites(sessionSecret, platform),
         isShareCode: signups.isShareCode,
       })
     : null;

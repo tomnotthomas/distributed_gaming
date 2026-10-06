@@ -8,10 +8,13 @@ import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { inviteToken } from "../access.js";
 import type { Database } from "../db.js";
+import { Platform } from "../platform.js";
 import type { InviteType } from "../invite-copy.js";
 import {
   createMarketing,
+  crewInvites,
   inviteRoute,
   marketingFiles,
   pageRoutes,
@@ -115,6 +118,34 @@ describe("marketing configuration", () => {
       setText(html, "a", "Hi <b>there</b>"),
       '<h1 data-t="a" id="h">Hi <b>there</b></h1><p data-t="b"><span>y</span></p><h1 data-t="a">Hi <b>there</b></h1>',
     );
+  });
+});
+
+describe("crew invites from the app's invite links", () => {
+  const SECRET = "test-session-secret-that-is-long-enough-too";
+
+  it("names a live link's crew owner, and nobody for anything else", async () => {
+    const platform = await Platform.open({ database: await testDatabase() });
+    try {
+      const resolve = crewInvites(SECRET, platform);
+      const { inviteId } = await platform.crewInvite("76561198000000001", "Ana");
+      const token = inviteToken(SECRET, inviteId);
+      assert.deepEqual(await resolve("crew", token), { inviter: "Ana" });
+      // Signed with another secret, another type, a sign-up's own code, or replaced since.
+      assert.deepEqual(
+        await resolve("crew", inviteToken("another-secret-that-is-long-enough-too!!", inviteId)),
+        {
+          inviter: null,
+        },
+      );
+      assert.deepEqual(await resolve("seat", token), { inviter: null });
+      assert.deepEqual(await resolve("crew", "AB12cdEF"), { inviter: null });
+      await platform.crewInvite("76561198000000001", "Ana", { renew: true });
+      assert.deepEqual(await resolve("crew", token), { inviter: null });
+      assert.deepEqual(await crewInvites(null, platform)("crew", token), { inviter: null });
+    } finally {
+      await platform.close();
+    }
   });
 });
 
