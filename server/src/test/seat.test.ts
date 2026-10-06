@@ -417,7 +417,13 @@ describe("seat API", () => {
   }
 
   const offerPc = () =>
-    call("PUT", "/api/machines/pc-1/availability", undefined, { available: true, crewOnly: true, ...REPORT }, true);
+    call(
+      "PUT",
+      "/api/machines/pc-1/availability",
+      undefined,
+      { available: true, crewOnly: true, ...REPORT },
+      true,
+    );
 
   /** The host app makes a seat at pc-1 for `friend`. */
   async function makeSeat(friend: string) {
