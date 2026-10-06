@@ -8,6 +8,7 @@
 //   useDemoHost  the labelled demo data behind --demo, so every screen of the
 //                design can be seen and walked. Never mixed with this PC's.
 
+import type { SeatClient } from "./seats";
 import type { Hardware as PcHardware, SteamGame } from "../pc.cjs";
 import type { RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
@@ -355,6 +356,8 @@ export type HostActions = {
   closeRentalPreview(): void;
   /** Offer this PC only to the crews with these ids, in place of the ones it played for. */
   setCrews(ids: string[]): void;
+  /** The seats for friends at this PC, on the platform; null until the connection is complete. */
+  seats: SeatClient | null;
   /** Run the plan on screen, the owner's one OK: Windows asks once for administrator rights. */
   runRental(): void;
   /** Restart now, after a run that ended at its restart, or with Swiff's key queued. */

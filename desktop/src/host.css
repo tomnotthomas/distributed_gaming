@@ -2227,3 +2227,44 @@ button.inst {
     transform: scale(1.12) translate3d(1.2%, -0.6%, 0);
   }
 }
+
+/* seats for friends */
+.seats {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.krow.seat {
+  align-items: center;
+}
+.krow.seat > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.krow.seat b {
+  text-align: left;
+}
+.krow.seat small {
+  color: var(--t3);
+  font-size: 13px;
+}
+.seat-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 16px;
+}
+.seat-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 24px;
+  max-width: 560px;
+}
+.seat-add .fld {
+  flex: 1 1 220px;
+}
+.seat-add .acts {
+  margin-top: 12px;
+}

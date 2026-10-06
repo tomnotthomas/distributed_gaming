@@ -18,6 +18,7 @@ import {
 } from "./demo";
 import { useDemoRental } from "./demoRental";
 import { playingFor, type Crew } from "./report";
+import { demoSeatClient } from "./seats";
 import { buildRate, GRACE_MS, untilChoices, type Host, type HostView, type Live, type Step } from "./model";
 
 /**
@@ -38,6 +39,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [picked, setPicked] = useState<{ at: number | null } | null>(null);
   const [asked, setAsked] = useState<number[]>([]);
   const [crew, setCrew] = useState<Crew>({ only: true, crews: DEMO_CREWS });
+  const [seats] = useState(() => demoSeatClient());
   const [shown, setShown] = useState<DemoScreen>(screen);
 
   useEffect(() => {
@@ -145,6 +147,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     ...rental.actions,
     goLiveRental: () => setLive(waiting(plan)),
     setCrews: (ids: string[]) => setCrew((was) => playingFor(was, ids)),
+    seats,
   };
 
   return {

@@ -130,6 +130,7 @@ function actions(): HostActions {
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
     setCrews: vi.fn(),
+    seats: null,
     runRental: vi.fn(),
     restartRental: vi.fn(),
     answerRentalKey: vi.fn(),

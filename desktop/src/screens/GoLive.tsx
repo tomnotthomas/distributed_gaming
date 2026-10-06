@@ -11,6 +11,7 @@ import { WINDOWS_SHARE } from "../devShare";
 import { failureOf, rentalScreen } from "../rental";
 import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
+import { FriendSeats } from "./FriendSeats";
 import { Sent } from "./Rental";
 import type { Crew, CrewOf } from "../report";
 import { toSocketUrl } from "../settings";
@@ -223,6 +224,11 @@ export function GoLive(props: ScreenProps) {
           <Reticle onFire={actions.goLiveRental} starting={busy} />
         </Plate>
       </section>
+      {actions.seats ? (
+        <div className="sz one">
+          <FriendSeats client={actions.seats} now={view.now} />
+        </div>
+      ) : null}
       <i className="ruler" aria-hidden="true" />
     </main>
   );

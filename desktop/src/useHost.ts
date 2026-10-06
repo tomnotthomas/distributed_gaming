@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { httpOrigin } from "@swiff/rtc";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
@@ -7,6 +8,7 @@ import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
 import { createHostReporter, hostReport, offOffer, playingFor, type Crew, type HostReporter } from "./report";
 import { rentalReady } from "./rental";
+import { seatClient } from "./seats";
 import {
   countSession,
   loadMachineId,
@@ -335,6 +337,18 @@ export function useHost(): Host {
     !WINDOWS_SHARE && rentalReady(view.rental) && connectionReady(settings) && !refusedAddress(socket)
       ? { url: socket, machineId: machineId.trim(), machineKey: machineKey.trim() }
       : null;
+  // Seats for friends: read and kept on the platform with the machine key, whatever the PC is doing.
+  const seatMachine = connectionReady(settings) && !refusedAddress(socket) ? socket : null;
+  const seats = useMemo(() => {
+    if (seatMachine === null) return null;
+    let site: string | null = null;
+    try {
+      site = httpOrigin(seatMachine);
+    } catch {
+      return null;
+    }
+    return seatClient({ url: seatMachine, machineId: machineId.trim(), machineKey: machineKey.trim() }, site);
+  }, [seatMachine, machineId, machineKey]);
   const rentalCrew = useRef(rentalMachine);
   rentalCrew.current = rentalMachine;
   // Each rental machine has its own asks: anything still under way for the one
@@ -455,6 +469,7 @@ export function useHost(): Host {
         else crewChoice.current = ids;
         setCrew((was) => (was ? playingFor(was, ids) : was));
       },
+      seats,
       runRental: rental.start,
       restartRental: rental.restart,
       answerRentalKey: rental.answer,
