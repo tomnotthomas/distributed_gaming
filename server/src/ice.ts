@@ -49,7 +49,7 @@ export type RelaySeat = {
   /** The platform session, or the ticket for one minted by hand, which has none. */
   id: string;
   side: "renter" | "host";
-  /** Unix seconds: when the seat's ticket, and so its session, ends. */
+  /** Unix seconds: when the seat's ticket expires. */
   expiresAt: number;
 };
 
