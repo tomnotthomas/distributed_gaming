@@ -119,8 +119,8 @@ saves have no table yet: a user is their Steam id (a booking's `renter_id`, a ma
 ## 5. API
 
 All requests are HTTPS, served under `/api` (`server/src/api.ts`). The `/me`,
-`/availability`, `/games/:appid/machines`, `/bookings` and `/events` calls carry the
-renter's sign-in session and answer `401` without one;
+`/availability`, `/games/:appid/machines`, `/bookings`, `/events`, `/invites/:token/join`
+and `/crew-members` calls carry the renter's sign-in session and answer `401` without one;
 `GET /games`, `GET /ping`, `POST /signout` and `GET /invites/:token` work signed out, and
 the `/sessions` calls carry the join ticket instead.
 
