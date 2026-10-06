@@ -306,8 +306,8 @@ Before it builds, the script runs `vm/test_verify.py`, host-side tests of `swiff
 plain folders, with the TPM and `systemd-creds` stood in for. They cover a TPM restart after a
 hibernated OS, the session layer's size, an update that does not fit on the library or whose copy is
 cut short, a block that must survive the next quick check, a table key that does not unseal or a
-TPM that cannot seal one, a newer table that a bootstrap must not replace, and KeyValues nested too
-deeply. Run
+TPM that cannot seal one, a newer table that a bootstrap must not replace, symlinks another OS left
+on the library, and KeyValues nested too deeply. Run
 them alone with `python3 swiff-os/vm/test_verify.py`.
 
 The games library comes from `vm/games-fixture.py`. It writes a 1 GiB NTFS library through
