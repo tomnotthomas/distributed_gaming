@@ -652,7 +652,8 @@ seat until the host takes it back or they leave that crew (a host leaving the cr
 seats at their PCs go too). Nobody else takes a taken seat, its host never takes their own,
 and one friend holds at most one seat per PC. Gate E7 lets a seat's holder play on its PC
 whichever crews the PC plays for later; taking the seat back ends that, and the crew
-membership taking it made (one they had before stays), and a match made before goes back
+membership taking it made (one they had before stays, as does one another seat of theirs in
+that crew still holds; no other seat goes with it), and a match made before goes back
 at the claim. A holder plays their own Steam games on their own account, as anyone does:
 booking and claiming check their own library, and in rental mode they sign in to Steam
 themselves. Seat links are cut from analytics as crew links are (`withoutInviteTokens`).
