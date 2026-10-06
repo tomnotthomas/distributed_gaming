@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CrewHub, CrewHubState, MyVoice, WatchSession, WatchSessionEvent } from "@swiff/rtc";
 import { CrewLiveBand, CrewOverlay, usePushKey, VoiceBar } from "./Crew";
 import type { Swiff } from "./useSwiff";
-import { askToWatch, endedLine, fetchCrewLive, useWatching, type CrewLiveEntry } from "./watch";
+import { askToWatch, endedLine, fetchCrewLive, useCrewLive, useWatching, type CrewLiveEntry } from "./watch";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -231,6 +231,18 @@ describe("watching", () => {
   it("reads the crew's live sessions, and nothing when they cannot be read", async () => {
     expect(await fetchCrewLive(fetchAnswering(200, { live: [ENTRY] }))).toEqual([ENTRY]);
     expect(await fetchCrewLive(fetchAnswering(401, {}))).toBeNull();
+  });
+
+  it("drops a crew read still on its way when the list is turned off", async () => {
+    let answer: (r: Response) => void = () => {};
+    const get = vi.fn(() => new Promise<Response>((resolve) => (answer = resolve)));
+    const { result, rerender } = renderHook(({ enabled }) => useCrewLive({ enabled, tick: 0, fetch: get }), {
+      initialProps: { enabled: true },
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    rerender({ enabled: false });
+    await act(async () => answer(new Response(JSON.stringify({ live: [ENTRY] }), { status: 200 })));
+    expect(result.current.live).toEqual([]);
   });
 
   it("tells apart why asking to watch did not go through", async () => {

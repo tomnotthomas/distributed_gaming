@@ -748,6 +748,39 @@ describe("watching through the signaling server", () => {
     assert.equal((await heard(player, isWatchers, "watchers")).sharing, true);
   });
 
+  it("tells the crew's walls when the player's sharing changes, not each time they say it again", async () => {
+    const { player } = await scene();
+    const abort = new AbortController();
+    const wall = await fetch(`${HTTP}/api/events`, {
+      signal: abort.signal,
+      headers: { cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION, LEA, 3600)}` },
+    });
+    let text = "";
+    const reading = (async () => {
+      const decoder = new TextDecoder();
+      const reader = wall.body!.getReader();
+      try {
+        for (let read = await reader.read(); !read.done; read = await reader.read())
+          text += decoder.decode(read.value, { stream: true });
+      } catch {
+        // Aborted at the end of the test.
+      }
+    })();
+    const crewEvents = () => text.split("event: crew\n").length - 1;
+    try {
+      await wait(100);
+      for (const open of [true, true, true, false, false]) {
+        send(player, { type: "watch-share", open });
+        await handled(player);
+      }
+      await wait(200);
+      assert.equal(crewEvents(), 2);
+    } finally {
+      abort.abort();
+      await reading;
+    }
+  });
+
   it("stops a viewer who leaves the player's crew", async () => {
     const { viewer } = await accepted();
     // Lea leaves: her membership is hers to end.

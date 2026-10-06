@@ -282,6 +282,8 @@ export function startCrewHub(opts: CrewHubOptions = {}): CrewHub {
     pc.ontrack = (event) => {
       if (event.transceiver !== voiceLine || links.get(watchId) !== link) return;
       link.incoming = event.track;
+      // One player for each viewer's voice, or a muted viewer would still be heard.
+      link.audio?.remove();
       const audio = document.createElement("audio");
       audio.autoplay = true;
       audio.hidden = true;

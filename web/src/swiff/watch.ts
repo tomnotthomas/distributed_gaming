@@ -127,6 +127,8 @@ export function useCrewLive({
       clearInterval(backstop);
       clearTimeout(pending.current);
       pending.current = undefined;
+      // A read still on its way answers for a list that is gone.
+      read.current += 1;
     };
   }, [enabled, reload]);
 

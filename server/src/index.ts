@@ -1104,9 +1104,12 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       const sessionId = ws.role === "client" && !seatRevoked(ws) ? ws.watchSession : null;
       if (!sessionId || rooms.get(ws.hostId ?? "")?.client !== ws) return;
       if (msg.type === "watch-share") {
-        for (const watch of watches.share(sessionId, msg.open === true)) tellViewer(watch);
+        const open = msg.open === true;
+        const was = watches.sharing(sessionId);
+        for (const watch of watches.share(sessionId, open)) tellViewer(watch);
         tellPlayer(ws.hostId!, sessionId);
-        renterEvents.crewChanged();
+        // Every crewmate's wall reads the crew again: only when there is news.
+        if (was !== open) renterEvents.crewChanged();
         return;
       }
       if (typeof msg.watchId !== "string" || watches.get(msg.watchId)?.sessionId !== sessionId) return;

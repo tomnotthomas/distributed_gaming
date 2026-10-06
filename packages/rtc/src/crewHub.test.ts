@@ -196,6 +196,21 @@ describe("startCrewHub", () => {
     );
   });
 
+  it("keeps one player for a viewer's voice when their track arrives again, so muting them reaches it", async () => {
+    const crew = hub();
+    crew.message(watchers(watcher("lea")));
+    await flush();
+    const lea = peerFor(0);
+    lea.arrive(2);
+    lea.arrive(2);
+    await flush();
+    const players = document.querySelectorAll<HTMLAudioElement>('audio[data-voice="lea"]');
+    expect(players).toHaveLength(1);
+    crew.muteForMe("lea", true);
+    await flush();
+    expect(players[0]!.muted).toBe(true);
+  });
+
   it("follows what a viewer says of their voice, from that viewer alone", async () => {
     const crew = hub();
     crew.message(watchers(watcher("lea"), watcher("jon")));
