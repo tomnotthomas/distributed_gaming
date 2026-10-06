@@ -518,6 +518,51 @@ describe("CrewPage: a crew's lobby", () => {
     expect(screen.queryByRole("button", { name: /Play now/ })).toBeNull();
   });
 
+  it("lets someone who joined a ready crew add a second PC, without pushing the card on them", async () => {
+    const ready = readyCrew({
+      memberId: "m-sam",
+      own: false,
+      size: 3,
+      members: [{ ...LENA, you: false }, MAX, { ...SAM, you: true }],
+    });
+    const withSam = {
+      ...ready,
+      pcs: 2,
+      members: [{ ...LENA, you: false }, MAX, { ...SAM, you: true, pc: "yes" as const, pcs: 1 }],
+      machines: [...ready.machines, { name: null, owner: "Sam", mine: true, state: "ready" as const }],
+    };
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew: ready }],
+      "POST /api/crews/c1/pc": [200, { crew: withSam }],
+    });
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByText("Ready to play!")).toBeInTheDocument();
+    expect(screen.queryByTestId("pc-card")).toBeNull();
+    expect(screen.getByRole("button", { name: /Add another gaming PC/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "I've got a gaming PC" }));
+    fireEvent.click(screen.getByRole("button", { name: /Check my PC \(takes a minute\)/ }));
+    expect(await screen.findByText("2 PCs in")).toBeInTheDocument();
+    expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"yes"}']);
+    expect(screen.getByTestId("pc-card")).toHaveTextContent("Your PC plays for Lena's crew.");
+    expect(screen.queryByRole("button", { name: /Add another gaming PC/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "I've got a gaming PC" })).toBeNull();
+  });
+
+  it("offers another PC in German too, and from a crew whose PCs are all off", async () => {
+    vi.spyOn(navigator, "languages", "get").mockReturnValue(["de-DE"]);
+    const crew = readyCrew({
+      state: "offline",
+      machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "offline" }],
+    });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Noch einen Gaming-PC hinzufügen/ }));
+    expect(screen.getByTestId("pc-card")).toHaveTextContent("Die Crew sieht");
+    expect(screen.getByRole("button", { name: "Ich hab einen Gaming-PC" })).toBeInTheDocument();
+  });
+
   it("lets the admin rename the crew", async () => {
     const calls = fetchFrom({
       "GET /api/crews/c1": [200, { crew: crewOf() }],

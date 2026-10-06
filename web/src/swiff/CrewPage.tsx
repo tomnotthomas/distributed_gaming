@@ -319,6 +319,8 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const next = nextStep(crew, me);
   // Someone who joined is shown the PC card until they answer it; anyone else when they ask.
   const cardOpen = card ?? (me.pc === null && !me.admin && crew.state === "no-pc");
+  // A crew with a PC already takes another from anyone who has none in it yet.
+  const addAnother = crew.state !== "no-pc" && !myPcs.length;
 
   const apply = async (work: Promise<CrewDetail | null>, done?: CopyKey) => {
     setBusy(true);
@@ -549,7 +551,8 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 </svg>
                 {t("cp.planSession")}
               </button>
-              {me.admin && crew.state === "no-pc" && me.pc !== "yes" && me.pc !== "later" ? (
+              {(me.admin && crew.state === "no-pc" && me.pc !== "yes" && me.pc !== "later") ||
+              (addAnother && me.pc !== "later") ? (
                 <button type="button" className="sa" onClick={openCard}>
                   <PcIcon />
                   {t("cp.havePc")}
@@ -635,17 +638,19 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 </span>
               </li>
             ))}
-            {crew.state === "no-pc" ? (
+            {crew.state === "no-pc" || addAnother ? (
               <li>
                 <button type="button" className="lb-slot act pcadd" onClick={openCard}>
                   <span className="av" aria-hidden="true">
                     <PcIcon />
                   </span>
                   <span className="lb-who">
-                    <span className="lb-name">{t("cp.addPc")}</span>
-                    <span className="lb-meta">{t("cp.addPcLine")}</span>
+                    <span className="lb-name">{t(addAnother ? "cp.addAnotherPc" : "cp.addPc")}</span>
+                    <span className="lb-meta">{t(addAnother ? "cp.addAnotherPcLine" : "cp.addPcLine")}</span>
                   </span>
-                  <span className="lchip wait">{t("cp.missing")}</span>
+                  <span className={addAnother ? "lchip free" : "lchip wait"}>
+                    {t(addAnother ? "cp.addAnotherChip" : "cp.missing")}
+                  </span>
                 </button>
               </li>
             ) : null}
