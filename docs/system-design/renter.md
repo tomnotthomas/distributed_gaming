@@ -324,9 +324,12 @@ POST /bookings/:id/claim
   the booked minutes run from the session's start rather than the claim: the renter
   signs in to Steam in between, within 10 minutes of the claim however often they try
   again (`STEAM_SIGN_IN_MS` in `@swiff/rank`), or the session ends unstarted as
-  `grace_expired`. Its ticket is valid for those 10 minutes and the booked minutes, and
-  a rental-mode PC counts as free for a session (matching, `ready`, `coversSession`,
-  `backAt`) only for both.
+  `grace_expired`. Once the PC relays `steam-login signed-in`, what is left of those
+  10 minutes gives way, once, to 3 minutes for the game's first frame
+  (`STEAM_LAUNCH_GRACE_MS`), still without starting the booked minutes, so an approval
+  just in time still gets its game. Its ticket is valid for those 13 minutes and the
+  booked minutes, and a rental-mode PC counts as free for a session (matching, `ready`,
+  `coversSession`, `backAt`, the page's fit check) only for all of them.
   → 409 if the booking is not matched (its reservation lapsed, or it has expired), or
   is matched to the renter's own machine (the booking goes back to the queue).
   → 403 { error, code } as `POST /bookings`, checked again since the library, or whether
@@ -343,7 +346,8 @@ POST /bookings/:id/rejoin
   back, from a socket of the renter's that still hangs on too, rather than being
   refused as `room-taken`, and ending the session revokes it with the first. It is valid
   only until the session's deadline. On a rental-mode PC whose session has not started,
-  `signInMs` is what is left of the claim's Steam sign-in time. Changes nothing on the server: the session, its
+  `signInMs` is what is left of the claim's Steam sign-in time, until the renter has
+  approved it; after that it is left out. Changes nothing on the server: the session, its
   clock and its machine stay as they are; see "Coming back".
   → 409 { error, status } when the booking has no session running: not yet claimed,
   over, or past its deadline.
