@@ -314,7 +314,16 @@ export function createMarketing({
     if (invite) {
       const template = await files.text(`${invite.lang === "en" ? "en/" : ""}${invite.type}/index.html`);
       if (template === null) return false;
-      const view = invite.code ? await invites(invite.type, invite.code) : UNKNOWN_INVITE;
+      // A lookup that fails (the database, say) still gets the page, naming nobody.
+      const view = invite.code
+        ? await invites(invite.type, invite.code).catch((error: unknown) => {
+            console.error(
+              "[swiff] invite lookup failed:",
+              error instanceof Error ? error.name : typeof error,
+            );
+            return UNKNOWN_INVITE;
+          })
+        : UNKNOWN_INVITE;
       const html = renderInvite(template, invite.type, invite.lang, invite.code, view);
       // The copy brings its own {{brand}} tokens.
       send(res, req, ".html", fillTokens(html, site), {

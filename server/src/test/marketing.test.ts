@@ -179,6 +179,8 @@ describe("marketing site", () => {
   let server: Server;
   let origin: string;
   let names: Map<string, string>;
+  /** Whether the invite lookup fails, as a database error would make it. */
+  let failLookup = false;
 
   /** The mails in the outbox, oldest first. */
   const outbox = async () =>
@@ -215,7 +217,10 @@ describe("marketing site", () => {
   before(async () => {
     const files = marketingFiles(DIR, SITE);
     const routes = await pageRoutes(DIR);
-    const invites: InviteResolver = async (type, code) => ({ inviter: names.get(`${type}:${code}`) ?? null });
+    const invites: InviteResolver = async (type, code) => {
+      if (failLookup) throw new Error("the database is down");
+      return { inviter: names.get(`${type}:${code}`) ?? null };
+    };
     server = createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (await signups.serve(req, res, url)) return;
@@ -408,6 +413,19 @@ describe("marketing site", () => {
       renderInvite(template, "gift", "en", "C0de", { inviter: null }),
       '<a href="/host/?i=gift:C0de#bewerben">x</a><a href="/en/?i=gift:C0de#beta">y</a><a href="#zusage">z</a>',
     );
+  });
+
+  it("still renders the invite page, naming nobody, when the invite lookup fails", async () => {
+    names.set("crew:BOOM", "unused");
+    failLookup = true;
+    try {
+      const page = await ask(origin, "/crew/BOOM");
+      assert.equal(page.status, 200);
+      assert.doesNotMatch(page.body, EXAMPLES);
+      assert.match(page.body, /<title>[^<]+ \| Lanterel<\/title>/);
+    } finally {
+      failLookup = false;
+    }
   });
 
   it("names an inviter with $ patterns in it as they are", async () => {
