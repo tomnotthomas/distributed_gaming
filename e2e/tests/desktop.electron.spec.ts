@@ -142,7 +142,9 @@ test.describe("Swiff Host desktop app", () => {
     // read Steam's state and ask main to fetch Valve's installer, hear its
     // installed games change, read what rental mode needs and preview its
     // install or switch, run that plan, restart into the key request, answer
-    // the key request, report the run and hear its events, read how long
+    // the key request, note that the BitLocker recovery key was saved (never
+    // the key), open Windows' BitLocker page, note that the removal's ending
+    // was seen, report the run and hear its events, read how long
     // since its keyboard was used, send the tray glance its snapshot and
     // hear the glance's actions. No other door into main.
     const bridge = await window.evaluate(() => {
@@ -162,6 +164,9 @@ test.describe("Swiff Host desktop app", () => {
       runRental: "function",
       restartRental: "function",
       answerRentalKey: "function",
+      saveRecoveryKey: "function",
+      openBitLocker: "function",
+      seenRemoval: "function",
       reportRental: "function",
       onRentalEvent: "function",
       secondsSinceInput: "function",
@@ -309,7 +314,7 @@ test.describe("Swiff Host desktop app, demo data", () => {
         options.map((o) => ({ id: (o as HTMLOptionElement).value, name: o.textContent ?? "" })),
       );
     // The design's screens, rental mode's states and problems among them.
-    expect(screens).toHaveLength(42);
+    expect(screens).toHaveLength(48);
 
     for (const { id, name } of screens) {
       await picker.selectOption(id);
