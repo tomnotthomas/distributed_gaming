@@ -25,7 +25,11 @@ fail() {
 	echo "mkosi.finalize: $*" >&2
 	exit 1
 }
-set -- "$BUILDROOT"/usr/lib/modules/*/
+# The NVIDIA module package also ships an empty lib/modules/kernel/ tree,
+# which is no kernel.
+[ ! -d "$BUILDROOT/usr/lib/modules/kernel" ] ||
+	find "$BUILDROOT/usr/lib/modules/kernel" -depth -type d -empty -delete
+set --"$BUILDROOT"/usr/lib/modules/*/
 [ $# = 1 ] || fail "expected one kernel, found: $*"
 moddir=${1%/}
 kernel=$(basename "$moddir")
