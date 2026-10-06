@@ -27,6 +27,11 @@ const SESSION = "test-session-secret-that-is-long-enough-too";
 /** A signed-in renter: booking and claiming need one. */
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION, "76561198000000001", 3600)}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Each test's bound: its server alone may take the 30 s it is given to listen,
+ * after its database opens, when a full run starts every file's servers at once.
+ */
+const TEST_MS = 120_000;
 const servers: ChildProcess[] = [];
 const databases: ServerDatabase[] = [];
 /** Every socket and database client a test opened: a test that fails midway leaves them open. */
@@ -240,7 +245,7 @@ async function putOut(host: Peer, renter: Peer) {
 }
 
 describe("revoked ticket through the platform", () => {
-  it("puts the renter out at once when the host ends the session", { timeout: 60_000 }, async () => {
+  it("puts the renter out at once when the host ends the session", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket, sessionId } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -250,7 +255,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the renter leaves", { timeout: 60_000 }, async () => {
+  it("puts the renter out at once when the renter leaves", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket, sessionId } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -260,7 +265,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the owner takes the machine back", { timeout: 60_000 }, async () => {
+  it("puts the renter out at once when the owner takes the machine back", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -276,7 +281,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the time runs out", { timeout: 60_000 }, async () => {
+  it("puts the renter out at once when the time runs out", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -294,7 +299,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out once the machine has gone silent", { timeout: 60_000 }, async () => {
+  it("puts the renter out once the machine has gone silent", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -310,7 +315,7 @@ describe("revoked ticket through the platform", () => {
 });
 
 describe("revoked ticket without the session-end notice", () => {
-  it("relays nothing from the very next frame, and puts the renter out", { timeout: 60_000 }, async () => {
+  it("relays nothing from the very next frame, and puts the renter out", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -326,7 +331,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "puts a waiting renter out when the host registers, without telling the host it is there",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer(60_000);
       const { ticket } = await server.claimTicket("pc-1");
@@ -344,7 +349,7 @@ describe("revoked ticket without the session-end notice", () => {
     },
   );
 
-  it("puts a silent renter out at the next reconcile", { timeout: 60_000 }, async () => {
+  it("puts a silent renter out at the next reconcile", { timeout: TEST_MS }, async () => {
     const server = await startServer(200);
     const { ticket } = await server.claimTicket("pc-2");
     const renter = server.peer({ type: "join", ticket });
@@ -358,7 +363,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "keeps every seat while the database cannot read, holds relayed frames until it can, and puts a revoked renter out then",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer(200);
       const { ticket } = await server.claimTicket("pc-1");
@@ -386,7 +391,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "holds what a socket sends while the database cannot read, in order, up to a cap, and drops the rest but not the seat",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer(60_000);
       const { ticket } = await server.claimTicket("pc-1");
@@ -412,7 +417,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "keeps seats through blips with a success between them, past the bound in all",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer(200, 3_000);
       const { ticket } = await server.claimTicket("pc-1");
@@ -436,7 +441,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "closes a seat whose ticket has gone unconfirmed past the bound, without denied",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer(200, 1_500);
       const { ticket } = await server.claimTicket("pc-1");
@@ -455,7 +460,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "cuts a seated renter off within a few seconds by default, and relays nothing after",
-    { timeout: 60_000 },
+    { timeout: TEST_MS },
     async () => {
       const server = await startServer();
       const { ticket } = await server.claimTicket("pc-1");
@@ -474,7 +479,7 @@ describe("revoked ticket without the session-end notice", () => {
 });
 
 describe("ticket that runs out while its join waits on the database", () => {
-  it("is refused, and the renter already seated on it keeps the seat", { timeout: 60_000 }, async () => {
+  it("is refused, and the renter already seated on it keeps the seat", { timeout: TEST_MS }, async () => {
     const server = await startServer(60_000);
     // Expires 2 to 3 s from now: whole seconds.
     const mintedAt = Date.now();
