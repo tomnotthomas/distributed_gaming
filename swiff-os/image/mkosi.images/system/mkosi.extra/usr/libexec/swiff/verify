@@ -1017,6 +1017,7 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
     # Only an entry this boot verified describes what the library holds now.
     old = table["apps"].get(appid) if verified_at_boot else None
     copies = []  # (session copy, final path on the library, SHA-256, what it is)
+    library = []  # (what it is, path on the library, SHA-256, its session copy)
     for rel, record in sorted(entry["files"].items()):
         final = os.path.join(base, rel)
         src = session_copy(os.path.join(base_up, rel))
@@ -1026,23 +1027,29 @@ def promote_app(appid, entry, setup, table, key, verified_at_boot):
             # Sealed from the library's own copy, which no boot changes.
             if not os.path.isfile(final) or os.path.islink(final):
                 raise Refused(f"{rel} is gone from the session")
-            # The table only records it once it is seen to match.
-            try:
-                digest = hash_file(final)[1]
-            except OSError as e:
-                raise Refused(f"{rel} cannot be read on the library: {e.strerror}") from e
-            if digest != record[1]:
-                raise Refused(f"{rel} on the library does not match what was verified")
+        if src is None or src == "deleted":
+            library.append((rel, final, record[1], src))
             continue
-        if src == "deleted":
-            # Deleted in the session since: the library's copy must match.
-            try:
-                if hash_file(final)[1] == record[1]:
-                    continue
-            except OSError:
-                pass
-            raise Refused(f"{rel} is gone from the session")
         copies.append((src, final, record[1], rel))
+
+    def library_hash(item):
+        """Hashes a library copy, or returns the error that kept it from being read."""
+        try:
+            return hash_file(item[1])[1]
+        except OSError as e:
+            return e
+
+    # The table only records a library copy once it is seen to match.
+    with ThreadPoolExecutor(4) as pool:
+        for (rel, _, digest, src), got in zip(library, pool.map(library_hash, library)):
+            if got == digest:
+                continue
+            if src == "deleted":
+                # Deleted in the session since: the library's copy must match.
+                raise Refused(f"{rel} is gone from the session")
+            if isinstance(got, OSError):
+                raise Refused(f"{rel} cannot be read on the library: {got.strerror}") from got
+            raise Refused(f"{rel} on the library does not match what was verified")
     for name, digest in entry["manifests"].items():
         src = session_copy(os.path.join(upper, "depotcache", name))
         if src and src != "deleted":
