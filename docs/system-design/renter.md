@@ -917,8 +917,8 @@ GET  /crew-live
 
 POST /crew-live/:sessionId/watch
   → 200 { watchId, state, player, signalingUrl, ticket }
-  Ask to watch a session past Ignition (booking `playing`, so the player sees the ask
-  while its 60 s run): a watch ticket for the session's room, valid until the session's
+  Ask to watch a session past Ignition (booking `playing` and the PC's `game-started`
+  relayed, so the player sees the ask while its 60 s run): a watch ticket for the session's room, valid until the session's
   deadline, final by then. `state` is `asking`, or `watching` at once when the player shares with the
   crew. Asked again while the watch is on, it is the same watch.
   → 404 when no crewmate of theirs plays that session now, or it is still starting. → 409 { code: "full" } when
