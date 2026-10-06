@@ -331,6 +331,43 @@ describe("useRental", () => {
     expect(host.readRental).toHaveBeenCalledTimes(2);
   });
 
+  it("passes the BitLocker recovery key's confirmation on with no key in it, then reads the PC again", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.saveRecoveryKey = vi.fn(async () => true);
+    host.openBitLocker = vi.fn(async () => false);
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    await act(async () => result.current.saveRecovery());
+    expect(host.saveRecoveryKey).toHaveBeenCalledWith();
+    expect(host.readRental).toHaveBeenCalledTimes(2);
+    expect(result.current.bitlockerPage).toBeNull();
+    await act(async () => result.current.openBitLocker());
+    expect(result.current.bitlockerPage).toBe("failed");
+  });
+
+  it("asks for Remove Swiff OS with or without its key, and goes on with the part that stopped", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.seenRemoval = vi.fn(async () => true);
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "failed",
+      done: [],
+      failed: { step: "partitions", op: "gpt-remove", error: "io" },
+      results: [],
+    }));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    act(() => result.current.plan("remove", { key: false }));
+    expect(pending[0]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    await answer(0, { ...plan("remove", "partitions"), phase: "disk" });
+    await act(async () => result.current.start());
+    act(() => result.current.retry());
+    expect(pending[1]!.ask).toEqual({ kind: "remove", target: null, key: false });
+    act(() => result.current.plan("remove"));
+    expect(pending[2]!.ask).toEqual({ kind: "remove", target: null });
+    await act(async () => result.current.seenRemoval());
+    expect(host.seenRemoval).toHaveBeenCalledOnce();
+  });
+
   it("goes live by starting Swiff OS once, then restarts by itself", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({

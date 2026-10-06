@@ -20,13 +20,24 @@ export type HostBridge = {
   /** Null where rental mode cannot be read (off Windows). */
   readRental(): Promise<RentalRead | null>;
   /** The steps, as main will run them; null when there is no plan to show. */
-  planRental(ask: { kind: RentalPlan["kind"]; target?: string | null }): Promise<RentalPlan | null>;
+  planRental(ask: {
+    kind: RentalPlan["kind"];
+    target?: string | null;
+    /** Remove Swiff OS: start with Swiff's key (true), or without it (false); main decides when absent. */
+    key?: boolean;
+  }): Promise<RentalPlan | null>;
   /** Run the plan main last showed; null when there is none to run. */
   runRental(): Promise<RunOutcome | null>;
   /** Restart now, after a run that ended at its restart: false when there is nothing to restart for. */
   restartRental(): Promise<boolean>;
   /** Whether the blue screen took the key's code, in the owner's words. */
   answerRentalKey(yes: boolean): Promise<boolean>;
+  /** The owner saved their BitLocker recovery key: kept as their word alone, never the key. */
+  saveRecoveryKey(): Promise<boolean>;
+  /** Windows' BitLocker page: false when it did not open. */
+  openBitLocker(): Promise<boolean>;
+  /** The owner has seen how Remove Swiff OS ended: its record goes. */
+  seenRemoval(): Promise<boolean>;
   /** Send details to Swiff: when it was kept, or null when it could not be. */
   reportRental(report: {
     step: string;

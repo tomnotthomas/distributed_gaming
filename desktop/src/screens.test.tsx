@@ -15,6 +15,7 @@ import { HOLD_MS } from "./ui/hold";
 import {
   installPlan,
   keyRemovalPlan,
+  removePlan,
   rentalOf,
   switchPlan,
   uninstallPlan,
@@ -131,6 +132,9 @@ function actions(): HostActions {
     runRental: vi.fn(),
     restartRental: vi.fn(),
     answerRentalKey: vi.fn(),
+    saveRecoveryKey: vi.fn(),
+    openBitLocker: vi.fn(),
+    seenRemoval: vi.fn(),
     goLiveRental: vi.fn(),
     retryRental: vi.fn(),
     reportRental: vi.fn(),
@@ -217,6 +221,11 @@ describe("demo", () => {
     "rental-key-code": "Write down this code",
     "rental-installed": "Rental mode is ready",
     "rental-back": "You were live 21:00 to 23:40",
+    "rental-recovery": "Save your BitLocker recovery key",
+    "rental-remove-code": "Write down this code",
+    "rental-remove-finish": "Finish removing Swiff OS",
+    "rental-remove-check": "Restart to check Windows",
+    "rental-removed": "Swiff OS is off this PC",
     "rental-fail-admin": "Windows didn't give permission",
     "rental-fail-write": "Writing Swiff OS stopped",
     "rental-fail-space": "Not enough space on C:",
@@ -1135,8 +1144,10 @@ describe("rental mode", () => {
     expect(screen.getByText("Rental mode, installed")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /^Go live/ }));
     expect(go).toHaveBeenCalledWith("live");
-    fireEvent.click(screen.getByRole("button", { name: "Remove rental mode" }));
-    expect(host.actions.previewRental).toHaveBeenCalledWith("uninstall");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Swiff OS" }));
+    expect(host.actions.previewRental).toHaveBeenCalledWith("remove");
+    // One way off: the key and the disk are Remove Swiff OS's two parts, never two links.
+    expect(screen.queryByRole("button", { name: "Remove Swiff's key" })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".psub .done")).toHaveLength(3);
   });
 
@@ -1184,7 +1195,7 @@ describe("rental mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Continue the install/ }));
     expect(acts.previewRental).toHaveBeenCalledWith("install");
     fireEvent.click(screen.getByRole("button", { name: "Undo what was done" }));
-    expect(acts.previewRental).toHaveBeenCalledWith("uninstall");
+    expect(acts.previewRental).toHaveBeenCalledWith("remove");
   });
 
   it("lists the removal's steps before its one OK", () => {
@@ -1193,10 +1204,105 @@ describe("rental mode", () => {
       off,
       rental({ read: installed(), preview: uninstallPlan(installed()) }),
     );
-    expect(h1()).toHaveTextContent("Remove rental mode");
+    expect(h1()).toHaveTextContent("Remove Swiff OS");
     expect(screen.getByText("Take Swiff OS out of the boot menu")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Remove rental mode/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove Swiff OS/ }));
     expect(acts.runRental).toHaveBeenCalledOnce();
+  });
+
+  it("asks for the BitLocker recovery key before the install, and keeps only the owner's word", () => {
+    const acts = renderReal(
+      "rental",
+      off,
+      rental({
+        read: {
+          ...read((raw) => ({ ...raw, fastStartup: 0 })),
+          recovery: { drives: ["C"], saved: false, at: null },
+        },
+      }),
+    );
+    expect(h1()).toHaveTextContent("Save your BitLocker recovery key");
+    expect(screen.getByText(/Swiff never reads, sends or keeps your key/)).toBeInTheDocument();
+    // Where the key can be, and Windows' own way there.
+    expect(document.querySelector(".plate")).toHaveTextContent(/Microsoft account.*A file.*Paper/);
+    expect(screen.getByText("Back up your recovery key")).toBeInTheDocument();
+    expect(pills()).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /See the install/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open BitLocker" }));
+    expect(acts.openBitLocker).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: /I saved my key/ }));
+    expect(acts.saveRecoveryKey).toHaveBeenCalledOnce();
+    // Windows Home: the key is in the Microsoft account already.
+    fireEvent.click(screen.getByRole("button", { name: "No Back up option?" }));
+    expect(screen.getByRole("link", { name: "aka.ms/myrecoverykey" })).toHaveAttribute(
+      "href",
+      "https://aka.ms/myrecoverykey",
+    );
+    expect(subStep()).toBe("Get the PC ready");
+  });
+
+  it("guides the owner on when Windows' BitLocker page did not open", () => {
+    renderReal(
+      "rental",
+      off,
+      rental({
+        read: { ...installed(), recovery: { drives: ["C", "D"], saved: false, at: null } },
+        bitlockerPage: "failed",
+      }),
+    );
+    expect(h1()).toHaveTextContent("Save your BitLocker recovery keys");
+    expect(screen.getByText(/C: and D: are encrypted/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/Search Windows for Manage BitLocker/);
+    expect(screen.queryByRole("button", { name: /^Go live/ })).not.toBeInTheDocument();
+  });
+
+  it("removes Swiff OS in one action: the key's code first, then Finish removing, then Windows checked", () => {
+    const code = renderReal(
+      "rental",
+      off,
+      rental({ read: installed(), preview: removePlan(installed(), { key: true, code: "55554444" }) }),
+    );
+    expect(h1()).toHaveTextContent("Write down this code");
+    expect(screen.getByText("Rental mode, removing")).toBeInTheDocument();
+    expect(screen.getByText(/Finish removing takes Swiff OS off the disk/)).toBeInTheDocument();
+    expect(screen.getByText("Choose Delete MOK")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Remove the key/ }));
+    expect(code.runRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    const finish = renderReal(
+      "rental",
+      off,
+      rental({ read: { ...installed(), removal: { state: "finish" } } }),
+    );
+    expect(h1()).toHaveTextContent("Finish removing Swiff OS");
+    fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Finish removing/ }));
+    expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: false });
+    fireEvent.click(screen.getByRole("button", { name: "The blue screen didn't take the code" }));
+    expect(finish.previewRental).toHaveBeenCalledWith("remove", { key: true });
+    cleanup();
+
+    const gone = { ...read(), removal: { state: "restart" as const } };
+    const restart = renderReal("rental", off, rental({ read: gone }));
+    expect(h1()).toHaveTextContent("Restart to check Windows");
+    expect(screen.queryByText("Choose Delete MOK")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Restart now/ }));
+    expect(restart.restartRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    const checks = [
+      { id: "windows", label: "Windows", ok: true, value: "Started as usual" },
+      { id: "space", label: "C:", ok: false, value: "976 GB, not its 1000 GB" },
+    ];
+    const done = renderReal(
+      "rental",
+      off,
+      rental({ read: { ...read(), removal: { state: "checked", ok: false, checks, at: 1 } } }),
+    );
+    expect(h1()).toHaveTextContent("Swiff OS is off, but check this");
+    expect(screen.getByText("976 GB, not its 1000 GB")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Done/ }));
+    expect(done.seenRemoval).toHaveBeenCalledOnce();
   });
 
   it("guides the key's removal with its own code and Delete MOK", () => {

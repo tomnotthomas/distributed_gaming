@@ -29,12 +29,17 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
+const { BITLOCKER_PANEL, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
+const { expectOf, removalOf, removalStep, removalStore } = require("./rental-removal.cjs");
 const {
+  BOOT_CHANGES,
+  bitlockerDrives,
   installPlan,
   keyRemovalPlan,
   mokPlan,
   readRental,
+  removePlan,
   switchPlan,
   uninstallPlan,
 } = require("./rental.cjs");
@@ -155,46 +160,72 @@ const imageRead = () => {
     return { image: null, imageRefused: fs.existsSync(path.join(imageDir(), MANIFEST)) };
   }
 };
+/** The OS's encryption for the logged-in Windows user, as the machine key has it; null where there is none. */
+const crypt = () =>
+  safeStorage.isEncryptionAvailable()
+    ? {
+        seal: (text) => safeStorage.encryptString(text),
+        open: (sealed) => safeStorage.decryptString(sealed),
+      }
+    : null;
 /**
  * What the app queued for Swiff's key, and what the owner said about its blue screen (rental-key.cjs).
  * Its code is encrypted by the OS for the logged-in Windows user, as the machine key is.
  */
-const keys = () =>
-  keyStore(
-    app.getPath("userData"),
-    safeStorage.isEncryptionAvailable()
-      ? {
-          seal: (text) => safeStorage.encryptString(text),
-          open: (sealed) => safeStorage.decryptString(sealed),
-        }
-      : null,
-  );
+const keys = () => keyStore(app.getPath("userData"), crypt());
+/** Remove Swiff OS across its restarts (rental-removal.cjs): its key's code sealed the same way. */
+const removals = () => removalStore(app.getPath("userData"), crypt());
+/** That the owner saved their BitLocker recovery key, and for which drives: never the key (recovery-key.cjs). */
+const recoveries = () => recoveryStore(app.getPath("userData"));
 /** When this PC last started: a key request queued before it has met its blue screen. */
 const bootAt = () => Date.now() - os.uptime() * 1000;
 
-const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "once"]);
+const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "remove", "once"]);
 /** A step that restarts the PC: never run by itself, only on the owner's Restart now. */
 const restarts = (step) => step.ops.some((o) => o.op === "restart");
 /** The plan on the window's screen, which `rental:run` runs; whether a run is under way. */
 let rentalPlan = null;
 let rentalRun = null;
+/** What a remove plan's disk part must leave (rental-removal.cjs expectOf), from the read it was planned on. */
+let rentalExpect = null;
 /** A run finished up to its restart: Restart now may restart the PC. */
 let restartReady = false;
+/** The PC's last read: which drives BitLocker protects, for the recovery key's gate. */
+let lastRead = null;
+
+/** Whether the owner still has to save a BitLocker recovery key before a boot change (recovery-key.cjs). */
+const recoveryNow = (read) => recoveryOf(recoveries().read(), bitlockerDrives(read));
 
 ipcMain.handle("rental:read", async (event) => {
   if (!fromApp(event)) return null;
   const read = await readRental();
   if (!read) return null;
+  lastRead = read;
   // Swiff OS gone, or never there: an old code or answer means nothing any more.
   if (!read.facts.install) keys().forget();
-  return { ...read, ...imageRead(), key: keyOf(keys().read(), bootAt(), bootTrail()) };
+  const trail = bootTrail();
+  return {
+    ...read,
+    ...imageRead(),
+    key: keyOf(keys().read(), bootAt(), trail),
+    removal: removalOf(removals().read(), bootAt(), read.facts, trail),
+    recovery: recoveryNow(read),
+  };
 });
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
   rentalPlan = null;
+  rentalExpect = null;
   let plan = null;
   try {
     if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
+    else if (ask.kind === "remove") {
+      const rental = await readRental();
+      if (!rental) return null;
+      lastRead = rental;
+      plan = removePlan(rental, { key: typeof ask.key === "boolean" ? ask.key : removeKeyFirst(rental) });
+      if (plan.phase === "disk") rentalExpect = expectOf(rental.facts.install, bitlockerDrives(rental));
+    }
     // The key's restarts suspend BitLocker on C: when it is on: the read says.
     else if (ask.kind === "mok") plan = mokPlan(undefined, await readRental());
     else if (ask.kind === "unkey") plan = keyRemovalPlan(undefined, await readRental());
@@ -215,9 +246,30 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   if (plan && RUNNABLE.has(plan.kind)) rentalPlan = plan;
   return plan;
 });
+/**
+ * Whether Remove Swiff OS starts with Swiff's key: the install finished and queued it, and nothing
+ * says it is off already (its removal met its restart, the owner said it did not go in, or this
+ * start's log showed it did not).
+ */
+function removeKeyFirst(rental) {
+  const install = rental.facts.install;
+  if (!install?.complete || !install.mok) return false;
+  if (removalOf(removals().read(), bootAt())?.state === "finish") return false;
+  const key = keyOf(keys().read(), bootAt(), bootTrail());
+  return !key || key.state === "confirmed" || key.state === "ask";
+}
 ipcMain.handle("rental:run", async (event) => {
   if (!fromApp(event) || !rentalPlan || rentalRun) return null;
   const plan = rentalPlan;
+  const expect = rentalExpect;
+  // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved.
+  if (BOOT_CHANGES.has(plan.kind) && !recoveryNow(lastRead ?? (await readRental())).saved)
+    return {
+      status: "failed",
+      done: [],
+      failed: { step: "recovery", op: "recovery", error: "Save your BitLocker recovery key first." },
+      results: [],
+    };
   rentalRun = {};
   restartReady = false;
   const tell = (e) => {
@@ -250,7 +302,11 @@ ipcMain.handle("rental:run", async (event) => {
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),
       onEvent: (e) => {
         // The key's request is in the firmware, or its removal: the key's file must outlive this window.
-        if (e.type === "step" && e.state === "done") keyStep(keys(), plan, e.id, Date.now());
+        if (e.type === "step" && e.state === "done") {
+          keyStep(keys(), plan, e.id, Date.now());
+          // Remove Swiff OS: its key's restart, then the start that shows Windows after it.
+          removalStep(removals(), plan, e.id, Date.now(), expect);
+        }
         tell(e);
       },
     });
@@ -265,7 +321,10 @@ ipcMain.handle("rental:run", async (event) => {
 // Restart now: after a run that ended at its restart, or with a key request still waiting for one.
 ipcMain.handle("rental:restart", async (event) => {
   if (!fromApp(event) || rentalRun) return false;
-  if (!restartReady && keyOf(keys().read(), bootAt())?.state !== "queued") return false;
+  const waiting =
+    keyOf(keys().read(), bootAt())?.state === "queued" ||
+    ["queued", "restart"].includes(removalOf(removals().read(), bootAt())?.state);
+  if (!restartReady && !waiting) return false;
   try {
     await promisify(execFile)("shutdown.exe", ["/r", "/t", "5"], { windowsHide: true });
     return true;
@@ -299,6 +358,33 @@ ipcMain.handle("rental:report", (event, report) => {
   } catch {
     return null;
   }
+});
+// The owner's word that they saved their BitLocker recovery key, for the drives BitLocker protects
+// now. Swiff never reads the key: only that they said so, and when.
+ipcMain.handle("rental:recovery-saved", async (event) => {
+  if (!fromApp(event)) return false;
+  const read = await readRental();
+  if (read) lastRead = read;
+  const drives = bitlockerDrives(lastRead);
+  if (!drives.length) return true;
+  recoveries().saved(drives, Date.now());
+  return true;
+});
+// Windows' own BitLocker page, where Back up your recovery key is: false where it did not open.
+ipcMain.handle("rental:open-bitlocker", async (event) => {
+  if (!fromApp(event) || process.platform !== "win32") return false;
+  try {
+    await promisify(execFile)(BITLOCKER_PANEL.file, BITLOCKER_PANEL.args, { windowsHide: false });
+    return true;
+  } catch {
+    return false;
+  }
+});
+// The owner has seen how Remove Swiff OS ended: its record goes.
+ipcMain.handle("rental:removal-seen", (event) => {
+  if (!fromApp(event)) return false;
+  if (removalOf(removals().read(), bootAt())?.state === "checked") removals().forget();
+  return true;
 });
 // The owner's word on the blue screen, which Windows cannot see.
 ipcMain.handle("rental:key-answer", (event, yes) => {
@@ -339,10 +425,11 @@ const TITLE_BAR =
 
 /**
  * Links the app may hand to the OS: installing a game in Steam, opening
- * Steam (to sign in) or its library, and Steam's store.
+ * Steam (to sign in) or its library, Steam's store, and the page where a
+ * Microsoft account keeps its BitLocker recovery keys.
  */
 const EXTERNAL =
-  /^(steam:\/\/install\/\d+|steam:\/\/open\/(main|games)|https:\/\/store\.steampowered\.com\/app\/\d+\/?)$/;
+  /^(steam:\/\/install\/\d+|steam:\/\/open\/(main|games)|https:\/\/store\.steampowered\.com\/app\/\d+\/?|https:\/\/aka\.ms\/myrecoverykey)$/;
 
 /** Open allowed links outside the app; the app itself never navigates away. */
 function guardNavigation(contents) {

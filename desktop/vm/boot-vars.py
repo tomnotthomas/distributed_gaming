@@ -22,8 +22,8 @@ virt-firmware (pip install virt-firmware) on an OVMF variable store:
   boot-vars.py secure-boot VARS on|off
                                      OVMF's Secure Boot switch, as its setup screen flips it
   boot-vars.py cert DB_AUTH OUT      the certificate in DB_AUTH, as DER, to OUT
-  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request, MokTimeout
-                                     and MokList
+  boot-vars.py show VARS             print BootOrder, BootNext, the queued MOK request and removal,
+                                     MokTimeout and MokList
 """
 
 import struct
@@ -172,6 +172,11 @@ def main(cmd, vars_path, *args):
             print(f"MOK request: MokNew {len(new.data) if new else 0} bytes, MokAuth {len(auth.data) if auth else 0} bytes")
         else:
             print("MOK request: none")
+        delete, delete_auth = varlist.get("MokDel"), varlist.get("MokDelAuth")
+        if delete or delete_auth:
+            print(f"MOK removal: MokDel {len(delete.data) if delete else 0} bytes, MokDelAuth {len(delete_auth.data) if delete_auth else 0} bytes")
+        else:
+            print("MOK removal: none")
         wait = varlist.get("MokTimeout")
         print(f"MokTimeout: {struct.unpack('<i', wait.data)[0] if wait and len(wait.data) == 4 else wait.data.hex() if wait else 'none'}")
         mok = varlist.get("MokList")

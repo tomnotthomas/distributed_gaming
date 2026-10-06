@@ -50,7 +50,7 @@ export function stepBytes(
 export function useRental(): RentalSetup & {
   check(): void;
   choose(id: string): void;
-  plan(kind: RentalPlan["kind"]): void;
+  plan(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
   close(): void;
   start(): void;
   restart(): void;
@@ -59,6 +59,9 @@ export function useRental(): RentalSetup & {
   retry(): void;
   report(): void;
   seenLive(): void;
+  saveRecovery(): void;
+  openBitLocker(): void;
+  seenRemoval(): void;
 } {
   const [read, setRead] = useState<RentalRead | null>(null);
   const [reading, setReading] = useState(true);
@@ -67,6 +70,7 @@ export function useRental(): RentalSetup & {
   const [run, setRun] = useState<RentalRun>(IDLE_RUN);
   const [readAt, setReadAt] = useState<number | null>(null);
   const [planning, setPlanning] = useState(false);
+  const [bitlockerPage, setBitlockerPage] = useState<"opened" | "failed" | null>(null);
   // Which live run the owner has seen summed up: kept in this window's storage, a convenience only.
   const [liveSeen, setLiveSeen] = useState<number | null>(() => {
     try {
@@ -199,12 +203,12 @@ export function useRental(): RentalSetup & {
   };
 
   /** Plan `kind` afresh and run it at once: Try again and Ask again, where the owner's OK stands. */
-  const again = (kind: RentalPlan["kind"]) => {
+  const again = (kind: RentalPlan["kind"], key?: boolean) => {
     const host = bridge();
     if (!host || busy) return;
     const n = nextPlan();
     void host
-      .planRental({ kind, target })
+      .planRental({ kind, target, ...(key === undefined ? {} : { key }) })
       .catch(() => null)
       .then((plan) => {
         if (n !== plans.current) return;
@@ -225,6 +229,7 @@ export function useRental(): RentalSetup & {
     readAt,
     planning,
     liveSeen,
+    bitlockerPage,
     target,
     preview,
     run,
@@ -238,12 +243,16 @@ export function useRental(): RentalSetup & {
       setTarget(id);
       drop();
     },
-    plan: (kind) => {
+    plan: (kind, options) => {
       if (busy) return;
       const n = nextPlan();
       setPreview(null);
       setRun(IDLE_RUN);
-      const asked = bridge()?.planRental({ kind, target });
+      const asked = bridge()?.planRental({
+        kind,
+        target,
+        ...(typeof options?.key === "boolean" ? { key: options.key } : {}),
+      });
       if (!asked) return;
       setPlanning(true);
       void asked
@@ -277,7 +286,26 @@ export function useRental(): RentalSetup & {
       if (run.failed?.step === "restart") return restart();
       // Windows said no before anything ran: main still holds the same plan, and its code stands.
       if (run.failed?.step === "elevate") return void runPlan(preview);
-      again(preview.kind);
+      // Remove Swiff OS goes on with the part that stopped.
+      again(preview.kind, preview.kind === "remove" ? preview.phase === "key" : undefined);
+    },
+    saveRecovery: () => {
+      void bridge()
+        ?.saveRecoveryKey()
+        .catch(() => false)
+        .then(() => reread());
+    },
+    openBitLocker: () => {
+      void bridge()
+        ?.openBitLocker()
+        .catch(() => false)
+        .then((opened) => setBitlockerPage(opened ? "opened" : "failed"));
+    },
+    seenRemoval: () => {
+      void bridge()
+        ?.seenRemoval()
+        .catch(() => false)
+        .then(() => reread());
     },
     report: () => {
       const host = bridge();

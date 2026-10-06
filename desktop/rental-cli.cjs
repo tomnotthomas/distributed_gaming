@@ -4,10 +4,14 @@
 // for an install that someone carries out one announced step at a time.
 //
 //   node rental-cli.cjs read
-//       what the app reads from this PC, and what an install recorded
-//   node rental-cli.cjs run <install|uninstall|unkey|mok|once|start|stop> --image <dir>
-//           [--target <id>] [--dry-run] [--code <8 digits>]
-//       plan it and run every step: typing this command is the confirmation
+//       what the app reads from this PC, and what an install recorded, with
+//       where Remove Swiff OS stands (its record in --state <dir>)
+//   node rental-cli.cjs run <install|uninstall|unkey|remove|mok|once|start|stop> --image <dir>
+//           [--target <id>] [--dry-run] [--code <8 digits>] [--key yes|no] [--state <dir>]
+//       plan it and run every step: typing this command is the confirmation.
+//       remove runs Remove Swiff OS's next part: its key (MokManager, after the
+//       restart), or, once that restart is behind it, the disk, its check and
+//       the restart that shows Windows still starts; --key says which
 //   node rental-cli.cjs serve --image <dir> [--commands <file>] [--dry-run] [--code <8 digits>]
 //       one elevated worker (one UAC prompt, on `elevate` or the first `run`),
 //       then commands one per line, on stdin or appended to <file> (which
@@ -29,15 +33,19 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
 const readline = require("node:readline");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
 const { readImageSet, trustOf } = require("./image-set.cjs");
 const { bootTrail } = require("./rental-key.cjs");
+const { expectOf, removalOf, removalStep, removalStore } = require("./rental-removal.cjs");
 const {
+  bitlockerDrives,
   installPlan,
   keyRemovalPlan,
   mokPlan,
   readRental,
+  removePlan,
   switchPlan,
   uninstallPlan,
 } = require("./rental.cjs");
@@ -55,13 +63,34 @@ function flags(args) {
   return out;
 }
 
-async function plan(kind, { image, target = null, code }) {
+/** When this PC last started: a removal recorded before it has met its restart. */
+const bootAt = () => Date.now() - os.uptime() * 1000;
+
+/** Remove Swiff OS's record: in --state, else the console's own folder in the user's local app data. */
+const removals = (opts) =>
+  removalStore(
+    path.resolve(opts.state ?? path.join(process.env.LOCALAPPDATA ?? os.tmpdir(), "Swiff", "rental-cli")),
+    null,
+  );
+
+async function plan(kind, { image, target = null, code, key, store }) {
   if (kind === "once" || kind === "start" || kind === "stop") return switchPlan(kind);
   if (kind === "mok") return mokPlan(code, await readRental());
   if (kind === "unkey") return keyRemovalPlan(code, await readRental());
   const rental = await readRental();
   if (!rental) throw new Error("This PC could not be read.");
   if (kind === "uninstall") return uninstallPlan(rental);
+  if (kind === "remove") {
+    // Its key first, as the app does, unless its restart is behind it already or --key says otherwise.
+    const install = rental.facts.install;
+    const first =
+      key === undefined
+        ? Boolean(install?.complete && install.mok) &&
+          removalOf(store?.read() ?? null, bootAt())?.state !== "finish"
+        : key;
+    const p = removePlan(rental, { key: first, ...(code ? { code } : {}) });
+    return p.phase === "disk" ? { ...p, expect: expectOf(install, bitlockerDrives(rental)) } : p;
+  }
   if (kind === "install")
     return installPlan(rental, {
       target,
@@ -86,6 +115,7 @@ const worker = (image, dry) =>
 /** A plan as an answer shows it: without its key code. */
 const shown = (p) => ({
   kind: p.kind,
+  ...(p.phase ? { phase: p.phase } : {}),
   target: p.target,
   steps: p.steps.map(({ id, title, confirm, commands }) => ({ id, title, confirm, commands })),
 });
@@ -131,14 +161,38 @@ async function* follow(file) {
 async function main([cmd, ...rest]) {
   const opts = flags(rest);
   // With this start's boot trail (rental-key.cjs): what ran before Windows, for the VM test.
-  if (cmd === "read") return say({ read: await readRental(), trail: bootTrail() });
+  if (cmd === "read") {
+    const read = await readRental();
+    const trail = bootTrail();
+    return say({
+      read,
+      trail,
+      removal: removalOf(removals(opts).read(), bootAt(), read?.facts ?? null, trail),
+    });
+  }
   if (cmd === "run") {
-    const p = await plan(opts._[0], { image: opts.image, target: opts.target, code: codeOf(opts) });
+    const store = removals(opts);
+    const key = opts.key === undefined ? undefined : opts.key === "yes";
+    const p = await plan(opts._[0], {
+      image: opts.image,
+      target: opts.target,
+      code: codeOf(opts),
+      key,
+      store,
+    });
     codeOf(opts, p);
     say({ plan: shown(p) });
     const w = await worker(opts.image, opts["dry-run"]);
     try {
-      const outcome = await runPlan(p, { apply: w.apply, onEvent: (event) => say({ event }) });
+      const outcome = await runPlan(p, {
+        apply: w.apply,
+        onEvent: (event) => {
+          // Remove Swiff OS: recorded before its restart, as the app records it.
+          if (!opts["dry-run"] && event.type === "step" && event.state === "done")
+            removalStep(store, p, event.id, Date.now(), p.expect ?? null);
+          say({ event });
+        },
+      });
       say({ outcome, ...(w.ops ? { ops: unkeyed(w.ops) } : {}) });
       process.exitCode = outcome.status === "done" ? 0 : 1;
     } finally {
@@ -158,7 +212,13 @@ async function main([cmd, ...rest]) {
         if (verb === "quit") break;
         if (verb === "read") say({ read: await readRental() });
         else if (verb === "plan") {
-          current = await plan(args[0], { image: opts.image, target: args[1] ?? null, code: codeOf(opts) });
+          current = await plan(args[0], {
+            image: opts.image,
+            target: args[1] ?? null,
+            code: codeOf(opts),
+            key: opts.key === undefined ? undefined : opts.key === "yes",
+            store: removals(opts),
+          });
           say({ plan: shown(current) });
         } else if (verb === "elevate") {
           w ??= await worker(opts.image, opts["dry-run"]);

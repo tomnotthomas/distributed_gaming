@@ -44,7 +44,17 @@ them for real: one UAC prompt starts the app again as administrator, as a worker
 worker with, without sending it, and every later message is sealed with a key from that
 token and both ends' nonces, so a process that opens or relays the pipe cannot add an
 operation. The owner's one OK starts the run, and every step runs by itself up to the
-restart, which waits for the owner's Restart now. The install:
+restart, which waits for the owner's Restart now.
+
+**The BitLocker recovery key first.** When BitLocker protects C: or the games drive, nothing
+that changes what the PC starts (the install, the key's restarts, Go live, Remove Swiff OS) is
+offered until the owner has saved that drive's recovery key where they can reach it from
+another device: the screen says where it can be (their Microsoft account, a file, paper), opens
+Windows' own BitLocker page (Back up your recovery key), and sends a Windows Home owner to
+aka.ms/myrecoverykey, where Device encryption put it. The owner says they saved it, and main
+refuses a boot change's run until they have. Swiff never reads, sends or keeps the key:
+`desktop/recovery-key.cjs` keeps only that the owner said so, for which drives, and when, and a
+drive BitLocker protects later asks again. The install:
 
 1. checks, as administrator, that Secure Boot is on, the TPM is ready, the db trusts the
    Microsoft UEFI CA 2011 that signs Ubuntu's shim (the 2023 CA does not sign it yet), C: can
@@ -66,9 +76,24 @@ into partitions it added, and removes only what it added. What it changed goes i
 `%ProgramData%\Swiff\rental-install.json` (writable by administrators only), which the
 uninstall works from: boot entry (kept by what it starts, its partition's GPT id and shim's
 path, since firmware renumbers `Boot####`), partitions, C:'s space back, the drive names, Fast
-Startup and BitLocker. An install that stops part way is undone the same way. Swiff's key is removed
-on its own, before the uninstall: MokManager, which the owner confirms the removal at with a
-new code, lives on Swiff OS's boot partition. Once installed, going live sets only BootNext
+Startup and BitLocker.
+
+**Remove Swiff OS** is one action on the Rental screen (`removePlan` in `desktop/rental.cjs`),
+in two parts across a restart. With Swiff's key enrolled it starts with the key: MokManager,
+which removes it once the owner confirms with a new code, lives on Swiff OS's own boot
+partition, so the key comes off first (BitLocker on C: suspended for that restart). Back in
+Windows, Finish removing runs the uninstall: the boot entry, every request for shim (MokNew,
+MokDel, MokTimeout), the six partitions, the drive Swiff OS came from grown back to its size,
+the names, Fast Startup and BitLocker as they were; then a check as administrator that no
+`Boot####` starts shim, no request is queued and none of the partitions is on the disk; then a
+restart. An install that stopped part way (no key went in) goes straight to that second part.
+`desktop/rental-removal.cjs` records each part in the app's own data, and the start after the
+removal is checked against it, without administrator rights: Windows started without Swiff OS's
+loader (this start's measured-boot log), the partitions are gone, the drive has its space back,
+BitLocker is on again where it was, and the install record is gone. The screen shows each,
+marked where one is not as it was. Should the owner miss the blue screen, Finish removing goes
+on without the key (shim, the only thing that would trust it, is gone with the partitions), or
+they ask for the key's removal again. Once installed, going live sets only BootNext
 for now, so the next restart is Windows again; Swiff OS first in BootOrder waits until Swiff
 OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
 the request; shim then fails to verify the next stage and falls through into Windows in the
@@ -89,7 +114,8 @@ wrecks the build's 4,096-byte-sector FAT on the 512-byte-sector disks nearly eve
 the installer offers only those disks), with `\EFI\swiff\` added (Ubuntu's Microsoft-signed shim
 from the image's own archive snapshot, MokManager, and the build's signed systemd-boot as
 `grubx64.efi`, the name shim starts), slot A and its verity hashes, Swiff's certificate, and
-`swiffos.json` with the layout and each file's SHA-256, signed (`swiffos.json.sig`, Ed25519).
+`swiffos.json` with the layout and each file's SHA-256, signed (`swiffos.json.sig`, Ed25519),
+and `SHA256SUMS`, every file's SHA-256 as `sha256sum` prints it.
 The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder, and
 reads no manifest that a key in `desktop/image-trust.json` did not sign, nor a set whose
 certificate is not the one that key's sets carry; a set that is there but not signed by Swiff
@@ -121,8 +147,10 @@ software TPM and BitLocker on, scenario by scenario: Secure Boot already fine, t
 administrator prompt declined, not enough space, an install stopped part way and undone, a
 fresh install whose key screen is left waiting and then Continue boot, a power-off at the key
 screen, the key confirmed (PCR 7 as a clean start's each time, as `vm/pcr7.py` replays it),
-Swiff OS started once through shim with its ESP still sound, the key's removal and the
-uninstall, a reinstall, a second app instance, Secure Boot off, and the packaged test build
+Swiff OS started once through shim with its ESP still sound, Remove Swiff OS after the partial
+install and after the full one (its key at MokManager, Finish removing, the restart, and the
+app's check of the start after it: Windows back, its space and BitLocker as before, no boot
+entry or request for shim left), a reinstall, a second app instance, Secure Boot off, and the packaged test build
 driven through its own screens. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
 time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with

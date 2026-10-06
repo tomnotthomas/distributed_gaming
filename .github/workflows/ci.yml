@@ -293,6 +293,18 @@ jobs:
           fi
           printf 'built: %s\n' "${found[@]}"
 
+      # The release step's checksums: each installer's SHA-256, as sha256sum prints it, kept
+      # beside it and shown in the run's summary. The download page publishes them as text
+      # (web/src/swiff/release.json, from `node desktop/checksums.cjs release`).
+      - name: Checksums
+        if: steps.check.outputs.present == 'true'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          cd desktop/release
+          node ../checksums.cjs sums SHA256SUMS *.dmg *.exe
+          { echo '### SHA-256'; echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       # Installers are large. Keep them only for main and manual runs:
       # uploading one per PR push is what filled the artifact quota. PRs still
       # prove the packaging works; they just do not keep the result.
@@ -303,6 +315,7 @@ jobs:
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe
+            desktop/release/SHA256SUMS
           retention-days: 3
           if-no-files-found: error
 

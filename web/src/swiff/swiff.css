@@ -2157,6 +2157,40 @@ button.band-tab:hover {
   font-size: 12.5px;
 }
 
+/* the trust band: what a host can check for themselves, the SHA-256 sums as text */
+.share-sums {
+  grid-column: span 2;
+  border-right: 0;
+}
+.share-sums h2.mono {
+  margin: 0 0 4px;
+  color: var(--on-paper-3);
+  font: 400 11.5px/1.55 var(--mono);
+}
+.share-sums code {
+  font: 400 12.5px var(--mono);
+}
+.sums {
+  display: grid;
+  gap: 2px 0;
+  margin: 6px 0 0;
+}
+.sums dt {
+  font: 500 13px/1.3 var(--f);
+}
+.sums dd {
+  margin: 0 0 6px;
+  color: var(--on-paper-2);
+  font: 400 12px/1.45 var(--mono);
+  overflow-wrap: anywhere;
+}
+.sums-more summary {
+  margin-top: 6px;
+  color: var(--on-paper-3);
+  font: 400 11.5px/1.55 var(--mono);
+  cursor: pointer;
+}
+
 /* How we got this number */
 .estimate {
   position: fixed;
@@ -2689,6 +2723,9 @@ button.band-tab:hover {
   }
   .share-cell + .share-cell {
     border-top: 1px solid var(--pline);
+  }
+  .share-sums {
+    grid-column: auto;
   }
   .estimate-sheet {
     padding: 24px 20px 28px;

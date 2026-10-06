@@ -40,7 +40,34 @@ describe("SharePC", () => {
     const download = screen.getByRole("button", { name: /Download for Windows/ });
     expect(download).toBeDisabled();
     expect(download).toHaveAccessibleDescription("Coming soon");
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Download/ })).toBeNull();
+    // Nothing published yet: no sum to show, and the page says where it will be.
+    expect(screen.getByText(/SHA-256 is published here with it/)).toBeInTheDocument();
+  });
+
+  it("publishes the download's SHA-256 and the image set's as text, to check with Get-FileHash", () => {
+    const sha = "a".repeat(64);
+    const swiff = { week: DEFAULT_WEEK, setWeek: () => {}, setEstimateOpen: () => {} } as unknown as Swiff;
+    render(
+      <SharePC
+        swiff={swiff}
+        release={{
+          host: {
+            file: "SwiffHost-0.1.0.exe",
+            sha256: sha,
+            bytes: 1,
+            url: "https://example.test/SwiffHost-0.1.0.exe",
+          },
+          image: { version: "0.1.0", files: [{ name: "swiffos.json", sha256: "b".repeat(64) }] },
+        }}
+      />,
+    );
+    const trust = within(document.getElementById("trust")!);
+    expect(trust.getByText("Get-FileHash .\\SwiffHost-0.1.0.exe")).toBeInTheDocument();
+    expect(trust.getByText(sha)).toBeInTheDocument();
+    expect(trust.getByText("b".repeat(64))).toBeInTheDocument();
+    expect(trust.getByText(/Swiff never reads, sends or keeps it/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Check the download" })).toHaveAttribute("href", "#trust");
   });
 
   it("re-estimates when another tier is picked", () => {

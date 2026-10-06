@@ -22,6 +22,7 @@ import {
   biosTitle,
   chosenTarget,
   codeGroups,
+  drivesLine,
   firmwareChecks,
   gb,
   hintOf,
@@ -30,6 +31,8 @@ import {
   firmwareGuide,
   otherRoom,
   passBytes,
+  removesDisk,
+  removesKey,
   rentalScreen,
   rentalStepAt,
   RUNNING_TITLE,
@@ -48,7 +51,10 @@ import type { ScreenProps } from "./types";
 
 /** What a tile shows besides its words: keys to press, a setting, the screen's own text, the app's button. */
 type Visual =
-  { keys: string[] } | { setting: [string, string] } | { screen: string } | { app: "again" | "wait" };
+  | { keys: string[] }
+  | { setting: [string, string] }
+  | { screen: string }
+  | { app: "again" | "wait" | "done" };
 type Tile = { title: string; text: string; visual: Visual };
 
 /** The BIOS trip for these settings, with this PC's key and menu paths where Swiff knows its firmware. */
@@ -98,6 +104,49 @@ function bitlockerTrip(letter: string): Tile[] {
     { title: "Check again", text: "Come back here and press Check again.", visual: { app: "again" } },
   ];
 }
+
+/**
+ * Saving the BitLocker recovery key, in Windows' own words: its BitLocker
+ * page offers the Microsoft account, a file and printing.
+ */
+function recoveryTrip(drives: string[]): Tile[] {
+  const first = drives[0] ?? "C";
+  return [
+    {
+      title: "Open BitLocker",
+      text: "Press Open BitLocker, or search Windows for Manage BitLocker.",
+      visual: { keys: ["Win"] },
+    },
+    {
+      title: "Back up your recovery key",
+      text: `Choose it next to ${drivesLine(drives)}`,
+      visual: { setting: [`${first}: BitLocker`, "Back up"] },
+    },
+    {
+      title: "Keep it off this PC",
+      text: "Save it to your Microsoft account, to a file on a USB stick, or print it.",
+      visual: { setting: ["Save to", "Microsoft account"] },
+    },
+    { title: "Say so here", text: "Then press I saved my key.", visual: { app: "done" } },
+  ];
+}
+
+/** Where Windows Home keeps the key, and where to look when Windows' page didn't open. */
+const RecoveryHome = () => (
+  <ul className="mlist">
+    <li>
+      On Windows Home there's no Back up option: Device encryption saved the key to your Microsoft account by
+      itself.
+    </li>
+    <li>
+      On your phone, open{" "}
+      <a href="https://aka.ms/myrecoverykey" target="_blank" rel="noreferrer">
+        aka.ms/myrecoverykey
+      </a>
+      , sign in, and check this PC's key is listed.
+    </li>
+  </ul>
+);
 
 /**
  * shim's MokManager, screen by screen, in its own words: enrolling Swiff's
@@ -154,7 +203,7 @@ function Visualize({ v }: { v: Visual }) {
     );
   return (
     <span className="mvis appbtn" aria-hidden="true">
-      <Glyph name={v.app === "wait" ? "clock" : "refresh"} size={28} />
+      <Glyph name={v.app === "wait" ? "clock" : v.app === "done" ? "check" : "refresh"} size={28} />
     </span>
   );
 }
@@ -443,7 +492,7 @@ const checkedLink = (read: RentalRead, target: string | null): More => ({
 
 const planLink = (plan: RentalPlan): More => ({
   id: "steps",
-  label: `${plan.kind === "install" ? "What the install does" : plan.kind === "uninstall" ? "What removing does" : "What the restart does"}, ${plan.steps.length} steps`,
+  label: `${plan.kind === "install" ? "What the install does" : removesDisk(plan) ? "What removing does" : "What the restart does"}, ${plan.steps.length} steps`,
   body: <PlanSteps plan={plan} />,
 });
 
@@ -532,10 +581,15 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       : null,
   );
   const checkedAt = setup.readAt ? clock(setup.readAt) : "";
+  const removing =
+    s.kind === "finish" ||
+    s.kind === "removed" ||
+    (s.kind === "restart" && Boolean(s.removing)) ||
+    ("plan" in s && (s.plan?.kind === "remove" || (s.kind === "failed" && removesDisk(s.plan))));
   const label =
     s.kind === "back"
       ? "Rental mode, back in Windows"
-      : s.kind === "failed" && s.plan.kind === "uninstall"
+      : removing
         ? "Rental mode, removing"
         : at >= 3
           ? "Rental mode, installed"
@@ -702,13 +756,106 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       links.push({
         id: "undo",
         label: "Undo what was done",
-        onClick: () => actions.previewRental("uninstall"),
+        onClick: () => actions.previewRental("remove"),
       });
       break;
+    case "recovery": {
+      const drives = drivesLine(s.drives);
+      const many = s.drives.length > 1;
+      title = many ? "Save your BitLocker recovery keys" : "Save your BitLocker recovery key";
+      line = `${drives} ${many ? "are" : "is"} encrypted, and a restart can ask for ${many ? "their keys" : "its key"}: keep a copy you can reach from another device.`;
+      extra = (
+        <p className="mstatus">
+          <Glyph name="info" size={15} />
+          Swiff never reads, sends or keeps your key.
+        </p>
+      );
+      action = (
+        <>
+          <Pill icon="check" onClick={actions.saveRecoveryKey}>
+            I saved my key
+          </Pill>
+          <button type="button" className="lnk" onClick={actions.openBitLocker}>
+            Open BitLocker
+          </button>
+        </>
+      );
+      plate = (
+        <SettingsPlate
+          where={`${drives} BitLocker`}
+          label="Keep the key in one of"
+          rows={[
+            { name: "Microsoft account", value: "aka.ms/myrecoverykey" },
+            { name: "A file", value: "USB stick or another PC" },
+            { name: "Paper", value: "Printed" },
+          ]}
+          checking={false}
+          at="Recovery key"
+        />
+      );
+      below = (
+        <Strip tiles={recoveryTrip(s.drives)} label="In Windows">
+          {setup.bitlockerPage === "failed" ? (
+            <p className="mnote" role="status">
+              <Glyph name="warning" size={16} />
+              <span>
+                Windows didn't open its BitLocker page. Search Windows for Manage BitLocker. On Windows Home,
+                it's Settings, Privacy &amp; security, Device encryption, and the key is in your Microsoft
+                account.
+              </span>
+            </p>
+          ) : null}
+        </Strip>
+      );
+      links.push({ id: "home", label: "No Back up option?", body: <RecoveryHome /> });
+      break;
+    }
+    case "finish":
+      title = "Finish removing Swiff OS";
+      line =
+        "Windows asks once more for permission. Then Swiff OS comes off the disk, and its space goes back to Windows.";
+      action = (
+        <Pill icon="undo" onClick={() => actions.previewRental("remove", { key: false })}>
+          Finish removing
+        </Pill>
+      );
+      plate = (
+        <Plate caption={["Remove Swiff OS", "Windows asks once"]}>
+          <Dial progress={0.5} big="Last part" small="then a restart" />
+        </Plate>
+      );
+      links.push({
+        id: "rekey",
+        label: "The blue screen didn't take the code",
+        onClick: () => actions.previewRental("remove", { key: true }),
+      });
+      break;
+    case "removed": {
+      const fine = s.ok !== false;
+      title = fine ? "Swiff OS is off this PC" : "Swiff OS is off, but check this";
+      line = fine
+        ? "Windows started as usual after the restart, and the space is Windows' again."
+        : "Something isn't as it was before Swiff OS. It's marked below.";
+      action = (
+        <Pill icon="check" onClick={actions.seenRemoval}>
+          Done
+        </Pill>
+      );
+      plate = (
+        <SettingsPlate
+          where="After the restart"
+          label="Checked"
+          rows={s.checks.map((c) => ({ name: c.label, value: c.value, wait: !c.ok }))}
+          checking={false}
+          at={checkedAt}
+        />
+      );
+      break;
+    }
     case "preview": {
       const { plan } = s;
       if (plan.mok) {
-        const remove = plan.kind === "unkey";
+        const remove = removesKey(plan);
         title = "Write down this code";
         line = remove
           ? "Or take a photo. You type it on a blue screen after the restart, to remove Swiff's key."
@@ -718,7 +865,9 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             <Glyph name="info" size={15} />
             {plan.kind === "install"
               ? "Then Swiff runs every step by itself. Windows asks once for permission."
-              : "Windows asks once for permission. Then Swiff gets the restart ready."}
+              : plan.kind === "remove"
+                ? "Windows asks once for permission. Back in Windows, Finish removing takes Swiff OS off the disk."
+                : "Windows asks once for permission. Then Swiff gets the restart ready."}
           </p>
         );
         action = (
@@ -734,15 +883,18 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         plate = <CodePlate code={plan.mok.code} caption={["Your key code", "Write it down"]} />;
         below = <Strip tiles={blueScreen(remove)} label="After the restart, on the blue screen" />;
       } else {
-        title = plan.kind === "uninstall" ? "Remove rental mode" : "Start Swiff OS";
+        const off = removesDisk(plan);
+        title = off ? "Remove Swiff OS" : "Start Swiff OS";
         line =
-          plan.kind === "uninstall"
-            ? "Swiff OS comes off this PC, and the drive it came from gets its space back. Your files stay where they are."
-            : "The PC restarts into Swiff OS. Its next restart after that starts Windows.";
+          plan.kind === "remove"
+            ? "Swiff OS comes off this PC, and the drive it came from gets its space back. One restart then checks Windows starts as usual. Your files stay where they are."
+            : off
+              ? "Swiff OS comes off this PC, and the drive it came from gets its space back. Your files stay where they are."
+              : "The PC restarts into Swiff OS. Its next restart after that starts Windows.";
         action = (
           <>
-            <Pill icon={plan.kind === "uninstall" ? "undo" : "play"} onClick={actions.runRental}>
-              {plan.kind === "uninstall" ? "Remove rental mode" : "Start Swiff OS"}
+            <Pill icon={off ? "undo" : "play"} onClick={actions.runRental}>
+              {off ? "Remove Swiff OS" : "Start Swiff OS"}
             </Pill>
             <button type="button" className="lnk" onClick={actions.closeRentalPreview}>
               Back
@@ -809,17 +961,22 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       break;
     }
     case "restart": {
-      const remove = s.plan?.kind === "unkey";
+      const remove = removesKey(s.plan) || s.removing === "key";
+      const check = s.removing === "check";
       const once = s.plan?.kind === "once";
       title = once
         ? "Restart into Swiff OS"
-        : remove
-          ? "Restart to remove the key"
-          : "Restart to confirm the key";
+        : check
+          ? "Restart to check Windows"
+          : remove
+            ? "Restart to remove the key"
+            : "Restart to confirm the key";
       line = once
         ? "Swiff OS starts on the next restart only. Then Windows again."
-        : "Have your code at hand. The PC restarts to a blue screen, and this app closes.";
-      if (!once)
+        : check
+          ? "Swiff OS is off this PC. Restart once, then open Swiff: it checks Windows started as usual."
+          : "Have your code at hand. The PC restarts to a blue screen, and this app closes.";
+      if (!once && !check)
         extra = (
           <p className="mwarn">
             On the blue screen, choose {remove ? "Delete" : "Enroll"} MOK. Never Continue boot.
@@ -835,7 +992,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       ) : (
         <ReadyPlate small="to restart" />
       );
-      if (!once)
+      if (!once && !check)
         below = (
           <Strip tiles={blueScreen(remove)} label="After the restart, on the blue screen">
             <NoContinue />
@@ -1000,8 +1157,8 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       );
       links.push({
         id: "remove",
-        label: "Remove rental mode",
-        onClick: () => actions.previewRental("uninstall"),
+        label: "Remove Swiff OS",
+        onClick: () => actions.previewRental("remove"),
       });
       break;
     case "back": {
@@ -1052,10 +1209,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         </Pill>
       );
       plate = <ReadyPlate small="for rental mode" />;
-      links.push(
-        { id: "unkey", label: "Remove Swiff's key", onClick: () => actions.previewRental("unkey") },
-        { id: "remove", label: "Remove rental mode", onClick: () => actions.previewRental("uninstall") },
-      );
+      links.push({ id: "remove", label: "Remove Swiff OS", onClick: () => actions.previewRental("remove") });
       break;
   }
 

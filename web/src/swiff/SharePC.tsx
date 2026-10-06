@@ -15,16 +15,27 @@ import {
 } from "./estimate";
 import { Glyph } from "./Glyph";
 import { AwayDial } from "./instruments";
+import RELEASE from "./release.json";
 import { gameArt, gameArtFallbacks } from "./steam";
 import type { Swiff } from "./useSwiff";
 
 /**
+ * What hosts download, as the release step published it (release.json, from
+ * `node desktop/checksums.cjs release`): the installer's name, SHA-256 and
+ * address, and the Swiff OS image set's files with theirs.
+ */
+export type Release = {
+  host: { file: string; sha256: string; bytes: number; url: string | null } | null;
+  image: { version: string; files: { name: string; sha256: string }[] } | null;
+};
+
+/**
  * Where the host installer is downloaded from, or null while none is published:
  * CI's package-desktop job builds SwiffHost-<version>.exe but keeps it only as a
- * three-day workflow artifact. Until this is set the button says Coming soon
- * and goes nowhere; setting it makes the button the download link.
+ * three-day workflow artifact. Until release.json names an address the button
+ * says Coming soon and goes nowhere; with one, the button is the download link.
  */
-export const HOST_DOWNLOAD_URL: string | null = null;
+export const HOST_DOWNLOAD_URL: string | null = (RELEASE as Release).host?.url ?? null;
 
 /** The estimate's key art: the mockup's, in full colour. */
 const ART = GAMES.find((g) => g.id === "er")!;
@@ -46,7 +57,7 @@ function Eur({ n, decimals = 0 }: { n: number; decimals?: number }) {
  * number was reached, and the one download. Reading the PC, choosing games,
  * going live and payout details all happen in the desktop app.
  */
-export function SharePC({ swiff }: { swiff: Swiff }) {
+export function SharePC({ swiff, release = RELEASE as Release }: { swiff: Swiff; release?: Release }) {
   const { week, setWeek } = swiff;
   const e = estimate(week);
 
@@ -112,7 +123,10 @@ export function SharePC({ swiff }: { swiff: Swiff }) {
             )}
           </div>
           <p className="share-note">
-            Open it on the PC you want to share. The app reads your hardware and sets your exact rate.
+            Open it on the PC you want to share. The app reads your hardware and sets your exact rate.{" "}
+            <a className="share-link" href="#trust">
+              Check the download
+            </a>
           </p>
         </div>
 
@@ -170,7 +184,67 @@ export function SharePC({ swiff }: { swiff: Swiff }) {
           </ol>
         </div>
       </section>
+
+      <Trust release={release} />
     </main>
+  );
+}
+
+/**
+ * What a host can check for themselves: their BitLocker key stays theirs,
+ * Swiff OS comes off in one click, and every download's SHA-256 is here as
+ * text, to compare with Windows' own Get-FileHash before running it.
+ */
+export function Trust({ release }: { release: Release }) {
+  const { host, image } = release;
+  return (
+    <section className="band share-band share-trust" id="trust" aria-labelledby="trust-title">
+      <div className="share-cell">
+        <Glyph name="key" />
+        <h2 id="trust-title">Your BitLocker key stays yours</h2>
+        <p>
+          Before anything changes how your PC starts, the app has you save your recovery key. Swiff never
+          reads, sends or keeps it.
+        </p>
+      </div>
+      <div className="share-cell">
+        <Glyph name="undo" />
+        <h2>Remove it in one click</h2>
+        <p>
+          The boot entry, the partitions and Swiff&rsquo;s key come off, the space goes back to Windows, and
+          the app checks Windows starts as before.
+        </p>
+      </div>
+      <div className="share-cell share-sums">
+        <h2 className="mono">Check your download</h2>
+        {host ? (
+          <>
+            <p>
+              In PowerShell, <code>Get-FileHash .\{host.file}</code> prints this SHA-256:
+            </p>
+            <dl className="sums">
+              <dt>{host.file}</dt>
+              <dd className="mono">{host.sha256}</dd>
+            </dl>
+          </>
+        ) : (
+          <p>Each download&rsquo;s SHA-256 is published here with it, to check before you run it.</p>
+        )}
+        {image ? (
+          <details className="sums-more">
+            <summary className="mono">Swiff OS {image.version}, file by file</summary>
+            <dl className="sums">
+              {image.files.map((f) => (
+                <div key={f.name}>
+                  <dt>{f.name}</dt>
+                  <dd className="mono">{f.sha256}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

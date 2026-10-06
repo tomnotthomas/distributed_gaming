@@ -1,7 +1,9 @@
 // Types for rental.cjs, so the renderer and its tests can use its results and helpers.
 
 import type { Gpt } from "./gpt.cjs";
+import type { Recovery } from "./recovery-key.cjs";
 import type { KeyState } from "./rental-key.cjs";
+import type { Removal } from "./rental-removal.cjs";
 
 export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 
@@ -24,6 +26,8 @@ export type RentalFacts = {
     number: number | null;
     letter: string | null;
     type: string;
+    /** The partition's GPT unique id; null when not read. */
+    id: string | null;
     offset: number;
     size: number;
   }[];
@@ -104,6 +108,10 @@ export type RentalRead = {
   key?: KeyState | null;
   /** The last time the PC was live in Swiff OS, as swiff-hostd leaves it for Windows; null when there is none. */
   lastLive?: LastLive | null;
+  /** Remove Swiff OS across its restarts (rental-removal.cjs), which main adds; null when none is under way. */
+  removal?: Removal | null;
+  /** Whether the BitLocker recovery key still has to be saved before a boot change (recovery-key.cjs), which main adds. */
+  recovery?: Recovery;
 };
 
 /** A live run in Swiff OS, summed up: when, how many sessions, how many ended early, what it earned (euros). */
@@ -140,6 +148,7 @@ export type PlanOp =
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
   | { op: "installed" }
+  | { op: "removal-check"; disk: number | null; ids: string[] }
   | { op: "forget" }
   | { op: "restart" };
 
@@ -157,7 +166,9 @@ export type PlanStep = {
 };
 
 export type RentalPlan = {
-  kind: "install" | "uninstall" | "mok" | "unkey" | "once" | "start" | "stop";
+  kind: "install" | "uninstall" | "mok" | "unkey" | "remove" | "once" | "start" | "stop";
+  /** Remove Swiff OS's part: its key first (one restart, at MokManager), then the disk. */
+  phase?: "key" | "disk";
   target?: RentalTarget;
   steps: PlanStep[];
   /** The one-time code the owner types at the PC to confirm Swiff's key (MOK), or its removal. */
@@ -186,6 +197,10 @@ export const SHIM_CA: string;
 export const BOOT_PATH: string;
 export const BOOT_TITLE: string;
 export const BITLOCKER_RESTARTS: number;
+/** The plan kinds that change what the PC starts: each waits for the BitLocker recovery key. */
+export const BOOT_CHANGES: Set<string>;
+/** The drives BitLocker protects that a boot change can ask the recovery key of: C:, and the games drive. */
+export function bitlockerDrives(rental: RentalRead | null): string[];
 export const SCRIPT: string;
 export function gpuVendor(pnp: string): GpuVendor;
 export function bitlockerState(value: unknown): "on" | "off" | null;
@@ -234,6 +249,7 @@ export function installPlan(
 ): RentalPlan;
 export function uninstallPlan(rental: RentalRead): RentalPlan;
 export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
+export function removePlan(rental: RentalRead, options?: { key?: boolean; code?: string }): RentalPlan;
 export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
 export function shellOf(op: PlanOp): string[] | null;
 export function commandsOf(op: PlanOp): string[];
