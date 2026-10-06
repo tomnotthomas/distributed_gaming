@@ -23,6 +23,8 @@ async function offerSeatPc(request: APIRequestContext, available: boolean) {
     headers: HOST_APP,
     data: {
       available,
+      // For its crews alone: someone without a seat may not book it.
+      crewOnly: true,
       name: "Lenas PC",
       hardware: {
         gpu: "AMD Radeon RX 7900 XT",

@@ -641,7 +641,7 @@ kept apart, are in `web/src/swiff/crewCopy.ts`.
 A host keeps up to four named seats at their gaming PC for friends (`server/src/platform.ts`,
 seats; `MAX_SEATS`), from the host app (host.md, `/machines/:id/seats`). Each seat is in a
 crew the PC plays for: the first of its owner's, or, when the PC plays for none of theirs, a
-crew founded for it, which the PC then plays for (so it is crew-only from then on). A seat
+crew founded for it, which the PC then plays for (a PC open to anyone stays open). A seat
 names the friend it is for and waits for them for 14 days (`SEAT_HOLD_MS`); an unanswered
 seat that ran out no longer counts against the four.
 

@@ -117,13 +117,18 @@ export const seatLink = (site: string | null, seat: Pick<HostSeat, "token">): st
 export const seatMessage = (link: string): string =>
   `Saved you a seat at my rig. You can play your own Steam games on my PC, from your Mac, right in the browser. It's yours for ${SEAT_DAYS} days: ${link}`;
 
-/** Whole days an open seat still waits, from `now`: at least 1 while it waits at all, else 0. */
+/** Whole days an open seat still waits, from `now`: at least 1 while it waits at all. */
 export const daysLeft = (expiresAt: number, now: number): number =>
-  expiresAt <= now ? 0 : Math.max(1, Math.ceil((expiresAt - now) / DAY_MS));
+  Math.max(1, Math.ceil((expiresAt - now) / DAY_MS));
 
-/** "Waiting for Jonas · 12 days left", or "Taken by Jonas". */
+/** Whether an open seat waited out its time by `now`: it no longer counts against the PC's. */
+export const seatExpired = (seat: Pick<HostSeat, "state" | "expiresAt">, now: number): boolean =>
+  seat.state === "open" && seat.expiresAt <= now;
+
+/** "Waiting for Jonas · 12 days left", "Jonas didn't take it in time", or "Taken by Jonas". */
 export function seatLine(seat: HostSeat, now: number): string {
   if (seat.state === "taken") return `Taken by ${seat.takenBy ?? seat.friend}`;
+  if (seatExpired(seat, now)) return `Expired · ${seat.friend} didn't take it in time`;
   const days = daysLeft(seat.expiresAt, now);
   return `Waiting for ${seat.friend} · ${days} ${days === 1 ? "day" : "days"} left`;
 }

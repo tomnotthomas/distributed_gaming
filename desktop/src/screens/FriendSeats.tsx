@@ -5,6 +5,7 @@
 import { useEffect, useId, useState } from "react";
 import {
   seatErrorLine,
+  seatExpired,
   seatLine,
   seatMessage,
   type SeatClient,
@@ -45,7 +46,7 @@ export function FriendSeats({ client, now }: { client: SeatClient | null; now: n
   if (!client) return null;
   const seats = list?.seats ?? [];
   const max = list?.max ?? DEFAULT_MAX;
-  const full = seats.length >= max;
+  const full = seats.filter((seat) => !seatExpired(seat, now)).length >= max;
 
   const save = async () => {
     const friend = name.trim();
@@ -112,7 +113,7 @@ export function FriendSeats({ client, now }: { client: SeatClient | null; now: n
                   </span>
                 ) : (
                   <span className="seat-acts">
-                    {seat.state === "open" && link ? (
+                    {seat.state === "open" && !seatExpired(seat, now) && link ? (
                       <button type="button" className="lnk" onClick={() => void copy(seat.id, link)}>
                         {copied === seat.id ? "Copied" : "Copy link"}
                       </button>

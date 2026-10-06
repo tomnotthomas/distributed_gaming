@@ -88,7 +88,7 @@ describe("the seats client", () => {
   it("says how long a seat waits, and what the friend is sent", () => {
     expect(daysLeft(NOW + 12 * DAY, NOW)).toBe(12);
     expect(daysLeft(NOW + 1, NOW)).toBe(1);
-    expect(daysLeft(NOW, NOW)).toBe(0);
+    expect(seatLine(seat({ expiresAt: NOW }), NOW)).toBe("Expired · Jonas didn't take it in time");
     expect(seatLine(seat(), NOW)).toBe("Waiting for Jonas · 12 days left");
     expect(seatLine(seat({ expiresAt: NOW + 3_600_000 }), NOW)).toBe("Waiting for Jonas · 1 day left");
     expect(seatLine(seat({ state: "taken", takenBy: "jonas_k" }), NOW)).toBe("Taken by jonas_k");
@@ -205,6 +205,18 @@ describe("seats for friends", () => {
     await renderSeats(fakeClient({ max: 4, seats }));
     expect(screen.getByText("All 4 seats are given out.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save a seat" })).toBeNull();
+  });
+
+  it("shows a seat that waited out its time as expired, which frees its place", async () => {
+    const seats = [1, 2, 3, 4].map((n) => seat({ id: `s${n}`, number: n, friend: `F${n}` }));
+    seats[0] = { ...seats[0]!, expiresAt: NOW };
+    await renderSeats(fakeClient({ max: 4, seats }));
+    const [first] = within(screen.getByRole("list", { name: "Seats at this PC" })).getAllByRole("listitem");
+    expect(first).toHaveTextContent("Expired · F1 didn't take it in time");
+    expect(within(first!).queryByRole("button", { name: "Copy link" })).toBeNull();
+    expect(within(first!).getByRole("button", { name: "Take back" })).toBeInTheDocument();
+    expect(screen.queryByText("All 4 seats are given out.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save a seat" })).toBeInTheDocument();
   });
 
   it("asks for the PC to be offered once before seats can be saved", async () => {

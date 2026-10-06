@@ -47,9 +47,11 @@ const JONAS = "76561198000000022";
 const MIA = "76561198000000023";
 /** Nobody's friend. */
 const STRANGER = "76561198000000024";
-/** pc-1 is Lena's; pc-2 has no owner on record. */
-const MACHINE_KEYS = [`pc-1:${HASH}:${LENA}`, `pc-2:${HASH}`].join(",");
-const PERSONA: Record<string, string> = { [LENA]: "Lena", [JONAS]: "Jonas", [MIA]: "Mia" };
+/** Has a gaming PC too, and is in Lena's crew. */
+const KAI = "76561198000000025";
+/** pc-1 is Lena's; pc-2 has no owner on record; pc-3 is Kai's. */
+const MACHINE_KEYS = [`pc-1:${HASH}:${LENA}`, `pc-2:${HASH}`, `pc-3:${HASH}:${KAI}`].join(",");
+const PERSONA: Record<string, string> = { [LENA]: "Lena", [JONAS]: "Jonas", [MIA]: "Mia", [KAI]: "Kai" };
 
 let now: number;
 let platform: Platform;
@@ -59,7 +61,7 @@ const open = async () => {
   platform = await Platform.open({ database: await testDatabase(), now: () => now, owners });
 };
 
-const offer = (machineId: string, spec: MachineSpec = {}) =>
+const offer = (machineId: string, spec: MachineSpec = { crewOnly: true }) =>
   platform.setAvailability(machineId, true, { ...REPORT, ...spec });
 
 /** A seat at pc-1 for `friend`, which must be made. */
@@ -85,7 +87,7 @@ describe("friend seats", () => {
   afterEach(() => platform.close());
 
   describe("making seats", () => {
-    it("founds a crew for a PC that plays for none, which plays for it from then on", async () => {
+    it("founds a crew for a PC that plays for none, which plays for it from then on, open to anyone still", async () => {
       await offer("pc-1", { crewOnly: false });
       const seat = await seatFor("Jonas");
       assert.deepEqual(
@@ -107,7 +109,8 @@ describe("friend seats", () => {
         ["Nova-01"],
       );
       const view = await platform.heartbeat("pc-1");
-      assert.equal(view.crew.only, true, "a PC with seats is for its friends, no longer anyone's");
+      assert.equal(view.crew.only, false, "saving a seat leaves a PC open to anyone as it was");
+      assert.equal((await platform.bookMachine("pc-1", 730, 30, STRANGER))?.machine?.id, "pc-1");
       // A second seat goes into the same crew.
       assert.equal((await seatFor("Mia")).crewId, seat.crewId);
     });
@@ -288,6 +291,32 @@ describe("friend seats", () => {
       assert.equal(await platform.bookMachine("pc-1", 730, 30, JONAS), null);
     });
 
+    it("leaves the friend in the crew, and their seat at another host's PC, while they hold it", async () => {
+      await offer("pc-1");
+      const lenas = await seatFor("Jonas");
+      const crew = (await platform.crew(lenas.crewId, LENA))!;
+      assert.ok((await platform.joinCrew(crew.inviteId!, KAI, "Kai")).ok);
+      await offer("pc-3", { crews: [lenas.crewId], crewOnly: true });
+      const made = await platform.createSeat("pc-3", "Jonas", "Kai");
+      assert.ok(made.ok);
+      const kais = made.seat;
+      assert.equal(kais.crewId, lenas.crewId);
+      assert.equal((await take(lenas.id, JONAS)).joined, true);
+      assert.equal((await take(kais.id, JONAS)).joined, false);
+
+      assert.equal(await platform.revokeSeat("pc-1", lenas.id), true);
+      assert.deepEqual(
+        (await platform.crews(JONAS)).map((c) => c.id),
+        [lenas.crewId],
+      );
+      assert.equal((await platform.seat(kais.id, JONAS))!.state, "yours", "Kai's seat is Jonas's still");
+      assert.equal((await platform.bookMachine("pc-3", 730, 30, JONAS))?.machine?.id, "pc-3");
+
+      // Taking the last one back ends the membership the first one made.
+      assert.equal(await platform.revokeSeat("pc-3", kais.id), true);
+      assert.deepEqual(await platform.crews(JONAS), []);
+    });
+
     it("leaves a friend who was in the crew before in it", async () => {
       await offer("pc-1");
       const seat = await seatFor("Jonas");
@@ -388,7 +417,7 @@ describe("seat API", () => {
   }
 
   const offerPc = () =>
-    call("PUT", "/api/machines/pc-1/availability", undefined, { available: true, ...REPORT }, true);
+    call("PUT", "/api/machines/pc-1/availability", undefined, { available: true, crewOnly: true, ...REPORT }, true);
 
   /** The host app makes a seat at pc-1 for `friend`. */
   async function makeSeat(friend: string) {

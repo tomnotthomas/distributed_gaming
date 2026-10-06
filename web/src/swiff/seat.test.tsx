@@ -249,6 +249,12 @@ describe("SeatInvite", () => {
     expect(screen.queryByRole("button", { name: /Grab your seat/ })).toBeNull();
     unmount();
 
+    seat = seatOf({ state: "host", expiresAt: Date.now() - 1 });
+    const ran = render(<SeatInvite swiff={fakeSwiff()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("This seat waited 14 days and has expired.");
+    expect(screen.getByText("This seat has expired")).toBeInTheDocument();
+    ran.unmount();
+
     seat = seatOf({ state: "taken" });
     const taken = render(<SeatInvite swiff={fakeSwiff()} />);
     expect(await screen.findByRole("status")).toHaveTextContent(

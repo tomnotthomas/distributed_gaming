@@ -98,10 +98,12 @@
 // is held for the friend it names for SEAT_HOLD_MS; whoever opens its link
 // first, signed in, takes it (takeSeat), and joins the crew the seat is in:
 // one the PC plays for, or, when it plays for none of its owner's, a crew
-// founded for it, which the PC then plays for. A taken seat is its holder's
+// founded for it, which the PC then plays for, open to anyone still when it
+// was. A taken seat is its holder's
 // until the host takes it back (revokeSeat) or they leave that crew, and gate
 // E7 lets its holder play on that PC whichever crews it plays for. Taking it
-// back, or a holder leaving, ends the membership taking it made. Nobody shares
+// back, or a holder leaving, ends the membership taking it made, unless
+// another seat they hold in that crew keeps them in it. Nobody shares
 // an account: a holder plays their own Steam games, signed in as themselves.
 
 import { randomBytes } from "node:crypto";
@@ -1585,7 +1587,8 @@ export class Platform {
    * Keep a seat at `machineId` for the friend named `friend`, as its owner,
    * whose Steam persona is `hostName` when it could be read. The seat is in
    * the first crew the PC plays for of its owner's; when it plays for none, a
-   * crew is founded for its owner, which the PC plays for from then on.
+   * crew is founded for its owner, which the PC plays for from then on, left
+   * open to anyone when it was.
    * "unknown-machine" for a PC never heard from, "no-owner" for one with no
    * owner on record, "full" with MAX_SEATS seats there already, and
    * "too-many" when a crew would have to be founded for an owner in
@@ -1626,7 +1629,14 @@ export class Platform {
           now,
         );
         await this.#newInvite(crewId, owner, now);
-        await this.#playFor(crewId, [machineId], owner, now);
+        await this.#run(
+          "INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at) VALUES ($1, $2, $3, $4)",
+          crewId,
+          machineId,
+          owner,
+          now,
+        );
+        this.#offerChanged = true;
         crew = { crew_id: crewId, name: hostName || null };
       }
       const id = newId();
@@ -1683,9 +1693,18 @@ export class Platform {
              WHERE m.id = $1`,
           seat.member_id,
         );
-        // Only the membership taking it made, and never the crew's admin's: one handed the crew since stays.
-        if (member && member.user_id !== member.owner_id)
+        // Another seat they hold in the crew keeps them in it, and the membership is that seat's from then on.
+        const other = await this.#get<{ id: string }>(
+          "SELECT id FROM seats WHERE crew_id = $1 AND user_id = $2 AND revoked_at IS NULL LIMIT 1",
+          seat.crew_id,
+          seat.user_id,
+        );
+        if (other) {
+          await this.#run("UPDATE seats SET member_id = $1 WHERE id = $2", seat.member_id, other.id);
+        } else if (member && member.user_id !== member.owner_id) {
+          // Only the membership taking it made, and never the crew's admin's: one handed the crew since stays.
           await this.#removeMember(seat.member_id, member, now);
+        }
       }
       // Who may play on the PC has changed: the wall reads again, and a match is checked again at claim.
       this.#offerChanged = true;

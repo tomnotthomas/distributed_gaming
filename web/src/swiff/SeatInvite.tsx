@@ -134,8 +134,9 @@ export function SeatInvite({ swiff }: { swiff: Swiff }) {
   const pcTitle = pcName ?? t("st.pcAnon");
   const pc = pcName ?? t("st.pcAnonIn");
   const days = daysLeft(seat.expiresAt);
+  const ranOut = seat.state === "host" && seat.expiresAt <= Date.now();
   const stub =
-    seat.state === "open" || seat.state === "host"
+    seat.state === "open" || (seat.state === "host" && !ranOut)
       ? t(days === 1 ? "st.stubOne" : "st.stub", { friend: seat.friend, n: days })
       : seat.state === "yours"
         ? t("st.stubYours", { friend: seat.friend })
@@ -177,7 +178,7 @@ export function SeatInvite({ swiff }: { swiff: Swiff }) {
       </>
     );
   } else if (seat.state === "host") {
-    action = <p role="status">{t("st.host", { friend: seat.friend })}</p>;
+    action = <p role="status">{ranOut ? t("st.expired") : t("st.host", { friend: seat.friend })}</p>;
   } else if (seat.state === "taken" || seat.state === "expired") {
     action = (
       <>
