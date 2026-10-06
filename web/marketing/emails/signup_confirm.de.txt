@@ -1,0 +1,13 @@
+Subject: Bitte bestätige deine Anmeldung
+
+Noch ein Klick
+
+Danke für deine Anmeldung bei {{brand}}. Bestätige kurz deine E-Mail-Adresse, dann stehst du auf der Liste.
+
+Mit einem Freund, der einen Gaming-PC hat, geht's schneller: Nach dem Bestätigen bekommst du deinen eigenen Link, den du ihm schicken kannst.
+
+E-Mail bestätigen: {confirm_url}
+
+--
+Du bekommst diese Mail, weil sich jemand mit dieser Adresse bei {{brand}} angemeldet hat. Warst du das nicht, ignorier sie einfach.
+{{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}

@@ -1,0 +1,13 @@
+Subject: Max lädt dich zum Crew-Abend ein: Freitag, 21 Uhr
+
+Freitag wird gezockt
+
+Max hat für Freitag, 10. Oktober, von 21 bis 24 Uhr einen Crew-Abend organisiert. Zwei Gaming-PCs sind am Start, einer davon ist für dich: Toms Rig.
+
+Du brauchst deinen Mac mit Chrome, dein Steam-Konto und die Steam-App auf dem Handy. Der Discord-Link kommt am Abend.
+
+Ich bin dabei: {rsvp_url}
+
+--
+Du bekommst diese Mail, weil Max dich in seine Crew bei {{brand}} eingeladen hat. Kannst du nicht, geht dein Platz an den Nächsten in der Crew.
+{{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}

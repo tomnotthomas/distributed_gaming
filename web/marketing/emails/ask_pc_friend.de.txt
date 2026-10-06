@@ -1,0 +1,15 @@
+Subject: Du stehst auf der Liste. Kennst du jemanden mit Gaming-PC?
+
+Du bist auf der Liste
+
+Wir laden in Wellen ein, zuerst in Deutschland. Schneller geht's so: Frag einen Freund mit Gaming-PC, ob du bei ihm zocken darfst, wenn er nicht dran sitzt.
+
+Er installiert {{brand}} OS neben seinem Windows, du spielst mit deinem eigenen Steam-Konto auf deinem Mac. Erst mal nur für eure Crew.
+
+Hier ist dein Link zum Weiterschicken. Fertige Texte für WhatsApp, Discord und Steam findest du auf der Seite.
+
+Meinen Link holen: {share_url}
+
+--
+Du bekommst diese Mail, weil du dich für die {{brand}}-Beta angemeldet hast. Abmelden geht jederzeit mit einem Klick.
+{{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}

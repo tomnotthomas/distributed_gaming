@@ -1,0 +1,139 @@
+/* Round 4 · Impeccable 1 bright: the captain's winners for rig, gift and crew Night, on paper.
+   Based on Impeccable 1 · Editorial clarity. Type carries the page; one slim art band; facts on a hairline grid.
+   Built on base.css (Paper Band tokens). */
+
+.ed-head {
+  padding: calc(var(--nav) + clamp(40px, 7vw, 104px)) var(--gut) clamp(36px, 5vw, 64px);
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  column-gap: clamp(24px, 4vw, 72px);
+  align-items: end;
+}
+.ed-head h1 {
+  font: 300 clamp(40px, 5.6vw, 88px) / 1.02 var(--f);
+  letter-spacing: -0.03em;
+  color: #f4f4f2;
+  max-width: 15ch;
+}
+.ed-head h1 b { font-weight: 600; }
+.ed-head h1::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 3px;
+  margin-top: 22px;
+  background: var(--lime);
+  transform-origin: left center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ed-head h1::after { animation: mark 0.9s var(--ease) 0.15s both; }
+  @keyframes mark { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+}
+.ed-lead { font-size: clamp(18px, 1.5vw, 21px); line-height: 1.55; color: var(--ink); max-width: 44ch; }
+.ed-lead + .ed-lead { margin-top: 14px; color: var(--ink-2); font-size: 17px; }
+.ed-sig { margin-top: 22px; font: 400 12.5px/1.5 var(--mono); letter-spacing: 0.03em; color: var(--ink-3); }
+.ed-actions { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; }
+.ed-no { font: 400 15px/1.4 var(--f); color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 5px; }
+.ed-no:hover { color: var(--ink); text-decoration-color: var(--lime-edge); }
+
+/* The slim art band */
+.ed-band { position: relative; height: clamp(112px, 13vw, 196px); overflow: hidden; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #0d0d0d; }
+.ed-band img { width: 100%; height: 100%; object-fit: cover; object-position: var(--pos, 50% 35%); }
+.ed-band figcaption { position: absolute; right: var(--gut); bottom: 10px; font: 400 11px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: rgb(239 239 237 / 0.82); text-shadow: 0 1px 8px rgb(0 0 0 / 0.6); }
+
+/* Facts: a hairline definition grid, never cards */
+.ed-facts { padding: clamp(40px, 5vw, 72px) var(--gut); display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); column-gap: clamp(24px, 4vw, 72px); }
+.ed-facts h2, .ed-sec h2 { font: 300 clamp(26px, 2.6vw, 38px) / 1.1 var(--f); letter-spacing: -0.02em; max-width: 16ch; }
+.ed-facts .note { margin-top: 14px; font-size: 15px; line-height: 1.55; color: var(--ink-2); max-width: 34ch; }
+.dl2 { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: clamp(20px, 3vw, 48px); border-top: 1px solid var(--line); }
+.dl2 > div { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); column-gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.dl2 dt { font: 400 11.5px/1.9 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); }
+.dl2 dd { margin: 0; font: 400 16px/1.5 var(--f); font-variant-numeric: tabular-nums; }
+.dl2 dd.open { color: var(--ink-2); }
+
+/* Ordered steps: the sequence is the information */
+.ed-sec { padding: clamp(48px, 6vw, 96px) var(--gut); display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); column-gap: clamp(24px, 4vw, 72px); }
+.ed-steps { list-style: none; margin: 0; padding: 0; counter-reset: s; border-top: 1px solid var(--line); }
+.ed-steps li { counter-increment: s; display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 18px; padding: 20px 0 22px; border-bottom: 1px solid var(--line); }
+.ed-steps li::before { content: counter(s); font: 400 15px/1.6 var(--wide); color: var(--ink-3); }
+.ed-steps h3 { font: 500 19px/1.35 var(--f); }
+.ed-steps p { margin-top: 6px; font-size: 16px; line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+.ed-trust { margin-top: 22px; font-size: 15px; color: var(--ink-2); }
+.ed-trust a { color: var(--ink); text-underline-offset: 4px; text-decoration-color: var(--lime-edge); }
+
+/* People row (crew Night, crew invite) */
+.ppl { list-style: none; margin: 22px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.ppl li { border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 14px; font-size: 14.5px; }
+.ppl li.open { border-style: dashed; color: var(--ink-2); }
+
+/* Trust page: long-form with a sticky table of contents */
+.doc { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 9fr); column-gap: clamp(24px, 4vw, 72px); padding: clamp(40px, 5vw, 72px) var(--gut) clamp(56px, 7vw, 112px); }
+.toc { position: sticky; top: calc(var(--nav) + 28px); align-self: start; }
+.toc p { font: 400 11.5px/1.6 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+.toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+.toc a { display: block; padding: 7px 0 7px 16px; margin-left: -1px; border-left: 1px solid transparent; font-size: 15px; color: var(--ink-2); text-decoration: none; transition: color 0.3s var(--ease), border-color 0.3s var(--ease); }
+.toc a:hover, .toc a[aria-current="true"] { color: var(--ink); border-left-color: var(--lime-edge); }
+.doc article { max-width: 70ch; }
+.doc section { padding: 0 0 clamp(36px, 4vw, 56px); }
+.doc section + section { padding-top: clamp(36px, 4vw, 56px); border-top: 1px solid var(--line); }
+.doc h2 { font: 300 clamp(26px, 2.6vw, 38px) / 1.12 var(--f); letter-spacing: -0.02em; margin-bottom: 16px; }
+.doc h3 { font: 500 18px/1.35 var(--f); margin: 22px 0 6px; }
+.doc p, .doc li { font-size: 17px; line-height: 1.65; color: var(--ink-2); }
+.doc p + p { margin-top: 12px; }
+.doc ul { margin: 8px 0 0; padding-left: 20px; }
+.doc strong { color: var(--ink); font-weight: 500; }
+.status { display: inline-block; margin-top: 12px; padding: 4px 10px; border: 1px solid var(--line-2); border-radius: 999px; font: 400 12px/1.4 var(--mono); letter-spacing: 0.03em; color: var(--ink-2); }
+.split2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; border-top: 1px solid var(--line); margin-top: 8px; }
+.split2 > div { padding-top: 6px; min-width: 0; }
+.code { margin-top: 14px; padding: 14px 16px; border: 1px dashed var(--lime-edge); font: 400 14px/1.6 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.code code { color: var(--ink); }
+
+@media (max-width: 900px) {
+  .ed-head, .ed-facts, .ed-sec, .doc { grid-template-columns: 1fr; }
+  .ed-head .side { margin-top: 26px; }
+  .ed-facts h2, .ed-sec h2 { margin-bottom: 20px; }
+  .toc { position: static; margin-bottom: 28px; }
+}
+@media (max-width: 640px) {
+  .dl2 { grid-template-columns: 1fr; }
+  .split2 { grid-template-columns: 1fr; }
+  .ed-actions .lpill { width: 100%; }
+}
+.doc .toc p { font: 400 11.5px/1.6 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px; }
+
+/* ---------- Bright: paper is the page, black only as small accents ---------- */
+body.light {
+  --bg: #e8e9e8;
+  --bg-2: #dedfde;
+  --ink: #131313;
+  --ink-2: #3f4040;
+  --ink-3: #555656;
+  --line: var(--pline);
+  --line-2: var(--pline-2);
+  background: var(--paper);
+  color: var(--on-paper);
+  color-scheme: light;
+}
+html:has(body.light) { scrollbar-color: var(--pline-2) var(--paper); background: var(--paper); }
+body.light::after { opacity: 0.07; mix-blend-mode: multiply; }
+body.light .lpill.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+body.light .lpill.solid:hover { background: #000; border-color: #000; }
+body.light .lang button[aria-pressed="true"] { color: var(--paper); }
+body.light .nav.is-scrolled { background: rgb(232 233 232 / 0.9); }
+@media (prefers-reduced-transparency: reduce) { body.light .nav.is-scrolled { background: var(--paper); } }
+body.light .ed-head h1 { color: var(--ink); }
+body.light .ed-head { padding-bottom: clamp(32px, 4vw, 56px); }
+
+/* Key art as a contained, framed picture, not a dark field */
+.ed-frame { margin: 0 var(--gut) clamp(40px, 5vw, 72px); }
+.ed-frame .pic { position: relative; height: clamp(150px, 17vw, 250px); overflow: hidden; border: 1px solid var(--pline-2); background: var(--grey); }
+.ed-frame img { width: 100%; height: 100%; object-fit: cover; object-position: var(--pos, 50% 35%); }
+.ed-frame figcaption { margin-top: 10px; display: flex; justify-content: space-between; gap: 16px; font: 400 11.5px/1.5 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); }
+.ed-frame figcaption::before { content: ""; width: 18px; height: 3px; margin-top: 6px; background: var(--lime-edge); flex: none; }
+.ed-frame figcaption span { margin-right: auto; }
+
+/* Facts on the grey band, steps back on paper */
+body.light .ed-facts.on-grey { border-top: 1px solid var(--pline); border-bottom: 1px solid var(--pline); }
+body.light .foot { background: var(--grey); border-top-color: var(--pline); }
+
+body.light .ed-head h1::after { background: var(--lime-edge); }

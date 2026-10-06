@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>So funktioniert {{brand}} OS: Dual Boot, Secure Boot, BitLocker | {{brand}}</title>
+<meta name="description" content="Was {{brand}} OS auf deinem Gaming-PC macht: Dual Boot neben Windows, signierter Start mit Secure Boot, was Gäste erreichen und was nicht, BitLocker-Check vor der Installation und Entfernen mit einem Klick." data-t-content="os.desc">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#e8e9e8">
+<link rel="stylesheet" href="/assets/css/fonts.css">
+<link rel="stylesheet" href="/assets/css/base.css">
+<link rel="stylesheet" href="/assets/css/taste2.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="So funktioniert {{brand}} OS: Dual Boot, Secure Boot, BitLocker">
+<meta property="og:description" content="Was {{brand}} OS auf deinem Gaming-PC macht: Dual Boot neben Windows, signierter Start mit Secure Boot, was Gäste erreichen und was nicht, BitLocker-Check vor der Installation und Entfernen mit einem Klick.">
+<meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:locale" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="{{site}}/lanterel-os/">
+<link rel="alternate" hreflang="de" href="{{site}}/lanterel-os/">
+<link rel="alternate" hreflang="en" href="{{site}}/en/lanterel-os/">
+<link rel="alternate" hreflang="x-default" href="{{site}}/lanterel-os/">
+<meta property="og:url" content="{{site}}/lanterel-os/">
+<meta name="form-endpoint" content="/api/signups">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>window.SITE_T = {"form.fail": "Das hat nicht geklappt. Versuch es gleich noch einmal.", "copy.done": "Kopiert"};</script>
+</head>
+<body id="top">
+<header class="nav light" data-nav>
+  <a class="wordmark" href="/" aria-label="{{brand}}">{{wordmark}}</a>
+  <nav class="nav-links" aria-label="Abschnitte" data-t-aria-label="nav.aria"></nav>
+  <div class="lang" role="group" aria-label="Sprache" data-t-aria-label="lang.aria">
+    <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
+    <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+  </div>
+  <a class="lpill lpill-sm solid nav-cta" href="/host/#bewerben"><span data-t="os.navcta">Bewerben</span></a>
+</header>
+<main>
+  <section class="d-hero" aria-labelledby="h1">
+    <span data-nav-sentinel style="position:absolute;top:0;height:1px;width:1px"></span>
+    <div class="wrap">
+      <div>
+        <p class="kicker" data-t="os.kick">Für Hosts</p>
+        <h1 data-t="os.h1" id="h1">So funktioniert <b>{{brand}} OS</b></h1>
+        <p class="lead" data-t="os.lead">Ein kleines, eigenes System neben deinem Windows. Gäste zocken nur dort. An dein Windows kommt keiner ran.</p>
+        <div class="actions"><a class="lpill solid" href="/host/#bewerben"><span data-t="os.cta">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a><a class="ghost" href="#bitlocker"><span data-t="os.bit">Zum BitLocker-Check</span></a></div>
+      </div>
+      <figure class="pc" aria-labelledby="pc-h" style="margin:0">
+        <p class="pc-head"><span class="wm" id="pc-h" data-t="os.dgt">Dein Gaming-PC</span><span data-t="os.dgs">Wer wo ran darf</span></p>
+        <div class="pc-body">
+          <div class="side win">
+            <h3 data-t="os.winh">Windows</h3>
+            <p class="sub" data-t="os.wins">bleibt unangetastet</p>
+            <ul class="drives">
+              <li><span data-t="os.d1">C: Windows</span><small data-t="os.d1s">nicht eingebunden</small></li>
+              <li><span data-t="os.d2">Deine Daten</span><small data-t="os.d2s">nicht eingebunden</small></li>
+              <li class="steam"><span data-t="os.d3">Steam-Laufwerk</span><small data-t="os.d3s">nur Lesezugriff</small></li>
+            </ul>
+          </div>
+          <div class="wall" aria-hidden="true"><span data-t="os.wall">abgeschottet</span></div>
+          <div class="side os">
+            <h3 data-t="os.osh">{{brand}} OS</h3>
+            <p class="sub" data-t="os.oss">eigene 24 GB, Ubuntu LTS</p>
+            <p class="guest"><b data-t="os.guest">Hier spielt der Gast</b><span data-t="os.guests">Steam mit seinem eigenen Konto</span></p>
+            <ul class="rules" aria-label="Was {{brand}} OS erreicht" data-t-aria-label="os.rulesaria"><li style="--i:0"><span data-t="os.rnet">Internet</span><span class="st ok" data-t="os.rsnet">erlaubt</span></li><li style="--i:1"><span data-t="os.rsteam">Dein Steam-Laufwerk</span><span class="st ro" data-t="os.rssteam">nur Lesezugriff</span></li><li style="--i:2"><span data-t="os.rwin">Windows und deine Daten</span><span class="st no" data-t="os.rswin">nicht eingebunden</span></li><li style="--i:3"><span data-t="os.rlan">Heimnetz und Router</span><span class="st no" data-t="os.rslan">gesperrt</span></li><li style="--i:4"><span data-t="os.rusb">USB-Sticks und externe Platten</span><span class="st no" data-t="os.rsusb">gesperrt</span></li></ul>
+          </div>
+        </div>
+        <figcaption class="pc-foot" data-t="os.dgf">Nach jedem Gast startet der PC neu. Alles, was der Gast hinterlassen hat, ist dann weg, auch sein Steam-Login.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="path" aria-labelledby="path-h">
+    <div class="wrap">
+      <h2 data-t="os.pathh" id="path-h">Vom PC-Check bis zum Entfernen</h2>
+      <ol class="stops5"><li><span class="dot" aria-hidden="true"></span><span class="n" aria-hidden="true">1</span><h3 data-t="os.p1h">PC prüfen</h3><p data-t="os.p1p">Die {{brand}}-App sagt dir in einer Minute, ob dein PC passt, und falls nicht, woran's hakt.</p></li><li><span class="dot" aria-hidden="true"></span><span class="n" aria-hidden="true">2</span><h3 data-t="os.p2h">BitLocker-Schlüssel sichern</h3><p data-t="os.p2p">Ist Windows verschlüsselt, installiert die App erst, wenn du deinen Wiederherstellungsschlüssel hast.</p></li><li><span class="dot" aria-hidden="true"></span><span class="n" aria-hidden="true">3</span><h3 data-t="os.p3h">Schlüssel einmal bestätigen</h3><p data-t="os.p3p">Damit nur unser signiertes System startet, bestätigst du unseren Schlüssel einmal: auf einem blauen Bildschirm, mit einem achtstelligen Code.</p></li><li><span class="dot" aria-hidden="true"></span><span class="n" aria-hidden="true">4</span><h3 data-t="os.p4h">{{brand}} OS liegt daneben</h3><p data-t="os.p4p">Feste 24 GB neben Windows. Dein Windows und deine Dateien bleiben unangetastet.</p></li><li><span class="dot" aria-hidden="true"></span><span class="n" aria-hidden="true">5</span><h3 data-t="os.p5h">Mit einem Klick entfernen</h3><p data-t="os.p5p">„{{brand}} OS entfernen“ löscht die 24 GB und den Boot-Eintrag. Danach startet nur noch Windows.</p></li></ol>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="dp-sec">
+    <div class="wrap plate-row">
+      <div>
+        <h2 data-t="os.dph" id="dp-sec">Das Typenschild</h2>
+        <p class="body" data-t="os.dpp">{{brand}} OS auf einen Blick: was es ist und was es darf.</p>
+      </div>
+      <article class="dataplate" aria-labelledby="dp-h">
+        <p class="tk-top"><span class="wm" id="dp-h">{{wordmark}} OS</span><span data-t="os.dptop">Typenschild</span></p>
+        <div class="dp-groups">
+          <div class="dp-group"><h3 data-t="os.ah">System</h3><dl><div><dt data-t="os.a1k">Basis</dt><dd data-t="os.a1v">Ubuntu LTS</dd></div><div><dt data-t="os.a2k">System</dt><dd data-t="os.a2v">schreibgeschützt, bei jedem Start geprüft</dd></div><div><dt data-t="os.a3k">Art</dt><dd data-t="os.a3v">Dual Boot neben Windows</dd></div><div><dt data-t="os.a4k">Platz</dt><dd data-t="os.a4v">feste 24 GB</dd></div></dl></div>
+          <div class="dp-group"><h3 data-t="os.bh">Start</h3><dl><div><dt data-t="os.b1k">Secure Boot</dt><dd data-t="os.b1v">Pflicht</dd></div><div><dt data-t="os.b2k">TPM</dt><dd data-t="os.b2v">2.0</dd></div><div><dt data-t="os.b3k">Schlüssel</dt><dd data-t="os.b3v">einmal bestätigen, achtstelliger Code</dd></div><div><dt data-t="os.b4k">Nachweis</dt><dd data-t="os.b4v">über den TPM-Chip</dd></div></dl></div>
+          <div class="dp-group"><h3 data-t="os.ch">Grenzen</h3><dl><div><dt data-t="os.c1k">Heimnetz</dt><dd data-t="os.c1v">gesperrt</dd></div><div><dt data-t="os.c2k">Steam-Laufwerk</dt><dd data-t="os.c2v">nur Lesezugriff</dd></div><div><dt data-t="os.c3k">Andere Laufwerke</dt><dd data-t="os.c3v">nicht eingebunden</dd></div><div><dt data-t="os.c4k">Nach jedem Gast</dt><dd data-t="os.c4v">Neustart, alles gelöscht</dd></div></dl></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="band grey" aria-labelledby="boot-h">
+    <div class="wrap">
+      <h2 data-t="os.rh" id="boot-h">Wie der PC startet</h2>
+      <ol class="boot3">
+        <li><h3 data-t="os.r1h">Du entscheidest, was startet</h3><p data-t="os.r1p">Willst du deinen PC teilen, startet ihn die {{brand}}-App in {{brand}} OS neu und danach wieder in Windows. Ansonsten startet er ganz normal.</p></li>
+        <li><h3 data-t="os.r2h">Nur signiert</h3><p data-t="os.r2p">Mit Secure Boot startet nur, was signiert ist. Unseren Schlüssel bestätigst du bei der Installation einmal, mit einem achtstelligen Code.</p></li>
+        <li><h3 data-t="os.r3h">Bei jedem Start geprüft</h3><p data-t="os.r3p">Das System ist schreibgeschützt und wird bei jedem Start überprüft. Über den TPM-Chip weist dein PC nach, dass nichts verändert wurde.</p></li>
+      </ol>
+      <p class="tech" data-t="os.tech">Für die Technik-Nerds: systemd-boot lädt ein signiertes Unified Kernel Image, die Root-Partition ist per dm-verity gesichert, der Start wird in PCR 11 gemessen. Gebaut mit mkosi aus Ubuntu 26.04 LTS.</p>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="see-h">
+    <div class="wrap">
+      <h2 data-t="os.sh" id="see-h">Was ein Gast sieht. Und was nicht.</h2>
+      <div class="sees">
+        <div><h3 data-t="os.canh">Sieht er</h3><ul><li><span data-t="os.can1">Steam im Vollbild, mit seinem eigenen Konto</span></li><li><span data-t="os.can2">die Spiele, die er selbst besitzt</span></li><li><span data-t="os.can3">dein Steam-Laufwerk, schreibgeschützt, damit er keine Spiele neu runterladen muss</span></li><li><span data-t="os.can4">das Internet, über deinen Anschluss</span></li></ul></div>
+        <div class="not"><h3 data-t="os.noh">Sieht er nicht</h3><ul><li><span data-t="os.no1">dein Windows und deine anderen Laufwerke</span></li><li><span data-t="os.no2">dein Heimnetz: Geräte im WLAN, Drucker und das Menü deines Routers</span></li><li><span data-t="os.no3">USB-Sticks und externe Platten</span></li><li><span data-t="os.no4">dein Steam-Konto, deine Passwörter, deine Spielstände</span></li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band grey" id="bitlocker" aria-labelledby="bl-h">
+    <div class="wrap">
+      <h2 data-t="os.blh" id="bl-h">Vor der Installation: dein BitLocker-Schlüssel</h2>
+      <div class="split2">
+        <div>
+          <p class="body" data-t="os.blp">Ist dein Windows mit BitLocker verschlüsselt, kann es einmal nach dem Wiederherstellungsschlüssel fragen, sobald du Secure Boot einschaltest. Die {{brand}}-App checkt das vorher und installiert erst, wenn du den Schlüssel hast.</p>
+          <p class="body" data-t="os.blp2">Dein Steam-Laufwerk darf nicht verschlüsselt sein, sonst kann {{brand}} OS die Spiele nicht lesen. Andere Laufwerke bleiben, wie sie sind.</p>
+        </div>
+        <div class="cmd" role="note">
+          <p data-t="os.cmd1">Selbst nachsehen? Öffne die Eingabeaufforderung als Administrator und gib ein:</p>
+          <p><code>manage-bde -protectors -get C:</code></p>
+          <p data-t="os.cmd2">Oder online in deinem Microsoft-Konto:</p>
+          <p><code>aka.ms/myrecoverykey</code></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="rm-h">
+    <div class="wrap">
+      <h2 data-t="os.rmh" id="rm-h">Mit einem Klick wieder weg</h2>
+      <p class="body" data-t="os.rmp" style="margin-top:14px">In der {{brand}}-App klickst du auf „{{brand}} OS entfernen“. Das löscht die 24 GB und den Boot-Eintrag, danach startet dein PC nur noch Windows, so wie vorher.</p>
+      <div class="actions"><a class="lpill solid" href="/host/#bewerben"><span data-t="os.cta2">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a></div>
+    </div>
+  </section>
+</main>
+<footer class="foot-light">
+  <span class="wordmark">{{wordmark}}</span>
+  <p data-t="os.legal">Hinter {{brand}} steht [Name, Ort: folgt mit dem Impressum]. {{brand}} ist ein unabhängiges Projekt aus Deutschland und nicht mit Valve, AMD oder Apple verbunden. Steam ist eine Marke der Valve Corporation.</p>
+  <nav aria-label="Rechtliches" data-t-aria-label="os.legalnav"><a href="/impressum/"><span data-t="os.imp">Impressum</span></a><a href="/datenschutz/"><span data-t="os.priv">Datenschutz</span></a></nav>
+</footer>
+<script>document.documentElement.classList.add("js");</script>
+<script src="/assets/js/site.js"></script>
+</body>
+</html>

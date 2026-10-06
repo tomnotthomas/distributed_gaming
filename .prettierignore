@@ -9,3 +9,5 @@ prototypes
 docs/diagrams/*.png
 *.mmd
 .claude
+# Marketing's built launch pages, imported as they are (server/scripts/import-launch-pages.mjs)
+web/marketing
