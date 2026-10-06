@@ -122,8 +122,16 @@ function* files(dir) {
   }
 }
 
-/** Build the set at `source` beside `target` (`<target>.importing`), then swap it in for `target`. Throws, leaving `target` alone, on a set it refuses. */
+/**
+ * Build the set at `source` beside `target` (`<target>.importing`), then swap it
+ * in for `target`. Throws, leaving `target` alone, on a set it refuses. An old
+ * set an interrupted import left aside (`<target>.previous`), with no `target`,
+ * is put back first.
+ */
 function importSet(source, target, name, site) {
+  const previous = `${target}.previous`;
+  // An import stopped between promote's two renames left the only copy of the old pages aside: they come back first.
+  if (!existsSync(target) && existsSync(previous)) renameSync(previous, target);
   const staging = `${target}.importing`;
   rmSync(staging, { recursive: true, force: true });
   let count = 0;
@@ -156,14 +164,11 @@ function importSet(source, target, name, site) {
 /**
  * Put the built set at `staging` in place of `target`. The old `target` is
  * moved aside (`<target>.previous`) rather than deleted until the new one is
- * in, and moved back if that fails, so `target` is never left missing; an
- * old set an interrupted import left aside, with no `target`, is put back first.
+ * in, and moved back if that fails, so `target` is never left missing.
  * `rename` is renameSync, or a stand-in for a test.
  */
 export function promote(staging, target, rename = renameSync) {
   const previous = `${target}.previous`;
-  // An import stopped between the two renames left the only copy of the old pages aside: they come back first.
-  if (!existsSync(target) && existsSync(previous)) rename(previous, target);
   rmSync(previous, { recursive: true, force: true });
   const had = existsSync(target);
   if (had) rename(target, previous);

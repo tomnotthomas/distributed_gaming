@@ -133,29 +133,32 @@ describe("importing the launch set", () => {
     }
   });
 
-  it("puts back the old pages an interrupted import left aside before anything else", () => {
-    const dir = mkdtempSync(join(tmpdir(), "launch-promote-"));
-    try {
-      const target = join(dir, "marketing");
-      // Stopped between the renames: the old set aside, no target.
+  it("puts back the old pages an interrupted import left aside, whether the next set is refused or taken", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-set-"));
+    const source = join(dir, "source");
+    const target = join(dir, "marketing");
+    const run = () => promisify(execFile)(process.execPath, [SCRIPT, source, "--target", target]);
+    // Stopped between promote's renames: the old set aside, no target.
+    const interrupt = () => {
       mkdirSync(`${target}.previous`);
       writeFileSync(join(`${target}.previous`, "old.html"), "old");
-      mkdirSync(`${target}.importing`);
-      writeFileSync(join(`${target}.importing`, "new.html"), "new");
-      const failing = (from: string, to: string) => {
-        if (from.endsWith(".importing")) throw new Error("EXDEV: cross-device link not permitted");
-        renameSync(from, to);
-      };
-      assert.throws(() => promote(`${target}.importing`, target, failing), /EXDEV/);
+    };
+    try {
+      mkdirSync(source);
+      writeFileSync(join(source, "index.html"), "<title>ok</title>");
+      writeFileSync(join(source, "zz.html"), "<p>{{ not ours }}</p>");
+      interrupt();
+      await assert.rejects(run(), /already holds a \{\{ token/);
+      assert.deepEqual(readdirSync(target), ["old.html"]);
       assert.equal(readFileSync(join(target, "old.html"), "utf8"), "old");
-      assert.deepEqual(readdirSync(dir), ["marketing"]);
+      assert.deepEqual(readdirSync(dir).sort(), ["marketing", "source"]);
 
-      // And with the rename working, the new set goes in.
-      mkdirSync(`${target}.importing`);
-      writeFileSync(join(`${target}.importing`, "new.html"), "new");
-      promote(`${target}.importing`, target);
-      assert.deepEqual(readdirSync(target), ["new.html"]);
-      assert.deepEqual(readdirSync(dir), ["marketing"]);
+      rmSync(target, { recursive: true });
+      rmSync(join(source, "zz.html"));
+      interrupt();
+      await run();
+      assert.deepEqual(readdirSync(target), ["index.html"]);
+      assert.deepEqual(readdirSync(dir).sort(), ["marketing", "source"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
