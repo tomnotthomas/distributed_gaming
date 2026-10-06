@@ -31,6 +31,9 @@
 # made once in ${XDG_CONFIG_HOME:-~/.config}/swiff/image-dev-key.pem, and its
 # entry is written to desktop/image-trust.dev.json, which only a test build
 # (`npm run pack:test` in desktop/) and the VM tests' console installer trust.
+# Either key file is kept encrypted, never as a plain PEM: its passphrase comes
+# from $SWIFF_OS_KEY_PASSPHRASE (the release's secret store, or asked for here
+# on a terminal), and a key file that is not encrypted is refused.
 #
 # Ubuntu's shim comes from the image's own pinned archive snapshot
 # (shim-signed, checked against SHIM_SHA256 below), or from $SHIM_DIR (a
@@ -64,6 +67,12 @@ die() {
 	exit 1
 }
 for tool in node mcopy mmd minfo; do command -v "$tool" > /dev/null || die "$tool not found"; done
+if [ -z "${SWIFF_OS_KEY_PASSPHRASE:-}" ] && [ -t 0 ]; then
+	read -rsp "Passphrase of the image signing key: " SWIFF_OS_KEY_PASSPHRASE
+	echo
+fi
+[ -n "${SWIFF_OS_KEY_PASSPHRASE:-}" ] || die "set SWIFF_OS_KEY_PASSPHRASE to the image signing key's passphrase"
+export SWIFF_OS_KEY_PASSPHRASE
 mkfs_fat=$(command -v mkfs.fat || echo /usr/sbin/mkfs.fat)
 [ -x "$mkfs_fat" ] || die "mkfs.fat not found"
 [ -e "$build/$name.raw" ] || die "$build/$name.raw not found: build the image first"
@@ -108,10 +117,7 @@ node "$desktop/image-set.cjs" manifest "$out" "$build/$name.raw" "$version"
 key=${SWIFF_OS_SIGNING_KEY:-}
 if [ -z "$key" ]; then
 	key=${XDG_CONFIG_HOME:-$HOME/.config}/swiff/image-dev-key.pem
-	if [ ! -s "$key" ]; then
-		mkdir -p "$(dirname "$key")"
-		(umask 077 && node -e 'process.stdout.write(require("node:crypto").generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }))' > "$key")
-	fi
+	[ -e "$key" ] || node "$desktop/image-set.cjs" devkey "$key"
 	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$desktop/image-trust.dev.json"
 fi
 node "$desktop/image-set.cjs" sign "$out" "$key"

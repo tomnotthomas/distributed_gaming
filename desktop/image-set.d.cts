@@ -40,6 +40,7 @@ export function copyChecked(
   files?: typeof import("node:fs"),
 ): Promise<void>;
 export function certFromAuth(auth: Uint8Array): Buffer;
-export function signManifest(dir: string, key: string): void;
-export function trustEntry(key: string, cert: string): Trust;
+export function newSigningKey(file: string, passphrase?: string): void;
+export function signManifest(dir: string, key: string, passphrase?: string): void;
+export function trustEntry(key: string, cert: string, passphrase?: string): Trust;
 export function writeManifest(dir: string, image: string, version: string): Promise<void>;

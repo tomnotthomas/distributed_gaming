@@ -103,7 +103,9 @@ prints them. **The release key is still pending** (the owner decides it): until 
 `image-trust.json` is empty and a release build (`npm run pack`, or an unpackaged run) refuses
 every image set. Without `$SWIFF_OS_SIGNING_KEY`, `image-set.sh` signs with the developer's own
 key (`~/.config/swiff/image-dev-key.pem`, made on first use) and writes
-`desktop/image-trust.dev.json`.
+`desktop/image-trust.dev.json`. Either key file is kept encrypted (PKCS#8, AES-256), never as a
+plain PEM, and unlocked with `$SWIFF_OS_KEY_PASSPHRASE` (the release's secret store, or asked for
+on a terminal); a key file that is not encrypted is refused.
 
 **Test builds.** `npm run pack:test` in `desktop/` packages the portable app as `npm run pack`
 does, with `swiffBuild: "test"` baked into its `package.json` (`desktop/build-kind.cjs`). Only

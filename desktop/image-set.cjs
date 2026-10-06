@@ -227,21 +227,54 @@ function certFromAuth(auth) {
 
 const X509 = Buffer.from("a159c0a5e494a74a87b5ab155c2bf072", "hex");
 
-/** Sign the manifest of the image set in `dir` with the Ed25519 private key in PEM file `key`. */
-function signManifest(dir, key) {
-  const manifest = fs.readFileSync(path.join(dir, MANIFEST));
-  fs.writeFileSync(
-    path.join(dir, SIGNATURE),
-    crypto.sign(null, manifest, crypto.createPrivateKey(fs.readFileSync(key))),
-  );
+// The image signing key is only ever kept on disk encrypted (PKCS#8, AES-256),
+// the release's and a developer's alike, and is unlocked with the passphrase in
+// $SWIFF_OS_KEY_PASSPHRASE. A key file that is not encrypted is refused.
+const ENCRYPTED_PEM = "-----BEGIN ENCRYPTED PRIVATE KEY-----";
+
+function passphraseOf(passphrase) {
+  if (!passphrase) throw new Error("Set SWIFF_OS_KEY_PASSPHRASE to the image signing key's passphrase.");
+  return passphrase;
 }
 
-/** What the app must trust for sets signed with the private key in PEM file `key` that carry certificate file `cert`. */
-function trustEntry(key, cert) {
+/** The private key in encrypted PEM file `key`, unlocked with `passphrase`. */
+function signingKeyOf(key, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
+  const pem = fs.readFileSync(key, "utf8");
+  if (!pem.includes(ENCRYPTED_PEM))
+    throw new Error(
+      `The image signing key in ${key} is not encrypted: keep it as an encrypted PKCS#8 file (\`image-set.cjs devkey\` makes one).`,
+    );
+  try {
+    return crypto.createPrivateKey({ key: pem, format: "pem", passphrase: passphraseOf(passphrase) });
+  } catch (error) {
+    if (!passphrase) throw error;
+    throw new Error(`The passphrase does not unlock the image signing key in ${key}.`);
+  }
+}
+
+/** Make a new Ed25519 image signing key in `file` (which must not exist yet), encrypted with `passphrase`. */
+function newSigningKey(file, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
+  const { privateKey } = crypto.generateKeyPairSync("ed25519");
+  const pem = privateKey.export({
+    type: "pkcs8",
+    format: "pem",
+    cipher: "aes-256-cbc",
+    passphrase: passphraseOf(passphrase),
+  });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, pem, { mode: 0o600, flag: "wx" });
+}
+
+/** Sign the manifest of the image set in `dir` with the Ed25519 private key in encrypted PEM file `key`. */
+function signManifest(dir, key, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
+  const manifest = fs.readFileSync(path.join(dir, MANIFEST));
+  fs.writeFileSync(path.join(dir, SIGNATURE), crypto.sign(null, manifest, signingKeyOf(key, passphrase)));
+}
+
+/** What the app must trust for sets signed with the private key in encrypted PEM file `key` that carry certificate file `cert`. */
+function trustEntry(key, cert, passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE) {
   return {
-    publicKey: crypto
-      .createPublicKey(crypto.createPrivateKey(fs.readFileSync(key)))
-      .export({ type: "spki", format: "pem" }),
+    publicKey: crypto.createPublicKey(signingKeyOf(key, passphrase)).export({ type: "spki", format: "pem" }),
     certSha256: crypto.createHash("sha256").update(fs.readFileSync(cert)).digest("hex"),
   };
 }
@@ -297,6 +330,7 @@ module.exports = {
   hashOf,
   copyChecked,
   certFromAuth,
+  newSigningKey,
   signManifest,
   trustEntry,
   writeManifest,
@@ -304,22 +338,28 @@ module.exports = {
 
 //   node image-set.cjs cert <db.auth> <out.cer>
 //   node image-set.cjs manifest <dir> <full-image.raw> <version>
+//   node image-set.cjs devkey <private-key.pem>                     a new key, encrypted with $SWIFF_OS_KEY_PASSPHRASE
 //   node image-set.cjs sign <dir> <private-key.pem>
 //   node image-set.cjs trust <private-key.pem> <swiffos-key.cer>     the image-trust.json entry, as JSON
 if (require.main === module) {
   const [cmd, a, b, c] = process.argv.slice(2);
-  if (cmd === "cert") fs.writeFileSync(b, certFromAuth(fs.readFileSync(a)));
-  else if (cmd === "sign") signManifest(a, b);
-  else if (cmd === "trust") console.log(JSON.stringify([trustEntry(a, b)], null, 2));
-  else if (cmd === "manifest")
-    writeManifest(a, b, c).catch((error) => {
-      console.error(error.message);
-      process.exit(1);
-    });
-  else {
-    console.error(
-      "usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version> | sign <dir> <key.pem> | trust <key.pem> <cert>",
-    );
-    process.exit(2);
+  const failed = (error) => {
+    console.error(error.message);
+    process.exit(1);
+  };
+  try {
+    if (cmd === "cert") fs.writeFileSync(b, certFromAuth(fs.readFileSync(a)));
+    else if (cmd === "devkey") newSigningKey(a);
+    else if (cmd === "sign") signManifest(a, b);
+    else if (cmd === "trust") console.log(JSON.stringify([trustEntry(a, b)], null, 2));
+    else if (cmd === "manifest") writeManifest(a, b, c).catch(failed);
+    else {
+      console.error(
+        "usage: image-set.cjs cert <db.auth> <out.cer> | manifest <dir> <image.raw> <version> | devkey <key.pem> | sign <dir> <key.pem> | trust <key.pem> <cert>",
+      );
+      process.exit(2);
+    }
+  } catch (error) {
+    failed(error);
   }
 }
