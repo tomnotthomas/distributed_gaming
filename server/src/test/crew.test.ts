@@ -35,6 +35,8 @@ import { REPORT } from "./report.js";
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const SESSION = "test-session-secret-that-is-long-enough-too";
 const MACHINE_KEY = "test-machine-key";
+/** A test's sign-in session lasts ten years from its fixed date, so the real clock never finds it expired. */
+const SESSION_TTL_S = 10 * 365 * 24 * 3600;
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 /** Founds the crew, with no PC. */
 const ALEX = "76561198000000011";
@@ -588,7 +590,9 @@ describe("crew API", () => {
   /** One JSON call, as `steamId` signed in when given one, with the machine key when `key` is set. */
   async function call(method: string, path: string, steamId?: string, body?: unknown, key = false) {
     const headers: Record<string, string> = {};
-    if (steamId) headers.cookie = `${SESSION_COOKIE}=${mintRenterSession(SESSION, steamId, 3600, now)}`;
+    // The server reads the session against the real clock, not the test's: it outlasts any date here.
+    if (steamId)
+      headers.cookie = `${SESSION_COOKIE}=${mintRenterSession(SESSION, steamId, SESSION_TTL_S, now)}`;
     if (key) headers.authorization = `Bearer ${MACHINE_KEY}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await fetch(`${origin}${path}`, {
