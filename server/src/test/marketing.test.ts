@@ -151,19 +151,20 @@ describe("crew invites from the app's invite links", () => {
     const platform = await Platform.open({ database: await testDatabase() });
     try {
       const resolve = crewInvites(SECRET, platform);
-      const { inviteId } = await platform.crewInvite("76561198000000001", "Ana");
-      const token = inviteToken(SECRET, inviteId);
+      const crew = await platform.createCrew("76561198000000001", "Ana");
+      assert.ok(crew !== "too-many" && crew.inviteId);
+      const token = inviteToken(SECRET, crew.inviteId);
       assert.deepEqual(await resolve("crew", token), { inviter: "Ana" });
       // Signed with another secret, another type, a sign-up's own code, or replaced since.
       assert.deepEqual(
-        await resolve("crew", inviteToken("another-secret-that-is-long-enough-too!!", inviteId)),
+        await resolve("crew", inviteToken("another-secret-that-is-long-enough-too!!", crew.inviteId)),
         {
           inviter: null,
         },
       );
       assert.deepEqual(await resolve("seat", token), { inviter: null });
       assert.deepEqual(await resolve("crew", "AB12cdEF"), { inviter: null });
-      await platform.crewInvite("76561198000000001", "Ana", { renew: true });
+      await platform.renewCrewLink(crew.id, "76561198000000001");
       assert.deepEqual(await resolve("crew", token), { inviter: null });
       assert.deepEqual(await crewInvites(null, platform)("crew", token), { inviter: null });
     } finally {
