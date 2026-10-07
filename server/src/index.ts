@@ -923,7 +923,11 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
   if (urlPath === "/api/features" && (req.method === "GET" || req.method === "HEAD")) {
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+    });
     res.end(req.method === "HEAD" ? undefined : JSON.stringify(switches));
     return;
   }

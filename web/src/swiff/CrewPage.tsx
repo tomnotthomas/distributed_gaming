@@ -102,7 +102,8 @@ function FoundSignedOut() {
 function CrewList({ swiff }: { swiff: Swiff }) {
   const { lang, t } = useCrewText();
   const [crews, setCrews] = useState<MyCrew[] | "failed" | null>(null);
-  // From a "Crew gründen" button: a player with no crew yet gets one at once.
+  // From a "Crew gründen" button: a player with no crew yet gets one at once;
+  // from the app's "Start a new crew", any player does.
   const [landing] = useState(takeLanding);
   const [founding, setFounding] = useState(false);
   const [foundFailed, setFoundFailed] = useState<"full" | boolean>(false);
@@ -128,12 +129,12 @@ function CrewList({ swiff }: { swiff: Swiff }) {
 
   useEffect(() => {
     if (!Array.isArray(crews)) return;
-    if (crews.length === 1) replaceCrew(crews[0]!.id);
     // Once per visit: a page that re-renders never founds a second crew.
-    else if (!crews.length && landing.found && !foundedOnce.current) {
+    if (landing.found === "new" || (landing.found === "first" && !crews.length)) {
+      if (foundedOnce.current) return;
       foundedOnce.current = true;
       found();
-    }
+    } else if (crews.length === 1) replaceCrew(crews[0]!.id);
   }, [crews, replaceCrew, landing, found]);
 
   return (

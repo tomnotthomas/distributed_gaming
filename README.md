@@ -98,10 +98,9 @@ Settings (server environment):
   the site has its own host, else served by the app itself), a signed-in player goes on to their
   crew, and the game wall is reached from a crew at `/play`. See `server/src/features.ts`.
 - `IMPRESSUM_EMAIL`: the contact address on the Impressum and legal notice. Unset, they show
-  `[IMPRESSUM_EMAIL]`.
-- `MARKETING_PAGES=on` turns the pages and the reminders on. Set `IMPRESSUM_EMAIL` with it: the
-  Impressum and legal notice carry the founder's name and address, and that address is their
-  contact.
+  `tom.schwabe123@gmail.com`.
+- `MARKETING_PAGES=on` turns the pages and the reminders on. The Impressum and legal notice carry
+  the founder's name and address, and `IMPRESSUM_EMAIL` as their contact.
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
   requests for its host, and it is the origin in the pages' canonical and Open Graph links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.

@@ -56,6 +56,9 @@ export const CREWS_PATH = "/crews";
 /** The crew pages founding a crew for a player who has none yet (takeLanding). */
 export const FOUND_PATH = `${CREWS_PATH}?found=1`;
 
+/** The crew pages founding another crew, however many the player is in (takeLanding). */
+export const FOUND_NEW_PATH = `${CREWS_PATH}?found=new`;
+
 /** What a crews path asks for: the list, or one crew by id; null for any other path. */
 export function crewRouteAt(pathname: string): { crew: string | null } | null {
   const match = /^\/crews(?:\/([\w-]+))?\/*$/.exec(pathname);
@@ -225,14 +228,17 @@ export async function saveReminders(
 const PC_FIRST_KEY = "crew.pcFirst";
 
 /**
- * What the address the marketing site's buttons land on asks for
- * (/crews?found=1&pc=1, server/scripts/import-launch-pages.mjs): found a crew
- * when the player has none yet (`found`), and show the PC card first (`pc`,
- * kept in this tab until a lobby shows it). Both leave the address.
+ * What the address the crew pages open at asks for: found a crew when the
+ * player has none yet (`found` "first", the marketing site's buttons:
+ * /crews?found=1&pc=1, server/scripts/import-launch-pages.mjs), or found one
+ * whatever they have ("new", the app's own "Start a new crew"), and show the
+ * PC card first (`pc`, kept in this tab until a lobby shows it). Both leave
+ * the address.
  */
-export function takeLanding(): { found: boolean } {
+export function takeLanding(): { found: "first" | "new" | null } {
   const params = new URLSearchParams(location.search);
-  const found = params.get("found") === "1";
+  const asked = params.get("found");
+  const found = asked === "1" ? "first" : asked === "new" ? "new" : null;
   if (params.get("pc") === "1") {
     try {
       sessionStorage.setItem(PC_FIRST_KEY, "1");

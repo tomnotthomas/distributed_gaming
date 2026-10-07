@@ -1,6 +1,6 @@
 // Paid gaming (features.ts): the PostHog flag "paid-gaming", asked with the
-// project's public key, kept a while, off whenever PostHog cannot say, and
-// overridden by PAID_GAMING.
+// project's public key, kept a while, off until PostHog has said, its last
+// answer kept while it cannot say, and overridden by PAID_GAMING.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -19,6 +19,7 @@ function posthog(answer: () => unknown) {
     calls.push({ url, body: JSON.parse(String(init?.body)) });
     const body = answer();
     if (body instanceof Error) throw body;
+    if (body instanceof Response) return body;
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof globalThis.fetch;
   return { calls, fetch };
@@ -36,13 +37,11 @@ describe("paid gaming", () => {
     assert.deepEqual(ph.calls[0]!.body, { api_key: "phc_test", distinct_id: "lanterel-server" });
   });
 
-  it("is off when PostHog has it off, has not got it, or answers the older shape with it off", async () => {
-    for (const answer of [off, { flags: {} }, { featureFlags: { "paid-gaming": false } }, {}]) {
+  it("is off when PostHog has it off, has not got it, or answers in another shape", async () => {
+    for (const answer of [off, { flags: {} }, { featureFlags: { "paid-gaming": true } }, {}]) {
       const ph = posthog(() => answer);
       assert.deepEqual(await createFeatures({ ...base, fetch: ph.fetch }).current(), { paidGaming: false });
     }
-    const older = posthog(() => ({ featureFlags: { "paid-gaming": true } }));
-    assert.equal((await createFeatures({ ...base, fetch: older.fetch }).current()).paidGaming, true);
   });
 
   it("is off while PostHog cannot be reached, and asks again later", async () => {
@@ -57,6 +56,22 @@ describe("paid gaming", () => {
     assert.equal((await features.current()).paidGaming, false);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal((await features.current()).paidGaming, true);
+  });
+
+  it("keeps PostHog's last answer while a later ask fails", async () => {
+    let t = 0;
+    let answer: unknown = on;
+    const ph = posthog(() => answer);
+    const features = createFeatures({ ...base, fetch: ph.fetch, now: () => t });
+    assert.equal((await features.current()).paidGaming, true);
+    for (const failure of [new Error("unreachable"), new Response("down", { status: 503 })]) {
+      answer = failure;
+      t += FLAG_TTL_MS;
+      await features.current();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal((await features.current()).paidGaming, true);
+    }
+    assert.equal(ph.calls.length, 3);
   });
 
   it("keeps an answer for a while instead of asking PostHog on every page", async () => {

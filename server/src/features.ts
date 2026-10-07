@@ -12,7 +12,8 @@
 // project's public key (POSTHOG_KEY, or the web build's VITE_POSTHOG_KEY; the
 // host from POSTHOG_HOST or VITE_POSTHOG_HOST, EU by default) and kept for
 // FLAG_TTL_MS. PAID_GAMING=on or off in the environment overrides PostHog.
-// Without a key, or while PostHog cannot be reached, it is off.
+// Without a key, or until PostHog has answered once, it is off; when PostHog
+// cannot be reached later, its last answer stays.
 
 /** The switches, as GET /api/features answers them. */
 export type Features = { paidGaming: boolean };
@@ -48,25 +49,21 @@ export function featuresOptionsFromEnv(env: NodeJS.ProcessEnv): FeaturesOptions 
   return { override: set === "on" ? true : set === "off" ? false : null, key, host };
 }
 
-/** Whether PostHog's flags answer has the flag on: its v2 shape ({ flags }) or the older one ({ featureFlags }). */
+/** Whether PostHog's v2 flags answer ({ flags }) has the flag on. */
 function flagOn(body: unknown, flag: string): boolean {
   if (typeof body !== "object" || body === null) return false;
-  const { flags, featureFlags } = body as { flags?: unknown; featureFlags?: unknown };
-  if (typeof flags === "object" && flags !== null) {
-    const entry = (flags as Record<string, unknown>)[flag];
-    return typeof entry === "object" && entry !== null && (entry as { enabled?: unknown }).enabled === true;
-  }
-  if (typeof featureFlags === "object" && featureFlags !== null) {
-    return (featureFlags as Record<string, unknown>)[flag] === true;
-  }
-  return false;
+  const { flags } = body as { flags?: unknown };
+  if (typeof flags !== "object" || flags === null) return false;
+  const entry = (flags as Record<string, unknown>)[flag];
+  return typeof entry === "object" && entry !== null && (entry as { enabled?: unknown }).enabled === true;
 }
 
 /**
  * The switches, as they are now. The first ask waits for PostHog (at most
  * FLAG_TIMEOUT_MS); after that an answer up to FLAG_TTL_MS old is used at
  * once, and an older one is used while a fresh one is asked for, so no page
- * waits on PostHog twice.
+ * waits on PostHog twice. A failed ask keeps the last answer PostHog gave,
+ * and is off only when it never gave one.
  */
 export function createFeatures({
   override,
@@ -79,7 +76,7 @@ export function createFeatures({
   let asking: Promise<Features> | null = null;
 
   async function ask(): Promise<Features> {
-    let paidGaming = false;
+    let value = known?.value ?? { paidGaming: false };
     try {
       const res = await fetch(`${host.replace(/\/+$/, "")}/flags/?v=2`, {
         method: "POST",
@@ -87,11 +84,11 @@ export function createFeatures({
         body: JSON.stringify({ api_key: key, distinct_id: DISTINCT_ID }),
         signal: AbortSignal.timeout(FLAG_TIMEOUT_MS),
       });
-      paidGaming = res.ok && flagOn(await res.json(), PAID_GAMING_FLAG);
+      if (!res.ok) throw new Error(`PostHog answered ${res.status}`);
+      value = { paidGaming: flagOn(await res.json(), PAID_GAMING_FLAG) };
     } catch {
-      // Unreachable, too slow or not JSON: off.
+      // Unreachable, failing, too slow or not JSON: the last answer, or off.
     }
-    const value = { paidGaming };
     known = { value, at: now() };
     return value;
   }

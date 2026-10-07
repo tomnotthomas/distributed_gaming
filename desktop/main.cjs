@@ -56,9 +56,6 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
-// `--paid` with it shows the paid-gaming screens (Get paid, levels, the rate),
-// which the app otherwise leaves out while the server has paid gaming off.
-const DEMO_PAID = DEMO && process.argv.includes("--paid");
 // One Swiff Host at a time. Two would each run their own installer, and the
 // second one's administrator helper would wait behind the first for ever. A
 // second launch hands over to the first, which comes to the front.
@@ -67,11 +64,10 @@ else app.on("second-instance", () => showWindow());
 
 /** A build packaged by `npm run pack:test` (build-kind.cjs). */
 const TEST_BUILD = testBuild();
-/** The app page's query string: `extra`, plus demo=1 (and paid=1) in demo mode and build=test in a test build. */
+/** The app page's query string: `extra`, plus demo=1 in demo mode and build=test in a test build. */
 const query = (extra = {}) => ({
   ...extra,
   ...(DEMO ? { demo: "1" } : {}),
-  ...(DEMO_PAID ? { paid: "1" } : {}),
   ...(TEST_BUILD ? { build: "test" } : {}),
 });
 

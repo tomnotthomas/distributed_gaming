@@ -58,16 +58,13 @@ export function siteFromEnv(env: NodeJS.ProcessEnv, app: string | null): Site | 
 /** The language a page path is in. */
 export const langOf = (path: string): Lang => (path === "/en" || path.startsWith("/en/") ? "en" : "de");
 
-/**
- * The Impressum's contact address, IMPRESSUM_EMAIL; until it is set the page
- * shows this placeholder, plainly marked as one.
- */
-export const IMPRESSUM_EMAIL_UNSET = "[IMPRESSUM_EMAIL]";
+/** The Impressum's contact address while IMPRESSUM_EMAIL is not set. */
+export const IMPRESSUM_EMAIL_DEFAULT = "tom.schwabe123@gmail.com";
 
 /** Fill a marketing file's tokens. */
 export function fillTokens(text: string, site: Site, email = process.env.IMPRESSUM_EMAIL?.trim()): string {
   return text
-    .replaceAll("{{impressumEmail}}", email || IMPRESSUM_EMAIL_UNSET)
+    .replaceAll("{{impressumEmail}}", email || IMPRESSUM_EMAIL_DEFAULT)
     .replaceAll("{{brand}}", BRAND)
     .replaceAll("{{wordmark}}", WORDMARK)
     .replaceAll("{{site}}", site.origin)

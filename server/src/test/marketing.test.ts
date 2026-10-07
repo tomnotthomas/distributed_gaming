@@ -872,7 +872,7 @@ describe("PAID_GAMING off on the real server: the start page", () => {
       // The pages the landing page links to, and its assets, on the app's own origin.
       const impressum = await get("/impressum/");
       assert.match(impressum.body, /Tom Schwabe<br>Kanzowstraße 8<br>10439 Berlin<br>Deutschland/);
-      assert.match(impressum.body, /E-Mail: \[IMPRESSUM_EMAIL\]/);
+      assert.match(impressum.body, /E-Mail: tom\.schwabe123@gmail\.com/);
       assert.doesNotMatch(impressum.body, /Telefon/);
       assert.equal((await get("/datenschutz/")).status, 200);
       assert.equal((await get("/assets/css/base.css")).status, 200);
@@ -909,7 +909,10 @@ describe("PAID_GAMING off on the real server: the start page", () => {
   it("on: / is the app's, and the switch says so", async () => {
     await start({ PAID_GAMING: "on" });
     try {
-      assert.deepEqual(JSON.parse((await get("/api/features")).body), { paidGaming: true });
+      const switches = await get("/api/features");
+      assert.deepEqual(JSON.parse(switches.body), { paidGaming: true });
+      // The host app's page is a file (origin null): it can read the answer.
+      assert.equal(switches.headers["access-control-allow-origin"], "*");
       assert.doesNotMatch((await get("/")).body, /data-t="/);
     } finally {
       await stop();

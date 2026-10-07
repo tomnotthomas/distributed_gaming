@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DemoApp, Shell } from "./App";
 import { fetchPaidGaming, unpaid } from "./features";
-import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
+import { DEMO_SCREENS, demoArt, evening, type DemoScreen } from "./demo";
 import {
   IDLE_RUN,
   type Claim,
@@ -12,7 +12,9 @@ import {
   type Live,
   type Step,
 } from "./model";
+import { ArtContext } from "./ui/art";
 import { HOLD_MS } from "./ui/hold";
+import { useDemoHost } from "./useDemoHost";
 import {
   installPlan,
   keyRemovalPlan,
@@ -222,10 +224,25 @@ function expectNoDemoData() {
   expect(screen.queryByText(/looking/)).not.toBeInTheDocument();
 }
 
+/** The demo's data on the app's screens with paid gaming on, as the server can turn it on. */
+function PaidDemo({ screen: first }: { screen: DemoScreen }) {
+  const demo = useDemoHost(first);
+  return (
+    <ArtContext.Provider value={demoArt}>
+      <Shell
+        host={demo}
+        step={demo.step}
+        onStep={demo.setStep}
+        setupDone={demo.setupDone}
+        finishSetup={() => demo.setStep("live")}
+        paid
+      />
+    </ArtContext.Provider>
+  );
+}
+
 describe("demo", () => {
-  // The design's every screen, paid gaming's too, as `--demo --paid` opens it.
-  beforeEach(() => history.replaceState(null, "", "/?demo=1&paid=1"));
-  afterEach(() => history.replaceState(null, "", "/"));
+  // The design's every screen, paid gaming's too.
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
     pc: "Your PC",
     steam: "Steam is ready",
@@ -277,7 +294,7 @@ describe("demo", () => {
   };
 
   it.each(DEMO_SCREENS.filter((s) => s.id !== "tray"))("shows $name, labelled as demo data", ({ id }) => {
-    render(<DemoApp screen={id} />);
+    render(<PaidDemo screen={id} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       HEADINGS[id as keyof typeof HEADINGS],
     );
@@ -292,12 +309,12 @@ describe("demo", () => {
   });
 
   it("counts the friend seats' days on the demo's own clock", async () => {
-    render(<DemoApp screen="golive" />);
+    render(<PaidDemo screen="golive" />);
     expect(await screen.findByText("Waiting for Mia · 12 days left")).toBeInTheDocument();
   });
 
   it("ranks the games by demand, with Install in Steam for the ones this PC lacks", () => {
-    render(<DemoApp screen="games" />);
+    render(<PaidDemo screen="games" />);
     expect(screen.getByText("38 looking")).toBeInTheDocument();
     const install = screen.getAllByRole("link", { name: /Install in Steam/ });
     expect(install.map((a) => a.getAttribute("href"))).toEqual(["steam://install/553850"]);
@@ -312,7 +329,7 @@ describe("demo", () => {
   });
 
   it("shows the month against a ceiling at the current rate, not a forecast", () => {
-    render(<DemoApp screen="paid" />);
+    render(<PaidDemo screen="paid" />);
     // €1,05 an hour, six evening hours, thirty days in September.
     expect(screen.getByText(/this month at your rate, if you're live/)).toHaveTextContent(
       "Up to €189 this month at your rate, if you're live 18:00 to midnight every day.",
@@ -329,7 +346,7 @@ describe("demo", () => {
     });
 
     it("goes live on a held press, pauses and resumes", () => {
-      render(<DemoApp screen="golive" />);
+      render(<PaidDemo screen="golive" />);
       hold(screen.getByRole("button", { name: "Hold to go live" }));
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Waiting for a player");
 
@@ -340,7 +357,7 @@ describe("demo", () => {
     });
 
     it("ends early only on a held press, and can be called off", () => {
-      render(<DemoApp screen="inuse" />);
+      render(<PaidDemo screen="inuse" />);
       const end = screen.getByRole("button", { name: "Hold to end early" });
       fireEvent.click(end);
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nova-01 is in use");
@@ -500,9 +517,7 @@ describe("going live", () => {
     });
 
     it("builds the rate in the open", () => {
-      history.replaceState(null, "", "/?demo=1&paid=1");
-      render(<DemoApp screen="golive" />);
-      history.replaceState(null, "", "/");
+      render(<PaidDemo screen="golive" />);
       const rate = screen.getByRole("heading", { name: "Your rate" }).closest("section")!;
       expect(rate).toHaveTextContent("Hardware, RTX 4080€1,00");
       expect(rate).toHaveTextContent("Reliability 96100%");
@@ -1758,7 +1773,7 @@ describe("settings", () => {
 });
 
 describe("paid gaming off", () => {
-  it("shows no Get paid step, no standing and no rate in the demo without --paid", () => {
+  it("shows no Get paid step, no standing and no rate in the demo", () => {
     render(<DemoApp screen="golive" />);
     const rail = screen.getByRole("navigation", { name: "Steps" });
     expect(within(rail).queryByText("Get paid")).not.toBeInTheDocument();

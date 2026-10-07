@@ -45,7 +45,7 @@ import {
   type PlayState,
 } from "./play";
 import { questionOf, useLive } from "./useLive";
-import { CREWS_PATH, crewRouteAt, fetchCrews, FOUND_PATH, seeReady, unseenReady } from "./crews";
+import { CREWS_PATH, crewRouteAt, fetchCrews, FOUND_NEW_PATH, seeReady, unseenReady } from "./crews";
 import { useCrewLive, type CrewLiveEntry } from "./watch";
 import type { CrewHub, CrewHubState } from "@swiff/rtc";
 import type { Channel } from "./invite";
@@ -944,9 +944,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setCrewPath(path);
   }, []);
   const crewRoute = useMemo(() => crewRouteAt(crewPath) ?? { crew: null }, [crewPath]);
-  /** The crew pages, founding a crew at once for a player who has none yet. */
+  /** The crew pages, founding a new crew at once. */
   const foundCrew = useCallback(() => {
-    history.pushState(null, "", FOUND_PATH);
+    history.pushState(null, "", FOUND_NEW_PATH);
     setCrewPath(CREWS_PATH);
     setScreen("crew");
   }, []);

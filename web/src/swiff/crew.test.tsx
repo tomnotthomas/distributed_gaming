@@ -1004,6 +1004,20 @@ describe("CrewPage: landing from the marketing site", () => {
     expect(swiff.replaceCrew).not.toHaveBeenCalled();
   });
 
+  it("founds a new crew from the app's own button, even for a player already in one", async () => {
+    history.replaceState(null, "", "/crews?found=new");
+    const calls = fetchFrom({
+      "GET /api/crews": [200, { crews: [{ ...crewOf(), pcArrived: false }] }],
+      "POST /api/crews": [201, { crew: crewOf({ id: "c-new" }) }],
+    });
+    const swiff = fakeSwiff();
+    render(<CrewPage swiff={swiff} />);
+    await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
+    expect(swiff.replaceCrew).toHaveBeenCalledTimes(1);
+    expect(calls.filter(([method]) => method === "POST")).toHaveLength(1);
+    expect(location.pathname + location.search).toBe("/crews");
+  });
+
   it("shows someone from the host side the PC card first", async () => {
     sessionStorage.setItem("crew.pcFirst", "1");
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });

@@ -152,9 +152,6 @@ export function RealApp() {
   );
 }
 
-/** The demo shows paid gaming's screens only when opened with ?paid=1 (main.cjs: --paid). */
-const demoPaid = () => new URLSearchParams(location.search).get("paid") === "1";
-
 /** The app on its labelled demo data, with a picker for each of the design's screens. */
 export function DemoApp({ screen: first }: { screen: DemoScreen }) {
   const [screen, setScreen] = useState<DemoScreen>(first);
@@ -195,7 +192,7 @@ export function DemoApp({ screen: first }: { screen: DemoScreen }) {
           setupDone={demo.setupDone}
           finishSetup={() => demo.setStep("live")}
           foot={picker}
-          paid={demoPaid()}
+          paid={false}
         />
       )}
     </ArtContext.Provider>
