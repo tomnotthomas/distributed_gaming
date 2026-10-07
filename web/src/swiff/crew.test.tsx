@@ -887,10 +887,41 @@ describe("CrewPage: the guided crew page", () => {
     expect(
       screen.getByText("You scan a QR code once with the Steam app. Max doesn't have to do anything."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
+    // Only the PC's owner learns whether it is crew-only, so nobody else is promised that.
+    expect(screen.getByText("Max's PC is on.")).toBeInTheDocument();
+    expect(screen.queryByText(/plays for this crew only/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: ER.title }));
     fireEvent.click(screen.getByRole("button", { name: `Start ${ER.title}` }));
     expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-max");
+  });
+
+  it("promises the PC plays for this crew only when it is crew-only, in English and German", async () => {
+    const crewOnly = readyCrew({ session: dated, shared: true });
+    crewOnly.machines = [{ ...crewOnly.machines[0]!, crewOnly: true }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOnly }] });
+    const { unmount } = render(<CrewPage swiff={atCrew("c1", library)} />);
+    expect(await screen.findByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
+    unmount();
+
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1", library)} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByText("Max' PC ist an. Er spielt nur für diese Crew.")).toBeInTheDocument();
+  });
+
+  it("does not promise crew-only in German when the PC is open to others", async () => {
+    const open = readyCrew({ session: dated, shared: true });
+    open.machines = [{ ...open.machines[0]!, crewOnly: false }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: open }] });
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1", library)} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByText("Max' PC ist an.")).toBeInTheDocument();
+    expect(screen.queryByText(/nur für diese Crew/)).toBeNull();
   });
 
   it("says when someone was quicker to start", async () => {

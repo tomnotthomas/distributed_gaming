@@ -791,7 +791,11 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
           {current === "play" && crew.state === "ready" && playPc(crew) ? (
             <p className="pl-pcline">
               <PcIcon />
-              <span>{t("pl.pcLine", { pc: pcTitle(lang, playPc(crew)!) })}</span>
+              <span>
+                {t(playPc(crew)!.crewOnly === true ? "pl.pcLine" : "pl.pcLineOn", {
+                  pc: pcTitle(lang, playPc(crew)!),
+                })}
+              </span>
             </p>
           ) : null}
 
