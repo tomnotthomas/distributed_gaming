@@ -77,10 +77,7 @@ try {
     // key: projectOf (packages/error-tracking) takes only phc_ keys.
     store: {
       read: () => JSON.parse(fs.readFileSync(errorProjectFile(), "utf8")),
-      write: (project) =>
-        project === null
-          ? fs.rmSync(errorProjectFile(), { force: true })
-          : fs.writeFileSync(errorProjectFile(), `${JSON.stringify(project)}\n`),
+      write: (kept) => fs.writeFileSync(errorProjectFile(), `${JSON.stringify(kept)}\n`),
     },
   }).project;
 } catch {

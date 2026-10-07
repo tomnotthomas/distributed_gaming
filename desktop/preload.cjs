@@ -20,7 +20,7 @@
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
 //   reportError                       an error nothing caught in the window, for main to report
-//   setErrorProject                   the Lanterel server's error-reports project (or null), for main
+//   setErrorProject                   the Lanterel server asked, then its error-reports project (or null), for main
 //
 // The tray glance has its own, smaller preload (tray-preload.cjs).
 
@@ -71,9 +71,16 @@ contextBridge.exposeInMainWorld("swiffHost", {
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
   reportError: (report) => ipcRenderer.send("errors:report", windowError(report)),
-  setErrorProject: (project) =>
-    ipcRenderer.send(
-      "errors:project",
-      project === null ? null : { key: String(project?.key ?? ""), host: String(project?.host ?? "") },
-    ),
+  setErrorProject: (origin, project) =>
+    ipcRenderer.send("errors:project", {
+      origin: String(origin ?? ""),
+      ...(project === undefined
+        ? {}
+        : {
+            project:
+              project === null
+                ? null
+                : { key: String(project?.key ?? ""), host: String(project?.host ?? "") },
+          }),
+    }),
 });

@@ -20,7 +20,7 @@ function main(
   const store = {
     kept,
     read: () => store.kept,
-    write: (project: Project) => void (store.kept = project),
+    write: (next: unknown) => void (store.kept = next),
   };
   const app = Object.assign(new EventEmitter(), { getVersion: () => "0.1.0" });
   const ipcMain = new EventEmitter();
@@ -96,7 +96,10 @@ describe("startErrorTracking", () => {
   });
 
   it("hooks into nothing, keeps nothing and names no project on a PC with DO_NOT_TRACK", () => {
-    const { app, ipcMain, proc, project } = main(CONFIG, { env: { DO_NOT_TRACK: "1" }, kept: CONFIG });
+    const { app, ipcMain, proc, project } = main(CONFIG, {
+      env: { DO_NOT_TRACK: "1" },
+      kept: { origin: "https://lanterel.example", project: CONFIG },
+    });
     expect([app.eventNames(), ipcMain.eventNames(), proc.eventNames()]).toEqual([[], [], []]);
     expect(project()).toBeNull();
   });
@@ -104,37 +107,77 @@ describe("startErrorTracking", () => {
 
 describe("the Lanterel server's project", () => {
   const SERVER = { key: "phc_server", host: "https://eu.i.posthog.com" };
+  const OTHER = { key: "phc_other", host: "https://eu.i.posthog.com" };
+  const A = "https://a.example";
+  const B = "https://b.example";
+  /** The window starting to ask `origin`, then, when given, that server's answer. */
+  const ask = (ipcMain: EventEmitter, origin: string, ...answer: [Project?]) => {
+    ipcMain.emit("errors:project", APP_WINDOW, { origin });
+    if (answer.length) ipcMain.emit("errors:project", APP_WINDOW, { origin, project: answer[0] });
+  };
 
-  it("reports nowhere until the window hands main the server's project, then there, and keeps it", async () => {
+  it("reports nowhere until the window hands main the server's project, then there, and keeps it with its server", async () => {
     const { ipcMain, sent, project, store } = main(null);
     ipcMain.emit("errors:report", APP_WINDOW, { message: "before" });
     expect(project()).toBeNull();
-    ipcMain.emit("errors:project", APP_WINDOW, SERVER);
+    ask(ipcMain, A, SERVER);
     ipcMain.emit("errors:report", APP_WINDOW, { message: "after" });
     expect((await sent()).map((r) => r.exception.value)).toEqual(["after"]);
     expect(project()).toEqual(SERVER);
-    expect(store.kept).toEqual(SERVER);
+    expect(store.kept).toEqual({ origin: A, project: SERVER });
   });
 
-  it("starts from the project kept last time, and forgets it when the server names none", () => {
-    const { ipcMain, project, store } = main(null, { kept: SERVER });
+  it("starts from the project kept last time, and forgets it when its server names none", () => {
+    const { ipcMain, project, store } = main(null, { kept: { origin: A, project: SERVER } });
     expect(project()).toEqual(SERVER);
-    ipcMain.emit("errors:project", APP_WINDOW, null);
+    ask(ipcMain, A, null);
     expect(project()).toBeNull();
-    expect(store.kept).toBeNull();
+    expect(store.kept).toEqual({ origin: A, project: null });
   });
 
-  it("takes no project from anything but the app's windows, nor one that is not PostHog's", () => {
-    const { ipcMain, project } = main(null, { kept: SERVER });
-    ipcMain.emit("errors:project", { sender: "elsewhere" }, null);
-    ipcMain.emit("errors:project", APP_WINDOW, { key: "phc_x", host: "https://collector.evil.example" });
+  it("forgets a server's project the moment the window asks another one, even if that one never answers", () => {
+    const { ipcMain, project, store } = main(null, { kept: { origin: A, project: SERVER } });
+    ask(ipcMain, B);
+    expect(project()).toBeNull();
+    expect(store.kept).toEqual({ origin: B, project: null });
+    ask(ipcMain, B, OTHER);
+    expect(project()).toEqual(OTHER);
+  });
+
+  it("drops an answer still on its way from a server the window has left", () => {
+    const { ipcMain, project } = main(null);
+    ipcMain.emit("errors:project", APP_WINDOW, { origin: A });
+    ask(ipcMain, B, OTHER);
+    ipcMain.emit("errors:project", APP_WINDOW, { origin: A, project: SERVER });
+    expect(project()).toEqual(OTHER);
+  });
+
+  it("keeps a server's project when asking that same server again fails", () => {
+    const { ipcMain, project } = main(null, { kept: { origin: A, project: SERVER } });
+    ask(ipcMain, A);
+    expect(project()).toEqual(SERVER);
+  });
+
+  it("takes nothing from anything but the app's windows, nor a project that is not PostHog's, nor a bad origin", () => {
+    const { ipcMain, project } = main(null, { kept: { origin: A, project: SERVER } });
+    ipcMain.emit("errors:project", { sender: "elsewhere" }, { origin: B });
+    ipcMain.emit("errors:project", APP_WINDOW, {
+      origin: A,
+      project: { key: "phc_x", host: "https://collector.evil.example" },
+    });
+    ipcMain.emit("errors:project", APP_WINDOW, { origin: "file:///x", project: null });
     ipcMain.emit("errors:project", APP_WINDOW, "phc_x");
     expect(project()).toEqual(SERVER);
   });
 
+  it("ignores a kept file that does not say which server named it", () => {
+    const { project } = main(null, { kept: SERVER });
+    expect(project()).toBeNull();
+  });
+
   it("lets a build's own project override the server's", () => {
     const { ipcMain, project } = main(CONFIG);
-    ipcMain.emit("errors:project", APP_WINDOW, SERVER);
+    ask(ipcMain, A, SERVER);
     expect(project()).toEqual(CONFIG);
   });
 });
