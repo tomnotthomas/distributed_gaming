@@ -238,7 +238,7 @@ describe("Lanterel OS's download", () => {
     expect(server.state.asked.map((a) => a.name)).toEqual([MANIFEST, SIGNATURE]);
   });
 
-  it("counts the space its own parts and a cut-short unpack hold as room when it carries on", async () => {
+  it("counts the space its own parts and a cut-short unpack take as room when it carries on, not a sparse file's size", async () => {
     const files = packed.manifest.download.files as Record<
       string,
       { parts: { name: string; bytes: number }[] }
@@ -248,16 +248,27 @@ describe("Lanterel OS's download", () => {
     fs.mkdirSync(path.join(dir, PARTS_DIR));
     for (const p of files[esp].parts)
       fs.copyFileSync(path.join(release, "download", p.name), path.join(dir, PARTS_DIR, p.name));
-    // The app closed part way through unpacking the root: its full-size temporary file is left behind.
-    fs.writeFileSync(path.join(dir, `${root}.part`), "");
-    fs.truncateSync(path.join(dir, `${root}.part`), packed.files[root].bytes);
+    // The app closed part way through unpacking the root: its full-size temporary file is left
+    // behind, sparse as an unpack leaves it, so it takes far less space than its size.
+    const leftover = path.join(dir, `${root}.part`);
+    fs.writeFileSync(leftover, Buffer.alloc(1024 * 1024, 1));
+    fs.truncateSync(leftover, packed.files[root].bytes);
+    const { size, blocks } = fs.statSync(leftover);
+    const taken = Math.min(size, blocks * 512);
+    expect(taken).toBeLessThan(size);
     const packedOf = (name: string) => files[name].parts.reduce((n, p) => n + p.bytes, 0);
     const need =
       Object.values(packed.files).reduce((n, f) => n + f.bytes, 0) +
       Math.max(...Object.keys(files).map(packedOf)) +
       512 * 1024 * 1024;
-    const held = packedOf(esp) + packed.files[root].bytes;
+    const held = packedOf(esp) + taken;
 
+    // Crediting the sparse file's size would overstate the room, and fail later on a full disk.
+    await expect(
+      downloadSet({ url: server.url, dir, trust, free: () => need - packedOf(esp) - size }),
+    ).rejects.toThrow(/Free up space/);
+    expect(server.state.asked.map((a) => a.name)).toEqual([MANIFEST, SIGNATURE]);
+    server.state.asked = [];
     expect(await downloadSet({ url: server.url, dir, trust, free: () => need - held })).toBe(
       SWIFF_OS.version,
     );

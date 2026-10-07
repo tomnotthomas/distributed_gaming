@@ -211,6 +211,20 @@ const sizeOf = (file) => {
   }
 };
 
+/**
+ * The disk space a file takes, which for a sparse file (an unpack skips its
+ * empty blocks) is less than its size: 0 when it is not there, or where the
+ * file system doesn't say.
+ */
+const allocatedOf = (file) => {
+  try {
+    const { size, blocks } = fs.statSync(file);
+    return Number.isSafeInteger(blocks) ? Math.min(size, blocks * 512) : 0;
+  } catch {
+    return 0;
+  }
+};
+
 /** Bytes free on the disk that holds `dir`, or null where that can't be read. */
 function freeBytes(dir) {
   try {
@@ -415,7 +429,8 @@ async function downloadSet({
   );
   // Every file, and the biggest file's parts beside it while it unpacks.
   const need = todo.reduce((n, f) => n + f.bytes, 0) + Math.max(0, ...todo.map(packed)) + SPARE_BYTES;
-  const held = have + todo.reduce((n, f) => n + sizeOf(path.join(dir, `${f.name}.part`)), 0);
+  // A cut-short unpack's file goes when its file is unpacked again: only the space it takes is room.
+  const held = have + todo.reduce((n, f) => n + allocatedOf(path.join(dir, `${f.name}.part`)), 0);
   const disk = free(dir);
   const room = disk === null ? null : disk + held;
   if (room !== null && room < need)
