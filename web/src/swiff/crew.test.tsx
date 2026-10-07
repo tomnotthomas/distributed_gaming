@@ -115,6 +115,7 @@ function crewOf(over: Partial<CrewDetail> = {}): CrewDetail {
     shared: false,
     busy: [],
     picks: 0,
+    offered: 0,
     ...over,
   };
 }
@@ -151,6 +152,7 @@ function readyCrew(over: Partial<CrewDetail> = {}): CrewDetail {
         playing: null,
       },
     ],
+    offered: 2,
     ...over,
   });
 }
@@ -1222,6 +1224,16 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByText(/Auf dem Gaming-PC der Crew sind noch keine Spiele/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Fertig" }));
     expect(await screen.findByRole("heading", { name: "Ihr seid spielbereit!" })).toBeInTheDocument();
+  });
+
+  it("counts picking games as done after a reload while the crew's PCs have none to pick", async () => {
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, offered: 0 }) }],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+    expect(stubs()).toContain("Pick games:done");
+    expect(stubs()).toContain("Play:now");
   });
 
   it("leaves picking games for later while the crew has no date, so a PC in means ready", async () => {

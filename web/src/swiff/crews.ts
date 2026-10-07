@@ -86,6 +86,8 @@ export type CrewDetail = MyCrew & {
   busy: CrewBusy[];
   /** How many games the viewer marked to play. */
   picks: number;
+  /** How many games the crew's PCs have installed to pick from. */
+  offered: number;
 };
 
 /** When (Unix ms) another crew's Zockrunde already has one of the crew's PCs, and whose PC that is. */

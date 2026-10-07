@@ -215,7 +215,7 @@ type Step = { id: StepId; label: CopyKey; done: boolean; value?: string; change?
  * and plays. A step that cannot be done yet (answering before there is a date,
  * picking games before there is a date and a PC) is never the current one. Picking stays
  * open while the viewer is at it (`picking`), and is done once they marked a
- * game or said they are done (`picked`).
+ * game or said they are done (`picked`), or when the PCs in have none to pick.
  */
 export function crewSteps(
   crew: CrewDetail,
@@ -229,7 +229,7 @@ export function crewSteps(
   const games: Step = {
     id: "games",
     label: "g.stepGames",
-    done: !picking && (crew.picks > 0 || picked),
+    done: !picking && (crew.picks > 0 || picked || (session !== null && crew.pcs > 0 && crew.offered === 0)),
     value: crew.picks ? t(crew.picks === 1 ? "g.pickedOne" : "g.picked", { n: crew.picks }) : undefined,
     change: crew.pcs > 0,
   };

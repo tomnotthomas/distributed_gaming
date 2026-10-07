@@ -335,6 +335,8 @@ export type CrewDetail = MyCrew & {
   busy: CrewBusy[];
   /** How many games the one looking marked to play (wantCrewGame). */
   picks: number;
+  /** How many games the crew's PCs have installed to pick from. */
+  offered: number;
 };
 
 /**
@@ -2454,6 +2456,11 @@ export class Platform {
       crewId,
       userId,
     );
+    const offered = await this.#get<{ n: number }>(
+      `SELECT count(DISTINCT g.appid)::int AS n FROM machine_games g
+         JOIN crew_machines p ON p.machine_id = g.machine_id WHERE p.crew_id = $1`,
+      crewId,
+    );
     return {
       id: crewId,
       memberId: me.id,
@@ -2466,6 +2473,7 @@ export class Platform {
         return { at: Number(at), owner: owner === null ? null : (persona.get(owner) ?? null) };
       }),
       picks: picks?.n ?? 0,
+      offered: offered?.n ?? 0,
       members: members.map((m) => ({
         id: m.id,
         name: m.name,

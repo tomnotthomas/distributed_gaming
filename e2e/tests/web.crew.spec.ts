@@ -79,13 +79,11 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await offerCrewPc(request, true);
   await expect(friend.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
 
-  // They bring it, and the crew picks games (none on this PC yet), then is ready to play on it, on both pages.
+  // They bring it, and the crew is ready to play on it, on both pages.
   await friend.getByRole("button", { name: "Yes: put the app on my PC" }).click();
-  for (const page of [friend, founder]) {
-    await expect(page.getByRole("heading", { name: /^What do you want to play on / })).toBeVisible();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "The gaming PC is free. Who goes first?" })).toBeVisible();
-  }
+  const free = { name: "The gaming PC is free. Who goes first?" };
+  await expect(friend.getByRole("heading", free)).toBeVisible();
+  await expect(founder.getByRole("heading", free)).toBeVisible();
   await expect(founder.getByText("Jos PC is in. You're ready to play!")).toBeVisible();
 
   expect(founderErrors).toEqual([]);

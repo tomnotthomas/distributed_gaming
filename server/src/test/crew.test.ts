@@ -152,6 +152,7 @@ describe("crews", () => {
           machines: [],
           busy: [],
           picks: 0,
+          offered: 0,
         },
       );
       assert.deepEqual(crew.members, [
@@ -876,6 +877,7 @@ describe("crew API", () => {
     await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 730, want: true });
     await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 570, want: true });
     assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 2);
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.offered, 2);
 
     const sam = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.members.find(
       (m: { you: boolean }) => m.you,
@@ -886,6 +888,11 @@ describe("crew API", () => {
       (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks,
       0,
       "Sam's PC left with Sam",
+    );
+    assert.equal(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.offered,
+      0,
+      "nothing left to pick",
     );
   });
 
