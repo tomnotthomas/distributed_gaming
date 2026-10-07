@@ -309,6 +309,22 @@ describe("Lanterel OS's download", () => {
     expect(fs.existsSync(path.join(dir, MANIFEST))).toBe(false);
   }, 120_000);
 
+  it("fetches a part longer than listed again, without counting it twice", async () => {
+    const first = packed.manifest.download.files[splitFile("esp")].parts[0];
+    fs.mkdirSync(path.join(dir, PARTS_DIR), { recursive: true });
+    fs.writeFileSync(path.join(dir, PARTS_DIR, first.name), Buffer.alloc(first.bytes + 100));
+    const seen: { done: number; total: number }[] = [];
+    await downloadSet({
+      url: server.url,
+      dir,
+      trust,
+      onProgress: (p) => p.phase === "download" && seen.push(p),
+    });
+    expect(server.state.asked.find((a) => a.name === first.name)?.range).toBeNull();
+    expect(seen.every((p) => p.done <= p.total)).toBe(true);
+    expect(seen.at(-1)?.done).toBe(seen.at(-1)?.total);
+  }, 120_000);
+
   it("downloads from the release the build names, for its own version, over https only", () => {
     const named = (url: string) => ({ readFileSync: () => JSON.stringify({ url }) }) as unknown as typeof fs;
     expect(sourceOf({ readFileSync: () => "{}" } as unknown as typeof fs)).toBeNull();

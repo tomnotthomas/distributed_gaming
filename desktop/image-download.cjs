@@ -280,7 +280,11 @@ const diskError = (name, error) =>
  */
 async function fetchPart(fetchFn, url, file, part, onBytes, signal) {
   let have = Math.min(sizeOf(file), part.bytes);
-  if (have > 0 && sizeOf(file) > part.bytes) fs.truncateSync(file, (have = 0));
+  if (have > 0 && sizeOf(file) > part.bytes) {
+    // Counted as in already: it comes again from the start, so take that back.
+    onBytes(-have);
+    fs.truncateSync(file, (have = 0));
+  }
   if (have < part.bytes) {
     const { res, from } = await get(fetchFn, url, have, signal);
     if (from === 0 && have) onBytes(-have);
