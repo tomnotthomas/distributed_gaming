@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const statusScript = fileURLToPath(new URL("../vm/vm-status.sh", import.meta.url));
-const haveShell = spawnSync("sh", ["-c", "command -v timeout"]).status === 0;
+const haveShell = spawnSync("sh", ["-c", "command -v python3"]).status === 0;
+/** vm-run.py's state for these runs alone, and no memory asked of the PC beyond the VM's. */
+const vmEnv = { SWIFF_VM_STATE: mkdtempSync(join(tmpdir(), "swiff-vm-")), SWIFF_VM_HEADROOM: "0" };
 
 /** run-test.sh's end of a run: boot the VM, then judge it with the harness's status. */
 function vmRun(qemu: string, harnessStatus: number, timeout = 1) {
@@ -16,7 +21,7 @@ function vmRun(qemu: string, harnessStatus: number, timeout = 1) {
 sh -c "exit ${harnessStatus}" &
 harness=$!
 set +e
-boot_vm ${qemu}
+boot_vm /dev/null ${qemu}
 qemu=$?
 set -e
 status=0
@@ -24,7 +29,7 @@ run_status "$harness" "$qemu" || status=$?
 exit "$status"`,
       statusScript,
     ],
-    { env: { ...process.env, SWIFF_VM_TIMEOUT: String(timeout) }, timeout: 20_000 },
+    { env: { ...process.env, ...vmEnv, SWIFF_VM_TIMEOUT: String(timeout) }, timeout: 20_000 },
   );
   return run.status;
 }

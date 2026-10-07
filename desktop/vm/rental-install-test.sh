@@ -39,6 +39,8 @@
 # tools, and QEMU when /dev/kvm is not writable), qemu-system-x86_64, swtpm,
 # OVMF with Microsoft's keys, mtools, mkfs.fat, ntfs-3g ($NTFS_BIN, default
 # /usr/sbin), sgdisk, and a Python with virt-firmware ($VIRT_FW_PYTHON).
+# The VM gets 2 GiB and 4 vCPUs ($SWIFF_VM_CPUS), and starts through
+# swiff-os/vm/vm-run.py: it waits for room among this PC's test VMs.
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # disk is a sparse file and the firmware variables a copy of OVMF's template.
 set -euo pipefail
@@ -53,6 +55,7 @@ ntfs_bin=${NTFS_BIN:-/usr/sbin}
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
 ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
 boot_timeout=${BOOT_TIMEOUT:-600}
+vm_run=$here/../../swiff-os/vm/vm-run.py
 # Big enough that C: keeps 16 GiB free after giving Swiff OS its share.
 disk_bytes=$((64 * 1024 * 1024 * 1024))
 
@@ -76,10 +79,6 @@ done
 sudo -n true 2> /dev/null || die "needs sudo without a password, for loop devices"
 qemu=(qemu-system-x86_64)
 [ -w /dev/kvm ] || qemu=(sudo -n qemu-system-x86_64 -runas "$(id -un)")
-# One VM at a time, with room for its 2 GiB.
-! pgrep -x qemu-system-x86_64 > /dev/null || die "another VM is running"
-avail=$(free -m | awk '/^Mem:/ { print $7 }')
-[ "$avail" -ge 4096 ] || die "only ${avail} MiB of memory available, 4096 needed"
 
 mkdir -p "$run"
 exec 9> "$run/lock"
@@ -167,7 +166,8 @@ SWIFF_MOK_CODE=$code node "$here/apply-plan.cjs" install "$disk" "$set" "$run/fa
 # Boots the VM once; returns when it powers off or after the timeout. It runs
 # in the run directory, so the TPM's socket path stays under the 108 bytes a
 # UNIX socket path may have. With a code, it plays the owner at MokManager
-# instead (mok-drive.py), and stops once the firmware starts again.
+# instead (mok-drive.py), and stops once the firmware starts again. A boot whose
+# console is silent for 300 s is stopped too.
 boot_vm() { # boot-number timeout [mok-code]
 	local n=$1 serial=$run/serial-$1.log
 	log "Boot $n"
@@ -180,7 +180,7 @@ boot_vm() { # boot-number timeout [mok-code]
 	for _ in $(seq 50); do [ -S tpm/sock ] && break; sleep 0.1; done
 	local vm=("${qemu[@]}" \
 		-machine q35,smm=on,accel=kvm,kernel-irqchip=split \
-		-cpu host -smp 2 -m 2048 \
+		-cpu host -smp "${SWIFF_VM_CPUS:-4}" -m 2048 \
 		-global driver=cfi.pflash01,property=secure,value=on \
 		-global ICH9-LPC.disable_s3=1 \
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
@@ -195,9 +195,11 @@ boot_vm() { # boot-number timeout [mok-code]
 		-device virtio-net-pci,netdev=n0 \
 		-display none -vga none -monitor none)
 	if [ -n "${3:-}" ]; then
-		"$python" "$here/mok-drive.py" "$serial" confirm "$3" -- "${vm[@]}" && mok_confirmed=1 || true
+		"$python" "$here/mok-drive.py" "$serial" confirm "$3" -- \
+			"$vm_run" --name "rental-boot$n" --timeout "$2" -- "${vm[@]}" && mok_confirmed=1 || true
 	else
-		timeout "$2" "${vm[@]}" -serial "file:$serial" || true
+		"$vm_run" --name "rental-boot$n" --timeout "$2" --stall 300 --progress "$serial" -- \
+			"${vm[@]}" -serial "file:$serial" || true
 	fi
 	kill "$swtpm_pid" 2> /dev/null || true
 	wait "$swtpm_pid" 2> /dev/null || true

@@ -299,7 +299,9 @@ function prepare() {
   // Raw: swiff-hostd formats it as LUKS2 itself the first time the server has no key share for it.
   writeFileSync(join(RUN, "state.img"), "");
   execFileSync("truncate", ["-s", "64M", join(RUN, "state.img")]);
-  execFileSync("cp", ["--sparse=always", IMAGE, join(RUN, "disk.raw")]);
+  // The build stays as it is: the VM writes to an overlay of it.
+  const overlay = ["-f", "qcow2", "-b", IMAGE, "-F", "raw"];
+  execFileSync("qemu-img", ["create", "-q", ...overlay, join(RUN, "disk.qcow2")]);
   copyFileSync(OVMF_VARS, join(RUN, "vars.fd"));
 }
 
@@ -557,13 +559,22 @@ function watchSerial() {
 /** The first serial console line matching `pattern`, in boot `inBoot` when given. */
 const seen = (pattern, inBoot) =>
   vmLines.find((l) => (inBoot === undefined || l.boot === inBoot) && pattern.test(l.line));
-/** Waits up to `ms` for the VM to report step `name`, and records it failed when it never does. */
+/** Waits up to `ms` for the VM to report step `name`, and records it failed when it never does or the VM stopped. */
 const waitVm = (name, ms) =>
-  until(() => results.get(name), name, ms).catch(() => record(name, false, "never reported"));
+  until(() => results.get(name) ?? (vmStopped && { stopped: vmStopped }), name, ms).then(
+    (r) => r.stopped && record(name, false, r.stopped),
+    () => record(name, false, "never reported"),
+  );
 
-/** The running VM's swtpm and QEMU. */
+/** The running VM's QEMU (its vm-run.py) and swtpm. */
 let vm = [];
-/** Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. `extra`: more QEMU arguments. */
+/** Why the VM stopped on its own, when vm-run.py or QEMU failed: the VM's waits end with it. */
+let vmStopped = null;
+/**
+ * Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. `extra`: more QEMU arguments.
+ * QEMU starts through vm-run.py, which waits for room among the PC's test VMs and stops it
+ * when its console is silent for 10 minutes or it runs past an hour.
+ */
 function startVm(extra = []) {
   const tpm = join(RUN, "tpm");
   rmSync(`${tpm}/sock`, { force: true });
@@ -572,15 +583,17 @@ function startVm(extra = []) {
   ]);
   return until(() => existsSync(`${tpm}/sock`), "swtpm", 10_000).then(() => {
     const qemu = child(
-      "qemu-system-x86_64",
+      join(dirname(fileURLToPath(import.meta.url)), "vm-run.py"),
       [
+        ...["--name", "session", "--timeout", "3600", "--stall", "600", "--progress", serial, "--"],
+        "qemu-system-x86_64",
         ...[
           "-machine",
           "q35,smm=on,accel=kvm,kernel-irqchip=split",
           "-cpu",
           "host",
           "-smp",
-          "2",
+          process.env.SWIFF_VM_CPUS ?? "4",
           "-m",
           "2048",
         ],
@@ -590,7 +603,8 @@ function startVm(extra = []) {
         ...["-device", "intel-iommu,intremap=on"],
         ...["-chardev", `socket,id=chrtpm,path=${tpm}/sock`, "-tpmdev", "emulator,id=tpm0,chardev=chrtpm"],
         ...["-device", "tpm-crb,tpmdev=tpm0"],
-        ...["-drive", `if=none,id=os,format=raw,file=${join(RUN, "disk.raw")}`],
+        // QEMU's default cache: a cut power (powerOff) loses only what the guest had not flushed.
+        ...["-drive", `if=none,id=os,format=qcow2,file=${join(RUN, "disk.qcow2")}`],
         ...["-device", "virtio-blk-pci,drive=os,bootindex=1"],
         ...["-drive", `if=none,id=fix,format=raw,readonly=on,file=${join(RUN, "fixtures.img")}`],
         ...["-device", "virtio-blk-pci,drive=fix"],
@@ -604,19 +618,29 @@ function startVm(extra = []) {
       ],
       { stdio: ["ignore", "ignore", openSync(join(RUN, "qemu.log"), "a")] },
     );
+    qemu.on("exit", (code) => {
+      // vm-run.py stopped it (no room, a hang, the PC out of memory) or QEMU failed: say why now.
+      if (code)
+        vmStopped = `the VM stopped (exit ${code}): ${readFileSync(join(RUN, "qemu.log"), "utf8").trim()}`;
+      if (code) console.log(`----  ${vmStopped}`);
+    });
     vm = [qemu, swtpm];
     return qemu;
   });
 }
 
-/** Cuts the VM's power: QEMU and its TPM stop at once, as at the wall. */
+/**
+ * Cuts the VM's power: QEMU and its TPM stop at once, as at the wall. vm-run.py takes SIGUSR1
+ * as the cut: it kills QEMU with SIGKILL and exits once QEMU has.
+ */
 async function powerOff() {
-  for (const proc of vm) {
+  for (const [i, proc] of vm.entries()) {
     if (proc.exitCode !== null || proc.signalCode !== null) continue;
     const exited = new Promise((r) => proc.once("exit", r));
-    proc.kill("SIGKILL");
+    proc.kill(i === 0 ? "SIGUSR1" : "SIGKILL");
     await exited;
   }
+  vmStopped = null;
 }
 
 // --- The renter --------------------------------------------------------------------------

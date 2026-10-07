@@ -4,15 +4,18 @@
 # and a real browser on this host (harness.mjs) and the streamer, its capture
 # and its virtual devices inside the VM (mkosi.extra/usr/libexec/swiff/streamer-vmtest).
 #
-#   swiff-os/streamer/vm/run-test.sh             build the image, then run the test
+#   swiff-os/streamer/vm/run-test.sh             build the image if what goes into it
+#                                                changed, then run the test
+#   swiff-os/streamer/vm/run-test.sh --rebuild   build the image anyway
 #   swiff-os/streamer/vm/run-test.sh --no-build  run it on the last build
 #   swiff-os/streamer/vm/run-test.sh --build-only  build the image, start no VM
 #
 # It touches nothing of this PC but its own build directory: no disks, boot
 # entries or firmware variables. mkosi 20 builds as root, so the build uses
 # sudo; so does QEMU when this user cannot open /dev/kvm, and it drops back to
-# this user (-runas) before the VM starts. The VM gets 2 GiB and 2 vCPUs, and
-# the test waits while another VM runs or the PC is short of memory.
+# this user (-runas) before the VM starts. The VM gets 2 GiB and 4 vCPUs
+# ($SWIFF_VM_CPUS), and the test waits for room among this PC's test VMs
+# (swiff-os/vm/vm-run.py).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -29,25 +32,13 @@ NODE_SHA256=df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
 
 no_build=0
 build_only=0
+rebuild=0
 case "${1:-}" in
 --no-build) no_build=1 ;;
 --build-only) build_only=1 ;;
+--rebuild) rebuild=1 ;;
 esac
-
-# One VM at a time on this PC, and only with memory to spare.
-wait_for_room() {
-    tries=0
-    while pgrep -x 'qemu-system-.*' >/dev/null 2>&1 ||
-        [ "$(free -m | awk '/^Mem:/ {print $7}')" -lt 4096 ]; do
-        tries=$((tries + 1))
-        if [ "$tries" -gt 20 ]; then
-            echo "run-test: no room for a VM after 60 minutes (another VM, or under 4 GB free)" >&2
-            exit 1
-        fi
-        echo "run-test: another VM is running or memory is short; checking again in 3 minutes"
-        sleep 180
-    done
-}
+cpus=${SWIFF_VM_CPUS:-4}
 
 echo "== building the streamer, the server and the web app"
 (cd "$repo" && npm run build -w @swiff/os-streamer && npm run build -w @swiff/server && npm run build -w @swiff/web) >/dev/null
@@ -77,9 +68,19 @@ if [ "$no_build" = 0 ] || [ ! -e "$build/out/swiff-streamer-vmtest.raw" ]; then
     cp "$streamer/system/swiff-pipewire-grant" "$stage/usr/libexec/swiff/"
     cp "$streamer/system/swiff-pipewire-grant.service" "$stage/usr/lib/systemd/user/"
 
-    echo "== building the test image (the first build downloads about 1 GB)"
-    sudo mkosi -C "$here" --output-dir "$build/out" --cache-dir "$build/cache" \
-        --force build
+    # The image is built again only when what goes into it changed.
+    key=$("$here/../../vm/inputs-key.py" --with "$NODE_SHA256" --with "$(mkosi --version)" \
+        "$here/mkosi.conf" "$here/mkosi.images" "$stage")
+    if [ "$rebuild" = 1 ] || [ ! -e "$build/out/swiff-streamer-vmtest.raw" ] ||
+        [ "$(cat "$build/out/inputs.key" 2>/dev/null)" != "$key" ]; then
+        echo "== building the test image, inputs $key (the first build downloads about 1 GB)"
+        rm -f "$build/out/inputs.key"
+        sudo mkosi -C "$here" --output-dir "$build/out" --cache-dir "$build/cache" \
+            --force build
+        echo "$key" >"$build/out/inputs.key"
+    else
+        echo "== the test image is up to date with its inputs ($key): not rebuilding"
+    fi
 fi
 [ "$build_only" = 1 ] && exit 0
 
@@ -92,7 +93,8 @@ if [ "$have_chromium" = 0 ]; then
     (cd "$repo" && PLAYWRIGHT_BROWSERS_PATH="$browsers" npx playwright install chromium-headless-shell) >/dev/null
 fi
 
-wait_for_room
+# The harness gives the VM only so long to come up: room for it first.
+"$here/../../vm/vm-run.py" --name streamer --room 2048
 
 server_port=$((20000 + $(od -An -N2 -tu2 /dev/urandom) % 20000))
 harness_port=$((server_port + 1))
@@ -126,11 +128,11 @@ cp /usr/share/OVMF/OVMF_VARS_4M.fd "$vars"
 kvm_sudo=""
 [ -r /dev/kvm ] && [ -w /dev/kvm ] || kvm_sudo="sudo"
 
-echo "== booting the VM (2 GiB, 2 vCPUs); its console is in $build/console.log"
+echo "== booting the VM (2 GiB, $cpus vCPUs); its console is in $build/console.log"
 set +e
-boot_vm $kvm_sudo qemu-system-x86_64 \
+boot_vm "$build/console.log" $kvm_sudo qemu-system-x86_64 \
     ${kvm_sudo:+-runas "$(id -un)"} \
-    -machine q35,accel=kvm -cpu host -smp 2 -m 2048 \
+    -machine q35,accel=kvm -cpu host -smp "$cpus" -m 2048 \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,file="$vars" \
     -drive file="$build/out/swiff-streamer-vmtest.raw",format=raw,if=virtio,snapshot=on \

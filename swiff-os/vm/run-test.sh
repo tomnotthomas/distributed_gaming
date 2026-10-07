@@ -43,15 +43,21 @@
 # (Ctrl+Alt+Del, VT switches) on the VM's keyboard, through QEMU's monitor,
 # and checks that none of them rebooted the VM.
 #
-# Usage: vm/run-test.sh [--no-build]
+# Usage: vm/run-test.sh [--no-build|--rebuild]
 #
-# Build output, caches and the VM's files go to $SWIFF_OS_BUILD_DIR
-# (default ~/.cache/swiff-os).
+# The image is built by vm/build-image.sh only when what goes into it changed;
+# --rebuild builds it anyway, and --no-build takes the last build as it is.
+# Every run starts from that build through a copy-on-write overlay. Build
+# output, caches and the VM's files go to $SWIFF_OS_BUILD_DIR (default
+# ~/.cache/swiff-os).
 #
 # Needs: sudo (mkosi 20 builds as root; the NTFS library is filled through
 # ntfs-3g from the build's tools tree), qemu-system-x86_64, swtpm, OVMF
 # (/usr/share/OVMF), /dev/kvm, bwrap, python3 with cryptography (for the test's
-# Steam manifests). The VM gets 2 GiB of RAM and 2 vCPUs.
+# Steam manifests). The VM gets 2 GiB of RAM and 4 vCPUs ($SWIFF_VM_CPUS), and
+# starts through vm/vm-run.py: it waits for room among this PC's test VMs, and
+# a boot is stopped when it outlasts $BOOT_TIMEOUT (600 s) or its console is
+# silent for $BOOT_STALL seconds (300).
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
 # VM's firmware variables are a copy of OVMF's empty template in the run directory.
 set -euo pipefail
@@ -61,7 +67,7 @@ image_dir=$(cd "$here/../image" && pwd)
 # Build output and caches stay outside the source tree (see image/mkosi.conf).
 build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 out=$build_dir/output
-# The VM's disk copy (24 GiB, sparse), firmware variables, TPM state and logs.
+# The VM's disk overlay, firmware variables, TPM state and logs.
 run=$build_dir/vm
 
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
@@ -69,13 +75,16 @@ ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
 # trusts only what systemd-boot enrols from the image.
 ovmf_vars=/usr/share/OVMF/OVMF_VARS_4M.fd
 boot_timeout=${BOOT_TIMEOUT:-600}
+boot_stall=${BOOT_STALL:-300}
+cpus=${SWIFF_VM_CPUS:-4}
 
 build=1
 for arg in "$@"; do
 	case $arg in
 	--no-build) build=0 ;;
+	--rebuild) build=2 ;;
 	*)
-		echo "usage: $0 [--no-build]" >&2
+		echo "usage: $0 [--no-build|--rebuild]" >&2
 		exit 2
 		;;
 	esac
@@ -89,7 +98,7 @@ die() {
 	exit 1
 }
 
-for tool in qemu-system-x86_64 swtpm mkosi bwrap sfdisk mkfs.ext4 debugfs; do
+for tool in qemu-system-x86_64 qemu-img swtpm mkosi bwrap sfdisk mkfs.ext4 debugfs; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
 python3 -c 'import cryptography' 2> /dev/null || die "python3 cryptography not found (python3-cryptography)"
@@ -112,25 +121,15 @@ exec 9> "$run/lock"
 flock -n 9 || die "another run-test.sh is running"
 
 # --- Build -------------------------------------------------------------------
-if [ ! -e "$image_dir/mkosi.key" ]; then
-	log "Generating a VM-only test Secure Boot key"
-	# The private key is unencrypted (mkosi signs non-interactively), so it
-	# is created readable by its owner only.
-	(
-		umask 077
-		openssl req -new -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
-			-subj "/CN=Lanterel OS VM test Secure Boot key/" \
-			-keyout "$image_dir/mkosi.key" -out "$image_dir/mkosi.crt"
-	)
+if [ "$build" = 0 ]; then
+	disk_src=$out/swiffos-selftest.raw
+	uki=$out/swiffos-selftest.efi
+else
+	log "The test image (vm/build-image.sh selftest)"
+	base=$("$here/build-image.sh" selftest $([ "$build" = 2 ] && echo --rebuild))
+	disk_src=$base.raw
+	uki=$base.efi
 fi
-if [ "$build" = 1 ]; then
-	log "Building the test image (mkosi --profile=selftest)"
-	mkdir -p "$out" "$build_dir/cache"
-	"$image_dir/stage.sh" "$out"
-	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" --profile=selftest -f build
-fi
-disk_src=$out/swiffos-selftest.raw
-uki=$out/swiffos-selftest.efi
 tools=$out/ubuntu-tools
 [ -e "$disk_src" ] || die "$disk_src not built"
 [ -x "$tools/usr/bin/ntfs-3g" ] || die "ntfs-3g missing from the tools tree $tools (rebuild without --no-build)"
@@ -144,8 +143,9 @@ in_tools() {
 
 # --- Prepare the VM ----------------------------------------------------------
 log "Preparing the VM in $run"
-rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.fd "$run"/*.img "$run/games" "$run/mnt"
-cp --sparse=always "$disk_src" "$run/disk.raw"
+rm -rf "$run/tpm" "$run"/*.log "$run"/*.raw "$run"/*.qcow2 "$run"/*.fd "$run"/*.img "$run/games" "$run/mnt"
+# The build stays as it is: the VM writes to an overlay of it.
+qemu-img create -q -f qcow2 -b "$disk_src" -F raw "$run/disk.qcow2"
 cp "$ovmf_vars" "$run/vars.fd"
 mkdir -p "$run/tpm"
 
@@ -185,7 +185,7 @@ fixtures() { # phase
 ntfs_cat() { in_tools ntfscat "$games_img" "$1" 2> /dev/null; }
 
 # Where the scratch partition sits in the disk image, for the host-side checks.
-read -r scratch_start scratch_sectors < <(sfdisk -J "$run/disk.raw" |
+read -r scratch_start scratch_sectors < <(sfdisk -J "$disk_src" |
 	python3 -c 'import json,sys
 for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
     if p.get("name") == "swiff-scratch": print(p["start"], p["size"])')
@@ -241,10 +241,10 @@ boot_vm() { # boot number
 	drive_keys "$serial" &
 	local keys_pid=$!
 
-	local rc=0
-	timeout "$boot_timeout" "${qemu[@]}" \
+	"$here/vm-run.py" --name "selftest-boot$n" --timeout "$boot_timeout" \
+		--stall "$boot_stall" --progress "$serial" -- "${qemu[@]}" \
 		-machine q35,smm=on,accel=kvm,kernel-irqchip=split \
-		-cpu host -smp 2 -m 2048 \
+		-cpu host -smp "$cpus" -m 2048 \
 		-global driver=cfi.pflash01,property=secure,value=on \
 		-global ICH9-LPC.disable_s3=1 \
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
@@ -253,28 +253,35 @@ boot_vm() { # boot number
 		-chardev socket,id=chrtpm,path="$run/tpm/sock" \
 		-tpmdev emulator,id=tpm0,chardev=chrtpm \
 		-device tpm-crb,tpmdev=tpm0 \
-		-drive if=none,id=os,format=raw,file="$run/disk.raw" \
+		-drive if=none,id=os,format=qcow2,cache=unsafe,file="$run/disk.qcow2" \
 		-device virtio-blk-pci,drive=os,bootindex=1 \
-		-drive if=none,id=games,format=raw,file="$games_img" \
+		-drive if=none,id=games,format=raw,cache=unsafe,file="$games_img" \
 		-device virtio-blk-pci,drive=games \
 		-drive if=none,id=fixtures,format=raw,readonly=on,file="$run/fixtures.img" \
 		-device virtio-blk-pci,drive=fixtures \
 		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
 		-display none -vga none -monitor "pipe:$run/monitor" \
-		-serial "file:$serial" || rc=$?
+		-serial "file:$serial" || true
 	kill "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	wait "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
-	[ "$rc" = 124 ] && echo "boot $n timed out after ${boot_timeout}s" >&2
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
 		die "boot $n did not finish the self-test (serial log: $serial)"
 	}
 }
 
-# Hashes the first 4 MiB of the scratch partition in the disk image.
+# Writes the first $1 bytes of the scratch partition, as the VM left it, to
+# $run/scratch.raw (sparse).
+scratch_copy() { # bytes
+	rm -f "$run/scratch.raw"
+	qemu-img convert -O raw "json:{\"driver\":\"raw\",\"offset\":$((scratch_start * 512)),\"size\":$1,\"file\":{\"driver\":\"qcow2\",\"file\":{\"driver\":\"file\",\"filename\":\"$run/disk.qcow2\"}}}" "$run/scratch.raw"
+}
+# Hashes the first 4 MiB of the scratch partition.
 scratch_digest() {
-	dd if="$run/disk.raw" bs=512 skip="$scratch_start" count=8192 status=none | sha256sum | cut -d' ' -f1
+	scratch_copy $((4 * 1024 * 1024))
+	sha256sum < "$run/scratch.raw" | cut -d' ' -f1
+	rm -f "$run/scratch.raw"
 }
 
 # Boots the firmware alone with the same TPM, as the owner's Windows would
@@ -287,9 +294,9 @@ foreign_boot() {
 		--log file="$run/swtpm-foreign.log" &
 	local swtpm_pid=$!
 	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
-	timeout 30 "${qemu[@]}" \
+	"$here/vm-run.py" --name selftest-foreign --timeout 30 -- "${qemu[@]}" \
 		-machine q35,smm=on,accel=kvm,kernel-irqchip=split \
-		-cpu host -smp 2 -m 2048 \
+		-cpu host -smp "$cpus" -m 2048 \
 		-global driver=cfi.pflash01,property=secure,value=on \
 		-global ICH9-LPC.disable_s3=1 \
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
@@ -310,11 +317,11 @@ boot_vm 1
 digest1=$(scratch_digest)
 token=$(sed -n 's/^.*SWIFF-SELFTEST INFO marker \(.*\)$/\1/p' "$run/serial-1.log" | tr -d '\r' | tail -n1)
 plaintext=absent
-if [ -n "$token" ] &&
-	dd if="$run/disk.raw" bs=1M iflag=skip_bytes,count_bytes skip=$((scratch_start * 512)) \
-		count=$((scratch_sectors * 512)) status=none | grep -aqF "$token"; then
+scratch_copy $((scratch_sectors * 512))
+if [ -n "$token" ] && grep -aqF "$token" "$run/scratch.raw"; then
 	plaintext=found
 fi
+rm -f "$run/scratch.raw"
 
 games_token=$(sed -n 's/^.*SWIFF-SELFTEST INFO games-marker \(.*\)$/\1/p' "$run/serial-1.log" | tr -d '\r' | tail -n1)
 games_plaintext=absent
@@ -491,7 +498,7 @@ if [ "$ext4_apps" = "1001 1003" ]; then
 else
 	result FAIL games-bootstrap-on-ext4 "table apps '${ext4_apps}'"
 fi
-disk_bytes=$(stat -c %s "$run/disk.raw")
+disk_bytes=$(stat -c %s "$disk_src")
 if [ "$disk_bytes" -le $((24 * 1024 * 1024 * 1024)) ]; then
 	result PASS size-budget "disk image $((disk_bytes / 1024 / 1024)) MiB <= 24 GiB"
 else
