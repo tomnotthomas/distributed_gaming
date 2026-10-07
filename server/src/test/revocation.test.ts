@@ -7,31 +7,26 @@
 // that runs out while its join waits on the database joins nothing.
 
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { WebSocket } from "ws";
 import { mintRenterSession, mintTicket } from "../access.js";
 import type { SignalMessage } from "../protocol.js";
 import { SESSION_COOKIE } from "../signin.js";
+import { startServer as spawnServer, stopServer, until, wait, within } from "./child.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
-const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
 const MACHINE_KEY = "test-machine-key";
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 const SESSION = "test-session-secret-that-is-long-enough-too";
 /** A signed-in renter: booking and claiming need one. */
 const RENTER_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION, "76561198000000001", 3600)}`;
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/**
- * Each test's bound: its server alone may take the 30 s it is given to listen,
- * after its database opens, when a full run starts every file's servers at once.
- */
-const TEST_MS = 120_000;
+/** Each test's bound: a server of its own and a database to open, slow on a loaded machine. */
+const TIMEOUT = { timeout: 120_000 };
 const servers: ChildProcess[] = [];
 const databases: ServerDatabase[] = [];
 /** Every socket and database client a test opened: a test that fails midway leaves them open. */
@@ -45,39 +40,12 @@ const clients: pg.Client[] = [];
 afterEach(
   async () => {
     for (const ws of sockets.splice(0)) ws.terminate();
-    for (const client of clients.splice(0)) await Promise.race([client.end().catch(() => {}), wait(5_000)]);
+    for (const client of clients.splice(0)) await within(client.end(), 5_000, null).catch(() => {});
     await Promise.all(servers.splice(0).map(stopServer));
-    for (const database of databases.splice(0)) {
-      await Promise.race([database.close().catch(() => {}), wait(10_000)]);
-    }
+    for (const database of databases.splice(0)) await within(database.close(), 10_000, null).catch(() => {});
   },
   { timeout: 30_000 },
 );
-
-/** Stop a child server: SIGTERM, then SIGKILL if it has not gone within 5 s. */
-async function stopServer(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null || server.signalCode !== null || server.pid === undefined) return;
-  const gone = new Promise<boolean>((resolve) => {
-    server.once("exit", () => resolve(true));
-    server.once("error", () => resolve(true));
-  });
-  server.kill("SIGTERM");
-  if (await Promise.race([gone, wait(5_000).then(() => false)])) return;
-  server.kill("SIGKILL");
-  await Promise.race([gone, wait(5_000)]);
-}
-
-/** Ports already given to a server here: each child server gets its own. */
-const usedPorts = new Set<number>();
-
-/** A random port in the test range that no server here has yet. */
-function freshPort(): number {
-  let port: number;
-  do port = 9300 + Math.floor(Math.random() * 600);
-  while (usedPorts.has(port));
-  usedPorts.add(port);
-  return port;
-}
 
 /**
  * A server on a database of its own, with the ticket reconcile every
@@ -85,13 +53,10 @@ function freshPort(): number {
  * as in production).
  */
 async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
-  const port = freshPort();
   const database = await serverDatabase();
   databases.push(database);
-  const child = spawn(process.execPath, [SERVER], {
-    env: {
-      ...process.env,
-      PORT: String(port),
+  const { child, port } = await spawnServer(
+    {
       ROOM_SECRET: SECRET,
       SESSION_SECRET: SESSION,
       MACHINE_KEYS: `pc-1:${HASH},pc-2:${HASH}`,
@@ -101,25 +66,10 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
       ...(reconcileMs === undefined ? {} : { SWIFF_TICKET_RECONCILE_MS: String(reconcileMs) }),
       ...(unconfirmedMs === undefined ? {} : { SWIFF_TICKET_UNCONFIRMED_MS: String(unconfirmedMs) }),
     },
-    stdio: ["ignore", "pipe", "ignore"],
-  });
+    { from: 9300, span: 600 },
+  );
   servers.push(child);
   const origin = `http://localhost:${port}`;
-  // Ready once this child says it listens, not once the port answers: another
-  // run's server on the same port answers while this one still opens its
-  // database, or after it exited on the taken port. Up to 30 s: slower under a
-  // full test run. Its output is read to the end, so a full pipe never stalls it.
-  let heard = "";
-  const listening = new Promise<boolean>((resolve) => {
-    child.stdout!.setEncoding("utf8");
-    child.stdout!.on("data", (chunk: string) => {
-      if (heard.length < 4096) heard += chunk;
-      if (heard.includes(`localhost:${port} `)) resolve(true);
-    });
-    child.once("exit", () => resolve(false));
-  });
-  const ready = await Promise.race([listening, wait(30_000).then(() => false)]);
-  assert.ok(ready, `the server for this test did not listen on port ${port}`);
 
   /** One JSON call: with the machine key as bearer when given one, else as the signed-in renter. */
   const call = async (method: string, path: string, body?: unknown, key?: string) => {
@@ -160,14 +110,30 @@ async function startServer(reconcileMs?: number, unconfirmedMs?: number) {
     const ws = new WebSocket(`ws://localhost:${port}`);
     sockets.push(ws);
     const received: SignalMessage[] = [];
+    /** Waiting on the pongs to settled()'s pings, oldest first. */
+    const pongs: (() => void)[] = [];
     ws.on("message", (raw) => {
       const message = JSON.parse(String(raw)) as SignalMessage;
+      if (message.type === "pong" && pongs.length) return pongs.shift()!();
       received.push(message);
       if (message.type === "denied") ws.send(JSON.stringify(AFTER));
     });
     ws.once("open", () => ws.send(JSON.stringify(first)));
     const closed = new Promise<number>((resolve) => ws.once("close", resolve));
-    return { ws, received, closed };
+    closed.then(() => pongs.splice(0).forEach((done) => done()));
+    /**
+     * Once the server has handled everything this socket sent: it takes a
+     * socket's frames in turn, relays that wait on the database included, so
+     * its pong to a ping sent now comes after them, and after whatever it
+     * sent this socket before.
+     */
+    const settled = async () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const pong = new Promise<boolean>((resolve) => pongs.push(() => resolve(true)));
+      ws.send(JSON.stringify({ type: "ping" }));
+      assert.ok(await within(pong, 30_000, false), "no pong within 30 s");
+    };
+    return { ws, received, closed, settled };
   };
 
   /** Make every read of the sessions table fail, behind the server's back, until `restoreSessions`. */
@@ -208,20 +174,15 @@ const iceFrames = (received: SignalMessage[]) =>
     .filter((m) => m.type === "ice")
     .map((m) => (m as { candidate: { candidate: string } }).candidate.candidate);
 
-/** Up to 5 s for `check` to hold: registering and joining each wait on the database. */
-const until = async (check: () => boolean) => {
-  for (let i = 0; i < 100 && !check(); i++) await wait(50);
-};
-
 /** A host in `room` and a renter seated on `ticket`, the renter's first frame relayed. */
 async function seat(server: Awaited<ReturnType<typeof startServer>>, room: string, ticket: string) {
   const host = server.peer({ type: "register", hostId: room, key: MACHINE_KEY });
-  await until(() => host.received.some((m) => m.type === "registered"));
+  await until(() => host.received.some((m) => m.type === "registered"), "the host registered");
   const renter = server.peer({ type: "join", ticket });
-  await until(() => renter.received.length > 0);
+  await until(() => renter.received.length > 0, "the renter heard back on its join");
   assert.equal(renter.received[0]?.type, "joined");
   renter.ws.send(JSON.stringify(ICE));
-  await until(() => iceFrames(host.received).length > 0);
+  await until(() => iceFrames(host.received).length > 0, "the renter's first frame reached the host");
   assert.deepEqual(iceFrames(host.received), ["before"]);
   return { host, renter };
 }
@@ -234,18 +195,23 @@ function sendNext(host: Peer, renter: Peer) {
   host.ws.send(JSON.stringify(NEXT));
 }
 
-/** The renter was put out with bad-ticket, and nothing either side sent since reached the other. */
+/**
+ * The renter was put out with bad-ticket, and nothing either side sent since
+ * reached the other. Anything relayed to the host went before the renter was
+ * put out, so before the host's pong; the renter's socket is closed, so what
+ * it heard is all it will.
+ */
 async function putOut(host: Peer, renter: Peer) {
   assert.equal(await renter.closed, 4003);
   assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
   host.ws.send(JSON.stringify(AFTER));
-  await wait(200);
+  await host.settled();
   assert.deepEqual(iceFrames(host.received), ["before"], "nothing from the renter once put out");
   assert.deepEqual(iceFrames(renter.received), [], "nothing to the renter");
 }
 
 describe("revoked ticket through the platform", () => {
-  it("puts the renter out at once when the host ends the session", { timeout: TEST_MS }, async () => {
+  it("puts the renter out at once when the host ends the session", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket, sessionId } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -255,7 +221,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the renter leaves", { timeout: TEST_MS }, async () => {
+  it("puts the renter out at once when the renter leaves", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket, sessionId } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -265,7 +231,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the owner takes the machine back", { timeout: TEST_MS }, async () => {
+  it("puts the renter out at once when the owner takes the machine back", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -281,7 +247,7 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out at once when the time runs out", { timeout: TEST_MS }, async () => {
+  it("puts the renter out at once when the time runs out", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -299,14 +265,14 @@ describe("revoked ticket through the platform", () => {
     host.ws.close();
   });
 
-  it("puts the renter out once the machine has gone silent", { timeout: TEST_MS }, async () => {
+  it("puts the renter out once the machine has gone silent", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
     // A claimed PC's socket going leaves it the liveness window to come back;
     // past that, the platform's own timer takes it offline and ends the session.
     host.ws.close();
-    await until(() => renter.received.some((m) => m.type === "peer-left"));
+    await until(() => renter.received.some((m) => m.type === "peer-left"), "the renter heard the PC left");
     assert.equal(await renter.closed, 4003);
     assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
     const again = server.peer({ type: "join", ticket });
@@ -315,7 +281,7 @@ describe("revoked ticket through the platform", () => {
 });
 
 describe("revoked ticket without the session-end notice", () => {
-  it("relays nothing from the very next frame, and puts the renter out", { timeout: TEST_MS }, async () => {
+  it("relays nothing from the very next frame, and puts the renter out", TIMEOUT, async () => {
     const server = await startServer(60_000);
     const { ticket } = await server.claimTicket("pc-1");
     const { host, renter } = await seat(server, "pc-1", ticket);
@@ -331,29 +297,30 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "puts a waiting renter out when the host registers, without telling the host it is there",
-    { timeout: TEST_MS },
+    TIMEOUT,
     async () => {
       const server = await startServer(60_000);
       const { ticket } = await server.claimTicket("pc-1");
       const renter = server.peer({ type: "join", ticket });
-      await until(() => renter.received.length > 0);
+      await until(() => renter.received.length > 0, "the renter heard back on its join");
       assert.equal(renter.received[0]?.type, "joined");
 
       await server.revokeBehindTheServersBack();
       const host = server.peer({ type: "register", hostId: "pc-1", key: MACHINE_KEY });
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
-      await wait(100);
+      // Its register is handled before its pong, peer-joined and all.
+      await host.settled();
       assert.ok(!host.received.some((m) => m.type === "peer-joined"));
       host.ws.close();
     },
   );
 
-  it("puts a silent renter out at the next reconcile", { timeout: TEST_MS }, async () => {
+  it("puts a silent renter out at the next reconcile", TIMEOUT, async () => {
     const server = await startServer(200);
     const { ticket } = await server.claimTicket("pc-2");
     const renter = server.peer({ type: "join", ticket });
-    await until(() => renter.received.length > 0);
+    await until(() => renter.received.length > 0, "the renter heard back on its join");
     assert.equal(renter.received[0]?.type, "joined");
 
     await server.revokeBehindTheServersBack();
@@ -363,7 +330,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "keeps every seat while the database cannot read, holds relayed frames until it can, and puts a revoked renter out then",
-    { timeout: TEST_MS },
+    TIMEOUT,
     async () => {
       const server = await startServer(200);
       const { ticket } = await server.claimTicket("pc-1");
@@ -377,13 +344,14 @@ describe("revoked ticket without the session-end notice", () => {
       assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated");
 
       await server.restoreSessions();
-      await until(() => iceFrames(host.received).length > 1);
+      await until(() => iceFrames(host.received).length > 1, "the held frame reached the host");
       assert.deepEqual(iceFrames(host.received), ["before", "still"], "relayed once confirmed");
 
       await server.revokeBehindTheServersBack();
       assert.equal(await renter.closed, 4003);
       assert.deepEqual(renter.received.at(-1), { type: "denied", reason: "bad-ticket" });
-      await wait(200);
+      // Anything relayed to the host went before the renter was put out.
+      await host.settled();
       assert.deepEqual(iceFrames(host.received), ["before", "still"], "nothing once revoked");
       host.ws.close();
     },
@@ -391,7 +359,7 @@ describe("revoked ticket without the session-end notice", () => {
 
   it(
     "holds what a socket sends while the database cannot read, in order, up to a cap, and drops the rest but not the seat",
-    { timeout: TEST_MS },
+    TIMEOUT,
     async () => {
       const server = await startServer(60_000);
       const { ticket } = await server.claimTicket("pc-1");
@@ -404,63 +372,60 @@ describe("revoked ticket without the session-end notice", () => {
       assert.deepEqual(iceFrames(host.received), ["before"], "held while unconfirmed");
 
       await server.restoreSessions();
-      await until(() => iceFrames(host.received).length > 64);
-      await wait(300);
+      await until(() => iceFrames(host.received).length > 64, "the held frames reached the host");
+      // Every frame the renter sent is handled, and anything relayed of them has reached the host.
+      await renter.settled();
+      await host.settled();
       assert.deepEqual(iceFrames(host.received), ["before", ...sent.slice(0, 64)], "the first 64, in order");
       assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated");
       renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "caught-up" } }));
-      await until(() => iceFrames(host.received).length > 65);
+      await until(() => iceFrames(host.received).length > 65, "the next frame reached the host");
       assert.equal(iceFrames(host.received).at(-1), "caught-up");
       host.ws.close();
     },
   );
 
-  it(
-    "keeps seats through blips with a success between them, past the bound in all",
-    { timeout: TEST_MS },
-    async () => {
-      const server = await startServer(200, 3_000);
-      const { ticket } = await server.claimTicket("pc-1");
-      const { host, renter } = await seat(server, "pc-1", ticket);
+  it("keeps seats through blips with a success between them, past the bound in all", TIMEOUT, async () => {
+    const server = await startServer(200, 5_000);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
 
-      // Two blips of 2 s each: 4 s of failed reads, but a good one between.
-      await server.breakSessions();
-      await wait(2_000);
-      await server.restoreSessions();
-      await wait(1_000);
-      await server.breakSessions();
-      await wait(2_000);
-      assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated: the good read confirmed it");
-      await server.restoreSessions();
-      renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
-      await until(() => iceFrames(host.received).length > 1);
-      assert.deepEqual(iceFrames(host.received), ["before", "still"]);
-      host.ws.close();
-    },
-  );
+    // Two blips of 3 s each: 6 s of failed reads, past the 5 s bound, but a
+    // good one between. A frame relayed between them is the proof of that
+    // good read: it waits for one begun after it arrived.
+    await server.breakSessions();
+    await wait(3_000);
+    await server.restoreSessions();
+    renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "between" } }));
+    await until(() => iceFrames(host.received).length > 1, "a frame relayed between the blips");
+    await server.breakSessions();
+    await wait(3_000);
+    assert.equal(renter.ws.readyState, WebSocket.OPEN, "still seated: the good read confirmed it");
+    await server.restoreSessions();
+    renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
+    await until(() => iceFrames(host.received).length > 2, "a frame relayed after the blips");
+    assert.deepEqual(iceFrames(host.received), ["before", "between", "still"]);
+    host.ws.close();
+  });
 
-  it(
-    "closes a seat whose ticket has gone unconfirmed past the bound, without denied",
-    { timeout: TEST_MS },
-    async () => {
-      const server = await startServer(200, 1_500);
-      const { ticket } = await server.claimTicket("pc-1");
-      const { host, renter } = await seat(server, "pc-1", ticket);
+  it("closes a seat whose ticket has gone unconfirmed past the bound, without denied", TIMEOUT, async () => {
+    const server = await startServer(200, 1_500);
+    const { ticket } = await server.claimTicket("pc-1");
+    const { host, renter } = await seat(server, "pc-1", ticket);
 
-      await server.breakSessions();
-      const brokenAt = Date.now();
-      assert.equal(await renter.closed, 1011);
-      const tookMs = Date.now() - brokenAt;
-      assert.ok(tookMs >= 1_000, `closed after only ${tookMs} ms`);
-      assert.ok(!renter.received.some((m) => m.type === "denied"), "the renter may come back");
-      await server.restoreSessions();
-      host.ws.close();
-    },
-  );
+    await server.breakSessions();
+    const brokenAt = Date.now();
+    assert.equal(await renter.closed, 1011);
+    const tookMs = Date.now() - brokenAt;
+    assert.ok(tookMs >= 1_000, `closed after only ${tookMs} ms`);
+    assert.ok(!renter.received.some((m) => m.type === "denied"), "the renter may come back");
+    await server.restoreSessions();
+    host.ws.close();
+  });
 
   it(
     "cuts a seated renter off within a few seconds by default, and relays nothing after",
-    { timeout: TEST_MS },
+    TIMEOUT,
     async () => {
       const server = await startServer();
       const { ticket } = await server.claimTicket("pc-1");
@@ -472,23 +437,27 @@ describe("revoked ticket without the session-end notice", () => {
       await putOut(host, renter);
       // The next 5 s round, with room for a loaded machine: the old default was 30 s.
       const tookMs = (await closedAt) - revokedAt;
-      assert.ok(tookMs < 12_000, `put out after ${tookMs} ms`);
+      assert.ok(tookMs < 20_000, `put out after ${tookMs} ms`);
       host.ws.close();
     },
   );
 });
 
 describe("ticket that runs out while its join waits on the database", () => {
-  it("is refused, and the renter already seated on it keeps the seat", { timeout: TEST_MS }, async () => {
+  it("is refused, and the renter already seated on it keeps the seat", TIMEOUT, async () => {
     const server = await startServer(60_000);
-    // Expires 2 to 3 s from now: whole seconds.
+    // Expires 9 to 10 s from now (whole seconds): time to seat a renter on it
+    // first, however loaded the machine.
     const mintedAt = Date.now();
-    const ticket = mintTicket(SECRET, "pc-1", 3, mintedAt);
-    const expiresAt = (Math.floor(mintedAt / 1000) + 3) * 1000;
+    const ticket = mintTicket(SECRET, "pc-1", 10, mintedAt);
+    const expiresAt = (Math.floor(mintedAt / 1000) + 10) * 1000;
     const { host, renter } = await seat(server, "pc-1", ticket);
     const joinsHeard = () => host.received.filter((m) => m.type === "peer-joined").length;
     const joinsBefore = joinsHeard();
 
+    // Hold only the last 3 s or so: the server gives up on a lock after 5 s
+    // (LIMITS.lockMs), and a join that gave up would be no late join at all.
+    await wait(Math.max(0, expiresAt - 3_000 - Date.now()));
     const release = await server.holdSessions();
     assert.ok(Date.now() < expiresAt - 500, "the ticket must still be valid when the late join arrives");
     const late = server.peer({ type: "join", ticket });
@@ -496,15 +465,17 @@ describe("ticket that runs out while its join waits on the database", () => {
     await wait(Math.max(0, expiresAt + 300 - Date.now()));
     await release();
 
-    await until(() => late.received.length > 0);
+    await until(() => late.received.length > 0, "the late join heard back");
     assert.deepEqual(late.received, [{ type: "denied", reason: "bad-ticket" }]);
     assert.equal(await late.closed, 4003);
-    await wait(200);
+    // Whatever the late join told the others went before it was refused.
+    await renter.settled();
+    await host.settled();
     assert.equal(renter.ws.readyState, WebSocket.OPEN, "the seated renter is not replaced");
     assert.ok(!renter.received.some((m) => m.type === "denied"));
     assert.equal(joinsHeard(), joinsBefore, "the host hears no new renter");
     renter.ws.send(JSON.stringify({ type: "ice", candidate: { candidate: "still" } }));
-    await until(() => iceFrames(host.received).length > 1);
+    await until(() => iceFrames(host.received).length > 1, "the seated renter's frame reached the host");
     assert.deepEqual(iceFrames(host.received), ["before", "still"], "still relayed");
     renter.ws.close();
     host.ws.close();

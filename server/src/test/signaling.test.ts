@@ -6,20 +6,20 @@
 // test streamer registering with a session key.
 
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { createHash, createHmac } from "node:crypto";
 import { mintHostCert, mintRenterSession, mintSessionKey, mintTicket, type SessionKey } from "../access.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { sessionPath, type JoinedMessage, type SessionGrant, type SignalMessage } from "../protocol.js";
+import { startServer, stopServer, until, wait, within } from "./child.js";
 import { serverDatabase, type ServerDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
-const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
-const PORT = 8100 + Math.floor(Math.random() * 400);
-const ORIGIN = `ws://localhost:${PORT}`;
+/** The port the server listens on, once before() has started it. */
+let port = 0;
+const http = () => `http://localhost:${port}`;
 
 // Every room a test may use is a registered machine, all sharing one key.
 const SECRET = "test-room-secret-that-is-long-enough-to-pass";
@@ -47,18 +47,30 @@ const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessa
 
 /**
  * A socket that records every message it receives, so tests can assert on
- * order. `barriers` counts the pings handled() sent whose pongs are not in.
+ * order. `pongs` waits on the pongs to the pings handled() sent.
  */
-type RecordingSocket = WebSocket & { received: SignalMessage[]; barriers: number };
+type RecordingSocket = WebSocket & { received: SignalMessage[]; pongs: (() => void)[] };
 
 let server: ChildProcess | undefined;
+/** Every socket a test opened and has not seen close: a test that fails midway leaves them open. */
+const sockets = new Set<RecordingSocket>();
 
 /** The reconnect grace the server runs with here, short enough to wait out. */
 const GRACE_MS = 1_500;
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const send = (ws: WebSocket, msg: SignalMessage) => ws.send(JSON.stringify(msg));
 const types = (ws: RecordingSocket) => ws.received.map((m) => m.type);
+
+/** The close code `ws` gets: -1 when it had already closed, null when it is still open 30 s on. */
+const closed = (ws: WebSocket) =>
+  within(
+    new Promise<number>((resolve) => {
+      if (ws.readyState === WebSocket.CLOSED) resolve(-1);
+      ws.once("close", (code) => resolve(code));
+    }),
+    30_000,
+    null,
+  );
 
 /** The seat a ticket names, read without verifying it. */
 const ticketOf = (ticket: string) =>
@@ -85,13 +97,18 @@ function joinedMessage(ws: RecordingSocket): JoinedMessage {
 }
 
 async function open(): Promise<RecordingSocket> {
-  const ws = new WebSocket(ORIGIN) as RecordingSocket;
+  const ws = new WebSocket(`ws://localhost:${port}`) as RecordingSocket;
   ws.received = [];
-  ws.barriers = 0;
+  ws.pongs = [];
   ws.on("message", (raw) => {
     const msg = JSON.parse(String(raw)) as SignalMessage;
-    if (msg.type === "pong" && ws.barriers > 0) ws.barriers -= 1;
+    if (msg.type === "pong" && ws.pongs.length) ws.pongs.shift()!();
     else ws.received.push(msg);
+  });
+  sockets.add(ws);
+  ws.once("close", () => {
+    sockets.delete(ws);
+    for (const done of ws.pongs.splice(0)) done();
   });
   await new Promise<void>((resolve, reject) => {
     ws.once("open", () => resolve());
@@ -100,63 +117,86 @@ async function open(): Promise<RecordingSocket> {
   return ws;
 }
 
+/** Wait until the server has handled everything `ws` sent: its pong to a ping sent now comes after it. */
+async function pong(ws: RecordingSocket): Promise<void> {
+  // A paused socket reads nothing, its pong included; one closing gets none.
+  if (ws.readyState !== WebSocket.OPEN || ws.isPaused) return;
+  const ponged = new Promise<boolean>((resolve) => ws.pongs.push(() => resolve(true)));
+  send(ws, { type: "ping" });
+  assert.ok(await within(ponged, 30_000, false), "the server did not answer a ping within 30 s");
+}
+
 /**
- * Wait until the server has handled everything `ws` sent: it takes a socket's
- * frames in order, so its pong to a ping sent now comes after them. Register
- * and join wait on the database, longer on a loaded machine than a fixed
- * sleep allows. A moment more lets what they sent other sockets arrive.
+ * Wait until the server has handled everything `ws` sent, and whatever it sent
+ * any socket meanwhile has arrived. It takes a socket's frames in order, so
+ * its pong to a ping sent now comes after them, register and join waiting on
+ * the database included; each other socket's pong then comes after whatever
+ * the server sent that socket while handling them.
  */
 async function handled(ws: RecordingSocket): Promise<void> {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.barriers += 1;
-    send(ws, { type: "ping" });
-    const end = Date.now() + 10_000;
-    while (ws.barriers > 0 && ws.readyState === WebSocket.OPEN && Date.now() < end) await wait(5);
+  await pong(ws);
+  await Promise.all([...sockets].filter((other) => other !== ws).map(pong));
+}
+
+/**
+ * Join `room` with `ticket` on a fresh socket until the server's answer
+ * satisfies `done`: a seat that a socket closed just before held is given up
+ * when the server handles that close, late on a loaded machine.
+ */
+async function joinWhen(
+  room: string,
+  ticket: string,
+  done: (ws: RecordingSocket) => boolean,
+  what: string,
+): Promise<RecordingSocket> {
+  const end = Date.now() + 30_000;
+  for (;;) {
+    const ws = await open();
+    send(ws, join(room, ticket));
+    await handled(ws);
+    if (done(ws)) return ws;
+    ws.terminate();
+    if (Date.now() > end) assert.fail(`not within 30 s: ${what}`);
+    await wait(50);
   }
-  await wait(30);
 }
 
 let database: ServerDatabase;
 
-before(async () => {
-  database = await serverDatabase();
-  server = spawn(process.execPath, [SERVER], {
-    env: {
-      ...process.env,
-      PORT: String(PORT),
-      ROOM_SECRET: SECRET,
-      SESSION_SECRET,
-      MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
-      DATABASE_URL: database.url,
-      SWIFF_RECONNECT_GRACE_MS: String(GRACE_MS),
-      TURN_URLS,
-      TURN_SECRET,
-      // Every game playable, so nothing here waits on or calls Steam (playable.ts).
-      SWIFF_PLAYABILITY: "off",
-    },
-    stdio: "ignore",
-  });
-  // Poll until it accepts connections rather than sleeping a fixed guess.
-  // Up to 15 s: the server opens its database before it listens, slower under a full test run.
-  for (let i = 0; i < 150; i++) {
-    try {
-      (await open()).close();
-      return;
-    } catch {
-      await wait(100);
-    }
-  }
-  throw new Error("signaling server did not start");
+before(
+  async () => {
+    database = await serverDatabase();
+    ({ child: server, port } = await startServer(
+      {
+        ROOM_SECRET: SECRET,
+        SESSION_SECRET,
+        MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+        DATABASE_URL: database.url,
+        SWIFF_RECONNECT_GRACE_MS: String(GRACE_MS),
+        TURN_URLS,
+        TURN_SECRET,
+        // Every game playable, so nothing here waits on or calls Steam (playable.ts).
+        SWIFF_PLAYABILITY: "off",
+      },
+      { from: 8100, span: 400 },
+    ));
+  },
+  { timeout: 120_000 },
+);
+
+// A socket a test left open would hold the file open after its last test.
+afterEach(() => {
+  for (const ws of sockets) ws.terminate();
+  sockets.clear();
 });
 
-after(async () => {
-  if (server && server.exitCode === null && server.signalCode === null) {
-    const exited = new Promise((resolve) => server!.once("exit", resolve));
-    server.kill();
-    await exited;
-  }
-  await database.close();
-});
+after(
+  async () => {
+    if (server) await stopServer(server);
+    if (database) await within(database.close(), 10_000, null);
+  },
+  { timeout: 30_000 },
+);
 
 describe("signaling", () => {
   it("relays the full offer/answer/ice handshake between two peers", async () => {
@@ -173,21 +213,13 @@ describe("signaling", () => {
     assert.ok(types(host).includes("peer-joined"), "host was told a renter arrived");
     assert.equal(joinedMessage(client).hostOnline, true);
 
-    // Polls rather than waiting a fixed time, which a loaded machine outruns.
-    const arrived = async (ws: RecordingSocket, type: SignalMessage["type"]) => {
-      for (let waited = 0; waited < 5_000 && !types(ws).includes(type); waited += 10) await wait(10);
-    };
-
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
-    await arrived(client, "offer");
-    assert.ok(types(client).includes("offer"), "offer reached the client");
+    await until(() => types(client).includes("offer"), "offer reached the client");
 
     send(client, { type: "answer", sdp: { type: "answer", sdp: "x" } });
     send(client, { type: "ice", candidate: { candidate: "x" } });
-    await arrived(host, "answer");
-    await arrived(host, "ice");
-    assert.ok(types(host).includes("answer"), "answer reached the host");
-    assert.ok(types(host).includes("ice"), "ice reached the host");
+    await until(() => types(host).includes("answer"), "answer reached the host");
+    await until(() => types(host).includes("ice"), "ice reached the host");
 
     host.close();
     client.close();
@@ -217,8 +249,7 @@ describe("signaling", () => {
   it("answers ping so an idle socket is not culled by the proxy", async () => {
     const ws = await open();
     send(ws, { type: "ping" });
-    await wait(100);
-    assert.ok(types(ws).includes("pong"));
+    await until(() => types(ws).includes("pong"), "the server answered the ping");
     ws.close();
   });
 
@@ -244,6 +275,9 @@ describe("signaling", () => {
     const renter = await open();
     send(renter, join(room, ticket));
     await handled(renter);
+    // The closed socket can no longer be asked whether its join and close are
+    // done: a moment for them to land. A slow machine can only hide a fault
+    // here, never make one up.
     await wait(300);
 
     assert.ok(types(renter).includes("joined"));
@@ -287,14 +321,16 @@ describe("signaling", () => {
     await handled(first);
 
     const second = await open();
-    const code = new Promise<number>((resolve) => first.once("close", resolve));
+    const code = closed(first);
     send(second, join(room, ticket));
     await handled(second);
-    await wait(150);
 
-    assert.equal(first.readyState, WebSocket.CLOSED, "the stale renter socket was closed");
     // Refused for good, so it stops rather than joining again to take the seat back.
-    assert.equal(await code, 4003);
+    assert.equal(await code, 4003, "the stale renter socket was closed");
+    // Its close is handled after it is gone from here: a moment for a stale
+    // peer-left to show, which a slow machine can only hide, never make up.
+    await wait(150);
+    await handled(host);
     assert.deepEqual(
       first.received.find((m) => m.type === "denied"),
       { type: "denied", reason: "replaced" },
@@ -322,11 +358,14 @@ describe("signaling", () => {
     await handled(first);
 
     const second = await open();
+    const code = closed(first);
     send(second, register(room));
     await handled(second);
-    await wait(150);
 
-    assert.equal(first.readyState, WebSocket.CLOSED, "the stale host socket was closed");
+    assert.notEqual(await code, null, "the stale host socket was closed");
+    // As above: a moment for a stale peer-left to show.
+    await wait(150);
+    await handled(renter);
     assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
 
     renter.close();
@@ -340,12 +379,12 @@ describe("signaling", () => {
     await handled(first);
 
     const second = await open();
+    const code = closed(first);
     send(second, register(room));
     await handled(second);
-    await wait(50);
 
     assert.ok(types(second).includes("registered"), "reconnecting host takes the room");
-    assert.equal(first.readyState, WebSocket.CLOSED, "stale socket was closed");
+    assert.notEqual(await code, null, "stale socket was closed");
     second.close();
   });
 
@@ -359,8 +398,7 @@ describe("signaling", () => {
     await handled(client);
 
     client.close();
-    await wait(150);
-    assert.ok(types(host).includes("peer-left"));
+    await until(() => types(host).includes("peer-left"), "the host heard the renter left");
     host.close();
   });
 
@@ -450,22 +488,25 @@ describe("signaling", () => {
     const gone = await open();
     send(gone, register(room));
     gone.close();
-    await wait(200);
 
-    const client = await open();
-    send(client, join(room));
-    await handled(client);
-    assert.equal(joinedMessage(client).hostOnline, false, "nobody holds the room");
+    const client = await joinWhen(
+      room,
+      mintTicket(SECRET, room, 600),
+      (ws) => types(ws).includes("joined") && !joinedMessage(ws).hostOnline,
+      "nobody holds the room",
+    );
     client.close();
   });
 
   it("ignores malformed frames without dropping the connection", async () => {
     const ws = await open();
     ws.send("not json at all");
-    await wait(100);
-    assert.equal(ws.readyState, WebSocket.OPEN, "socket survived garbage input");
     send(ws, { type: "ping" });
-    await wait(100);
+    await until(
+      () => types(ws).includes("pong") || ws.readyState !== WebSocket.OPEN,
+      "an answer to the ping",
+    );
+    assert.equal(ws.readyState, WebSocket.OPEN, "socket survived garbage input");
     assert.ok(types(ws).includes("pong"), "still serving after garbage");
     ws.close();
   });
@@ -473,11 +514,6 @@ describe("signaling", () => {
 
 describe("room access", () => {
   const denial = (ws: RecordingSocket) => ws.received.find((m) => m.type === "denied");
-  const closed = (ws: WebSocket) =>
-    new Promise<number>((resolve) => {
-      if (ws.readyState === WebSocket.CLOSED) resolve(-1);
-      ws.once("close", (code) => resolve(code));
-    });
 
   it("refuses a gaming PC with the wrong machine key", async () => {
     const host = await open();
@@ -522,8 +558,9 @@ describe("room access", () => {
     assert.equal(await code, 4003);
     assert.deepEqual(denial(second), { type: "denied", reason: "room-taken" });
 
-    // The first renter was not disturbed.
-    await wait(100);
+    // The first renter was not disturbed: anything sent it or the host on
+    // the second's account went before the second was refused.
+    await handled(first);
     assert.equal(first.readyState, WebSocket.OPEN);
     assert.ok(!types(host).includes("peer-left"));
     host.close();
@@ -536,12 +573,13 @@ describe("room access", () => {
     send(first, join(room));
     await handled(first);
     first.close();
-    await wait(150);
 
-    const second = await open();
-    send(second, join(room));
-    await handled(second);
-    assert.ok(types(second).includes("joined"));
+    const second = await joinWhen(
+      room,
+      mintTicket(SECRET, room, 600),
+      (ws) => types(ws).includes("joined"),
+      "the next renter got the seat",
+    );
     second.close();
   });
 
@@ -554,7 +592,7 @@ describe("room access", () => {
     const intruder = await open();
     send(intruder, { type: "offer", sdp: { type: "offer", sdp: "x" } });
     send(intruder, { type: "ice", candidate: { candidate: "x" } });
-    await wait(150);
+    await handled(intruder);
 
     assert.deepEqual(types(host), ["registered"]);
     host.close();
@@ -570,20 +608,13 @@ describe("room access", () => {
     // And only that socket: the server is still up for everyone else.
     const next = await open();
     send(next, { type: "ping" });
-    await wait(100);
-    assert.ok(types(next).includes("pong"), "server survived an oversized frame");
+    await until(() => types(next).includes("pong"), "server survived an oversized frame");
     next.close();
   });
 });
 
 describe("host sessions", () => {
-  const HTTP = `http://localhost:${PORT}`;
   const denial = (ws: RecordingSocket) => ws.received.find((m) => m.type === "denied");
-  const closed = (ws: WebSocket) =>
-    new Promise<number>((resolve) => {
-      if (ws.readyState === WebSocket.CLOSED) resolve(-1);
-      ws.once("close", (code) => resolve(code));
-    });
 
   // The platform matches the oldest queued booking first, whatever room it was
   // made for: one a failed claim left queued would take the next test's
@@ -604,7 +635,7 @@ describe("host sessions", () => {
 
   /** One JSON call to the server as the signed-in renter, with the machine key as bearer when given one. */
   async function call(method: string, path: string, body?: unknown, key?: string) {
-    const res = await fetch(`${HTTP}${path}`, {
+    const res = await fetch(`${http()}${path}`, {
       method,
       headers: {
         cookie: RENTER_COOKIE,
@@ -707,8 +738,7 @@ describe("host sessions", () => {
     await handled(renter);
     assert.equal(joinedMessage(renter).hostOnline, true);
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
-    await wait(100);
-    assert.ok(types(renter).includes("offer"), "offer reached the renter");
+    await until(() => types(renter).includes("offer"), "offer reached the renter");
 
     host.close();
     renter.close();
@@ -763,7 +793,7 @@ describe("host sessions", () => {
     });
 
     // And there is no way to mint another key for the live session.
-    const renew = await fetch(`${HTTP}${sessionPath(room)}/renew`, {
+    const renew = await fetch(`${http()}${sessionPath(room)}/renew`, {
       method: "POST",
       headers: { authorization: `Bearer ${MACHINE_KEY}` },
     });
@@ -772,7 +802,7 @@ describe("host sessions", () => {
     assert.equal(renewed.sessionKey, undefined, "renew answered with a grant");
 
     // The streamer and the renter never noticed.
-    await wait(100);
+    await handled(host);
     assert.equal(host.readyState, WebSocket.OPEN);
     assert.ok(!types(renter).includes("peer-left"), `renter saw [${types(renter)}]`);
 
@@ -781,8 +811,7 @@ describe("host sessions", () => {
     assert.equal((await api(room, "DELETE")).status, 204);
     assert.equal(await hungUp, 4003);
     assert.deepEqual(denial(host), { type: "denied", reason: "session-ended" });
-    await wait(100);
-    assert.ok(types(renter).includes("peer-left"));
+    await until(() => types(renter).includes("peer-left"), "the renter heard the streamer left");
     renter.close();
   });
 
@@ -814,8 +843,7 @@ describe("host sessions", () => {
     assert.ok(types(service).includes("registered"));
 
     const sessionId = await claimRoom(room);
-    await wait(100);
-    assert.ok(types(service).includes("session-claimed"), "the claim reached the attested socket");
+    await until(() => types(service).includes("session-claimed"), "the claim reached the attested socket");
     const code = closed(service);
     const started = await api(room, "POST", "", hostCert, { sessionId });
     assert.equal(started.status, 201, `start answered ${started.status}`);
@@ -854,8 +882,7 @@ describe("host sessions", () => {
     assert.equal((await api(room, "DELETE")).status, 204);
     assert.equal(await code, 4003);
     assert.deepEqual(denial(host), { type: "denied", reason: "session-ended" });
-    await wait(100);
-    assert.ok(types(renter).includes("peer-left"));
+    await until(() => types(renter).includes("peer-left"), "the renter heard the streamer left");
     renter.close();
   });
 
@@ -896,10 +923,13 @@ describe("host sessions", () => {
     // The old streamer ignores the close frame and keeps talking.
     host.pause();
     assert.equal((await api(room, "DELETE")).status, 204);
-    await wait(100);
+    await until(() => types(renter).includes("peer-left"), "the renter heard the streamer left");
     send(host, { type: "offer", sdp: { type: "offer", sdp: "x" } });
     send(host, { type: "ice", candidate: { candidate: "c", sdpMid: "0", sdpMLineIndex: 0 } });
+    // The paused socket cannot hear a pong: a moment for its frames to be
+    // relayed, which a slow machine can only hide, never make up.
     await wait(100);
+    await handled(renter);
 
     const inbox = types(renter);
     assert.ok(inbox.includes("peer-left"), `renter saw [${inbox}]`);
@@ -932,10 +962,10 @@ describe("host sessions", () => {
     const room = nextRoom();
     const grant = await startSession(room);
     const first = await streamer(room, grant.sessionKey);
+    const code = closed(first);
     const second = await streamer(room, grant.sessionKey);
-    await wait(100);
     assert.ok(types(second).includes("registered"));
-    assert.equal(first.readyState, WebSocket.CLOSED);
+    assert.notEqual(await code, null, "the first streamer was closed");
     second.close();
     await api(room, "DELETE");
   });
@@ -968,7 +998,8 @@ describe("host sessions", () => {
     await handled(bystander);
 
     const sessionId = await claimRoom(room, 45);
-    await wait(100);
+    await until(() => types(host).includes("session-claimed"), "the claim reached the machine");
+    await handled(host);
     assert.deepEqual(
       host.received.filter((m) => m.type === "session-claimed"),
       [{ type: "session-claimed", sessionId, appid: 730, minutes: 45 }],
@@ -1040,9 +1071,7 @@ describe("host sessions", () => {
     assert.equal(typeof (await signInMs()), "number", "signing in: the rejoin carries the sign-in deadline");
 
     send(host, { type: "steam-login", state: "signed-in" });
-    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
-      await wait(5);
-    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    await until(() => types(renter).includes("steam-login"), "the renter heard the sign-in");
     assert.equal(await signInMs(), undefined, "approved: no sign-in deadline left");
     assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
     renter.close();
@@ -1066,9 +1095,7 @@ describe("host sessions", () => {
     });
 
     send(host, { type: "steam-login", state: "signed-in" });
-    for (const end = Date.now() + 10_000; !types(renter).includes("steam-login") && Date.now() < end;)
-      await wait(5);
-    assert.ok(types(renter).includes("steam-login"), "the renter heard the sign-in");
+    await until(() => types(renter).includes("steam-login"), "the renter heard the sign-in");
     assert.equal((await start()).status, 200);
     assert.equal((await call("POST", `/api/bookings/${bookingId}/end`)).status, 200);
     renter.close();
@@ -1087,14 +1114,12 @@ describe("host sessions", () => {
 
     // The renter's page starts the session with its ticket once a frame has arrived.
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
-    for (const end = Date.now() + 10_000; !launches().length && Date.now() < end;) await wait(5);
+    await until(() => launches().length > 0, "the host was told to launch the game");
     assert.deepEqual(launches(), [{ type: "launch-game", sessionId, appid: 730 }]);
 
     send(host, { type: "game-started", sessionId });
     await handled(host);
-    for (const end = Date.now() + 10_000; !types(renter).includes("game-started") && Date.now() < end;)
-      await wait(5);
-    assert.ok(types(renter).includes("game-started"), "the renter heard the game runs");
+    await until(() => types(renter).includes("game-started"), "the renter heard the game runs");
     renter.close();
     host.close();
     await api(room, "DELETE");
@@ -1115,20 +1140,18 @@ describe("host sessions", () => {
     send(host, { type: "game-started", sessionId });
     await handled(host);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
-    for (const end = Date.now() + 10_000; !launches().length && Date.now() < end;) await wait(5);
+    await until(() => launches().length > 0, "the host was told to launch the game");
     assert.deepEqual(launches(), [{ type: "launch-game", sessionId, appid: 730 }]);
 
     // A launch that outlived another session, or one with no session, never reaches them.
     send(host, { type: "game-started", sessionId: "another-session" });
     send(host, { type: "game-started" } as unknown as SignalMessage);
     await handled(host);
-    await wait(100);
     assert.ok(!types(renter).includes("game-started"), `renter saw [${types(renter)}]`);
 
     send(host, { type: "game-started", sessionId });
     await handled(host);
-    for (const end = Date.now() + 10_000; !types(renter).includes("game-started") && Date.now() < end;)
-      await wait(5);
+    await until(() => types(renter).includes("game-started"), "the renter heard the game runs");
     assert.deepEqual(
       renter.received.filter((m) => m.type === "game-started"),
       [{ type: "game-started", sessionId }],
@@ -1142,7 +1165,8 @@ describe("host sessions", () => {
     const room = nextRoom();
     const service = await open();
     const code = closed(service);
-    send(service, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 2) });
+    // Lives 4 to 5 s (whole seconds): long enough to register on a loaded machine.
+    send(service, { type: "register", hostId: room, hostCert: mintHostCert(SECRET, room, "attested", 5) });
     await handled(service);
     assert.ok(types(service).includes("registered"));
     assert.equal(await code, 4003);
@@ -1151,7 +1175,7 @@ describe("host sessions", () => {
     // An attested PC runs Swiff OS: its renter's Steam sign-in comes first, relayed as tested above.
     await database.exec(`UPDATE sessions SET signed_in_at = 0 WHERE id = '${sessionId}'`);
     assert.equal((await call("POST", `/api/sessions/${sessionId}/start`, undefined, ticket)).status, 200);
-    await wait(100);
+    // Closed: what it heard is all it will.
     assert.ok(!types(service).includes("launch-game"), `the expired host saw [${types(service)}]`);
     await api(room, "DELETE");
   });
@@ -1177,8 +1201,8 @@ describe("host sessions", () => {
       // next offer offline. This side seeing the socket closed is not enough, as
       // the server may still take a request sent after that first.
       if (seated) {
-        for (const end = Date.now() + 10_000; departures() < left && Date.now() < end;) await wait(5);
-        assert.equal(departures(), left, "the server handled the PC's close");
+        await until(() => departures() >= left, "the server handled the PC's close");
+        assert.equal(departures(), left, "the server handled the PC's close once");
       }
       return ws;
     };
@@ -1259,7 +1283,7 @@ describe("host sessions", () => {
 
   it("lets the desktop app call the session API from its own origin", async () => {
     const room = nextRoom();
-    const preflight = await fetch(`${HTTP}${sessionPath(room)}`, {
+    const preflight = await fetch(`${http()}${sessionPath(room)}`, {
       method: "OPTIONS",
       headers: {
         origin: "file://",
@@ -1274,7 +1298,7 @@ describe("host sessions", () => {
     assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
 
     const sessionId = await claimRoom(room);
-    const res = await fetch(`${HTTP}${sessionPath(room)}`, {
+    const res = await fetch(`${http()}${sessionPath(room)}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${MACHINE_KEY}`,
@@ -1329,6 +1353,8 @@ describe("host sessions", () => {
       const { bookingId, ticket, host, renter } = await playing(room);
 
       renter.close();
+      // The server hears of the close in its own time: wait for what it tells the host.
+      await until(() => peerLefts(host).length > 0, "the host heard the renter left");
       await handled(host);
       assert.deepEqual(peerLefts(host), [{ type: "peer-left", grace: GRACE_MS / 1000 }]);
       const away = await call("GET", `/api/bookings/${bookingId}`);
@@ -1347,6 +1373,7 @@ describe("host sessions", () => {
       assert.equal((await call("GET", `/api/bookings/${bookingId}`)).body.heldUntil, undefined);
 
       await wait(GRACE_MS + 300);
+      await handled(host);
       assert.ok(!ended(host), "the session outlived the grace");
       back.close();
     });
@@ -1360,8 +1387,7 @@ describe("host sessions", () => {
       await handled(back);
       assert.ok(types(back).includes("joined"), `the new socket saw [${types(back)}]`);
       assert.equal(peerLefts(host).length, 0, "a handover, not a drop");
-      await handled(renter);
-      assert.equal(renter.readyState, WebSocket.CLOSED);
+      assert.notEqual(await closed(renter), null, "the old socket was closed");
       back.close();
     });
 
@@ -1371,9 +1397,7 @@ describe("host sessions", () => {
       renter.close();
       // The grace starts once the server handles the close and ends with database
       // writes, both slower on a loaded machine, so wait for the end, not a fixed time.
-      const deadline = Date.now() + GRACE_MS + 10_000;
-      while (!ended(host) && Date.now() < deadline) await wait(20);
-      assert.ok(ended(host), "the streamer was put out");
+      await until(() => ended(host), "the streamer was put out", GRACE_MS + 30_000);
 
       const booking = await call("GET", `/api/bookings/${bookingId}`);
       assert.equal(booking.body.status, "ended");
@@ -1389,6 +1413,8 @@ describe("host sessions", () => {
       const room = nextRoom();
       const { bookingId, host, renter } = await playing(room);
       renter.close();
+      // The server hears of the close in its own time: wait for what it tells the host.
+      await until(() => peerLefts(host).length > 0, "the host heard the renter left");
       await handled(host);
       const end = await call("POST", `/api/bookings/${bookingId}/end`);
       assert.equal(end.status, 200);
@@ -1406,6 +1432,8 @@ describe("host sessions", () => {
       await handled(renter);
       assert.ok(types(host).includes("peer-joined"));
       renter.close();
+      // The server hears of the close in its own time: wait for what it tells the host.
+      await until(() => peerLefts(host).length > 0, "the host heard the renter left");
       await handled(host);
       assert.deepEqual(peerLefts(host), [{ type: "peer-left" }]);
       host.close();

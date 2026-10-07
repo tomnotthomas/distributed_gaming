@@ -3,7 +3,7 @@
 // own; the last start the real server with MARKETING_PAGES off and on.
 
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,6 +23,7 @@ import {
 } from "../marketing.js";
 import { migrate } from "../schema.js";
 import { CLIENT_BURST, clientOf, createSignups, RESEND_AFTER_MS, type Signups } from "../signups.js";
+import { startServer, stopServer } from "./child.js";
 import { testDatabase } from "./db.js";
 
 const DIR = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
@@ -31,7 +32,6 @@ const SITE = { origin: "https://lanterel.test", host: "lanterel.test", app: "htt
 const APP_HOST = new URL(SITE.app).host;
 /** The header the in-process server reads a signed-in player's Steam id from, standing in for the session cookie. */
 const RENTER = "x-test-renter";
-const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 /** The example people and facts marketing built the invite pages with. */
 const EXAMPLES =
   /\b(Max|Lena|Lenas|Lena's|Jonas|Jonas's|Tom|Toms|Tom's|Berlin|Freitag|Friday|Oktober|October)\b/;
@@ -719,44 +719,28 @@ describe("marketing site", () => {
 });
 
 describe("MARKETING_PAGES on the real server", () => {
-  const PORT = 10_300 + Math.floor(Math.random() * 300);
-  const HTTP = `http://127.0.0.1:${PORT}`;
-  const HOST = `lanterel.localhost:${PORT}`;
+  /** The site's own host: what tells it from the app is the host a request names, not the port. */
+  const HOST = "lanterel.localhost";
   let server: ChildProcess | null = null;
+  /** The server started last, and the host a request names to reach the app on it. */
+  let HTTP = "";
+  let APP = "";
 
-  /** Start the real server with `env` and wait until it answers. */
+  /** Start the real server with `env` and wait until it listens. */
   async function start(env: Record<string, string>) {
-    // The port is free again only once the last server has exited.
     await stop();
-    server = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, PORT: String(PORT), SWIFF_PLAYABILITY: "off", DATABASE_URL: "", ...env },
-      stdio: "ignore",
-    });
-    const child = server;
-    // A loaded machine can take a while to boot the server; a child that dies
-    // fails the test at once instead of waiting out the deadline.
-    const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error(`server exited before answering: code ${child.exitCode}, signal ${child.signalCode}`);
-      }
-      try {
-        await fetch(`${HTTP}/api/ping`, { signal: AbortSignal.timeout(5_000) });
-        return;
-      } catch {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    }
-    throw new Error("server did not answer /api/ping within 60s");
+    const started = await startServer(
+      { SWIFF_PLAYABILITY: "off", DATABASE_URL: "", ...env },
+      { from: 10_300, span: 300 },
+    );
+    server = started.child;
+    HTTP = `http://127.0.0.1:${started.port}`;
+    APP = `127.0.0.1:${started.port}`;
   }
 
-  /** Stop the server started last, and wait until it has exited. */
+  /** Stop the server started last. */
   async function stop() {
-    if (server && server.exitCode === null && server.signalCode === null) {
-      const exited = new Promise((resolve) => server!.once("exit", resolve));
-      server.kill();
-      await exited;
-    }
+    if (server) await stopServer(server);
     server = null;
   }
 
@@ -767,9 +751,14 @@ describe("MARKETING_PAGES on the real server", () => {
     try {
       for (const path of ["/", "/host/", "/crew/AB12", "/robots.txt"]) {
         const page = await ask(HTTP, path, { host: HOST });
-        // Nothing of the site (the app's own page is called Lanterel too, so its markup is what tells).
-        assert.doesNotMatch(page.body, /form-endpoint|class="wordmark"/, path);
-        assert.equal(page.body, (await ask(HTTP, path, { host: `127.0.0.1:${PORT}` })).body, path);
+        // The app's answer, whatever it is: its page when web/dist is built,
+        // its not-built notice when not.
+        const app = await ask(HTTP, path, { host: APP });
+        assert.deepEqual([page.status, page.body], [app.status, app.body], path);
+        // And nothing of the site's: its pages carry data-t keys and its
+        // origin, which the app has neither of.
+        assert.doesNotMatch(page.body, /data-t="|form-endpoint/, path);
+        assert.ok(!page.body.includes(`http://${HOST}`), path);
       }
       const posted = await ask(HTTP, "/api/signups", {
         host: HOST,
@@ -797,7 +786,7 @@ describe("MARKETING_PAGES on the real server", () => {
         /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%3Ffound%3D1"/,
       );
       assert.match(landing.body, new RegExp(`<link rel="canonical" href="http://${HOST}/">`));
-      assert.doesNotMatch((await ask(HTTP, "/", { host: `127.0.0.1:${PORT}` })).body, /lanterel\.localhost/);
+      assert.doesNotMatch((await ask(HTTP, "/", { host: APP })).body, /lanterel\.localhost/);
       const invite = await ask(HTTP, "/en/crew/AB12", { host: HOST });
       assert.equal(invite.headers.location, "https://app.lanterel.test/invite/AB12");
       // Reminders are the app's, for a signed-in player.
