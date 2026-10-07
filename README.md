@@ -78,8 +78,9 @@ on the pages goes to Steam sign-in on the app's origin and back to the app's cre
 which found a crew at once for a player who has none yet and show the PC card first to someone from
 the host page. A crew link or friend seat the site is given (`/crew/<code>`, `/seat/<code>`) goes on to
 the app's own invite page (`/invite/<token>`, `/seat/<token>`), which names who asks; those app links
-also get a link preview naming them (`server/src/invite-preview.ts`). Gift seats and Zockrunden
-(`/gift/`, `/night/`) do not exist yet, so their pages name nobody. The set's wording for a crew's
+also get a link preview naming them (`server/src/invite-preview.ts`), and a crew's with its
+Zockrunde's date. Gift seats and Zockrunde links of their own (`/gift/`, `/night/`) do not exist
+yet, so their pages name nobody. The set's wording for a crew's
 time together ("Crew-Abend", "crew night") is put the app's way at import ("Zockrunde", "gaming
 session"), never an evening or a night. The product asks for no email address and sends no mail. See
 `server/src/marketing.ts`.

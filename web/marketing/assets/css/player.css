@@ -1,6 +1,7 @@
 /* {{brand}} player page: the sections every Wall variation shares. The hero lives in each page. */
 
 /* Body copy is Outfit; mono stays for labels and data only. */
+.wl-help,
 .foot-legal {
   font-family: var(--f);
   font-size: 14px;
@@ -214,12 +215,27 @@
 }
 
 /* Inputs and focus on light surfaces: borders and rings that hold 3:1 */
+.on-grey .wl-row input,
+.on-paper .wl-row input,
+.close .wl-row input,
+.strip .wl-row input {
+  border-color: rgb(19 19 19 / 0.5);
+}
 .on-grey :focus-visible,
 .on-paper :focus-visible,
 .close :focus-visible,
 .faqsec :focus-visible,
 .steps :focus-visible {
   outline-color: var(--lime-deep);
+}
+.on-grey .wl-row input:focus-visible,
+.on-paper .wl-row input:focus-visible,
+.close .wl-row input:focus-visible {
+  border-color: var(--lime-deep);
+  box-shadow: 0 0 0 1px var(--lime-deep);
+}
+.wl-row input {
+  border-color: rgb(239 239 237 / 0.5);
 }
 
 .nw {

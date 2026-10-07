@@ -276,6 +276,12 @@
     color: var(--on-paper-2);
     margin-bottom: 22px;
   }
+  .cell .wl-row {
+    flex-direction: column;
+  }
+  .cell .wl-row .lpill {
+    width: 100%;
+  }
   @media (max-width: 900px) {
     .hero-inner {
       grid-template-columns: 1fr;
@@ -317,7 +323,7 @@
 <link rel="alternate" hreflang="x-default" href="{{site}}/">
 <meta property="og:url" content="{{site}}/en/">
 <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<script>window.SITE_T = {"copy.done": "Copied", "hero.play": "Resume the slideshow", "hero.pause": "Pause the slideshow"};</script>
+<script>window.SITE_T = {"form.fail": "That didn't work. Please try again in a moment.", "copy.done": "Copied", "hero.play": "Resume the slideshow", "hero.pause": "Pause the slideshow"};</script>
 </head>
 <body id="top">
 <header class="nav" data-nav>
