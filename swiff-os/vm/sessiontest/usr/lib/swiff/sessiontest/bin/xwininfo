@@ -1,0 +1,12 @@
+#!/bin/bash
+# VM session test build only: xwininfo -root -tree on a display showing
+# Steam's sign-in window until the renter is signed in (see ./steam).
+state=${XDG_RUNTIME_DIR:?}/swiff-standin
+echo 'xwininfo: Window id: 0x3a8 (the root window) (has no name)'
+echo '  Root window id: 0x3a8 (the root window) (has no name)'
+if [ ! -e "$state/signed-in" ]; then
+	echo '  1 child:'
+	echo '     0x1e00003 "Sign in to Steam": ("steamwebhelper" "steam")  705x440+0+0  +607+320'
+else
+	echo '  0 children.'
+fi

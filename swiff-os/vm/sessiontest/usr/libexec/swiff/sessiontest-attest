@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""VM session test build only: swiff-hostd's attestation client (state.attestCommand).
+
+The real client, a TPM quote over the server's nonce, is still to come (README,
+swiff-hostd, "Not yet here"). This one attests to the test server's
+insecure-dev verifier (server/src/attestation.ts), which believes the facts the
+holder of the machine key claims, and prints the host certificate it earns as
+swiff-hostd expects: {"hostCert": ..., "expiresAt": ...}. The facts and the
+TPM's resetCount, which tells the server's state key whether anything else
+booted in between, are read off this machine. Each attestation is counted in
+/run/swiff-sessiontest/attested.
+"""
+
+import json
+import os
+import struct
+import urllib.request
+
+config = json.load(open(os.environ.get("SWIFF_HOSTD_CONFIG", "/var/lib/swiff/hostd.json")))
+origin = config["serverUrl"].replace("wss://", "https://", 1).replace("ws://", "http://", 1)
+machine = config["machineId"]
+with open(config["machineKeyFile"]) as f:
+    machine_key = f.read().strip()
+
+
+def post(path, body):
+    req = urllib.request.Request(origin + path, data=json.dumps(body).encode(),
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as res:
+        return json.loads(res.read())
+
+
+def efivar_on(name):
+    try:
+        with open(f"/sys/firmware/efi/efivars/{name}-8be4df61-93ca-11d2-aa0d-00e098032b8c", "rb") as f:
+            return f.read()[4:5] == b"\x01"
+    except OSError:
+        return False
+
+
+def reset_count():
+    """The TPM's resetCount (TPM2_ReadClock), read as swiff-verify reads it: one more at every power-up."""
+    fd = os.open("/dev/tpmrm0", os.O_RDWR)
+    try:
+        os.write(fd, struct.pack(">HII", 0x8001, 10, 0x181))
+        resp = os.read(fd, 4096)
+    finally:
+        os.close(fd)
+    if struct.unpack_from(">I", resp, 6)[0] != 0:
+        raise OSError("TPM2_ReadClock failed")
+    return struct.unpack_from(">QQII", resp, 10)[2]
+
+
+facts = {
+    "uefi": os.path.isdir("/sys/firmware/efi"),
+    "secureBoot": efivar_on("SecureBoot"),
+    "tpm": "firmware" if os.path.exists("/sys/class/tpm/tpm0") else None,
+    "ekCertificate": True,
+    "iommu": bool(os.listdir("/sys/class/iommu")) if os.path.isdir("/sys/class/iommu") else False,
+}
+challenge = post(f"/api/machines/{machine}/attest-challenge", {})
+evidence = {"machineKey": machine_key, "facts": facts, "resetCount": reset_count()}
+grant = post(f"/api/machines/{machine}/attest", {"nonce": challenge["nonce"], "evidence": evidence})
+counter = "/run/swiff-sessiontest/attested"
+try:
+    count = int(open(counter).read())
+except (OSError, ValueError):
+    count = 0
+with open(counter, "w") as f:
+    f.write(f"{count + 1}, tier {grant.get('tier')}, resetCount {evidence['resetCount']}\n")
+print(json.dumps({"hostCert": grant["hostCert"], "expiresAt": grant["expiresAt"]}))

@@ -40,6 +40,8 @@ describe("videoPipeline", () => {
       /^pipewiresrc target-object=gamescope .* ! video\/x-raw,format=\{BGRx,BGRA,RGBx,RGBA,NV12,I420\} ! /,
     );
     expect(p).toMatch(/ ! rtph264pay pt=96 mtu=1200 .* ! rtpstreampay ! fdsink fd=1 sync=false$/);
+    // WirePlumber 0.5 links a capture stream reliably only when it names its media type.
+    expect(p).toContain('stream-properties="props,media.category=Capture,media.type=Video"');
     // No queue that could hold a stale frame for the renter.
     expect(p).toContain("leaky=downstream");
   });
@@ -74,6 +76,8 @@ describe("audioPipeline", () => {
   it("captures what the session plays as stereo Opus", () => {
     const p = audioPipeline({ audio: "pipewire", audioBitrate: 128_000 })!;
     expect(p).toContain("stream.capture.sink=true");
+    // WirePlumber 0.5 links a capture stream reliably only when it names its media type.
+    expect(p).toContain("media.type=Audio");
     expect(p).toContain("opusenc name=enc bitrate=128000");
     expect(p).toMatch(/rtpopuspay pt=111 ! rtpstreampay ! fdsink fd=1 sync=false$/);
   });

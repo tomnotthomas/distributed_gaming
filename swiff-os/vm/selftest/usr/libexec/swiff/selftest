@@ -126,6 +126,55 @@ session_exec=$(systemctl show -P ExecStart swiff-session.service)
 check session-runs-swiff-session "$session_exec" grep -q 'path=/usr/libexec/swiff/session ' <<< "$session_exec"
 check steam-installed /usr/games/steam test -x /usr/games/steam
 check gamescope-installed /usr/games/gamescope test -x /usr/games/gamescope
+# The session is gamescope with the Steam sign-in agent (steam/session), not Steam's own UI.
+check session-runs-steam-agent "$(grep '^exec ' /usr/libexec/swiff/session)" \
+	grep -q '^exec gamescope --steam .* -- node /usr/lib/swiff/steam/swiff-steam-login.mjs$' /usr/libexec/swiff/session
+
+# --- Rental mode: swiff-hostd, swiff-streamer, the Steam sign-in agent -------------
+# Each runs on the image's Node 22 as one bundled file, owned by root.
+check node-22 "$(node --version 2>&1)" bash -c 'node --version | grep -q "^v22\."'
+check node-web-apis "fetch and WebSocket, which swiff-hostd and the streamer use" \
+	node -e 'process.exit(typeof fetch === "function" && typeof WebSocket === "function" ? 0 : 1)'
+bundles="/usr/lib/swiff/hostd/swiff-hostd.mjs /usr/lib/swiff/streamer/dist/swiff-streamer.mjs /usr/lib/swiff/steam/swiff-steam-login.mjs"
+# shellcheck disable=SC2086 # one path each
+check bundles-root-owned "$(stat -c '%n %U %a' $bundles | paste -sd' ' -)" \
+	bash -c 'for f in '"$bundles"'; do [ "$(stat -c %U:%G "$f")" = root:root ] && node --check "$f" || exit 1; done'
+hostd_exec=$(systemctl show -P ExecStart swiff-hostd.service)
+check hostd-enabled "$(systemctl is-enabled swiff-hostd.service) User=$(systemctl show -P User swiff-hostd.service)" \
+	bash -c "systemctl -q is-enabled swiff-hostd.service && grep -q 'argv\[\]=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs ' <<< '$hostd_exec'"
+# Without a config (this test gives it none) the agent does not start at all.
+say INFO hostd-state "$(systemctl show -P ActiveState swiff-hostd.service) condition=$(systemctl show -P ConditionResult swiff-hostd.service)"
+IFS=: read -r _ _ suid sgid _ _ sshell <<< "$(getent passwd swiff-stream)"
+check streamer-user "uid=$suid gid=$sgid shell=$sshell groups=$(id -nG swiff-stream)" \
+	test "$suid" = 961 -a "$sgid" = 961 -a "$sshell" = /usr/sbin/nologin -a "$(id -nG swiff-stream)" = swiff-stream
+check uinput-streamer-only "$(stat -c '%U:%G %a' /dev/uinput 2> /dev/null)" \
+	test "$(stat -c '%U:%G %a' /dev/uinput 2> /dev/null)" = "root:swiff-stream 660"
+check steam-socket-dir "$(stat -c '%U:%G %a' /run/swiff/steam 2> /dev/null)" \
+	test "$(stat -c '%U:%G %a' /run/swiff/steam 2> /dev/null)" = "renter:swiff-stream 2750"
+check pipewire-for-renter "pipewire.socket $(systemctl --global is-enabled pipewire.socket) wireplumber $(systemctl --global is-enabled wireplumber.service) grant $(systemctl --global is-enabled swiff-pipewire-grant.service)" \
+	bash -c 'for u in pipewire.socket pipewire-pulse.socket wireplumber.service swiff-pipewire-grant.service; do systemctl --global -q is-enabled "$u" || exit 1; done'
+# The capture helpers' GStreamer: every element the streamer's pipelines name,
+# VA-API's plugin (its encoders appear only on a GPU), and x264 encoding frames.
+gst=$(GST_REGISTRY=/run/swiff-selftest-gst.bin python3 - << 'EOF' 2>&1
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+Gst.init(None)
+missing = [e for e in ("pipewiresrc videotestsrc queue videoconvert videoscale x264enc h264parse rtph264pay "
+                       "rtpstreampay fdsink fakesink audioconvert audioresample opusenc rtpopuspay").split()
+           if not Gst.ElementFactory.find(e)]
+if not Gst.Registry.get().find_plugin("va"):
+    missing.append("plugin:va")
+p = Gst.parse_launch("videotestsrc num-buffers=5 ! video/x-raw,width=1280,height=720,framerate=30/1 ! videoconvert ! "
+                     "videoscale ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast bframes=0 ! "
+                     "video/x-h264,profile=constrained-baseline ! fakesink")
+p.set_state(Gst.State.PLAYING)
+msg = p.get_bus().timed_pop_filtered(30 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+p.set_state(Gst.State.NULL)
+print("missing=" + (",".join(missing) or "none"), "x264=" + ("ok" if msg and msg.type == Gst.MessageType.EOS else "failed"))
+EOF
+)
+check streamer-gstreamer "$gst" test "$gst" = "missing=none x264=ok"
 logins=$(systemctl list-units --all --plain --no-legend 'getty@*' 'serial-getty@*' 'autovt@*' 'console-getty*' 'ssh*' 'display-manager*' | awk '$3 == "active"' | paste -sd' ' -)
 check no-logins "getty/ssh/display manager active: ${logins:-none}" test -z "$logins"
 check getty-masked "$(systemctl is-enabled getty@tty1.service 2>&1)" test "$(systemctl is-enabled getty@tty1.service 2>&1)" = masked

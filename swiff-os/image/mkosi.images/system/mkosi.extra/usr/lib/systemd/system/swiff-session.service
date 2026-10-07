@@ -1,9 +1,12 @@
-# The renter's whole UI: gamescope on tty1 running Steam, as the unprivileged
-# renter user. There is no display manager, desktop or login prompt; when the
-# session ends it is simply started again. It never runs without the firewall,
-# with VT switching open or without the verified games view.
+# The renter's whole UI: gamescope on tty1 running the Steam sign-in agent,
+# which starts Steam at its sign-in window and, once the renter has signed in
+# by QR code on Swiff's page, the game they booked (/usr/libexec/swiff/session,
+# from steam/session). It runs as the unprivileged renter user. There is no
+# display manager, desktop or login prompt; when the session ends it is simply
+# started again. It never runs without the firewall, with VT switching open or
+# without the verified games view.
 [Unit]
-Description=Lanterel renter session (gamescope + Steam)
+Description=Lanterel renter session (gamescope + Steam sign-in)
 After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service
 Requires=home.mount nftables.service swiff-vtlock.service swiff-games.service
 Conflicts=getty@tty1.service

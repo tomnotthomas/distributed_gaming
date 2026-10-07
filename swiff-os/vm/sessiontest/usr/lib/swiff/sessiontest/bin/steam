@@ -1,0 +1,28 @@
+#!/bin/bash
+# VM session test build only: stands in for the Steam client, which needs an
+# account, a phone and Valve's servers. Steam's sign-in log is what the agent
+# watches (steam/src/steam.ts): the renter "approves" the sign-in 20 s after the
+# agent first read a code off the screen (xwd here), long enough for the
+# renter's page to show both codes this Steam shows. Then it is signed in,
+# and -applaunch puts the game "on screen" (xprop here).
+set -u
+state=${XDG_RUNTIME_DIR:?}/swiff-standin
+mkdir -p "$state"
+case ${1:-} in
+-silent)
+	log=$HOME/.steam/steam/logs/steamui_login.txt
+	mkdir -p "$(dirname "$log")"
+	echo "[$(date '+%F %T')] SetLoginState: WaitingForCredentials - OK" > "$log"
+	while :; do
+		if [ -e "$state/first-read" ] && [ ! -e "$state/signed-in" ] &&
+			[ $(($(date +%s) - $(stat -c %Y "$state/first-read"))) -ge 20 ]; then
+			echo "[$(date '+%F %T')] SetLoginState: WaitingForServerResponse - OK" >> "$log"
+			echo "[$(date '+%F %T')] SetLoginState: Success - OK" >> "$log"
+			touch "$state/signed-in"
+		fi
+		sleep 0.5
+	done
+	;;
+-applaunch) echo "${2:?}" > "$state/launched" ;;
+*) exit 2 ;;
+esac

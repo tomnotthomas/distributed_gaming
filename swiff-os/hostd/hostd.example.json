@@ -4,5 +4,16 @@
   "machineKeyFile": "/var/lib/swiff/machine-key",
   "stateDir": "/var/lib/swiff/hostd",
   "controlSocket": "/run/swiff-hostd/control.sock",
-  "streamer": { "command": "/usr/lib/swiff/swiff-streamer", "args": [], "uid": 961, "gid": 961 }
+  "streamer": {
+    "command": "/usr/bin/node",
+    "args": [
+      "/usr/lib/swiff/streamer/dist/swiff-streamer.mjs",
+      "--pipewire-remote",
+      "/run/user/1000/pipewire-0",
+      "--steam-socket",
+      "/run/swiff/steam/login.sock"
+    ],
+    "uid": 961,
+    "gid": 961
+  }
 }

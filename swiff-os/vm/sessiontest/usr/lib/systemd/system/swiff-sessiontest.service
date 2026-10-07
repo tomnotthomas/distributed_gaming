@@ -1,0 +1,13 @@
+# VM session test build only: reports on the serial console what the host's
+# harness (vm/session-harness.mjs) cannot see from outside the VM.
+[Unit]
+Description=Lanterel OS session test: what swiff-hostd, the streamer and the agent do
+After=swiff-sessiontest-provision.service
+
+[Service]
+ExecStart=/usr/libexec/swiff/sessiontest-monitor
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+#!/bin/bash
+# VM session test build only: xprop -root -notype GAMESCOPE_FOCUSED_APP. The
+# game is on screen a second after Steam was told to launch it (see ./steam).
+state=${XDG_RUNTIME_DIR:?}/swiff-standin
+if [ -e "$state/launched" ] && [ $(($(date +%s) - $(stat -c %Y "$state/launched"))) -ge 1 ]; then
+	echo "GAMESCOPE_FOCUSED_APP = $(cat "$state/launched")"
+else
+	echo "GAMESCOPE_FOCUSED_APP = 0"
+fi

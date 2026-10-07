@@ -1,0 +1,2 @@
+# The renter's own manager: let the streamer capture the session's PipeWire.
+enable swiff-pipewire-grant.service

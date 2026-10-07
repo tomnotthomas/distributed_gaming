@@ -1,0 +1,26 @@
+#!/bin/bash
+# VM session test build only. Gives this machine what the owner's app would
+# give a real PC, from the fixture disk vm/session-harness.mjs writes:
+# swiff-hostd's config and machine key, the test server's address for
+# sessiontest-forward, and the sign-in codes the stand-in Steam shows. Mounts
+# the disk that keeps U's credential (hostd's state.localShare) across the
+# restart between renters: the image has no persistent partition of its own yet.
+set -eu
+
+fix=/run/swiff-sessiontest/fixtures
+install -d -m 0755 /run/swiff-sessiontest
+install -d -m 0700 "$fix"
+for _ in $(seq 300); do
+	[ -e /dev/disk/by-label/SWIFFSESS ] && [ -e /dev/disk/by-label/SWIFFKEEP ] && break
+	sleep 0.1
+done
+mount -o ro LABEL=SWIFFSESS "$fix"
+install -m 0600 "$fix/hostd.json" /var/lib/swiff/hostd.json
+install -m 0600 "$fix/machine-key" /var/lib/swiff/machine-key
+install -m 0600 "$fix/forward" /run/swiff-sessiontest/forward
+install -d -m 0755 /run/swiff-sessiontest/qr
+install -m 0644 "$fix"/qr/* /run/swiff-sessiontest/qr/
+umount "$fix"
+install -d -m 0700 /var/lib/swiff/keep /var/lib/swiff/state
+mount LABEL=SWIFFKEEP /var/lib/swiff/keep
+echo "SWIFF-SESSIONTEST INFO provisioned"
