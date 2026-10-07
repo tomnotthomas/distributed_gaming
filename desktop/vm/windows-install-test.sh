@@ -166,8 +166,13 @@ vm_wait_off() { # seconds
 		sleep 5
 	done
 }
+# Stops this test's VM only, by its vm-run.py's PID: vm-run.py stops its QEMU (SIGTERM,
+# SIGKILL 10 s later) and exits. Never by a pattern: other tests' VMs run on this PC too.
 vm_kill() {
-	sudo -n pkill -f '[q]emu-system-x86_64 .*-name swiff-win' 2> /dev/null || true
+	if [ -n "${vm_pid:-}" ]; then
+		kill "$vm_pid" 2> /dev/null || true
+		wait "$vm_pid" 2> /dev/null || true
+	fi
 	kill "${tpm_pid:-}" 2> /dev/null || true
 }
 # Waits until Windows answers on SSH, up to $1 seconds.
