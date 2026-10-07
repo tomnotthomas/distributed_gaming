@@ -63,6 +63,8 @@ export async function startServer(
     });
     let heard = "";
     let errors = "";
+    /** Why the child could not be started at all, when it could not: it then may never exit. */
+    const spawned: { error?: Error } = {};
     child.stderr!.setEncoding("utf8");
     child.stderr!.on("data", (chunk: string) => (errors = (errors + chunk).slice(-2048)));
     const listening = new Promise<boolean>((resolve) => {
@@ -72,14 +74,20 @@ export async function startServer(
         if (heard.includes(`localhost:${port} `)) resolve(true);
       });
       child.once("exit", () => resolve(false));
+      child.on("error", (error) => {
+        spawned.error ??= error;
+        resolve(false);
+      });
     });
     // Up to 60 s: it opens its database before it listens, slow on a loaded machine.
     if (await within(listening, 60_000, false)) return { child, port };
     const exited = child.exitCode !== null || child.signalCode !== null;
     await stopServer(child);
-    last = exited
-      ? `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}`
-      : `port ${port}: not listening after 60 s`;
+    last = spawned.error
+      ? `port ${port}: could not start: ${spawned.error.message}`
+      : exited
+        ? `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}`
+        : `port ${port}: not listening after 60 s`;
     if (errors) last += `; stderr:\n${errors}`;
   }
   assert.fail(`the server did not listen on any of five ports; last attempt ${last}`);
