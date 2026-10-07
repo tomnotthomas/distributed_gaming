@@ -24,12 +24,24 @@
 //   and PUBLIC_ORIGIN as it serves each file. Routes and file names keep what the
 //   build made of them (/lanterel-os/).
 // - Every form posts to the server's sign-up endpoint (the form-endpoint meta).
+// - A crew's time together is a "Zockrunde" / "gaming session", as the app
+//   says it, never an evening or a night: people play whenever suits them.
+//   The set still says Crew-Abend / crew night and "meist abends"; MEETUP_WORDING
+//   rewrites those phrases, and no time-of-day word stays. A set built with the
+//   neutral term leaves it nothing to do.
+// - Every "Crew gründen" and join button signs in with Steam on the app's
+//   origin and lands on the app's crew pages: the set links to the static
+//   crew page (/auth/steam/login?to=/share/…, the build's preview), which the
+//   app replaces with /crews (signInPath). The sign-in has to start on the
+//   app's origin, whose session it sets, so the link is {{app}}/auth/steam/login.
 // - An English page's FAQ structured data (FAQPage JSON-LD) says what the page
 //   shows: the build writes the German questions into it on every page, so it
 //   is made again from the page's own visible FAQ, in English.
 //
-// The set's own _redirects, README.md and macOS ._ files are left behind: the
-// server routes the invite paths itself.
+// The set's own _redirects, README.md, GLOSSARY.md and macOS ._ files are left
+// behind: the server routes the invite paths itself. So is stage2/, the
+// archived pages about renting a PC out for money: the launch is stage 1, and
+// nothing links or routes to them.
 
 import {
   cpSync,
@@ -50,10 +62,103 @@ const TARGET = fileURLToPath(new URL("../../web/marketing", import.meta.url));
 /** The endpoint every form posts to (server/src/signups.ts). */
 const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
-const SKIPPED = new Set(["_redirects", "README.md"]);
+const SKIPPED = new Set(["_redirects", "README.md", "GLOSSARY.md", "stage2"]);
 
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The set's meetup and time-of-day wording, phrase by phrase, and what the
+ * app says instead (crewCopy.ts: "Zockrunde", "Zockrunde ansagen";
+ * "session", "gaming session"). Whole phrases, longest first, so German keeps
+ * its articles and nothing in a key, a class or a URL (night.*, /night/,
+ * crewnight.css) is touched.
+ */
+export const MEETUP_WORDING = [
+  // German
+  ["So läuft ein Crew-Abend", "So läuft eine Zockrunde"],
+  ["Erinnerung vor Crew-Abenden per Mail?", "Erinnerung vor Zockrunden per Mail?"],
+  ["an eure Crew-Abende (zum Beispiel, wenn ein Abend angesagt wird,", "an eure Zockrunden (zum Beispiel, wenn eine Zockrunde angesagt wird,"],
+  ["an eure Crew-Abende zu erinnern", "an eure Zockrunden zu erinnern"],
+  ["Erinnerungen an Crew-Abende", "Erinnerungen an Zockrunden"],
+  ["an Crew-Abende erinnert werden", "an Zockrunden erinnert werden"],
+  ["lädt dich zum Crew-Abend ein", "lädt dich zur Zockrunde ein"],
+  ["einen Crew-Abend organisiert", "eine Zockrunde organisiert"],
+  ["startet euer Crew-Abend", "startet eure Zockrunde"],
+  ["Heute Abend geht", "Heute geht"],
+  ["Abend in WhatsApp ansagen", "Zockrunde in WhatsApp ansagen"],
+  ["Abend angesagt.", "Zockrunde angesagt."],
+  ["Abend ansagen", "Zockrunde ansagen"],
+  ["So viel wie ein Abend, an dem du selbst zockst,", "So viel, wie wenn du selbst darauf zockst,"],
+  ["ein paar Abende im Monat", "ein paar Mal im Monat"],
+  ["wie es abends PCs gibt", "wie es PCs gibt"],
+  ["der seinen PC abends teilt", "der seinen PC teilt"],
+  ["Mein PC hat abends Platz", "Mein PC hat Platz"],
+  ["meist abends ab 20 Uhr", "wenn der PC frei ist"],
+  [">Der Abend<", ">Die Zockrunde<"],
+  ["Crew-Abend", "Zockrunde"],
+  // English
+  ["How a crew night works", "How a gaming session works"],
+  ["Reminders before crew nights, by email?", "Reminders before gaming sessions, by email?"],
+  ["your crew nights (for example, when a night is planned", "your gaming sessions (for example, when a session is planned"],
+  ["reminders about your crew nights", "reminders about your gaming sessions"],
+  ["crew night reminders", "session reminders"],
+  ["invited you to a crew night", "invited you to a gaming session"],
+  ["set up a crew night", "set up a gaming session"],
+  ["Your crew night starts", "Your gaming session starts"],
+  ["Friday is game night", "On Friday you play"],
+  ["having a game night", "having a gaming session"],
+  ["Game night Friday", "Gaming session Friday"],
+  ["Ready for game night?", "Ready to play?"],
+  ["Ready for <b>game night?</b>", "Ready to <b>play?</b>"],
+  ["mostly evenings from 8 pm", "whenever the PC is free"],
+  ["Tonight at 9", "Today at 9"],
+  ["It's on tonight", "It's on today"],
+  ["It&#x27;s on tonight", "It&#x27;s on today"],
+  ["Pick a night", "Pick a time"],
+  ["Plan a night", "Plan a session"],
+  ["Post the night on WhatsApp", "Post the session on WhatsApp"],
+  ["About as much as an evening of playing yourself,", "About as much as playing on it yourself,"],
+  ["a few evenings a month", "a few times a month"],
+  ["test evenings", "test sessions"],
+  ["as there are PCs in the evening", "as there are PCs"],
+  ["who shares their PC in the evening", "who shares their PC"],
+  ["from the crew in the evenings", "from the crew"],
+  ["so you can move the night", "so you can move it"],
+  ["crew night", "gaming session"],
+  ["Crew night", "Gaming session"],
+];
+
+/** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING). */
+export function neutralWording(text) {
+  return MEETUP_WORDING.reduce((out, [from, to]) => out.replaceAll(from, to), text);
+}
+
+/**
+ * Where the app takes a sign-in the set sends to its static crew page
+ * (`to`, decoded): someone bringing the gaming PC (?pc=1) founds a crew with
+ * the PC card first, someone joining (?joined=1, from an invite page) lands on
+ * their crews, everyone else founds one. The app picks its own language.
+ */
+export function signInPath(to) {
+  const url = new URL(to, "https://x.invalid");
+  if (url.searchParams.get("pc") === "1") return "/crews/new?pc=1";
+  if (url.searchParams.get("joined") === "1") return "/crews";
+  return "/crews/new";
+}
+
+/** The set's links to the app's Steam sign-in, on the app's origin and into its crew pages. */
+export function wireSignIn(html) {
+  return html.replace(/href="(?:\/en)?\/auth\/steam\/login\?to=([^"]*)"/g, (_, to) => {
+    let path;
+    try {
+      path = signInPath(decodeURIComponent(to));
+    } catch {
+      path = "/crews/new";
+    }
+    return `href="{{app}}/auth/steam/login?to=${encodeURIComponent(path)}"`;
+  });
+}
 
 /** The set's text with its brand and origins turned into tokens. Lower-case names stay: they are URLs. */
 function tokenize(text, name, site, app) {
@@ -118,12 +223,13 @@ export function faqJsonLd(html, lang) {
   return html.replace(block[1], () => data.replace(/</g, "\\u003c"));
 }
 
-/** Every file under `dir`, depth first, leaving out macOS metadata (._ files and .DS_Store). */
-function* files(dir) {
+/** Every file under `dir`, depth first, leaving out macOS metadata (._ files and .DS_Store) and whatever SKIPPED names, relative to `root`. */
+function* files(dir, root = dir) {
   for (const entry of readdirSync(dir)) {
     if (entry.startsWith("._") || entry === ".DS_Store") continue;
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) yield* files(path);
+    if (SKIPPED.has(relative(root, path))) continue;
+    if (statSync(path).isDirectory()) yield* files(path, root);
     else yield path;
   }
 }
@@ -144,18 +250,16 @@ function importSet(source, target, name, site, app) {
   try {
     for (const path of files(source)) {
       const rel = relative(source, path);
-      if (SKIPPED.has(rel)) continue;
       const out = join(staging, rel);
       mkdirSync(dirname(out), { recursive: true });
       if (TEXT.has(extname(path))) {
         const text = readFileSync(path, "utf8");
         if (text.includes("{{"))
           throw new Error(`${rel} already holds a {{ token: refusing to guess what it means`);
-        const english = rel.startsWith(`en${sep}`) && extname(rel) === ".html";
-        writeFileSync(
-          out,
-          english ? faqJsonLd(tokenize(text, name, site, app), "en") : tokenize(text, name, site, app),
-        );
+        const page = extname(rel) === ".html";
+        const tokens = neutralWording(tokenize(text, name, site, app));
+        const wired = page ? wireSignIn(tokens) : tokens;
+        writeFileSync(out, page && rel.startsWith(`en${sep}`) ? faqJsonLd(wired, "en") : wired);
       } else cpSync(path, out);
       count++;
     }

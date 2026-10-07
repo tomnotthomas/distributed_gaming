@@ -342,7 +342,26 @@ body::after {
   .nav {
     gap: 10px;
   }
+  .wordmark {
+    font-size: 16px;
+    letter-spacing: 0.04em;
+  }
   .nav-cta .long {
+    display: none;
+  }
+}
+@media (max-width: 360px) {
+  .wordmark {
+    font-size: 13px;
+  }
+  .lang button {
+    min-width: 34px;
+    padding: 0 7px;
+  }
+}
+/* Invite pages have no short CTA label: below 600px the hero carries the button alone. */
+@media (max-width: 600px) {
+  .nav-cta:not(:has(.short)) {
     display: none;
   }
 }

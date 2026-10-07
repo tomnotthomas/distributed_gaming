@@ -1,0 +1,58 @@
+{
+ "crew": {
+  "de": {
+   "title": "Komm in die Crew",
+   "title_named": "{name} holt dich in die Crew",
+   "desc": "Zocken mit Freunden, auch auf dem Mac: jeder mit seinen eigenen Steam-Spielen. Einer bringt den Gaming-PC, egal wer, auch später.",
+   "image": "{{site}}/assets/img/og-crew-de.jpg"
+  },
+  "en": {
+   "title": "Join the crew",
+   "title_named": "{name} wants you in the crew",
+   "desc": "Play with friends, Macs included: everyone with their own Steam games. Someone brings the gaming PC, anyone, later is fine.",
+   "image": "{{site}}/assets/img/og-crew-en.jpg"
+  }
+ },
+ "rig": {
+  "de": {
+   "title": "Ein Platz am Gaming-PC ist für dich frei",
+   "title_named": "{name} hält dir einen Platz am Gaming-PC frei",
+   "desc": "Zock deine eigenen Steam-Spiele auf dem Mac, direkt in Chrome. Sie laufen auf dem Gaming-PC deines Freundes. In der Beta kostenlos.",
+   "image": "{{site}}/assets/img/og-rig-de.jpg"
+  },
+  "en": {
+   "title": "A seat at a gaming PC is waiting for you",
+   "title_named": "{name} saved you a seat at their gaming PC",
+   "desc": "Play your own Steam games on your Mac, right in Chrome, streamed from your friend's gaming PC. Free during the beta.",
+   "image": "{{site}}/assets/img/og-rig-en.jpg"
+  }
+ },
+ "gift": {
+  "de": {
+   "title": "Ein Platz zum Zocken, geschenkt",
+   "title_named": "{name} schenkt dir einen Platz zum Zocken",
+   "desc": "Deine Steam-Spiele auf dem Mac, direkt in Chrome. Der Platz ist 14 Tage für dich reserviert.",
+   "image": "{{site}}/assets/img/og-gift-de.jpg"
+  },
+  "en": {
+   "title": "A seat to play, on the house",
+   "title_named": "{name} gave you a seat to play",
+   "desc": "Your Steam games on your Mac, right in Chrome. The seat is held for you for 14 days.",
+   "image": "{{site}}/assets/img/og-gift-en.jpg"
+  }
+ },
+ "night": {
+  "de": {
+   "title": "Zockrunde: Freitag, 21 Uhr",
+   "title_named": "{name} lädt dich zur Zockrunde ein",
+   "desc": "Einer zockt, die anderen quatschen im Voice und schauen zu, wenn er Ja sagt. Dein Platz ist reserviert.",
+   "image": "{{site}}/assets/img/og-night-de.jpg"
+  },
+  "en": {
+   "title": "Gaming session: Friday, 9 pm",
+   "title_named": "{name} invited you to a gaming session",
+   "desc": "One of you plays, the rest chat on voice and can watch if the player says yes. Your seat is reserved.",
+   "image": "{{site}}/assets/img/og-night-en.jpg"
+  }
+ }
+}

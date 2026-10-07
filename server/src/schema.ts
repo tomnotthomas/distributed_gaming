@@ -383,6 +383,20 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       sent_at    BIGINT
     )`,
   ],
+  [
+    // Reminders by email (reminders), asked for on the app's crew page by a
+    // player signed in with Steam: one address per player (steam_id), double
+    // opt-in like the rest. The waitlist and Founding Host rows (player, host)
+    // stay one per address and kind, and have no steam_id.
+    `ALTER TABLE marketing_signups ADD COLUMN steam_id TEXT UNIQUE`,
+    `ALTER TABLE marketing_signups DROP CONSTRAINT marketing_signups_kind_check`,
+    `ALTER TABLE marketing_signups ADD CONSTRAINT marketing_signups_kind_check
+       CHECK (kind IN ('player', 'host', 'reminders'))`,
+    `ALTER TABLE marketing_signups ADD CONSTRAINT marketing_signups_reminders_steam_id
+       CHECK ((kind = 'reminders') = (steam_id IS NOT NULL))`,
+    `ALTER TABLE marketing_signups DROP CONSTRAINT marketing_signups_email_kind_key`,
+    `CREATE UNIQUE INDEX marketing_signups_email_kind ON marketing_signups (email, kind) WHERE steam_id IS NULL`,
+  ],
 ];
 
 /**

@@ -1,13 +1,13 @@
-Subject: Please confirm your email
+Subject: Confirm your session reminders
 
-One more click
+Quick confirmation
 
-Thanks for signing up for {{brand}}. Confirm your email address and you're on the list.
+You asked for reminders before gaming sessions. Confirm your email address and we'll give you a heads-up before each one. We won't email you about anything else.
 
-It's faster if you know someone with a gaming PC: once you confirm, you'll get your own link to send them.
+If you don't confirm, we won't email you again.
 
 Confirm email: {confirm_url}
 
 --
-You're getting this email because someone signed up for {{brand}} with this address. If that wasn't you, just ignore it.
+You're getting this email because someone entered this address on a {{brand}} crew page. If that wasn't you, just ignore it.
 {{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}

@@ -1,17 +1,17 @@
-// What an invite page (/crew, /seat, /gift, /night and their /en/ twins, in
-// marketing.ts) says in place of the example people marketing built them with
-// (Max, Lena, Jonas, Tom, "Toms Rig", Friday 9 October…), per invite.
-//
-// The product knows little about an invite yet: the marketing server names
-// nobody (its crew page moves into the web app), and seats at a rig, gifted
-// seats and crew Nights do not exist at all. So every page says it without
-// anyone's name or facts it does not have. Nothing here makes up a person.
+// What the invite pages the site still renders itself (/gift, /night and
+// their /en/ twins, in marketing.ts) say in place of the example people
+// marketing built them with (Max, Lena, Tom, Friday 9 October…). A crew link
+// and a friend seat are the app's to show (/invite/<token>, /seat/<token>),
+// with who asks from the product's own data; gifted seats and Zockrunden do not
+// exist yet. So these pages say it without anyone's name or facts the product
+// does not have. Nothing here makes up a person.
 //
 // Each page's copy replaces the text of the elements marked with its data-t
-// key, its title and its link-preview tags, and a few literal bits of the
-// mock-ups that carry an example name. The copy is the pages' own HTML.
+// key, its title and its link-preview tags. The copy is the pages' own HTML.
 
 export type InviteType = "crew" | "seat" | "gift" | "night";
+/** The invites the site renders itself; the rest are the app's. */
+export type SiteInviteType = "gift" | "night";
 export type Lang = "de" | "en";
 
 /** One page's copy for one invite. HTML except `title` and the meta tags, which are text. */
@@ -26,148 +26,11 @@ export type InviteCopy = {
 };
 
 /** The copy for an invite of `type` in `lang`. */
-export function inviteCopy(type: InviteType, lang: Lang): InviteCopy {
-  switch (type) {
-    // TODO: name the inviter once the crew page moves into the web app.
-    case "crew":
-      return crew(lang);
-    // TODO: name the host, their rig, graphics card and town, the seat and its
-    // last day (rig.f1v to rig.f5v) once a seat at a friend's rig exists.
-    case "seat":
-      return seat(lang);
-    // TODO: name the friend who gave the seat once gifted seats exist.
-    case "gift":
-      return gift(lang);
-    // TODO: name the organiser, the crew members (night.p1 to night.p4), the
-    // evening, the PCs and the renter's seat once crew Nights exist.
-    case "night":
-      return night(lang);
-  }
-}
-
-// --- crew --------------------------------------------------------------------
-
-/** The mock-up's chat and crew list show the inviter: `who` and an initial in a circle. */
-const crewMockup = (who: string, initial: string): [string, string][] => [
-  ["<b>Max</b>", `<b>${who}</b>`],
-  ['<span class="av m">M</span>', `<span class="av m">${initial}</span>`],
-];
-
-/** The crew invite page in `lang`: a friend asks to play on the reader's gaming PC. */
-function crew(lang: Lang): InviteCopy {
-  if (lang === "de")
-    return {
-      title: "Jemand aus deiner Crew möchte bei dir zocken",
-      ogTitle: "Jemand aus deiner Crew möchte bei dir zocken",
-      description:
-        "Jemand aus deiner Crew hat jetzt einen Mac und würde gern auf deinem Gaming-PC zocken, wenn du nicht dran sitzt. Mit dem eigenen Steam-Konto, nur für eure Crew.",
-      text: {
-        "crew.h1": "Jemand aus deiner Crew möchte <b>bei dir zocken.</b>",
-        "crew.lead":
-          "Auf der einen Seite ein Mac, auf der anderen dein Gaming-PC. Mit {{brand}} zockt deine Crew mit dem eigenen Steam-Konto auf deinem Rechner, immer dann, wenn du nicht dran sitzt. Erst mal nur eure Crew, keine Fremden.",
-        "crew.no": "Nee, lieber nicht. Wir geben Bescheid.",
-        "crew.acb": "PC für deine Crew freigeben",
-        "crew.cap": "Jeder spielt die eigenen Spiele, mit dem eigenen Steam-Konto.",
-        "crew.sh": "Was deine Crew auf deinem PC sieht. Und was nicht.",
-        "crew.canh": "Sieht deine Crew",
-        "crew.can1": "Steam im Vollbild, mit dem eigenen Konto",
-        "crew.can2": "die eigenen Spiele",
-        "crew.noh": "Sieht deine Crew nicht",
-        "crew.fresh": "Ist die Runde vorbei, startet der PC neu, und alles von deinem Gast ist weg.",
-        "crew.fh": "Drei Schritte, dann zockt deine Crew bei dir",
-        "crew.f3h": "Für deine Crew freigeben",
-        "crew.f3p":
-          "Brauchst du den PC gerade nicht, gibst du ihn für deine Crew frei. Gezockt wird dann in Chrome auf dem Mac. Willst du selbst ran, gehört der PC wieder dir, sobald die Runde vorbei ist.",
-        "crew.note":
-          "Zusammen zocken geht auch: du am Steam Deck oder an einem zweiten PC, deine Crew auf deinem Rechner.",
-        "crew.watch":
-          "Jemand aus deiner Crew sitzt gerade an deinem PC? Frag, ob du zuschauen darfst. Der Bildschirm wird mit der Crew nur geteilt, wenn die Person Ja sagt.",
-      },
-      literal: crewMockup("Deine Crew", "C"),
-    };
-  return {
-    title: "A friend wants to borrow your rig",
-    ogTitle: "A friend wants to borrow your rig",
-    description:
-      "A friend of yours has a Mac now and would love to play on your gaming PC when you're not using it. On their own Steam account, crew only.",
-    text: {
-      "crew.h1": "A friend wants to <b>borrow your rig.</b>",
-      "crew.lead":
-        "They've got a Mac, you've got the gaming PC. With {{brand}}, your friend can play on your machine whenever you're not using it, with their own Steam account. Just your crew to start with, no strangers.",
-      "crew.no": "Not for me. We'll let them know.",
-      "crew.acb": "Let them on",
-      "crew.cap": "Everyone plays their own games, on their own Steam account.",
-      "crew.sh": "What your friend gets on your PC, and what's off-limits.",
-      "crew.canh": "They get",
-      "crew.can1": "Steam in full screen, signed in to their own account",
-      "crew.can2": "their own games",
-      "crew.fresh": "When they're done, the PC restarts and everything they left behind is gone.",
-      "crew.fh": "Three steps and your friend is in",
-      "crew.f3h": "Free it up for your friend",
-      "crew.f3p":
-        "Not using the PC? Let your friend on. They play in Chrome on their Mac. Want it back? It's yours as soon as they're done.",
-      "crew.note":
-        "Want to play together? You jump on a Steam Deck or a second PC while your friend plays on your rig.",
-      "crew.watch":
-        "Your friend is on your PC right now? Ask if you can watch. They share their screen with the crew, but only if they say yes.",
-    },
-    literal: crewMockup("Your friend", "F"),
-  };
-}
-
-// --- seat at a friend's rig ------------------------------------------------------
-
-/** The rig seat page in `lang`: a host holds a seat at their rig for the reader. */
-function seat(lang: Lang): InviteCopy {
-  if (lang === "de")
-    return {
-      title: "Jemand hält dir einen Platz an einem Rig frei",
-      ogTitle: "Jemand hält dir einen Platz an einem Rig frei",
-      description:
-        "Jemand teilt den eigenen Gaming-PC mit Freunden, und ein Platz ist für dich freigehalten. Deine Steam-Spiele laufen auf diesem Rechner, du zockst auf deinem Mac.",
-      text: {
-        "rig.h1": "Jemand hält dir einen Platz <b>an einem Rig frei.</b>",
-        "rig.lead":
-          "Jemand teilt den eigenen Gaming-PC mit Freunden, und einer der Plätze gehört dir. Deine eigenen Steam-Spiele laufen auf diesem Rechner, du zockst auf deinem Mac, direkt in Chrome.",
-        "rig.sig": "Freigehalten für dich · 14 Tage",
-        "rig.fh": "Das Rig",
-        "rig.fn":
-          "Auf dem PC läuft {{brand}} OS, ein eigenes System. Dein Steam-Login bleibt dort nicht hängen: Nach dem Zocken ist er weg.",
-        "rig.f1v": "für dich freigehalten",
-        "rig.f2v": "siehst du nach dem Anmelden",
-        "rig.f3v": "siehst du nach dem Anmelden",
-        "rig.f4v": "siehst du nach dem Anmelden",
-        "rig.f5v": "14 Tage ab der Einladung",
-        "rig.hh": "So zockst du an diesem Rig",
-        "rig.s2p": "In Chrome auf deinem Mac. Danach siehst du deine Bibliothek und wann das Rig frei ist.",
-        "rig.s3p": "Einmal den QR-Code mit der Steam-App scannen, dann läuft das Spiel auf dem Rig.",
-      },
-      literal: [],
-    };
-  return {
-    title: "A friend saved you a seat at their rig",
-    ogTitle: "A friend saved you a seat at their rig",
-    description:
-      "A friend shares their gaming PC with friends, and one seat is saved for you. Your Steam games run on their machine, you play from your Mac.",
-    text: {
-      "rig.h1": "A friend saved you a seat <b>at their rig.</b>",
-      "rig.lead":
-        "A friend shares their gaming PC with friends, and one of the seats is yours. You play your own Steam games on their machine, from your Mac, right in Chrome.",
-      "rig.sig": "Saved for you · 14 days",
-      "rig.fh": "The rig",
-      "rig.fn":
-        "The PC runs {{brand}} OS, a separate system. Your Steam login doesn't stick around: it's gone once you're done.",
-      "rig.f1v": "saved for you",
-      "rig.f2v": "shown once you sign in",
-      "rig.f3v": "shown once you sign in",
-      "rig.f4v": "shown once you sign in",
-      "rig.f5v": "14 days from the invite",
-      "rig.hh": "How to play on this rig",
-      "rig.s2p": "In Chrome on your Mac. You'll see your library and when the rig is free.",
-      "rig.s3p": "Scan the QR code once with the Steam app, and the game starts on the rig.",
-    },
-    literal: [],
-  };
+export function inviteCopy(type: SiteInviteType, lang: Lang): InviteCopy {
+  // TODO: name the friend who gave the seat once gifted seats exist; the
+  // organiser, the crew (night.p1 to night.p4), the day, the PCs and the
+  // reader's seat once Zockrunden exist.
+  return type === "gift" ? gift(lang) : night(lang);
 }
 
 // --- gift seat -------------------------------------------------------------------
@@ -207,50 +70,50 @@ function gift(lang: Lang): InviteCopy {
   };
 }
 
-// --- crew Night ------------------------------------------------------------------
+// --- Zockrunde (the night page) ------------------------------------------------
 
-/** The crew Night page in `lang`: an invitation to play together with the crew. */
+/** The Zockrunde page in `lang`: an invitation to play together with the crew. */
 function night(lang: Lang): InviteCopy {
   if (lang === "de")
     return {
-      title: "Crew-Abend mit deiner Crew",
-      ogTitle: "Crew-Abend mit deiner Crew",
-      description: "Deine Crew hat einen Crew-Abend organisiert, und ein Platz ist für dich. Bist du dabei?",
+      title: "Zockrunde mit deiner Crew",
+      ogTitle: "Zockrunde mit deiner Crew",
+      description: "Deine Crew hat eine Zockrunde organisiert, und ein Platz ist für dich. Bist du dabei?",
       text: {
         "night.h1": "Deine Crew und du: <b>Es wird gezockt.</b>",
         "night.lead":
-          "Deine Crew hat einen Crew-Abend organisiert. Ein Gaming-PC steht für dich bereit. Gezockt wird, worauf ihr Bock habt.",
+          "Deine Crew hat eine Zockrunde organisiert. Ein Gaming-PC steht für dich bereit. Gezockt wird, worauf ihr Bock habt.",
         "night.p1": "Crew · Mac oder Deck",
         "night.p2": "Crew · Gaming-PC",
         "night.p4": "Platz für bis zu 4",
         "night.fn":
-          "Wir erinnern dich am Tag des Abends um 19 Uhr per Mail. Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
+          "Wir erinnern dich am Tag selbst per Mail. Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
         "night.f1v": "kommt per Mail",
         "night.f2v": "höchstens 4",
         "night.f3v": "kommt per Mail",
         "night.f4v": "kommt per Mail",
-        "night.hh": "Was du für den Abend brauchst",
+        "night.hh": "Was du für die Zockrunde brauchst",
       },
       literal: [],
     };
   return {
-    title: "Crew Night with your crew",
-    ogTitle: "Crew Night with your crew",
-    description: "Your crew has set up a Crew Night, and one seat is yours. You in?",
+    title: "A gaming session with your crew",
+    ogTitle: "A gaming session with your crew",
+    description: "Your crew has set up a gaming session, and one seat is yours. You in?",
     text: {
-      "night.h1": "Your crew and you: <b>it's game night.</b>",
+      "night.h1": "Your crew and you: <b>time to play.</b>",
       "night.lead":
-        "Your crew has set up a Crew Night. A gaming PC is lined up for you. Everyone can play whatever they like.",
+        "Your crew has set up a gaming session. A gaming PC is lined up for you. Everyone can play whatever they like.",
       "night.p1": "crew · Mac or Deck",
       "night.p2": "crew · gaming PC",
       "night.p4": "room for up to 4",
       "night.fn":
-        "We'll email you a reminder at 7 pm on the day. If you drop out, your seat goes to the next person in the crew.",
+        "We'll email you a reminder on the day. If you drop out, your seat goes to the next person in the crew.",
       "night.f1v": "sent by email",
       "night.f2v": "4 max",
       "night.f3v": "sent by email",
       "night.f4v": "sent by email",
-      "night.hh": "What you need for the night",
+      "night.hh": "What you need for the session",
     },
     literal: [],
   };

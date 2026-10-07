@@ -71,7 +71,7 @@ import { createHostSessions, type HostSessions } from "./sessions.js";
 import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
-import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
+import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
@@ -216,7 +216,13 @@ const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
 // Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
 const signups =
   site && marketing
-    ? createSignups({ database, site, files: marketing, trustProxy: process.env.RENDER === "true" })
+    ? createSignups({
+        database,
+        site,
+        files: marketing,
+        renter: (req) => renterOf(req, sessionSecret),
+        trustProxy: process.env.RENDER === "true",
+      })
     : null;
 const serveMarketing =
   site && marketing && signups
@@ -224,7 +230,6 @@ const serveMarketing =
         site,
         files: marketing,
         routes: await pageRoutes(MARKETING_DIR),
-        isShareCode: signups.isShareCode,
       })
     : null;
 

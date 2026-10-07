@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Play Steam Games on Your Mac or MacBook | {{brand}}</title>
-<meta name="description" content="Play your Steam games on a MacBook or Mac mini, Windows-only ones too: right in Chrome, nothing to install. Join the free beta." data-t-content="seo.desc">
+<title>Play Steam Games on Your Mac with Friends | {{brand}}</title>
+<meta name="description" content="Your friend has the gaming PC, you&#x27;ve got the Mac. Play your Steam games on their PC right in Chrome, even Windows-only ones. Free during the beta." data-t-content="seo.desc">
 <meta name="theme-color" content="#121212">
 <link rel="stylesheet" href="/assets/css/fonts.css">
 <link rel="stylesheet" href="/assets/css/base.css">
 <link rel="stylesheet" href="/assets/css/player.css">
+<link rel="stylesheet" href="/assets/css/crewnight.css">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -68,7 +69,7 @@
       "name": "Whose PC am I playing on?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC in the evening. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it."
+        "text": "At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it."
       }
     },
     {
@@ -92,7 +93,15 @@
       "name": "What if no PC is free?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs in the evening."
+        "text": "You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Isn't this just Steam Remote Play Together?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not quite. Remote Play Together streams the host's game, and you join its local multiplayer. With {{brand}}, you run your own game on your own Steam account on your friend's PC, so it works even with games they don't own."
       }
     }
   ]
@@ -293,9 +302,11 @@
   }
 </style>
 <meta property="og:type" content="website">
-<meta property="og:title" content="Play Steam Games on Your Mac or MacBook">
-<meta property="og:description" content="Play your Steam games on a MacBook or Mac mini, Windows-only ones too: right in Chrome, nothing to install. Join the free beta.">
+<meta property="og:title" content="Play Steam Games on Your Mac with Friends">
+<meta property="og:description" content="Your friend has the gaming PC, you&#x27;ve got the Mac. Play your Steam games on their PC right in Chrome, even Windows-only ones. Free during the beta.">
 <meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:locale" content="en_GB">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="{{site}}/en/">
@@ -318,7 +329,7 @@
     <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
     <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
   </div>
-  <a class="lpill lpill-sm solid nav-cta" href="#beta"><span class="long" data-t="cta.beta">Join the beta</span><span class="short" data-t="cta.betaShort">Join</span></a>
+  <a class="lpill lpill-sm solid nav-cta" href="#beta"><span class="long" data-t="cta.beta">Round up your crew</span><span class="short" data-t="cta.betaShort">Let's play</span></a>
 </header>
 
 <main>
@@ -330,7 +341,7 @@
     <div class="hero-inner">
       <div class="promise" data-fit-box>
         <span class="dim" aria-hidden="true"></span>
-        <h1 id="h1" data-fit="0.94" data-fit-max="104"><span data-t="b.h1a">Your Steam games.</span><span data-t="b.h1b">On your Mac.</span></h1>
+        <h1 id="h1" data-fit="0.94" data-fit-max="104"><span data-t="b.h1a">Game with your friends.</span><span data-t="b.h1b">Yes, on your Mac.</span></h1>
         <span class="mark" aria-hidden="true" data-mark></span>
         <div class="ingame" role="tablist" aria-label="Example game" data-t-aria-label="hero.picker">
           <button type="button" role="tab" aria-selected="true" data-go="0">Counter-Strike 2</button>
@@ -339,28 +350,37 @@
         </div>
       </div>
       <div class="cell on-paper">
-        <p class="sub" data-t="hero.sub">Play your Steam library right in Chrome. No Windows, nothing to install, no gaming PC of your own.</p>
-        <form class="wl" data-waitlist novalidate>
-  <div class="wl-state">
-    <label class="wl-label" for="wl-email-hero" data-t="wl.label">Email address</label>
-    <div class="wl-row">
-      <input id="wl-email-hero" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com" data-t-placeholder="wl.ph" aria-describedby="wl-help-hero" aria-errormessage="wl-err-hero">
-      <button class="lpill solid" type="submit"><span data-t="cta.beta">Join the beta</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
-    </div>
-    <p class="wl-err" id="wl-err-hero" role="alert" hidden data-t="wl.err">That doesn't look like an email address.</p>
-    <p class="wl-help" id="wl-help-hero" data-t="wl.help">Free during the beta, then at most €2 an hour. Invites go out in waves, Germany first.</p>
-  </div>
-  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
-    <p class="wl-done-h" data-t="wl.done.h">Almost there.</p>
-    <p data-t="wl.done.p">We've sent an email to <b>{email}</b>. Confirm your address and you're on the list.</p>
-    <p data-t="wl.done.crew">It's quicker with a friend who has a gaming PC: the email has a link you can send them.</p>
-  </div>
-</form>
-        <p class="crew-cue"><a href="#crew" data-t="crew.cue">Know someone with a gaming PC? Then it's quicker.</a></p>
+        <p class="sub" data-t="hero.sub">Your friend has the gaming PC. You have the Mac. {{brand}} lets you play your own Steam games on their PC, right in Chrome.</p>
+        <div class="start">
+  <a class="lpill solid start-cta" href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew" data-signin><span data-t="cta.beta">Round up your crew</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+  <p class="start-steam" data-t="start.steam">You sign in with Steam. No password, no new account.</p>
+  <p class="start-pc" data-t="start.pc">A crew needs one gaming PC: yours or a friend's.</p>
+  <p class="start-price" data-t="wl.help">Free during the beta, then at most €2 an hour.</p>
+</div>
+        <p class="crew-cue"><a href="#crew" data-t="crew.cue">How a gaming session works</a></p>
       </div>
     </div>
   </section>
 
+  <section class="cn cn-a cn-dark" id="crew" aria-labelledby="cn-h">
+  <div class="cn-head">
+    <h2 id="cn-h" class="rv" data-t="cn.h">How a gaming session works</h2>
+    <p class="rv" data-t="cn.sub">One of you plays, the rest watch, then you swap. Like a LAN party, minus hauling a PC around.</p>
+  </div>
+  <ol class="cn-line">
+    <li class="rv"><span class="cn-when" data-t="cn.w1">Once, up front</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></span><b data-t="cn.s1h">Start a crew</b><span class="cn-p" data-t="cn.s1p">One of you brings the gaming PC. Everyone else joins with the crew link.</span></li>
+    <li class="rv" style="--i:1"><span class="cn-when" data-t="cn.w2">Monday</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4M9.5 15l2 2 3.5-3.5"/></svg></span><b data-t="cn.s2h">Pick a time</b><span class="cn-p" data-t="cn.s2p">Friday, 9 pm. Who's in?</span></li>
+    <li class="rv now" style="--i:2"><span class="cn-when" data-t="cn.w3">Friday, 9 pm</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg></span><b><span data-t="cn.s3h">Play and watch</span></b><span class="cn-p" data-t="cn.s3p">One of you plays their own Steam games while the rest watch live and chat on voice.</span><small class="cn-note" data-t="cn.note">Watching only works if the player says yes.</small></li>
+    <li class="rv" style="--i:3"><span class="cn-when" data-t="cn.w4">Friday, 10:30 pm</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg></span><b data-t="cn.s4h">Take turns</b><span class="cn-p" data-t="cn.s4p">Next player's up. Your save stays in your Steam Cloud.</span></li>
+  </ol>
+  <div class="cn-row">
+    <div>
+      <h3 data-t="crew.h">Know someone with a gaming PC?</h3>
+      <p data-t="crew.p">Then you don't have to wait for the next wave of invites. Your friend runs {{brand}} OS next to Windows, and you play on their PC when they're not using it, on your own Steam account. Just for your crew at first.</p>
+    </div>
+    <a class="lpill solid" href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew" data-signin><span data-t="cta.beta">Round up your crew</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+  </div>
+</section>
   <section class="library" aria-labelledby="lib-h">
   <div class="lib-copy">
     <h2 id="lib-h" class="rv" data-t="lib.h">The games you already own</h2>
@@ -372,17 +392,6 @@
     <figure class="rv" style="--i:1"><img src="/assets/img/hero-1422450.jpg" alt="" loading="lazy" style="object-position:48% 40%"><figcaption>Deadlock</figcaption></figure>
     <figure class="rv" style="--i:2"><img src="/assets/img/hero-440.jpg" alt="" loading="lazy" style="object-position:40% 40%"><figcaption>Team Fortress 2</figcaption></figure>
   </div>
-</section>
-  <section class="crewband" id="crew" aria-labelledby="crew-h">
-  <div>
-    <h2 id="crew-h" class="rv" data-t="crew.h">Know someone with a gaming PC?</h2>
-    <p class="rv" data-t="crew.p">Then you don't have to wait for the next wave of invites. Your friend runs {{brand}} OS next to Windows, and you play on their PC when they're not using it, on your own Steam account. Just for your crew at first.</p>
-  </div>
-  <ol class="crew-steps">
-    <li class="rv"><b data-t="crew.s1h">Sign up</b><span data-t="crew.s1p">You get your own link.</span></li>
-    <li class="rv" style="--i:1"><b data-t="crew.s2h">Send the link</b><span data-t="crew.s2p">By WhatsApp, Discord or Steam, to your friend with a gaming PC.</span></li>
-    <li class="rv" style="--i:2"><b data-t="crew.s3h">Play together</b><span data-t="crew.s3p">As soon as their PC is ready, you play on it, on your Mac.</span></li>
-  </ol>
 </section>
   <section class="proof" aria-labelledby="proof-h">
   <div class="proof-clip rv">
@@ -417,30 +426,21 @@
     <details><summary><span data-t="q4">Which Steam games can I play on my Mac?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">With {{brand}}, most of your library, including Windows-only games. Rule of thumb: if it runs on the Steam Deck, it usually runs on {{brand}}. Games with kernel-level anti-cheat, like PUBG, Apex Legends or Call of Duty, don't.</p></details>
     <details><summary><span data-t="q5">Is my Steam account safe?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">You sign in by scanning a QR code with the Steam app, so you never type your password anywhere. During your session the gaming PC runs a locked-down system, and it restarts when you're done. Your login is never stored on it.</p></details>
     <details><summary><span data-t="q6">What does {{brand}} cost?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Free during the beta. After that, at most €2 an hour, no subscription required.</p></details>
-    <details><summary><span data-t="q7">Whose PC am I playing on?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC in the evening. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it.</p></details>
+    <details><summary><span data-t="q7">Whose PC am I playing on?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it.</p></details>
     <details><summary><span data-t="q8">Do I have to scan the QR code every time?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a8">Yes, once per session, with the Steam app on your phone. That's on purpose: your login never stays on someone else's PC, it's wiped when the session ends.</p></details>
     <details><summary><span data-t="q9">Do my saves carry over?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a9">Yes, through Steam Cloud, just like on any other PC. Saves that don't use Steam Cloud, and mods, don't carry over, because every guest gets a fresh machine.</p></details>
-    <details><summary><span data-t="q10">What if no PC is free?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a10">You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs in the evening.</p></details>
+    <details><summary><span data-t="q10">What if no PC is free?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a10">You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs.</p></details>
+    <details><summary><span data-t="q11">Isn't this just Steam Remote Play Together?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a11">Not quite. Remote Play Together streams the host's game, and you join its local multiplayer. With {{brand}}, you run your own game on your own Steam account on your friend's PC, so it works even with games they don't own.</p></details>
   </div>
 </section>
   <section class="close" id="beta" aria-labelledby="close-h">
-  <div><h2 id="close-h" class="rv" data-t="close.h">Bring your Steam library <b>to your Mac.</b></h2></div>
-  <div><form class="wl" data-waitlist novalidate>
-  <div class="wl-state">
-    <label class="wl-label" for="wl-email-close" data-t="wl.label">Email address</label>
-    <div class="wl-row">
-      <input id="wl-email-close" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com" data-t-placeholder="wl.ph" aria-describedby="wl-help-close" aria-errormessage="wl-err-close">
-      <button class="lpill solid" type="submit"><span data-t="cta.beta">Join the beta</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
-    </div>
-    <p class="wl-err" id="wl-err-close" role="alert" hidden data-t="wl.err">That doesn't look like an email address.</p>
-    <p class="wl-help" id="wl-help-close" data-t="wl.help">Free during the beta, then at most €2 an hour. Invites go out in waves, Germany first.</p>
-  </div>
-  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
-    <p class="wl-done-h" data-t="wl.done.h">Almost there.</p>
-    <p data-t="wl.done.p">We've sent an email to <b>{email}</b>. Confirm your address and you're on the list.</p>
-    <p data-t="wl.done.crew">It's quicker with a friend who has a gaming PC: the email has a link you can send them.</p>
-  </div>
-</form></div>
+  <div><h2 id="close-h" class="rv" data-t="close.h">Ready to <b>play?</b></h2></div>
+  <div><div class="start">
+  <a class="lpill solid start-cta" href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew" data-signin><span data-t="cta.beta">Round up your crew</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+  <p class="start-steam" data-t="start.steam">You sign in with Steam. No password, no new account.</p>
+  <p class="start-pc" data-t="start.pc">A crew needs one gaming PC: yours or a friend's.</p>
+  <p class="start-price" data-t="wl.help">Free during the beta, then at most €2 an hour.</p>
+</div></div>
 </section>
 </main>
 

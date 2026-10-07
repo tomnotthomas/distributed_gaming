@@ -93,17 +93,19 @@
       var params = new URLSearchParams(location.search);
       var body = {
         email: v,
-        kind: form.hasAttribute("data-host") ? "host" : "player",
+        kind: form.hasAttribute("data-reminders") ? "reminders" : form.hasAttribute("data-host") ? "host" : "player",
         lang: current,
         page: location.pathname,
         invite: params.get("i") || inviteFromPath(),
       };
-      var finish = function () {
+      // The endpoint may answer with {code}: the new crew's invite code for the crew page.
+      var finish = function (res) {
         form.dataset.email = v;
         state.hidden = true;
         done.hidden = false;
         fill();
         done.focus();
+        form.dispatchEvent(new CustomEvent("site:joined", { bubbles: true, detail: { email: v, code: res && res.code } }));
       };
       if (!url) {
         if (window.console) console.warn("no form endpoint configured, nothing was sent.");
@@ -111,7 +113,8 @@
         return;
       }
       fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); finish(); })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json().catch(function () { return {}; }); })
+        .then(finish)
         .catch(function () { show(T["form.fail"] || "Error"); });
     });
   }

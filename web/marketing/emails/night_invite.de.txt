@@ -1,13 +1,13 @@
-Subject: Max lädt dich zum Crew-Abend ein: Freitag, 21 Uhr
+Subject: Max lädt dich zur Zockrunde ein: Freitag, 21 Uhr
 
 Freitag wird gezockt
 
-Max hat für Freitag, 9. Oktober, von 21 bis 24 Uhr einen Crew-Abend organisiert. Zwei Gaming-PCs sind am Start, einer davon ist für dich: Toms Rig.
+Max hat für Freitag, 9. Oktober, von 21 bis 24 Uhr eine Zockrunde organisiert. Zwei Gaming-PCs sind am Start, einer davon ist für dich: Toms PC.
 
-Du brauchst deinen Mac mit Chrome, dein Steam-Konto und die Steam-App auf dem Handy. Der Discord-Link kommt am Abend.
+Du brauchst deinen Mac mit Chrome, dein Steam-Konto und die Steam-App auf dem Handy. Gequatscht wird direkt in {{brand}}, ohne extra App.
 
 Ich bin dabei: {rsvp_url}
 
 --
-Du bekommst diese Mail, weil Max dich in seine Crew bei {{brand}} eingeladen hat. Kannst du nicht, geht dein Platz an den Nächsten in der Crew.
+Du bekommst diese Mail, weil du Erinnerungen an Zockrunden bei {{brand}} bestätigt hast. Du kannst nicht? Dann geht dein Platz an den Nächsten in der Crew. Abmelden geht jederzeit mit einem Klick.
 {{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}

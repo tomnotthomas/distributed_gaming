@@ -24,7 +24,13 @@ const SCRIPT = fileURLToPath(new URL("../../scripts/import-launch-pages.mjs", im
 
 type FaqJsonLd = (html: string, lang: string) => string;
 type Promote = (staging: string, target: string, rename?: (from: string, to: string) => void) => void;
-const { faqJsonLd, promote } = (await import(SCRIPT)) as { faqJsonLd: FaqJsonLd; promote: Promote };
+const { faqJsonLd, promote, signInPath, wireSignIn, neutralWording } = (await import(SCRIPT)) as {
+  faqJsonLd: FaqJsonLd;
+  promote: Promote;
+  signInPath: (to: string) => string;
+  wireSignIn: (html: string) => string;
+  neutralWording: (text: string) => string;
+};
 
 const PAGE = `<head><script type="application/ld+json">
 {
@@ -204,5 +210,32 @@ describe("importing the launch set", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("sends every sign-in button to Steam on the app's origin, landing on its crew pages", () => {
+    assert.equal(signInPath("/share/"), "/crews/new");
+    assert.equal(signInPath("/en/share/?pc=1"), "/crews/new?pc=1");
+    assert.equal(signInPath("/share/?joined=1&state=ready"), "/crews");
+    const html = wireSignIn(
+      '<a href="/auth/steam/login?to=/share/%3Fpc%3D1" data-signin>a</a>' +
+        '<a href="/auth/steam/login?to=/en/share/">b</a><a href="/auth/steam/login?to=%E0%A4%A">c</a>' +
+        '<a href="/elsewhere/">d</a>',
+    );
+    assert.equal(
+      html,
+      '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew%3Fpc%3D1" data-signin>a</a>' +
+        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew">b</a>' +
+        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew">c</a><a href="/elsewhere/">d</a>',
+    );
+  });
+
+  it("says Zockrunde and gaming session, never an evening or a night, and leaves keys and routes alone", () => {
+    assert.equal(neutralWording("So läuft ein Crew-Abend"), "So läuft eine Zockrunde");
+    assert.equal(neutralWording("Max lädt dich zum Crew-Abend ein"), "Max lädt dich zur Zockrunde ein");
+    assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
+    assert.equal(neutralWording("How a crew night works"), "How a gaming session works");
+    assert.equal(neutralWording("It&#x27;s on tonight"), "It&#x27;s on today");
+    const code = '<span data-t="night.h1" class="fa-night"><a href="/night/AB">x</a></span>';
+    assert.equal(neutralWording(code), code);
   });
 });

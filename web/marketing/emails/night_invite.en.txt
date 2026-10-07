@@ -1,13 +1,13 @@
-Subject: Max invited you to Crew Night: Friday, 9 pm
+Subject: Max invited you to a gaming session: Friday, 9 pm
 
-Friday is game night
+On Friday you play
 
-Max set up a Crew Night for Friday, 9 October, 9 pm to midnight. Two gaming PCs are confirmed and one of them is yours: Tom's rig.
+Max set up a gaming session for Friday, 9 October, 9 pm to midnight. Two gaming PCs are confirmed and one of them is yours: Tom's PC.
 
-You'll need your Mac with Chrome, your Steam account and the Steam app on your phone. We'll send the Discord link on the night.
+You'll need your Mac with Chrome, your Steam account and the Steam app on your phone. Voice chat is built into {{brand}}, so there's nothing else to install.
 
 I'm in: {rsvp_url}
 
 --
-You're getting this email because Max invited you to his crew on {{brand}}. If you can't make it, your seat goes to the next person in the crew.
+You're getting this email because you confirmed session reminders from {{brand}}. If you can't make it, your seat goes to the next person in the crew. You can unsubscribe anytime with one click.
 {{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}

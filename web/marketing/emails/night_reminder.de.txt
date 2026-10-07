@@ -1,12 +1,12 @@
-Subject: Heute 21 Uhr: Crew-Abend mit Max und Lena
+Subject: Heute 21 Uhr: Zockrunde mit Max und Lena
 
-Heute Abend geht's los
+Heute geht's los
 
-Um 21 Uhr startet euer Crew-Abend. Dein Platz an Toms Rig ist reserviert.
+Um 21 Uhr startet eure Zockrunde. Dein Platz an Toms PC ist reserviert.
 
 So bist du schnell drin: {{brand}} in Chrome öffnen, mit Steam anmelden, Spiel starten und einmal den QR-Code mit der Steam-App scannen. Am besten per LAN-Kabel oder nah am Router.
 
-Hier ist der Discord-Link für heute: {discord}
+Den Voice-Chat findest du in {{brand}}, sobald du drin bist.
 
 {{brand}} öffnen: {app_url}
 

@@ -3,29 +3,91 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Gaming-PC teilen statt verkaufen: Werde Founding Host | {{brand}}</title>
-<meta name="description" content="Dein Gaming-PC steht oft rum? Teil ihn abends mit Mac-Spielern, statt ihn zu verkaufen. {{brand}} OS läuft per Dual Boot neben Windows. In der Beta unbezahlt." data-t-content="seo.desc">
+<title>Gaming-PC mit Freunden teilen | Host werden bei {{brand}}</title>
+<meta name="description" content="Dein Gaming-PC steht oft nur rum? Teil ihn mit deinen Freunden mit Mac. {{brand}} OS läuft per Dual Boot neben Windows. An deine Sachen kommt keiner ran." data-t-content="seo.desc">
 <meta name="theme-color" content="#121212">
 <link rel="stylesheet" href="/assets/css/fonts.css">
 <link rel="stylesheet" href="/assets/css/base.css">
 <link rel="stylesheet" href="/assets/css/player.css">
+<link rel="stylesheet" href="/assets/css/crewnight.css">
 <script type="application/ld+json">
 {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "inLanguage": "de",
-  "mainEntity": [
-    {"@type": "Question", "name": "Kann ich mit meinem Gaming-PC Geld verdienen?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. In der Beta hostest du unbezahlt, und auch die Spieler zahlen nichts. Dafür bekommst du das Founding-Host-Abzeichen, eine eigene Rig-Seite und reservierte Plätze für deine Freunde."}},
-    {"@type": "Question", "name": "Kommen Gäste an meine Dateien?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu."}},
-    {"@type": "Question", "name": "Was passiert mit meinem Windows?", "acceptedAnswer": {"@type": "Answer", "text": "Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows."}},
-    {"@type": "Question", "name": "Wer spielt auf meinem PC?", "acceptedAnswer": {"@type": "Answer", "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du."}},
-    {"@type": "Question", "name": "Wie viel Strom kostet das?", "acceptedAnswer": {"@type": "Answer", "text": "So viel wie ein Abend, an dem du selbst zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat."}},
-    {"@type": "Question", "name": "Kann ich meinen PC jederzeit zurückholen?", "acceptedAnswer": {"@type": "Answer", "text": "Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist."}},
-    {"@type": "Question", "name": "Ich habe nur Linux auf dem PC. Geht das?", "acceptedAnswer": {"@type": "Answer", "text": "Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert."}},
-    {"@type": "Question", "name": "Ist das wie Steam Remote Play?", "acceptedAnswer": {"@type": "Answer", "text": "Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows."}},
-    {"@type": "Question", "name": "Ist {{brand}} OS ein Dual Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Ja. {{brand}} OS bekommt eigene 24 GB neben Windows. Zum Teilen startet dein PC in {{brand}} OS, danach wieder in Windows."}},
-    {"@type": "Question", "name": "Wie aktiviere ich Secure Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Im BIOS deines Mainboards, meist unter „Boot“ oder „Security“. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel. Unser Check zeigt dir, ob Secure Boot schon an ist, und führt dich Schritt für Schritt durch, mit Anleitungen für MSI, ASUS, Gigabyte und ASRock."}}
-  ]
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "Kommen Gäste an meine Dateien?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu. So funktioniert {{brand}} OS"
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Was passiert mit meinem Windows?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Wer spielt auf meinem PC?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Wie viel Strom kostet das?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "So viel, wie wenn du selbst darauf zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Kann ich meinen PC jederzeit zurückholen?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Ich habe nur Linux auf dem PC. Geht das?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Ist das wie Steam Remote Play?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Ist {{brand}} OS ein Dual Boot?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Ja. {{brand}} OS bekommt eigene 24 GB neben Windows. Zum Teilen startet dein PC in {{brand}} OS, danach wieder in Windows."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Wie aktiviere ich Secure Boot?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Im BIOS deines Mainboards, meist unter „Boot“ oder „Security“. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel. Unser Check zeigt dir, ob Secure Boot schon an ist, und führt dich Schritt für Schritt durch, mit Anleitungen für MSI, ASUS, Gigabyte und ASRock."
+   }
+  }
+ ]
 }
 </script>
 <style>
@@ -337,9 +399,11 @@
   }
 </style>
 <meta property="og:type" content="website">
-<meta property="og:title" content="Gaming-PC teilen statt verkaufen: Werde Founding Host">
-<meta property="og:description" content="Dein Gaming-PC steht oft rum? Teil ihn abends mit Mac-Spielern, statt ihn zu verkaufen. {{brand}} OS läuft per Dual Boot neben Windows. In der Beta unbezahlt.">
+<meta property="og:title" content="Gaming-PC mit Freunden teilen">
+<meta property="og:description" content="Dein Gaming-PC steht oft nur rum? Teil ihn mit deinen Freunden mit Mac. {{brand}} OS läuft per Dual Boot neben Windows. An deine Sachen kommt keiner ran.">
 <meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:locale" content="de_DE">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="{{site}}/host/">
@@ -362,7 +426,7 @@
     <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
     <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
   </div>
-  <a class="lpill lpill-sm solid nav-cta" href="#bewerben"><span class="long" data-t="cta.apply">Als Founding Host bewerben</span><span class="short" data-t="cta.applyShort">Bewerben</span></a>
+  <a class="lpill lpill-sm solid nav-cta" href="#bewerben"><span class="long" data-t="hcta.start">Crew gründen</span><span class="short" data-t="hcta.short">Loslegen</span></a>
 </header>
 
 <main>
@@ -370,34 +434,33 @@
     <div class="art" data-nav-sentinel data-fit-box>
       <img src="/assets/img/wide-1422450.jpg" alt="Key Art von Deadlock" data-t-alt="hero.alt" fetchpriority="high">
       <div class="drafted" aria-hidden="true">
-        <div class="t-wrap"><span class="t-dim"></span><span class="rules"></span><span class="title" data-fit="0.6">Founding Host</span><span class="t-mark"></span></div>
+        <div class="t-wrap"><span class="t-dim"></span><span class="rules"></span><span class="title" data-fit="0.6" data-t="hero.title">Host der ersten Stunde</span><span class="t-mark"></span></div>
       </div>
     </div>
     <div class="strip on-grey">
-      <div><h1 id="h1" data-t="hero.h1">Teil deinen Gaming-PC, <b>wenn du nicht zockst.</b></h1></div>
-      <div><p class="sub" data-t="hero.sub">Zum Start teilst du ihn nur mit Freunden: Du bekommst Plätze an deiner Rig, die du verschenken kannst. Geld gibt es in der Beta nicht.</p></div>
-      <div id="bewerben-hero"><form class="wl" data-host novalidate>
-  <div class="wl-state">
-    <label class="wl-label" for="hf-email-hero" data-t="hf.label">E-Mail-Adresse</label>
-    <div class="wl-row">
-      <input id="hf-email-hero" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="du@beispiel.de" data-t-placeholder="wl.ph" aria-describedby="hf-help-hero" aria-errormessage="hf-err-hero">
-      <button class="lpill solid" type="submit"><span data-t="cta.apply">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
-    </div>
-    <p class="wl-err" id="hf-err-hero" role="alert" hidden data-t="wl.err">Das sieht nicht nach einer E-Mail-Adresse aus.</p>
-    <p class="wl-help" id="hf-help-hero" data-t="hf.help">Wir melden uns für einen kurzen Videocall. Erst danach installierst du etwas.</p>
-  </div>
-  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
-    <p class="wl-done-h" data-t="hf.done.h">Danke für deine Bewerbung.</p>
-    <p data-t="hf.done.p">Bestätige kurz die Mail an <b>{email}</b>. Danach schlagen wir dir einen Termin für den Videocall vor.</p>
-  </div>
-</form></div>
+      <div><h1 id="h1" data-t="hero.h1">Teil deinen Gaming-PC <b>mit deiner Crew.</b></h1></div>
+      <div><p class="sub" data-t="hero.sub">Deine Freunde mit Mac zocken auf deinem PC, wenn du selbst nicht dransitzt. Du verteilst die Plätze. Ist der PC belegt, schauen die anderen einfach zu.</p></div>
+      <div id="bewerben-hero"><div class="start">
+  <a class="lpill solid start-cta" href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew%3Fpc%3D1" data-signin><span data-t="hcta.start">Crew gründen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+  <p class="start-steam" data-t="hstart.steam">Du meldest dich mit Steam an und richtest danach deinen PC ein. Kein Passwort, kein neues Konto.</p>
+</div></div>
     </div>
   </section>
 
+  <section class="cn cn-a cn-dark cn-short" id="crew-abend" aria-labelledby="cn-h">
+  <h2 id="cn-h" class="rv" data-t="cn.h">So läuft eine Zockrunde</h2>
+  <ol class="cn-line">
+    <li class="rv"><span class="cn-when" data-t="cn.w1">Einmal vorher</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></span><b data-t="cn.o1h">Crew gründen</b><span class="cn-p" data-t="cn.o1p">Du stellst den Gaming-PC, deine Freunde mit Mac kommen über deinen Crew-Link dazu.</span></li>
+    <li class="rv" style="--i:1"><span class="cn-when" data-t="cn.w2">Montag</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4M9.5 15l2 2 3.5-3.5"/></svg></span><b data-t="cn.s2h">Zockrunde ansagen</b><span class="cn-p" data-t="cn.s2p">Freitag, 21 Uhr. Wer ist dabei?</span></li>
+    <li class="rv now" style="--i:2"><span class="cn-when" data-t="cn.w3">Freitag, 21:00</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg></span><b data-t="cn.s3h">Zocken und zuschauen</b><span class="cn-p" data-t="cn.h3p">Einer zockt auf deinem PC, der Rest schaut zu und quatscht im Voice.</span></li>
+    <li class="rv" style="--i:3"><span class="cn-when" data-t="cn.w4">Freitag, 22:30</span><span class="cn-dot" aria-hidden="true"><svg class="cn-ico" viewBox="0 0 24 24"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg></span><b data-t="cn.s4h">Abwechseln</b><span class="cn-p" data-t="cn.h4p">Der Nächste meldet sich mit seinem eigenen Steam-Konto an. An deine Sachen kommt keiner ran.</span></li>
+  </ol>
+</section>
+
   <section class="steps" id="so-gehts" aria-labelledby="steps-h">
-    <h2 id="steps-h" class="rv" data-t="steps.h">So wirst du Founding Host</h2>
+    <h2 id="steps-h" class="rv" data-t="steps.h">So wirst du Host der ersten Stunde</h2>
     <ol class="step-row">
-      <li class="rv"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16v11H4zM4 7l8 6 8-6"/></svg></span><h3 data-t="s1.h">Bewerben</h3><p data-t="s1.p">Trag dich ein. Wir lernen uns in einem kurzen Videocall kennen.</p></li>
+      <li class="rv"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16v11H4zM4 7l8 6 8-6"/></svg></span><h3 data-t="s1.h">Mit Steam anmelden</h3><p data-t="s1.p">Kein Passwort, kein neues Konto. Danach führt dich die App durch die Einrichtung.</p></li>
       <li class="rv" style="--i:1"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v10M7.5 10.5 12 15l4.5-4.5M6 19h12"/></svg></span><h3 data-t="s2.h">{{brand}} OS installieren</h3><p data-t="s2.p">{{brand}} OS braucht 24 GB neben deinem Windows. Dein Windows und deine Dateien bleiben, wie sie sind.</p></li>
       <li class="rv" style="--i:2"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 7.5V12l3 2"/></svg></span><h3 data-t="s3.h">Freunde einladen</h3><p data-t="s3.p">Du bekommst Plätze für zwei bis vier Freunde. Sie spielen auf deinem PC, wenn du ihn nicht brauchst. Andere kommen erst dazu, wenn du willst.</p></li>
     </ol>
@@ -418,10 +481,10 @@
 
   <section class="perks" aria-labelledby="perks-h">
     <div>
-      <h2 id="perks-h" class="rv" data-t="perks.h">Was du als Founding Host bekommst</h2>
+      <h2 id="perks-h" class="rv" data-t="perks.h">Was du als Host der ersten Stunde bekommst</h2>
       <ul class="perk-list">
-        <li class="rv"><h3 data-t="p1.h">Plätze für deine Freunde</h3><p data-t="p1.p">Über deinen Link spielen deine Freunde auf deiner Rig. Ihr Platz ist reserviert, auch wenn die Beta voll ist.</p></li>
-        <li class="rv" style="--i:1"><h3 data-t="p2.h">Deine Rig, öffentlich</h3><p data-t="p2.p">Founding-Host-Abzeichen und eine eigene Rig-Seite: deine Specs, gehostete Stunden und wie vielen Spielern du geholfen hast. Mit Pseudonym, ohne Adresse.</p></li>
+        <li class="rv"><h3 data-t="p1.h">Plätze für deine Freunde</h3><p data-t="p1.p">Über deinen Link spielen deine Freunde auf deinem PC. Ihr Platz ist reserviert, auch wenn die Beta voll ist.</p></li>
+        <li class="rv" style="--i:1"><h3 data-t="p2.h">Deine Host-Seite</h3><p data-t="p2.p">Ein Abzeichen als Host der ersten Stunde und eine eigene Host-Seite: deine Hardware, gehostete Stunden und wie vielen Spielern du geholfen hast. Unter Pseudonym, ohne Adresse.</p></li>
         <li class="rv" style="--i:2"><h3 data-t="p3.h">Dein PC hat wieder was zu tun</h3><p data-t="p3.p">Statt rumzustehen, lässt er jemanden ohne Gaming-PC die eigene Steam-Bibliothek spielen. Und du redest von Anfang an mit, wohin sich {{brand}} entwickelt.</p></li>
       </ul>
     </div>
@@ -431,7 +494,7 @@
         <dt data-t="req.gpu">Grafik</dt><dd data-t="req.gpuv">AMD Radeon RX 6800 oder besser. NVIDIA-Karten folgen mit einem späteren Update.</dd>
         <dt data-t="req.sec">Sicherheit</dt><dd data-t="req.secv">TPM 2.0 und Secure Boot</dd>
         <dt data-t="req.net">Internet</dt><dd data-t="req.netv">mindestens 25 Mbit/s Upload</dd>
-        <dt data-t="req.time">Zeit</dt><dd data-t="req.timev">ein paar Abende im Monat, wann es dir passt</dd>
+        <dt data-t="req.time">Zeit</dt><dd data-t="req.timev">ein paar Mal im Monat, wann es dir passt</dd>
       </dl>
       <p class="req-check" data-t="req.check">Secure Boot aus oder unsicher, ob dein PC passt? Unser Check zeigt es dir in einer Minute, mit einer Anleitung zum Secure-Boot-Aktivieren für MSI, ASUS, Gigabyte und ASRock.</p>
     </div>
@@ -440,11 +503,10 @@
   <section class="faqsec" id="fragen" aria-labelledby="faq-h">
     <h2 id="faq-h" class="rv" data-t="faq.h">Hosting bei {{brand}}: Fragen und Antworten</h2>
     <div class="faq rv">
-      <details><summary><span data-t="q1">Kann ich mit meinem Gaming-PC Geld verdienen?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a1">Nein. In der Beta hostest du unbezahlt, und auch die Spieler zahlen nichts. Dafür bekommst du das Founding-Host-Abzeichen, eine eigene Rig-Seite und reservierte Plätze für deine Freunde.</p></details>
       <details><summary><span data-t="q2">Kommen Gäste an meine Dateien?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a2">Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu. <a href="#os">So funktioniert {{brand}} OS</a></p></details>
       <details><summary><span data-t="q3">Was passiert mit meinem Windows?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a3">Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows.</p></details>
       <details><summary><span data-t="q4">Wer spielt auf meinem PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.</p></details>
-      <details><summary><span data-t="q5">Wie viel Strom kostet das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">So viel wie ein Abend, an dem du selbst zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat.</p></details>
+      <details><summary><span data-t="q5">Wie viel Strom kostet das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">So viel, wie wenn du selbst darauf zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat.</p></details>
       <details><summary><span data-t="q6">Kann ich meinen PC jederzeit zurückholen?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist.</p></details>
     <details><summary><span data-t="q7">Ich habe nur Linux auf dem PC. Geht das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.</p></details>
       <details><summary><span data-t="q8">Ist das wie Steam Remote Play?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a8">Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows.</p></details>
@@ -454,22 +516,11 @@
   </section>
 
   <section class="close" id="bewerben" aria-labelledby="close-h">
-    <div><h2 id="close-h" class="rv" data-t="close.h">Lust, <b>Founding Host zu werden?</b></h2></div>
-    <div><form class="wl" data-host novalidate>
-  <div class="wl-state">
-    <label class="wl-label" for="hf-email-close" data-t="hf.label">E-Mail-Adresse</label>
-    <div class="wl-row">
-      <input id="hf-email-close" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="du@beispiel.de" data-t-placeholder="wl.ph" aria-describedby="hf-help-close" aria-errormessage="hf-err-close">
-      <button class="lpill solid" type="submit"><span data-t="cta.apply">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
-    </div>
-    <p class="wl-err" id="hf-err-close" role="alert" hidden data-t="wl.err">Das sieht nicht nach einer E-Mail-Adresse aus.</p>
-    <p class="wl-help" id="hf-help-close" data-t="hf.help">Wir melden uns für einen kurzen Videocall. Erst danach installierst du etwas.</p>
-  </div>
-  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
-    <p class="wl-done-h" data-t="hf.done.h">Danke für deine Bewerbung.</p>
-    <p data-t="hf.done.p">Bestätige kurz die Mail an <b>{email}</b>. Danach schlagen wir dir einen Termin für den Videocall vor.</p>
-  </div>
-</form></div>
+    <div><h2 id="close-h" class="rv" data-t="close.h">Lust, <b>Host der ersten Stunde zu werden?</b></h2></div>
+    <div><div class="start">
+  <a class="lpill solid start-cta" href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew%3Fpc%3D1" data-signin><span data-t="hcta.start">Crew gründen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+  <p class="start-steam" data-t="hstart.steam">Du meldest dich mit Steam an und richtest danach deinen PC ein. Kein Passwort, kein neues Konto.</p>
+</div></div>
   </section>
 </main>
 

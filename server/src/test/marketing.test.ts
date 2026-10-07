@@ -1,15 +1,16 @@
-// The marketing site (marketing.ts) and its sign-ups (signups.ts). Most tests
+// The marketing site (marketing.ts) and the reminders (signups.ts). Most tests
 // serve the real pages in web/marketing/ in-process, on a database of their
 // own; the last start the real server with MARKETING_PAGES off and on.
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join, relative } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { Database } from "../db.js";
-import type { InviteType } from "../invite-copy.js";
 import {
   assetPath,
   createMarketing,
@@ -21,20 +22,16 @@ import {
   siteFromEnv,
 } from "../marketing.js";
 import { migrate } from "../schema.js";
-import {
-  CLIENT_BURST,
-  clientOf,
-  createSignups,
-  RESEND_AFTER_MS,
-  signupInvite,
-  type Signups,
-} from "../signups.js";
+import { CLIENT_BURST, clientOf, createSignups, RESEND_AFTER_MS, type Signups } from "../signups.js";
 import { testDatabase } from "./db.js";
 
 const DIR = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
 const SITE = { origin: "https://lanterel.test", host: "lanterel.test", app: "https://app.lanterel.test" };
+/** The app's host, where the crew page asks for reminders. */
+const APP_HOST = new URL(SITE.app).host;
+/** The header the in-process server reads a signed-in player's Steam id from, standing in for the session cookie. */
+const RENTER = "x-test-renter";
 const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
-const TYPES: InviteType[] = ["crew", "seat", "gift", "night"];
 /** The example people and facts marketing built the invite pages with. */
 const EXAMPLES =
   /\b(Max|Lena|Lenas|Lena's|Jonas|Jonas's|Tom|Toms|Tom's|Berlin|Freitag|Friday|Oktober|October)\b/;
@@ -45,13 +42,21 @@ type Answer = { status: number; headers: Record<string, string | string[] | unde
 function ask(
   origin: string,
   path: string,
-  { host = SITE.host, method = "GET", body = "", localAddress = "127.0.0.1" } = {},
+  { host = SITE.host, method = "GET", body = "", localAddress = "127.0.0.1", renter = "" } = {},
 ): Promise<Answer> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, origin);
     const req = request(
       url,
-      { method, localAddress, headers: { host, ...(body ? { "content-type": "application/json" } : {}) } },
+      {
+        method,
+        localAddress,
+        headers: {
+          host,
+          ...(body ? { "content-type": "application/json" } : {}),
+          ...(renter ? { [RENTER]: renter } : {}),
+        },
+      },
       (res) => {
         let text = "";
         res.setEncoding("utf8");
@@ -124,18 +129,6 @@ describe("marketing configuration", () => {
     assert.equal(inviteRoute("/crewx/x"), null);
   });
 
-  it("reads an invite from a form as {type, code} or type:code, and nothing else", () => {
-    assert.deepEqual(signupInvite({ type: "night", code: "AB12" }), { type: "night", code: "AB12" });
-    // A crew invite's code may be the app's crew link token: only its type is kept.
-    assert.deepEqual(signupInvite({ type: "crew", code: "AB12" }), { type: "crew", code: null });
-    assert.deepEqual(signupInvite("crew:AB12"), { type: "crew", code: null });
-    assert.deepEqual(signupInvite("seat:x_y-z"), { type: "seat", code: "x_y-z" });
-    assert.equal(signupInvite(null), null);
-    assert.equal(signupInvite("party:x"), null);
-    assert.equal(signupInvite("crew:<b>"), null);
-    assert.equal(signupInvite({ type: "crew", code: 7 }), null);
-  });
-
   it("replaces an element's inner HTML by its data-t key, nested tags included", () => {
     const html =
       '<h1 data-t="a" id="h">Max <b>x</b></h1><p data-t="b"><span>y</span></p><h1 data-t="a">z</h1>';
@@ -161,16 +154,28 @@ describe("marketing site", () => {
       )
     ).rows;
 
-  /** Sign up, a second later than whatever came before. */
-  async function signUp(body: Record<string, unknown>) {
+  /** Ask for reminders as `renter` on the app's host, a second later than whatever came before. */
+  async function remind(body: Record<string, unknown>, renter = "765611") {
     now += 1_000;
-    return ask(origin, "/api/signups", { method: "POST", body: JSON.stringify(body) });
+    return ask(origin, "/api/signups/reminders", {
+      host: APP_HOST,
+      method: "POST",
+      body: JSON.stringify(body),
+      renter,
+    });
   }
+
+  /** `renter`'s reminders as the crew page reads them. */
+  const reminders = async (renter = "765611") =>
+    JSON.parse((await ask(origin, "/api/signups/reminders", { host: APP_HOST, renter })).body);
+
+  /** A link's page or button on the app's host, where the mails point. */
+  const link = (path: string, method = "GET") => ask(origin, path, { host: APP_HOST, method });
 
   /** Press the button a confirm link's page has, a second later than whatever came before. */
   async function confirm(token: string) {
     now += 1_000;
-    return ask(origin, `/api/signups/confirm?token=${token}`, { method: "POST" });
+    return link(`/api/signups/confirm?token=${token}`, "POST");
   }
 
   /** The sign-ups as kept. */
@@ -191,7 +196,7 @@ describe("marketing site", () => {
     server = createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (await signups.serve(req, res, url)) return;
-      const serve = createMarketing({ site: SITE, files, routes, isShareCode: signups.isShareCode });
+      const serve = createMarketing({ site: SITE, files, routes });
       if (await serve(req, res, url)) return;
       res.writeHead(418).end("the app");
     });
@@ -206,13 +211,21 @@ describe("marketing site", () => {
     db = await testDatabase();
     await migrate(db);
     now = 1_800_000_000_000;
-    signups = createSignups({ database: db, site: SITE, files: marketingFiles(DIR, SITE), now: () => now });
+    signups = createSignups({
+      database: db,
+      site: SITE,
+      files: marketingFiles(DIR, SITE),
+      now: () => now,
+      renter: (req) => (req.headers[RENTER] as string | undefined) ?? null,
+    });
   });
 
   after(() => db?.close());
 
   it("serves every page with the brand and the site's origin filled in", async () => {
     for (const path of (await pageRoutes(DIR)).keys()) {
+      // The crew page is the app's (see below).
+      if (/^(\/en)?\/share\/$/.test(path)) continue;
       const page = await ask(origin, path);
       assert.equal(page.status, 200, path);
       assert.match(String(page.headers["content-type"]), /text\/html/);
@@ -302,31 +315,43 @@ describe("marketing site", () => {
     }
   });
 
-  it("takes sign-ups and their links only on the site's own host", async () => {
-    const other = { host: "swiff.onrender.com" };
-    const body = JSON.stringify({ email: "ana@example.com", kind: "player" });
-    assert.equal((await ask(origin, "/api/signups", { ...other, method: "POST", body })).body, "the app");
-    assert.equal((await ask(origin, "/api/signups/confirm?token=x", other)).body, "the app");
-    assert.equal(
-      (await ask(origin, "/api/signups/unsubscribe?token=x", { ...other, method: "POST" })).body,
-      "the app",
-    );
+  it("takes reminders and their links only on the app's own host, where the crew page and its session are", async () => {
+    const body = JSON.stringify({ email: "ana@example.com" });
+    for (const host of [SITE.host, "evil.example"]) {
+      const asked = await ask(origin, "/api/signups/reminders", {
+        host,
+        method: "POST",
+        body,
+        renter: "765611",
+      });
+      assert.notEqual(asked.status, 200, host);
+      assert.equal((await ask(origin, "/api/signups/confirm?token=x", { host })).body, "the app");
+    }
     assert.deepEqual(await signupRows(), []);
-    assert.equal((await signUp({ email: "ana@example.com", kind: "player" })).status, 202);
+    // Nor any sign-up of the old waitlist: there is none.
+    const waitlist = await ask(origin, "/api/signups", {
+      host: APP_HOST,
+      method: "POST",
+      body: JSON.stringify({ email: "ana@example.com", kind: "player" }),
+    });
+    assert.notEqual(waitlist.status, 202);
+    assert.equal((await remind({ email: "ana@example.com" })).status, 200);
   });
 
-  it("lets one client send only a few sign-ups at a time, and not take the others' turn", async () => {
-    /** Sign `email` up from `localAddress`, a client of its own. */
+  it("lets one client ask only a few times at once, and not take the others' turn", async () => {
+    /** Ask for reminders to `email` from `localAddress`, a client of its own. */
     const send = (email: string, localAddress = "127.0.0.1") =>
-      ask(origin, "/api/signups", {
+      ask(origin, "/api/signups/reminders", {
+        host: APP_HOST,
         method: "POST",
-        body: JSON.stringify({ email, kind: "player" }),
+        body: JSON.stringify({ email }),
         localAddress,
+        renter: "765611",
       });
     const sent = [];
     for (let i = 0; i < CLIENT_BURST + 2; i++) sent.push((await send(`a${i}@example.com`)).status);
-    assert.deepEqual(sent, [...Array<number>(CLIENT_BURST).fill(202), 429, 429]);
-    assert.equal((await send("b@example.com", "127.0.0.2")).status, 202);
+    assert.deepEqual(sent, [...Array<number>(CLIENT_BURST).fill(200), 429, 429]);
+    assert.equal((await send("b@example.com", "127.0.0.2")).status, 200);
   });
 
   it("knows a client by the address that connected, or by what a trusted proxy appended last", () => {
@@ -342,14 +367,49 @@ describe("marketing site", () => {
     assert.equal(clientOf(req(""), true), "10.0.0.1");
   });
 
+  it("never says when a crew plays: no evening or night in a page, a mail or a preview", async () => {
+    const TIME_OF_DAY = /\b(Abende?n?s?|abends|Nacht|nachts|[Nn]ights?|[Tt]onight|[Ee]venings?)\b/;
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.(html|txt|json)$/.test(entry.name)) files.push(path);
+      }
+    };
+    walk(DIR);
+    assert.ok(files.length > 30);
+    for (const path of files) {
+      const text = readFileSync(path, "utf8")
+        // What a reader sees: no tags, styles or scripts, no URLs (/night/ is a route), no data-t keys.
+        .replace(/<(style|script)\b[\s\S]*?<\/\1>/g, " ")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\{\{\w+\}\}\S*|https?:\/\/\S+|\/[\w/-]*night[\w/-]*/g, " ")
+        .replace(/"[\w.]*night[\w.]*"\s*:/g, " ");
+      assert.doesNotMatch(text, TIME_OF_DAY, relative(DIR, path));
+    }
+  });
+
   it("leaves every other host to the app", async () => {
     for (const path of ["/", "/en/", "/share/", "/host/", "/crew/AB12", "/assets/css/base.css"]) {
       assert.equal((await ask(origin, path, { host: "swiff.onrender.com" })).body, "the app", path);
     }
   });
 
-  it("renders every invite template without the example people, its buttons carrying the code", async () => {
-    for (const type of TYPES) {
+  it("hands a crew or seat code to the app's own invite page, which names who asks", async () => {
+    for (const lang of ["", "/en"]) {
+      const crew = await ask(origin, `${lang}/crew/AB12cd`);
+      assert.equal(crew.status, 302);
+      assert.equal(crew.headers.location, `${SITE.app}/invite/AB12cd`);
+      assert.equal(crew.headers["referrer-policy"], "no-referrer");
+      assert.equal(crew.headers["cache-control"], "no-store");
+      assert.equal((await ask(origin, `${lang}/seat/S3at_1`)).headers.location, `${SITE.app}/seat/S3at_1`);
+    }
+    assert.equal((await ask(origin, "/crew/a.b")).body, "the app");
+  });
+
+  it("renders gift and Night invites, which the product does not have yet, naming nobody, into the app's sign-in", async () => {
+    for (const type of ["gift", "night"]) {
       for (const lang of ["", "/en"]) {
         const path = `${lang}/${type}/AB12cd`;
         const page = await ask(origin, path);
@@ -359,150 +419,112 @@ describe("marketing site", () => {
         assert.doesNotMatch(page.body, EXAMPLES, path);
         assert.doesNotMatch(page.body, /\{\{|Swiff/, path);
         assert.match(page.body, /<title>[^<]+ \| Lanterel<\/title>/, path);
-        if (type !== "night")
-          assert.match(page.body, new RegExp(`\\?i=${type}:AB12cd#(bewerben|beta)"`), path);
-        assert.doesNotMatch(page.body, /href="(\/en)?\/(host\/)?#(bewerben|beta)"/, path);
+        assert.match(page.body, new RegExp(`href="${SITE.app}/auth/steam/login\\?to=%2Fcrews"`), path);
       }
     }
-    // The template's own path, with no code: the same neutral page, its buttons as they were.
-    const bare = await ask(origin, "/crew/");
-    assert.equal(bare.status, 200);
-    assert.doesNotMatch(bare.body, EXAMPLES);
-    assert.match(bare.body, /href="\/host\/#bewerben"/);
-    assert.equal((await ask(origin, "/crew/a.b")).body, "the app");
+    // A template's own path, with no code: the same neutral page.
+    for (const type of ["gift", "night"]) {
+      const bare = await ask(origin, `/${type}/`);
+      assert.equal(bare.status, 200, type);
+      assert.doesNotMatch(bare.body, EXAMPLES, type);
+    }
   });
 
-  it("renders an invite from the template marketing built, whatever the code", () => {
-    const template = '<a href="/host/#bewerben">x</a><a href="/en/#beta">y</a><a href="#zusage">z</a>';
-    assert.equal(
-      renderInvite(template, "gift", "en", "C0de"),
-      '<a href="/host/?i=gift:C0de#bewerben">x</a><a href="/en/?i=gift:C0de#beta">y</a><a href="#zusage">z</a>',
-    );
+  it("sends the crew page on to the app, behind its Steam sign-in", async () => {
+    for (const path of ["/share/", "/en/share/"]) {
+      const moved = await ask(origin, path);
+      assert.equal(moved.status, 302, path);
+      assert.equal(moved.headers.location, `${SITE.app}/crews`, path);
+    }
   });
 
-  it("takes a waitlist sign-up with double opt-in, then hands out the player's crew link", async () => {
-    const taken = await signUp({
-      email: "  Ana@Example.COM ",
-      kind: "player",
-      lang: "de",
-      page: "/crew/AB12",
-      invite: { type: "crew", code: "AB12" },
-    });
-    assert.equal(taken.status, 202);
-    assert.deepEqual(JSON.parse(taken.body), { ok: true });
+  it("renders an invite template's copy and leaves its links as marketing built them", () => {
+    const template =
+      '<title>x</title><meta name="description" content="x"><a href="{{app}}/auth/steam/login?to=%2Fcrews">y</a>';
+    const html = renderInvite(template, "gift", "en");
+    assert.match(html, /<title>[^<]+ \| \{\{brand\}\}<\/title>/);
+    assert.match(html, /<a href="\{\{app\}\}\/auth\/steam\/login\?to=%2Fcrews">y<\/a>/);
+  });
 
-    const [mail] = await outbox();
-    assert.equal(mail!.to_address, "ana@example.com");
-    assert.equal(mail!.template, "signup_confirm");
-    assert.equal(mail!.subject, "Bitte bestätige deine Anmeldung");
-    assert.match(mail!.text, /Danke für deine Anmeldung bei Lanterel/);
-    assert.doesNotMatch(mail!.html + mail!.text, /\{\{|\{confirm_url\}|\{unsubscribe_url\}|Swiff/);
-    assert.match(mail!.html, new RegExp(`href="${SITE.origin}/api/signups/confirm\\?token=[\\w-]+"`));
+  it("keeps a signed-in player's reminders, double opt-in, back to the crew page", async () => {
+    assert.equal((await ask(origin, "/api/signups/reminders", { host: APP_HOST })).status, 401);
+    assert.equal((await remind({ email: "sam@example.com" }, "")).status, 401);
+    assert.deepEqual(await reminders(), { email: null, confirmed: false });
 
-    const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM marketing_signups");
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]!.invite_type, "crew");
-    assert.equal(rows[0]!.invite_code, null);
-    assert.equal(rows[0]!.page, "/crew/");
-    assert.doesNotMatch(JSON.stringify(rows[0]), /AB12/);
-    assert.equal(rows[0]!.confirmed_at, null);
-    const referral = rows[0]!.referral as string;
+    const asked = await remind({ email: " Sam@Example.com ", lang: "en" });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(JSON.parse(asked.body), { email: "sam@example.com", confirmed: false });
+    let mails = await outbox();
+    assert.equal(mails.length, 1);
+    assert.equal(mails[0]!.to_address, "sam@example.com");
+    assert.equal(mails[0]!.template, "signup_confirm");
+    assert.equal(mails[0]!.subject, "Confirm your session reminders");
+    assert.match(mails[0]!.text, new RegExp(`${SITE.app}/api/signups/confirm\\?token=`));
+    assert.match(mails[0]!.text, new RegExp(`${SITE.app}/api/signups/unsubscribe\\?token=`));
 
-    // Not confirmed yet: the share page has no link of theirs.
-    assert.match((await ask(origin, `/share/?code=${referral}`)).body, /\/crew\/<\/code>/);
+    // Asked again at once: no second mail.
+    await remind({ email: "sam@example.com", lang: "en" });
+    assert.equal((await outbox()).length, 1);
 
     const confirmed = await confirm(await linkToken("confirm"));
     assert.equal(confirmed.status, 303);
-    assert.equal(confirmed.headers.location, `${SITE.origin}/share/?code=${referral}`);
+    assert.equal(confirmed.headers.location, `${SITE.app}/crews#reminders=on`);
+    assert.deepEqual(await reminders(), { email: "sam@example.com", confirmed: true });
+    const [row] = await signupRows();
+    assert.equal(row!.kind, "reminders");
+    assert.equal(row!.steam_id, "765611");
 
-    const ask2 = (await outbox()).at(-1)!;
-    assert.equal(ask2.template, "ask_pc_friend");
-    assert.match(ask2.html, new RegExp(`href="${SITE.origin}/share/\\?code=${referral}"`));
+    // Another player may use the same address.
+    assert.equal((await remind({ email: "sam@example.com" }, "999")).status, 200);
+    assert.equal((await signupRows()).length, 2);
 
-    const share = await ask(origin, `/share/?code=${referral}`);
-    assert.equal(share.headers["cache-control"], "private, no-store");
-    assert.match(share.body, new RegExp(`<code id="lk">${SITE.origin}/crew/${referral}</code>`));
-    assert.doesNotMatch(share.body, /DEINCODE|YOURCODE/);
-    assert.match((await ask(origin, "/en/share/?code=nope")).body, new RegExp(`${SITE.origin}/crew/<`));
+    // A new address starts over, and nothing goes to it until it confirms.
+    mails = await outbox();
+    assert.deepEqual(JSON.parse((await remind({ email: "sam@new.example" })).body), {
+      email: "sam@new.example",
+      confirmed: false,
+    });
+    assert.equal((await outbox()).length, mails.length + 1);
 
-    // Again, confirmed: no new mail, nothing told.
-    assert.equal((await signUp({ email: "ana@example.com", kind: "player" })).status, 202);
-    assert.equal((await outbox()).length, 2);
-    // Confirming twice sends the friend mail once.
-    assert.equal((await outbox()).filter((m) => m.template === "ask_pc_friend").length, 1);
+    const off = await ask(origin, "/api/signups/reminders/off", {
+      host: APP_HOST,
+      method: "POST",
+      renter: "765611",
+    });
+    assert.deepEqual(JSON.parse(off.body), { email: null, confirmed: false });
   });
 
-  it("sends the confirm mail again only after a while, keeping the first invite", async () => {
-    await signUp({ email: "bo@example.com", kind: "player", lang: "en", invite: "gift:G1" });
-    await signUp({ email: "bo@example.com", kind: "player", lang: "en", invite: "seat:S1" });
+  it("sends the confirm mail again only after a while", async () => {
+    await remind({ email: "bo@example.com" });
+    await remind({ email: "bo@example.com" });
     assert.equal((await outbox()).length, 1);
     now += RESEND_AFTER_MS;
-    await signUp({ email: "bo@example.com", kind: "player", lang: "en" });
-    const mails = await outbox();
-    assert.equal(mails.length, 2);
-    assert.equal(mails[1]!.subject, "Please confirm your email");
-    const { rows } = await db.query<Record<string, unknown>>(
-      "SELECT invite_type, invite_code FROM marketing_signups",
-    );
-    assert.deepEqual(rows[0], { invite_type: "gift", invite_code: "G1" });
-  });
-
-  it("takes a Founding Host application with the invite it came with", async () => {
-    const taken = await signUp({ email: "host@example.com", kind: "host", lang: "en", invite: "crew:AB12" });
-    assert.equal(taken.status, 202);
-    const confirmed = await confirm(await linkToken("confirm"));
-    assert.equal(confirmed.headers.location, `${SITE.origin}/en/host/`);
-    assert.deepEqual(
-      (await outbox()).map((m) => m.template),
-      ["signup_confirm"],
-    );
-    const { rows } = await db.query<Record<string, unknown>>(
-      "SELECT kind, invite_code FROM marketing_signups",
-    );
-    assert.deepEqual(rows[0], { kind: "host", invite_code: null });
-  });
-
-  it("keeps a crew invite's type, never its code, also when a resend comes with another invite", async () => {
-    await signUp({
-      email: "cy@example.com",
-      kind: "player",
-      page: "/en/crew/CREWTOKEN",
-      invite: "crew:CREWTOKEN",
-    });
-    now += RESEND_AFTER_MS;
-    await signUp({ email: "cy@example.com", kind: "player", invite: "seat:S1" });
+    await remind({ email: "bo@example.com" });
     assert.equal((await outbox()).length, 2);
-    const { rows } = await db.query<Record<string, unknown>>(
-      "SELECT invite_type, invite_code FROM marketing_signups",
-    );
-    assert.deepEqual(rows[0], { invite_type: "crew", invite_code: null });
-    assert.doesNotMatch(JSON.stringify(await signupRows()), /CREWTOKEN/);
-
-    await signUp({ email: "di@example.com", kind: "player" });
-    now += RESEND_AFTER_MS;
-    await signUp({ email: "di@example.com", kind: "player", invite: { type: "crew", code: "CREWTOKEN" } });
-    const later = await db.query<Record<string, unknown>>(
-      "SELECT invite_type, invite_code FROM marketing_signups WHERE email = 'di@example.com'",
-    );
-    assert.deepEqual(later.rows[0], { invite_type: "crew", invite_code: null });
   });
 
-  it("refuses what is not a sign-up and lands a bad link on the site", async () => {
-    assert.equal((await signUp({ email: "nope", kind: "player" })).status, 400);
-    assert.equal((await signUp({ email: `${"a".repeat(250)}@x.de`, kind: "player" })).status, 400);
-    assert.equal((await signUp({ email: "a@b.de", kind: "admin" })).status, 400);
-    assert.equal((await ask(origin, "/api/signups", { method: "POST", body: "[" })).status, 400);
+  it("refuses what is not an address and lands a bad link on the crew page", async () => {
+    assert.equal((await remind({ email: "nope" })).status, 400);
+    assert.equal((await remind({ email: `${"a".repeat(250)}@x.de` })).status, 400);
+    assert.equal(
+      (
+        await ask(origin, "/api/signups/reminders", {
+          host: APP_HOST,
+          method: "POST",
+          body: "[",
+          renter: "1",
+        })
+      ).status,
+      400,
+    );
     assert.equal((await outbox()).length, 0);
     const bad = await confirm("forged");
     assert.equal(bad.status, 303);
-    assert.equal(bad.headers.location, `${SITE.origin}/`);
-    assert.equal(
-      (await ask(origin, "/api/signups/unsubscribe?token=forged", { method: "POST" })).status,
-      404,
-    );
+    assert.equal(bad.headers.location, `${SITE.app}/crews`);
+    assert.equal((await link("/api/signups/unsubscribe?token=forged", "POST")).status, 404);
     // A link nobody knows says so in both languages, with nothing to press.
     for (const action of ["confirm", "unsubscribe"]) {
-      const unknown = await ask(origin, `/api/signups/${action}?token=%22%3E%3Cscript%3E`);
+      const unknown = await link(`/api/signups/${action}?token=%22%3E%3Cscript%3E`);
       assert.equal(unknown.status, 404);
       assert.match(unknown.body, /Dieser Link ist ungültig. · This link is not valid./);
       assert.doesNotMatch(unknown.body, /<form|<button|<script>/);
@@ -510,15 +532,15 @@ describe("marketing site", () => {
   });
 
   it("only asks on a link's GET, which mail scanners open too: nothing changes", async () => {
-    await signUp({ email: "dee@example.com", kind: "player", lang: "en" });
+    await remind({ email: "dee@example.com", lang: "en" });
     const confirmToken = await linkToken("confirm");
     const unsubscribeToken = await linkToken("unsubscribe");
     const before = await signupRows();
 
-    const asked = await ask(origin, `/api/signups/confirm?token=${confirmToken}`);
+    const asked = await link(`/api/signups/confirm?token=${confirmToken}`);
     assert.equal(asked.status, 200);
     assert.equal(asked.headers["cache-control"], "no-store");
-    assert.match(asked.body, /<a class="wordmark" href="https:\/\/lanterel.test\/">LANTEREL<\/a>/);
+    assert.match(asked.body, new RegExp(`<a class="wordmark" href="${SITE.app}/crews">LANTEREL</a>`));
     assert.match(asked.body, new RegExp(`<link rel="stylesheet" href="${SITE.origin}/assets/css/base.css">`));
     assert.match(
       asked.body,
@@ -527,7 +549,7 @@ describe("marketing site", () => {
       ),
     );
     assert.doesNotMatch(asked.body, /Bestätigen/);
-    const leave = await ask(origin, `/api/signups/unsubscribe?token=${unsubscribeToken}`);
+    const leave = await link(`/api/signups/unsubscribe?token=${unsubscribeToken}`);
     assert.match(
       leave.body,
       new RegExp(
@@ -543,46 +565,44 @@ describe("marketing site", () => {
   });
 
   it("does not confirm with a link a week old", async () => {
-    await signUp({ email: "late@example.com", kind: "player" });
+    await remind({ email: "late@example.com" });
     now += 8 * 24 * 60 * 60_000;
     // Its page says it is not valid, with nothing to press; the unsubscribe link still works.
-    const asked = await ask(origin, `/api/signups/confirm?token=${await linkToken("confirm")}`);
+    const asked = await link(`/api/signups/confirm?token=${await linkToken("confirm")}`);
     assert.equal(asked.status, 404);
     assert.match(asked.body, /Dieser Link ist ungültig. · This link is not valid./);
     assert.doesNotMatch(asked.body, /<form|<button/);
-    const leave = await ask(origin, `/api/signups/unsubscribe?token=${await linkToken("unsubscribe")}`);
+    const leave = await link(`/api/signups/unsubscribe?token=${await linkToken("unsubscribe")}`);
     assert.equal(leave.status, 200);
     assert.match(leave.body, /<form method="post"/);
     const late = await confirm(await linkToken("confirm"));
-    assert.equal(late.headers.location, `${SITE.origin}/`);
+    assert.equal(late.headers.location, `${SITE.app}/crews`);
+    assert.deepEqual(await reminders(), { email: "late@example.com", confirmed: false });
   });
 
-  it("unsubscribes from the link in a mail, and the crew link stops showing", async () => {
-    await signUp({ email: "cy@example.com", kind: "player" });
+  it("unsubscribes from the link in a mail, and the crew page shows no reminders", async () => {
+    await remind({ email: "cy@example.com" });
     await confirm(await linkToken("confirm"));
-    const { rows } = await db.query<{ referral: string }>("SELECT referral FROM marketing_signups");
-    assert.equal(await signups.isShareCode(rows[0]!.referral), true);
-    const gone = await ask(origin, `/api/signups/unsubscribe?token=${await linkToken("unsubscribe")}`, {
-      method: "POST",
-    });
+    assert.deepEqual(await reminders(), { email: "cy@example.com", confirmed: true });
+    const gone = await link(`/api/signups/unsubscribe?token=${await linkToken("unsubscribe")}`, "POST");
     assert.equal(gone.status, 200);
     assert.match(gone.body, /Du bist abgemeldet/);
-    assert.equal(await signups.isShareCode(rows[0]!.referral), false);
+    assert.deepEqual(await reminders(), { email: null, confirmed: false });
   });
 
   it("spends a confirm link: used again after an unsubscribe, it does nothing", async () => {
-    await signUp({ email: "ed@example.com", kind: "player" });
+    await remind({ email: "ed@example.com" });
     const confirmToken = await linkToken("confirm");
     assert.equal((await confirm(confirmToken)).status, 303);
     const unsubscribeToken = await linkToken("unsubscribe");
-    await ask(origin, `/api/signups/unsubscribe?token=${unsubscribeToken}`, { method: "POST" });
+    await link(`/api/signups/unsubscribe?token=${unsubscribeToken}`, "POST");
     const mails = (await outbox()).length;
 
     const again = await confirm(confirmToken);
-    assert.equal(again.headers.location, `${SITE.origin}/`);
+    assert.equal(again.headers.location, `${SITE.app}/crews`);
     const [row] = await signupRows();
     assert.notEqual(row!.unsubscribed_at, null);
-    assert.equal(await signups.isShareCode(row!.referral as string), false);
+    assert.deepEqual(await reminders(), { email: null, confirmed: false });
     assert.equal((await outbox()).length, mails);
   });
 });
@@ -660,22 +680,17 @@ describe("MARKETING_PAGES on the real server", () => {
       const landing = await ask(HTTP, "/", { host: HOST });
       assert.equal(landing.status, 200);
       assert.match(landing.body, /<a href="https:\/\/app\.lanterel\.test\/" data-t="lib.check">/);
-      assert.match(landing.body, /<meta name="form-endpoint" content="\/api\/signups">/);
+      assert.match(
+        landing.body,
+        /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%2Fnew"/,
+      );
       assert.match(landing.body, new RegExp(`<link rel="canonical" href="http://${HOST}/">`));
-      assert.doesNotMatch((await ask(HTTP, "/", { host: `127.0.0.1:${PORT}` })).body, /form-endpoint/);
+      assert.doesNotMatch((await ask(HTTP, "/", { host: `127.0.0.1:${PORT}` })).body, /lanterel\.localhost/);
       const invite = await ask(HTTP, "/en/crew/AB12", { host: HOST });
-      assert.match(invite.body, /A friend wants to <b>borrow your rig.<\/b>/);
-      const posted = await ask(HTTP, "/api/signups", {
-        host: HOST,
-        method: "POST",
-        body: JSON.stringify({
-          email: "a@b.de",
-          kind: "player",
-          lang: "de",
-          invite: { type: "crew", code: "AB12" },
-        }),
-      });
-      assert.equal(posted.status, 202);
+      assert.equal(invite.headers.location, "https://app.lanterel.test/invite/AB12");
+      // Reminders are the app's, for a signed-in player.
+      assert.equal((await ask(HTTP, "/api/signups/reminders", { host: "app.lanterel.test" })).status, 401);
+      assert.equal((await ask(HTTP, "/api/signups/reminders", { host: HOST })).status, 404);
     } finally {
       await stop();
     }
