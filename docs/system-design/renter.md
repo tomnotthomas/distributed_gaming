@@ -652,7 +652,9 @@ per step, only the current one open with one main button, done steps one line wi
 their value and "change", later steps only names. The founder sets the date (the admin may
 move it), gets their people in with one WhatsApp message that says the date and asks who has
 a gaming PC (through the phone's share sheet where there is one and `wa.me` otherwise, or
-by copying the link), brings a gaming PC or asks the group, and plays; someone who joined
+by copying the link), brings a gaming PC (which starts the Lanterel app's download in place,
+`release.json`; until a release is published the step says the app is coming soon) or asks
+the group and waits for one, and plays; someone who joined
 says yes or no, gets a gaming PC in, and plays. Who is coming shows quietly below; renaming,
 the crew link and leaving sit folded at the bottom. A Zockrunde counts as over 6 hours after
 it starts, and then the page asks for the next date and the message leaves the old one out.
