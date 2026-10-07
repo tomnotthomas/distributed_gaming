@@ -420,10 +420,10 @@ describe("CrewPage: the guided crew page", () => {
 
     expect(screen.getByRole("button", { name: "Friday Fri 9" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Saturday Sat 10" }));
-    fireEvent.click(screen.getByRole("button", { name: "8:00 pm" }));
+    fireEvent.click(screen.getByRole("button", { name: "20:00" }));
     expect(screen.getByRole("button", { name: /Set Saturday, 8 pm/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Friday Fri 9" }));
-    fireEvent.click(screen.getByRole("button", { name: "9:00 pm" }));
+    fireEvent.click(screen.getByRole("button", { name: "21:00" }));
     fireEvent.click(screen.getByRole("button", { name: /Set Friday, 9 pm/ }));
     expect(await screen.findByRole("heading", { name: "Now get your people in" })).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/session", JSON.stringify({ at: FRIDAY_9PM })]);
@@ -495,8 +495,8 @@ describe("CrewPage: the guided crew page", () => {
     render(<CrewPage swiff={atCrew("c1")} />);
     fireEvent.click(await screen.findByRole("button", { name: "Change: Date" }));
     expect(screen.getByRole("heading", { name: "Move the date" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "9:00 pm" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "10:00 pm" }));
+    expect(screen.getByRole("button", { name: "21:00" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "22:00" }));
     fireEvent.click(screen.getByRole("button", { name: /Move to Friday, 10 pm/ }));
     expect(await screen.findByRole("heading", { name: "Now get your people in" })).toBeInTheDocument();
     expect(calls).toContainEqual([

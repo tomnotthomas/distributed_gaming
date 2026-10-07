@@ -445,7 +445,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 {session ? (
                   <>
                     <span>{sessionDay(lang, session.at)}</span>{" "}
-                    <span className="gc-time">{clock(lang, session.at)}</span>
+                    <span className="gc-time">{clock(session.at)}</span>
                   </>
                 ) : (
                   <span>{t("g.noDate")}</span>
@@ -682,7 +682,11 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                     <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
                     <span className="gc-nm">
                       <span>
-                        {m.you ? t("g.you", { name: m.name ?? t("cp.you") }) : (m.name ?? t("cp.anon"))}
+                        {m.you
+                          ? m.name
+                            ? t("g.you", { name: m.name })
+                            : t("cp.you")
+                          : (m.name ?? t("cp.anon"))}
                       </span>
                       {memberMeta(m) ? <small>{memberMeta(m)}</small> : null}
                     </span>
@@ -794,13 +798,10 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   );
 }
 
-/** A Zockrunde's start as its ticket shows it: "21:00", "9:00 pm". */
-function clock(lang: Lang, at: number): string {
-  return new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: lang === "en",
-  }).format(at);
+/** A Zockrunde's start as its ticket and the time choices show it, on the 24-hour clock: "21:00". */
+function clock(at: number): string {
+  const date = new Date(at);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 /** The weekday of a Zockrunde in full: "Freitag", "Friday". */
@@ -907,7 +908,7 @@ function DateStep({
                 aria-pressed={h === hour}
                 onClick={() => setHour(h)}
               >
-                {clock(lang, new Date(2026, 0, 1, h).getTime())}
+                {clock(new Date(2026, 0, 1, h).getTime())}
               </button>
             ))}
           </div>
