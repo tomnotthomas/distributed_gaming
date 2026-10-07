@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEMO_CREWS,
   DEMO_DEMAND,
@@ -18,6 +18,7 @@ import {
 } from "./demo";
 import { useDemoRental } from "./demoRental";
 import { playingFor, type Crew } from "./report";
+import { demoSeatClient } from "./seats";
 import { buildRate, GRACE_MS, untilChoices, type Host, type HostView, type Live, type Step } from "./model";
 
 /**
@@ -46,6 +47,10 @@ export function useDemoHost(screen: DemoScreen): Host & {
   }, []);
 
   const now = state.clockAt + (tick - mountedAt);
+  // Seats keep the demo's clock, so their days left match the panel's.
+  const nowRef = useRef(now);
+  nowRef.current = now;
+  const [seats] = useState(() => demoSeatClient(() => nowRef.current));
   const plan = picked ? picked.at : untilChoices(now)[1]!.at;
   const setLive = useCallback((live: Live) => setState((s) => ({ ...s, live })), []);
 
@@ -145,6 +150,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     ...rental.actions,
     goLiveRental: () => setLive(waiting(plan)),
     setCrews: (ids: string[]) => setCrew((was) => playingFor(was, ids)),
+    seats,
   };
 
   return {

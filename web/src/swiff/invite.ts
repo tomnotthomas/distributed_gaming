@@ -30,15 +30,16 @@ export function inviteTokenAt(pathname: string): string | null {
   return match ? (match[1] ?? "") : null;
 }
 
-/** An invite link's token in a URL, plain or encoded as a sign-in's return. */
-const TOKEN_IN_URL = /(\/|%2F)invite(?:\/|%2F)[\w-]+/gi;
+/** An invite or seat link's token in a URL, plain or encoded as a sign-in's return. */
+const TOKEN_IN_URL = /(\/|%2F)(invite|seat)(?:\/|%2F)[\w-]+/gi;
 
 /**
- * `value` with every invite link in it cut back to /invite, however deep: an
- * analytics event's URLs, referrer, person properties and clicked links alike.
+ * `value` with every invite link in it cut back to /invite, and every friend
+ * seat's link (seat.ts) to /seat, however deep: an analytics event's URLs,
+ * referrer, person properties and clicked links alike.
  */
 export function withoutInviteTokens<T>(value: T): T {
-  if (typeof value === "string") return value.replace(TOKEN_IN_URL, "$1invite") as T;
+  if (typeof value === "string") return value.replace(TOKEN_IN_URL, "$1$2") as T;
   if (Array.isArray(value)) return value.map(withoutInviteTokens) as T;
   if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withoutInviteTokens(v)])) as T;

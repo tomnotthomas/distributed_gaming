@@ -1,0 +1,371 @@
+/* A friend seat's page (/seat/<code>), in the approved seat invite look
+   (data/swiff-landing-design, launch/seat and launch/assets/css/lobby-impeccable.css,
+   "Related invites"): the key art fading into paper, the PC as one lit screen
+   with the seat's stub on it, the facts as a pass with a perforated stub, and
+   three numbered steps. Its rules are the launch set's, scoped to .seat-lobby
+   so they never reach the rest of the app; avatars, chips and pills are the
+   crew lobby's (crew.css). */
+
+.seat-lobby {
+  --card: #f4f4f2;
+  --screen: #131313;
+  --r: 16px;
+}
+
+.seat-lobby .st-top {
+  position: relative;
+  isolation: isolate;
+  padding-top: var(--bar);
+}
+.seat-lobby .st-art {
+  position: absolute;
+  inset: 0 0 auto;
+  height: min(56vw, 400px);
+  z-index: -1;
+  overflow: hidden;
+}
+.seat-lobby .st-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 20%;
+}
+.seat-lobby .st-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgb(232 233 232 / 0.55) 0%,
+    rgb(232 233 232 / 0.8) 50%,
+    var(--paper) 94%
+  );
+}
+.seat-lobby .st-grid {
+  display: grid;
+  gap: 36px;
+  padding-top: clamp(72px, 14vw, 140px);
+  padding-bottom: clamp(36px, 5vw, 64px);
+}
+.seat-lobby .st-lead,
+.seat-lobby .st-room {
+  min-width: 0;
+}
+@media (min-width: 1000px) {
+  .seat-lobby .st-grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: clamp(40px, 5vw, 80px);
+    align-items: start;
+  }
+  .seat-lobby .st-room {
+    align-self: center;
+  }
+}
+
+.seat-lobby .st-title {
+  position: relative;
+  max-width: 100%;
+}
+.seat-lobby .st-title h1 {
+  font: 400 clamp(32px, 6.4vw, 64px) / 1.04 var(--wide);
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--on-paper);
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.seat-lobby .st-title h1 b {
+  font-weight: 400;
+  color: var(--on-paper-2);
+}
+.seat-lobby .st-title .mark {
+  display: block;
+  margin-top: 14px;
+}
+.seat-lobby .st-lead p.lead {
+  margin-top: 18px;
+  font-size: clamp(17px, 1.6vw, 19px);
+  line-height: 1.55;
+  color: var(--on-paper-2);
+  max-width: 46ch;
+}
+.seat-lobby .st-acts {
+  margin-top: 26px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+}
+.seat-lobby .st-acts .lpill {
+  text-decoration: none;
+  min-height: 58px;
+  font-size: 17px;
+  padding-left: 24px;
+}
+@media (max-width: 520px) {
+  .seat-lobby .st-acts .lpill {
+    width: 100%;
+  }
+}
+.seat-lobby .st-steam {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--on-paper-2);
+}
+.seat-lobby .st-acts [role="alert"],
+.seat-lobby .st-acts [role="status"] {
+  flex-basis: 100%;
+  font-size: 15px;
+  color: var(--on-paper);
+}
+
+/* The PC: one lit screen on its stand, the seat's stub on it. */
+.seat-lobby .st-scr {
+  position: relative;
+  margin: 0;
+  padding: 6px 6px 30px;
+}
+.seat-lobby .st-face {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--screen);
+  color: var(--paper);
+  box-shadow:
+    0 0 0 6px var(--screen),
+    0 24px 44px -24px rgb(19 19 19 / 0.55);
+}
+.seat-lobby .st-face img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 40%;
+}
+.seat-lobby .st-cap {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgb(19 19 19 / 0.82);
+  color: var(--paper);
+  font: 400 11px/1 var(--wide);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.seat-lobby .st-stub {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 18px 12px 12px;
+  border: 1px solid var(--pline-2);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--on-paper);
+}
+.seat-lobby .st-stub-name {
+  font: 500 15px/1.2 var(--f);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.seat-lobby .st-stand {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 132px;
+  height: 22px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.seat-lobby .st-stand::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 30px;
+  height: 12px;
+  transform: translateX(-50%);
+  background: var(--screen);
+}
+.seat-lobby .st-stand::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  border-radius: 5px;
+  background: var(--screen);
+}
+
+/* Facts: the note on the left, the pass on the right; the price on the stub below a perforation. */
+.seat-lobby .st-facts {
+  padding: clamp(48px, 6vw, 88px) 0 0;
+  display: grid;
+  gap: 24px clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .seat-lobby .st-facts {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+.seat-lobby .st-facts h2,
+.seat-lobby .st-sec h2 {
+  font: 300 clamp(28px, 3.4vw, 44px) / 1.08 var(--f);
+  letter-spacing: -0.02em;
+}
+.seat-lobby .st-note {
+  margin-top: 12px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--on-paper-2);
+  max-width: 52ch;
+}
+.seat-lobby .pass {
+  position: relative;
+  border-radius: 22px;
+  background: var(--card);
+  border: 1px solid var(--pline-2);
+  padding: 6px clamp(18px, 3vw, 28px);
+}
+.seat-lobby .pass-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+}
+@media (min-width: 640px) {
+  .seat-lobby .pass-dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.seat-lobby .pass-dl > div {
+  padding: 14px 0;
+  border-top: 1px solid var(--pline);
+  min-width: 0;
+}
+.seat-lobby .pass-dl > div:nth-child(-n + 2) {
+  border-top: 0;
+}
+@media (min-width: 640px) {
+  .seat-lobby .pass-dl > div:nth-child(3) {
+    border-top: 0;
+  }
+}
+.seat-lobby .pass-dl dt {
+  font: 500 11.5px/1.2 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--on-paper-2);
+}
+.seat-lobby .pass-dl dd {
+  margin: 6px 0 0;
+  font: 500 16px/1.35 var(--f);
+  color: var(--on-paper);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  hyphens: manual;
+  text-wrap: balance;
+}
+.seat-lobby .pass-dl > div:last-child {
+  grid-column: 1 / -1;
+  position: relative;
+  border-top: 1.5px dashed var(--pline-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+}
+.seat-lobby .pass-dl > div:last-child dd {
+  margin: 0;
+}
+.seat-lobby .pass-dl > div:last-child::before,
+.seat-lobby .pass-dl > div:last-child::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--pline-2);
+}
+.seat-lobby .pass-dl > div:last-child::before {
+  left: calc(-1 * clamp(18px, 3vw, 28px) - 12px);
+  clip-path: inset(0 0 0 50%);
+}
+.seat-lobby .pass-dl > div:last-child::after {
+  right: calc(-1 * clamp(18px, 3vw, 28px) - 12px);
+  clip-path: inset(0 50% 0 0);
+}
+@media (max-width: 399px) {
+  .seat-lobby .pass-dl {
+    grid-template-columns: 1fr;
+  }
+  .seat-lobby .pass-dl > div:nth-child(2) {
+    border-top: 1px solid var(--pline);
+  }
+}
+
+/* Steps: numbered rows under an ink rule. */
+.seat-lobby .st-sec {
+  padding: clamp(56px, 7vw, 104px) 0 clamp(48px, 6vw, 88px);
+}
+.seat-lobby .st-steps {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0 24px;
+  counter-reset: s;
+}
+@media (min-width: 760px) {
+  .seat-lobby .st-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.seat-lobby .st-steps li {
+  counter-increment: s;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 4px 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--on-paper);
+}
+.seat-lobby .st-steps li::before {
+  content: counter(s);
+  grid-row: 1 / span 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--on-paper);
+  color: var(--paper);
+  font: 500 13px/1 var(--mono);
+}
+.seat-lobby .st-steps h3 {
+  font: 400 clamp(14px, 1.3vw, 16px) / 1.3 var(--wide);
+  text-transform: uppercase;
+  padding-top: 5px;
+}
+.seat-lobby .st-steps p {
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--on-paper-2);
+}

@@ -1317,7 +1317,8 @@
 
 /* The app's bar stays dark over the paper, as over the wall's art, so its light words read. */
 .sw[data-screen="crew"] .bar,
-.sw[data-screen="invite"] .bar {
+.sw[data-screen="invite"] .bar,
+.sw[data-screen="seat"] .bar {
   background: rgb(18 18 18 / 0.78);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);

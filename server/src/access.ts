@@ -40,6 +40,13 @@
 //                            asking for a new one. Opens nothing but joining
 //                            the inviter's crew, signed in — see platform.ts.
 //
+//   Friend     seat link     A friend seat's random id followed by its
+//                            HMAC-SHA256 (SESSION_SECRET, its own domain, so
+//                            an invite link is never a seat link), cut short to
+//                            share. Takes the one seat it names at a host's PC,
+//                            signed in, until it expires or the host takes it
+//                            back — see platform.ts.
+//
 // Both fail closed: with nothing configured no machine can register and no
 // renter can join. A room that anyone with the URL can enter is not a default
 // worth having on a machine that streams its screen to strangers.
@@ -62,7 +69,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest" | "invite";
+type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest" | "invite" | "seat";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -258,10 +265,25 @@ export function inviteToken(secret: string, id: string): string {
 
 /** The invite id in a token `secret` signed, or null. Whether that invite is still live is the platform's to say. */
 export function verifyInviteToken(secret: string, token: unknown): string | null {
+  return verifyLinkToken(secret, token, "invite");
+}
+
+/** The token of a friend seat's link: the seat's id (platform.ts, seats) and its signature, as an invite link's. */
+export function seatToken(secret: string, id: string): string {
+  return id + b64url(sign(secret, id, "seat").subarray(0, INVITE_SIGNATURE_BYTES));
+}
+
+/** The seat id in a seat link's token `secret` signed, or null. Whether that seat is still there is the platform's to say. */
+export function verifySeatToken(secret: string, token: unknown): string | null {
+  return verifyLinkToken(secret, token, "seat");
+}
+
+/** The id in a link token signed under `domain`, or null: compared in constant time. */
+function verifyLinkToken(secret: string, token: unknown, domain: "invite" | "seat"): string | null {
   if (typeof token !== "string" || token.length !== 44) return null;
   const id = token.slice(0, 22);
   if (!INVITE_ID.test(id)) return null;
-  const expected = sign(secret, id, "invite").subarray(0, INVITE_SIGNATURE_BYTES);
+  const expected = sign(secret, id, domain).subarray(0, INVITE_SIGNATURE_BYTES);
   const given = Buffer.from(token.slice(22), "base64url");
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
   return id;

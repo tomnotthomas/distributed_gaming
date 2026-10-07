@@ -52,7 +52,9 @@ names its launcher (`requiresAccount`), and the game page tells the renter they 
 A signed-in player founds a crew in one tap (`/crews/new`) and shares its link
 (`/invite/<token>`); anyone in a crew may share it, and anyone in it brings a gaming PC now
 or later. A PC plays for the crews its owner picks, and only for the people in them. See
-[Crews](docs/system-design/renter.md#crews).
+[Crews](docs/system-design/renter.md#crews). A host also keeps up to four named seats at their
+PC for friends, from the host app; a friend takes one from its link (`/seat/<token>`) and plays
+their own games there. See [Friend seats](docs/system-design/renter.md#friend-seats).
 
 Code: `web/`, `server/`, `packages/`.
 

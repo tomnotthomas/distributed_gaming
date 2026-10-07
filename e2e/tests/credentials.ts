@@ -13,6 +13,11 @@ export const E2E_CREW_PC = "crew-pc-1";
 export const E2E_CREW_PC_KEY = "e2e-crew-pc-key";
 /** Its owner, the friend the crew spec invites. */
 export const E2E_CREW_PC_OWNER = "76561198000000102";
+/** A host's gaming PC the seat spec keeps a friend seat at; nothing else offers it. */
+export const E2E_SEAT_PC = "seat-pc-1";
+export const E2E_SEAT_PC_KEY = "e2e-seat-pc-key";
+/** Its owner, the host who saves the seat. */
+export const E2E_SEAT_PC_OWNER = "76561198000000201";
 const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 const E2E_SESSION_SECRET = "e2e-session-secret-that-is-long-enough-to-pass";
 
@@ -23,6 +28,7 @@ export const E2E_ENV = {
   MACHINE_KEYS: [
     `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
     `${E2E_CREW_PC}:${createHash("sha256").update(E2E_CREW_PC_KEY).digest("hex")}:${E2E_CREW_PC_OWNER}`,
+    `${E2E_SEAT_PC}:${createHash("sha256").update(E2E_SEAT_PC_KEY).digest("hex")}:${E2E_SEAT_PC_OWNER}`,
   ].join(","),
   // Every game playable, unchecked: the wall's games must not hang on Steam
   // verdicts (server/src/playable.ts, tested on its own with recordings).

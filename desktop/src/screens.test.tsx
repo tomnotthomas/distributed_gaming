@@ -130,6 +130,7 @@ function actions(): HostActions {
     previewRental: vi.fn(),
     closeRentalPreview: vi.fn(),
     setCrews: vi.fn(),
+    seats: null,
     runRental: vi.fn(),
     restartRental: vi.fn(),
     answerRentalKey: vi.fn(),
@@ -284,6 +285,11 @@ describe("demo", () => {
     expect(screen.getByText("Elden Ring, booked until 22:40")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop new bookings" })).toBeInTheDocument();
     expect(screen.getByText("Demo data")).toBeInTheDocument();
+  });
+
+  it("counts the friend seats' days on the demo's own clock", async () => {
+    render(<DemoApp screen="golive" />);
+    expect(await screen.findByText("Waiting for Mia · 12 days left")).toBeInTheDocument();
   });
 
   it("ranks the games by demand, with Install in Steam for the ones this PC lacks", () => {

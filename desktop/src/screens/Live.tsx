@@ -17,6 +17,7 @@ import { Dial, hourOf } from "../ui/Dial";
 import { Glyph } from "../ui/Glyph";
 import { Art, Eur, Figure, Plate, Thumbs, Zone } from "../ui/parts";
 import { HoldPill, Pill } from "../ui/Pill";
+import { FriendSeats } from "./FriendSeats";
 import { asksWhoCanPlay, CrewPicker, siteOf, UntilPicker } from "./GoLive";
 import { gamesTitle, listedGames, tonight, type ScreenProps } from "./types";
 
@@ -150,6 +151,11 @@ export function Waiting({ view, actions, live }: Of<"waiting">) {
           <HowItWorks view={view} />
         </Zone>
       </div>
+      {actions.seats ? (
+        <div className="sz one">
+          <FriendSeats client={actions.seats} now={now} />
+        </div>
+      ) : null}
       <i className="ruler" aria-hidden="true" />
     </main>
   );

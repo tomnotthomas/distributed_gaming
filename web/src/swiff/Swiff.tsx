@@ -4,6 +4,7 @@ import { Chrome } from "./Chrome";
 import { GameMenu } from "./GameMenu";
 import { Ignition } from "./Ignition";
 import { CrewInvite } from "./CrewInvite";
+import { SeatInvite } from "./SeatInvite";
 import { CrewPage } from "./CrewPage";
 import { CrewReadyBanner } from "./CrewsCard";
 import { Profile } from "./Profile";
@@ -65,6 +66,7 @@ export function Swiff() {
           {screen === "profile" ? <Profile swiff={swiff} /> : null}
           {screen === "share" ? <SharePC swiff={swiff} /> : null}
           {screen === "invite" ? <CrewInvite swiff={swiff} /> : null}
+          {screen === "seat" ? <SeatInvite swiff={swiff} /> : null}
           {screen === "crew" ? <CrewPage swiff={swiff} /> : null}
           {phase === "idle" ? <CrewReadyBanner swiff={swiff} /> : null}
         </div>
