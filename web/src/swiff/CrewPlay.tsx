@@ -17,11 +17,13 @@ import type { Swiff } from "./useSwiff";
 /** The most of the player's games the step offers. */
 const MAX_GAMES = 8;
 
-/** The PC the step is about: the one the viewer plays on, else a free one, else one someone plays on, else one that is on, else the first. */
+/** The PC the step is about: the one the viewer plays on, else a free one not their own, else their own free one, else one someone plays on, else one that is on, else the first. */
 export function playPc(crew: CrewDetail): CrewPc | undefined {
+  const free = (m: CrewPc) => m.state === "ready" && !m.playing;
   return (
     crew.machines.find((m) => m.playing?.you) ??
-    crew.machines.find((m) => m.state === "ready" && !m.playing) ??
+    crew.machines.find((m) => free(m) && !m.mine) ??
+    crew.machines.find(free) ??
     crew.machines.find((m) => m.playing) ??
     crew.machines.find((m) => m.state !== "offline") ??
     crew.machines[0]
@@ -237,7 +239,17 @@ export function CrewPlay({
     );
   }
 
-  const owner = crew.machines.find((m) => m.id === pc.id)?.owner;
+  if (pc.mine) {
+    return (
+      <div className="pl" data-play="own">
+        <h2>{t("pl.freeH")}</h2>
+        <p className="gc-p">{t("pl.ownFree")}</p>
+        {queueList}
+      </div>
+    );
+  }
+
+  const owner = pc.owner;
   return (
     <div className="pl" data-play="free">
       <h2>{t("pl.freeH")}</h2>
@@ -253,7 +265,7 @@ export function CrewPlay({
               <Glyph name="play" size={18} />
             </span>
           </button>
-          <p className="gc-fine">{pc.mine || !owner ? t("pl.fineMine") : t("pl.fine", { owner })}</p>
+          <p className="gc-fine">{owner ? t("pl.fine", { owner }) : t("pl.fineMine")}</p>
         </div>
       ) : null}
       {failed ? <p role="alert">{t("pl.failed")}</p> : null}

@@ -794,6 +794,38 @@ describe("CrewPage: the guided crew page", () => {
     expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-sam");
   });
 
+  it("tells the owner their free PC is for the crew, without a start they cannot make", async () => {
+    const [max] = readyCrew().machines;
+    const crew = readyCrew({ session: dated, shared: true, machines: [{ ...max!, owner: "Lena", mine: true }] });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const swiff = atCrew("c1", library);
+    render(<CrewPage swiff={swiff} />);
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Your PC is free; your crew can start on it.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Start / })).toBeNull();
+  });
+
+  it("offers the owner another free PC before their own", async () => {
+    const [max] = readyCrew().machines;
+    const crew = readyCrew({
+      session: dated,
+      shared: true,
+      pcs: 2,
+      machines: [
+        { ...max!, id: "q-lena", owner: "Lena", mine: true },
+        { ...max!, games: [ER.appid] },
+      ],
+    });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const swiff = atCrew("c1", library);
+    render(<CrewPage swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: `Start ${ER.title}` }));
+    expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-max");
+    expect(screen.queryByText("Your PC is free; your crew can start on it.")).toBeNull();
+  });
+
   it("does not call a PC free while someone's start on it is still on its way", async () => {
     const [max] = readyCrew().machines;
     const crew = readyCrew({ session: dated, shared: true, machines: [{ ...max!, state: "busy" }] });
