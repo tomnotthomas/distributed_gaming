@@ -589,11 +589,14 @@ POST /crews { name? }
   → 409 { error, code: "too-many-crews" } for a player in 50 crews already.
 
 GET  /crews/:id
-  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token,
-                  members: [{ id, name, you, admin, pc, pcs }],
+  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
+                  shared, members: [{ id, name, you, admin, pc, pcs, rsvp }],
                   machines: [{ name, owner, mine, state }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
-  or `offline`. → 404 for anyone else, or none. → 401 signed out.
+  or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
+  ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
+  `yes`, `no` or null while open; `shared` whether anyone in it shared the link since the
+  date was set. → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
@@ -605,10 +608,25 @@ POST /crews/:id/pc { pc: "yes" | "off" }
   → 200 { crew }
   Whether the signed-in member brings their PCs to the crew. → 404 as above.
 
+POST /crews/:id/session { at }  → 200 { crew }
+  As its admin: set or move the crew's Zockrunde to `at` (Unix ms, from an hour ago to 90
+  days ahead; otherwise → 400). Everyone is asked again, the admin counts as in, and
+  `shared` starts over. → 403 for a member who is not the admin. → 404 as above.
+
+POST /crews/:id/rsvp { rsvp: "yes" | "no" }
+  → 200 { crew }
+  The signed-in member's answer to the Zockrunde. → 409 { error, code: "no-session" }
+  while it has none, or once it is over (6 hours after it starts, `SESSION_OVER_MS`).
+  → 404 as above.
+
+POST /crews/:id/shared          → 200 { crew }
+  A member shared the crew's link: its page's "get your people" step is done. → 404 as above.
+
 GET  /invites/:token
-  → 200 { crew: { name, crewName, own, size, state, pcs, member } }
+  → 200 { crew: { name, crewName, own, size, state, pcs, session, member } }
   Which crew a link joins, for anyone who opens it; signed in, whether they are in it
-  already. → 404 for a forged, unknown, replaced or archived crew's link.
+  already. `session` is as above, but null once the Zockrunde is over; the link's preview
+  says its date the same way. → 404 for a forged, unknown, replaced or archived crew's link.
 
 POST /invites/:token/join
   → 200 { id, crew, joined }
@@ -627,16 +645,15 @@ decided "Sofort-Crew" flow in the launch set's lobby look: `/crews` lists the pl
 and founds one in a tap right there (at once from `/crews?found=1` for a player with none,
 the marketing site's buttons, and from `/crews?found=new` whatever they have, the app's own
 "Start a new crew"), then becomes its page; `/crews/<id>` is one crew. The crew page
-reads "Almost ready." until a PC is in, leads with one next step per state (bring your
-people, with one WhatsApp message that invites and asks who has a gaming PC, through the
-phone's share sheet where there is one and `wa.me` otherwise; set up your gaming PC; play
-now; or every PC away), has an open PC slot while no PC is in, a "Plan a session" panel that
-posts the session to WhatsApp, the crew link with other ways to share, and leaving. Everyone
-in the crew sees the same page; the admin only has more to manage. "I've got a gaming PC"
-opens the PC card: what the crew sees on the PC and what it does not, and one button, "Get
-the app on your PC", which starts the Lanterel app's download (`release.json`; until a
-release is published the card says the app is coming soon), brings the member's PCs to the
-crew and shows "Almost there: set up your gaming PC".
+guides its member one step at a time on a ticket for the crew's next Zockrunde: one coupon
+per step, only the current one open with one main button, done steps one line with a tick,
+their value and "change", later steps only names. The founder sets the date (the admin may
+move it), gets their people in with one WhatsApp message that says the date and asks who has
+a gaming PC (through the phone's share sheet where there is one and `wa.me` otherwise, or
+by copying the link), brings a gaming PC or asks the group, and plays; someone who joined
+says yes or no, gets a gaming PC in, and plays. Who is coming shows quietly below; renaming,
+the crew link and leaving sit folded at the bottom. A Zockrunde counts as over 6 hours after
+it starts, and then the page asks for the next date and the message leaves the old one out.
 The crew page reads its crew again on every change its event stream announces. The invite
 page names who asks and which crew, explains in three lines how it works, and joins with one
 button: signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the
