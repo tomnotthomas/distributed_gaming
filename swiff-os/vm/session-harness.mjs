@@ -953,18 +953,20 @@ async function tamperedBoot() {
   await startVm(["-smbios", `type=11,value=${TAMPER}`]);
   console.log(`----  the VM is booting with ${TAMPER}  [${elapsed()}]`);
   const tampered = before + 1;
+  // The client's refusal, as swiff-hostd logs it, with the verifier's reason
+  // last. A try before systemd measured the `ready` phase into PCR 11 is
+  // refused as unknown-boot-image first: the PCR 12 refusal comes on a later one.
   const refusal = await until(
-    () =>
-      boot >= tampered && seen(/\[swiff-hostd\] not offered: the persistent state did not open/, tampered),
-    "the tampered boot's attestation",
+    () => boot >= tampered && seen(/attest answered \d+ .*unknown-boot-extras/, tampered),
+    "the tampered boot's refusal",
     600_000,
   ).catch(() => null);
-  // The client's refusal, as swiff-hostd logs it: the verifier's reason comes last.
-  const reason = seen(/attest answered \d+ .*unknown-boot-extras/, tampered);
   record(
     "a tampered boot is refused attestation",
-    Boolean(refusal && reason),
-    reason?.line.replace(/^.*swiff-attest: /, "") ?? refusal?.line ?? "no attestation reported",
+    Boolean(refusal),
+    refusal?.line.replace(/^.*swiff-attest: /, "") ??
+      seen(/\[swiff-hostd\] not offered: /, tampered)?.line ??
+      "no attestation reported",
   );
   // Long enough for the agent's next tries, which the server refuses the same way.
   await sleep(45_000);
