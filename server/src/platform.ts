@@ -267,7 +267,9 @@ export type MyCrew = CrewView & { id: string; memberId: string };
  * membership, never them. `you` is the one looking, `admin` the crew's admin;
  * `pc` whether they bring a gaming PC ('yes'), put it off ('later'), or were
  * not asked (null); `pcs` how many of their PCs play for it; `rsvp` their
- * answer to the crew's next Zockrunde, null while open or when it has none.
+ * answer to the crew's next Zockrunde, null while open or when it has none;
+ * `next` the game they want to play next on the crew's PC and since when
+ * (Unix ms), null unless they are in line for it.
  */
 export type CrewMember = {
   id: string;
@@ -277,6 +279,7 @@ export type CrewMember = {
   pc: "yes" | "later" | null;
   pcs: number;
   rsvp: Rsvp | null;
+  next: { gameId: number; at: number } | null;
 };
 
 /** An answer to a crew's Zockrunde: in, or cannot. */
@@ -285,8 +288,38 @@ export type Rsvp = "yes" | "no";
 /** How a PC playing for a crew is now: free to play, being played on, or away. */
 export type CrewPcState = "ready" | "busy" | "offline";
 
-/** A PC playing for a crew: its name as its host reported it, its owner's persona, and whether it is the viewer's. */
-export type CrewPc = { name: string | null; owner: string | null; mine: boolean; state: CrewPcState };
+/**
+ * A PC playing for a crew: `id` names the machine (to start a game on it),
+ * its name as its host reported it, its owner's persona, whether it is the
+ * viewer's, the Steam appids installed on it, and who in the crew plays on
+ * it now, if anyone.
+ */
+export type CrewPc = {
+  id: string;
+  name: string | null;
+  owner: string | null;
+  mine: boolean;
+  state: CrewPcState;
+  games: number[];
+  playing: CrewPcPlay | null;
+};
+
+/**
+ * Someone in the crew playing on one of its PCs now: the session (to ask to
+ * watch it), their persona, whether it is the viewer, the Steam appid, since
+ * when (Unix ms, null while `starting`, still behind Ignition).
+ */
+export type CrewPcPlay = {
+  sessionId: string;
+  player: string | null;
+  you: boolean;
+  gameId: number;
+  startedAt: number | null;
+  starting: boolean;
+};
+
+/** Someone in a crew as its invite shows them to whoever opens the link: persona, whether they founded it, their answer. */
+export type InviteGuest = { name: string | null; admin: boolean; rsvp: Rsvp | null };
 
 /**
  * A crew as one of its members sees it in full: who is in it, its PCs, its
@@ -1595,6 +1628,33 @@ export class Platform {
   }
 
   /**
+   * `userId` gets in line to play `gameId` (a Steam appid) next on the crew's
+   * PC, or changes the game and keeps their place; null takes them out of the
+   * line. Starting a game takes them out by itself (bookMachine). Null unless
+   * they are in the crew; "invalid" for a game that is not an appid.
+   */
+  queueNext(crewId: string, userId: string, gameId: unknown): Promise<CrewDetail | null | "invalid"> {
+    return this.#transaction(async () => {
+      if (!(await this.#crewDetail(crewId, userId))) return null;
+      if (
+        gameId !== null &&
+        (!Number.isSafeInteger(gameId) || (gameId as number) <= 0 || (gameId as number) > 2 ** 31 - 1)
+      )
+        return "invalid";
+      await this.#run(
+        `UPDATE crew_members SET next_game = $1::int,
+                next_at = CASE WHEN $1::int IS NULL THEN NULL ELSE coalesce(next_at, $2) END
+           WHERE crew_id = $3 AND user_id = $4`,
+        gameId,
+        this.#now(),
+        crewId,
+        userId,
+      );
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
    * Note that `userId` shared the crew's invite with its Zockrunde. Null unless
    * they are in it; "no-session" while it has none ahead or under way, since
    * the invite then carries no date to answer.
@@ -1614,19 +1674,28 @@ export class Platform {
    * signed out), with whether they are in it already and its Zockrunde only
    * while that is not over; null for a revoked or unknown invite.
    */
-  invite(inviteId: string, userId: string | null = null): Promise<(CrewView & { member: boolean }) | null> {
+  invite(
+    inviteId: string,
+    userId: string | null = null,
+  ): Promise<(CrewView & { member: boolean; guests: InviteGuest[] }) | null> {
     return this.#read(async () => {
       const crew = await this.#inviteCrew(inviteId);
       if (!crew) return null;
-      const member =
-        userId !== null &&
-        (await this.#get(
-          "SELECT 1 FROM crew_members WHERE crew_id = $1 AND user_id = $2",
-          crew.id,
-          userId,
-        )) !== undefined;
+      const members = await this.#all<{ user_id: string; name: string | null; rsvp: Rsvp | null }>(
+        `SELECT m.user_id, m.name, m.rsvp FROM crew_members m
+           WHERE m.crew_id = $1 ORDER BY m.user_id = $2 DESC, m.joined_at, m.id`,
+        crew.id,
+        crew.owner_id,
+      );
+      const member = userId !== null && members.some((m) => m.user_id === userId);
       const view = crewView(crew, userId);
-      return { ...view, session: liveSession(view.session, this.#now()), member };
+      const session = liveSession(view.session, this.#now());
+      const guests = members.map((m) => ({
+        name: m.name,
+        admin: m.user_id === crew.owner_id,
+        rsvp: session ? m.rsvp : null,
+      }));
+      return { ...view, session, member, guests };
     });
   }
 
@@ -1636,8 +1705,15 @@ export class Platform {
    * (bringPc). Joining a crew they are in already changes nothing (`joined`
    * false). `name`, their Steam persona when it could be read, is how the crew
    * sees them. "too-many" when they would be in more than MAX_CREWS crews.
+   * With `rsvp`, they answer the crew's Zockrunde as they join, while it has
+   * one that is not over: the invite's one button joins and says yes.
    */
-  joinCrew(inviteId: string, userId: string, name: string | null = null): Promise<JoinResult> {
+  joinCrew(
+    inviteId: string,
+    userId: string,
+    name: string | null = null,
+    rsvp: Rsvp | null = null,
+  ): Promise<JoinResult> {
     return this.#transaction(async (): Promise<JoinResult> => {
       const now = this.#now();
       const crew = await this.#inviteCrew(inviteId);
@@ -1663,6 +1739,14 @@ export class Platform {
         // They may play on the crew's PCs now: the wall reads again, and the queue is matched anew.
         this.#offerChanged = true;
         await this.#tick(now);
+      }
+      if (rsvp && liveSession(crewView(crew, userId).session, now)) {
+        await this.#run(
+          "UPDATE crew_members SET rsvp = $1 WHERE crew_id = $2 AND user_id = $3",
+          rsvp,
+          crew.id,
+          userId,
+        );
       }
       return { ok: true, id: crew.id, joined, crew: crewView((await this.#crewRow(crew.id))!, userId) };
     });
@@ -2204,8 +2288,11 @@ export class Platform {
       name: string | null;
       pc: CrewMember["pc"];
       rsvp: Rsvp | null;
+      next_game: number | null;
+      next_at: number | null;
     }>(
-      `SELECT m.id, m.user_id, m.name, m.pc, m.rsvp FROM crew_members m JOIN crews c ON c.id = m.crew_id
+      `SELECT m.id, m.user_id, m.name, m.pc, m.rsvp, m.next_game, m.next_at
+         FROM crew_members m JOIN crews c ON c.id = m.crew_id
          WHERE m.crew_id = $1 ORDER BY m.user_id = c.owner_id DESC, m.joined_at, m.id`,
       crewId,
     );
@@ -2222,6 +2309,24 @@ export class Platform {
       crewId,
     );
     const persona = new Map(members.map((m) => [m.user_id, m.name]));
+    // Who plays on the crew's PCs now, launching or past Ignition.
+    const plays = await this.#all<{
+      id: string;
+      machine_id: string;
+      renter_id: string | null;
+      game_id: number;
+      started_at: number | null;
+      starting: boolean;
+    }>(
+      `SELECT s.id, s.machine_id, b.renter_id, b.game_id, s.started_at, b.status = 'claimed' AS starting
+         FROM sessions s JOIN bookings b ON b.id = s.booking_id
+        WHERE s.ended_at IS NULL AND b.status IN ('claimed', 'playing') AND s.machine_id = ANY ($1::text[])`,
+      machines.map((q) => q.id),
+    );
+    const installed = await this.#all<{ machine_id: string; appid: number }>(
+      "SELECT machine_id, appid FROM machine_games WHERE machine_id = ANY ($1::text[]) ORDER BY appid",
+      machines.map((q) => q.id),
+    );
     const invite = await this.#get<{ id: string }>(
       "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
       crewId,
@@ -2241,15 +2346,30 @@ export class Platform {
         pc: m.pc,
         pcs: machines.filter((q) => ownerOf(q) === m.user_id).length,
         rsvp: m.rsvp,
+        next:
+          m.next_game === null || m.next_at === null ? null : { gameId: m.next_game, at: Number(m.next_at) },
       })),
       machines: machines.map((q) => {
         const owner = ownerOf(q);
         const state = pcState(q.status);
+        const play = plays.find((p) => p.machine_id === q.id);
         return {
+          id: q.id,
           name: q.name,
           owner: owner === null ? null : (persona.get(owner) ?? null),
           mine: owner === userId,
           state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
+          games: installed.filter((g) => g.machine_id === q.id).map((g) => Number(g.appid)),
+          playing: play
+            ? {
+                sessionId: play.id,
+                player: play.renter_id === null ? null : (persona.get(play.renter_id) ?? null),
+                you: play.renter_id === userId,
+                gameId: play.game_id,
+                startedAt: play.started_at === null ? null : Number(play.started_at),
+                starting: play.starting,
+              }
+            : null,
         };
       }),
     };
@@ -2418,6 +2538,13 @@ export class Platform {
       if (!(await this.#best(ask, free, now))) return null;
       const id = await this.#insertBooking(gameId, minutes, renterId, rtts, prefs, now);
       await this.#reserve(id, machineId, now);
+      // Their turn came: they are out of every crew's line for who plays next.
+      if (renterId !== null) {
+        await this.#run(
+          "UPDATE crew_members SET next_game = NULL, next_at = NULL WHERE user_id = $1",
+          renterId,
+        );
+      }
       return (await this.#bookingView(id))!;
     });
   }

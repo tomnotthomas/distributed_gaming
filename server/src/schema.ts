@@ -418,6 +418,13 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE crews ADD COLUMN shared_at BIGINT`,
     `ALTER TABLE crew_members ADD COLUMN rsvp TEXT CHECK (rsvp IN ('yes', 'no'))`,
   ],
+  [
+    // Who plays next on a crew's PC (platform.ts, queueNext): the Steam appid a
+    // member wants to play next and since when (Unix ms), null while they are
+    // not in line. Starting a game takes them out of every crew's line.
+    `ALTER TABLE crew_members ADD COLUMN next_game INTEGER`,
+    `ALTER TABLE crew_members ADD COLUMN next_at BIGINT`,
+  ],
 ];
 
 /**

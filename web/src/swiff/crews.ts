@@ -36,7 +36,11 @@ export type MyCrew = CrewView & { id: string; memberId: string };
 /** A crew in the player's list: `pcArrived` says its first PC came after they joined. */
 export type ListedCrew = MyCrew & { pcArrived: boolean };
 
-/** Someone in a crew; `id` names the membership, never them. `pcs` counts their PCs that play for it. */
+/**
+ * Someone in a crew; `id` names the membership, never them. `pcs` counts their
+ * PCs that play for it; `next` is the game (Steam appid) they are in line to
+ * play next on the crew's PC, and since when.
+ */
 export type CrewMember = {
   id: string;
   name: string | null;
@@ -45,14 +49,28 @@ export type CrewMember = {
   pc: "yes" | "later" | null;
   pcs: number;
   rsvp: Rsvp | null;
+  next: { gameId: number; at: number } | null;
 };
 
-/** A PC playing for a crew. */
+/** Someone in the crew playing on one of its PCs now; `starting` while still behind Ignition. */
+export type CrewPcPlay = {
+  sessionId: string;
+  player: string | null;
+  you: boolean;
+  gameId: number;
+  startedAt: number | null;
+  starting: boolean;
+};
+
+/** A PC playing for a crew: `id` names the machine a game starts on, `games` the appids on it, `playing` who plays on it now. */
 export type CrewPc = {
+  id: string;
   name: string | null;
   owner: string | null;
   mine: boolean;
   state: "ready" | "busy" | "offline";
+  games: number[];
+  playing: CrewPcPlay | null;
 };
 
 /**
@@ -185,8 +203,12 @@ const sessionFormat = (lang: Lang, options: Intl.DateTimeFormatOptions) =>
 
 /** The date of a Zockrunde (`at`, Unix ms) as a message says it: "Freitag, 9. Oktober, 21 Uhr", "Friday 9 October, 9 pm". */
 export function sessionWhen(lang: Lang, at: number): string {
-  const day = sessionFormat(lang, { weekday: "long", day: "numeric", month: "long" }).format(at);
-  return `${day}, ${sessionTime(lang, at)}`;
+  return `${sessionDate(lang, at)}, ${sessionTime(lang, at)}`;
+}
+
+/** The day of a Zockrunde in full, in Berlin: "Freitag, 9. Oktober", "Friday 9 October". */
+export function sessionDate(lang: Lang, at: number): string {
+  return sessionFormat(lang, { weekday: "long", day: "numeric", month: "long" }).format(at);
 }
 
 /** The time of a Zockrunde as it is said: "21 Uhr", "21:30 Uhr", "9 pm", "9:30 pm". */
@@ -303,7 +325,7 @@ export async function fetchCrew(id: string, get: typeof fetch = fetch): Promise<
 /** What a member changes on the crew's page: the crew as it then is, or null when it did not work. */
 async function change(
   id: string,
-  action: "name" | "link" | "pc" | "session" | "rsvp" | "shared",
+  action: "name" | "link" | "pc" | "session" | "rsvp" | "shared" | "next",
   body: object | null,
   get: typeof fetch,
 ): Promise<CrewDetail | null> {
@@ -333,6 +355,14 @@ export const setCrewSession = (id: string, at: number, get: typeof fetch = fetch
 /** Answer the crew's Zockrunde: in ("yes") or cannot ("no"). */
 export const answerCrewSession = (id: string, rsvp: Rsvp, get: typeof fetch = fetch) =>
   change(id, "rsvp", { rsvp }, get);
+
+/** Get in line to play `gameId` (a Steam appid) next on the crew's PC, or change the game; null leaves the line. */
+export const queueNext = (id: string, gameId: number | null, get: typeof fetch = fetch) =>
+  change(id, "next", { gameId }, get);
+
+/** Who is in line to play next on the crew's PC, first in line first. */
+export const crewQueue = (crew: Pick<CrewDetail, "members">): CrewMember[] =>
+  crew.members.filter((m) => m.next).sort((a, b) => a.next!.at - b.next!.at);
 
 /** Note that the signed-in member shared the crew's invite. */
 export const sharedCrew = (id: string, get: typeof fetch = fetch) => change(id, "shared", null, get);

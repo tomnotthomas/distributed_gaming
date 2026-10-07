@@ -62,7 +62,7 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await founder.getByRole("button", { name: "Copy the crew link" }).click();
   await expect(founder.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
 
-  // The friend opens the link, signed in already, sees the date, and joins with one tap.
+  // The friend opens the link, signed in already, sees the date, and joins and says yes with one tap.
   const friendContext = await browser.newContext();
   await signIn(friendContext, baseURL!, E2E_CREW_PC_OWNER);
   const friend = await friendContext.newPage();
@@ -70,11 +70,9 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await friend.goto(`/invite/${crew.token}`);
   await expect(friend.getByText(/^Session on /)).toBeVisible();
   await expect(friend).toHaveURL(/\/invite$/);
-  await friend.getByRole("button", { name: "Join", exact: true }).first().click();
+  // One button joins and says yes; the founder sees it without a reload.
+  await friend.getByRole("button", { name: "I'm in", exact: true }).click();
   await expect(friend).toHaveURL(new RegExp(`/crews/${crewId}$`));
-
-  // Joined, the friend says yes, and the founder sees it without a reload.
-  await friend.getByRole("button", { name: "I'm in" }).click();
   await expect(friend.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
   await expect(founder.getByText("2 in", { exact: true })).toBeVisible();
 
@@ -82,10 +80,11 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await offerCrewPc(request, true);
   await expect(friend.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
 
-  // They bring it, and the crew is ready, on both pages.
+  // They bring it, and the crew is ready to play on it, on both pages.
   await friend.getByRole("button", { name: "Yes: put the app on my PC" }).click();
-  await expect(friend.getByRole("heading", { name: "You're ready to play!" })).toBeVisible();
-  await expect(founder.getByRole("heading", { name: "You're ready to play!" })).toBeVisible();
+  const free = { name: "The gaming PC is free. Who goes first?" };
+  await expect(friend.getByRole("heading", free)).toBeVisible();
+  await expect(founder.getByRole("heading", free)).toBeVisible();
   await expect(founder.getByText("Jos PC is in. You're ready to play!")).toBeVisible();
 
   expect(founderErrors).toEqual([]);

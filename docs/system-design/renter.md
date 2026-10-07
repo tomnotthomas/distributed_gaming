@@ -590,13 +590,18 @@ POST /crews { name? }
 
 GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
-                  shared, members: [{ id, name, you, admin, pc, pcs, rsvp }],
-                  machines: [{ name, owner, mine, state }] } }
+                  shared, members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
+                  machines: [{ id, name, owner, mine, state, games, playing }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
   ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
   `yes`, `no` or null while open; `shared` whether anyone in it shared the link since the
-  date was set. → 404 for anyone else, or none. → 401 signed out.
+  date was set. A member's `next` is `{ gameId, at }` while they are in line to play that
+  game next on the crew's PC (since `at`), else null. A PC's `id` names the machine a game
+  is started on (`POST /bookings { machineId }`); its `games` the Steam appids installed on
+  it; its `playing` is who in the crew plays on it now,
+  `{ sessionId, player, you, gameId, startedAt, starting }`, else null.
+  → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
@@ -624,16 +629,26 @@ POST /crews/:id/shared          → 200 { crew }
   → 409 { error, code: "no-session" } while it has no Zockrunde, or once it is over.
   → 404 as above.
 
+POST /crews/:id/next { gameId }  → 200 { crew }
+  The signed-in member gets in line to play `gameId` (a Steam appid) next on the crew's PC,
+  or changes the game and keeps their place; `gameId: null` leaves the line. Booking a
+  machine takes them out of every crew's line. → 400 for anything but an appid (a positive
+  32-bit integer) or null.
+  → 404 as above.
+
 GET  /invites/:token
-  → 200 { crew: { name, crewName, own, size, state, pcs, session, member } }
+  → 200 { crew: { name, crewName, own, size, state, pcs, session, member,
+                  guests: [{ name, admin, rsvp }] } }
   Which crew a link joins, for anyone who opens it; signed in, whether they are in it
   already. `session` is as above, but null once the Zockrunde is over; the link's preview
-  says its date the same way. → 404 for a forged, unknown, replaced or archived crew's link.
+  says its date the same way. `guests` is who is in it, by Steam persona, founder first,
+  with each answer to the Zockrunde (null while it has none). → 404 for a forged, unknown, replaced or archived crew's link.
 
-POST /invites/:token/join
+POST /invites/:token/join { rsvp? }
   → 200 { id, crew, joined }
-  Join the crew as the signed-in player. `joined` is false for a crew they were in
-  already, which changes nothing. → 409 { error, code: "too-many-crews" } for a player
+  Join the crew as the signed-in player, and with `rsvp` ("yes" or "no") answer its
+  Zockrunde at once while it has one that is not over. `joined` is false for a crew they
+  were in already, which changes nothing but the answer. → 409 { error, code: "too-many-crews" } for a player
   in 50 crews already. → 404 as above. → 401 signed out.
 
 POST /crew-members/:id/remove
@@ -655,16 +670,22 @@ a gaming PC (through the phone's share sheet where there is one and `wa.me` othe
 by copying the link), brings a gaming PC (which starts the Lanterel app's download in place,
 `release.json`; until a release is published the step says the app is coming soon) or asks
 the group and waits for one, and plays; someone who joined
-says yes or no, gets a gaming PC in, and plays. Who is coming shows quietly below; renaming,
+says yes or no, gets a gaming PC in, and plays. Playing happens on the page itself: while
+the crew's PC is free, the member picks one of their own games it can run and starts it
+there (first come, first play), and the owner does nothing; while someone plays on it, the
+others see who plays what, watch (`/crew-live`), or get in line to go next with the game
+they want. Who is coming shows quietly below; renaming,
 the crew link and leaving sit folded at the bottom. A Zockrunde counts as over 6 hours after
 it starts, and then the page asks for the next date and the message leaves the old one out.
 Its day and time are said in Germany's zone (`Europe/Berlin`) wherever the browser is, as the
 link preview says them.
 The crew page reads its crew again on every change its event stream announces. The invite
-page names who asks and which crew, explains in three lines how it works, and joins with one
-button: signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the
+page is the Zockrunde's ticket too: who asks you into which crew and when, one button that
+joins and says yes ("can't make it" joins and says no), and beside it the date, who is in,
+who can't, the friend's own open spot and whether a gaming PC is in yet, then how it works
+in three lines. Signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the
 address shows `/invite` rather than the token; only with storage blocked does the token stay
-in the path) and joins at once, then the friend lands on the crew's page. The profile and the
+in the path) and joins at once with the answer chosen, then the friend lands on the crew's page. The profile and the
 wall carry the player's crews and a way to found one. Their words, in German and English
 kept apart, are in `web/src/swiff/crewCopy.ts`. The crew screens, the invite, the seat
 invite and the wall (`screenCopy.ts`) speak German to a browser set to German and English

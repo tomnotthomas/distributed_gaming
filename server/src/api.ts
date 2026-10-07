@@ -17,6 +17,7 @@
 //   POST /api/crews/:id/session
 //   POST /api/crews/:id/rsvp
 //   POST /api/crews/:id/shared
+//   POST /api/crews/:id/next
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
@@ -803,6 +804,18 @@ export function createApi({
       return true;
     }
 
+    // A member gets in line to play a game next on the crew's PC, or out of it (gameId null).
+    if (resource === "crews" && id && action === "next" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      const crew = await platform.queueNext(id, steamId, body.gameId ?? null);
+      if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "invalid") throw new HttpError(400, "gameId must be a Steam appid or null");
+      events?.crewChanged();
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
     // A member shared the crew's invite: its page's "get your people" step is done.
     if (resource === "crews" && id && action === "shared" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
@@ -830,14 +843,20 @@ export function createApi({
     if (resource === "invites" && id && action === "join" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const inviteId = verifyInviteToken(sessionSecret!, id);
+      // Joining from the invite can answer its Zockrunde at once: "I'm in", or "can't, but join anyway".
+      const body = await readJson(req);
+      const rsvp = body.rsvp === "yes" || body.rsvp === "no" ? body.rsvp : null;
       // The crew's owner sees them by their Steam persona, kept from this read, when Steam answers.
       const read = inviteId ? await profile(steamId).catch(() => null) : null;
-      const joined = inviteId ? await platform.joinCrew(inviteId, steamId, read?.persona || null) : null;
+      const joined = inviteId
+        ? await platform.joinCrew(inviteId, steamId, read?.persona || null, rsvp)
+        : null;
       if (joined && !joined.ok && joined.reason === "too-many") {
         reply(res, 409, { error: `you are in ${MAX_CREWS} crews already`, code: "too-many-crews" });
         return true;
       }
       if (!joined?.ok) throw new HttpError(404, "this crew link is not valid any more");
+      if (joined.joined || rsvp) events?.crewChanged();
       reply(res, 200, { id: joined.id, crew: joined.crew, joined: joined.joined });
       return true;
     }
