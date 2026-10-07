@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-07T00:00:00Z",
+  "title": "Design System: Lanterel (renter app)",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Lobby Paper",
+        "canonical": "#e8e9e8",
+        "tonalRamp": ["#131313", "#2a2b2b", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8", "#f4f4f2"]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card Stock",
+        "canonical": "#f4f4f2",
+        "tonalRamp": ["#141413", "#2b2b2a", "#4a4a48", "#646462", "#8b8b89", "#d4d4d2", "#e9e9e7", "#f4f4f2"]
+      },
+      "card-lift": { "role": "neutral", "displayName": "Lift White", "canonical": "#ffffff" },
+      "grey": { "role": "neutral", "displayName": "Cool Grey", "canonical": "#d3d4d3" },
+      "ink": {
+        "role": "primary",
+        "displayName": "Drafting Ink",
+        "canonical": "#131313",
+        "tonalRamp": ["#000000", "#131313", "#3f4040", "#4a4b4b", "#636464", "#8a8b8b", "#d3d4d3", "#e8e9e8"]
+      },
+      "ink-press": { "role": "primary", "displayName": "Press Black", "canonical": "#000000" },
+      "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "#4a4b4b" },
+      "ink-3": { "role": "neutral", "displayName": "Ink 3", "canonical": "#636464" },
+      "line": { "role": "neutral", "displayName": "Hairline", "canonical": "rgb(19 19 19 / 0.16)" },
+      "line-2": { "role": "neutral", "displayName": "Hairline Strong", "canonical": "rgb(19 19 19 / 0.34)" },
+      "screen": { "role": "primary", "displayName": "The Screen", "canonical": "#131313" },
+      "screen-2": { "role": "primary", "displayName": "Screen Glow", "canonical": "#1d1e1d" },
+      "on-screen": { "role": "neutral", "displayName": "On Screen", "canonical": "#e8e9e8" },
+      "on-screen-2": {
+        "role": "neutral",
+        "displayName": "On Screen 2",
+        "canonical": "rgb(232 233 232 / 0.78)"
+      },
+      "lime": {
+        "role": "secondary",
+        "displayName": "Signal Lime",
+        "canonical": "#d4f53c",
+        "tonalRamp": ["#2f370a", "#4a560f", "#5f6f12", "#7d921c", "#9cb52a", "#bcd934", "#d4f53c", "#ecfbb0"]
+      },
+      "lime-edge": { "role": "secondary", "displayName": "Lime Edge", "canonical": "#9cb52a" },
+      "lime-deep": { "role": "secondary", "displayName": "Lime Ink", "canonical": "#5f6f12" }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The wall's lead game name, fitted to its column; one per screen, drafted between dimension lines."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "A game page's name, Ignition's title, the profile name."
+      },
+      "title": { "displayName": "Title", "purpose": "Profile section headings." },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Big numbers: Ignition percent, free-machine count, come-back timer; latency at 38px in machine rows."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The bar's wordmark (still reads Swiff pending the rename)."
+      },
+      "lead": { "displayName": "Lead", "purpose": "The one spoken line under a name." },
+      "body": { "displayName": "Body", "purpose": "Running copy and notes." },
+      "item": {
+        "displayName": "Item",
+        "purpose": "Game card titles; machine names at 600 18px; reading values at 500 19px."
+      },
+      "control": { "displayName": "Control", "purpose": "Uppercase nav items, band tabs, tier names." },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Mono readings and annotations, placed under what they describe."
+      }
+    },
+    "shadows": [
+      { "name": "bezel", "value": "0 0 0 6px #131313", "purpose": "The screen's frame." },
+      {
+        "name": "screen-cast",
+        "value": "0 24px 44px -24px rgb(19 19 19 / 0.55)",
+        "purpose": "Under every screen, lit or off."
+      },
+      {
+        "name": "warm-spill",
+        "value": "0 46px 56px -34px rgb(236 140 24 / 0.5)",
+        "purpose": "Added only when the screen shows its picture."
+      },
+      {
+        "name": "lime-edge",
+        "value": "inset 0 0 0 1px #9cb52a",
+        "purpose": "Keeps a lime bar or done dot visible on paper."
+      },
+      {
+        "name": "live-dot-edge",
+        "value": "inset 0 0 0 1px #5f6f12",
+        "purpose": "Edge of a 7px live dot on paper."
+      },
+      {
+        "name": "freed-ring",
+        "value": "inset 0 0 0 4px #d4f53c",
+        "purpose": "Peak of the one-time ring when a machine frees up (2.4s keyframe)."
+      },
+      {
+        "name": "focus",
+        "value": "outline: 2px solid #131313; outline-offset: 3px",
+        "purpose": "Focus on every renter control."
+      }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Every state change." },
+      { "name": "color", "value": "0.3s", "purpose": "Nav, tabs, borders, card hover." },
+      {
+        "name": "pill",
+        "value": "0.35s",
+        "purpose": "Pill background and border changes; the end circle turns 45deg over 0.45s."
+      },
+      {
+        "name": "screen-breathe",
+        "value": "2.8s ease-in-out infinite",
+        "purpose": "The off screen's dashed lime frame, 40% to full."
+      },
+      {
+        "name": "ignition-open",
+        "value": "clip-path 0.9s, filter 1.2s",
+        "purpose": "The picture opening step by step as the connection comes up."
+      },
+      {
+        "name": "hero-crossfade",
+        "value": "opacity 1.4s",
+        "purpose": "Signed-out wall turning through games."
+      },
+      { "name": "freed", "value": "2.4s", "purpose": "A game that just became playable rings once in lime." },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Nothing moves on its own; hover scales and rises are removed."
+      }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "520px" },
+      { "name": "one-column", "value": "860px" },
+      { "name": "nav-tight", "value": "861px-1279px" },
+      { "name": "profile-two-column", "value": "1180px" },
+      { "name": "ultra", "value": "html[data-display=ultra]: bar 96px, band 400px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Pill",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action: filled ink pill ending in a hairline circle that turns on hover.",
+      "html": "<button class=\"ds-pill ds-pill-solid\">Sign in with Steam <span class=\"ds-pill-c\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"><path d=\"M3 11 11 3M5 3h6v6\"/></svg></span></button>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; border: 1px solid currentColor; border-radius: 999px; background: transparent; color: #131313; padding: 6px 6px 6px 22px; font: 500 16px/1 Outfit, system-ui, sans-serif; cursor: pointer; transition: background-color .35s cubic-bezier(.16,1,.3,1), border-color .35s cubic-bezier(.16,1,.3,1), transform .2s cubic-bezier(.16,1,.3,1); } .ds-pill-c { width: 38px; height: 38px; border-radius: 50%; border: 1px solid currentColor; display: grid; place-items: center; transition: transform .45s cubic-bezier(.16,1,.3,1); } .ds-pill:hover .ds-pill-c { transform: rotate(45deg); } .ds-pill:active { transform: translateY(1px) scale(.99); } .ds-pill:focus-visible { outline: 2px solid #131313; outline-offset: 3px; } .ds-pill-solid { background: #131313; border-color: #131313; color: #e8e9e8; } .ds-pill-solid:hover { background: #000; border-color: #000; }"
+    },
+    {
+      "name": "Outline Pill",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions: sign in, retry, cancel.",
+      "html": "<button class=\"ds-opill\">Retry <span class=\"ds-opill-c\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\"><path d=\"M3 11 11 3M5 3h6v6\"/></svg></span></button>",
+      "css": ".ds-opill { display: inline-flex; align-items: center; gap: 14px; min-height: 52px; border: 1px solid #131313; border-radius: 999px; background: transparent; color: #131313; padding: 6px 6px 6px 22px; font: 500 16px/1 Outfit, system-ui, sans-serif; cursor: pointer; transition: background-color .35s cubic-bezier(.16,1,.3,1); } .ds-opill-c { width: 38px; height: 38px; border-radius: 50%; border: 1px solid currentColor; display: grid; place-items: center; transition: transform .45s cubic-bezier(.16,1,.3,1); } .ds-opill:hover { background: rgb(19 19 19 / .05); } .ds-opill:hover .ds-opill-c { transform: rotate(45deg); } .ds-opill:focus-visible { outline: 2px solid #131313; outline-offset: 3px; }"
+    },
+    {
+      "name": "Bar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Uppercase cells on the paper bar; the current page in ink with the lime mark under it.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-i\" aria-current=\"page\" href=\"#\">Home</a><a class=\"ds-nav-i\" href=\"#\">Profile</a><a class=\"ds-nav-i\" href=\"#\">Share your PC</a><span class=\"ds-nav-i\"><i class=\"ds-dot\"></i>3 free near you</span></nav>",
+      "css": ".ds-nav { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); height: 80px; background: #e8e9e8; border-bottom: 1px solid rgb(19 19 19 / .16); } .ds-nav-i { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; color: #4a4b4b; font: 500 13px/1.3 Outfit, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; text-decoration: none; transition: color .3s cubic-bezier(.16,1,.3,1); } .ds-nav-i:hover { color: #131313; } .ds-nav-i:focus-visible { outline: 2px solid #131313; outline-offset: -14px; border-radius: 999px; } .ds-nav-i[aria-current=page] { color: #131313; } .ds-nav-i[aria-current=page]::after { content: ''; position: absolute; left: 50%; bottom: 18px; width: 18px; height: 3px; margin-left: -9px; background: #d4f53c; box-shadow: inset 0 0 0 1px #9cb52a; } .ds-dot { width: 7px; height: 7px; border-radius: 50%; background: #d4f53c; box-shadow: inset 0 0 0 1px #5f6f12; }"
+    },
+    {
+      "name": "Free Mark",
+      "kind": "chip",
+      "refersTo": "free-chip",
+      "description": "Ink-ringed mono chip with the lime dot, beside free-to-play game titles.",
+      "html": "<span class=\"ds-free\">Free</span>",
+      "css": ".ds-free { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border: 1px solid #131313; border-radius: 999px; color: #131313; font: 500 11px/1.4 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; } .ds-free::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #d4f53c; box-shadow: inset 0 0 0 1px #5f6f12; }"
+    },
+    {
+      "name": "Game Card",
+      "kind": "card",
+      "refersTo": "game-card",
+      "description": "A game in the band: art in a 9px frame on card stock, title, mono meta; hover lifts to white with an ink edge.",
+      "html": "<button class=\"ds-tile\"><span class=\"ds-tile-art\"></span><span class=\"ds-tile-title\">Counter-Strike 2</span><span class=\"ds-tile-meta\"><span>Glasshouse</span><span>4 h 30</span></span></button>",
+      "css": ".ds-tile { display: grid; gap: 10px; width: 300px; padding: 8px 8px 14px; border: 1px solid rgb(19 19 19 / .34); border-radius: 14px; background: #f4f4f2; color: #131313; text-align: left; cursor: pointer; transition: border-color .3s cubic-bezier(.16,1,.3,1), background-color .3s cubic-bezier(.16,1,.3,1), transform .3s cubic-bezier(.16,1,.3,1); } .ds-tile:hover { border-color: #131313; background: #fff; } .ds-tile:active { transform: translateY(1px); } .ds-tile:focus-visible { outline: 2px solid #131313; outline-offset: 3px; } .ds-tile-art { display: block; height: 170px; border-radius: 9px; background: linear-gradient(135deg, #e0821a, #8a4a10); box-shadow: inset 0 0 0 1px rgb(19 19 19 / .12); } .ds-tile-title { padding: 4px 6px 0; font: 500 17px/1.2 Outfit, system-ui, sans-serif; } .ds-tile-meta { display: flex; justify-content: space-between; padding: 0 6px; color: #4a4b4b; font: 400 11.5px/1.55 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }"
+    },
+    {
+      "name": "Machine Row",
+      "kind": "card",
+      "refersTo": "machine-row",
+      "description": "A ranked machine in the Ledger: latency as the figure; the chosen one printed in the screen's colour.",
+      "html": "<div class=\"ds-ledger\"><button class=\"ds-row ds-on\"><span class=\"ds-ms\">9<small>ms</small></span><span><b>Glasshouse</b><span class=\"ds-who\">m0th, RTX 4090</span><span class=\"ds-meta\"><i></i>Free all session</span></span></button><button class=\"ds-row\"><span class=\"ds-ms\">14<small>ms</small></span><span><b>Ember</b><span class=\"ds-who\">sable.exe, RTX 4070 Ti</span><span class=\"ds-meta\">1080p 120</span></span></button></div>",
+      "css": ".ds-ledger { display: grid; gap: 8px; width: 320px; } .ds-row { display: grid; grid-template-columns: 86px minmax(0,1fr); align-items: center; gap: 0 14px; padding: 14px 16px 14px 14px; border: 1px solid rgb(19 19 19 / .34); border-radius: 14px; background: #f4f4f2; color: #131313; text-align: left; cursor: pointer; font: 300 16px/1.5 Outfit, system-ui, sans-serif; transition: background-color .3s cubic-bezier(.16,1,.3,1), border-color .3s cubic-bezier(.16,1,.3,1); } .ds-row:not(.ds-on):hover { border-color: #131313; background: #fff; } .ds-row:focus-visible { outline: 2px solid #131313; outline-offset: 3px; } .ds-row.ds-on { background: #131313; border-color: #131313; color: #e8e9e8; } .ds-ms { font: 400 38px/1 Michroma, system-ui, sans-serif; } .ds-ms small { margin-left: 4px; font: 400 13px/1 'IBM Plex Mono', monospace; opacity: .7; } .ds-row b { display: block; font: 600 18px/1.2 Outfit, system-ui, sans-serif; } .ds-who { display: block; font-size: 13.5px; color: #4a4b4b; } .ds-on .ds-who, .ds-on .ds-meta { color: rgb(232 233 232 / .78); } .ds-meta { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: #4a4b4b; font: 400 11px/1.6 'IBM Plex Mono', monospace; letter-spacing: .05em; text-transform: uppercase; } .ds-meta i { width: 7px; height: 7px; border-radius: 50%; background: #d4f53c; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A settings group or the hero strip: card stock at 22px radius on a hairline, section name drafted in Michroma.",
+      "html": "<section class=\"ds-panel\"><h2 class=\"ds-panel-h\">Streaming</h2><p class=\"ds-panel-p\">Picture adapts to the machine and your connection.</p></section>",
+      "css": ".ds-panel { width: 420px; padding: clamp(20px, 2.6vw, 30px); border: 1px solid rgb(19 19 19 / .34); border-radius: 22px; background: #f4f4f2; color: #131313; } .ds-panel-h { margin: 0 0 12px; font: 400 18px/1.2 Michroma, system-ui, sans-serif; letter-spacing: .02em; text-transform: uppercase; } .ds-panel-p { margin: 0; font: 300 16px/1.5 Outfit, system-ui, sans-serif; color: #4a4b4b; }"
+    },
+    {
+      "name": "Drafted Name",
+      "kind": "custom",
+      "refersTo": "display",
+      "description": "A screen's name in Michroma uppercase between cap and base dimension lines with end ticks, annotation under it.",
+      "html": "<div class=\"ds-draft\"><h1 class=\"ds-name\">Elden Ring</h1><div class=\"ds-anno\">From your library</div></div>",
+      "css": ".ds-draft { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: #e8e9e8; } .ds-name { position: relative; margin: 16px 0 24px; color: #131313; font: 400 clamp(40px, 5.6vw, 96px)/1 Michroma, system-ui, sans-serif; letter-spacing: .01em; text-transform: uppercase; } .ds-name::before, .ds-name::after { content: ''; position: absolute; left: -14px; right: -14px; height: 9px; border-left: 1px solid rgb(19 19 19 / .34); border-right: 1px solid rgb(19 19 19 / .34); background: linear-gradient(rgb(19 19 19 / .34), rgb(19 19 19 / .34)) center / 100% 1px no-repeat; } .ds-name::before { top: -16px; } .ds-name::after { bottom: -14px; } .ds-anno { display: flex; align-items: center; gap: 12px; color: #4a4b4b; font: 400 11.5px/1.55 'IBM Plex Mono', monospace; letter-spacing: .06em; text-transform: uppercase; } .ds-anno::before { content: ''; width: 28px; border-top: 1px solid currentColor; }"
+    },
+    {
+      "name": "The Screen",
+      "kind": "custom",
+      "refersTo": "screen",
+      "description": "The one dark object: 16:9, 16px radius, 6px bezel, cast shadow and stand; off, a breathing dashed lime frame.",
+      "html": "<div class=\"ds-screen-wrap\"><div class=\"ds-screen\"></div><div class=\"ds-stand\"></div></div>",
+      "css": ".ds-screen-wrap { display: grid; justify-items: center; padding: 24px; background: #e8e9e8; } .ds-screen { width: 420px; aspect-ratio: 16/9; border-radius: 16px; background: linear-gradient(90deg, transparent, rgb(244 244 242 / .9) 30%, rgb(244 244 242 / .9) 70%, transparent) center / 100% 2px no-repeat, radial-gradient(120% 90% at 30% 0%, #1d1e1d, #131313 70%); box-shadow: 0 0 0 6px #131313, 0 24px 44px -24px rgb(19 19 19 / .55); outline: 1.5px dashed #d4f53c; outline-offset: -12px; animation: ds-breathe 2.8s ease-in-out infinite; } .ds-stand { width: 132px; height: 22px; margin-top: 8px; background: linear-gradient(#131313, #131313) center 0 / 30px 17px no-repeat, linear-gradient(#131313, #131313) center bottom / 100% 5px no-repeat; border-radius: 0 0 5px 5px; } @keyframes ds-breathe { 0%, 100% { outline-color: rgb(212 245 60 / .4); } 50% { outline-color: #d4f53c; } } @media (prefers-reduced-motion: reduce) { .ds-screen { animation: none; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lobby's Room",
+    "overview": "The app is a drafting-table room in daylight: grey-white paper under a fine static grain, panels laid on it as cards with hairline edges, and one dark television, the screen, where the game's key art lives. The art is never the page. It sits on a 16:9 screen with a rounded bezel and a stand, and the lit screen casts a warm spill of light onto the paper beneath it. Everything else is ink on paper: titles drafted in wide uppercase between dimension lines with end ticks, machine readings set in small mono like annotations on a technical drawing, and rulers of ticks along the bottom of bands and pickers.\n\nThe density is calm and instrument-like. A screen holds one name, one screen, one strip of facts and one action. Actions are pills and circles, never boxes: the main press is a filled ink pill or a circular dial (Resume, the hold-to-launch Reticle) drawn with tick rings and corner brackets. Lime is not a colour of the interface; it is a mark, a small signal that something is live, chosen, or done.\n\nMotion is slow, eased, and physical: the screen's dashed lime frame breathes while it waits, Ignition opens the picture from one bright line to the full frame as the connection comes up, a freed machine rings its card once in lime. Under reduced motion nothing moves on its own.",
+    "keyCharacteristics": [
+      "Paper ground, card panels on 1px hairlines, ink type; no dark pages.",
+      "Key art only on the screen: a dark rounded 16:9 with a 6px bezel, a stand, and a warm light spill.",
+      "Michroma uppercase titles drafted between dimension lines; Outfit for reading; IBM Plex Mono for readings and annotations.",
+      "Lime used only as a mark: live dots, the current tab's bar, done ticks, the waiting screen's dashed frame.",
+      "Everything you press is a pill or a circle."
+    ],
+    "rules": [
+      {
+        "name": "The Mark Rule",
+        "body": "Lime is a mark, never a fill, a surface, or text on paper. If a lime element is wider than 18px it is a frame line or a ring, not an area.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Screen Rule",
+        "body": "The only dark surface on a renter page is the screen (and the chosen machine card that borrows its colour). Key art is painted on the screen and nowhere else; no art bands behind copy, no full-bleed dark pages.",
+        "section": "colors"
+      },
+      {
+        "name": "The Drafted Name Rule",
+        "body": "Every screen's name is Michroma uppercase between a cap line and a base line of `line-2`, each with 9px end ticks, running 14px past the word on both sides.",
+        "section": "typography"
+      },
+      {
+        "name": "The Annotation Rule",
+        "body": "A mono label sits under the name or value it describes, as a drawing's annotation, never above it as an eyebrow. The build enforces this by reordering every label below its title.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Shadow Rule",
+        "body": "Only the screen casts a shadow. A card that needs to stand out gets an ink border or the screen's colour, not a shadow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do set every renter screen on paper (#e8e9e8), with card-stock panels bordered by 1px `line-2` hairlines at 14px or 22px radius.",
+      "Do put a game's key art on the screen: 16:9, 16px radius, 6px bezel, stand, and the warm spill once lit.",
+      "Do draft each screen's name in Michroma uppercase between dimension lines with 9px end ticks.",
+      "Do set readings and annotations in IBM Plex Mono 11.5px uppercase, placed under the thing they describe.",
+      "Do make every pressable thing a pill or a circle, with the primary in filled ink.",
+      "Do use `cubic-bezier(0.16, 1, 0.3, 1)` for state changes (0.3s colour, 0.35s pills, 0.45s to 0.5s turns) and gate any self-running motion behind `prefers-reduced-motion: no-preference`.",
+      "Do give lime on paper a 1px `lime-edge` or `lime-deep` inset so the mark holds against the grey."
+    ],
+    "donts": [
+      "Don't paint key art full-bleed behind copy or as a dark page band; the Share page's art band is hidden in the build for this reason.",
+      "Don't use lime as a fill, a surface, or text on paper.",
+      "Don't add drop shadows to cards, pills or panels; only the screen casts one.",
+      "Don't set a mono label above a title as an eyebrow.",
+      "Don't bring the library's dark glass or gradient buttons onto renter screens; they are re-pointed to ink and paper here, and the dark look belongs to the in-session HUD only.",
+      "Don't set text lighter than `ink-3` (#636464) on paper."
+    ]
+  }
+}
