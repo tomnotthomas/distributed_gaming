@@ -306,7 +306,7 @@ describe("swiff-streamer against the server", () => {
   );
 
   it(
-    "offers at once, its candidates trickling after, however long werift takes to gather them",
+    "offers at once however long werift takes to gather, and applies the renter's answer only once it has",
     { timeout: 60_000 },
     async () => {
       const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
@@ -325,6 +325,7 @@ describe("swiff-streamer against the server", () => {
       // to 5 s, longer than a reconnecting renter waits for an offer before it joins again (4 s).
       const GATHER_MS = 5_000;
       let gathered = 0;
+      let answered = 0;
       const streamer = startStreamer({
         config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
         grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
@@ -339,6 +340,12 @@ describe("swiff-streamer against the server", () => {
             await gather();
             gathered = Date.now();
           };
+          // The renter's answer, which starts werift's checks.
+          const setRemote = peer.pc.setRemoteDescription.bind(peer.pc);
+          peer.pc.setRemoteDescription = (sdp) => {
+            answered ||= Date.now();
+            return setRemote(sdp);
+          };
           return peer;
         },
         log: () => {},
@@ -350,12 +357,12 @@ describe("swiff-streamer against the server", () => {
       try {
         await until(() => renter.offers.length > 0, "the offer");
         expect(renter.offers[0]! - joined).toBeLessThan(2_000);
-        await until(() => renter.payloads.length > 0, "video at the renter");
-        const video = Date.now();
-        // The stream came up while werift was still waiting on the STUN server.
-        await until(() => gathered > 0, "werift's gathering", 15_000);
+        await until(() => renter.payloads.length > 0, "video at the renter", 30_000);
+        // werift waited on the STUN server, and only then took the renter's answer:
+        // it pairs a relay candidate only with remote candidates that come after it.
+        expect(gathered).toBeGreaterThan(0);
         expect(gathered - renter.offers[0]!).toBeGreaterThanOrEqual(GATHER_MS - 1_000);
-        expect(video).toBeLessThan(gathered);
+        expect(answered).toBeGreaterThanOrEqual(gathered);
         const left = await call("POST", `/api/sessions/${sessionId}/leave`, {
           authorization: `Bearer ${claim.body!.ticket as string}`,
         });

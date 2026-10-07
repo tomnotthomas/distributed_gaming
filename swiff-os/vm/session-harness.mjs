@@ -823,6 +823,14 @@ async function renter() {
     page.on("console", (msg) =>
       appendFileSync(consoleLog, `${elapsed()} ${msg.type()} ${redact(msg.text())}\n`),
     );
+    // The renter's ICE every 2 s, for a stream that never came: Chromium drops failed pairs.
+    const iceWatch = setInterval(() => {
+      page
+        .evaluate(iceReport)
+        .then((r) => appendFileSync(consoleLog, `${elapsed()} ice ${r}\n`))
+        .catch(() => {});
+    }, 2000);
+    page.on("close", () => clearInterval(iceWatch));
     const played = () =>
       page.evaluate(async () => {
         const play = JSON.parse(localStorage.getItem("swiff.play") ?? "null");
