@@ -117,7 +117,8 @@ from the image's own archive snapshot, MokManager, and the build's signed system
 `grubx64.efi`, the name shim starts), slot A and its verity hashes, Swiff's certificate, and
 `swiffos.json` with the layout and each file's SHA-256, signed (`swiffos.json.sig`, Ed25519),
 and `SHA256SUMS`, every file's SHA-256 as `sha256sum` prints it.
-The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder, and
+The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder (where
+it downloads the set when none is there, below under **Release keys**), and
 reads no manifest that a key in `desktop/image-trust.json` did not sign, nor a set whose
 certificate is not the one that key's sets carry; a set that is there but not signed by Swiff
 shows as that on the rental screen, with Check again. The installer's administrator side keeps the
