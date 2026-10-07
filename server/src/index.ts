@@ -72,6 +72,7 @@ import {
   readPreviews,
   type PreviewType,
 } from "./invite-preview.js";
+import { sessionPreview } from "./invite-copy.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
 import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from "./state-key.js";
 import {
@@ -900,15 +901,22 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
  * Extensionless paths use index.html; file read failures return 500 for that page
  * and 404 for assets. URL parsing and delegated handler errors propagate as rejections.
  */
-/** Who asks, by an app invite link's token: the crew's admin or the seat's host, by Steam persona; null when unknown. */
-async function invitingName(type: PreviewType, token: string): Promise<string | null> {
-  if (!sessionSecret) return null;
+/**
+ * Who asks, by an app invite link's token: the crew's admin or the seat's host, by Steam persona,
+ * null when unknown; and when the crew's Zockrunde starts, null for none (or a seat).
+ */
+async function inviting(
+  type: PreviewType,
+  token: string,
+): Promise<{ name: string | null; sessionAt: number | null }> {
+  if (!sessionSecret) return { name: null, sessionAt: null };
   if (type === "crew") {
     const inviteId = verifyInviteToken(sessionSecret, token);
-    return inviteId ? ((await platform.invite(inviteId))?.name ?? null) : null;
+    const crew = inviteId ? await platform.invite(inviteId) : null;
+    return { name: crew?.name ?? null, sessionAt: crew?.session?.at ?? null };
   }
   const seatId = verifySeatToken(sessionSecret, token);
-  return seatId ? ((await platform.seat(seatId))?.host ?? null) : null;
+  return { name: seatId ? ((await platform.seat(seatId))?.host ?? null) : null, sessionAt: null };
 }
 
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -964,7 +972,10 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
     if (invite && previews) {
       // An invite link shows who asks in its preview; never kept by a cache, and its token stays here.
       const lang = previewLang(req);
-      const name = await invitingName(invite.type, invite.token).catch(() => null);
+      const { name, sessionAt } = await inviting(invite.type, invite.token).catch(() => ({
+        name: null,
+        sessionAt: null,
+      }));
       const card = `${publicOrigin ?? `http://localhost:${PORT}`}/og/${previewCard(invite.type, lang)}`;
       res.writeHead(200, {
         "content-type": MIME[".html"]!,
@@ -972,11 +983,10 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
         "x-robots-tag": "noindex",
         "referrer-policy": "same-origin",
       });
+      const copy = previews[invite.type][lang];
+      const desc = sessionAt === null ? copy.desc : sessionPreview(lang, sessionAt);
       res.end(
-        withFeatures(
-          invitePreview(body.toString("utf8"), previews[invite.type][lang], name, lang, card),
-          switches,
-        ),
+        withFeatures(invitePreview(body.toString("utf8"), { ...copy, desc }, name, lang, card), switches),
       );
       return;
     }
