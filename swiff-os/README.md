@@ -595,7 +595,7 @@ VM's loopback carries its signaling to the test's server; the streamer's media d
 It needs coturn's `turnserver` (`TURNSERVER=path`), Playwright's Chromium
 (`PLAYWRIGHT_BROWSERS_PATH`), user and network namespaces (`unshare`) and a `/dev/kvm` this user
 can open; it waits while another VM runs or the PC has under 4 GB free. `--no-build` runs it on
-the last build. The run's serial console, server and relay logs (TURN users cut out) and
+the last build. The run's serial console, server log and
 `results.json` are in `$SWIFF_OS_BUILD_DIR/session-vm`. In the last run all 43 steps passed:
 Steam's first code was on the renter's page within a second of the claim, and the PC was offered
 again 25 s after the session ended.
