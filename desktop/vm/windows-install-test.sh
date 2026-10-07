@@ -47,7 +47,12 @@
 #             BitLocker recovery key, with its files. The one-time key codes are
 #             chosen here and kept in shell variables, never in the logs.
 #
-# Usage: vm/windows-install-test.sh prepare|test     ($SWIFF_SCENARIOS="2 3" runs only those)
+#   ek        from a copy of the base: Go live's TPM step (vm/windows/ek-register.cjs) against
+#             the server's TPM verifier on this host, on TPMs swtpm_setup makes with EK
+#             certificates: none on the base's TPM (Go live stops), then registered once,
+#             not again, and again for another TPM. Needs the server built and swtpm_setup.
+#
+# Usage: vm/windows-install-test.sh prepare|test|ek     ($SWIFF_SCENARIOS="2 3" runs only those)
 #
 # Needs: sudo (QEMU, when /dev/kvm is not writable), qemu-system-x86_64,
 # qemu-img, swtpm, OVMF's Secure Boot build with Microsoft's keys, xorriso,
@@ -91,12 +96,18 @@ die() {
 	exit 1
 }
 
-for tool in qemu-system-x86_64 qemu-img swtpm xorriso ssh scp curl node mdir; do
+for tool in qemu-system-x86_64 qemu-img swtpm ssh scp curl node; do
 	command -v "$tool" > /dev/null || die "$tool not found"
 done
-fsck_fat=$(command -v fsck.fat || echo /usr/sbin/fsck.fat)
-[ -x "$fsck_fat" ] || die "fsck.fat not found"
-"$python" -c 'import virt.firmware' 2> /dev/null || die "$python has no virt-firmware (set VIRT_FW_PYTHON)"
+# What only preparing Windows and the install's scenarios use: ek runs without them.
+if [ "${1:-}" != ek ]; then
+	for tool in xorriso mdir; do
+		command -v "$tool" > /dev/null || die "$tool not found"
+	done
+	fsck_fat=$(command -v fsck.fat || echo /usr/sbin/fsck.fat)
+	[ -x "$fsck_fat" ] || die "fsck.fat not found"
+	"$python" -c 'import virt.firmware' 2> /dev/null || die "$python has no virt-firmware (set VIRT_FW_PYTHON)"
+fi
 [ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF's Secure Boot build with Microsoft's keys not found"
 qemu=(qemu-system-x86_64)
 if [ ! -w /dev/kvm ]; then
@@ -791,8 +802,135 @@ test_run() {
 	fi
 }
 
+# --- ek: Go live's TPM step, against a server on this host -----------------------------------
+#
+# swtpm makes no EK certificate by itself, so the base's TPM has none: Go live stops at its first
+# step there. BitLocker is then suspended for two starts, and each start gets a TPM that
+# swtpm_setup manufactures with EK certificates from a local CA, which the server here trusts as
+# a firmware TPM's maker: Go live's step reads the EK as administrator (rental-worker.cjs, op ek),
+# the app's own read finds it (rental.cjs), and the app registers it (src/ek.ts, bundled) with the
+# server's TPM verifier. Once, never again for the same EK, and again for another TPM's.
+ek_run() {
+	[ -s "$dir/base.qcow2" ] || die "no Windows base: run prepare first"
+	command -v swtpm_setup > /dev/null || die "swtpm_setup not found"
+	local repo=$desktop/.. server_port=${SWIFF_EK_SERVER_PORT:-18381} machine=vm-ek-pc
+	local key
+	key=$(node -e 'console.log(require("node:crypto").randomBytes(16).toString("hex"))')
+	[ -s "$repo/server/dist/index.js" ] || die "no server build: npm run build -w @swiff/server"
+	rm -rf "$run" && mkdir -p "$run/ek/ca" "$run/ek/roots/firmware"
+	qemu-img create -q -f qcow2 -b "$dir/base.qcow2" -F qcow2 "$run/disk.qcow2"
+	cp "$dir/base-vars.fd" "$run/vars.fd"
+	cp -r "$dir/base-tpm" "$run/tpm"
+	trap 'vm_kill; kill "${server_pid:-}" 2> /dev/null || true' EXIT
+	local fail=0
+	result() { printf '%-4s  %-30s %s\n' "$1" "$2" "$3" | tee -a "$run/results.txt"; [ "$1" = PASS ] || fail=1; }
+	expect() { # name detail command...
+		local name=$1 detail=$2
+		shift 2
+		if "$@" > /dev/null 2>&1; then result PASS "$name" "$detail"; else result FAIL "$name" "$detail"; fi
+	}
+	# A JavaScript expression over a JSON file's value `v`, as JSON: ek_value FILE 'v.registered'.
+	ek_value() { node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(JSON.stringify(eval(process.argv[2])))' "$@"; }
+
+	# The TPM maker: swtpm's local CA, its root and its intermediate trusted by the server.
+	printf 'statedir = %s\nsigningkey = %s/signkey.pem\nissuercert = %s/issuercert.pem\ncertserial = %s/certserial\n' \
+		"$run/ek/ca" "$run/ek/ca" "$run/ek/ca" "$run/ek/ca" > "$run/ek/localca.conf"
+	printf -- '--platform-manufacturer Swiff\n--platform-version 2.1\n--platform-model QEMU\n' > "$run/ek/localca.options"
+	printf 'create_certs_tool = %s\ncreate_certs_tool_config = %s\ncreate_certs_tool_options = %s\n' \
+		"$(command -v swtpm_localca)" "$run/ek/localca.conf" "$run/ek/localca.options" > "$run/ek/swtpm_setup.conf"
+	# A new TPM in $1, with its EK certificates in the TPM and as files in $1-certs.
+	tpm_with_ek() { # dir
+		mkdir -p "$1" "$1-certs"
+		swtpm_setup --tpm2 --tpmstate "$1" --create-ek-cert --pcr-banks sha256 --config "$run/ek/swtpm_setup.conf" \
+			--write-ek-cert-files "$1-certs" > "$1-setup.log" 2>&1 || die "swtpm_setup failed: $(cat "$1-setup.log")"
+	}
+	tpm_with_ek "$run/tpm-a"
+	cat "$run/ek/ca/swtpm-localca-rootca-cert.pem" "$run/ek/ca/issuercert.pem" > "$run/ek/roots/firmware/swtpm-localca.pem"
+
+	log "The server, with the TPM verifier"
+	(cd "$repo/server" && node --input-type=module -e '
+import { signBootPolicy } from "./dist/boot-policy.js";
+import { generateKeyPairSync } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+const r = JSON.parse(readFileSync("src/test/fixtures/tpm-attestation.json", "utf8")).release;
+const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+const release = { name: "vm", pcr11: [r.pcr11], pcr12: [r.pcr12], pcr13: [r.pcr13], bootApplications: r.bootApplications, uki: r.uki, secureBootAuthorities: r.secureBootAuthorities, iommu: true };
+writeFileSync(process.argv[1] + "/policy.json", signBootPolicy({ version: 1, releases: [release] }, privateKey));
+writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem", type: "spki" }));' "$run/ek")
+	(cd "$repo/server" && PORT=$server_port MACHINE_KEYS="$machine:$(printf %s "$key" | sha256sum | cut -d' ' -f1)" \
+		ATTESTATION_VERIFIER=tpm ROOM_SECRET=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))') \
+		ATTESTATION_TPM_ROOTS="$run/ek/roots" ATTESTATION_POLICY="$run/ek/policy.json" ATTESTATION_POLICY_KEY="$run/ek/policy.pem" \
+		exec node dist/index.js) > "$run/ek/server.log" 2>&1 &
+	server_pid=$!
+	# Which EK the server has: SHA-256 of its certificate, as GET /api/machines/:id/ek says.
+	registered_ek() { curl -fsS -H "authorization: Bearer $key" "http://127.0.0.1:$server_port/api/machines/$machine/ek" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).fingerprint))'; }
+	for _ in $(seq 30); do registered_ek > /dev/null 2>&1 && break; sleep 1; done
+	expect ek-server "the server answers, with no EK registered" test "$(registered_ek)" = null
+	"$repo/node_modules/.bin/esbuild" "$desktop/src/ek.ts" --bundle --platform=node --format=cjs --log-level=warning --outfile="$run/ek/ek.cjs"
+
+	# Go live's TPM step in the VM, as the app takes it, into $run/ek-NAME.json; tried again while
+	# Windows has not taken a new TPM into use yet ("The TPM is not ready.").
+	go_live_ek() { # name
+		for _ in $(seq 20); do
+			on_vm "C:\\node\\node.exe C:\\swiff\\vm\\ek-register.cjs ws://10.0.2.2:$server_port/ws $machine $key" | tr -d '\r' > "$run/ek-$1.json" || true
+			grep -q 'TPM is not ready' "$run/ek-$1.json" || break
+			sleep 15
+		done
+	}
+	sha() { openssl x509 -inform der -in "$1" -outform der | sha256sum | cut -d' ' -f1; }
+
+	log "Windows, with the base's TPM: no EK certificate"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	ssh_wait 1800 || die "Windows did not answer on SSH"
+	on_vm 'New-Item -ItemType Directory -Force C:\swiff\desktop, C:\swiff\vm, C:\swiff\no-image | Out-Null'
+	to_vm "$desktop"/{rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$here/windows/ek-register.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	to_vm "$run/ek/ek.cjs" swiff@127.0.0.1:'C:/swiff/'
+	go_live_ek none
+	expect ek-none-stops "no certificate: Go live's first step stops, saying so" \
+		test "$(ek_value "$run/ek-none.json" '/no endorsement key certificate/.test(v.worked.error)')" = true
+	expect ek-none-kept "the app's read keeps no certificate, and nothing is registered" \
+		test "$(ek_value "$run/ek-none.json" '[v.checked.ek, v.checked.certificate, v.registered]')" = '[false,null,null]'
+	# The next two starts get TPMs this one's BitLocker key is not sealed to.
+	on_vm 'manage-bde -protectors -disable C: -RebootCount 2' > "$run/ek/bitlocker-suspend.txt"
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 600 || die "Windows did not shut down"
+
+	log "Windows, with a TPM that has an EK certificate"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm-a"
+	ssh_wait 1800 || die "Windows did not come back on the new TPM (screens in $run)"
+	go_live_ek a
+	expect ek-a-read "Go live's step read the TPM's EK certificate, and the app's read found the same" \
+		test "$(ek_value "$run/ek-a.json" 'v.worked.ek.certificate === v.checked.certificate && !!v.checked.certificate')" = true
+	expect ek-a-registered "the app registered it" test "$(ek_value "$run/ek-a.json" 'v.registered')" = '{"ok":true,"registered":"now"}'
+	expect ek-a-server "the server has this TPM's RSA EK" test "$(registered_ek)" = "$(sha "$run/tpm-a-certs/ek-rsa2048.crt")"
+	go_live_ek a-again
+	expect ek-a-again "Go live again: the same EK is not registered again" \
+		test "$(ek_value "$run/ek-a-again.json" 'v.registered')" = '{"ok":true,"registered":"already"}'
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 600 || die "Windows did not shut down"
+
+	log "Windows, with another TPM (a new board)"
+	tpm_with_ek "$run/tpm-b"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm-b"
+	ssh_wait 1800 || die "Windows did not come back on the other TPM (screens in $run)"
+	go_live_ek b
+	expect ek-b-registered "the new TPM's EK is registered over the old one" \
+		test "$(ek_value "$run/ek-b.json" 'v.registered')" = '{"ok":true,"registered":"now"}'
+	expect ek-b-server "the server has the new TPM's EK" test "$(registered_ek)" = "$(sha "$run/tpm-b-certs/ek-rsa2048.crt")"
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 600 || vm_kill
+
+	echo
+	if [ "$fail" = 0 ]; then echo "Windows EK registration VM test: PASS"; else
+		echo "Windows EK registration VM test: FAIL (logs in $run)"
+		exit 1
+	fi
+}
+
 case "${1:-}" in
 	prepare) prepare ;;
 	test) test_run ;;
-	*) die "usage: windows-install-test.sh prepare|test" ;;
+	ek) ek_run ;;
+	*) die "usage: windows-install-test.sh prepare|test|ek" ;;
 esac

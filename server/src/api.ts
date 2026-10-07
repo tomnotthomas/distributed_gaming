@@ -8,6 +8,7 @@
 //   POST /api/me/refresh                   POST /api/machines/:id/attest-activation
 //   POST /api/signout        (signed out)  POST /api/machines/:id/attest  (attestation)
 //   POST /api/bookings                     PUT  /api/machines/:id/ek            control
+//                                          GET  /api/machines/:id/ek            control
 //   GET  /api/crews                        (crews)
 //   POST /api/crews
 //   GET  /api/crews/:id
@@ -1361,6 +1362,18 @@ export function createApi({
       }
       const made = await attestation.activate(id, body.nonce, body.akPublic);
       reply(res, made.ok ? 200 : made.status, made.ok ? made.grant : made.body);
+      return true;
+    }
+
+    if (resource === "machines" && id && action === "ek" && method === "GET") {
+      // Which EK the owner's Windows registered, so it registers only one the server lacks.
+      requireMachine(req, access, id);
+      const registered = await attestation.registeredEk(id);
+      reply(
+        res,
+        registered.ok ? 200 : registered.status,
+        registered.ok ? { fingerprint: registered.fingerprint } : registered.body,
+      );
       return true;
     }
 

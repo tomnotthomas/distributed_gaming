@@ -3,6 +3,7 @@
 // untouched, Swiff-signed Swiff OS just now.
 //
 //   owner's Windows (machine key)            this server
+//   GET  /api/machines/:id/ek                  ──► { fingerprint } of the one registered
 //   PUT  /api/machines/:id/ek  { certificate } ──► EK certificate must chain to a
 //                                                  TPM vendor root; registered
 //
@@ -321,6 +322,7 @@ type Ek = TrustedEk & { public: TpmPublic };
 /** The TPM verifier: it also registers EKs, activates AKs and keeps firmware baselines. */
 export type TpmVerifier = AttestationVerifier & {
   enroll: Enroll;
+  registeredEk: NonNullable<AttestationVerifier["registeredEk"]>;
   activate: Activate;
   inCooldown: NonNullable<AttestationVerifier["inCooldown"]>;
 };
@@ -394,6 +396,11 @@ export function tpmVerifier({
         }
         return { ok: true } as const;
       }),
+
+    async registeredEk(room) {
+      const record = await store.get(room);
+      return record?.ek ? createHash("sha256").update(record.ek.certificate).digest("hex") : null;
+    },
 
     async inCooldown(room) {
       const record = await store.get(room);

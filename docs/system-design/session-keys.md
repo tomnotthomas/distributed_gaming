@@ -232,9 +232,11 @@ its ten minutes.
 ### Attestation
 
 ```
-owner's Windows, once (machine key)
+owner's Windows, at Go live (machine key)
+GET  /api/machines/:id/ek                ──────► 200 { fingerprint }: SHA-256 of the      (tpm verifier)
+                                                 registered EK certificate, or null
 PUT  /api/machines/:id/ek  { certificate } ────► EK certificate must chain to a TPM vendor   (tpm verifier)
-                                         ◄────── 204
+  only when the fingerprint is not its own ◄──── 204
 
 swiff-hostd                                      server
 POST /api/machines/:id/attest-challenge  ──────► 200 { nonce, expiresAt }       60 s, one certificate
@@ -263,7 +265,11 @@ returning the platform facts it verified, or why not). It is picked with `ATTEST
 The attestation routes themselves take no other credential: the evidence is the proof.
 
 **`tpm`, the production verifier** (`tpm-verifier.ts`). The owner's Windows registers the
-TPM's EK certificate once, with the machine key; it must chain to a TPM vendor root. In Swiff
+TPM's EK certificate once, with the machine key; it must chain to a TPM vendor root. The host
+app does it at Go live (`desktop/src/ek.ts`): its elevated worker reads the certificate Windows
+has for the TPM (the TPM's own, or the one Windows fetched from its maker, as for Intel PTT), and
+the app registers it only when `GET .../ek` names another or none, since registering the same EK
+again starts the firmware cooldown. A TPM without one cannot host, and Go live says so. In Swiff
 OS, `swiff-hostd` makes an AK under the EK, has the server make an activation credential for
 it (TPM2_MakeCredential to the registered EK, keyed to this nonce, this AK and this EK, so the
 server keeps no state between the calls), recovers it with TPM2_ActivateCredential, and quotes.

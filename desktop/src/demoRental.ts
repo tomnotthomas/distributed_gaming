@@ -110,6 +110,7 @@ const REMOVE_DISK: RentalPlan = {
 const ONCE: RentalPlan = {
   kind: "once",
   steps: [
+    step("ek", "Read this PC's TPM certificate"),
     step("once", "Start Lanterel OS on the next restart only"),
     { ...restart("Restart into Lanterel OS"), id: "restart" },
   ],

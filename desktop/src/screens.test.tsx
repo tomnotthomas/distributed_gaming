@@ -1350,6 +1350,25 @@ describe("rental mode", () => {
       screen.getByText(/Saved at 21:06 for Lanterel: the error, the step and this PC's checks\./),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    cleanup();
+
+    // At the TPM's EK, before anything restarts: what to do, in one sentence, and its one button.
+    acts = renderReal("live", off, failedAt("ek", "bad-key"));
+    expect(h1()).toHaveTextContent("The server didn't accept the machine key");
+    expect(
+      screen.getByText(
+        "The server refused this PC's machine key: check the machine id and key in Settings, then go live again.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    expect(acts.retryRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    acts = renderReal("live", off, failedAt("ek", "The TPM is not ready."));
+    expect(h1()).toHaveTextContent("Turn on the TPM");
+    expect(screen.getByText(/Windows can't reach the TPM, so it's off: in the BIOS/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
   });
 
   it("offers to continue an install that stopped part way, and to undo it", () => {

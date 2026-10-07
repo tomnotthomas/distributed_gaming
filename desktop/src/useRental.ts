@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunEvent } from "../rental-exec.cjs";
-import type { RentalPlan, RentalRead } from "../rental.cjs";
+import type { EkCertificate, RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
+import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
@@ -45,9 +46,12 @@ export function stepBytes(
  * again when the owner asks: after a trip to the BIOS, say. A plan comes back
  * for the screen; running it is main's (rental-exec.cjs), which runs every
  * step by itself after the owner's one OK and tells how each goes. A restart
- * waits for the owner's Restart now.
+ * waits for the owner's Restart now. Go live registers the TPM's EK with the
+ * server first, with `registerEk` (ek.ts).
  */
-export function useRental(): RentalSetup & {
+export function useRental({
+  registerEk = async () => ({ ok: false, error: "no-machine" }),
+}: { registerEk?: (ek: EkCertificate) => Promise<EkResult> } = {}): RentalSetup & {
   check(): void;
   choose(id: string): void;
   plan(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
@@ -268,6 +272,47 @@ export function useRental(): RentalSetup & {
       });
   };
 
+  /** Go live stopped at the TPM's EK (`error`, ek.ts's or "none" for no certificate): nothing restarts. */
+  const ekFailed = (error: string) =>
+    setRun((r) => ({ ...r, status: "failed", endedAt: Date.now(), failed: { step: "ek", error } }));
+
+  /**
+   * Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on Swiff OS
+   * handing the PC back. Holding Go live is the owner's OK, so it restarts by itself, once the server
+   * has this TPM's EK: registered before BootNext when the last check read it, and again after the
+   * plan's own read only when the TPM has changed since (another board) or none was read before.
+   */
+  const goLive = () => {
+    const host = bridge();
+    if (!host || busy) return;
+    const n = nextPlan();
+    const known = read?.facts.checked?.certificate
+      ? { certificate: read.facts.checked.certificate, intermediates: read.facts.checked.intermediates }
+      : null;
+    void (async () => {
+      const plan = await host.planRental({ kind: "once" }).catch(() => null);
+      if (!plan || n !== plans.current) return;
+      setPreview(plan);
+      if (known) {
+        setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
+        const registered = await registerEk(known);
+        if (n !== plans.current) return;
+        if (!registered.ok) return ekFailed(registered.error);
+      }
+      const outcome = await runPlan(plan);
+      if (n !== plans.current || outcome?.status !== "done") return;
+      const ek = (outcome.results.find((r) => r.op === "ek") as { ek?: EkCertificate | null } | undefined)
+        ?.ek;
+      if (!ek) return ekFailed("none");
+      if (ek.certificate !== known?.certificate) {
+        const registered = await registerEk(ek);
+        if (n !== plans.current) return;
+        if (!registered.ok) return ekFailed(registered.error);
+      }
+      restart();
+    })();
+  };
+
   // Remove Swiff OS goes on by itself once its key's restart is behind it, once per app start:
   // the owner asked once. After that, only the owner's own Try again or the key's removal again.
   const [removalTried, setRemovalTried] = useState(false);
@@ -349,6 +394,8 @@ export function useRental(): RentalSetup & {
     retry: () => {
       if (!preview) return;
       if (run.failed?.step === "restart") return restart();
+      // Go live goes through the TPM's EK again, whatever else stopped it.
+      if (preview.kind === "once") return goLive();
       // Windows said no before anything ran: main still holds the same plan, and its code stands.
       if (run.failed?.step === "elevate") return void runPlan(preview);
       // Remove Swiff OS goes on with the part that stopped.
@@ -392,23 +439,6 @@ export function useRental(): RentalSetup & {
         .catch(() => false)
         .then(() => reread());
     },
-    goLive: () => {
-      const host = bridge();
-      if (!host || busy) return;
-      // Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on
-      // Swiff OS handing the PC back. Holding Go live is the owner's OK, so it restarts by itself.
-      const n = nextPlan();
-      void host
-        .planRental({ kind: "once" })
-        .catch(() => null)
-        .then((plan) => {
-          if (!plan || n !== plans.current) return null;
-          setPreview(plan);
-          return runPlan(plan);
-        })
-        .then((outcome) => {
-          if (outcome?.status === "done") restart();
-        });
-    },
+    goLive,
   };
 }

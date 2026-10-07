@@ -922,7 +922,14 @@ describe("attestation with the TPM verifier", () => {
   it("registers an EK only a vendor vouches for, and only with a verifier that uses one", async () => {
     const a = await attestation();
     const certificate = fixture.machines["pc-ecc"].ekCertificate;
+    assert.deepEqual(await a.registeredEk("pc-ecc"), { ok: true, fingerprint: null });
     assert.deepEqual(await a.enroll("pc-ecc", { certificate }, NOW), { ok: true });
+    assert.deepEqual(await a.registeredEk("pc-ecc"), {
+      ok: true,
+      fingerprint: createHash("sha256").update(Buffer.from(certificate, "base64")).digest("hex"),
+    });
+    const stranger = await a.registeredEk("nobody");
+    assert.deepEqual(stranger.ok ? null : [stranger.status, stranger.body], [404, { error: "not-found" }]);
     const garbage = await a.enroll("pc-ecc", { certificate: "!!" }, NOW);
     assert.deepEqual(garbage.ok ? null : [garbage.status, garbage.body], [400, { error: "bad-request" }]);
     const root = Buffer.from(fixture.vendorRoot.replace(/-----[A-Z ]+-----|\s/g, ""), "base64").toString(
@@ -937,6 +944,11 @@ describe("attestation with the TPM verifier", () => {
     const dev = createAttestation({ access, verifier: insecureDevVerifier(access.machines) });
     const none = await dev.enroll("pc-ecc", { certificate }, NOW);
     assert.deepEqual(none.ok ? null : none.body, { error: "not-configured" });
+    const noRecord = await dev.registeredEk("pc-ecc");
+    assert.deepEqual(noRecord.ok ? null : [noRecord.status, noRecord.body], [
+      503,
+      { error: "not-configured" },
+    ]);
     const noActivation = await dev.activate(
       "pc-ecc",
       mintChallenge(fixture.roomSecret, "pc-ecc", 60, NOW),
@@ -1180,6 +1192,21 @@ describe("the TPM attestation routes", () => {
     const text = await res.text();
     return { status: res.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : null };
   }
+
+  it("says which EK is registered, with the machine key only, so the host app registers only a new one", async () => {
+    const certificate = fixture.machines["pc-rsa"].ekCertificate;
+    assert.equal((await call("GET", "/api/machines/pc-rsa/ek")).status, 401);
+    assert.equal((await call("GET", "/api/machines/pc-rsa/ek", undefined, "wrong")).status, 401);
+    assert.deepEqual(await call("GET", "/api/machines/pc-rsa/ek", undefined, KEY), {
+      status: 200,
+      body: { fingerprint: null },
+    });
+    assert.equal((await call("PUT", "/api/machines/pc-rsa/ek", { certificate }, KEY)).status, 204);
+    assert.deepEqual(await call("GET", "/api/machines/pc-rsa/ek", undefined, KEY), {
+      status: 200,
+      body: { fingerprint: createHash("sha256").update(Buffer.from(certificate, "base64")).digest("hex") },
+    });
+  });
 
   it("registers the EK with the machine key only, and refuses a certificate that is not an EK", async () => {
     const certificate = fixture.machines["pc-rsa"].ekCertificate;

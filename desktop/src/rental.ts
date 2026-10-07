@@ -116,14 +116,16 @@ export function firmwareChecks({ facts }: RentalRead): RentalCheck[] {
               bios: "Allow the Microsoft 3rd-party UEFI CA.",
             }),
     },
-    // Needs administrator rights: the install's first step reads it, and its record keeps it.
+    // Needs administrator rights: the install's first step reads it, and its record keeps it. Go live
+    // reads it again and registers it with the server, which hosts no PC without one; the install
+    // goes ahead without, as Windows can still fetch it from the maker (Intel PTT keeps it online).
     {
       id: "ek",
       label: "TPM certificate",
       ...(facts.checked
         ? facts.checked.ek
           ? { value: "Present", state: "ok" }
-          : { value: "None: lower tier", state: "ok" }
+          : { value: "None yet: needed to go live", state: "ok" }
         : { value: "Read when you install", state: "unread" }),
     },
   ] as RentalCheck[];
@@ -824,7 +826,7 @@ export function rentalLine(setup: RentalSetup): string {
 // to do next. Windows' own words wait behind "What happened, in detail".
 
 export type FailureKind =
-  "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "recovery" | "unknown";
+  "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "recovery" | "ek" | "unknown";
 
 export type Failure = {
   kind: FailureKind;
@@ -907,6 +909,73 @@ export function otherRoom(read: RentalRead | null, failed: string | null): Renta
   return read?.targets.find((t) => t.kind !== "shrink" || t.letter !== failed) ?? null;
 }
 
+/**
+ * Go live stopped at the TPM's EK, before the restart: read as administrator (rental-worker.cjs), or
+ * registered with the server (ek.ts, whose error it is). Each says, in one sentence, what to do next.
+ */
+function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failure {
+  const { read, run } = setup;
+  const base = {
+    kind: "ek" as const,
+    // BootNext is set only once the plan's read went through: then the next start is Lanterel OS's.
+    changed:
+      run.steps.once === "done"
+        ? "The next restart starts Lanterel OS once, which can't host yet, and the one after starts Windows."
+        : "Nothing on this PC has changed.",
+    action: "again" as const,
+    label: "Try again",
+    rail: "TPM not registered",
+    what: "TPM",
+    at: stoppedAt ? `Stopped at ${stoppedAt}` : "Stopped",
+    far: "before the restart",
+  };
+  if (checkBios(error) === "tpm") {
+    const guide = read ? firmwareGuide(read) : null;
+    const path = read ? biosPath(read, "tpm") : null;
+    const keys = guide ? ` (${guide.keys.join(" or ")} as it starts)` : "";
+    return {
+      ...base,
+      kind: "bios",
+      bios: "tpm",
+      title: BIOS_ASKS.tpm.title,
+      why: `Windows can't reach the TPM, so it's off: in the BIOS${keys}, turn it on under ${path ?? "Security or Advanced, called AMD fTPM or Intel PTT"}, then go live again.`,
+      action: "check",
+      label: "Check again",
+      rail: "BIOS setting",
+    };
+  }
+  const why: Record<string, [string, string]> = {
+    none: [
+      "This PC's TPM has no certificate",
+      "The server only lets a PC host once its TPM's maker vouches for it, and Windows can't read that certificate yet: leave the PC online for a few minutes, so Windows can fetch it from the maker, then try again.",
+    ],
+    "no-machine": [
+      "Add this PC's machine key",
+      "Lanterel registers this PC's TPM with the server using its machine id and key: add them in Settings, then go live again.",
+    ],
+    "bad-key": [
+      "The server didn't accept the machine key",
+      "The server refused this PC's machine key: check the machine id and key in Settings, then go live again.",
+    ],
+    "unknown-machine": [
+      "The server doesn't know this PC",
+      "The server has no PC with this machine id: check it in Settings against the one you were given, then go live again.",
+    ],
+    untrusted: [
+      "The server doesn't trust this TPM yet",
+      "The server doesn't know this TPM's maker, so this PC can't host yet: send the details to Lanterel, so it can be added.",
+    ],
+    failed: [
+      "Couldn't reach the server",
+      "Lanterel couldn't register this PC's TPM with the server: check the internet connection, then try again.",
+    ],
+  };
+  const [title, line] = why[/no endorsement key certificate/i.test(error) ? "none" : error] ?? why.failed!;
+  if (error === "untrusted" && run.reportedAt === null)
+    return { ...base, title, why: line, action: "send", label: "Send details to Lanterel" };
+  return { ...base, title, why: line };
+}
+
 /** Which failure this is, and everything it says. */
 export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "failed" }>): Failure {
   const { plan, step, error } = s;
@@ -964,6 +1033,7 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       far: "not started",
     };
   const sent = run.reportedAt !== null;
+  if (step?.id === "ek") return ekFailure(setup, error, stoppedAt);
   // The administrator side refused Swiff OS's files (image-set.cjs): not signed by Swiff, or not the ones listed.
   if (/image set/i.test(error))
     return stopped(installing ? "Install" : "Key", {
