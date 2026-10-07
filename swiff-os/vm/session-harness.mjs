@@ -836,6 +836,9 @@ try {
     );
     if (boot >= 2) {
       await waitVm("boot2/hostd-offered", 600_000);
+      // The VM reports these right after the offer, not before it.
+      await waitVm("boot2/hostd-attested", 10_000);
+      await waitVm("boot2/state-open", 10_000);
       const res = await fetch(`${ORIGIN}/api/machines/${MACHINE}/heartbeat`, {
         method: "POST",
         headers: ownerHeaders,
