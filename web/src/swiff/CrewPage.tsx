@@ -233,7 +233,7 @@ export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: L
         id: "date",
         label: "g.stepDate",
         done: session !== null,
-        value: session ? `${sessionWeekday(lang, session.at)}, ${sessionTime(lang, session.at)}` : undefined,
+        value: session ? `${sessionDay(lang, session.at)}, ${sessionTime(lang, session.at)}` : undefined,
         change: true,
       },
       {

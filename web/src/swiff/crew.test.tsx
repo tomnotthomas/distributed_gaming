@@ -464,7 +464,7 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByRole("heading", { name: "Now get your people in" })).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/session", JSON.stringify({ at: FRIDAY_9PM })]);
     expect(stubs()).toEqual(["Date:done", "Get your people:now", "Gaming PC:later", "Play:later"]);
-    expect(screen.getByText("Fri, 9 pm")).toBeInTheDocument();
+    expect(screen.getByText("Fri 9 Oct, 9 pm")).toBeInTheDocument();
     expect(screen.getByText("Only you so far")).toBeInTheDocument();
   });
 

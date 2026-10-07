@@ -620,7 +620,9 @@ POST /crews/:id/rsvp { rsvp: "yes" | "no" }
   → 404 as above.
 
 POST /crews/:id/shared          → 200 { crew }
-  A member shared the crew's link: its page's "get your people" step is done. → 404 as above.
+  A member shared the crew's link: its page's "get your people" step is done.
+  → 409 { error, code: "no-session" } while it has no Zockrunde, or once it is over.
+  → 404 as above.
 
 GET  /invites/:token
   → 200 { crew: { name, crewName, own, size, state, pcs, session, member } }
