@@ -593,6 +593,9 @@ describe("crews", () => {
 describe("crew API", () => {
   let server: Server;
   let origin: string;
+  /** Store lookups for game media, and whether the store fails them. */
+  let lookups = 0;
+  let storeDown = false;
   const access: Access = {
     secret: SECRET,
     machines: parseMachineKeys(MACHINE_KEYS),
@@ -617,10 +620,13 @@ describe("crew API", () => {
         profile,
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
-        gameMedia: async (appids) =>
-          appids.flatMap((appid) =>
+        gameMedia: async (appids) => {
+          lookups++;
+          if (storeDown) throw new Error("store down");
+          return appids.flatMap((appid) =>
             MEDIA[appid] ? [MEDIA[appid]] : appid < 100 ? [media(appid, `Paid ${appid}`, false)] : [],
-          ),
+          );
+        },
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -633,6 +639,8 @@ describe("crew API", () => {
 
   beforeEach(async () => {
     now = Date.UTC(2026, 9, 6, 20);
+    lookups = 0;
+    storeDown = false;
     await open();
   });
 
@@ -889,6 +897,19 @@ describe("crew API", () => {
       ["Dota 2"],
       "250 games nobody may start, ranked ahead, still leave the free one on offer",
     );
+  });
+
+  it("asks the store once, not once per batch, while it is down", async () => {
+    const crew = await joinByLink();
+    const many = Array.from({ length: 450 }, (_, i) => i + 1);
+    assert.equal((await offerPc("pc-1", { games: [...many, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    storeDown = true;
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.equal(read.status, 200);
+    assert.deepEqual(read.body.games, []);
+    assert.equal(lookups, 1);
   });
 
   it("counts only the picks on games a PC of the crew still has", async () => {

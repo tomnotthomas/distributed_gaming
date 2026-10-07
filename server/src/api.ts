@@ -549,9 +549,10 @@ export function createApi({
     const games = [];
     for (let at = 0; at < ranked.length && games.length < CREW_GAMES_MAX; at += CREW_GAMES_CANDIDATES) {
       const batch = ranked.slice(at, at + CREW_GAMES_CANDIDATES);
-      const known = new Map(
-        (await media(batch.map((g) => g.appid)).catch(() => [])).map((g) => [g.appid, g]),
-      );
+      const found = await media(batch.map((g) => g.appid)).catch(() => []);
+      // The store did not answer: the next batches would not fare better.
+      if (found.length === 0) break;
+      const known = new Map(found.map((g) => [g.appid, g]));
       for (const { appid, owners, wants } of batch) {
         const game = known.get(appid);
         // Not a game, or one nobody in the crew may start: not on offer.
