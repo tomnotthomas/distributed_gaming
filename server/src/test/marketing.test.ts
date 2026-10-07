@@ -235,11 +235,15 @@ describe("marketing site", () => {
   it("links the library check into the app at its configured origin", async () => {
     assert.match(
       (await ask(origin, "/")).body,
-      new RegExp(`<a href="${SITE.app}/" data-t="lib.check">Prüf deine Bibliothek</a>`),
+      new RegExp(
+        `<a href="${SITE.app}/auth/steam/login\\?to=%2Fplay" data-t="lib.check">Prüf deine Bibliothek</a>`,
+      ),
     );
     assert.match(
       (await ask(origin, "/en/")).body,
-      new RegExp(`<a href="${SITE.app}/" data-t="lib.check">Check your library</a>`),
+      new RegExp(
+        `<a href="${SITE.app}/auth/steam/login\\?to=%2Fplay" data-t="lib.check">Check your library</a>`,
+      ),
     );
   });
 
@@ -796,7 +800,10 @@ describe("MARKETING_PAGES on the real server", () => {
     try {
       const landing = await ask(HTTP, "/", { host: HOST });
       assert.equal(landing.status, 200);
-      assert.match(landing.body, /<a href="https:\/\/app\.lanterel\.test\/" data-t="lib.check">/);
+      assert.match(
+        landing.body,
+        /<a href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fplay" data-t="lib.check">/,
+      );
       assert.match(
         landing.body,
         /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%3Ffound%3D1"/,
@@ -874,6 +881,10 @@ describe("PAID_GAMING off on the real server: the start page", () => {
       assert.match(impressum.body, /Tom Schwabe<br>Kanzowstraße 8<br>10439 Berlin<br>Deutschland/);
       assert.match(impressum.body, /E-Mail: tom\.schwabe123@gmail\.com/);
       assert.doesNotMatch(impressum.body, /Telefon/);
+      // Nothing left for whoever publishes it: no template note, no bracketed instruction.
+      for (const path of ["/impressum/", "/en/legal-notice/"]) {
+        assert.doesNotMatch((await get(path)).body, /Vorlage|Template\.|\[[^\]]*(UStG|Telefon|Phone)/, path);
+      }
       assert.equal((await get("/datenschutz/")).status, 200);
       assert.equal((await get("/assets/css/base.css")).status, 200);
       assert.equal((await get("/host/")).headers.location, "/#pc");
