@@ -108,8 +108,22 @@ export function startStreamer({
     });
     peer = current;
     const { pc } = current;
+    // werift pairs its relay candidate only with the renter's candidates that come
+    // after it: one already in when the TURN server grants the allocation is never
+    // checked from the relay, and behind a strict NAT the relay is the only path.
+    // The renter's answer starts werift's checks and lets their candidates in, so
+    // it is applied only once werift has gathered (setLocalDescription below).
+    let gathered!: () => void;
+    const gathering = new Promise<void>((resolve) => (gathered = resolve));
     // werift checks the shape at runtime; the DOM's own type is the protocol's.
-    inbox = createIceInbox(pc as unknown as globalThis.RTCPeerConnection);
+    inbox = createIceInbox({
+      setRemoteDescription: async (sdp: RTCSessionDescriptionInit) => {
+        await gathering;
+        if (peer !== current) return;
+        await pc.setRemoteDescription(sdp as Parameters<typeof pc.setRemoteDescription>[0]);
+      },
+      addIceCandidate: (candidate: RTCIceCandidateInit) => pc.addIceCandidate(candidate),
+    } as unknown as globalThis.RTCPeerConnection);
 
     pc.onIceCandidate.subscribe((candidate) => {
       if (candidate && peer === current) send({ type: "ice", candidate: candidate.toJSON() });
@@ -134,7 +148,11 @@ export function startStreamer({
     // its name not resolving), and a renter who reconnects joins again every 4 s
     // while no offer has come: an offer held that long never reaches them.
     send({ type: "offer", sdp: { type: offer.type, sdp: offer.sdp } });
-    await pc.setLocalDescription(offer);
+    try {
+      await pc.setLocalDescription(offer);
+    } finally {
+      gathered();
+    }
   };
 
   /** The renter's input channels, created before the offer so they are in the first negotiation. */

@@ -816,7 +816,10 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   plays. The offer goes before werift gathers, its candidates following as werift finds
   them: werift's `setLocalDescription` waits for every candidate, up to 5 s for a STUN
   server that does not answer, and a renter who reconnects joins again every 4 s while
-  no offer has come.
+  no offer has come. The renter's answer is applied only once werift has gathered:
+  werift pairs its relay candidate only with the renter's candidates that come after
+  it, so an answer taken earlier left the relay unchecked and a renter only it reaches
+  without a stream.
 - **Steam sign-in** (`src/steamLogin.ts`, with `--steam-socket <path>`). The streamer
   carries the renter's signaling, so it drives the Steam agent's socket (`steam/` below):
   as the renter joins it asks for `play <SWIFF_APPID>` and relays Steam's codes,
