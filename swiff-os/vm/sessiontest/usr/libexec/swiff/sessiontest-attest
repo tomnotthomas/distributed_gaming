@@ -65,7 +65,9 @@ evidence = {"machineKey": machine_key, "facts": facts, "resetCount": reset_count
 grant = post(f"/api/machines/{machine}/attest", {"nonce": challenge["nonce"], "evidence": evidence})
 counter = "/run/swiff-sessiontest/attested"
 try:
-    count = int(open(counter).read())
+    # The line is "<count>, tier ..., resetCount ...": the count comes first.
+    with open(counter) as f:
+        count = int(f.read().split(",", 1)[0])
 except (OSError, ValueError):
     count = 0
 with open(counter, "w") as f:

@@ -77,6 +77,13 @@ TURNSERVER=${TURNSERVER:-$(command -v turnserver || true)}
 [ -x "$TURNSERVER" ] || die "coturn's turnserver not found: install coturn, or set TURNSERVER"
 export TURNSERVER
 
+# One run at a time, from before the build: a second one would rebuild the
+# image and the server under a run that is using them. The lock's descriptor
+# is inherited through both execs below, so it covers the namespaced run too.
+mkdir -p "$build_dir"
+exec 9> "$build_dir/session-vm.lock"
+flock -n 9 || die "another session-test.sh is running"
+
 if [ "$build" = 1 ]; then
 	if [ ! -e "$image_dir/mkosi.key" ]; then
 		echo "== generating a VM-only test Secure Boot key"
@@ -111,7 +118,5 @@ done
 umask 077
 mkdir -p "$run"
 chmod 700 "$run"
-exec 9> "$build_dir/session-vm.lock"
-flock -n 9 || die "another session-test.sh is running"
 echo "== running the test in a network namespace of its own; the run's files are in $run"
 exec env SWIFF_SESSION_INSIDE=1 unshare --user --map-root-user --net "$script" "$@"

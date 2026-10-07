@@ -826,8 +826,8 @@ try {
     const out = seen(/\[swiff-streamer\] the server put the streamer out/, 1);
     record(
       "streamer stops when the session ends",
-      Boolean(seen(/\[swiff-hostd\] session \S+ is over/, 1)),
-      out?.line.replace(/^.*\[swiff-streamer\] /, ""),
+      Boolean(seen(/\[swiff-hostd\] session \S+ is over/, 1)) && Boolean(out),
+      out?.line.replace(/^.*\[swiff-streamer\] /, "") ?? "no stop line from the streamer",
     );
     await until(() => boot >= 2, "the restart", 180_000).catch(() => {});
     record(
