@@ -32,8 +32,25 @@ sb=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-0
 check secure-boot "SecureBoot=$sb" test "$sb" = 1
 check root-is-verity "$(findmnt -no SOURCE /)" test "$(findmnt -no SOURCE /)" = /dev/mapper/root
 check node-22 "$(node --version 2>&1)" bash -c 'node --version | grep -q "^v22\."'
-check session-runs-steam-agent "$(grep '^exec ' /usr/libexec/swiff/session)" \
-	grep -q '^exec gamescope --steam .* -- node /usr/lib/swiff/steam/swiff-steam-login.mjs$' /usr/libexec/swiff/session
+# What the session asks gamescope to run: /usr/libexec/swiff/session run as the
+# renter, in a mount namespace of its own where gamescope is a stand-in that
+# writes down its arguments, one per line.
+session_argv() {
+	local dir
+	dir=$(mktemp -d /run/swiff-session-argv.XXXXXX)
+	chmod 755 "$dir"
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > %s/argv\n' "$dir" > "$dir/gamescope"
+	chmod 755 "$dir/gamescope"
+	install -o renter -m 600 /dev/null "$dir/argv"
+	unshare -m sh -c 'mount --bind "$1/gamescope" /usr/games/gamescope &&
+		exec setpriv --reuid=renter --regid=renter --init-groups env -i /usr/libexec/swiff/session' _ "$dir" > /dev/null 2>&1
+	paste -sd' ' "$dir/argv"
+	rm -rf "$dir"
+}
+agent=/usr/lib/swiff/steam/swiff-steam-login.mjs
+session_args=$(session_argv)
+check session-runs-steam-agent "gamescope $session_args" \
+	test "$session_args" = "--steam -- node $agent" -a -f "$agent"
 # The image's zbarimg reads a grab of Steam's code as the agent runs it: as the renter.
 zbar=$(setpriv --reuid=renter --regid=renter --init-groups zbarimg --raw --quiet -Sdisable -Sqrcode.enable \
 	/run/swiff-sessiontest/qr/1.xwd 2>&1)

@@ -572,7 +572,7 @@ swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL:
    shows, then Steam's fresh one, and bills nothing meanwhile. Steam signs in, the game comes on
    screen, and the renter plays it in Swiff, billed from the first frame after sign-in. Both
    seats hold a relay allocation on credentials the server minted for each, and the test records
-   the candidate pair ICE picked.
+   the candidate types of the pair ICE picked, never their addresses.
 5. The renter reloads the page mid-session and reconnects to the same session, then ends it.
 6. The streamer stops; `swiff-hostd` takes the PC off offer and restarts it clean. In the next
    boot it attests again, opens the same state with U unsealed from the TPM, and offers the PC

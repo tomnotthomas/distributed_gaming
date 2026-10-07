@@ -296,16 +296,12 @@ function startRelay() {
     `--userdb=${join(RUN, "turndb")}`,
   ]);
   let rest = "";
-  const turnLog = join(RUN, "turnserver.log");
   createReadStream(fifo, "utf8").on("data", (chunk) => {
     const lines = (rest + chunk).split("\n");
     rest = lines.pop();
     for (const line of lines) {
       const m = /user <\d+:[\w-]+-(renter|host)>: incoming packet ALLOCATE processed, success/.exec(line);
       if (m) allocations.add(m[1]);
-      // Kept with each TURN user, a credential, cut out: only its seat's side stays.
-      const safe = line.replace(/(user(?:name=)? ?<)\d+:[\w-]+-(renter|host)>/g, "$1$2>");
-      appendFileSync(turnLog, `${safe}\n`);
     }
   });
 }
@@ -455,15 +451,12 @@ function startVm() {
 
 // --- The renter --------------------------------------------------------------------------
 
-/** In the renter's page: each peer connection's state and its candidate pairs, for a stream that never came. */
+/** In the renter's page: each peer connection's state and its candidate pairs' types, for a stream that never came. */
 async function iceReport() {
   const out = [];
   for (const pc of window.__swiffPeers ?? []) {
     const stats = await pc.getStats();
-    const side = (id) => {
-      const c = stats.get(id);
-      return `${c?.candidateType} ${c?.address}:${c?.port}`;
-    };
+    const side = (id) => stats.get(id)?.candidateType;
     const pairs = [];
     stats.forEach((s) => {
       if (s.type === "candidate-pair")
@@ -476,7 +469,7 @@ async function iceReport() {
   return out.join(" | ");
 }
 
-/** In the renter's page: the candidate types and addresses of the pair carrying its live stream. */
+/** In the renter's page: the candidate types of the pair carrying its live stream, never their addresses. */
 async function selectedPair() {
   for (const pc of [...(window.__swiffPeers ?? [])].reverse()) {
     if (pc.connectionState !== "connected") continue;
@@ -486,10 +479,7 @@ async function selectedPair() {
       if (s.type === "transport" && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
     });
     if (!pair) continue;
-    const side = (id) => {
-      const c = stats.get(id);
-      return `${c?.candidateType} ${c?.address}:${c?.port}`;
-    };
+    const side = (id) => stats.get(id)?.candidateType;
     return `${side(pair.localCandidateId)} -> ${side(pair.remoteCandidateId)}`;
   }
   return null;
@@ -782,6 +772,7 @@ async function renter() {
 
 function stopAll() {
   for (const proc of children) proc.kill();
+  rmSync(join(RUN, "fixtures.img"), { force: true });
 }
 process.on("exit", stopAll);
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(1));

@@ -127,8 +127,25 @@ check session-runs-swiff-session "$session_exec" grep -q 'path=/usr/libexec/swif
 check steam-installed /usr/games/steam test -x /usr/games/steam
 check gamescope-installed /usr/games/gamescope test -x /usr/games/gamescope
 # The session is gamescope with the Steam sign-in agent (steam/session), not Steam's own UI.
-check session-runs-steam-agent "$(grep '^exec ' /usr/libexec/swiff/session)" \
-	grep -q '^exec gamescope --steam .* -- node /usr/lib/swiff/steam/swiff-steam-login.mjs$' /usr/libexec/swiff/session
+# What the session asks gamescope to run: /usr/libexec/swiff/session run as the
+# renter, in a mount namespace of its own where gamescope is a stand-in that
+# writes down its arguments, one per line.
+session_argv() {
+	local dir
+	dir=$(mktemp -d /run/swiff-session-argv.XXXXXX)
+	chmod 755 "$dir"
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > %s/argv\n' "$dir" > "$dir/gamescope"
+	chmod 755 "$dir/gamescope"
+	install -o renter -m 600 /dev/null "$dir/argv"
+	unshare -m sh -c 'mount --bind "$1/gamescope" /usr/games/gamescope &&
+		exec setpriv --reuid=renter --regid=renter --init-groups env -i /usr/libexec/swiff/session' _ "$dir" > /dev/null 2>&1
+	paste -sd' ' "$dir/argv"
+	rm -rf "$dir"
+}
+agent=/usr/lib/swiff/steam/swiff-steam-login.mjs
+session_args=$(session_argv)
+check session-runs-steam-agent "gamescope $session_args" \
+	test "$session_args" = "--steam -- node $agent" -a -f "$agent"
 
 # --- Rental mode: swiff-hostd, swiff-streamer, the Steam sign-in agent -------------
 # Each runs on the image's Node 22 as one bundled file, owned by root.
