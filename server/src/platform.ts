@@ -2447,7 +2447,10 @@ export class Platform {
       this.#now() - SESSION_OVER_MS,
     );
     const picks = await this.#get<{ n: number }>(
-      "SELECT count(*)::int AS n FROM crew_game_wants WHERE crew_id = $1 AND user_id = $2",
+      `SELECT count(*)::int AS n FROM crew_game_wants w
+         WHERE w.crew_id = $1 AND w.user_id = $2 AND EXISTS (
+           SELECT 1 FROM machine_games g JOIN crew_machines p ON p.machine_id = g.machine_id
+             WHERE p.crew_id = w.crew_id AND g.appid = w.appid)`,
       crewId,
       userId,
     );

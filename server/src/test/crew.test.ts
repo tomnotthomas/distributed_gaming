@@ -869,6 +869,22 @@ describe("crew API", () => {
     );
   });
 
+  it("counts only the picks on games a PC of the crew still has", async () => {
+    const crew = await joinByLink();
+    assert.equal((await offerPc("pc-1", { games: [730, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 730, want: true });
+    await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 570, want: true });
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 2);
+
+    const sam = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.members.find(
+      (m: { you: boolean }) => m.you,
+    ).id;
+    assert.equal((await call("POST", `/api/crew-members/${sam}/remove`, HOST)).status, 200);
+    assert.deepEqual((await call("GET", `/api/crews/${crew.id}/games`, ALEX)).body.games, []);
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 0, "Sam's PC left with Sam");
+  });
+
   it("marks the days another crew's Zockrunde already has one of the crew's PCs", async () => {
     const crew = await joinByLink();
     assert.equal((await offerPc("pc-1")).status, 200);
