@@ -656,6 +656,8 @@ by copying the link), brings a gaming PC or asks the group, and plays; someone w
 says yes or no, gets a gaming PC in, and plays. Who is coming shows quietly below; renaming,
 the crew link and leaving sit folded at the bottom. A Zockrunde counts as over 6 hours after
 it starts, and then the page asks for the next date and the message leaves the old one out.
+Its day and time are said in Germany's zone (`Europe/Berlin`) wherever the browser is, as the
+link preview says them.
 The crew page reads its crew again on every change its event stream announces. The invite
 page names who asks and which crew, explains in three lines how it works, and joins with one
 button: signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the
