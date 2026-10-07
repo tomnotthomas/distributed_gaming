@@ -1097,7 +1097,10 @@ describe("CrewPage: the guided crew page", () => {
       shared: true,
       picks: 1,
       size: 2,
-      members: [{ ...LENA, rsvp: "yes" }, { ...SAM, name: null }],
+      members: [
+        { ...LENA, rsvp: "yes" },
+        { ...SAM, name: null },
+      ],
     });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
     const { unmount } = render(<CrewPage swiff={atCrew("c1")} />);

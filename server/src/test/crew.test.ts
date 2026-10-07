@@ -882,7 +882,11 @@ describe("crew API", () => {
     ).id;
     assert.equal((await call("POST", `/api/crew-members/${sam}/remove`, HOST)).status, 200);
     assert.deepEqual((await call("GET", `/api/crews/${crew.id}/games`, ALEX)).body.games, []);
-    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 0, "Sam's PC left with Sam");
+    assert.equal(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks,
+      0,
+      "Sam's PC left with Sam",
+    );
   });
 
   it("marks the days another crew's Zockrunde already has one of the crew's PCs", async () => {
