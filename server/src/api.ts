@@ -522,7 +522,7 @@ export function createApi({
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
-  const media = gameMedia ?? ((appids: number[]) => gamesMedia(appids, playable, CREW_GAMES_CANDIDATES));
+  const media = gameMedia ?? ((appids: number[]) => gamesMedia(appids, playable, CREW_GAMES_CANDIDATES, true));
 
   /**
    * The games on crew `crewId`'s PCs as `steamId`, in it, picks from: for

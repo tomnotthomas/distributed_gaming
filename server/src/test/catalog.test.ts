@@ -196,4 +196,17 @@ describe("gamesMedia", () => {
     );
     assert.deepEqual(calls.map(askedFor), [[7, 8]]);
   });
+
+  it("rejects when strict and Steam fails, and retries next time", async () => {
+    stubFetch(() => ({ ok: false, status: 500 }));
+    await assert.rejects(gamesMedia([1, 2], undefined, undefined, true));
+    const calls = stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id))));
+    assert.equal((await gamesMedia([1, 2], undefined, undefined, true)).length, 2);
+    assert.equal(calls.length, 1);
+  });
+
+  it("answers an empty list when strict and Steam knows no games among them", async () => {
+    stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id, { type: 6 }))));
+    assert.deepEqual(await gamesMedia([1, 2], undefined, undefined, true), []);
+  });
 });
