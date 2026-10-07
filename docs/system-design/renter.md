@@ -604,7 +604,7 @@ GET  /crews/:id
   `{ sessionId, player, you, gameId, startedAt, starting }`, else null. `busy` lists other
   crews' Zockrunden, ahead or under way, that one of this crew's PCs plays for too (when
   they start, and the PC owner's persona, never which crew), which the date calendar
-  marks; `picks` how many games the viewer marked to play.
+  marks; `picks` how many games still on one of its PCs the viewer marked to play.
   → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
