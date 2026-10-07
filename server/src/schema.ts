@@ -426,6 +426,14 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       PRIMARY KEY (crew_id, user_id, appid)
     )`,
   ],
+  [
+    // Founding a crew is idempotent (platform.ts, createCrew): the key the
+    // page founding it sent, so the same founding sent again, retried or
+    // tapped twice, is the crew it made rather than a second one. Each
+    // founder's keys are their own.
+    `ALTER TABLE crews ADD COLUMN found_key TEXT`,
+    `CREATE UNIQUE INDEX crews_found_key ON crews (owner_id, found_key) WHERE found_key IS NOT NULL`,
+  ],
 ];
 
 /**

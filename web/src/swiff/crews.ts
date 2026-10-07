@@ -276,22 +276,32 @@ export function activeSession(crew: Pick<CrewView, "session">, now: number): Cre
   return crew.session && crew.session.at + SESSION_OVER_MS > now ? crew.session : null;
 }
 
-/** A JSON call to the crew API: the answer's body, or the status it was refused with, or null for no answer. */
+/** A JSON call to the crew API: the answer's body, or the status it was refused with and its body, or null for no answer. */
 async function call<T>(
   path: string,
   init: RequestInit = {},
   get: typeof fetch = fetch,
-): Promise<{ ok: true; body: T } | { ok: false; status: number | null }> {
+): Promise<{ ok: true; body: T } | { ok: false; status: number | null; body?: unknown }> {
   try {
     const response = await get(path, {
       ...init,
       ...(init.body ? { headers: { "content-type": "application/json" } } : {}),
     });
-    if (!response.ok) return { ok: false, status: response.status };
+    if (!response.ok)
+      return { ok: false, status: response.status, body: await response.json().catch(() => null) };
     return { ok: true, body: (await response.json()) as T };
   } catch {
     return { ok: false, status: null };
   }
+}
+
+/** A crew the player is in already by the name they asked for: to go to it, or pick another name. */
+export type TakenCrew = Pick<MyCrew, "id" | "name" | "crewName" | "own">;
+
+/** The crew a refusal names, when the player has a crew by that name already (409 name-taken). */
+function takenOf(answer: { ok: false; status: number | null; body?: unknown }): TakenCrew | null {
+  const body = answer.body as { code?: unknown; crew?: TakenCrew } | null | undefined;
+  return answer.status === 409 && body?.code === "name-taken" && body.crew ? body.crew : null;
 }
 
 /** The crews the signed-in player is in; null when they could not be read. */
@@ -329,18 +339,32 @@ export function seeReady(crewId: string): void {
   }
 }
 
-/** Found a crew as the signed-in player; "full" when they are in as many crews as anyone may be, null when it could not be made. */
+/**
+ * Found a crew as the signed-in player, named `name` (null: after them).
+ * `key` names this founding: sent again, it is the crew it founded, never a
+ * second. `{ taken }` when they have a crew by that name already, "full" when
+ * they are in as many crews as anyone may be, null when it could not be made.
+ */
 export async function createCrew(
-  name: string | null = null,
+  name: string | null,
+  key: string,
   get: typeof fetch = fetch,
-): Promise<CrewDetail | "full" | null> {
+): Promise<CrewDetail | { taken: TakenCrew } | "full" | null> {
   const answer = await call<{ crew: CrewDetail }>(
     "/api/crews",
-    { method: "POST", body: JSON.stringify(name ? { name } : {}) },
+    { method: "POST", body: JSON.stringify(name ? { name, key } : { key }) },
     get,
   );
-  if (!answer.ok) return answer.status === 409 ? "full" : null;
-  return answer.body.crew;
+  if (answer.ok) return answer.body.crew;
+  const taken = takenOf(answer);
+  if (taken) return { taken };
+  return answer.status === 409 ? "full" : null;
+}
+
+/** A new key for one founding of a crew (createCrew). */
+export function foundingKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** A crew the signed-in player is in; "gone" when it is not theirs to read (or not there), null for no answer. */
@@ -353,7 +377,7 @@ export async function fetchCrew(id: string, get: typeof fetch = fetch): Promise<
 /** What a member changes on the crew's page: the crew as it then is, or null when it did not work. */
 async function change(
   id: string,
-  action: "name" | "link" | "pc" | "session" | "rsvp" | "shared" | "next",
+  action: "link" | "pc" | "session" | "rsvp" | "shared" | "next",
   body: object | null,
   get: typeof fetch,
 ): Promise<CrewDetail | null> {
@@ -365,9 +389,24 @@ async function change(
   return answer.ok ? answer.body.crew : null;
 }
 
-/** Give the crew its own name, as its admin; an empty one names it after its admin again. */
-export const renameCrew = (id: string, name: string, get: typeof fetch = fetch) =>
-  change(id, "name", { name }, get);
+/**
+ * Give the crew its own name, as its admin; an empty one names it after its
+ * admin again. `{ taken }` when they have another crew by that name.
+ */
+export async function renameCrew(
+  id: string,
+  name: string,
+  get: typeof fetch = fetch,
+): Promise<CrewDetail | { taken: TakenCrew } | null> {
+  const answer = await call<{ crew: CrewDetail }>(
+    `/api/crews/${encodeURIComponent(id)}/name`,
+    { method: "POST", body: JSON.stringify({ name }) },
+    get,
+  );
+  if (answer.ok) return answer.body.crew;
+  const taken = takenOf(answer);
+  return taken ? { taken } : null;
+}
 
 /** A new link for the crew in place of the old one, as its admin. */
 export const renewCrewLink = (id: string, get: typeof fetch = fetch) => change(id, "link", null, get);

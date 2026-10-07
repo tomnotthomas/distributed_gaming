@@ -278,7 +278,7 @@ describe("crew live sessions", () => {
   /** A crew `founder` founds, named `name`, that `members` join by its link and whose PCs the owner brings. */
   async function crewOf(founder: string, name: string | null, members: [string, string][]) {
     const crew = await platform.createCrew(founder, PERSONA[founder] ?? null, name);
-    assert.ok(crew !== "too-many" && crew.inviteId);
+    assert.ok(crew !== "too-many" && !("taken" in crew) && crew.inviteId);
     for (const [id, persona] of [...members, [OWNER, "Owner"] as [string, string]]) {
       assert.ok((await platform.joinCrew(crew.inviteId, id, persona)).ok);
     }
@@ -355,7 +355,7 @@ describe("crew live sessions", () => {
     await maraCrew();
     // Mara's other crew, which the PC does not play for: Stranger is in it.
     const night = await platform.createCrew(MARA, "Mara", "Night Owls");
-    assert.ok(night !== "too-many" && night.inviteId);
+    assert.ok(night !== "too-many" && !("taken" in night) && night.inviteId);
     assert.ok((await platform.joinCrew(night.inviteId, STRANGER, "Stranger")).ok);
     const { sessionId } = await plays(MARA);
     assert.deepEqual((await call("GET", "/api/crew-live", STRANGER)).body.live, []);

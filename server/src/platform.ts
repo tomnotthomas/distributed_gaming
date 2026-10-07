@@ -93,13 +93,19 @@
 // ready once any PC playing for it is on offer, and everyone in it hears so
 // the first time (onCrewReady). A new link stops new joins only.
 //
+// Nobody founds a crew, or renames one, by a name of a crew they are in
+// already, founded or joined (CrewNameTaken): names in any case are the same
+// name. One with no name of its own is called after its admin, so each admins
+// one such crew at most. Joining someone else's crew of the same name is never
+// refused, and crews of the same name from before are kept.
+//
 // Friend seats: a host keeps up to MAX_SEATS named seats at a PC of theirs for
 // friends (createSeat), each with its own link (signed in access.ts). A seat
 // is held for the friend it names for SEAT_HOLD_MS; whoever opens its link
 // first, signed in, takes it (takeSeat), and joins the crew the seat is in:
-// one the PC plays for, or, when it plays for none of its owner's, a crew
-// founded for it, which the PC then plays for, open to anyone still when it
-// was. A taken seat is its holder's
+// one the PC plays for, or, when it plays for none of its owner's, their crew
+// with no name of its own (founded for it when they have none), which the PC
+// then plays for, open to anyone still when it was. A taken seat is its holder's
 // until the host takes it back (revokeSeat) or they leave that crew, and gate
 // E7 lets its holder play on that PC whichever crews it plays for. Taking it
 // back, or a holder leaving, ends the membership taking it made, unless
@@ -261,6 +267,12 @@ export type CrewSession = { at: number; yes: number; no: number };
 
 /** A crew someone is in: `id` names the crew, `memberId` their membership in it, which leaving names. */
 export type MyCrew = CrewView & { id: string; memberId: string };
+
+/**
+ * Why a crew was not founded or renamed: the person is in `taken` by that name
+ * already, which they are shown by its own name, or whose crew it is.
+ */
+export type CrewNameTaken = { taken: Pick<MyCrew, "id" | "name" | "crewName" | "own"> };
 
 /**
  * Someone in a crew, by their Steam persona when known: `id` names the
@@ -818,6 +830,10 @@ const liveSession = (session: CrewSession | null, now: number): CrewSession | nu
 /** How a PC playing for a crew is, by its status. */
 const pcState = (status: MachineStatus): CrewPcState =>
   status === "available" ? "ready" : status === "reserved" || status === "in_session" ? "busy" : "offline";
+
+/** Whether two crew names are the same name to the person they belong to: whatever their case. */
+export const sameCrewName = (a: string, b: string): boolean =>
+  a.normalize("NFKC").toLowerCase() === b.normalize("NFKC").toLowerCase();
 
 /** A crew name as given: trimmed, spaces folded, at most CREW_NAME_MAX characters; null when nothing is left. */
 export function crewNameOf(name: unknown): string | null {
@@ -1468,24 +1484,44 @@ export class Platform {
    * Found a crew: `userId` is its admin and first member, `persona` their
    * Steam persona when it could be read, and `name` its own name, if they gave
    * one. It has its link at once. Every PC they own plays for it from now on.
-   * "too-many" when they are in MAX_CREWS crews already.
+   * Founding is idempotent by `key`, when the page sends one: the same key
+   * again is the crew it founded, as it is then. A crew of theirs by that name
+   * already (one with no name of its own they are the admin of, for none)
+   * refuses it, saying which (CrewNameTaken). "too-many" when they are in
+   * MAX_CREWS crews already.
    */
   createCrew(
     userId: string,
     persona: string | null,
     name: string | null = null,
-  ): Promise<CrewDetail | "too-many"> {
+    key: string | null = null,
+  ): Promise<CrewDetail | CrewNameTaken | "too-many"> {
     return this.#transaction(async () => {
+      if (key !== null) {
+        const founded = await this.#get<{ id: string }>(
+          "SELECT id FROM crews WHERE owner_id = $1 AND found_key = $2",
+          userId,
+          key,
+        );
+        const detail = founded && (await this.#crewDetail(founded.id, userId));
+        if (detail) return detail;
+        // A crew founded by it and left since: this founding is a new one.
+        if (founded) key = null;
+      }
+      const crewName = crewNameOf(name);
+      const taken = await this.#nameTaken(userId, crewName);
+      if (taken) return taken;
       if ((await this.#crewCount(userId)) >= MAX_CREWS) return "too-many";
       const now = this.#now();
       const crewId = newId();
       await this.#run(
-        "INSERT INTO crews (id, owner_id, owner_name, name, created_at) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO crews (id, owner_id, owner_name, name, created_at, found_key) VALUES ($1, $2, $3, $4, $5, $6)",
         crewId,
         userId,
         persona || null,
-        crewNameOf(name),
+        crewName,
         now,
+        key,
       );
       const owned = await this.#ownedMachines(userId);
       await this.#run(
@@ -1501,6 +1537,40 @@ export class Platform {
       if (owned.length) await this.#playFor(crewId, owned, userId, now);
       return (await this.#crewDetail(crewId, userId))!;
     });
+  }
+
+  /**
+   * The crew `userId` is in by the name `name` (folded, crewNameOf) already,
+   * other than `except`, to refuse a crew of the same name with; null for none.
+   * For no name, that is a crew with no name of its own they are the admin of:
+   * it is called after them, as a new one would be.
+   */
+  async #nameTaken(
+    userId: string,
+    name: string | null,
+    except: string | null = null,
+  ): Promise<CrewNameTaken | null> {
+    const rows = await this.#all<{
+      id: string;
+      owner_id: string;
+      owner_name: string | null;
+      name: string | null;
+    }>(
+      `SELECT c.id, c.owner_id, c.owner_name, c.name FROM crews c JOIN crew_members m ON m.crew_id = c.id
+         WHERE m.user_id = $1 AND c.archived_at IS NULL AND c.id IS DISTINCT FROM $2::text
+         ORDER BY m.joined_at, m.id`,
+      userId,
+      except,
+    );
+    const same = rows.find((c) =>
+      name === null
+        ? c.name === null && c.owner_id === userId
+        : c.name !== null && sameCrewName(c.name, name),
+    );
+    if (!same) return null;
+    return {
+      taken: { id: same.id, name: same.owner_name, crewName: same.name, own: same.owner_id === userId },
+    };
   }
 
   /**
@@ -1535,14 +1605,23 @@ export class Platform {
   /**
    * Give the crew a name of its own, as its admin; an empty one names it after
    * its admin again. Null unless `userId` is in it; "forbidden" for a member who
-   * is not its admin.
+   * is not its admin; another crew of theirs by that name refuses it, saying
+   * which (CrewNameTaken), unless the name is the one it has.
    */
-  renameCrew(crewId: string, userId: string, name: unknown): Promise<CrewDetail | null | "forbidden"> {
+  renameCrew(
+    crewId: string,
+    userId: string,
+    name: unknown,
+  ): Promise<CrewDetail | CrewNameTaken | null | "forbidden"> {
     return this.#transaction(async () => {
       const detail = await this.#crewDetail(crewId, userId);
       if (!detail) return null;
       if (!detail.own) return "forbidden";
-      await this.#run("UPDATE crews SET name = $1 WHERE id = $2", crewNameOf(name), crewId);
+      const crewName = crewNameOf(name);
+      if (crewName === detail.crewName) return detail;
+      const taken = await this.#nameTaken(userId, crewName, crewId);
+      if (taken) return taken;
+      await this.#run("UPDATE crews SET name = $1 WHERE id = $2", crewName, crewId);
       return (await this.#crewDetail(crewId, userId))!;
     });
   }
@@ -1938,9 +2017,10 @@ export class Platform {
   /**
    * Keep a seat at `machineId` for the friend named `friend`, as its owner,
    * whose Steam persona is `hostName` when it could be read. The seat is in
-   * the first crew the PC plays for of its owner's; when it plays for none, a
-   * crew is founded for its owner, which the PC plays for from then on, left
-   * open to anyone when it was.
+   * the first crew the PC plays for of its owner's; when it plays for none, in
+   * their crew with no name of its own, founded for them when they have none
+   * (never a second one called after them), which the PC plays for from then
+   * on, left open to anyone when it was.
    * "unknown-machine" for a PC never heard from, "no-owner" for one with no
    * owner on record, "full" with MAX_SEATS seats there already, and
    * "too-many" when a crew would have to be founded for an owner in
@@ -1962,34 +2042,45 @@ export class Platform {
         machineId,
         owner,
       );
+      // None of its owner's: it plays for their crew with no name of its own from now on, founded
+      // for it when they have none, and never a second crew called after them.
       if (!crew) {
-        if ((await this.#crewCount(owner)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
-        const crewId = newId();
-        await this.#run(
-          "INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)",
-          crewId,
+        crew = await this.#get<{ crew_id: string; name: string | null }>(
+          `SELECT c.id AS crew_id, m.name FROM crews c
+             JOIN crew_members m ON m.crew_id = c.id AND m.user_id = c.owner_id
+             WHERE c.owner_id = $1 AND c.name IS NULL AND c.archived_at IS NULL
+             ORDER BY c.created_at, c.id LIMIT 1`,
           owner,
-          hostName || null,
-          now,
         );
-        await this.#run(
-          "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
-          newId(),
-          crewId,
-          owner,
-          hostName || null,
-          now,
-        );
-        await this.#newInvite(crewId, owner, now);
+        if (!crew) {
+          if ((await this.#crewCount(owner)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
+          const crewId = newId();
+          await this.#run(
+            "INSERT INTO crews (id, owner_id, owner_name, created_at) VALUES ($1, $2, $3, $4)",
+            crewId,
+            owner,
+            hostName || null,
+            now,
+          );
+          await this.#run(
+            "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
+            newId(),
+            crewId,
+            owner,
+            hostName || null,
+            now,
+          );
+          await this.#newInvite(crewId, owner, now);
+          crew = { crew_id: crewId, name: hostName || null };
+        }
         await this.#run(
           "INSERT INTO crew_machines (crew_id, machine_id, added_by, added_at) VALUES ($1, $2, $3, $4)",
-          crewId,
+          crew.crew_id,
           machineId,
           owner,
           now,
         );
         this.#offerChanged = true;
-        crew = { crew_id: crewId, name: hostName || null };
       }
       const id = newId();
       await this.#run(

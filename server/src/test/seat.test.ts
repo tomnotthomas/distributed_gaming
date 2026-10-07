@@ -140,10 +140,33 @@ describe("friend seats", () => {
 
     it("keeps the seat in the first crew the PC plays for", async () => {
       const crew = await platform.createCrew(LENA, "Lena", "Freitagsrunde");
-      assert.ok(crew !== "too-many");
+      assert.ok(crew !== "too-many" && !("taken" in crew));
       await offer("pc-1", { crews: [crew.id] });
       assert.equal((await seatFor("Jonas")).crewId, crew.id);
       assert.equal((await platform.crews(LENA)).length, 1, "no crew is founded beside it");
+    });
+
+    it("puts a seat at a PC that plays for none in its host's crew with no name of its own, never founding a second", async () => {
+      const own = await platform.createCrew(LENA, "Lena");
+      const named = await platform.createCrew(LENA, "Lena", "Werkstatt");
+      assert.ok(own !== "too-many" && !("taken" in own) && named !== "too-many" && !("taken" in named));
+      // Both PCs are taken out of every crew of hers, and each gets a seat.
+      await offer("pc-1", { crews: [] });
+      await offer("pc-4", { crews: [] });
+      assert.equal((await seatFor("Jonas")).crewId, own.id);
+      const atPc4 = await platform.createSeat("pc-4", "Mia", "Lena");
+      assert.ok(atPc4.ok);
+      assert.equal(atPc4.seat.crewId, own.id);
+      assert.deepEqual(
+        (await platform.crews(LENA)).map((c) => c.crewName),
+        [null, "Werkstatt"],
+        "no crew is founded beside hers",
+      );
+      assert.deepEqual(
+        (await platform.crew(own.id, LENA))!.machines.map((m) => m.id).sort(),
+        ["pc-1", "pc-4"],
+        "both PCs play for it from then on",
+      );
     });
 
     it("keeps at most MAX_SEATS at a PC, and an unanswered seat frees its place once it has waited out its time", async () => {
@@ -169,8 +192,8 @@ describe("friend seats", () => {
     it("refuses to found a crew for an owner in MAX_CREWS crews already", async () => {
       await offer("pc-1", { crewOnly: false });
       for (let i = 0; i < MAX_CREWS; i++) {
-        const crew = await platform.createCrew(LENA, "Lena");
-        assert.ok(crew !== "too-many");
+        const crew = await platform.createCrew(LENA, "Lena", `Crew ${i}`);
+        assert.ok(crew !== "too-many" && !("taken" in crew));
         await platform.bringPc(crew.id, LENA, "off");
       }
       await offer("pc-1", { crews: [] });
@@ -269,7 +292,7 @@ describe("friend seats", () => {
       await offer("pc-1");
       const seat = await seatFor("Jonas");
       for (let i = 0; i < MAX_CREWS; i++)
-        assert.ok((await platform.createCrew(JONAS, "Jonas")) !== "too-many");
+        assert.ok((await platform.createCrew(JONAS, "Jonas", `Crew ${i}`)) !== "too-many");
       assert.deepEqual(await platform.takeSeat(seat.id, JONAS), { ok: false, reason: "too-many" });
     });
 
@@ -278,7 +301,7 @@ describe("friend seats", () => {
       const seat = await seatFor("Jonas");
       await take(seat.id, JONAS);
       const other = await platform.createCrew(LENA, "Lena", "Werkstatt");
-      assert.ok(other !== "too-many");
+      assert.ok(other !== "too-many" && !("taken" in other));
       await offer("pc-1", { crews: [other.id] });
       const booked = await platform.bookMachine("pc-1", 730, 30, JONAS);
       assert.equal(booked?.machine?.id, "pc-1");

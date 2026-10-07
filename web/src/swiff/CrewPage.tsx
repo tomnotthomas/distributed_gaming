@@ -17,8 +17,10 @@ import {
   bringPc,
   createCrew,
   crewTitle,
+  CREWS_PATH,
   fetchCrew,
   fetchCrews,
+  foundingKey,
   inviteMessage,
   pcTitle,
   removeCrewMember,
@@ -35,6 +37,7 @@ import {
   type CrewDetail,
   type CrewMember,
   type MyCrew,
+  type TakenCrew,
 } from "./crews";
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
 import { DateStep, GamesStep, WhoIsComing } from "./CrewPlan";
@@ -49,7 +52,7 @@ import type { Swiff } from "./useSwiff";
 export function CrewPage({ swiff }: { swiff: Swiff }) {
   const { crewRoute, signedIn, signInKnown } = swiff;
   if (!signInKnown) return <CrewLoading />;
-  if (!signedIn) return <FoundSignedOut />;
+  if (!signedIn) return crewRoute.crew ? <CrewSignedOut id={crewRoute.crew} /> : <FoundSignedOut />;
   if (crewRoute.crew) return <Lobby key={crewRoute.crew} id={crewRoute.crew} swiff={swiff} />;
   return <CrewList swiff={swiff} />;
 }
@@ -91,9 +94,61 @@ function FoundSignedOut() {
   );
 }
 
+/** One crew's page, signed out: Steam sign-in that comes back to that crew, never to founding one. */
+function CrewSignedOut({ id }: { id: string }) {
+  const { t } = useCrewText();
+  return (
+    <main className="crew-lobby" data-testid="crew">
+      <section className="lb-lobby">
+        <LobbyArt />
+        <div className="lb-wrap lb-in">
+          <div>
+            <LobbyTitle prose>{t("crewOut.title")}</LobbyTitle>
+            <p className="fa-why">{t("crewOut.line")}</p>
+            <div className="lb-join">
+              <a
+                className="lpill solid"
+                href={`${STEAM_LOGIN_URL}?to=${encodeURIComponent(`${CREWS_PATH}/${id}`)}`}
+              >
+                {t("crewOut.start")}
+                <span className="lpill-c">
+                  <Glyph name="arrow" size={18} />
+                </span>
+              </a>
+              <p>{t("crewOut.note")}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+/** The player has a crew by the name they asked for already: go to that crew, or pick another name. */
+function NameClash({ taken, onGo, onOther }: { taken: TakenCrew; onGo: () => void; onOther: () => void }) {
+  const { lang, t } = useCrewText();
+  return (
+    <div role="alert" className="crew-clash" data-testid="crew-clash">
+      <p>{t("clash.line", { crew: crewTitle(lang, taken) })}</p>
+      <div className="fa-acts">
+        <button type="button" className="lpill solid" onClick={onGo}>
+          {t("clash.go")}
+          <span className="lpill-c">
+            <Glyph name="arrow" size={18} />
+          </span>
+        </button>
+        <button type="button" className="lpill" onClick={onOther}>
+          {t("clash.other")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * /crews: the crews the player is in, and founding another, which opens its
- * lobby at once. One crew opens straight away.
+ * lobby at once. One crew opens straight away. A name the player has a crew
+ * by already founds nothing: they go to that crew, or pick another name.
  */
 function CrewList({ swiff }: { swiff: Swiff }) {
   const { lang, t } = useCrewText();
@@ -103,6 +158,11 @@ function CrewList({ swiff }: { swiff: Swiff }) {
   const [landing] = useState(takeLanding);
   const [founding, setFounding] = useState(false);
   const [foundFailed, setFoundFailed] = useState<"full" | boolean>(false);
+  const [taken, setTaken] = useState<TakenCrew | null>(null);
+  // Picking another name for the crew to found, once its name was taken.
+  const [naming, setNaming] = useState<string | null>(null);
+  // This visit's founding: sent again, after an answer that never came, it founds no second crew.
+  const [foundKey] = useState(foundingKey);
   const foundedOnce = useRef(false);
   const { openCrew, replaceCrew } = swiff;
 
@@ -112,16 +172,21 @@ function CrewList({ swiff }: { swiff: Swiff }) {
   }, []);
   useEffect(load, [load]);
 
-  const found = useCallback(() => {
-    setFounding(true);
-    setFoundFailed(false);
-    void createCrew().then((crew) => {
-      setFounding(false);
-      if (crew === "full") setFoundFailed("full");
-      else if (crew) replaceCrew(crew.id);
-      else setFoundFailed(true);
-    });
-  }, [replaceCrew]);
+  const found = useCallback(
+    (name: string | null = null) => {
+      setFounding(true);
+      setFoundFailed(false);
+      setTaken(null);
+      void createCrew(name, foundKey).then((crew) => {
+        setFounding(false);
+        if (crew === "full") setFoundFailed("full");
+        else if (crew && "taken" in crew) setTaken(crew.taken);
+        else if (crew) replaceCrew(crew.id);
+        else setFoundFailed(true);
+      });
+    },
+    [replaceCrew, foundKey],
+  );
 
   useEffect(() => {
     if (!Array.isArray(crews)) return;
@@ -159,7 +224,10 @@ function CrewList({ swiff }: { swiff: Swiff }) {
                   <li key={c.id}>
                     <button type="button" className="lb-slot act crew-pick" onClick={() => openCrew(c.id)}>
                       <span className="lb-who">
-                        <span className="lb-name">{crewTitle(lang, c)}</span>
+                        <span className="lb-name">
+                          {crewTitle(lang, c)}
+                          {c.own ? ` · ${t("crews.admin")}` : null}
+                        </span>
                         <span className="lb-meta">
                           {c.size === 1 ? t("crews.person") : t("crews.people", { n: c.size })} ·{" "}
                           {t(
@@ -187,16 +255,50 @@ function CrewList({ swiff }: { swiff: Swiff }) {
                 {t(foundFailed === "full" ? "crews.full" : "found.failed")}
               </p>
             ) : null}
-            {Array.isArray(crews) ? (
+            {!Array.isArray(crews) || founding ? null : taken ? (
+              <NameClash
+                taken={taken}
+                onGo={() => openCrew(taken.id)}
+                onOther={() => {
+                  setTaken(null);
+                  setNaming(naming ?? "");
+                }}
+              />
+            ) : naming !== null ? (
+              <form
+                className="crew-rename crew-found-name"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (naming.trim()) found(naming);
+                }}
+              >
+                <input
+                  className="name-in"
+                  type="text"
+                  maxLength={24}
+                  autoFocus
+                  value={naming}
+                  placeholder={t("cp.namePlaceholder")}
+                  aria-label={t("found.name")}
+                  onChange={(event) => setNaming(event.target.value)}
+                />
+                <button type="submit" className="lpill solid" disabled={!naming.trim()}>
+                  {t("found.start")}
+                  <span className="lpill-c">
+                    <Glyph name="arrow" size={18} />
+                  </span>
+                </button>
+              </form>
+            ) : (
               <div className="lb-join">
-                <button type="button" className="lpill solid" disabled={founding} onClick={found}>
+                <button type="button" className="lpill solid" onClick={() => found()}>
                   {crews.length ? t("crews.new") : t("found.start")}
                   <span className="lpill-c">
                     <Glyph name="arrow" size={18} />
                   </span>
                 </button>
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </section>
@@ -295,6 +397,9 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   // A done step opened again ("change"); from the host side of the marketing site, the PC step.
   const [open, setOpen] = useState<StepId | null>(() => (takePcFirst() ? "pc" : null));
   const [renaming, setRenaming] = useState<string | null>(null);
+  // Another crew of theirs has the name they asked for: go to it, or pick another.
+  const [renameTaken, setRenameTaken] = useState<TakenCrew | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [leaving, setLeaving] = useState(false);
   const [busy, setBusy] = useState(false);
   // Asked the group for a gaming PC: the PC step waits for one.
@@ -397,10 +502,18 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
 
   const saveName = async () => {
     if (renaming === null) return;
-    if (await apply(renameCrew(id, renaming))) {
+    setBusy(true);
+    const renamed = await renameCrew(id, renaming);
+    setBusy(false);
+    if (renamed && "taken" in renamed) setRenameTaken(renamed.taken);
+    else if (await apply(Promise.resolve(renamed))) {
       setRenaming(null);
       say(t("toast.renamed"));
     }
+  };
+  const stopRenaming = () => {
+    setRenaming(null);
+    setRenameTaken(null);
   };
 
   const leave = async () => {
@@ -718,6 +831,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                     }}
                   >
                     <input
+                      ref={nameRef}
                       className="name-in"
                       type="text"
                       maxLength={24}
@@ -725,16 +839,29 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                       value={renaming}
                       placeholder={t("cp.namePlaceholder")}
                       aria-label={t("cp.namePlaceholder")}
-                      onChange={(event) => setRenaming(event.target.value)}
+                      onChange={(event) => {
+                        setRenaming(event.target.value);
+                        setRenameTaken(null);
+                      }}
                     />
                     <button type="submit" className="name-edit" disabled={busy}>
                       {t("cp.save")}
                     </button>
-                    <button type="button" className="name-edit" onClick={() => setRenaming(null)}>
+                    <button type="button" className="name-edit" onClick={stopRenaming}>
                       {t("cp.cancel")}
                     </button>
                   </form>
                 )
+              ) : null}
+              {renameTaken ? (
+                <NameClash
+                  taken={renameTaken}
+                  onGo={() => openCrew(renameTaken.id)}
+                  onOther={() => {
+                    setRenameTaken(null);
+                    nameRef.current?.select();
+                  }}
+                />
               ) : null}
               <button type="button" className="gc-ghost" disabled={!link} onClick={() => void copyLink(link)}>
                 <LinkIcon />
