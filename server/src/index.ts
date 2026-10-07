@@ -55,7 +55,22 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { sessionSpanMs } from "@swiff/rank";
 import { relayFromEnv } from "./ice.js";
-import { accessFromEnv, verifyTicket, type HostingTier } from "./access.js";
+import {
+  accessFromEnv,
+  verifyInviteToken,
+  verifySeatToken,
+  verifyTicket,
+  type HostingTier,
+} from "./access.js";
+import {
+  cardFile,
+  invitePreview,
+  previewCard,
+  previewLang,
+  previewPath,
+  readPreviews,
+  type PreviewType,
+} from "./invite-preview.js";
 import { attestationFromEnv, createAttestation, looksLikeHostCert } from "./attestation.js";
 import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from "./state-key.js";
 import {
@@ -212,6 +227,8 @@ const serveApi = createApi({
 // host, so the app keeps its own routes everywhere else. Off, nothing changes.
 const site = siteFromEnv(process.env, publicOrigin);
 const MARKETING_DIR = fileURLToPath(new URL("../../web/marketing/", import.meta.url));
+/** The link previews of the app's crew and seat links (invite-preview.ts), from the launch set, whether the site is on or not. */
+const previews = await readPreviews(MARKETING_DIR);
 const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
 // Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
 const signups =
@@ -705,6 +722,17 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
  * Extensionless paths use index.html; file read failures return 500 for that page
  * and 404 for assets. URL parsing and delegated handler errors propagate as rejections.
  */
+/** Who asks, by an app invite link's token: the crew's admin or the seat's host, by Steam persona; null when unknown. */
+async function invitingName(type: PreviewType, token: string): Promise<string | null> {
+  if (!sessionSecret) return null;
+  if (type === "crew") {
+    const inviteId = verifyInviteToken(sessionSecret, token);
+    return inviteId ? ((await platform.invite(inviteId))?.name ?? null) : null;
+  }
+  const seatId = verifySeatToken(sessionSecret, token);
+  return seatId ? ((await platform.seat(seatId))?.host ?? null) : null;
+}
+
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
@@ -715,6 +743,19 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
   if (await serveApi(req, res, urlPath)) return;
+
+  // A link preview's card, on the app's own origin (invite-preview.ts).
+  const card = cardFile(urlPath);
+  if (card) {
+    try {
+      const body = await readFile(join(MARKETING_DIR, "assets", "img", card));
+      res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "public, max-age=86400" });
+      res.end(body);
+    } catch {
+      res.writeHead(404).end("not found");
+    }
+    return;
+  }
 
   // Every screen is the same SPA. A path with no extension is a route, so it
   // gets index.html; a path with one is an asset, so a miss is a real 404.
@@ -730,6 +771,21 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 
   try {
     const body = await readFile(filePath);
+    const invite = candidate === "index.html" && previews ? previewPath(urlPath) : null;
+    if (invite && previews) {
+      // An invite link shows who asks in its preview; never kept by a cache, and its token stays here.
+      const lang = previewLang(req);
+      const name = await invitingName(invite.type, invite.token).catch(() => null);
+      const card = `${publicOrigin ?? `http://localhost:${PORT}`}/og/${previewCard(invite.type, lang)}`;
+      res.writeHead(200, {
+        "content-type": MIME[".html"]!,
+        "cache-control": "private, no-store",
+        "x-robots-tag": "noindex",
+        "referrer-policy": "same-origin",
+      });
+      res.end(invitePreview(body.toString("utf8"), previews[invite.type][lang], name, lang, card));
+      return;
+    }
     res.writeHead(200, { "content-type": MIME[extname(filePath)] ?? "application/octet-stream" });
     res.end(body);
   } catch {
