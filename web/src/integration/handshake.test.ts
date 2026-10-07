@@ -605,7 +605,13 @@ describe("watching a crewmate play, against the real signaling server", () => {
     await first.viewer.waitFor("denied");
 
     // Asking again at once is the cooldown.
-    const again = await call("POST", `/api/crew-live/${sessionId}/watch`, undefined, undefined, FRIEND_COOKIE);
+    const again = await call(
+      "POST",
+      `/api/crew-live/${sessionId}/watch`,
+      undefined,
+      undefined,
+      FRIEND_COOKIE,
+    );
     expect(again.status).toBe(429);
     expect(again.body.code).toBe("cooldown");
 
