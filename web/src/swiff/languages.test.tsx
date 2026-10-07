@@ -1,6 +1,6 @@
-// One language per screen: a translated screen (the wall, an invite, the crew
-// pages) speaks the browser's language, every other screen English, and all
-// on it with it: the top bar, the crew card and banner, the dialogs, Ignition.
+// One language per screen: a translated screen (the wall, an invite, a seat,
+// the crew pages) speaks the browser's language, every other screen English,
+// and all on it with it: the top bar, the crew card and banner, the dialogs, Ignition.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -69,8 +69,9 @@ function browserIn(lang: Lang) {
 }
 
 /**
- * Every request answered: the invite to Alex's crew, kai_nx signed in, the
- * renter's crews (none yet), each of `more` as it says, anything else a 404.
+ * Every request answered: the invite to Alex's crew, Lena's seat for kai_nx,
+ * kai_nx signed in, the renter's crews (none yet), each of `more` as it says,
+ * anything else a 404.
  */
 function serve(more: Record<string, unknown> = {}) {
   vi.stubGlobal(
@@ -93,11 +94,27 @@ function serve(more: Record<string, unknown> = {}) {
                 },
               },
             ]
-          : url === "/api/me"
-            ? [200, { steamId: "76561198000000001", profile }]
-            : url === "/api/crews"
-              ? [200, { crews: [] }]
-              : [404, { error: "no" }];
+          : url === `/api/seats/${TOKEN}`
+            ? [
+                200,
+                {
+                  seat: {
+                    host: "Lena",
+                    friend: "kai_nx",
+                    number: 2,
+                    of: 3,
+                    state: "open",
+                    expiresAt: Date.now() + 12 * 24 * 60 * 60_000,
+                    pc: { name: "Nova-01", gpu: "Radeon RX 7900 XT", state: "ready", rentalMode: true },
+                    crewId: null,
+                  },
+                },
+              ]
+            : url === "/api/me"
+              ? [200, { steamId: "76561198000000001", profile }]
+              : url === "/api/crews"
+                ? [200, { crews: [] }]
+                : [404, { error: "no" }];
       return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     }),
   );
@@ -252,6 +269,7 @@ const DIALOGS = {
 const SCREENS: { screen: AppScreen; path: string; via?: "bar.profile" }[] = [
   { screen: "home", path: "/" },
   { screen: "invite", path: `/invite/${TOKEN}` },
+  { screen: "seat", path: `/seat/${TOKEN}` },
   { screen: "crew", path: "/crews/new" },
   { screen: "share", path: "/share" },
   { screen: "profile", path: "/", via: "bar.profile" },
