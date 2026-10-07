@@ -78,6 +78,7 @@ describe("audioPipeline", () => {
     expect(p).toContain("stream.capture.sink=true");
     // WirePlumber 0.5 links a capture stream reliably only when it names its media type.
     expect(p).toContain("media.type=Audio");
+    expect(p).toContain("media.category=Capture");
     expect(p).toContain("opusenc name=enc bitrate=128000");
     expect(p).toMatch(/rtpopuspay pt=111 ! rtpstreampay ! fdsink fd=1 sync=false$/);
   });
