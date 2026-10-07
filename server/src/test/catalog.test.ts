@@ -167,6 +167,17 @@ describe("catalogGames", () => {
   });
 });
 
+describe("catalogGames past the cache cap", () => {
+  it("still returns this call's cached games when trimming the cache drops them", async () => {
+    stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id))));
+    await catalogGames([1]);
+    const many = Array.from({ length: 5000 }, (_, i) => i + 2);
+    const games = await catalogGames([1, ...many]);
+    assert.equal(games.length, 5001);
+    assert.equal(games[0]?.appid, 1);
+  });
+});
+
 describe("popularGames", () => {
   it("keeps chart order, skips software and stops at the limit", async () => {
     stubFetch((url) => {

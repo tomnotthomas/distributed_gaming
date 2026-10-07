@@ -593,9 +593,9 @@ describe("crews", () => {
 describe("crew API", () => {
   let server: Server;
   let origin: string;
-  /** Store lookups for game media, and whether the store fails them, or answers only for MEDIA. */
+  /** Store lookups for game media, and whether the store fails them, answers only for MEDIA, or throws after the first. */
   let lookups = 0;
-  let store: "up" | "down" | "partly" = "up";
+  let store: "up" | "down" | "partly" | "throws" = "up";
   const access: Access = {
     secret: SECRET,
     machines: parseMachineKeys(MACHINE_KEYS),
@@ -623,6 +623,7 @@ describe("crew API", () => {
         gameMedia: async (appids) => {
           lookups++;
           if (store === "down") return { games: [], failed: true };
+          if (store === "throws" && lookups > 1) throw new Error("lookup broke");
           if (store === "partly")
             return { games: appids.flatMap((appid) => MEDIA[appid] ?? []), failed: true };
           const games = appids.flatMap((appid) =>
@@ -928,6 +929,22 @@ describe("crew API", () => {
     assert.equal(read.status, 200);
     assert.deepEqual(read.body.games, []);
     assert.equal(lookups, 1);
+  });
+
+  it("answers with the games gathered so far when a lookup throws, then stops", async () => {
+    const crew = await joinByLink();
+    const unknown = Array.from({ length: 200 }, (_, i) => i + 101);
+    assert.equal((await offerPc("pc-1", { games: [730, ...unknown, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    store = "throws";
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.equal(read.status, 200);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Counter-Strike 2"],
+    );
+    assert.equal(lookups, 2);
   });
 
   it("keeps the games the store did answer for when it fails for some, then stops", async () => {

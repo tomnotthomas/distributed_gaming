@@ -152,15 +152,16 @@ export async function lookUpGames(
       value.catch(() => cache.items.delete(id));
     }
   }
-  // Forget the oldest entries past the cap; this call's own appids are the newest.
+  const values = appids.map((id) => cache.items.get(id)!.value);
+  // Forget the oldest entries past the cap, which may be some of this call's own.
   for (const id of cache.items.keys()) {
     if (cache.items.size <= MAX_CACHED_ITEMS) break;
     cache.items.delete(id);
   }
   let failed = false;
   const games = await Promise.all(
-    appids.map((id) =>
-      cache.items.get(id)!.value.catch(() => {
+    values.map((value) =>
+      value.catch(() => {
         failed = true;
         return null;
       }),

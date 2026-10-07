@@ -553,7 +553,10 @@ export function createApi({
     const games = [];
     for (let at = 0; at < ranked.length && games.length < CREW_GAMES_MAX; at += CREW_GAMES_CANDIDATES) {
       const batch = ranked.slice(at, at + CREW_GAMES_CANDIDATES);
-      const { games: found, failed } = await media(batch.map((g) => g.appid));
+      const { games: found, failed } = await media(batch.map((g) => g.appid)).catch(() => ({
+        games: [] as CatalogGame[],
+        failed: true,
+      }));
       const known = new Map(found.map((g) => [g.appid, g]));
       for (const { appid, owners, wants } of batch) {
         const game = known.get(appid);
