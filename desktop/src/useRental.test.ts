@@ -458,8 +458,9 @@ describe("useRental", () => {
       progress = listener;
       return () => {};
     });
-    let finish!: (outcome: Awaited<ReturnType<HostBridge["downloadImage"]>>) => void;
-    host.downloadImage = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    type Outcome = Awaited<ReturnType<HostBridge["downloadImage"]>>;
+    let finish!: (outcome: Outcome) => void;
+    host.downloadImage = vi.fn(() => new Promise<Outcome>((resolve) => (finish = resolve)));
     const { result } = renderHook(() => useRental());
     await act(async () => {});
     expect(result.current.download).toEqual({ status: "idle" });
