@@ -415,7 +415,9 @@ async function downloadSet({
   );
   // Every file, and the biggest file's parts beside it while it unpacks.
   const need = todo.reduce((n, f) => n + f.bytes, 0) + Math.max(0, ...todo.map(packed)) + SPARE_BYTES;
-  const room = free(dir);
+  const held = have + todo.reduce((n, f) => n + sizeOf(path.join(dir, `${f.name}.part`)), 0);
+  const disk = free(dir);
+  const room = disk === null ? null : disk + held;
   if (room !== null && room < need)
     throw new DownloadError(
       `Lanterel OS needs ${gib(need)} free on the drive that holds ${dir} to download, and it has ${gib(room)}. Free up space, then try again.`,

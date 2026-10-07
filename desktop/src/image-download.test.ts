@@ -238,6 +238,35 @@ describe("Lanterel OS's download", () => {
     expect(server.state.asked.map((a) => a.name)).toEqual([MANIFEST, SIGNATURE]);
   });
 
+  it("counts the space its own parts and a cut-short unpack hold as room when it carries on", async () => {
+    const files = packed.manifest.download.files as Record<
+      string,
+      { parts: { name: string; bytes: number }[] }
+    >;
+    const esp = splitFile("esp");
+    const root = splitFile("root-x86-64");
+    fs.mkdirSync(path.join(dir, PARTS_DIR));
+    for (const p of files[esp].parts)
+      fs.copyFileSync(path.join(release, "download", p.name), path.join(dir, PARTS_DIR, p.name));
+    // The app closed part way through unpacking the root: its full-size temporary file is left behind.
+    fs.writeFileSync(path.join(dir, `${root}.part`), "");
+    fs.truncateSync(path.join(dir, `${root}.part`), packed.files[root].bytes);
+    const packedOf = (name: string) => files[name].parts.reduce((n, p) => n + p.bytes, 0);
+    const need =
+      Object.values(packed.files).reduce((n, f) => n + f.bytes, 0) +
+      Math.max(...Object.keys(files).map(packedOf)) +
+      512 * 1024 * 1024;
+    const held = packedOf(esp) + packed.files[root].bytes;
+
+    expect(await downloadSet({ url: server.url, dir, trust, free: () => need - held })).toBe(
+      SWIFF_OS.version,
+    );
+    const asked = server.state.asked.map((a) => a.name);
+    for (const p of files[esp].parts) expect(asked).not.toContain(p.name);
+    expect(await fileSha(path.join(dir, root))).toBe(packed.files[root].sha256);
+    expect(fs.existsSync(path.join(dir, `${root}.part`))).toBe(false);
+  }, 240_000);
+
   it("carries on an interrupted part from where it stopped", async () => {
     const first = packed.manifest.download.files[splitFile("esp")].parts[0];
     const cut = Math.floor(first.bytes / 2);
