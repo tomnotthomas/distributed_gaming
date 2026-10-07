@@ -15,6 +15,7 @@ HOST, PORT = open("/run/swiff-sessiontest/forward").read().split()
 
 
 async def pipe(reader, writer):
+    """Copies one direction of a connection until either side closes it."""
     try:
         while data := await reader.read(65536):
             writer.write(data)
@@ -26,6 +27,7 @@ async def pipe(reader, writer):
 
 
 async def handle(client_reader, client_writer):
+    """Joins one loopback client to the test's server, both ways."""
     try:
         server_reader, server_writer = await asyncio.open_connection(HOST, int(PORT))
     except OSError:
@@ -35,6 +37,7 @@ async def handle(client_reader, client_writer):
 
 
 async def main():
+    """Serves 127.0.0.1:8080 until the VM powers off."""
     server = await asyncio.start_server(handle, "127.0.0.1", 8080)
     async with server:
         await server.serve_forever()

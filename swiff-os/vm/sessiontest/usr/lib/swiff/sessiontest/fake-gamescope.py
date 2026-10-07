@@ -20,6 +20,7 @@ loop = GLib.MainLoop()
 
 
 def on_message(_bus, message):
+    """Stops on an error or the end of the stream, so the session's loop starts the stand-in again."""
     if message.type in (Gst.MessageType.ERROR, Gst.MessageType.EOS):
         print(f"fake-gamescope: {message.type.value_nicks[0]}", file=sys.stderr)
         loop.quit()

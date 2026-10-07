@@ -42,6 +42,7 @@ build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 out=$build_dir/output
 run=$build_dir/session-vm
 
+# Prints an error and exits.
 die() {
 	echo "session-test: $*" >&2
 	exit 1

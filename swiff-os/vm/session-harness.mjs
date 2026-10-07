@@ -122,6 +122,7 @@ const EXPECTED = [
 
 const results = new Map();
 const started = Date.now();
+/** Seconds since the harness started, for each step's line. */
 const elapsed = () => `${((Date.now() - started) / 1000).toFixed(0)} s`;
 const secrets = [MACHINE_KEY, ROOM_SECRET, SESSION_SECRET, TURN_SECRET, STATE_KEY_SECRET];
 /** Text with this run's secrets taken out, and anything that looks like a ticket or a session key. */
@@ -132,13 +133,16 @@ function redact(text) {
     .replace(/ticket=[^\s&"')]+/g, "ticket=<redacted>")
     .replace(/s\.team\/q\/\d+\/\d+/g, "s.team/q/<code>");
 }
+/** Records one step, PASS or FAIL, and prints it; a step that passed stays passed. */
 function record(name, ok, detail = "") {
   if (results.has(name) && results.get(name).ok) return;
   const safe = redact(detail);
   results.set(name, { ok, detail: safe });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${safe ? `  (${safe})` : ""}  [${elapsed()}]`);
 }
+/** Resolves after `ms`. */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Polls `check` every 250 ms and resolves with its first truthy value; rejects, naming `what`, after `ms`. */
 async function until(check, what, ms) {
   const deadline = Date.now() + ms;
   for (;;) {
@@ -208,8 +212,10 @@ function drawnPath(url) {
   return d;
 }
 
+/** A system tool's path, which may be in /usr/sbin, outside this user's PATH. */
 const sbin = (tool) => ["/usr/sbin", "/sbin", "/usr/bin"].map((d) => join(d, tool)).find(existsSync) ?? tool;
 
+/** Writes the run's disks: the image's copy, OVMF's variables, and the fixture, key and state disks. */
 function prepare() {
   rmSync(RUN, { recursive: true, force: true });
   mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true });
@@ -266,6 +272,7 @@ function prepare() {
 // --- The platform: TURN relay and server ----------------------------------------------
 
 const children = [];
+/** Starts a process that the harness stops when it exits. */
 function child(command, args, options = {}) {
   const proc = spawn(command, args, { stdio: "ignore", ...options });
   children.push(proc);
@@ -274,6 +281,7 @@ function child(command, args, options = {}) {
 
 /** Which side each allocation the relay granted on a minted credential was for: never the username itself. */
 const allocations = new Set();
+/** Starts coturn on the relay's address and notes which seats it grants an allocation. */
 function startRelay() {
   const fifo = join(RUN, "turnserver.fifo");
   execFileSync("mkfifo", ["-m", "600", fifo]);
@@ -306,6 +314,7 @@ function startRelay() {
   });
 }
 
+/** Starts the built server and resolves once it answers /api/ping. */
 async function startServer() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("TURN")));
   const log = openSync(join(RUN, "server.log"), "w");
@@ -405,11 +414,14 @@ function watchSerial() {
     }
   }, 300);
 }
+/** The first serial console line matching `pattern`, in boot `inBoot` when given. */
 const seen = (pattern, inBoot) =>
   vmLines.find((l) => (inBoot === undefined || l.boot === inBoot) && pattern.test(l.line));
+/** Waits up to `ms` for the VM to report step `name`, and records it failed when it never does. */
 const waitVm = (name, ms) =>
   until(() => results.get(name), name, ms).catch(() => record(name, false, "never reported"));
 
+/** Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. */
 function startVm() {
   const tpm = join(RUN, "tpm");
   child("swtpm", ["socket", "--tpm2", "--tpmstate", `dir=${tpm}`, "--ctrl", `type=unixio,path=${tpm}/sock`]);
@@ -539,6 +551,7 @@ function chromeBinary() {
   return join(root, shell, "chrome-headless-shell-linux64", "chrome-headless-shell");
 }
 
+/** The renter's visit to the hosted site, from the wall to the end of the session, one step at a time. */
 async function renter() {
   const { mintRenterSession } = await import(join(REPO, "server/dist/access.js"));
   const { SESSION_COOKIE } = await import(join(REPO, "server/dist/signin.js"));
@@ -780,6 +793,7 @@ async function renter() {
 
 // --- The run ------------------------------------------------------------------------------
 
+/** Stops every process the harness started and deletes the fixture disk, which holds the machine key. */
 function stopAll() {
   for (const proc of children) proc.kill();
   rmSync(join(RUN, "fixtures.img"), { force: true });
