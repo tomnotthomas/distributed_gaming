@@ -1382,7 +1382,9 @@ describe("rental mode", () => {
     acts = renderReal("live", off, failedAt("ek", "Get-TpmEndorsementKeyInfo failed: exit code 1"));
     expect(h1()).toHaveTextContent("Couldn't read the TPM");
     expect(
-      screen.getByText("Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again."),
+      screen.getByText(
+        "Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
