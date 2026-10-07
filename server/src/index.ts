@@ -60,6 +60,7 @@ import {
   verifyInviteToken,
   verifySeatToken,
   verifyTicket,
+  verifyWatchTicket,
   type HostingTier,
 } from "./access.js";
 import {
@@ -76,9 +77,12 @@ import { createStateKeys, databaseStateKeyStore, stateKeySecretFromEnv } from ".
 import {
   DENIED_CODE,
   isRelayed,
+  relayServers,
   type DeniedMessage,
   type PeerLeftMessage,
   type SessionError,
+  type WatchCrew,
+  type WatchersMessage,
   type SessionGrant,
   type SignalMessage,
 } from "./protocol.js";
@@ -87,7 +91,7 @@ import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
 import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
-import { MAX_MINUTES, Platform, type ClaimedSession } from "./platform.js";
+import { MAX_MINUTES, Platform, watchCrew, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
@@ -95,6 +99,8 @@ import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
 import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
 import { createSignups } from "./signups.js";
+import { Watches, type Watch, type WatchEnd } from "./watch.js";
+import { watchFrame } from "./watchIce.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -156,6 +162,9 @@ const grace = createRenterGrace({
     });
   },
 });
+
+// Crewmates watching a session (watch.ts): in this process, beside the rooms.
+const watches = new Watches();
 
 // Machines, bookings, reservations and sessions (platform.ts), in the Postgres
 // database at DATABASE_URL, or in memory without one. Opened, its tables made
@@ -220,6 +229,11 @@ const serveApi = createApi({
   playability,
   onRenterStarted: pushLaunch,
   heldUntil: (machineId) => grace.until(machineId),
+  watches,
+  // A viewer's own, TURN alone: their connection is relay-only (watchIce.ts).
+  watchRelay: async (seat) => relayServers(await turn.relay.credentials(seat)),
+  onCrewLeft: () => void checkWatches(),
+  checkCrew: (sessionId) => currentCrews(sessionId),
 });
 
 // The public marketing site (marketing.ts) and its sign-ups (signups.ts), only
@@ -276,7 +290,7 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-type Role = "host" | "client";
+type Role = "host" | "client" | "viewer";
 
 /** A socket plus the room bookkeeping this server hangs off it. */
 type PeerSocket = WebSocket & {
@@ -284,6 +298,13 @@ type PeerSocket = WebSocket & {
   role: Role | null;
   /** The ticket a renter joined with. A refresh with the same one retakes the seat. */
   ticketId: string | null;
+  /**
+   * For a renter, the running session their ticket was handed out for (found
+   * at join), which crewmates watch; for a viewer, the session they watch.
+   */
+  watchSession: string | null;
+  /** A viewer's watch (watch.ts). */
+  watchId: string | null;
   /**
    * A renter's ticket was handed out for a running session when they joined:
    * dropping out of it starts the reconnect grace. A ticket minted by hand has none.
@@ -317,7 +338,8 @@ type PeerSocket = WebSocket & {
   dropped: number;
 };
 
-type Room = { host: PeerSocket | null; client: PeerSocket | null };
+/** A room: the PC, the renter playing, and the crewmates watching them, by watch id. */
+type Room = { host: PeerSocket | null; client: PeerSocket | null; viewers: Map<string, PeerSocket> };
 
 const rooms = new Map<string, Room>();
 
@@ -345,7 +367,7 @@ function revoke(ticketId: string): void {
 function roomFor(hostId: string): Room {
   let room = rooms.get(hostId);
   if (!room) {
-    room = { host: null, client: null };
+    room = { host: null, client: null, viewers: new Map() };
     rooms.set(hostId, room);
   }
   return room;
@@ -385,7 +407,7 @@ function evictHost(hostId: string, reason: DeniedMessage["reason"]): void {
   if (!room || !host) return;
   room.host = null;
   send(room.client, { type: "peer-left" });
-  if (!room.client) rooms.delete(hostId);
+  if (!room.client && !room.viewers.size) rooms.delete(hostId);
   deny(host, reason);
   hostGone(hostId, false);
 }
@@ -417,6 +439,142 @@ function renterLeft(ws: PeerSocket): PeerLeftMessage {
   return { type: "peer-left", grace: GRACE_MS / 1000 };
 }
 
+// --- watching ---------------------------------------------------------------
+
+/** The renter seated in `room` playing session `sessionId`, whose ticket is not known to be revoked; else null. */
+function playerOf(room: Room | undefined, sessionId: string): PeerSocket | null {
+  const client = room?.client;
+  return client && client.watchSession === sessionId && !seatRevoked(client) ? client : null;
+}
+
+/**
+ * Players not told of a change because their crews could not be read, by
+ * session, with their room: told on the next check (checkWatches).
+ */
+const untold = new Map<string, string>();
+
+/**
+ * Tell the player of `sessionId` everyone asking to watch or watching, whole,
+ * and which of their crews may (platform.ts, watchCrew). Read when it is sent,
+ * so the last told is the latest. When their crews cannot be read, nothing is
+ * sent until the next check: never an empty list it would read as nobody may
+ * watch. Never rejects.
+ */
+async function tellPlayer(room: string, sessionId: string): Promise<void> {
+  let crews: WatchCrew[];
+  try {
+    crews = await platform.watchCrews(sessionId);
+  } catch {
+    untold.set(sessionId, room);
+    return;
+  }
+  untold.delete(sessionId);
+  const crew = watchCrew(
+    crews.map((c) => c.id),
+    watches.crew(sessionId),
+  );
+  const viewers = rooms.get(room)?.viewers;
+  const message: WatchersMessage = {
+    type: "watchers",
+    sharing: watches.sharing(sessionId),
+    crew: crews.find((c) => c.id === crew) ?? null,
+    crews,
+    watchers: watches.list(sessionId).map((watch) => ({
+      watchId: watch.id,
+      name: watch.name,
+      state: watch.state,
+      here: viewers?.get(watch.id) !== undefined,
+    })),
+  };
+  send(playerOf(rooms.get(room), sessionId), message);
+}
+
+/**
+ * Tell a viewer where their watch stands. Once let in, with their watch's own
+ * TURN credential, all their relay-only connection uses.
+ */
+function tellViewer(watch: Watch): void {
+  const room = rooms.get(watch.room);
+  send(room?.viewers.get(watch.id) ?? null, {
+    type: "watching",
+    watchId: watch.id,
+    state: watch.state,
+    player: watch.playerName,
+    playerHere: playerOf(room, watch.sessionId) !== null,
+    ...iceServers(watch.state === "watching" ? watch.relay : []),
+  });
+}
+
+/** A watch ended: its viewer is told why and hung up on. The player hears it from the caller. */
+function endViewer(watch: Watch, reason: WatchEnd): void {
+  const room = rooms.get(watch.room);
+  const viewer = room?.viewers.get(watch.id);
+  if (!room || !viewer) return;
+  room.viewers.delete(watch.id);
+  deny(viewer, reason);
+  if (!room.host && !room.client && !room.viewers.size) rooms.delete(watch.room);
+}
+
+/** End watch `watchId` for `reason`, and tell both sides. */
+function endWatch(watchId: string, reason: WatchEnd): void {
+  const watch = watches.end(watchId, reason);
+  if (!watch) return;
+  endViewer(watch, reason);
+  void tellPlayer(watch.room, watch.sessionId);
+}
+
+/**
+ * The crews session `sessionId` may be opened to now (platform.ts
+ * watchCrews). A crew picked for it that is no longer one of them (the PC no
+ * longer plays for it, or the player left it) is dropped first: everyone
+ * watching through it stops, sharing closes, and the session's crew is the
+ * first of those left until the player shares again.
+ */
+async function currentCrews(sessionId: string): Promise<WatchCrew[]> {
+  const pin = watches.crew(sessionId);
+  const crews = await platform.watchCrews(sessionId);
+  if (pin === null || watches.crew(sessionId) !== pin || crews.some((c) => c.id === pin)) return crews;
+  const ended = watches.unpin(sessionId);
+  for (const watch of ended) endViewer(watch, "not-crew");
+  const room = [...rooms].find(([, r]) => r.client?.watchSession === sessionId)?.[0] ?? ended[0]?.room;
+  if (room) void tellPlayer(room, sessionId);
+  renterEvents.crewChanged();
+  return crews;
+}
+
+/**
+ * Time and the database's say on every watch: one asking too long goes
+ * unanswered, one whose viewer left for good stops, and one whose session is
+ * over or whose viewer no longer shares a crew with the player ends, in one
+ * read. A database that cannot answer changes nothing until the next round.
+ * Never rejects.
+ */
+async function checkWatches(): Promise<void> {
+  for (const [sessionId, room] of untold) void tellPlayer(room, sessionId);
+  for (const { watch, reason } of watches.expire()) {
+    endViewer(watch, reason);
+    void tellPlayer(watch.room, watch.sessionId);
+  }
+  try {
+    for (const sessionId of watches.pinned()) await currentCrews(sessionId);
+    const all = watches.all();
+    if (!all.length) return;
+    const stopped = await platform.watchesStopped(
+      all.map((watch) => ({
+        sessionId: watch.sessionId,
+        viewerId: watch.viewerId,
+        picked: watches.crew(watch.sessionId),
+      })),
+    );
+    for (const watch of all) {
+      const why = stopped.get(`${watch.sessionId}:${watch.viewerId}`);
+      if (why) endWatch(watch.id, why === "ended" ? "watch-ended" : "not-crew");
+    }
+  } catch (error) {
+    console.error("[swiff] watch check failed:", error instanceof Error ? error.name : typeof error);
+  }
+}
+
 // --- host sessions ----------------------------------------------------------
 
 /**
@@ -437,6 +595,9 @@ function sessionEnded(hostId: string, sessionId: string, ticketId: string | null
   // However it ended, a renter who dropped has nothing left to come back to.
   grace.cancel(hostId);
   evictStreamer(hostId, sessionId);
+  // Nobody watches a session that is over.
+  for (const watch of watches.endSession(sessionId)) endViewer(watch, "watch-ended");
+  untold.delete(sessionId);
   const client = rooms.get(hostId)?.client;
   if (client && seatRevoked(client)) putOut(client);
 }
@@ -941,6 +1102,7 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
       ws.ticketId = ticket.id;
       ws.inSession = running !== null;
       ws.hostRelay = hostRelay;
+      ws.watchSession = running;
       confirm(ws, began);
       room.client = ws;
       // A renter back within the reconnect grace keeps their session.
@@ -952,6 +1114,108 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         ...iceServers(renterRelay),
       });
       send(room.host, { type: "peer-joined", ...iceServers(hostRelay) });
+      // The player is back for anyone asking or watching: they hear who, and the viewers that they are here.
+      if (running !== null) {
+        void tellPlayer(ticket.room, running);
+        for (const watch of watches.list(running)) tellViewer(watch);
+      }
+      return;
+    }
+
+    case "watch": {
+      if (ws.role) return;
+      const ticket = access.secret ? verifyWatchTicket(access.secret, msg.ticket) : null;
+      if (!ticket) return deny(ws, "bad-watch-ticket");
+      const over = watches.over(ticket.watch);
+      if (over) return deny(ws, over);
+      const known = watches.get(ticket.watch);
+      if (!known || known.viewerId !== ticket.viewer || known.sessionId !== ticket.session) {
+        return deny(ws, "bad-watch-ticket");
+      }
+      // Still their crewmate's, and still running: asked again at every seat.
+      const live = await platform.watchable(ticket.session, ticket.viewer, watches.crew(ticket.session));
+      if (live === "ended" || live === "not-crew") {
+        const reason = live === "ended" ? "watch-ended" : "not-crew";
+        endWatch(ticket.watch, reason);
+        return deny(ws, reason);
+      }
+      // Ended, or the player stopped it, while the database was asked.
+      const watch = watches.get(ticket.watch);
+      if (!watch) return deny(ws, watches.over(ticket.watch) ?? "bad-watch-ticket");
+      const room = roomFor(watch.room);
+      // The same viewer's page again (a reload, a dropped socket): it takes the seat back.
+      const before = room.viewers.get(watch.id);
+      if (before && before !== ws) deny(before, "watch-replaced");
+      ws.hostId = watch.room;
+      ws.role = "viewer";
+      ws.watchId = watch.id;
+      ws.watchSession = watch.sessionId;
+      room.viewers.set(watch.id, ws);
+      watches.back(watch.id);
+      tellViewer(watch);
+      void tellPlayer(watch.room, watch.sessionId);
+      return;
+    }
+
+    case "watch-answer":
+    case "watch-stop":
+    case "watch-share": {
+      // The player's own say, on their own session, while their seat stands.
+      const sessionId = ws.role === "client" && !seatRevoked(ws) ? ws.watchSession : null;
+      if (!sessionId || rooms.get(ws.hostId ?? "")?.client !== ws) return;
+      if (msg.type === "watch-share") {
+        const open = msg.open === true;
+        const was = watches.sharing(sessionId);
+        // A share names one crew for the session: the one picked, else the first, kept from then on.
+        // Closing needs no crew and always goes through. For an open or a pick, a database that
+        // cannot say changes nothing: it is dropped, the player's own seat stands.
+        const crews =
+          !open && msg.crew === undefined
+            ? []
+            : await currentCrews(sessionId).catch((error: unknown) => {
+                console.error(
+                  "[swiff] watch share failed:",
+                  error instanceof Error ? error.name : typeof error,
+                );
+                return null;
+              });
+        if (crews === null || (open && !crews.length)) return;
+        const crew = msg.crew ?? (open && watches.crew(sessionId) === null ? crews[0]!.id : undefined);
+        const picked = crew !== undefined && crew !== watches.crew(sessionId);
+        if (picked) {
+          // One of the crews the player may open watching to, or nothing changes.
+          if (typeof crew !== "string" || !crews.some((c) => c.id === crew)) return;
+          // Only that crew from now on: asks are checked against it at once, and anyone of another stops.
+          watches.choose(sessionId, crew);
+          const others = watches.list(sessionId);
+          // Unanswered, the watches stay as they are: the next checkWatches round asks again.
+          const stopped = await platform
+            .watchesStopped(others.map((watch) => ({ sessionId, viewerId: watch.viewerId, picked: crew })))
+            .catch((error: unknown) => {
+              console.error(
+                "[swiff] watch share failed:",
+                error instanceof Error ? error.name : typeof error,
+              );
+              return new Map<string, string>();
+            });
+          for (const watch of others) {
+            const why = stopped.get(`${sessionId}:${watch.viewerId}`);
+            if (why) endWatch(watch.id, why === "ended" ? "watch-ended" : "not-crew");
+          }
+        }
+        for (const watch of watches.share(sessionId, open)) tellViewer(watch);
+        void tellPlayer(ws.hostId!, sessionId);
+        // Every crewmate's wall reads the crew again: only when there is news.
+        if (was !== open || picked) renterEvents.crewChanged();
+        return;
+      }
+      if (typeof msg.watchId !== "string" || watches.get(msg.watchId)?.sessionId !== sessionId) return;
+      if (msg.type === "watch-stop") return endWatch(msg.watchId, "watch-stopped");
+      const watch = watches.answer(sessionId, msg.watchId, msg.accept === true);
+      if (!watch) return;
+      if (watches.get(watch.id)) tellViewer(watch);
+      else endViewer(watch, "watch-declined");
+      void tellPlayer(ws.hostId!, sessionId);
       return;
     }
 
@@ -1025,23 +1289,21 @@ function ticketReadAfter(ticketId: string, arrived: number): TicketRead {
 async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
   // Steam sign-in goes from the PC to its renter, but for the renter's retry, which goes only to the PC.
   if (msg.type === "steam-login" && (ws.role === "host") === (msg.state === "retry")) return;
+  // Between the PC and the renter only: the voice chat's talk is the player's
+  // and their viewers', and a frame naming a viewer is never the PC's to send.
+  if (msg.type === "crew" || ("watchId" in msg && msg.watchId !== undefined)) return;
   const peer = peerOf(ws);
   if (!peer) return;
   const renter = ws.role === "client" ? ws : peer;
   const ticketId = renter.ticketId;
   if (!ticketId) return;
-  while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
-    if (ws.readyState !== ws.OPEN || peer.readyState !== peer.OPEN || peerOf(ws) !== peer) return;
-    const read = ticketReadAfter(ticketId, arrived);
-    try {
-      if (await read.revoked) putOut(renter);
-      else confirm(renter, read.began);
-    } catch (error) {
-      console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
-      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
-    }
+  if (!(await confirmed(ws, peer, renter, arrived))) return;
+  if (!forRenterSession(ws, renter, msg)) return;
+  // The game is on the player's screen: their crew may ask to watch from now on.
+  if (msg.type === "game-started" && !watches.onScreen(msg.sessionId)) {
+    watches.gameOnScreen(msg.sessionId);
+    renterEvents.crewChanged();
   }
-  if (seatRevoked(renter) || peerOf(ws) !== peer || !forRenterSession(ws, renter, msg)) return;
   // Recorded before the renter hears it, so their first frame may start the session. While the
   // database cannot take it, the frame is held, with the frames behind it, and the write retried.
   if (msg.type === "steam-login" && msg.state === "signed-in") {
@@ -1052,6 +1314,77 @@ async function relay(ws: PeerSocket, msg: SignalMessage, arrived: number): Promi
     }
   }
   send(peer, msg);
+}
+
+/**
+ * Wait until a database read begun after `arrived` has found `renter`'s
+ * ticket not revoked, holding the frame while the database cannot say (see
+ * relay). False when the frame must be dropped: the renter was put out, or
+ * either side left meanwhile. Never rejects.
+ */
+async function confirmed(
+  ws: PeerSocket,
+  peer: PeerSocket,
+  renter: PeerSocket,
+  arrived: number,
+): Promise<boolean> {
+  const ticketId = renter.ticketId;
+  if (!ticketId) return false;
+  /** Whether both sides are still connected and seated. */
+  const still = () =>
+    ws.readyState === ws.OPEN && peer.readyState === peer.OPEN && seated(ws) && seated(peer);
+  while (!seatRevoked(renter) && renter.confirmedAt <= arrived) {
+    if (!still()) return false;
+    const read = ticketReadAfter(ticketId, arrived);
+    try {
+      if (await read.revoked) putOut(renter);
+      else confirm(renter, read.began);
+    } catch (error) {
+      console.error("[swiff] ticket check failed:", error instanceof Error ? error.name : typeof error);
+      await new Promise((resolve) => setTimeout(resolve, RELAY_RETRY_MS));
+    }
+  }
+  return !seatRevoked(renter) && seated(ws) && seated(peer);
+}
+
+/** Whether `ws` still holds its seat in its room. */
+function seated(ws: PeerSocket): boolean {
+  const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
+  if (!room) return false;
+  if (ws.role === "host") return room.host === ws;
+  if (ws.role === "client") return room.client === ws;
+  return ws.watchId !== null && room.viewers.get(ws.watchId) === ws;
+}
+
+/**
+ * Forward a frame between the player and one of their viewers, never anyone
+ * else: a viewer's answer, candidates and voice talk go to the player playing
+ * the session they watch, with the server's own record of who sent it as
+ * `watchId`; the player's offer, candidates and voice talk go to the viewer
+ * `watchId` names, of their own session. Only while that viewer is watching:
+ * one still asking learns no address and hears nothing. Like relay, nothing
+ * goes until the player's ticket is confirmed after the frame arrived.
+ */
+async function relayWatch(ws: PeerSocket, msg: SignalMessage, arrived: number): Promise<void> {
+  const fromViewer = ws.role === "viewer";
+  const watchId = fromViewer ? ws.watchId : "watchId" in msg ? msg.watchId : undefined;
+  if (typeof watchId !== "string") return;
+  const allowed = fromViewer ? ["answer", "ice", "crew"] : ["offer", "ice", "crew"];
+  if (!allowed.includes(msg.type)) return;
+  const watch = watches.get(watchId);
+  if (!watch || watch.state !== "watching" || watch.sessionId !== ws.watchSession) return;
+  const room = rooms.get(watch.room);
+  const player = playerOf(room, watch.sessionId);
+  const viewer = room?.viewers.get(watchId) ?? null;
+  if (!player || !viewer || (fromViewer ? viewer : player) !== ws) return;
+  const peer = fromViewer ? player : viewer;
+  if (!(await confirmed(ws, peer, player, arrived))) return;
+  // Stopped, or no longer the player's, while the database was asked.
+  const now = watches.get(watchId);
+  if (!now || now.state !== "watching" || playerOf(rooms.get(watch.room), watch.sessionId) !== player) return;
+  // Only what the peer needs, and no address but the relay's (watchIce.ts).
+  const frame = watchFrame(msg, watchId);
+  if (frame) send(peer, frame);
 }
 
 /**
@@ -1082,7 +1415,11 @@ async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise
     return; // garbage in, ignored — never crash the room over one bad frame
   }
 
-  if (isRelayed(msg)) return relay(ws, msg, arrived);
+  if (isRelayed(msg)) {
+    const watchFrame =
+      ws.role === "viewer" || (ws.role === "client" && "watchId" in msg && msg.watchId !== undefined);
+    return watchFrame ? relayWatch(ws, msg, arrived) : relay(ws, msg, arrived);
+  }
 
   try {
     await answer(ws, msg);
@@ -1094,10 +1431,26 @@ async function onMessage(ws: PeerSocket, raw: RawData, arrived: number): Promise
   }
 }
 
-/** `ws` closed: give up its seat, and tell its peer and the platform. */
-function onClose(ws: PeerSocket): void {
+/**
+ * `ws` closed with `code`: give up its seat, and tell its peer and the
+ * platform. A viewer whose socket dropped (1006: no close frame) keeps their
+ * place for a moment, to come back on the same ticket; one whose page closed it
+ * (Leave, or the page going) has left, and their watch ends now.
+ */
+function onClose(ws: PeerSocket, code = 1006): void {
   const room = ws.hostId ? rooms.get(ws.hostId) : undefined;
   if (!room) return;
+
+  // A viewer leaving keeps their place for a moment, to come back on the same ticket (watch.ts).
+  if (ws.role === "viewer") {
+    if (!ws.watchId || room.viewers.get(ws.watchId) !== ws) return;
+    room.viewers.delete(ws.watchId);
+    if (code === 1006) watches.away(ws.watchId);
+    else watches.end(ws.watchId, "watch-left");
+    if (ws.watchSession) void tellPlayer(ws.hostId!, ws.watchSession);
+    if (!room.host && !room.client && !room.viewers.size) rooms.delete(ws.hostId!);
+    return;
+  }
 
   // A socket that was already replaced is not in this room any more: a newer
   // host or renter took its seat, and the close arriving now is the tail end
@@ -1113,7 +1466,9 @@ function onClose(ws: PeerSocket): void {
   if (wasHost) room.host = null;
   if (room.client === ws) room.client = null;
   send(peer, wasHost ? { type: "peer-left" } : renterLeft(ws));
-  if (!room.host && !room.client && ws.hostId) rooms.delete(ws.hostId);
+  // The player's page is gone: their viewers wait for it to come back.
+  if (!wasHost && ws.watchSession) for (const watch of watches.list(ws.watchSession)) tellViewer(watch);
+  if (!room.host && !room.client && !room.viewers.size && ws.hostId) rooms.delete(ws.hostId);
   // The PC service's own socket going is the PC going: offline now while it
   // is on offer. A streamer's going, or any socket once a renter has claimed
   // the PC, leaves the liveness window: a session does not die with one socket.
@@ -1125,6 +1480,8 @@ wss.on("connection", (socket) => {
   ws.hostId = null;
   ws.role = null;
   ws.ticketId = null;
+  ws.watchSession = null;
+  ws.watchId = null;
   ws.inSession = false;
   ws.hostRelay = [];
   ws.confirmedAt = 0;
@@ -1171,9 +1528,9 @@ wss.on("connection", (socket) => {
       }
     });
   });
-  ws.on("close", () => {
+  ws.on("close", (code) => {
     if (ws.certTimer) clearTimeout(ws.certTimer);
-    inTurn(ws, () => onClose(ws));
+    inTurn(ws, () => onClose(ws, code));
   });
 });
 
@@ -1229,7 +1586,9 @@ const TICKET_RECONCILE_MS = Number(process.env.SWIFF_TICKET_RECONCILE_MS) || 5_0
 const MAX_UNCONFIRMED_MS = Number(process.env.SWIFF_TICKET_UNCONFIRMED_MS) || 5 * 60_000;
 let reconciling: Promise<void> | null = null;
 setInterval(() => {
-  reconciling ??= reconcileSeats().finally(() => (reconciling = null));
+  reconciling ??= Promise.all([reconcileSeats(), checkWatches()])
+    .then(() => {})
+    .finally(() => (reconciling = null));
 }, TICKET_RECONCILE_MS).unref();
 
 // Server-side liveness sweep. Without it a host whose machine slept keeps its

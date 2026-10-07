@@ -18,10 +18,29 @@ export const E2E_SEAT_PC = "seat-pc-1";
 export const E2E_SEAT_PC_KEY = "e2e-seat-pc-key";
 /** Its owner, the host who saves the seat. */
 export const E2E_SEAT_PC_OWNER = "76561198000000201";
+/**
+ * The PC the watch spec plays on, which its owner brings to the player's crew:
+ * watching is for the crew of the PC being played. The /host page registers it.
+ */
+export const E2E_WATCH_PC = "watch-pc-1";
+export const E2E_WATCH_PC_KEY = "e2e-watch-pc-key";
+export const E2E_WATCH_PC_OWNER = "76561198000000103";
 const E2E_SECRET = "e2e-room-secret-that-is-long-enough-to-pass";
 const E2E_SESSION_SECRET = "e2e-session-secret-that-is-long-enough-to-pass";
 
+/**
+ * Where a TURN relay listens for watching a crewmate, which is relay-only
+ * (server/src/watchIce.ts): e2e/scripts/turn.sh starts one with the test-only
+ * secret below, which the server mints each seat's and watch's credential with,
+ * and CI sets this. Unset: no relay, and watching says so.
+ */
+export const E2E_TURN_URL = process.env.E2E_TURN_URL ?? "";
+const E2E_TURN: Record<string, string> = E2E_TURN_URL
+  ? { TURN_URLS: E2E_TURN_URL, TURN_SECRET: "e2e-only-turn-secret-that-is-long-enough-to-pass" }
+  : {};
+
 export const E2E_ENV = {
+  ...E2E_TURN,
   ROOM_SECRET: E2E_SECRET,
   // Steam sign-in refuses to start without its own secret, distinct from ROOM_SECRET.
   SESSION_SECRET: E2E_SESSION_SECRET,
@@ -29,6 +48,7 @@ export const E2E_ENV = {
     `${E2E_ROOM}:${createHash("sha256").update(E2E_MACHINE_KEY).digest("hex")}`,
     `${E2E_CREW_PC}:${createHash("sha256").update(E2E_CREW_PC_KEY).digest("hex")}:${E2E_CREW_PC_OWNER}`,
     `${E2E_SEAT_PC}:${createHash("sha256").update(E2E_SEAT_PC_KEY).digest("hex")}:${E2E_SEAT_PC_OWNER}`,
+    `${E2E_WATCH_PC}:${createHash("sha256").update(E2E_WATCH_PC_KEY).digest("hex")}:${E2E_WATCH_PC_OWNER}`,
   ].join(","),
   // Every game playable, unchecked: the wall's games must not hang on Steam
   // verdicts (server/src/playable.ts, tested on its own with recordings).

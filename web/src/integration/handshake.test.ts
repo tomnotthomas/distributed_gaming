@@ -80,6 +80,14 @@ const ROOMS = Array.from({ length: 30 }, (_, i) => `it-pc-${i}`);
 const HASH = createHash("sha256").update(MACHINE_KEY).digest("hex");
 let roomIndex = 0;
 const nextRoom = () => ROOMS[roomIndex++];
+/** The renter's crewmate, who asks to watch, and whose gaming PCs these rooms are. */
+const FRIEND_ID = "76561198000000002";
+const FRIEND_COOKIE = `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, FRIEND_ID, 3600)}`;
+const WATCH_ROOMS = Array.from({ length: 4 }, (_, i) => `it-watch-pc-${i}`);
+let watchRoomIndex = 0;
+/** A fake TURN relay the server mints credentials for (nothing here connects to it): watching is relay-only. */
+const TURN_URL = "turn:turn.invalid:3478";
+const TURN_SECRET = "integration-turn-secret-long-enough-to-pass";
 
 const register = (room: string): SignalMessage => ({ type: "register", hostId: room, key: MACHINE_KEY });
 const join = (room: string, ticket = mintTicket(SECRET, room, 600)): SignalMessage => ({
@@ -154,9 +162,14 @@ beforeAll(async () => {
       PORT: String(PORT),
       ROOM_SECRET: SECRET,
       SESSION_SECRET,
-      MACHINE_KEYS: ROOMS.map((room) => `${room}:${HASH}`).join(","),
+      MACHINE_KEYS: [
+        ...ROOMS.map((room) => `${room}:${HASH}`),
+        ...WATCH_ROOMS.map((room) => `${room}:${HASH}:${FRIEND_ID}`),
+      ].join(","),
       // Every game playable, so nothing here waits on or calls Steam (server/src/playable.ts).
       SWIFF_PLAYABILITY: "off",
+      TURN_URLS: TURN_URL,
+      TURN_SECRET,
     },
     stdio: "ignore",
   });
@@ -193,13 +206,16 @@ async function until(check: () => boolean, what: string, timeoutMs = 5000): Prom
   }
 }
 
-/** One JSON call to the server's HTTP API as the signed-in renter, with the machine key when given. */
-async function call(method: string, path: string, body?: unknown, key?: string) {
+/**
+ * One JSON call to the server's HTTP API as the signed-in renter (or `as`, a
+ * cookie for someone else), with the machine key or a ticket when given.
+ */
+async function call(method: string, path: string, body?: unknown, key?: string, as = RENTER_COOKIE) {
   const res = await fetch(`${HTTP_URL}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      cookie: RENTER_COOKIE,
+      cookie: as,
       ...(key ? { authorization: `Bearer ${key}` } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -430,5 +446,180 @@ describe("web client against the real signaling server", () => {
     );
     const intruder = peer(register(room));
     expect((await intruder.waitFor("denied")).reason).toBe("session-active");
+  });
+});
+
+describe("watching a crewmate play, against the real signaling server", () => {
+  let crewMade = false;
+
+  /** The renter's session on a crew PC, the game on screen: what a crewmate may ask to watch. */
+  async function playing() {
+    if (!crewMade) {
+      // The renter founds a crew; the friend joins by its link and brings their PCs.
+      const founded = await call("POST", "/api/crews", {});
+      expect(founded.status).toBe(201);
+      const crew = founded.body.crew as { id: string; token: string };
+      const joined = await call(
+        "POST",
+        `/api/invites/${crew.token}/join`,
+        undefined,
+        undefined,
+        FRIEND_COOKIE,
+      );
+      expect(joined.status).toBe(200);
+      const brought = await call("POST", `/api/crews/${crew.id}/pc`, { pc: "yes" }, undefined, FRIEND_COOKIE);
+      expect(brought.status).toBe(200);
+      crewMade = true;
+    }
+    const room = WATCH_ROOMS[watchRoomIndex++]!;
+    expect(
+      (await call("PUT", `/api/machines/${room}/availability`, { available: true, ...REPORT }, MACHINE_KEY))
+        .status,
+    ).toBe(200);
+    const host = peer(register(room));
+    await host.waitFor("registered");
+    const booking = await call("POST", "/api/bookings", { gameId: 730, minutes: 45, machineId: room });
+    const claim = await call("POST", `/api/bookings/${String(booking.body.bookingId)}/claim`);
+    expect(claim.status).toBe(200);
+    const sessionId = String(claim.body.sessionId);
+    const player = peer(join(room, String(claim.body.ticket)));
+    await player.waitFor("joined");
+    // The player's first frame starts the session; the PC launches the game and says it is on screen.
+    expect(
+      (await call("POST", `/api/sessions/${sessionId}/start`, {}, String(claim.body.ticket))).status,
+    ).toBe(200);
+    await host.waitFor("launch-game");
+    host.send({ type: "game-started", sessionId });
+    await player.waitFor("game-started");
+    return { host, player, sessionId };
+  }
+
+  /** The friend asks to watch `sessionId` and takes a viewer seat with the watch ticket. */
+  async function asks(sessionId: string) {
+    const asked = await call(
+      "POST",
+      `/api/crew-live/${sessionId}/watch`,
+      undefined,
+      undefined,
+      FRIEND_COOKIE,
+    );
+    expect(asked.status).toBe(200);
+    const watchId = String(asked.body.watchId);
+    const viewer = peer({ type: "watch", ticket: String(asked.body.ticket) });
+    return { viewer, watchId };
+  }
+
+  /** The latest message of `type` in `received`, narrowed. */
+  const last = <T extends SignalMessage["type"]>(received: SignalMessage[], type: T) =>
+    received.filter((m) => m.type === type).at(-1) as MessageOf<T> | undefined;
+
+  it("seats a viewer, carries the player's yes, relay frames named by watchId, the voice chat's talk, and the stop", async () => {
+    const { host, player, sessionId } = await playing();
+    const { viewer, watchId } = await asks(sessionId);
+
+    // Asking: the viewer waits, with no relay credential yet, and the player hears who asks.
+    const asking = await viewer.waitFor("watching");
+    expect(asking).toMatchObject({ type: "watching", watchId, state: "asking", playerHere: true });
+    expect(asking.iceServers).toBeUndefined();
+    await until(() => last(player.received, "watchers")?.watchers.length === 1, "the player hearing the ask");
+    expect(last(player.received, "watchers")).toMatchObject({
+      type: "watchers",
+      sharing: false,
+      watchers: [{ watchId, state: "asking", here: true }],
+    });
+
+    // The player says yes: the viewer is told, and handed the TURN relay alone, with a credential for this watch.
+    player.send({ type: "watch-answer", watchId, accept: true });
+    await until(() => last(viewer.received, "watching")?.state === "watching", "the viewer told yes");
+    const servers = last(viewer.received, "watching")?.iceServers ?? [];
+    expect(servers.map((s) => s.urls)).toEqual([[TURN_URL]]);
+    expect(servers[0]?.username).toMatch(new RegExp(`^\\d+:${watchId}-viewer$`));
+
+    // The player's offer and a relay candidate reach the viewer, named by watchId; a host candidate does not.
+    const relay = "candidate:3 1 udp 41885439 203.0.113.9 50000 typ relay raddr 0.0.0.0 rport 0";
+    player.send({ type: "offer", sdp: { type: "offer", sdp: "v=0 player-offer" }, watchId });
+    player.send({
+      type: "ice",
+      candidate: { candidate: "candidate:1 1 udp 1 192.168.1.20 9 typ host", sdpMid: "0" },
+      watchId,
+    });
+    player.send({ type: "ice", candidate: { candidate: relay, sdpMid: "0" }, watchId });
+    player.send({ type: "crew", watchId, data: { kind: "roster", people: [] } });
+    expect(await viewer.waitFor("offer")).toEqual({
+      type: "offer",
+      sdp: { type: "offer", sdp: "v=0 player-offer" },
+      watchId,
+    });
+    expect((await viewer.waitFor("ice")).candidate).toEqual({ candidate: relay, sdpMid: "0" });
+    expect(await viewer.waitFor("crew")).toEqual({
+      type: "crew",
+      watchId,
+      data: { kind: "roster", people: [] },
+    });
+    await wait(200);
+    expect(viewer.received.filter((m) => m.type === "ice")).toHaveLength(1);
+
+    // The viewer's answer, candidate and voice reach the player, named by the server with the viewer's watchId.
+    viewer.send({ type: "answer", sdp: { type: "answer", sdp: "v=0 viewer-answer" } });
+    viewer.send({ type: "ice", candidate: { candidate: relay, sdpMid: "0" } });
+    viewer.send({ type: "crew", data: { kind: "voice", inVoice: true, muted: false } });
+    expect(await player.waitFor("answer")).toEqual({
+      type: "answer",
+      sdp: { type: "answer", sdp: "v=0 viewer-answer" },
+      watchId,
+    });
+    expect(await player.waitFor("ice")).toEqual({
+      type: "ice",
+      candidate: { candidate: relay, sdpMid: "0" },
+      watchId,
+    });
+    expect(await player.waitFor("crew")).toEqual({
+      type: "crew",
+      data: { kind: "voice", inVoice: true, muted: false },
+      watchId,
+    });
+    // The PC hears none of it.
+    expect(host.types().filter((t) => ["offer", "answer", "ice", "crew"].includes(t))).toEqual([]);
+
+    // The player stops it: the viewer is told why.
+    player.send({ type: "watch-stop", watchId });
+    expect((await viewer.waitFor("denied")).reason).toBe("watch-stopped");
+  });
+
+  it("tells a viewer the player said no", async () => {
+    const { player, sessionId } = await playing();
+    const { viewer, watchId } = await asks(sessionId);
+    await viewer.waitFor("watching");
+    await until(() => last(player.received, "watchers")?.watchers.length === 1, "the player hearing the ask");
+    player.send({ type: "watch-answer", watchId, accept: false });
+    expect((await viewer.waitFor("denied")).reason).toBe("watch-declined");
+    expect(viewer.received.some((m) => m.type === "offer")).toBe(false);
+  });
+
+  it("holds a friend the player said no to off for a while, until the player shares with the crew", async () => {
+    const { player, sessionId } = await playing();
+    const first = await asks(sessionId);
+    await first.viewer.waitFor("watching");
+    await until(() => last(player.received, "watchers")?.watchers.length === 1, "the player hearing the ask");
+    player.send({ type: "watch-answer", watchId: first.watchId, accept: false });
+    await first.viewer.waitFor("denied");
+
+    // Asking again at once is the cooldown.
+    const again = await call(
+      "POST",
+      `/api/crew-live/${sessionId}/watch`,
+      undefined,
+      undefined,
+      FRIEND_COOKIE,
+    );
+    expect(again.status).toBe(429);
+    expect(again.body.code).toBe("cooldown");
+
+    // The player's own share is a fresh yes: the friend asks and watches at once.
+    player.send({ type: "watch-share", open: true });
+    await until(() => last(player.received, "watchers")?.sharing === true, "the player told they share");
+    const { viewer, watchId } = await asks(sessionId);
+    await until(() => last(viewer.received, "watching")?.state === "watching", "the friend let in");
+    expect(last(viewer.received, "watching")?.watchId).toBe(watchId);
   });
 });

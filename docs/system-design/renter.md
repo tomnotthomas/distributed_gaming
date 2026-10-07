@@ -37,6 +37,11 @@ Source: [`../diagrams/system-architecture.mmd`](../diagrams/system-architecture.
     in the crew brings a gaming PC now or later, a crew may have several, and a PC owner
     picks per crew which crews their PC plays for. A PC that plays for crews is offered
     and matched to the people in them and nobody else (gate E7, "Crews" below).
+11. A crewmate can watch a player play, and talk with them: they see who in their crew is
+    playing and ask to watch, the player says yes or no over their game, and on yes the
+    crewmate gets the game's picture and sound, view only. The player sees who watches and
+    stops anyone at any time, can share with the whole crew at once, and everyone watching
+    can talk in a voice chat. Watching books nothing ("Watching a crewmate play" below).
 
 **Out of scope for now:** payments, owner onboarding, anti-cheat titles, running more than
 one session per machine.
@@ -698,11 +703,17 @@ The wire format lives in `server/src/protocol.ts`.
 | `register`                 | PC → server      | The machine opens its room, with its machine key. `rental: true` from Swiff OS makes its claims say `rentalMode`.                                                                                                                                                                                                                   |
 | `join`                     | renter → server  | The renter joins the room its ticket names; the PC is told.                                                                                                                                                                                                                                                                         |
 | `denied`                   | server → either  | The key or ticket was refused, or the room is taken. The socket is closed and the client does not retry.                                                                                                                                                                                                                            |
-| `offer` / `answer` / `ice` | either way       | Relayed to the other side untouched.                                                                                                                                                                                                                                                                                                |
+| `offer` / `answer` / `ice` | either way       | Between the PC and the renter, relayed untouched; with a `watchId`, rebuilt by the server with relay candidates only (`watchFrame`).                                                                                                                                                                                                |
 | `launch-game`              | server → PC      | The renter's page started the session on its first frame: launch the game booked (`appid`).                                                                                                                                                                                                                                         |
 | `game-started`             | PC → renter      | The PC's answer to `launch-game`, with its `sessionId`: the game runs. Relayed only for the session the renter's page started.                                                                                                                                                                                                      |
 | `peer-left`                | server → either  | The other side left the room. To the PC, `grace` (seconds) says the renter dropped and may come back.                                                                                                                                                                                                                               |
 | `steam-login`              | PC ↔ renter      | Rental mode: Steam's sign-in code before the stream connects, then `signed-in` or `failed`, with an optional `reason` (`sign-in-timeout` or `launch-timeout`) ([`host.md`](host.md)); the renter's `retry` asks for a new one on the same claim. Ignition shows the code; the PC's `game-started` comes once the game is on screen. |
+| `watch`                    | viewer → server  | A crewmate takes a viewer seat with their watch ticket ("Watching a crewmate play").                                                                                                                                                                                                                                                |
+| `watching`                 | server → viewer  | Where the watch stands: `asking` or `watching`, and whether the player's page is in the room.                                                                                                                                                                                                                                       |
+| `watchers`                 | server → renter  | Everyone asking to watch or watching, whole, on every change, whether the player shares with the crew, the session's crew (`crew`) and those they may pick (`crews`).                                                                                                                                                               |
+| `watch-answer` / `-stop`   | renter → server  | The player's yes or no to a viewer asking, or stopping one watching.                                                                                                                                                                                                                                                                |
+| `watch-share`              | renter → server  | The player opens their screen to the crew, or closes it; `crew` picks which of their crews it is.                                                                                                                                                                                                                                   |
+| `crew`                     | renter ↔ viewer  | The voice chat's own talk: who is in it, who is muted. Rebuilt by the server field by field (`watchFrame` in `server/src/watchIce.ts`), like `offer`, `answer` and `ice` with a `watchId`.                                                                                                                                          |
 | `ping`                     | both, every 25 s | Keeps the socket alive (Cloudflare closes idle ones at 100 s).                                                                                                                                                                                                                                                                      |
 
 ### Room access
@@ -884,3 +895,112 @@ under a minute left, the game is no longer the renter's to play, or the next mac
 claim was refused), it says so and hands the
 choice back: Choose a machine, or Stop for now. A page loaded after the machine was lost
 does not carry the session on by itself; the renter starts again from the game.
+
+### Watching a crewmate play
+
+A crewmate can watch a player play, view only, and the player and everyone watching can
+talk. Consent first: only someone in the session's crew can ask, only the player's yes
+lets them watch, the player sees everyone who watches and stops anyone at any time, and
+nothing is recorded or kept.
+
+A session's crew is one crew the PC being played plays for (`crew_machines`) that the
+player is in: the first of those they joined, unless they pick another on their page
+(`watch-share` with `crew`). Nobody in the player's other crews sees the session on the
+wall, asks or watches; picking another crew stops anyone watching from the one before.
+A PC that plays for no crew of the player's has no crew to watch it. Sharing fixes the crew for the rest of the session, so a share never passes to another crew the PC comes to play for. Once the PC no longer plays for that crew, or the player leaves it, it is dropped: everyone watching through it stops, sharing closes, and the session's crew is the first of those left until the player shares again.
+
+```
+GET  /crew-live
+  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
+  The sessions the signed-in player's crewmates are playing now (claimed or playing), on
+  any machine, of those whose crew they are in, never their own: whether the player is still behind Ignition (`starting`:
+  the booking still `claimed`, or the game still launching, until the server has relayed the
+  PC's `game-started` for the session; not yet to be asked, since no ask reaches a player
+  behind Ignition), who plays (`player`, their Steam persona as their crew
+  knows it), which game on which machine, whether they share with the crew (`sharing`),
+  how many watch, and this player's own watch on it (`mine`, `{ state }`, or null).
+  → 401 signed out.
+
+POST /crew-live/:sessionId/watch
+  → 200 { watchId, state, player, signalingUrl, ticket }
+  Ask to watch a session past Ignition (booking `playing` and the PC's `game-started`
+  relayed, so the player sees the ask while its 60 s run): a watch ticket for the session's room, valid until the session's
+  deadline, final by then. `state` is `asking`, or `watching` at once when the player shares with the
+  crew. Asked again while the watch is on, it is the same watch.
+  → 404 when they are not in the crew of that session, it is not running now, or it is still starting. → 409 { code: "full" } when
+  4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
+  Retry-After for 60 s after the player said no, did not answer, or stopped them; the
+  player's own share is a fresh yes and clears it for the crew.
+  → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN relay that
+  mints credentials is configured, or it minted none for this watch, since watching is
+  relay-only (the viewer is told plainly). → 401 signed out.
+```
+
+The watch state (`server/src/watch.ts`) lives in the signaling process beside the rooms:
+
+1. The crewmate's page takes a viewer seat in the room with the ticket (`watch`). The
+   server checks the ticket, that the watch is still on, and again that the session runs
+   and they are still in its crew, then tells the player (`watchers`) and the viewer
+   (`watching`).
+2. The player's page shows the request over the game, whatever the HUD is doing: Let them
+   watch, or Not now (`watch-answer`). No answer in 60 s is a no.
+3. On yes, the player's page streams to the viewer itself (below). Until then the server
+   carries nothing between them: no address, no voice.
+4. The player stops a viewer with Stop (`watch-stop`), and can share with the crew
+   (`watch-share`), which lets everyone in it asking, or asking later, in without a yes
+   until they close it again; closing stops nobody already watching. Their page names the
+   crew ("Anyone in Friday Squad can watch now") and, when the PC plays for more than one
+   of theirs, lets them pick which.
+5. A watch ends when the player says no or stops it, when the session ends (the viewer
+   is told `watch-ended`), when the viewer or the player leaves the session's crew or is
+   removed from it, the PC stops playing for it, or the player picks another (`not-crew`, checked at once on a removal through the API and every 5 s in
+   one read for all), when the viewer's page closes or reloads (`watch-left`, at once), or
+   when the viewer's socket has dropped (close 1006) and not come back within 30 s. Only
+   a dropped socket keeps its place, to come back on the same ticket within those 30 s.
+
+Watching costs the player nothing: no booking, no machine and no minute of theirs. The
+session runs to its own deadline, and the watch ends with it.
+
+The player's page is the hub (`@swiff/rtc` `crewHub.ts`). It receives the PC's stream
+once, as always, and sends it on to each crewmate watching on a connection of its own:
+
+| Transceiver | Direction       | Carries                                                       |
+| ----------- | --------------- | ------------------------------------------------------------- |
+| Video       | player → viewer | The game's picture, re-encoded at up to 2.5 Mbit/s and 30 fps |
+| Audio       | player → viewer | The game's sound                                              |
+| Audio       | player ↔ viewer | The voice line: the player's microphone out, the viewer's in  |
+| Audio ×3    | player → viewer | The other viewers' voices, passed on                          |
+
+So the gaming PC uploads one stream however many watch, never hears of a viewer, and no
+viewer frame ever reaches it: the server routes a viewer's frames to the player's page
+alone. A viewer's connection has no data channel, made or taken, so there is no way for a
+viewer to send input. The viewer sees the game only while the player does: behind
+Ignition, and while reconnecting, nothing is sent on. If the player's page drops, viewers
+wait for it; it connects them again when it is back. The player's page and a
+viewer's connect only once the player says yes, and only through the TURN relay, so
+neither sees the other's network address (below); before the yes, the server carries
+nothing between them. Viewers see the names of the others watching in the voice chat.
+
+The voice chat is on the same connections. Joining asks for the microphone, and only
+then. Each person talks on an open mic or push to talk (the player's button; a viewer's
+button or V, since a viewer's keyboard reaches nothing else), mutes themselves, and mutes
+anyone for themselves alone. The player can mute anyone for everyone: their voice is no
+longer passed on, and they are told. Every transceiver is there from the first offer, so
+joining, leaving, muting and viewers coming and going only swap tracks. Voices go between
+the pages through the TURN relay, never through the server, and nothing is recorded. Every
+watch connection is relay-only (`iceTransportPolicy: "relay"`, TURN servers only), and the
+server passes on only relay candidates and an SDP stripped of every other address
+(`server/src/watchIce.ts`): a crewmate never learns the player's IP address, nor the player
+theirs. The player's page uses its own seat's TURN credential, from `joined`. A viewer gets
+one of their own, minted for their watch when they ask and handed to them in `watching`
+once the player lets them in, never shared with the player or another viewer
+(`server/src/ice.ts`). It expires with the watch ticket and, like a seat's, cannot be
+revoked: a watch that ends sooner leaves it good until then. Without a TURN relay that
+mints credentials, there is no watching.
+The player hears the game and the crew; viewers hear the game and the crew.
+
+On the wall, a band names each crewmate playing now with Ask to watch (Watch when they
+share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it),
+or `event: crew` says a player shared or stopped sharing, or that a crewmate's game is on
+screen (so Ask to watch shows at once). The watch itself covers the
+page: Asked, the player's yes, the game, and plainly why it ended.

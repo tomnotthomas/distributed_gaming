@@ -57,6 +57,11 @@ or later. A PC plays for the crews its owner picks, and only for the people in t
 PC for friends, from the host app; a friend takes one from its link (`/seat/<token>`) and plays
 their own games there. See [Friend seats](docs/system-design/renter.md#friend-seats).
 
+A crewmate can ask to watch a player's session, view only, and talk with them in a voice
+chat; the player says yes over the game and can stop anyone. The player's page streams it
+on, so the gaming PC uploads nothing more. See
+[Watching a crewmate play](docs/system-design/renter.md#watching-a-crewmate-play).
+
 Code: `web/`, `server/`, `packages/`.
 
 ## Marketing site

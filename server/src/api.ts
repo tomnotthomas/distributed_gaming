@@ -20,6 +20,8 @@
 //   GET  /api/seats/:token   (signed out)  GET  /api/machines/:id/seats         control
 //   POST /api/seats/:token/take            POST /api/machines/:id/seats         control
 //                                          DELETE /api/machines/:id/seats?seat= control
+//   GET  /api/crew-live                    (watching a crewmate play: watch.ts)
+//   POST /api/crew-live/:sessionId/watch
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -96,6 +98,7 @@ import {
   inviteToken,
   mintTicket,
   seatToken,
+  mintWatchTicket,
   verifyInviteToken,
   verifySeatToken,
   verifyMachineKey,
@@ -124,6 +127,8 @@ import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
+import { newWatchId, type AskRefusal, type Watches } from "./watch.js";
+import type { RelaySeat } from "./ice.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
   emptyProfile,
@@ -193,6 +198,18 @@ export type ApiOptions = {
    * dropped out of it (grace.ts); null while nobody has.
    */
   heldUntil?: (machineId: string) => number | null;
+  /** Who asked to watch which session (watch.ts). Without it the crew-live routes are not served. */
+  watches?: Watches;
+  /**
+   * A TURN credential of the viewer's own for a watch (ice.ts): a watch
+   * connection is relay-only (watchIce.ts), so where none is minted nobody can
+   * ask to watch. Unset: none.
+   */
+  watchRelay?: (seat: RelaySeat) => Promise<RTCIceServer[]>;
+  /** Someone left a crew or was removed from one: whoever watches across it stops. */
+  onCrewLeft?: () => void;
+  /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
+  checkCrew?: (sessionId: string) => Promise<unknown>;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -478,6 +495,10 @@ export function createApi({
   playability = everyGamePlayable,
   onRenterStarted,
   heldUntil = () => null,
+  watches,
+  watchRelay,
+  onCrewLeft,
+  checkCrew,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
@@ -766,6 +787,7 @@ export function createApi({
     if (resource === "crew-members" && id && action === "remove" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       if (!(await platform.leaveCrew(id, steamId))) throw new HttpError(404, "no such crew member");
+      onCrewLeft?.();
       reply(res, 200, { removed: true });
       return true;
     }
@@ -799,6 +821,102 @@ export function createApi({
         return true;
       }
       reply(res, 200, { crewId: taken.crewId, joined: taken.joined, seat: taken.seat });
+      return true;
+    }
+
+    // --- Watching a crewmate play ---------------------------------------------
+
+    // What the signed-in player's crewmates are playing now, in a crew of theirs, and whether each shares with it.
+    if (watches && resource === "crew-live" && !id && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const live = await platform.crewLive(steamId, (sessionId) => watches.crew(sessionId));
+      reply(res, 200, {
+        live: live.map((session) => {
+          const mine = watches.list(session.sessionId).find((watch) => watch.viewerId === steamId);
+          return {
+            sessionId: session.sessionId,
+            // Starting until the game is on the player's screen: no ask reaches them before.
+            starting: session.starting || !watches.onScreen(session.sessionId),
+            player: session.playerName,
+            gameId: session.gameId,
+            machine: session.machineName,
+            startedAt: session.startedAt,
+            sharing: watches.sharing(session.sessionId),
+            watching: watches.list(session.sessionId).filter((watch) => watch.state === "watching").length,
+            mine: mine ? { state: mine.state } : null,
+          };
+        }),
+      });
+      return true;
+    }
+
+    // Ask to watch a crewmate's session: a watch ticket for the room, to wait in it for their yes.
+    if (watches && resource === "crew-live" && id && action === "watch" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      await checkCrew?.(id);
+      const live = await platform.watchable(id, steamId, watches.crew(id));
+      // Behind Ignition the player would never see the ask: only once the game is on screen.
+      if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {
+        throw new HttpError(404, "no crewmate of yours is playing that session");
+      }
+      // The player sees them by their Steam persona, when Steam answers.
+      const read = await profile(steamId).catch(() => null);
+      // Rounded up: a ticket must not lapse before the session it is for.
+      const exp = Math.ceil(live.expiresAt / 1000);
+      const refuse = (no: AskRefusal) => {
+        if (no.reason === "full") {
+          reply(res, 409, { error: "as many crewmates as can are watching already", code: "full" });
+        } else {
+          const seconds = Math.ceil(no.retryAfterMs / 1000);
+          reply(
+            res,
+            429,
+            { error: "ask again in a moment", code: "cooldown" },
+            { "retry-after": String(seconds) },
+          );
+        }
+        return true;
+      };
+      let watch = watches.mine(live.sessionId, steamId);
+      if (!watch) {
+        const refused = watches.refusal(live.sessionId, steamId);
+        if (refused) return refuse(refused);
+        // Relay-only, so neither side learns the other's address: no relay, no
+        // watching. The viewer's credential is this watch's alone, minted
+        // before the watch is made and good until its ticket expires.
+        const id = newWatchId();
+        const relay = (await watchRelay?.({ id, side: "viewer", expiresAt: exp })) ?? [];
+        if (!relay.length) {
+          reply(res, 503, {
+            error: "watching needs Lanterel's relay, which is not set up here",
+            code: "no-relay",
+          });
+          return true;
+        }
+        if (!watches.onScreen(live.sessionId))
+          throw new HttpError(404, "no crewmate of yours is playing that session");
+        const asked = watches.ask(
+          { sessionId: live.sessionId, room: live.room, playerName: live.playerName, exp },
+          { id: steamId, name: read?.persona || null },
+          { id, relay },
+        );
+        if (!asked.ok) return refuse(asked);
+        watch = asked.watch;
+      }
+      reply(res, 200, {
+        watchId: watch.id,
+        state: watch.state,
+        player: watch.playerName,
+        signalingUrl: originFrom(req.headers, fallbackOrigin).replace(/^http/, "ws"),
+        ticket: mintWatchTicket(access.secret, {
+          room: watch.room,
+          session: watch.sessionId,
+          watch: watch.id,
+          viewer: steamId,
+          exp,
+        }),
+      });
       return true;
     }
 

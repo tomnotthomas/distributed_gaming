@@ -14,6 +14,7 @@ import { Glyph } from "./Glyph";
 import { ResumeFace, TimeMark } from "./instruments";
 import { CrewsCard, CrewStrip } from "./CrewsCard";
 import { useScreenText, type ScreenKey, type ScreenText } from "./screenCopy";
+import { CrewLiveBand } from "./Crew";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
@@ -159,7 +160,14 @@ export function Wall({ swiff }: { swiff: Swiff }) {
     );
   if (!anythingFree)
     return (
-      <WallEmpty t={t} note={note} signedIn={signedIn} swiff={swiff} state={emptyLine(t, ordered, spots)} />
+      <WallEmpty
+        t={t}
+        note={note}
+        signedIn={signedIn}
+        swiff={swiff}
+        state={emptyLine(t, ordered, spots)}
+        crew={<CrewLiveBand swiff={swiff} />}
+      />
     );
 
   const [hero, ...rest] = wall;
@@ -178,6 +186,7 @@ export function Wall({ swiff }: { swiff: Swiff }) {
 
       <section className="band" aria-label={t("wall.games")}>
         {note}
+        <CrewLiveBand swiff={swiff} />
         {signedIn && !swiff.demo ? <CrewStrip swiff={swiff} /> : null}
         <div className="band-tabs">
           {signedIn && library === "ok" ? (
@@ -542,8 +551,11 @@ function WallEmpty({
   signedIn,
   swiff,
   state,
+  crew,
 }: {
   t: ScreenText;
+  /** Crewmates playing now: watching one is something to do while nothing is free. */
+  crew?: ReactNode;
   note?: ReactNode;
   signedIn: boolean;
   swiff: Swiff;
@@ -552,6 +564,7 @@ function WallEmpty({
   return (
     <main className="wall wall-bare" data-testid="wall">
       {note}
+      {crew}
       <EmptyState
         title={t("empty.title")}
         body={signedIn ? t("empty.signedIn", { state }) : t("empty.signedOut", { state })}

@@ -43,8 +43,21 @@
 // it, when a frame came first). The claim's sign-in time is capped
 // (signInBy): past it the code is gone and Try again with it, and the renter
 // books again.
+//
+// Crewmates watching are the play's crew hub (@swiff/rtc crewHub.ts): one for
+// the whole play, handed to every connection it makes, so viewers stay
+// connected to this page through a reconnect. It sends them the game only
+// while it is on screen here: never Ignition's desktop or Steam.
 
-import { startRenterSession, type RenterSession, type RenterStats, type SteamLogin } from "@swiff/rtc";
+import {
+  startCrewHub,
+  startRenterSession,
+  type CrewHub,
+  type CrewHubState,
+  type RenterSession,
+  type RenterStats,
+  type SteamLogin,
+} from "@swiff/rtc";
 import type { Claim } from "./booking";
 import type { ScreenText } from "./screenCopy";
 
@@ -154,8 +167,11 @@ export type PlayOptions = {
   resume?: boolean;
   /** When a resumed session's connection dropped, Unix ms, if known; now if not. */
   droppedAt?: number;
+  /** Every change of who watches and of the voice chat. */
+  onCrew?: (state: CrewHubState) => void;
   /** Stand-ins for tests. */
   start?: typeof startRenterSession;
+  startCrew?: typeof startCrewHub;
   fetch?: typeof fetch;
   now?: () => number;
 };
@@ -169,6 +185,8 @@ export type Play = {
   retry: () => void;
   /** Hang up and stop every timer. Idempotent. Ending the booking is the caller's. */
   stop: () => void;
+  /** Crewmates watching, and the voice chat: the player's say over both. */
+  crew: CrewHub;
 };
 
 /**
@@ -181,6 +199,7 @@ export type Play = {
 export function startPlay(opts: PlayOptions): Play {
   const { claim, video, onChange, onFirstFrame, resume = false } = opts;
   const start = opts.start ?? startRenterSession;
+  const crew = (opts.startCrew ?? startCrewHub)({ onChange: opts.onCrew });
   const get = opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const now = opts.now ?? Date.now;
 
@@ -223,6 +242,8 @@ export function startPlay(opts: PlayOptions): Play {
 
   const set = (next: Partial<PlayState>) => {
     state = { ...state, ...next };
+    // Viewers see what the player sees: the game, and nothing while it is not on screen.
+    crew.setLive(state.step === "live" && state.lostAt === null);
     onChange(state);
   };
 
@@ -359,7 +380,7 @@ export function startPlay(opts: PlayOptions): Play {
     connection += 1;
     clearTimeout(startRetry);
     session?.end();
-    const current = start({ url: claim.signalingUrl, ticket: claim.ticket, video, forceRelay: relay });
+    const current = start({ url: claim.signalingUrl, ticket: claim.ticket, video, forceRelay: relay, crew });
     session = current;
     current.on((event) => {
       if (stopped || session !== current) return;
@@ -460,6 +481,7 @@ export function startPlay(opts: PlayOptions): Play {
   } else enter("waking");
 
   return {
+    crew,
     state: () => state,
     /** Try again after a failed Steam sign-in, until the claim's sign-in time is up. */
     retrySignIn() {
@@ -487,6 +509,7 @@ export function startPlay(opts: PlayOptions): Play {
       clearTimeout(signInTimer);
       session?.end();
       session = null;
+      crew.end();
     },
   };
 }

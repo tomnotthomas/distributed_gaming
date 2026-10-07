@@ -96,6 +96,14 @@ wait_for_room
 
 server_port=$((20000 + $(od -An -N2 -tu2 /dev/urandom) % 20000))
 harness_port=$((server_port + 1))
+turn_port=$((server_port + 2))
+# Watching a crewmate is relay-only (server/src/watchIce.ts): the harness runs a
+# TURN relay for the renter's and the friend's browsers, here on this host.
+turnserver=${TURNSERVER:-$(command -v turnserver || true)}
+if [ -z "$turnserver" ]; then
+    echo "run-test: the watch checks need coturn: install it, or set TURNSERVER to its turnserver" >&2
+    exit 1
+fi
 results="$build/results.json"
 # The VM's key to the harness. It reaches the VM as a systemd credential that
 # QEMU reads from a file (SMBIOS type 11, path=), and the harness through its
@@ -107,8 +115,8 @@ trap 'rm -f "$token_cred"' EXIT
 printf 'io.systemd.credential:swifftest.token=%s' "$token" >"$token_cred"
 
 echo "== starting the platform and the renter (harness)"
-SWIFF_HARNESS_TOKEN="$token" PLAYWRIGHT_BROWSERS_PATH="$browsers" node "$here/harness.mjs" \
-    --server-port "$server_port" --harness-port "$harness_port" --out "$results" &
+SWIFF_HARNESS_TOKEN="$token" PLAYWRIGHT_BROWSERS_PATH="$browsers" TURNSERVER="$turnserver" node "$here/harness.mjs" \
+    --server-port "$server_port" --harness-port "$harness_port" --turn-port "$turn_port" --out "$results" &
 harness=$!
 # The harness runs the server; neither may outlive an early exit of this script.
 trap 'kill "$harness" 2>/dev/null || true; rm -f "$token_cred"' EXIT

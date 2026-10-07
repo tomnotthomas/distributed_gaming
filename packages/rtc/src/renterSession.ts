@@ -24,6 +24,7 @@ import {
   type IceConfig,
 } from "./peer";
 import { connectSignaling, type SignalMessage } from "./signaling";
+import type { CrewHub } from "./crewHub";
 
 type DeniedReason = Extract<SignalMessage, { type: "denied" }>["reason"];
 export type SteamLogin = Exclude<Extract<SignalMessage, { type: "steam-login" }>, { state: "retry" }>;
@@ -95,6 +96,12 @@ export type RenterSessionOptions = IceConfig & {
   /** Where mouse, keyboard and controller input is read. Defaults to `video`; none means no input. */
   inputTarget?: HTMLVideoElement;
   statsIntervalMs?: number;
+  /**
+   * The crewmates watching this session (crewHub.ts): it hears the room's
+   * watch messages and everything a viewer sends, and gets the PC's tracks to
+   * pass on. Nothing for a viewer ever reaches the PC's connection here.
+   */
+  crew?: Pick<CrewHub, "attach" | "message" | "source">;
 };
 
 export type RenterSession = {
@@ -282,6 +289,7 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
         });
       }
       if (stream) emit({ type: "track", track: event.track, stream });
+      opts.crew?.source(event.track);
     };
 
     let previous: Sample | null = null;
@@ -327,6 +335,11 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
     url: opts.url,
     onOpen: (send) => send({ type: "join", ticket: opts.ticket }),
     onMessage: (msg, send) => {
+      // A viewer's frames, and who watches: the crew hub's, never the PC connection's.
+      if (msg.type === "watchers" || ("watchId" in msg && msg.watchId !== undefined)) {
+        opts.crew?.message(msg);
+        return;
+      }
       const wasHere = pcHere;
       switch (msg.type) {
         case "denied":
@@ -336,6 +349,8 @@ export function startRenterSession(opts: RenterSessionOptions): RenterSession {
         case "joined":
           serverIce = msg.iceServers ?? [];
           emit({ type: "joined", hostId: msg.hostId, hostOnline: msg.hostOnline });
+          opts.crew?.message(msg);
+          opts.crew?.attach(send);
           break;
         case "offer":
           if (msg.sdp) void answer(msg.sdp, send);

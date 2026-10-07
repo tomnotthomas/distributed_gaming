@@ -111,6 +111,15 @@ export type RenterEvents = {
   availabilityChanged(): void;
   /** Tell the availability streams of `memberIds` that crew `crewId` has its first PC on offer. */
   crewReady(crewId: string, memberIds: readonly string[]): void;
+  /**
+   * Tell every availability stream that what crewmates play, or share, may
+   * have changed: the page reads GET /api/crew-live again. Sent when a player
+   * opens or closes their screen to their crew, and when the PC's game-started
+   * for a session is relayed (the game on the player's screen, so crewmates may
+   * ask to watch it from then on); a session claimed, started or ended is an
+   * availability change already.
+   */
+  crewChanged(): void;
 };
 
 /** One booking event, in the event-stream format. */
@@ -121,6 +130,9 @@ const AVAILABILITY_EVENT = "event: availability\ndata: {}\n\n";
 
 /** One crew event: the crew whose first PC is on offer. */
 const crewEvent = (crewId: string) => `event: crew\ndata: ${JSON.stringify({ crew: crewId })}\n\n`;
+
+/** One crew event: bare, for crewChanged, since what changed differs per renter's crews. */
+const CREW_EVENT = "event: crew\ndata: {}\n\n";
 
 /**
  * Write to the stream, or drop it when its buffer is full: a renter that does
@@ -283,6 +295,11 @@ export function createRenterEvents(
       for (const res of [...watching]) {
         if (members.has(watcher.get(res) ?? "") && !signedOut(res)) write(res, crewEvent(crewId));
       }
+    },
+
+    /** Send every open availability stream a crew event. */
+    crewChanged() {
+      for (const res of [...watching]) if (!signedOut(res)) write(res, CREW_EVENT);
     },
   };
 }

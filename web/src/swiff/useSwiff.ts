@@ -46,6 +46,8 @@ import {
 } from "./play";
 import { questionOf, useLive } from "./useLive";
 import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
+import { useCrewLive, type CrewLiveEntry } from "./watch";
+import type { CrewHub, CrewHubState } from "@swiff/rtc";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { screenLang, screenText } from "./screenCopy";
@@ -196,6 +198,11 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   // connection (play.ts), when the launch began, and the clock its dial creeps on.
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [play, setPlay] = useState<PlayState | null>(null);
+  // Crewmates watching the session played here, and the voice chat: its hub and how it stands.
+  const [crewHub, setCrewHub] = useState<CrewHub | null>(null);
+  const [crew, setCrew] = useState<CrewHubState | null>(null);
+  // The crewmate's session this player watches, if any.
+  const [watching, setWatching] = useState<CrewLiveEntry | null>(null);
   const [launchedAt, setLaunchedAt] = useState(() => Date.now());
   const [ignitionNow, setIgnitionNow] = useState(() => Date.now());
 
@@ -257,6 +264,20 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       current = false;
     };
   }, [steamId, demo]);
+
+  // What crewmates are playing now, to ask to watch (watch.ts).
+  const crewLive = useCrewLive({ enabled: signedIn && !demo, tick: live.crewTick });
+  /** Ask to watch the crewmate of `entry`: the watch page takes over. */
+  const watch = useCallback((entry: CrewLiveEntry) => {
+    track("watch_asked", { game: entry.gameId, sharing: entry.sharing });
+    setWatching(entry);
+  }, []);
+  const reloadCrewLive = crewLive.reload;
+  /** Back to the wall from a watch, with the crew's sessions read again. */
+  const stopWatching = useCallback(() => {
+    setWatching(null);
+    reloadCrewLive();
+  }, [reloadCrewLive]);
 
   /** What the wall knows about each game, by game id; empty while nothing is known. */
   const spots = useMemo<Map<string, Spot>>(() => {
@@ -788,15 +809,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
       resume: resume !== null,
       droppedAt: resume?.droppedAt,
       onChange: setPlay,
+      onCrew: setCrew,
       // The funnel counts a session from its first frame.
       onFirstFrame: () =>
         track("session_started", { game: funnel.current.gameId, machine: funnel.current.machineId }),
     });
     playNow.current = current;
+    setCrewHub(current.crew);
     return () => {
       current.stop();
       if (playNow.current === current) playNow.current = null;
       setPlay(null);
+      setCrewHub(null);
+      setCrew(null);
     };
   }, [demo, claim, video]);
 
@@ -1317,6 +1342,12 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     crewChanges: live.changes,
     crewReady,
     dismissCrewReady,
+    crew,
+    crewHub,
+    crewLive: crewLive.live,
+    watching,
+    watch,
+    stopWatching,
   };
 }
 

@@ -69,7 +69,7 @@ const b64url = (buf: Buffer) => buf.toString("base64url");
 
 // Each kind of token signs its payload under its own prefix, so a join ticket
 // can never be replayed as a session key or the other way round.
-type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest" | "invite" | "seat";
+type Domain = "ticket" | "session" | "renter" | "signin" | "host" | "attest" | "invite" | "seat" | "watch";
 
 /** HMAC-SHA256 signature of the encoded payload, separated by token domain. */
 function sign(secret: string, payload: string, domain: Domain = "ticket"): Buffer {
@@ -189,6 +189,46 @@ export function verifySessionKey(secret: string, token: unknown, now = Date.now(
   if (typeof key.grant !== "string" || !key.grant) return null;
   if (typeof key.exp !== "number" || key.exp * 1000 <= now) return null;
   return { room: key.room, session: key.session, grant: key.grant, exp: key.exp };
+}
+
+/**
+ * A viewer's watch ticket (watch.ts): one crewmate watching one session, in
+ * the room serving it. Opens a viewer seat only while that watch is on: the
+ * player said yes, or has not answered yet.
+ */
+export type WatchTicket = {
+  /** The room (machine id) the session is played in. */
+  room: string;
+  /** The platform session watched. */
+  session: string;
+  /** The watch: what the player answers and stops. */
+  watch: string;
+  /** The viewer's Steam id. */
+  viewer: string;
+  /** Unix seconds after which it opens nothing: the session's own deadline. */
+  exp: number;
+};
+
+/** Mint a watch ticket expiring at `exp` (Unix seconds). */
+export function mintWatchTicket(secret: string, ticket: WatchTicket): string {
+  return seal(secret, { ...ticket }, "watch");
+}
+
+/** The watch ticket, if `secret` signed it as one and it has not expired. Otherwise null. */
+export function verifyWatchTicket(secret: string, token: unknown, now = Date.now()): WatchTicket | null {
+  const t = unseal(secret, token, "watch");
+  if (!t) return null;
+  for (const field of ["room", "session", "watch", "viewer"] as const) {
+    if (typeof t[field] !== "string" || !t[field]) return null;
+  }
+  if (typeof t.exp !== "number" || t.exp * 1000 <= now) return null;
+  return {
+    room: t.room as string,
+    session: t.session as string,
+    watch: t.watch as string,
+    viewer: t.viewer as string,
+    exp: t.exp,
+  };
 }
 
 export type RenterSession = {

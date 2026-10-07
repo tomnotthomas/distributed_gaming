@@ -42,3 +42,8 @@ export { createInputSender, DEFAULT_HEARTBEAT_MS } from "./inputSender";
 export type { InputSender } from "./inputSender";
 export { startInputCapture, videoPoint, gamepadState } from "./inputCapture";
 export type { InputCapture, InputCaptureOptions, InputSendChannel } from "./inputCapture";
+export { startCrewHub, VIEWER_MAX_BITRATE, VIEWER_MAX_FRAMERATE, VOICE_SLOTS } from "./crewHub";
+export type { CrewHub, CrewHubOptions, CrewHubState, MicMode, MyVoice, WatcherView } from "./crewHub";
+export { startWatchSession } from "./watchSession";
+export type { ViewerVoice, WatchSession, WatchSessionEvent, WatchSessionOptions } from "./watchSession";
+export type { VoicePerson } from "./signaling";

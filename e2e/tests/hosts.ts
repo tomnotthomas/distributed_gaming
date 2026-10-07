@@ -5,8 +5,43 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { E2E_MACHINE_KEY, E2E_ROOM } from "./credentials";
 
-/** Open the browser host page and start sharing into the e2e room. */
-export async function startHost(page: Page, key = E2E_MACHINE_KEY) {
+/**
+ * Open the browser host page and start sharing into the e2e room, or into
+ * `room` with its `key`. The page always names the e2e room (HOST_ID), so for
+ * another room its signaling socket, both ways, and its Host API calls say
+ * that room's name in its place.
+ */
+export async function startHost(page: Page, key = E2E_MACHINE_KEY, room = E2E_ROOM) {
+  if (room !== E2E_ROOM) {
+    await page.addInitScript(
+      ({ from, to }) => {
+        const swap = (text: string, a: string, b: string) =>
+          text.split(`"hostId":"${a}"`).join(`"hostId":"${b}"`);
+        const fetch = window.fetch;
+        window.fetch = (input, init) =>
+          fetch(
+            typeof input === "string"
+              ? input.replace(`/api/machines/${from}/`, `/api/machines/${to}/`)
+              : input,
+            init,
+          );
+        const send = WebSocket.prototype.send;
+        WebSocket.prototype.send = function (data) {
+          return send.call(this, typeof data === "string" ? swap(data, from, to) : data);
+        };
+        const data = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data")!.get!;
+        Object.defineProperty(MessageEvent.prototype, "data", {
+          get() {
+            const value = data.call(this);
+            return this.target instanceof WebSocket && typeof value === "string"
+              ? swap(value, to, from)
+              : value;
+          },
+        });
+      },
+      { from: E2E_ROOM, to: room },
+    );
+  }
   await page.goto("/host");
   await page.getByLabel("Machine key").fill(key);
   await page.getByRole("button", { name: "Start sharing" }).click();
@@ -64,19 +99,24 @@ export function failOnPageError(page: Page, label: string) {
 let beating: ReturnType<typeof setInterval> | undefined;
 
 /**
- * Offer the e2e machine through the Host API as its PC would, beating every
- * 5 s as the host app does, or take it back. It has every game a signed-in
+ * Offer the e2e machine (or `room`, with its `key`) through the Host API as
+ * its PC would, beating every 5 s as the host app does, or take it back. It has every game a signed-in
  * renter's wall could lead with installed: the curated free-to-play two, and
  * Steam's most played, whose free ones fill the wall once the server has read
  * them.
  */
-export async function offerHost(request: APIRequestContext, available: boolean) {
+export async function offerHost(
+  request: APIRequestContext,
+  available: boolean,
+  room = E2E_ROOM,
+  key = E2E_MACHINE_KEY,
+) {
   clearInterval(beating);
   beating = undefined;
   const popular = available ? await request.get("/api/games/popular") : null;
   const chart = popular?.ok() ? ((await popular.json()).games as { appid: number }[]) : [];
-  const res = await request.put(`/api/machines/${E2E_ROOM}/availability`, {
-    headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
+  const res = await request.put(`/api/machines/${room}/availability`, {
+    headers: { authorization: `Bearer ${key}` },
     data: {
       available,
       name: "E2E rig",
@@ -101,8 +141,8 @@ export async function offerHost(request: APIRequestContext, available: boolean) 
   // Silent for 15 s, a machine is no longer offered.
   beating = setInterval(() => {
     void request
-      .post(`/api/machines/${E2E_ROOM}/heartbeat`, {
-        headers: { authorization: `Bearer ${E2E_MACHINE_KEY}` },
+      .post(`/api/machines/${room}/heartbeat`, {
+        headers: { authorization: `Bearer ${key}` },
       })
       .catch(() => {});
   }, 5_000);
