@@ -94,7 +94,7 @@ test("the host saves a seat, the friend grabs it from its link and can book that
   // One tap: the seat is theirs, and they land in the crew that plays on the PC.
   await friend.getByRole("button", { name: /Grab your seat/ }).click();
   await expect(friend).toHaveURL(/\/crews\/[\w-]{22}$/);
-  await expect(friend.getByRole("heading", { name: "You're ready to play!" })).toBeVisible();
+  await expect(friend.getByRole("heading", { name: "The gaming PC is free. Who goes first?" })).toBeVisible();
 
   // The host app sees who took it.
   const listed = await (
