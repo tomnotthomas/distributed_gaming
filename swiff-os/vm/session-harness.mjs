@@ -651,13 +651,23 @@ async function renter() {
       30_000,
     ).catch(() => false);
     record("renter's page shows Steam's fresh code", Boolean(fresh));
-    const encoding = seen(/\[swiff-streamer\] encoding with (\S+)/);
+    // The streamer's encoder check can take most of a minute on a slow VM.
+    const encoding = await until(
+      () => seen(/\[swiff-streamer\] encoding with (\S+)/),
+      "the streamer's encoder",
+      90_000,
+    ).catch(() => null);
     record(
       "streamer encodes",
       Boolean(encoding),
       encoding?.line.replace(/^.*encoding with/, "encoding with"),
     );
-    record("streamer registers with its session key", Boolean(seen(/registered; waiting for the renter/)));
+    const registered = await until(
+      () => seen(/registered; waiting for the renter/),
+      "the streamer's registration",
+      90_000,
+    ).catch(() => null);
+    record("streamer registers with its session key", Boolean(registered));
 
     // The stand-in Steam signs in; the game starts and the stream shows it.
     const video = page.getByTestId("session-video");
