@@ -17,12 +17,13 @@ import type { Swiff } from "./useSwiff";
 /** The most of the player's games the step offers. */
 const MAX_GAMES = 8;
 
-/** The PC the step is about: the one the viewer plays on, else a free one, else one someone plays on, else the first. */
+/** The PC the step is about: the one the viewer plays on, else a free one, else one someone plays on, else one that is on, else the first. */
 export function playPc(crew: CrewDetail): CrewPc | undefined {
   return (
     crew.machines.find((m) => m.playing?.you) ??
     crew.machines.find((m) => m.state === "ready" && !m.playing) ??
     crew.machines.find((m) => m.playing) ??
+    crew.machines.find((m) => m.state !== "offline") ??
     crew.machines[0]
   );
 }
@@ -226,6 +227,16 @@ export function CrewPlay({
     );
   }
 
+  if (pc.state !== "ready") {
+    return (
+      <div className="pl" data-play="claimed">
+        <h2>{t("pl.claimedH", { pc: pcName })}</h2>
+        <p className="gc-p">{t("pl.claimedP")}</p>
+        {queueList}
+      </div>
+    );
+  }
+
   const owner = crew.machines.find((m) => m.id === pc.id)?.owner;
   return (
     <div className="pl" data-play="free">
@@ -236,12 +247,7 @@ export function CrewPlay({
       {tiles((g) => setPicked(g.appid), choice)}
       {choice ? (
         <div className="gc-go">
-          <button
-            type="button"
-            className="lpill solid"
-            disabled={busy || phase !== "idle" || pc.state !== "ready"}
-            onClick={start}
-          >
+          <button type="button" className="lpill solid" disabled={busy || phase !== "idle"} onClick={start}>
             {t("pl.start", { game: choice.title })}
             <span className="lpill-c">
               <Glyph name="play" size={18} />

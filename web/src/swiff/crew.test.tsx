@@ -794,6 +794,17 @@ describe("CrewPage: the guided crew page", () => {
     expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-sam");
   });
 
+  it("does not call a PC free while someone's start on it is still on its way", async () => {
+    const [max] = readyCrew().machines;
+    const crew = readyCrew({ session: dated, shared: true, machines: [{ ...max!, state: "busy" }] });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    render(<CrewPage swiff={atCrew("c1", library)} />);
+    expect(
+      await screen.findByRole("heading", { name: "Someone is just starting a game on Max's PC" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Start / })).toBeNull();
+  });
+
   it("counts the PCs when more than one is in, and says when none is on", async () => {
     const two = readyCrew({
       session: dated,
