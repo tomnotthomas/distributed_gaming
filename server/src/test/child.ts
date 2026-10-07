@@ -42,7 +42,8 @@ const usedPorts = new Set<number>();
  * Start the real server with `env` on a port in [`from`, `from + span`), and
  * resolve once this child says it listens, not once the port answers: another
  * file's or another run's server on the same port answers too. A child that
- * exits first, as one does on a taken port, is retried on another port. Its
+ * exits first, as one does on a taken port, is retried on another port; one
+ * still silent after 60 s is stuck on its own startup, so it fails at once. Its
  * output is read to the end, so a full pipe never stalls it, and the end of
  * its stderr is kept: a child that never listens fails with why.
  */
@@ -83,12 +84,11 @@ export async function startServer(
     if (await within(listening, 60_000, false)) return { child, port };
     const exited = child.exitCode !== null || child.signalCode !== null;
     await stopServer(child);
+    const tail = errors ? `; stderr:\n${errors}` : "";
+    if (!spawned.error && !exited) assert.fail(`the server on port ${port} was not listening after 60 s${tail}`);
     last = spawned.error
-      ? `port ${port}: could not start: ${spawned.error.message}`
-      : exited
-        ? `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}`
-        : `port ${port}: not listening after 60 s`;
-    if (errors) last += `; stderr:\n${errors}`;
+      ? `port ${port}: could not start: ${spawned.error.message}${tail}`
+      : `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}${tail}`;
   }
   assert.fail(`the server did not listen on any of five ports; last attempt ${last}`);
 }
