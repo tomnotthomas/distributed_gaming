@@ -10,8 +10,8 @@
 # and the UKI out of the set's ESP, and computes the release's payload from
 # them (npm run boot-policy -- payload: PCR 11 from the UKI, checked against
 # the UKI's own signed .pcrsig; each binary's Authenticode digest, checked
-# against its own signature; the PCR 7 authorities from the set's MOK, the
-# Microsoft UEFI CAs in swiff-os/secure-boot/ and shim's SbatLevels). With
+# against its own signature; the PCR 7 authorities from the set's MOK and the
+# Microsoft UEFI CAs in swiff-os/secure-boot/). With
 # --previous, the releases of an earlier payload stay in it, so hosts still on
 # them keep attesting; one of the same name is replaced.
 #
@@ -75,7 +75,7 @@ done
 
 # 1. The set is a release's, as a release build of the host app reads it.
 node "$repo/desktop/image-set.cjs" verify "$set_dir" || die "a release build would refuse $set_dir"
-version=$(node -e 'console.log(require(process.argv[1]).version)' "$set_dir/swiffos.json")
+version=$(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version)' "$set_dir/swiffos.json")
 esp=$set_dir/swiffos_$version.esp.raw
 [ -f "$esp" ] || die "$esp not found"
 
