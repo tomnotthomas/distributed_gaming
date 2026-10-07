@@ -90,7 +90,7 @@ import { createHostSessions, type HostSessions } from "./sessions.js";
 import { createRenterGrace, graceMsFromEnv } from "./grace.js";
 import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from "./steam.js";
-import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
+import { createSteamAuth, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, watchCrew, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
 import { createRenterEvents } from "./events.js";
@@ -98,7 +98,6 @@ import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
 import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
-import { createSignups } from "./signups.js";
 import { Watches, type Watch, type WatchEnd } from "./watch.js";
 import { watchFrame } from "./watchIce.js";
 
@@ -236,27 +235,15 @@ const serveApi = createApi({
   checkCrew: (sessionId) => currentCrews(sessionId),
 });
 
-// The public marketing site (marketing.ts) and its sign-ups (signups.ts), only
-// with MARKETING_PAGES=on and SITE_ORIGIN and PUBLIC_ORIGIN set; the pages only on that origin's
-// host, so the app keeps its own routes everywhere else. Off, nothing changes.
+// The public marketing site (marketing.ts), only with MARKETING_PAGES=on and
+// SITE_ORIGIN and PUBLIC_ORIGIN set; the pages only on that origin's host, so the app keeps its own routes everywhere else. Off, nothing changes.
 const site = siteFromEnv(process.env, publicOrigin);
 const MARKETING_DIR = fileURLToPath(new URL("../../web/marketing/", import.meta.url));
 /** The link previews of the app's crew and seat links (invite-preview.ts), from the launch set, whether the site is on or not. */
 const previews = await readPreviews(MARKETING_DIR);
 const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
-// Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
-const signups =
-  site && marketing
-    ? createSignups({
-        database,
-        site,
-        files: marketing,
-        renter: (req) => renterOf(req, sessionSecret),
-        trustProxy: process.env.RENDER === "true",
-      })
-    : null;
 const serveMarketing =
-  site && marketing && signups
+  site && marketing
     ? createMarketing({
         site,
         files: marketing,
@@ -898,7 +885,6 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
 
-  if (signups && (await signups.serve(req, res, url))) return;
   if (serveMarketing && (await serveMarketing(req, res, url))) return;
   if (await serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;

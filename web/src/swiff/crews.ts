@@ -192,32 +192,6 @@ export async function removeCrewMember(id: string, get: typeof fetch = fetch): P
   return answer.ok || answer.status === 404;
 }
 
-/**
- * The signed-in player's reminders by email: the address they go to, whether
- * it confirmed, and, when its confirm mail was held back, when to ask again.
- */
-export type Reminders = { email: string | null; confirmed: boolean; retryAt?: number };
-
-/** The player's reminders; null when the server takes none (the marketing site is off) or gave no answer. */
-export async function fetchReminders(get: typeof fetch = fetch): Promise<Reminders | null> {
-  const answer = await call<Reminders>("/api/signups/reminders", {}, get);
-  return answer.ok ? answer.body : null;
-}
-
-/** Send the reminders to `email` once it confirms (`email` null: stop them); the reminders after, or null when that failed. */
-export async function saveReminders(
-  email: string | null,
-  lang: Lang,
-  get: typeof fetch = fetch,
-): Promise<Reminders | null> {
-  const answer = await call<Reminders>(
-    email === null ? "/api/signups/reminders/off" : "/api/signups/reminders",
-    { method: "POST", body: JSON.stringify(email === null ? {} : { email, lang }) },
-    get,
-  );
-  return answer.ok ? answer.body : null;
-}
-
 /** Where this tab keeps that the player came from the host side, to see the PC card first. */
 const PC_FIRST_KEY = "crew.pcFirst";
 

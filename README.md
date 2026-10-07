@@ -81,25 +81,20 @@ the app's own invite page (`/invite/<token>`, `/seat/<token>`), which names who 
 also get a link preview naming them (`server/src/invite-preview.ts`). Gift seats and Zockrunden
 (`/gift/`, `/night/`) do not exist yet, so their pages name nobody. The set's wording for a crew's
 time together ("Crew-Abend", "crew night") is put the app's way at import ("Zockrunde", "gaming
-session"), never an evening or a night. The one address the product asks for is optional: reminders
-on the crew page, with double opt-in, where the confirm and unsubscribe links in the mails open a
-page whose button does it, so a mail scanner opening a link changes nothing. See
-`server/src/marketing.ts` and `server/src/signups.ts`.
+session"), never an evening or a night. The product asks for no email address and sends no mail. See
+`server/src/marketing.ts`.
 
 Settings (server environment):
 
-- `MARKETING_PAGES=on` turns the pages and the reminders on. Leave it off until the bracketed
+- `MARKETING_PAGES=on` turns the pages on. Leave it off until the bracketed
   placeholders in the Impressum and legal notice (the founder's name, address and contact, e.g.
   `[VOR- UND NACHNAME]`) are filled in.
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
   requests for its host, and it is the origin in the pages' canonical and Open Graph links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.
 - `PUBLIC_ORIGIN`, the app's own origin (Steam sign-in needs it too): every link on the pages into the
-  app, such as "Crew gründen" and "Prüf deine Bibliothek", goes there, and the reminders and their
-  mail links are served there. Without it the pages stay off as well.
-
-The server has no mail sender yet: every reminder mail is rendered into the `marketing_outbox`
-table and stays there until one exists.
+  app, such as "Crew gründen" and "Prüf deine Bibliothek", goes there. Without it the pages stay off
+  as well.
 
 ## Host side (gaming PC app)
 

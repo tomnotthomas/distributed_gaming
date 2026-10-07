@@ -24,12 +24,15 @@ const SCRIPT = fileURLToPath(new URL("../../scripts/import-launch-pages.mjs", im
 
 type FaqJsonLd = (html: string, lang: string) => string;
 type Promote = (staging: string, target: string, rename?: (from: string, to: string) => void) => void;
-const { faqJsonLd, promote, signInPath, wireSignIn, neutralWording } = (await import(SCRIPT)) as {
+const { faqJsonLd, promote, signInPath, wireSignIn, neutralWording, withoutReminders } = (await import(
+  SCRIPT
+)) as {
   faqJsonLd: FaqJsonLd;
   promote: Promote;
   signInPath: (to: string) => string;
   wireSignIn: (html: string) => string;
   neutralWording: (text: string) => string;
+  withoutReminders: (html: string) => string;
 };
 
 const PAGE = `<head><script type="application/ld+json">
@@ -226,6 +229,19 @@ describe("importing the launch set", () => {
       '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1%26pc%3D1" data-signin>a</a>' +
         '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1">b</a>' +
         '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1">c</a><a href="/elsewhere/">d</a>',
+    );
+  });
+
+  it("leaves the privacy pages' section on reminders by email out, and every other section in", () => {
+    assert.equal(
+      withoutReminders(
+        "<h2>Steam</h2><p>a</p><h2>Wenn du dich erinnern lässt</h2><p>b</p><p>c</p>\n<h2>Einladungen</h2><p>d</p>",
+      ),
+      "<h2>Steam</h2><p>a</p><h2>Einladungen</h2><p>d</p>",
+    );
+    assert.equal(
+      withoutReminders("<h2>When you ask for reminders</h2><p>b</p><h2>Invites</h2>"),
+      "<h2>Invites</h2>",
     );
   });
 

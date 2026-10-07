@@ -681,45 +681,6 @@
 .crew-lobby .lb-last .lpill {
   text-decoration: none;
 }
-/* optional reminders by email (signups.ts): the launch set's .lb-remind */
-.crew-lobby .lb-remind {
-  margin-top: clamp(48px, 6vw, 88px);
-  border-top: 1px solid var(--pline);
-  padding: clamp(40px, 5vw, 64px) 0;
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 20px clamp(28px, 5vw, 72px);
-  align-items: start;
-}
-.crew-lobby .lb-remind h2 {
-  margin: 0;
-  font: 300 clamp(22px, 2.4vw, 30px) / 1.15 var(--f);
-}
-.crew-lobby .lb-remind .sub {
-  margin: 10px 0 0;
-  color: var(--on-paper-2);
-}
-.crew-lobby .lb-remind .fa-acts p {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.crew-lobby .rem-form {
-  display: grid;
-  gap: 8px;
-}
-.crew-lobby .rem-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-.crew-lobby .rem-row .name-in {
-  max-width: none;
-}
-.crew-lobby .lb-remind .cp-toast {
-  grid-column: 1 / -1;
-  margin: 0;
-}
 .crew-lobby .lb-last {
   margin-top: clamp(48px, 6vw, 88px);
   padding: clamp(40px, 5vw, 72px) 0;
@@ -736,9 +697,6 @@
   text-transform: uppercase;
 }
 @media (max-width: 960px) {
-  .crew-lobby .lb-remind {
-    grid-template-columns: 1fr;
-  }
   .crew-lobby .lb-slots {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1375,23 +1333,8 @@
 /* Responsive layout beyond the phone: the launch set's breakpoints (lobby-impeccable.css,
    "Responsive layout beyond the phone"), on the app's lobby markup. Tablet portrait (700-999):
    the crew under the lead, closer. Laptop and up (1000+): two columns, the lead left, the crew
-   right; the share block, its message preview and the reminder share one grid so no column
+   right; the share block and its message preview share one grid so no column
    runs empty. Large screens (1600+): a wider frame, a larger crew name. */
-
-/* The reminder field never clips its button */
-.crew-lobby .rem-row {
-  flex-wrap: nowrap;
-  align-items: stretch;
-  min-width: 0;
-}
-.crew-lobby .rem-row .name-in {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: auto;
-}
-.crew-lobby .rem-row .lpill {
-  flex: none;
-}
 
 @media (min-width: 700px) and (max-width: 999px) {
   .crew-lobby .lb-in {
@@ -1447,7 +1390,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* One grid for share, preview and reminder */
+  /* One grid for share and preview */
   .crew-lobby > .lb-wrap:has(> .lb-path) {
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
@@ -1470,12 +1413,6 @@
     margin-top: clamp(40px, 5vw, 64px);
     justify-self: end;
     width: 100%;
-  }
-  .crew-lobby > .lb-wrap > .lb-remind {
-    grid-column: 1;
-    grid-template-columns: 1fr;
-    margin-top: 40px;
-    padding-bottom: clamp(48px, 6vw, 80px);
   }
 }
 

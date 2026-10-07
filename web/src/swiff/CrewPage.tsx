@@ -8,7 +8,7 @@
 // stays as a "Check my PC later" chip. The lobby reads its crew again whenever
 // the event stream says something changed, so a PC arriving shows at once.
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { STEAM_LOGIN_URL } from "./steam";
 import {
   bringPc,
@@ -19,16 +19,13 @@ import {
   inviteMessage,
   pcTitle,
   removeCrewMember,
-  fetchReminders,
   renameCrew,
   renewCrewLink,
-  saveReminders,
   takeLanding,
   takePcFirst,
   type CrewDetail,
   type CrewMember,
   type MyCrew,
-  type Reminders,
 } from "./crews";
 import type { CopyKey } from "./crewCopy";
 import {
@@ -867,8 +864,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
           </aside>
         </section>
 
-        <CrewReminders />
-
         <section className="crew-leave">
           {leaving ? (
             <div className="crew-leave-ask" role="group" aria-labelledby="leave-h">
@@ -891,102 +886,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
         </section>
       </div>
     </main>
-  );
-}
-
-/** The address the reminders confirm form checks, as the server does (signups.ts). */
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-/**
- * Optional reminders by email, double opt-in (server/src/signups.ts): an
- * address, then "check your inbox", then the address they go to with a way to
- * stop them. Not there at all while the server takes none.
- */
-function CrewReminders() {
-  const { lang, t } = useCrewText();
-  const [reminders, setReminders] = useState<Reminders | null>(null);
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ key: CopyKey; alert?: boolean; time?: string } | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void fetchReminders().then((answer) => {
-      if (live) setReminders(answer);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  if (!reminders) return null;
-
-  const save = async (next: string | null) => {
-    setBusy(true);
-    setNote(null);
-    const answer = await saveReminders(next, lang);
-    setBusy(false);
-    if (!answer) {
-      setNote({ key: "rem.failed", alert: true });
-      return;
-    }
-    setReminders(answer);
-    if (next !== null && answer.retryAt !== undefined) {
-      const time = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: lang === "en",
-      }).format(answer.retryAt);
-      setNote({ key: "rem.held", time });
-    } else if (next !== null && !answer.confirmed) setNote({ key: "rem.sent" });
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const value = email.trim();
-    if (!EMAIL.test(value)) setNote({ key: "rem.invalid", alert: true });
-    else void save(value);
-  };
-
-  return (
-    <section className="lb-remind" aria-labelledby="rem-h" data-testid="reminders">
-      <div>
-        <h2 id="rem-h">{t("rem.title")}</h2>
-        <p className="sub">{t("rem.line")}</p>
-      </div>
-      {reminders.email && reminders.confirmed ? (
-        <div className="fa-acts">
-          <p>{t("rem.on", { email: reminders.email })}</p>
-          <button type="button" className="lpill" disabled={busy} onClick={() => void save(null)}>
-            {t("rem.stop")}
-          </button>
-        </div>
-      ) : (
-        <form className="rem-form" onSubmit={submit} noValidate>
-          <label className="lb-k" htmlFor="rem-email">
-            {t("rem.label")}
-          </label>
-          <div className="rem-row">
-            <input
-              id="rem-email"
-              className="name-in"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              spellCheck={false}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <button type="submit" className="lpill solid" disabled={busy}>
-              {busy ? t("rem.saving") : t("rem.save")}
-            </button>
-          </div>
-        </form>
-      )}
-      <p className="cp-toast" role={note?.alert ? "alert" : "status"} hidden={!note}>
-        {note ? t(note.key, { email: reminders.email ?? email.trim(), time: note.time ?? "" }) : null}
-      </p>
-    </section>
   );
 }
 

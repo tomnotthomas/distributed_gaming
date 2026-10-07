@@ -1038,7 +1038,7 @@ describe("CrewPage: landing from the marketing site", () => {
   });
 });
 
-describe("CrewPage: sharing and reminders", () => {
+describe("CrewPage: sharing", () => {
   it("leads every crew's share block with WhatsApp", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew() }] });
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -1051,71 +1051,11 @@ describe("CrewPage: sharing and reminders", () => {
     expect(String(open.mock.calls[0]![0])).toMatch(/^https:\/\/wa\.me\/\?text=/);
   });
 
-  it("offers no reminders while the server takes none", async () => {
-    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+  it("asks for no email address", async () => {
+    const calls = fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
     render(<CrewPage swiff={atCrew("c1")} />);
     await screen.findByText("Almost ready.");
-    expect(screen.queryByTestId("reminders")).toBeNull();
-  });
-
-  it("takes an optional address for reminders, which waits for its confirmation", async () => {
-    let reminders = { email: null as string | null, confirmed: false };
-    const calls = fetchFrom({
-      "GET /api/crews/c1": [200, { crew: crewOf() }],
-      "GET /api/signups/reminders": () => [200, reminders],
-      "POST /api/signups/reminders": () => {
-        reminders = { email: "lena@example.com", confirmed: false };
-        return [200, reminders];
-      },
-    });
-    render(<CrewPage swiff={atCrew("c1")} />);
-    const field = await screen.findByLabelText("Email address");
-    fireEvent.change(field, { target: { value: "not an address" } });
-    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
-    expect(await screen.findByText("That doesn't look like an email address.")).toBeInTheDocument();
-    expect(calls.some(([method, url]) => method === "POST" && url.includes("signups"))).toBe(false);
-
-    fireEvent.change(field, { target: { value: " lena@example.com " } });
-    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
-    expect(
-      await screen.findByText("Almost there: click the link in the email to lena@example.com."),
-    ).toBeInTheDocument();
-    const posted = calls.find(([method, url]) => method === "POST" && url === "/api/signups/reminders");
-    expect(JSON.parse(posted![2]!)).toEqual({ email: "lena@example.com", lang: "en" });
-  });
-
-  it("says when to ask again when the server held the confirm mail back, never to click a link", async () => {
-    const retryAt = new Date(2026, 9, 7, 15, 30).getTime();
-    fetchFrom({
-      "GET /api/crews/c1": [200, { crew: crewOf() }],
-      "GET /api/signups/reminders": [200, { email: null, confirmed: false }],
-      "POST /api/signups/reminders": [200, { email: "lena@example.com", confirmed: false, retryAt }],
-    });
-    render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.change(await screen.findByLabelText("Email address"), {
-      target: { value: "lena@example.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
-    expect(
-      await screen.findByText(
-        "lena@example.com already got an email from us a moment ago; you can ask for a new one from 3:30 pm.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/click the link/)).toBeNull();
-  });
-
-  it("shows confirmed reminders with a way to stop them", async () => {
-    const calls = fetchFrom({
-      "GET /api/crews/c1": [200, { crew: crewOf() }],
-      "GET /api/signups/reminders": [200, { email: "lena@example.com", confirmed: true }],
-      "POST /api/signups/reminders/off": [200, { email: null, confirmed: false }],
-    });
-    render(<CrewPage swiff={atCrew("c1")} />);
-    expect(await screen.findByText("Reminders go to lena@example.com.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Stop reminders" }));
-    expect(await screen.findByLabelText("Email address")).toBeInTheDocument();
-    expect(calls.some(([method, url]) => method === "POST" && url === "/api/signups/reminders/off")).toBe(
-      true,
-    );
+    expect(screen.queryByLabelText("Email address")).toBeNull();
+    expect(calls.some(([, url]) => url.includes("signups"))).toBe(false);
   });
 });
