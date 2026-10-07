@@ -922,8 +922,10 @@ systemd-boot started from (`LoaderDevicePartUUID`) read-only and root's alone at
 (`LANTEREL_ERROR_TRACKING_FILE`). Windows can write the ESP, so the agent treats the file
 as untrusted: it takes only those two names from it, never as an `EnvironmentFile`, and
 only a `phc_` project key and an `https` host on `posthog.com`; anything else leaves
-reports off. The agent hands the same three variables, and no others, to each streamer it
-starts. `swiff-steam-login` runs in the renter's session, not under the agent, and the file
+reports off. Each streamer it starts gets the error-tracking variables the agent has
+(`LANTEREL_POSTHOG_KEY`, `LANTEREL_POSTHOG_HOST` and `DO_NOT_TRACK`, each only when set),
+beside its own `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, and none of the agent's
+other settings. `swiff-steam-login` runs in the renter's session, not under the agent, and the file
 is root's alone: it reports only when its session's environment names a project.
 
 **Not yet here.** These come in later stages:
