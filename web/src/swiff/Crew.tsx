@@ -218,9 +218,11 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
           </ul>
         ) : (
           <p className="crew-empty">
-            {crew?.sharing
-              ? `Anyone in ${named ?? "your crew"} can watch now.`
-              : `Friends in ${named ?? "your crew"} can ask to watch. Or share and let them in.`}
+            {!named
+              ? "Nobody can watch this session: this PC doesn't play for a crew of yours."
+              : crew?.sharing
+                ? `Anyone in ${named} can watch now.`
+                : `Friends in ${named} can ask to watch. Or share and let them in.`}
           </p>
         )}
         {crews.length > 1 ? (
@@ -235,14 +237,16 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
             }))}
           />
         ) : null}
-        <Button
-          variant="secondary"
-          size="sm"
-          aria-pressed={crew?.sharing ?? false}
-          onClick={() => hub.share(!crew?.sharing)}
-        >
-          {crew?.sharing ? "Stop sharing with crew" : "Share with my crew"}
-        </Button>
+        {named || crew?.sharing ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-pressed={crew?.sharing ?? false}
+            onClick={() => hub.share(!crew?.sharing)}
+          >
+            {crew?.sharing ? "Stop sharing with crew" : "Share with my crew"}
+          </Button>
+        ) : null}
         <VoiceBar
           voice={voice}
           onJoin={() => void hub.joinVoice()}

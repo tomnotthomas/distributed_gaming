@@ -155,13 +155,24 @@ describe("the player's crew overlay", () => {
 
   it("shares with the crew, and stops sharing", () => {
     const hub = hubDouble();
-    const { rerender } = render(<CrewOverlay hub={hub} crew={state([])} />);
+    const friday = [{ id: "friday", name: "Friday Squad", admin: "Mara" }];
+    const { rerender } = render(<CrewOverlay hub={hub} crew={state([], false, friday)} />);
     expect(screen.getByText("Nobody watching")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Share with my crew" }));
     expect(hub.share).toHaveBeenCalledWith(true);
-    rerender(<CrewOverlay hub={hub} crew={state([], true)} />);
+    rerender(<CrewOverlay hub={hub} crew={state([], true, friday)} />);
     fireEvent.click(screen.getByRole("button", { name: "Stop sharing with crew" }));
     expect(hub.share).toHaveBeenCalledWith(false);
+  });
+
+  it("offers no share, and says nobody can watch, on a PC that plays for none of the player's crews", () => {
+    const hub = hubDouble();
+    render(<CrewOverlay hub={hub} crew={state([])} />);
+    expect(
+      screen.getByText("Nobody can watch this session: this PC doesn't play for a crew of yours."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Share with my crew" })).toBeNull();
+    expect(screen.queryByText(/can ask to watch/)).toBeNull();
   });
 
   it("names the crew that may watch, and lets the player pick another when the PC plays for several", () => {
