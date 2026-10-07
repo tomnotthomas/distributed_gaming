@@ -591,15 +591,16 @@ POST /crews { name? }
 GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
                   shared, members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
-                  machines: [{ id, name, owner, mine, state, playing }] } }
+                  machines: [{ id, name, owner, mine, state, games, playing }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
   ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
   `yes`, `no` or null while open; `shared` whether anyone in it shared the link since the
   date was set. A member's `next` is `{ gameId, at }` while they are in line to play that
   game next on the crew's PC (since `at`), else null. A PC's `id` names the machine a game
-  is started on (`POST /bookings { machineId }`); its `playing` is who in the crew plays on
-  it now, `{ sessionId, player, you, gameId, startedAt, starting }`, else null.
+  is started on (`POST /bookings { machineId }`); its `games` the Steam appids installed on
+  it; its `playing` is who in the crew plays on it now,
+  `{ sessionId, player, you, gameId, startedAt, starting }`, else null.
   → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
@@ -631,7 +632,8 @@ POST /crews/:id/shared          → 200 { crew }
 POST /crews/:id/next { gameId }  → 200 { crew }
   The signed-in member gets in line to play `gameId` (a Steam appid) next on the crew's PC,
   or changes the game and keeps their place; `gameId: null` leaves the line. Booking a
-  machine takes them out of every crew's line. → 400 for anything but an appid or null.
+  machine takes them out of every crew's line. → 400 for anything but an appid (a positive
+  32-bit integer) or null.
   → 404 as above.
 
 GET  /invites/:token
