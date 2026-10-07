@@ -297,7 +297,15 @@ describe("crews", () => {
       assert.equal(crew?.state, "ready");
       assert.equal(crew?.pcs, 1);
       assert.deepEqual(crew?.machines, [
-        { id: "pc-1", name: "Nova-01", owner: "Sam", mine: false, state: "ready", playing: null },
+        {
+          id: "pc-1",
+          name: "Nova-01",
+          owner: "Sam",
+          mine: false,
+          state: "ready",
+          games: [570, 730],
+          playing: null,
+        },
       ]);
       assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.mine, true);
 
@@ -863,7 +871,7 @@ describe("crew API", () => {
       [["pc-1", null]],
     );
     assert.equal((await call("POST", `/api/crews/${crew.id}/next`, STRANGER, { gameId: 730 })).status, 404);
-    for (const bad of ["730", -1, 1.5, true])
+    for (const bad of ["730", -1, 1.5, true, 3_000_000_000])
       assert.equal((await call("POST", `/api/crews/${crew.id}/next`, ALEX, { gameId: bad })).status, 400);
 
     const host = await call("POST", `/api/crews/${crew.id}/next`, HOST, { gameId: 730 });
@@ -916,7 +924,15 @@ describe("crew API", () => {
     const yes = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" });
     assert.equal(yes.body.crew.state, "ready");
     assert.deepEqual(yes.body.crew.machines, [
-      { id: "pc-1", name: "Nova-01", owner: "Sam", mine: true, state: "ready", playing: null },
+      {
+        id: "pc-1",
+        name: "Nova-01",
+        owner: "Sam",
+        mine: true,
+        state: "ready",
+        games: [570, 730],
+        playing: null,
+      },
     ]);
     const off = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "off" });
     assert.equal(off.body.crew.state, "no-pc");

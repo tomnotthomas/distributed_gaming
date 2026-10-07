@@ -17,10 +17,13 @@ import type { Swiff } from "./useSwiff";
 /** The most of the player's games the step offers. */
 const MAX_GAMES = 8;
 
-/** The PC the step is about: the one someone plays on, else a free one, else the first. */
+/** The PC the step is about: the one the viewer plays on, else a free one, else one someone plays on, else the first. */
 export function playPc(crew: CrewDetail): CrewPc | undefined {
   return (
-    crew.machines.find((m) => m.playing) ?? crew.machines.find((m) => m.state === "ready") ?? crew.machines[0]
+    crew.machines.find((m) => m.playing?.you) ??
+    crew.machines.find((m) => m.state === "ready" && !m.playing) ??
+    crew.machines.find((m) => m.playing) ??
+    crew.machines[0]
   );
 }
 
@@ -55,24 +58,21 @@ export function CrewPlay({
   apply: (work: Promise<CrewDetail | null>) => Promise<CrewDetail | null>;
 }) {
   const { lang, t } = useCrewText();
-  const { games, spots, playOn, crewLive, watch, phase, taken, bookingFailed } = swiff;
+  const { games, playOn, crewLive, watch, phase, taken, bookingFailed } = swiff;
   const pc = playPc(crew)!;
   const pcName = pcTitle(lang, pc);
   const playing = pc.playing;
   const me = crew.members.find((m) => m.you)!;
   const queue = crewQueue(crew);
 
-  // The player's games a PC they may use can run, the best known first.
+  // The player's games installed on the PC, the most played first.
   const mine = useMemo(
     () =>
       games
-        .filter((g) => {
-          const spot = spots.get(g.id);
-          return spot && spot.free + spot.busy > 0;
-        })
-        .sort((a, b) => (spots.get(b.id)?.ready ?? 0) - (spots.get(a.id)?.ready ?? 0) || b.hours - a.hours)
+        .filter((g) => pc.games.includes(g.appid))
+        .sort((a, b) => b.hours - a.hours)
         .slice(0, MAX_GAMES),
-    [games, spots],
+    [games, pc.games],
   );
   const names = useGameNames(
     [...(playing ? [playing.gameId] : []), ...queue.map((m) => m.next!.gameId)],
@@ -236,7 +236,12 @@ export function CrewPlay({
       {tiles((g) => setPicked(g.appid), choice)}
       {choice ? (
         <div className="gc-go">
-          <button type="button" className="lpill solid" disabled={busy || phase !== "idle"} onClick={start}>
+          <button
+            type="button"
+            className="lpill solid"
+            disabled={busy || phase !== "idle" || pc.state !== "ready"}
+            onClick={start}
+          >
             {t("pl.start", { game: choice.title })}
             <span className="lpill-c">
               <Glyph name="play" size={18} />

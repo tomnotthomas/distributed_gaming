@@ -291,7 +291,8 @@ export type CrewPcState = "ready" | "busy" | "offline";
 /**
  * A PC playing for a crew: `id` names the machine (to start a game on it),
  * its name as its host reported it, its owner's persona, whether it is the
- * viewer's, and who in the crew plays on it now, if anyone.
+ * viewer's, the Steam appids installed on it, and who in the crew plays on
+ * it now, if anyone.
  */
 export type CrewPc = {
   id: string;
@@ -299,6 +300,7 @@ export type CrewPc = {
   owner: string | null;
   mine: boolean;
   state: CrewPcState;
+  games: number[];
   playing: CrewPcPlay | null;
 };
 
@@ -1634,7 +1636,11 @@ export class Platform {
   queueNext(crewId: string, userId: string, gameId: unknown): Promise<CrewDetail | null | "invalid"> {
     return this.#transaction(async () => {
       if (!(await this.#crewDetail(crewId, userId))) return null;
-      if (gameId !== null && (!Number.isSafeInteger(gameId) || (gameId as number) <= 0)) return "invalid";
+      if (
+        gameId !== null &&
+        (!Number.isSafeInteger(gameId) || (gameId as number) <= 0 || (gameId as number) > 2 ** 31 - 1)
+      )
+        return "invalid";
       await this.#run(
         `UPDATE crew_members SET next_game = $1::int,
                 next_at = CASE WHEN $1::int IS NULL THEN NULL ELSE coalesce(next_at, $2) END
@@ -2317,6 +2323,10 @@ export class Platform {
         WHERE s.ended_at IS NULL AND b.status IN ('claimed', 'playing') AND s.machine_id = ANY ($1::text[])`,
       machines.map((q) => q.id),
     );
+    const installed = await this.#all<{ machine_id: string; appid: number }>(
+      "SELECT machine_id, appid FROM machine_games WHERE machine_id = ANY ($1::text[]) ORDER BY appid",
+      machines.map((q) => q.id),
+    );
     const invite = await this.#get<{ id: string }>(
       "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
       crewId,
@@ -2349,6 +2359,7 @@ export class Platform {
           owner: owner === null ? null : (persona.get(owner) ?? null),
           mine: owner === userId,
           state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
+          games: installed.filter((g) => g.machine_id === q.id).map((g) => Number(g.appid)),
           playing: play
             ? {
                 sessionId: play.id,

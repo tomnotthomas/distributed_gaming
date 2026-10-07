@@ -23,7 +23,7 @@ import {
   type MyCrew,
 } from "./crews";
 import { CrewReadyBanner, CrewStrip, CrewsCard } from "./CrewsCard";
-import { GAMES, type Spot } from "./data";
+import { GAMES } from "./data";
 import { inviteLink, inviteTokenAt, shareTarget, signInForInvite, withoutInviteTokens } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { ScreenLang } from "./screenCopy";
@@ -136,7 +136,17 @@ function readyCrew(over: Partial<CrewDetail> = {}): CrewDetail {
     state: "ready",
     pcs: 1,
     members: [LENA, MAX],
-    machines: [{ id: "q-max", name: "DESKTOP-7Q", owner: "Max", mine: false, state: "ready", playing: null }],
+    machines: [
+      {
+        id: "q-max",
+        name: "DESKTOP-7Q",
+        owner: "Max",
+        mine: false,
+        state: "ready",
+        games: [GAMES[0]!.appid, GAMES[1]!.appid],
+        playing: null,
+      },
+    ],
     ...over,
   });
 }
@@ -669,16 +679,9 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByRole("button", { name: "I've got one after all" })).toBeInTheDocument();
   });
 
-  // Two of the player's games, both runnable on a PC they may use.
+  // Three of the player's games, two of them installed on Max's PC.
   const [ER, CS] = [GAMES[0]!, GAMES[1]!];
-  const free: Spot = { free: 1, ready: 1, busy: 0, best: null, back: null };
-  const library = {
-    games: [ER, CS, GAMES[2]!],
-    spots: new Map([
-      [ER.id, free],
-      [CS.id, { ...free, ready: 0 }],
-    ]),
-  };
+  const library = { games: [ER, CS, GAMES[2]!] };
 
   it("starts the game the player picks on the crew's free PC: first come, first play", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
@@ -689,26 +692,26 @@ describe("CrewPage: the guided crew page", () => {
     ).toBeInTheDocument();
     expect(stubs()).toEqual(["Date:done", "Get your people:done", "Gaming PC:done", "Play:now"]);
     expect(screen.getByText("Your games that run on Max's PC")).toBeInTheDocument();
-    // Only games a PC can run are offered, the readiest first, and it is picked.
+    // Only games installed on the PC are offered, the most played first, and it is picked.
     const tiles = screen
       .getAllByRole("button", { pressed: false })
       .concat(screen.getAllByRole("button", { pressed: true }));
     expect(tiles.map((b) => b.textContent).sort()).toEqual([CS.title, ER.title].sort());
-    expect(screen.getByRole("button", { name: ER.title })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: CS.title })).toHaveAttribute("aria-pressed", "true");
     expect(
       screen.getByText("You scan a QR code once with the Steam app. Max doesn't have to do anything."),
     ).toBeInTheDocument();
     expect(screen.getByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: CS.title }));
-    fireEvent.click(screen.getByRole("button", { name: `Start ${CS.title}` }));
-    expect(swiff.playOn).toHaveBeenCalledWith(CS, "q-max");
+    fireEvent.click(screen.getByRole("button", { name: ER.title }));
+    fireEvent.click(screen.getByRole("button", { name: `Start ${ER.title}` }));
+    expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-max");
   });
 
   it("says when someone was quicker to start", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
     const swiff = atCrew("c1", library);
     const { rerender } = render(<CrewPage swiff={swiff} />);
-    fireEvent.click(await screen.findByRole("button", { name: `Start ${ER.title}` }));
+    fireEvent.click(await screen.findByRole("button", { name: `Start ${CS.title}` }));
     rerender(<CrewPage swiff={{ ...swiff, taken: { nextBest: null } } as Swiff} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("someone else just started");
   });
@@ -747,10 +750,48 @@ describe("CrewPage: the guided crew page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /I want to go next/ }));
     await screen.findByText("Who's next");
-    expect(calls).toContainEqual(["POST", "/api/crews/c1/next", `{"gameId":${ER.appid}}`]);
+    expect(calls).toContainEqual(["POST", "/api/crews/c1/next", `{"gameId":${CS.appid}}`]);
     expect(screen.getByText("When Max stops, whoever is first in line goes next.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Leave the line" })).toBeInTheDocument();
     expect(screen.getByText("What do you want to play?")).toBeInTheDocument();
+  });
+
+  it("offers a free PC while someone plays on another, with the games installed on it", async () => {
+    const playing = {
+      sessionId: "s1",
+      player: "Max",
+      you: false,
+      gameId: ER.appid,
+      startedAt: 1,
+      starting: false,
+    };
+    const [max] = readyCrew().machines;
+    const crew = readyCrew({
+      session: dated,
+      shared: true,
+      pcs: 2,
+      machines: [
+        { ...max!, state: "busy", playing },
+        {
+          id: "q-sam",
+          name: null,
+          owner: "Sam",
+          mine: false,
+          state: "ready",
+          games: [ER.appid],
+          playing: null,
+        },
+      ],
+    });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const swiff = atCrew("c1", library);
+    render(<CrewPage swiff={swiff} />);
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: CS.title })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Start ${ER.title}` }));
+    expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-sam");
   });
 
   it("counts the PCs when more than one is in, and says when none is on", async () => {
@@ -759,8 +800,8 @@ describe("CrewPage: the guided crew page", () => {
       shared: true,
       pcs: 2,
       machines: [
-        { id: "q-max", name: null, owner: "Max", mine: false, state: "ready", playing: null },
-        { id: "q-sam", name: null, owner: "Sam", mine: false, state: "busy", playing: null },
+        { id: "q-max", name: null, owner: "Max", mine: false, state: "ready", games: [], playing: null },
+        { id: "q-sam", name: null, owner: "Sam", mine: false, state: "busy", games: [], playing: null },
       ],
     });
     let crew = two;
