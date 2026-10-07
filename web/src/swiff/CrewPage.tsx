@@ -309,6 +309,8 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Asked the group for a gaming PC: the PC step waits for one.
+  const [asked, setAsked] = useState(false);
   const { note, say, share, copyLink } = useShare(swiff.inviteShared);
   const { crewChanges, crewReady, dismissCrewReady, openCrew, goHome } = swiff;
   const ticketRef = useRef<HTMLElement>(null);
@@ -391,14 +393,15 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     if (await copyLink(link)) await apply(sharedCrew(id));
   };
 
-  // Their PC plays for the crew from now on, once it runs the app.
+  // One click: the Lanterel app downloads (once a release is published), and
+  // their PC plays for the crew from now on, once it runs the app.
   const bringMine = async () => {
-    if (!(await apply(bringPc(id, "yes")))) return;
-    if (HOST_DOWNLOAD_URL) window.open(HOST_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+    if (HOST_DOWNLOAD_URL) startDownload(HOST_DOWNLOAD_URL);
+    await apply(bringPc(id, "yes"));
   };
   const askGroup = async () => {
     await share("whatsapp", message, link, "toast.asked");
-    if (me.pc !== "later") await apply(bringPc(id, "later"));
+    setAsked(true);
   };
 
   const saveName = async () => {
@@ -608,7 +611,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                       <p className="gc-fine">{t("pcc.soon", { crew: title })}</p>
                     )}
                   </>
-                ) : me.pc === "later" && crew.pcs === 0 ? (
+                ) : asked && crew.pcs === 0 ? (
                   <>
                     <h2>{t("g.pcWaitH")}</h2>
                     <p className="gc-p">{t("g.pcWaitP")}</p>
@@ -959,6 +962,17 @@ function WhatsAppGlyph() {
       />
     </svg>
   );
+}
+
+/** Start downloading `url` from this page, without leaving it. */
+function startDownload(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 /** The green WhatsApp button the design leads with. */

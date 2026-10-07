@@ -2,7 +2,7 @@
 // crew's lobby, the invite page a crew's link opens, and the ways into crews
 // from the rest of the app (the card, the wall's strip, the ready banner).
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CREW_COPY, crewText, langOf, possessive } from "./crewCopy";
@@ -640,17 +640,14 @@ describe("CrewPage: the guided crew page", () => {
         200,
         { crew: { ...crew, members: [crew.members[0], { ...crew.members[1], rsvp: "no" }] } },
       ],
-      "POST /api/crews/c1/pc": [
-        200,
-        { crew: { ...crew, members: [crew.members[0], { ...crew.members[1], rsvp: "no", pc: "later" }] } },
-      ],
     });
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(<CrewPage swiff={atCrew("c1")} />);
     fireEvent.click(await screen.findByRole("button", { name: "No: ask the group" }));
     expect(await screen.findByRole("heading", { name: "A gaming PC is still missing" })).toBeInTheDocument();
     expect(String(open.mock.calls[0]![0])).toMatch(/^https:\/\/wa\.me\/\?text=/);
-    expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"later"}']);
+    // Asking puts nothing off on the server: there is no "later" to send.
+    expect(calls.filter(([method]) => method === "POST")).toEqual([]);
     expect(screen.getByRole("button", { name: "I've got one after all" })).toBeInTheDocument();
   });
 
