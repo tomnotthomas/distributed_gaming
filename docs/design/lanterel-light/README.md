@@ -1,5 +1,9 @@
 # The player app in the light Lanterel look: before and after
 
+> **Superseded (2026-10-07).** The captain asked the same day to restore the previous look, so the app ships
+> the dark Paper Band look again (`web/DESIGN.md`). These images are kept as the record of the light look;
+> the restore's before and after are in `docs/design/restored-look/`.
+
 Each image shows the old dark look on the left and the light look on the right, captured from the demo
 wall (`/?demo=1`) with a signed-in renter. Desktop pairs are the first 1440 × 900 viewport, scaled down;
 phone pairs are the first 390 × 844 screen.

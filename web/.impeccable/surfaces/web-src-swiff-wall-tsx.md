@@ -15,6 +15,10 @@ related_targets:
 
 # Renter app after sign-in
 
+> **Superseded (2026-10-07).** This brief drove #107's light look. The captain asked the same day to
+> restore the previous look, so the app ships the Paper Band look again; `web/DESIGN.md` describes it.
+> Kept as the record of the light redesign, not as the current direction.
+
 Scope: web/src/swiff renter screens (wall, game page and booking notes, Ignition, coming back and lost
 machine, profile and settings, the shared bar; Share your PC follows the same tokens). Out of scope: the
 crew page and invite (crew.css), the Steam sign-up flow, the marketing pages, the host desktop app, the

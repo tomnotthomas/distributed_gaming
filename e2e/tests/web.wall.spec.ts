@@ -38,9 +38,9 @@ test.describe("live wall", () => {
       await page.setViewportSize(viewport);
       await page.goto("/");
 
-      // The strip sits whole on the first screen; the band starts just below the fold.
+      // The strip ends at the bottom of the viewport; the band starts just below the fold.
       const strip = (await page.locator(".hero-strip").boundingBox())!;
-      expect(strip.y + strip.height).toBeLessThanOrEqual(viewport.height);
+      expect(Math.abs(strip.y + strip.height - viewport.height)).toBeLessThanOrEqual(1);
       const band = (await page.locator(".band").boundingBox())!;
       expect(band.y).toBeGreaterThanOrEqual(viewport.height - 1);
     });
