@@ -590,7 +590,8 @@ POST /crews { name? }
 
 GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
-                  shared, members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
+                  shared, busy: [{ at, owner, mine }], picks, offered,
+                  members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
                   machines: [{ id, name, owner, mine, state, games, playing }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
@@ -600,8 +601,13 @@ GET  /crews/:id
   game next on the crew's PC (since `at`), else null. A PC's `id` names the machine a game
   is started on (`POST /bookings { machineId }`); its `games` the Steam appids installed on
   it; its `playing` is who in the crew plays on it now,
-  `{ sessionId, player, you, gameId, startedAt, starting }`, else null.
-  → 404 for anyone else, or none. → 401 signed out.
+  `{ sessionId, player, you, gameId, startedAt, starting }`, else null. `busy` lists other
+  crews' Zockrunden, ahead or under way, that one of this crew's PCs plays for too (when
+  they start, the PC owner's persona, and `mine` when the PC is the viewer's own, never
+  which crew), which the date calendar
+  marks; `picks` how many games still on one of its PCs the viewer marked to play;
+  `offered` how many games its PCs have installed, so the games step counts as done when
+  there are none to pick. → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
@@ -636,6 +642,21 @@ POST /crews/:id/next { gameId }  → 200 { crew }
   32-bit integer) or null.
   → 404 as above.
 
+GET  /crews/:id/games
+  → 200 { games: [{ id, name, image, free, owners, everyone, wants, mine }], size }
+  The games installed on the crew's PCs (at most 48, the most wanted first) that someone
+  in it may start: `owners` counts the members whose Steam library holds it, `everyone`
+  is true when it is free or every member owns it, `wants` lists the memberships that
+  marked it, the viewer's own included when `mine`. `size` is how many are in the crew.
+  → 404 as above.
+
+POST /crews/:id/games { appid, want }
+  → 200 { games, size }
+  The signed-in member marks a game they want to play (`want: true`) or unmarks it.
+  → 409 { error, code: "not-installed" } for marking a game no PC of the crew has.
+  → 400 for an appid that is not a whole number or a `want` that is not true or false.
+  → 404 as above. Leaving the crew drops a member's marks.
+
 GET  /invites/:token
   → 200 { crew: { name, crewName, own, size, state, pcs, session, member,
                   guests: [{ name, admin, rsvp }] } }
@@ -669,8 +690,10 @@ move it), gets their people in with one WhatsApp message that says the date and 
 a gaming PC (through the phone's share sheet where there is one and `wa.me` otherwise, or
 by copying the link), brings a gaming PC (which starts the Lanterel app's download in place,
 `release.json`; until a release is published the step says the app is coming soon) or asks
-the group and waits for one, and plays; someone who joined
-says yes or no, gets a gaming PC in, and plays. Playing happens on the page itself: while
+the group and waits for one, picks games, and plays; someone who joined
+says yes or no, gets a gaming PC in, picks games, and plays. Picking games (`GET /crews/:id/games`)
+is only the current step while there is a date and a PC; it is done once the member marked
+a game or tapped done, or when the crew's PCs have none to pick (`offered` is 0). Playing happens on the page itself: while
 the crew's PC is free, the member picks one of their own games it can run and starts it
 there (first come, first play), and the owner does nothing; while someone plays on it, the
 others see who plays what, watch (`/crew-live`), or get in line to go next with the game

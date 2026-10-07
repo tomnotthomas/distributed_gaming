@@ -28,21 +28,18 @@ import {
   sessionDay,
   sessionTime,
   sessionWeekday,
-  setCrewSession,
   sharedCrew,
   takeLanding,
   takePcFirst,
   FOUND_PATH,
   type CrewDetail,
   type CrewMember,
-  type CrewSession,
   type MyCrew,
-  zoned,
-  zonedAt,
 } from "./crews";
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
+import { DateStep, GamesStep, WhoIsComing } from "./CrewPlan";
 import { CrewPlay, playPc } from "./CrewPlay";
-import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare } from "./crewUi";
+import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare, WhatsAppGlyph } from "./crewUi";
 import { Glyph } from "./Glyph";
 import { inviteLink } from "./invite";
 import { HOST_DOWNLOAD_URL } from "./SharePC";
@@ -208,19 +205,34 @@ function CrewList({ swiff }: { swiff: Swiff }) {
 }
 
 /** A step on the way to the Zockrunde, as the crew page's ticket shows it. */
-type StepId = "date" | "people" | "answer" | "pc" | "play";
+type StepId = "date" | "people" | "answer" | "pc" | "games" | "play";
 type Step = { id: StepId; label: CopyKey; done: boolean; value?: string; change?: boolean };
 
 /**
  * The steps to the crew's Zockrunde for whoever looks, from the crew as it is:
- * its admin sets the date, sends it out, gets a gaming PC in and plays;
- * someone who joined says yes or no, gets a gaming PC in and plays. A step
- * that cannot be done yet (answering before there is a date) is never the
- * current one.
+ * its admin sets the date, sends it out, gets a gaming PC in, picks games and
+ * plays; someone who joined says yes or no, gets a gaming PC in, picks games
+ * and plays. A step that cannot be done yet (answering before there is a date,
+ * picking games before there is a date and a PC) is never the current one. Picking stays
+ * open while the viewer is at it (`picking`), and is done once they marked a
+ * game or said they are done (`picked`), or when the PCs in have none to pick.
  */
-export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: Lang): Step[] {
+export function crewSteps(
+  crew: CrewDetail,
+  me: CrewMember,
+  now: number,
+  lang: Lang,
+  { picking = false, picked = false } = {},
+): Step[] {
   const t = crewText(lang);
   const session = activeSession(crew, now);
+  const games: Step = {
+    id: "games",
+    label: "g.stepGames",
+    done: !picking && (crew.picks > 0 || picked || (session !== null && crew.pcs > 0 && crew.offered === 0)),
+    value: crew.picks ? t(crew.picks === 1 ? "g.pickedOne" : "g.picked", { n: crew.picks }) : undefined,
+    change: crew.pcs > 0,
+  };
   const pc: Step = {
     id: "pc",
     label: "g.stepPc",
@@ -245,6 +257,7 @@ export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: L
         change: true,
       },
       pc,
+      games,
       play,
     ];
   }
@@ -257,6 +270,7 @@ export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: L
       change: true,
     },
     pc,
+    games,
     play,
   ];
 }
@@ -264,42 +278,15 @@ export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: L
 /** The step to do now: the first one not done that can be done. */
 function currentStep(steps: Step[], crew: CrewDetail, now: number): StepId {
   const session = activeSession(crew, now);
-  const step = steps.find((s) => !s.done && (s.id !== "answer" || session) && (s.id !== "people" || session));
+  const step = steps.find(
+    (s) =>
+      !s.done &&
+      (s.id !== "answer" || session) &&
+      (s.id !== "people" || session) &&
+      (s.id !== "games" || (session && crew.pcs > 0)),
+  );
   return step?.id ?? "play";
 }
-
-/** The hours a Zockrunde may start at. */
-const SESSION_HOURS = [17, 18, 19, 20, 21, 22];
-
-/** The furthest day ahead a Zockrunde may be set on: inside the server's 90 days (SESSION_AHEAD_MS). */
-const FURTHEST_DAY = 89;
-
-/**
- * A calendar day in SESSION_ZONE, as the day choices hold it: its midnight in
- * UTC (Unix ms), so the same day reads the same wherever the browser is.
- */
-type CalendarDay = number;
-
-/** The calendar day `offset` days after the one `at` falls on in SESSION_ZONE. */
-function dayOf(at: number, offset = 0): CalendarDay {
-  const { year, month, day } = zoned(at);
-  return Date.UTC(year, month, day + offset);
-}
-
-/** The moment `hour` o'clock begins on calendar day `day`, in SESSION_ZONE. */
-function startOf(day: CalendarDay, hour: number): number {
-  const d = new Date(day);
-  return zonedAt(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour);
-}
-
-/** A calendar day as `<input type="date">` writes it. */
-const isoDay = (day: CalendarDay) => new Date(day).toISOString().slice(0, 10);
-
-/** A calendar day's weekday, in full or short. */
-const dayWeekday = (lang: Lang, day: CalendarDay, width: "short" | "long") =>
-  new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: width, timeZone: "UTC" })
-    .format(day)
-    .replace(".", "");
 
 /** One crew's page: the next Zockrunde as a ticket, with the one step to do now open on it. */
 function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
@@ -312,6 +299,9 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const [busy, setBusy] = useState(false);
   // Asked the group for a gaming PC: the PC step waits for one.
   const [asked, setAsked] = useState(false);
+  // At the games, marking: the step stays open until they say they are done, which `picked` keeps.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState(false);
   const { note, say, share, copyLink } = useShare(swiff.inviteShared);
   const { crewChanges, crewReady, dismissCrewReady, openCrew } = swiff;
   const ticketRef = useRef<HTMLElement>(null);
@@ -369,7 +359,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
   const pcName = firstPc ? pcTitle(lang, firstPc) : "";
   const session = activeSession(crew, now);
-  const steps = crewSteps(crew, me, now, lang);
+  const steps = crewSteps(crew, me, now, lang, { picking, picked });
   const current = open && steps.some((s) => s.id === open) ? open : currentStep(steps, crew, now);
   const answers = crew.members.filter((m) => m.rsvp === "yes");
   const unanswered = crew.size - (session ? session.yes + session.no : 0);
@@ -420,11 +410,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     if (done) openCrew();
     else say(t("toast.failed"));
   };
-
-  const memberMeta = (m: CrewMember) =>
-    m.admin ? t("cp.founder") : m.pcs > 0 ? t("cp.brings") : m.pc === "yes" ? t("cp.settingUp") : "";
-
-  const sorted = [...crew.members].sort((a, b) => Number(b.you) - Number(a.you));
 
   return (
     <main className="crew-lobby gc" data-testid="crew" data-state={crew.state} data-step={current}>
@@ -528,11 +513,25 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
             <div className="gc-cp" key={current}>
               {current === "date" ? (
                 <DateStep
-                  crewId={id}
-                  session={crew.session}
+                  crew={crew}
                   over={crew.session !== null && session === null}
                   busy={busy}
                   apply={apply}
+                />
+              ) : current === "games" ? (
+                <GamesStep
+                  crewId={id}
+                  members={crew.members}
+                  session={session}
+                  changes={crewChanges}
+                  say={say}
+                  onPick={() => setPicking(true)}
+                  onDone={() => {
+                    setPicking(false);
+                    setPicked(true);
+                    setOpen(null);
+                    ticketRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+                  }}
                 />
               ) : current === "people" ? (
                 <>
@@ -682,40 +681,19 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
           ) : null}
 
           {session && crew.size > 1 ? (
-            <section className="gc-who" aria-labelledby="gc-who-h">
-              <h2 id="gc-who-h">{t("g.who")}</h2>
-              <ul>
-                {sorted.map((m, i) => (
-                  <li key={m.id} className={m.you ? "me" : undefined}>
-                    <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
-                    <span className="gc-nm">
-                      <span>
-                        {m.you
-                          ? m.name
-                            ? t("g.you", { name: m.name })
-                            : t("cp.you")
-                          : (m.name ?? t("cp.anon"))}
-                      </span>
-                      {memberMeta(m) ? <small>{memberMeta(m)}</small> : null}
-                    </span>
-                    <span className={`gc-ans ${m.rsvp ?? ""}`}>
-                      <span className="d" aria-hidden="true">
-                        {m.rsvp === "yes" ? <Tick /> : null}
-                      </span>
-                      {t(
-                        m.rsvp === "yes"
-                          ? "g.ansYes"
-                          : m.rsvp === "no"
-                            ? "g.ansNo"
-                            : m.you
-                              ? "g.ansYou"
-                              : "g.ansOpen",
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <WhoIsComing
+              crew={crew}
+              session={session}
+              share={share}
+              onMove={
+                crew.own
+                  ? () => {
+                      setOpen("date");
+                      ticketRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+                    }
+                  : null
+              }
+            />
           ) : null}
 
           <details className="gc-more">
@@ -806,153 +784,11 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   );
 }
 
-/** Setting the crew's Zockrunde, or moving it: a day, a time, and one button that says both. */
-function DateStep({
-  crewId,
-  session,
-  over,
-  busy,
-  apply,
-}: {
-  crewId: string;
-  session: CrewSession | null;
-  over: boolean;
-  busy: boolean;
-  apply: (work: Promise<CrewDetail | null>) => Promise<CrewDetail | null>;
-}) {
-  const { lang, t } = useCrewText();
-  // Read again on every pick and before setting, so a page left open never sets a time already gone.
-  const [now, setNow] = useState(() => Date.now());
-  const days = [0, 1, 2, 3, 4].map((offset) => dayOf(now, offset));
-  const moving = session !== null && !over;
-  // Friday when it is among the days, else tomorrow; a session being moved starts from its own day.
-  const [day, setDay] = useState<CalendarDay>(() =>
-    moving ? dayOf(session.at) : (days.find((d) => new Date(d).getUTCDay() === 5) ?? days[1]!),
-  );
-  const [hour, setHour] = useState(() => (moving ? zoned(session.at).hour : 21));
-  const [other, setOther] = useState(() => !days.includes(day));
-  const at = startOf(day, hour);
-  const past = at < now;
-  const pick = (next: () => void) => {
-    setNow(Date.now());
-    next();
-  };
-  const short = (d: CalendarDay) =>
-    `${dayWeekday(lang, d, "short")} ${new Date(d).getUTCDate()}${lang === "de" ? "." : ""}`;
-  const dayName = (d: CalendarDay, i: number) =>
-    i === 0 ? t("g.today") : i === 1 ? t("g.tomorrow") : dayWeekday(lang, d, "long");
-  const whenDay = days.indexOf(day);
-  const when = `${
-    whenDay >= 0 && !other
-      ? dayName(day, whenDay)
-      : `${dayWeekday(lang, day, "long")} ${new Date(day).getUTCDate()}${lang === "de" ? "." : ""}`
-  }, ${sessionTime(lang, at)}`;
-
-  const set = () => {
-    const current = Date.now();
-    setNow(current);
-    if (at >= current) void apply(setCrewSession(crewId, at));
-  };
-
-  return (
-    <>
-      <h2>{t(moving ? "g.moveH" : over ? "g.nextH" : "g.dateH")}</h2>
-      <p className="gc-p">{t(moving ? "g.moveP" : "g.dateP")}</p>
-      <div className="gc-pick">
-        <fieldset>
-          <legend>{t("g.day")}</legend>
-          <div className="gc-chips">
-            {days.map((d, i) => (
-              <button
-                key={d}
-                type="button"
-                className="gc-chip"
-                aria-pressed={!other && d === day}
-                onClick={() =>
-                  pick(() => {
-                    setOther(false);
-                    setDay(d);
-                  })
-                }
-              >
-                <span>{dayName(d, i)}</span>
-                <small>{short(d)}</small>
-              </button>
-            ))}
-            {other ? (
-              <input
-                className="gc-chip gc-other"
-                type="date"
-                aria-label={t("g.otherDay")}
-                min={isoDay(days[0]!)}
-                max={isoDay(dayOf(now, FURTHEST_DAY))}
-                value={isoDay(day)}
-                onChange={(event) => {
-                  const [y, m, d] = event.target.value.split("-").map(Number);
-                  if (!y || !m || !d) return;
-                  const picked = Date.UTC(y, m - 1, d);
-                  if (picked >= days[0]! && picked <= dayOf(now, FURTHEST_DAY)) pick(() => setDay(picked));
-                }}
-              />
-            ) : (
-              <button
-                type="button"
-                className="gc-chip gc-other"
-                aria-pressed={false}
-                onClick={() => pick(() => setOther(true))}
-              >
-                <span>{t("g.otherDay")}</span>
-              </button>
-            )}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>{t("g.time")}</legend>
-          <div className="gc-chips">
-            {SESSION_HOURS.map((h) => (
-              <button
-                key={h}
-                type="button"
-                className="gc-chip t"
-                aria-pressed={h === hour}
-                onClick={() => pick(() => setHour(h))}
-              >
-                {`${String(h).padStart(2, "0")}:00`}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-      </div>
-      <div className="gc-go">
-        <button type="button" className="lpill solid" disabled={busy || past} onClick={set}>
-          {t(moving ? "g.move" : "g.set", { when })}
-          <span className="lpill-c">
-            <Glyph name="arrow" size={18} />
-          </span>
-        </button>
-        <p className="gc-fine">{t("g.setFine")}</p>
-      </div>
-    </>
-  );
-}
-
 function LinkIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
       <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
-    </svg>
-  );
-}
-
-/** WhatsApp's mark. */
-function WhatsAppGlyph() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M12.04 2.5a9.45 9.45 0 0 0-8.1 14.33L2.5 21.5l4.8-1.4a9.46 9.46 0 1 0 4.74-17.6zm0 17.3a7.84 7.84 0 0 1-4.02-1.1l-.29-.17-2.85.83.84-2.77-.19-.3a7.85 7.85 0 1 1 6.51 3.51zm4.3-5.88c-.24-.12-1.4-.69-1.61-.77-.22-.08-.37-.12-.53.12-.16.23-.61.77-.75.93-.14.16-.28.18-.51.06a6.4 6.4 0 0 1-3.2-2.8c-.24-.41.24-.38.69-1.27.08-.16.04-.29-.02-.41-.06-.12-.53-1.28-.73-1.75-.19-.46-.39-.4-.53-.4h-.45a.87.87 0 0 0-.63.29 2.64 2.64 0 0 0-.82 1.96 4.6 4.6 0 0 0 .96 2.43 10.5 10.5 0 0 0 4.03 3.56c1.5.65 2.08.7 2.83.59.46-.07 1.4-.57 1.6-1.13.2-.55.2-1.03.14-1.13-.06-.1-.21-.16-.45-.28z"
-      />
     </svg>
   );
 }

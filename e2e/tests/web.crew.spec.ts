@@ -48,14 +48,13 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await founder.goto("/crews?found=1");
   await expect(founder).toHaveURL(/\/crews\/[\w-]{22}$/);
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
-  await expect(founder.getByRole("heading", { name: "When are you playing?" })).toBeVisible();
+  await expect(founder.getByRole("heading", { name: "Pick a day in the calendar" })).toBeVisible();
   const { crew } = await (await founder.request.get(`/api/crews/${crewId}`)).json();
   expect(crew.token).toMatch(/^[\w-]{44}$/);
 
-  // The founder sets the date (tomorrow, 10 pm), and the next step sends it out.
-  await founder.getByRole("button", { name: /^Tomorrow/ }).click();
+  // The founder sets the date (the day the calendar offers, 10 pm), and the next step sends it out.
   await founder.getByRole("button", { name: "22:00" }).click();
-  await founder.getByRole("button", { name: /^Set Tomorrow, 10 pm/ }).click();
+  await founder.getByRole("button", { name: /^Set .+, 10 pm/ }).click();
   await expect(founder.getByRole("heading", { name: "Now get your people in" })).toBeVisible();
   await expect(founder.locator(".gc-bubble")).toContainText(`/invite/${crew.token}`);
   await expect(founder.locator(".gc-bubble")).toContainText("Who's got a gaming PC?");

@@ -425,6 +425,18 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE crew_members ADD COLUMN next_game INTEGER`,
     `ALTER TABLE crew_members ADD COLUMN next_at BIGINT`,
   ],
+  [
+    // The games each member of a crew wants to play at its Zockrunden
+    // (platform.ts, wantCrewGame): one row per member and Steam appid, of the
+    // games installed on the crew's PCs. Leaving the crew drops a member's.
+    `CREATE TABLE crew_game_wants (
+      crew_id TEXT NOT NULL REFERENCES crews (id),
+      user_id TEXT NOT NULL,
+      appid   BIGINT NOT NULL,
+      at      BIGINT NOT NULL,
+      PRIMARY KEY (crew_id, user_id, appid)
+    )`,
+  ],
 ];
 
 /**

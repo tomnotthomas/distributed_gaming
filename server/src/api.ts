@@ -18,6 +18,8 @@
 //   POST /api/crews/:id/rsvp
 //   POST /api/crews/:id/shared
 //   POST /api/crews/:id/next
+//   GET  /api/crews/:id/games
+//   POST /api/crews/:id/games
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
@@ -114,7 +116,7 @@ import {
 import { createAttestation, looksLikeHostCert, type Attestation, type Credential } from "./attestation.js";
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
-import { popularGames } from "./catalog.js";
+import { lookUpGamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import type { ErrorTracking } from "./error-tracking.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
@@ -140,6 +142,7 @@ import {
   emptyProfile,
   LIBRARY_CAP,
   originFrom,
+  ownsApp,
   pageProfile,
   readProfile,
   type LibraryEntry,
@@ -183,6 +186,11 @@ export type ApiOptions = {
   fallbackOrigin: string;
   /** The games that can be booked, before playability. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
+  /**
+   * Names, art and free-to-play for games on a crew's PCs, and whether the store failed to
+   * answer for some. Defaults to Steam's store data (catalog.ts).
+   */
+  gameMedia?: (appids: number[]) => Promise<{ games: CatalogGame[]; failed: boolean }>;
   /** The renter event streams. Without them GET /api/events is not served. */
   events?: RenterEvents;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
@@ -456,6 +464,11 @@ function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
   return { steamId, rttMs, ...renterPrefs(controls, query.get("picture") ?? "best") };
 }
 
+/** The most games a crew's page offers to pick from, the most wanted first. */
+const CREW_GAMES_MAX = 48;
+/** How many games a crew's page looks up in the store at a time, the most wanted first, until CREW_GAMES_MAX are on offer. */
+const CREW_GAMES_CANDIDATES = 200;
+
 /** Steam's most played games that `keep` lets through, as the games that can be booked. */
 const popularBookable = async (keep: (appid: number) => boolean) =>
   (await popularGames(undefined, keep)).map((g) => ({
@@ -508,9 +521,64 @@ export function createApi({
   onCrewLeft,
   checkCrew,
   errorTracking = null,
+  gameMedia,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
+  const media =
+    gameMedia ?? ((appids: number[]) => lookUpGamesMedia(appids, playable, CREW_GAMES_CANDIDATES));
+
+  /**
+   * The games on crew `crewId`'s PCs as `steamId`, in it, picks from: for
+   * each, how many in the crew own it, whether everyone can play it (free, or
+   * in every library), and which members want it (`wants`, membership ids),
+   * the most wanted first. Null unless they are in it.
+   */
+  async function crewGamesReply(crewId: string, steamId: string) {
+    const read = await platform.crewGames(crewId, steamId);
+    if (!read) return null;
+    const libraries = await Promise.all(
+      read.members.map((m) => profile(m.userId).catch(() => emptyProfile(m.userId))),
+    );
+    const me = read.members.find((m) => m.you)!;
+    const ranked = read.installed
+      .filter(playable)
+      .map((appid) => ({
+        appid,
+        owners: libraries.filter((library) => ownsApp(library, appid)).length,
+        wants: read.wants.filter((w) => w.appid === appid).map((w) => w.memberId),
+      }))
+      .sort((a, b) => b.wants.length - a.wants.length || b.owners - a.owners || a.appid - b.appid);
+    // Looked up a batch at a time, so games nobody may start never take the places of those on offer.
+    const games = [];
+    for (let at = 0; at < ranked.length && games.length < CREW_GAMES_MAX; at += CREW_GAMES_CANDIDATES) {
+      const batch = ranked.slice(at, at + CREW_GAMES_CANDIDATES);
+      const { games: found, failed } = await media(batch.map((g) => g.appid)).catch(() => ({
+        games: [] as CatalogGame[],
+        failed: true,
+      }));
+      const known = new Map(found.map((g) => [g.appid, g]));
+      for (const { appid, owners, wants } of batch) {
+        const game = known.get(appid);
+        // Not a game, or one nobody in the crew may start: not on offer.
+        if (!game || (!game.free && owners === 0)) continue;
+        games.push({
+          id: appid,
+          name: game.name,
+          image: game.art.capsule ?? game.art.hero,
+          free: game.free,
+          owners,
+          everyone: game.free || owners === read.members.length,
+          wants,
+          mine: wants.includes(me.id),
+        });
+      }
+      // The store did not answer for all of them: the next batches would not fare better. An
+      // empty answer is only a batch with no games in it, and the next one may still have some.
+      if (failed) break;
+    }
+    return { games: games.slice(0, CREW_GAMES_MAX), size: read.members.length };
+  }
 
   /** The page's copy of the renter's profile; the games it can show are checked ahead of background rechecks. */
   function profileReply(steamId: string, read: SteamProfile) {
@@ -827,6 +895,33 @@ export function createApi({
       }
       events?.crewChanged();
       reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // The games on the crew's PCs, and who in it wants to play which.
+    if (resource === "crews" && id && action === "games" && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const games = await crewGamesReply(id, steamId);
+      if (!games) throw new HttpError(404, "no such crew");
+      reply(res, 200, games);
+      return true;
+    }
+
+    // The signed-in member marks a game they want to play with the crew, or unmarks it.
+    if (resource === "crews" && id && action === "games" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (!Number.isSafeInteger(body.appid) || (body.appid as number) <= 0)
+        throw new HttpError(400, "appid must be a Steam appid");
+      if (typeof body.want !== "boolean") throw new HttpError(400, "want must be true or false");
+      const done = await platform.wantCrewGame(id, steamId, body.appid as number, body.want);
+      if (!done) throw new HttpError(404, "no such crew");
+      if (done === "not-installed") {
+        reply(res, 409, { error: "no PC of the crew has that game", code: "not-installed" });
+        return true;
+      }
+      events?.crewChanged();
+      reply(res, 200, (await crewGamesReply(id, steamId))!);
       return true;
     }
 

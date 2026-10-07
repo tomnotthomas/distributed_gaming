@@ -46,6 +46,7 @@ describe("migrations", () => {
       assert.equal(await migrate(db), LATEST);
       assert.deepEqual(await tables(db), [
         "bookings",
+        "crew_game_wants",
         "crew_invites",
         "crew_machines",
         "crew_members",

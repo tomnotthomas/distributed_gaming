@@ -18,6 +18,7 @@ import {
   type Access,
 } from "../access.js";
 import { createApi } from "../api.js";
+import type { CatalogGame } from "../catalog.js";
 import { RequestBudget } from "../budget.js";
 import {
   CREW_NAME_MAX,
@@ -30,6 +31,7 @@ import {
 } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { emptyProfile } from "../steam.js";
+import type { Database } from "../db.js";
 import { testDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
@@ -55,17 +57,39 @@ const MACHINE_KEYS = [
   `pc-4:${HASH}:76561198000000099`,
 ].join(",");
 const PERSONA: Record<string, string> = { [ALEX]: "Alex", [HOST]: "Sam", [JO]: "Jo" };
+/** The Steam libraries the API tests read, ascending: everyone owns Counter-Strike 2. */
+const LIBRARIES: Record<string, number[]> = { [ALEX]: [550, 730], [HOST]: [550, 620, 730] };
+/** A store entry for a test game. */
+const media = (appid: number, name: string, free: boolean): CatalogGame => ({
+  appid,
+  name,
+  free,
+  art: { hero: null, capsule: `https://cdn.example/${appid}.jpg` },
+  preview: null,
+  trailer: null,
+});
+/** The store's answer for the games on the test PCs; 999 is installed but not a game. */
+const MEDIA: Record<number, CatalogGame> = {
+  730: media(730, "Counter-Strike 2", true),
+  570: media(570, "Dota 2", true),
+  550: media(550, "Left 4 Dead 2", false),
+  620: media(620, "Portal 2", false),
+  440: media(440, "Team Fortress 2", false),
+};
 
 let now: number;
 let platform: Platform;
+/** The database the platform under test runs on, for state no API call reaches. */
+let database: Database;
 /** Every crew-ready notice, in order: the crew and who was told. */
 let ready: { crewId: string; memberIds: string[] }[];
 const owners = parseMachineOwners(MACHINE_KEYS);
 
 const open = async () => {
   ready = [];
+  database = await testDatabase();
   platform = await Platform.open({
-    database: await testDatabase(),
+    database,
     now: () => now,
     owners,
     onCrewReady: (crewId, memberIds) => ready.push({ crewId, memberIds }),
@@ -130,6 +154,9 @@ describe("crews", () => {
           session: null,
           shared: false,
           machines: [],
+          busy: [],
+          picks: 0,
+          offered: 0,
         },
       );
       assert.deepEqual(crew.members, [
@@ -566,6 +593,9 @@ describe("crews", () => {
 describe("crew API", () => {
   let server: Server;
   let origin: string;
+  /** Store lookups for game media, and whether the store fails them, answers only for MEDIA, or throws after the first. */
+  let lookups = 0;
+  let store: "up" | "down" | "partly" | "throws" = "up";
   const access: Access = {
     secret: SECRET,
     machines: parseMachineKeys(MACHINE_KEYS),
@@ -577,7 +607,7 @@ describe("crew API", () => {
       ...emptyProfile(steamId),
       persona: PERSONA[steamId] ?? "",
       lib: true,
-      library: Uint32Array.from([730]),
+      library: Uint32Array.from(LIBRARIES[steamId] ?? [730]),
     });
     server = createServer(async (req, res) => {
       const api = createApi({
@@ -590,6 +620,17 @@ describe("crew API", () => {
         profile,
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
+        gameMedia: async (appids) => {
+          lookups++;
+          if (store === "down") return { games: [], failed: true };
+          if (store === "throws" && lookups > 1) throw new Error("lookup broke");
+          if (store === "partly")
+            return { games: appids.flatMap((appid) => MEDIA[appid] ?? []), failed: true };
+          const games = appids.flatMap((appid) =>
+            MEDIA[appid] ? [MEDIA[appid]] : appid < 100 ? [media(appid, `Paid ${appid}`, false)] : [],
+          );
+          return { games, failed: false };
+        },
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -602,6 +643,8 @@ describe("crew API", () => {
 
   beforeEach(async () => {
     now = Date.UTC(2026, 9, 6, 20);
+    lookups = 0;
+    store = "up";
     await open();
   });
 
@@ -767,6 +810,224 @@ describe("crew API", () => {
       yes: 2,
       no: 0,
     });
+  });
+
+  it("offers the games on the crew's PCs, everyone's apart from some's, and keeps who wants which", async () => {
+    const crew = await joinByLink();
+    const none = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(none.body, { games: [], size: 2 }, "no PC, no games");
+    assert.equal((await call("GET", `/api/crews/${crew.id}/games`, STRANGER)).status, 404);
+    assert.equal((await call("GET", `/api/crews/${crew.id}/games`)).status, 401);
+
+    assert.equal((await offerPc("pc-1", { games: [730, 570, 550, 620, 440, 999] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    type Game = {
+      id: number;
+      name: string;
+      everyone: boolean;
+      owners: number;
+      wants: string[];
+      mine: boolean;
+    };
+    const shown = (games: Game[]) => games.map((g) => [g.name, g.everyone, g.owners, g.wants.length, g.mine]);
+    // Free, or in both libraries: everyone; Portal 2 only Sam has; Team Fortress 2
+    // here nobody owns and is not free, and 999 is not a game: neither is offered.
+    assert.deepEqual(shown(read.body.games), [
+      ["Left 4 Dead 2", true, 2, 0, false],
+      ["Counter-Strike 2", true, 2, 0, false],
+      ["Portal 2", false, 1, 0, false],
+      ["Dota 2", true, 0, 0, false],
+    ]);
+    assert.equal(read.body.games[0].image, "https://cdn.example/550.jpg");
+
+    const marked = await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 620, want: true });
+    assert.equal(marked.status, 200);
+    assert.deepEqual(marked.body.games[0].name, "Portal 2", "the most wanted first");
+    assert.equal(marked.body.games[0].mine, true);
+    await call("POST", `/api/crews/${crew.id}/games`, HOST, { appid: 620, want: true });
+    await call("POST", `/api/crews/${crew.id}/games`, HOST, { appid: 730, want: true });
+    const both = await call("GET", `/api/crews/${crew.id}/games`, HOST);
+    assert.deepEqual(shown(both.body.games).slice(0, 2), [
+      ["Portal 2", false, 1, 2, true],
+      ["Counter-Strike 2", true, 2, 1, true],
+    ]);
+    const members = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew;
+    assert.deepEqual(
+      both.body.games[0].wants,
+      members.members.map((m: { id: string }) => m.id),
+    );
+    assert.equal(members.picks, 2);
+    assert.doesNotMatch(JSON.stringify(both.body), new RegExp(`${ALEX}|${HOST}`));
+
+    const missing = await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 12345, want: true });
+    assert.equal(missing.status, 409);
+    assert.equal(missing.body.code, "not-installed");
+    assert.equal(
+      (await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: "620", want: true })).status,
+      400,
+    );
+    assert.equal((await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 620 })).status, 400);
+    assert.equal(
+      (await call("POST", `/api/crews/${crew.id}/games`, STRANGER, { appid: 620, want: true })).status,
+      404,
+    );
+
+    const unmarked = await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 620, want: false });
+    assert.equal(unmarked.body.games.find((g: Game) => g.id === 620).wants.length, 1);
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 0);
+
+    // Whoever leaves takes their wishes with them.
+    const sam = members.members.find((m: { you: boolean }) => m.you).id;
+    assert.equal((await call("POST", `/api/crew-members/${sam}/remove`, HOST)).status, 200);
+    const left = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(left.body, { games: [], size: 1 }, "Sam's PC left with Sam");
+    assert.equal(
+      (await platform.crewGames(crew.id, ALEX))!.wants.length,
+      0,
+      "Sam's wishes are gone with Sam",
+    );
+  });
+
+  it("keeps games nobody in the crew may start from taking the places of those on offer", async () => {
+    const crew = await joinByLink();
+    // More than one store lookup's worth, all ranked ahead of the free one.
+    const unowned = Array.from({ length: 250 }, (_, i) => i + 1);
+    assert.equal((await offerPc("pc-1", { games: [...unowned, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Dota 2"],
+      "250 games nobody may start, ranked ahead, still leave the free one on offer",
+    );
+  });
+
+  it("looks past a whole batch the store knows no games in", async () => {
+    const crew = await joinByLink();
+    // A store lookup's worth of installs that are not games, ranked ahead of the free one.
+    const unknown = Array.from({ length: 200 }, (_, i) => i + 101);
+    assert.equal((await offerPc("pc-1", { games: [...unknown, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Dota 2"],
+    );
+    assert.equal(lookups, 2);
+  });
+
+  it("asks the store once, not once per batch, while it is down", async () => {
+    const crew = await joinByLink();
+    const many = Array.from({ length: 450 }, (_, i) => i + 1);
+    assert.equal((await offerPc("pc-1", { games: [...many, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    store = "down";
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.equal(read.status, 200);
+    assert.deepEqual(read.body.games, []);
+    assert.equal(lookups, 1);
+  });
+
+  it("answers with the games gathered so far when a lookup throws, then stops", async () => {
+    const crew = await joinByLink();
+    const unknown = Array.from({ length: 200 }, (_, i) => i + 101);
+    assert.equal((await offerPc("pc-1", { games: [730, ...unknown, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    store = "throws";
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.equal(read.status, 200);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Counter-Strike 2"],
+    );
+    assert.equal(lookups, 2);
+  });
+
+  it("keeps the games the store did answer for when it fails for some, then stops", async () => {
+    const crew = await joinByLink();
+    const many = Array.from({ length: 450 }, (_, i) => i + 1001);
+    assert.equal((await offerPc("pc-1", { games: [730, 570, ...many] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    store = "partly";
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Counter-Strike 2", "Dota 2"],
+    );
+    assert.equal(lookups, 1);
+  });
+
+  it("counts only the picks on games a PC of the crew still has", async () => {
+    const crew = await joinByLink();
+    assert.equal((await offerPc("pc-1", { games: [730, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 730, want: true });
+    await call("POST", `/api/crews/${crew.id}/games`, ALEX, { appid: 570, want: true });
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks, 2);
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.offered, 2);
+
+    const sam = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.members.find(
+      (m: { you: boolean }) => m.you,
+    ).id;
+    assert.equal((await call("POST", `/api/crew-members/${sam}/remove`, HOST)).status, 200);
+    assert.deepEqual((await call("GET", `/api/crews/${crew.id}/games`, ALEX)).body.games, []);
+    assert.equal(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.picks,
+      0,
+      "Sam's PC left with Sam",
+    );
+    assert.equal(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.offered,
+      0,
+      "nothing left to pick",
+    );
+  });
+
+  it("marks the days another crew's Zockrunde already has one of the crew's PCs", async () => {
+    const crew = await joinByLink();
+    assert.equal((await offerPc("pc-1")).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    const other = (await call("POST", "/api/crews", JO, { name: "Couch-Koop" })).body.crew;
+    assert.equal((await call("POST", `/api/invites/${other.token}/join`, HOST)).status, 200);
+    assert.equal((await call("POST", `/api/crews/${other.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    assert.deepEqual((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy, []);
+
+    const at = now + 24 * 3600 * 1000;
+    assert.equal((await call("POST", `/api/crews/${other.id}/session`, JO, { at })).status, 200);
+    const busy = (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy;
+    assert.deepEqual(busy, [{ at, owner: "Sam", mine: false }], "whose PC, never which crew");
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.busy,
+      [{ at, owner: "Sam", mine: true }],
+      "Sam's own PC is his",
+    );
+    assert.doesNotMatch(JSON.stringify(busy), /Couch-Koop|Jo/);
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${other.id}`, JO)).body.crew.busy,
+      [],
+      "a crew's own Zockrunde never marks its own days",
+    );
+
+    // An archived crew keeps no hold on the PC, even where its PC row was left behind.
+    await database.query("UPDATE crews SET archived_at = $1 WHERE id = $2", [now, other.id]);
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy,
+      [],
+      "archived: free again",
+    );
+    await database.query("UPDATE crews SET archived_at = NULL WHERE id = $1", [other.id]);
+
+    now = at + SESSION_OVER_MS;
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy,
+      [],
+      "over: free again",
+    );
   });
 
   it("renames and replaces the link for its admin alone", async () => {

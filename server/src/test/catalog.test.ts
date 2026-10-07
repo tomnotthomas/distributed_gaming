@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   catalogGames,
   gamesMedia,
+  lookUpGamesMedia,
   mostPlayed,
   popularGames,
   resetCatalog,
@@ -166,6 +167,17 @@ describe("catalogGames", () => {
   });
 });
 
+describe("catalogGames past the cache cap", () => {
+  it("still returns this call's cached games when trimming the cache drops them", async () => {
+    stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id))));
+    await catalogGames([1]);
+    const many = Array.from({ length: 5000 }, (_, i) => i + 2);
+    const games = await catalogGames([1, ...many]);
+    assert.equal(games.length, 5001);
+    assert.equal(games[0]?.appid, 1);
+  });
+});
+
 describe("popularGames", () => {
   it("keeps chart order, skips software and stops at the limit", async () => {
     stubFetch((url) => {
@@ -195,5 +207,21 @@ describe("gamesMedia", () => {
       [7, 8],
     );
     assert.deepEqual(calls.map(askedFor), [[7, 8]]);
+  });
+
+  it("says when Steam failed for some, keeping the games it did answer for", async () => {
+    stubFetch((url) => (askedFor(url).includes(1) ? itemsAnswer([item(1)]) : { ok: false, status: 500 }));
+    await catalogGames([1]);
+    const looked = await lookUpGamesMedia([1, 2]);
+    assert.deepEqual(
+      looked.games.map((g) => g.appid),
+      [1],
+    );
+    assert.equal(looked.failed, true);
+  });
+
+  it("does not count an answer with no games in it as a failure", async () => {
+    stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id, { type: 6 }))));
+    assert.deepEqual(await lookUpGamesMedia([1, 2]), { games: [], failed: false });
   });
 });

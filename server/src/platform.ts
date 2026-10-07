@@ -331,6 +331,30 @@ export type CrewDetail = MyCrew & {
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;
+  /** When another crew's Zockrunde, ahead or under way, already has one of this crew's PCs, and whose PC it is. */
+  busy: CrewBusy[];
+  /** How many games the one looking marked to play (wantCrewGame). */
+  picks: number;
+  /** How many games the crew's PCs have installed to pick from. */
+  offered: number;
+};
+
+/**
+ * A Zockrunde of another crew that one of this crew's PCs plays for too: when
+ * it starts (Unix ms), the PC owner's persona, and whether the PC is the
+ * viewer's own. Which crew is never said.
+ */
+export type CrewBusy = { at: number; owner: string | null; mine: boolean };
+
+/**
+ * A crew's games as the crew API reads them: who is in it (`userId` stays on
+ * the server, to read their Steam libraries), the games installed on its PCs,
+ * and which member wants to play which.
+ */
+export type CrewGamesRead = {
+  members: { id: string; userId: string; you: boolean }[];
+  installed: number[];
+  wants: { memberId: string; appid: number }[];
 };
 
 /**
@@ -1670,6 +1694,84 @@ export class Platform {
   }
 
   /**
+   * Crew `crewId`'s games as `userId`, in it, reads them: its members, the
+   * games installed on its PCs, and who wants to play which. Null unless they
+   * are in it.
+   */
+  crewGames(crewId: string, userId: string): Promise<CrewGamesRead | null> {
+    return this.#read(async () => {
+      const members = await this.#all<{ id: string; user_id: string }>(
+        "SELECT id, user_id FROM crew_members WHERE crew_id = $1 ORDER BY joined_at, id",
+        crewId,
+      );
+      if (!members.some((m) => m.user_id === userId)) return null;
+      const installed = await this.#all<{ appid: number }>(
+        `SELECT DISTINCT g.appid FROM machine_games g JOIN crew_machines p ON p.machine_id = g.machine_id
+           WHERE p.crew_id = $1 ORDER BY g.appid`,
+        crewId,
+      );
+      const wants = await this.#all<{ user_id: string; appid: number }>(
+        "SELECT user_id, appid FROM crew_game_wants WHERE crew_id = $1 ORDER BY at, appid",
+        crewId,
+      );
+      const memberOf = new Map(members.map((m) => [m.user_id, m.id]));
+      return {
+        members: members.map((m) => ({ id: m.id, userId: m.user_id, you: m.user_id === userId })),
+        installed: installed.map((g) => Number(g.appid)),
+        wants: wants
+          .filter((w) => memberOf.has(w.user_id))
+          .map((w) => ({ memberId: memberOf.get(w.user_id)!, appid: Number(w.appid) })),
+      };
+    });
+  }
+
+  /**
+   * `userId` marks a game they want to play with the crew (`want`), or unmarks
+   * it. Null unless they are in it; "not-installed" for marking a game no PC of
+   * the crew has installed. Unmarking always goes through.
+   */
+  wantCrewGame(
+    crewId: string,
+    userId: string,
+    appid: number,
+    want: boolean,
+  ): Promise<true | null | "not-installed"> {
+    return this.#transaction(async () => {
+      const member = await this.#get<{ id: string }>(
+        "SELECT id FROM crew_members WHERE crew_id = $1 AND user_id = $2",
+        crewId,
+        userId,
+      );
+      if (!member) return null;
+      if (!want) {
+        await this.#run(
+          "DELETE FROM crew_game_wants WHERE crew_id = $1 AND user_id = $2 AND appid = $3",
+          crewId,
+          userId,
+          appid,
+        );
+        return true;
+      }
+      const installed = await this.#get<{ appid: number }>(
+        `SELECT g.appid FROM machine_games g JOIN crew_machines p ON p.machine_id = g.machine_id
+           WHERE p.crew_id = $1 AND g.appid = $2 LIMIT 1`,
+        crewId,
+        appid,
+      );
+      if (!installed) return "not-installed";
+      await this.#run(
+        `INSERT INTO crew_game_wants (crew_id, user_id, appid, at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING`,
+        crewId,
+        userId,
+        appid,
+        this.#now(),
+      );
+      return true;
+    });
+  }
+
+  /**
    * The crew a live invite joins, as `userId` opening the link sees it (null:
    * signed out), with whether they are in it already and its Zockrunde only
    * while that is not over; null for a revoked or unknown invite.
@@ -1788,6 +1890,11 @@ export class Platform {
     now: number,
   ): Promise<void> {
     await this.#run("DELETE FROM crew_members WHERE id = $1", memberId);
+    await this.#run(
+      "DELETE FROM crew_game_wants WHERE crew_id = $1 AND user_id = $2",
+      member.crew_id,
+      member.user_id,
+    );
     const owned = await this.#ownedMachines(member.user_id);
     await this.#run(
       "DELETE FROM crew_machines WHERE crew_id = $1 AND (machine_id = ANY ($2::text[]) OR added_by = $3)",
@@ -2332,12 +2439,46 @@ export class Platform {
       crewId,
     );
     const ownerOf = (q: { id: string; owner_id: string | null }) => this.#owners.get(q.id) ?? q.owner_id;
+    // Other crews' Zockrunden, ahead or under way, on the PCs that play for this one.
+    const elsewhere = await this.#all<{ machine_id: string; at: number }>(
+      `SELECT DISTINCT p.machine_id, o.session_at AS at FROM crew_machines p
+         JOIN crew_machines op ON op.machine_id = p.machine_id AND op.crew_id <> p.crew_id
+         JOIN crews o ON o.id = op.crew_id AND o.archived_at IS NULL
+         WHERE p.crew_id = $1 AND o.session_at IS NOT NULL AND o.session_at > $2
+         ORDER BY at, p.machine_id`,
+      crewId,
+      this.#now() - SESSION_OVER_MS,
+    );
+    const picks = await this.#get<{ n: number }>(
+      `SELECT count(*)::int AS n FROM crew_game_wants w
+         WHERE w.crew_id = $1 AND w.user_id = $2 AND EXISTS (
+           SELECT 1 FROM machine_games g JOIN crew_machines p ON p.machine_id = g.machine_id
+             WHERE p.crew_id = w.crew_id AND g.appid = w.appid)`,
+      crewId,
+      userId,
+    );
+    const offered = await this.#get<{ n: number }>(
+      `SELECT count(DISTINCT g.appid)::int AS n FROM machine_games g
+         JOIN crew_machines p ON p.machine_id = g.machine_id WHERE p.crew_id = $1`,
+      crewId,
+    );
     return {
       id: crewId,
       memberId: me.id,
       ...crewView(crew, userId),
       inviteId: invite?.id ?? null,
       shared: crew.shared,
+      busy: elsewhere.map(({ machine_id, at }) => {
+        const machine = machines.find((q) => q.id === machine_id);
+        const owner = machine ? ownerOf(machine) : null;
+        return {
+          at: Number(at),
+          owner: owner === null ? null : (persona.get(owner) ?? null),
+          mine: owner === userId,
+        };
+      }),
+      picks: picks?.n ?? 0,
+      offered: offered?.n ?? 0,
       members: members.map((m) => ({
         id: m.id,
         name: m.name,

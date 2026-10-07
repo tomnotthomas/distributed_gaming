@@ -82,7 +82,35 @@ export type CrewDetail = MyCrew & {
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;
+  /** Other crews' Zockrunden, ahead or under way, that already have one of this crew's PCs. */
+  busy: CrewBusy[];
+  /** How many games the viewer marked to play. */
+  picks: number;
+  /** How many games the crew's PCs have installed to pick from. */
+  offered: number;
 };
+
+/** When (Unix ms) another crew's Zockrunde already has one of the crew's PCs, whose PC that is, and whether it is the viewer's. */
+export type CrewBusy = { at: number; owner: string | null; mine: boolean };
+
+/**
+ * A game on the crew's PCs, as picking shows it: how many in the crew own it,
+ * whether everyone can play it (free, or everyone owns it), and who wants to
+ * play it (`wants`, membership ids), the viewer included when `mine`.
+ */
+export type CrewGame = {
+  id: number;
+  name: string;
+  image: string | null;
+  free: boolean;
+  owners: number;
+  everyone: boolean;
+  wants: string[];
+  mine: boolean;
+};
+
+/** The games on the crew's PCs, the most wanted first, and how many are in the crew. */
+export type CrewGames = { games: CrewGame[]; size: number };
 
 /** Where crew pages live: /crews (your crews), /crews/<id>. */
 export const CREWS_PATH = "/crews";
@@ -366,6 +394,114 @@ export const crewQueue = (crew: Pick<CrewDetail, "members">): CrewMember[] =>
 
 /** Note that the signed-in member shared the crew's invite. */
 export const sharedCrew = (id: string, get: typeof fetch = fetch) => change(id, "shared", null, get);
+
+/** The games on the crew's PCs and who wants which; null when they could not be read. */
+export async function fetchCrewGames(id: string, get: typeof fetch = fetch): Promise<CrewGames | null> {
+  const answer = await call<CrewGames>(`/api/crews/${encodeURIComponent(id)}/games`, {}, get);
+  return answer.ok ? answer.body : null;
+}
+
+/** Mark a game the signed-in member wants to play with the crew (`want`), or unmark it: the games then, or null. */
+export async function wantCrewGame(
+  id: string,
+  appid: number,
+  want: boolean,
+  get: typeof fetch = fetch,
+): Promise<CrewGames | null> {
+  const answer = await call<CrewGames>(
+    `/api/crews/${encodeURIComponent(id)}/games`,
+    { method: "POST", body: JSON.stringify({ appid, want }) },
+    get,
+  );
+  return answer.ok ? answer.body : null;
+}
+
+/** The game the most in the crew want, when at least one does: the first of the most wanted. */
+export function crewFavourite(games: readonly CrewGame[]): CrewGame | null {
+  let best: CrewGame | null = null;
+  for (const game of games)
+    if (game.wants.length && (!best || game.wants.length > best.wants.length)) best = game;
+  return best;
+}
+
+/** How long a Zockrunde lasts in someone's calendar: 3 hours. */
+const CALENDAR_HOURS = 3;
+
+/** A moment as iCalendar writes it, in UTC: 20261009T190000Z. */
+const icsTime = (at: number) =>
+  new Date(at)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+
+/** Text as an iCalendar value holds it: backslashes, commas, semicolons and line breaks escaped. */
+const icsText = (text: string) => text.replace(/[\\,;]/g, (c) => `\\${c}`).replace(/\r?\n/g, "\\n");
+
+/**
+ * The crew's Zockrunde as a calendar file (.ics) any calendar app opens: its
+ * start, three hours, the crew page's address, and an alert an hour before.
+ */
+export function sessionCalendar(
+  lang: Lang,
+  crew: Pick<CrewDetail, "id" | "name" | "crewName" | "own">,
+  at: number,
+  origin: string = location.origin,
+  now: number = Date.now(),
+): string {
+  const t = crewText(lang);
+  const page = `${origin}${CREWS_PATH}/${encodeURIComponent(crew.id)}`;
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Lanterel//Zockrunde//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${crew.id}-${at}@lanterel`,
+    `DTSTAMP:${icsTime(now)}`,
+    `DTSTART:${icsTime(at)}`,
+    `DTEND:${icsTime(at + CALENDAR_HOURS * 3600 * 1000)}`,
+    `SUMMARY:${icsText(t("cal.summary", { crew: crewTitle(lang, crew) }))}`,
+    `DESCRIPTION:${icsText(t("cal.description", { link: page }))}`,
+    `URL:${page}`,
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsText(t("cal.summary", { crew: crewTitle(lang, crew) }))}`,
+    "TRIGGER:-PT1H",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * The WhatsApp nudge to members who have not answered the crew's Zockrunde
+ * yet: their names, the date, and the crew page to answer on.
+ */
+export function nudgeMessage(
+  lang: Lang,
+  crew: Pick<CrewDetail, "id">,
+  names: readonly string[],
+  at: number,
+  origin: string = location.origin,
+): string {
+  const t = crewText(lang);
+  const page = `${origin}${CREWS_PATH}/${encodeURIComponent(crew.id)}`;
+  const who = names.length ? listNames(lang, names) : null;
+  return [
+    who
+      ? t("msg.nudge", { name: who, when: sessionWhen(lang, at) })
+      : t("msg.nudgeAnon", { when: sessionWhen(lang, at) }),
+    page,
+  ].join("\n");
+}
+
+/** Names as a sentence lists them: "Sami", "Sami und Tom", "Sami, Tom und Kemal". */
+export function listNames(lang: Lang, names: readonly string[]): string {
+  const and = lang === "de" ? " und " : " and ";
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")}${and}${names[names.length - 1]}`;
+}
 
 /** End a crew membership: leave a crew, or remove someone from one you are the admin of. One already gone counts as done. */
 export async function removeCrewMember(id: string, get: typeof fetch = fetch): Promise<boolean> {
