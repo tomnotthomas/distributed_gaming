@@ -86,7 +86,8 @@ export async function startServer(
     const exited = child.exitCode !== null || child.signalCode !== null;
     await stopServer(child);
     const tail = errors ? `; stderr:\n${errors}` : "";
-    if (!spawned.error && !exited) assert.fail(`the server on port ${port} was not listening after 60 s${tail}`);
+    if (!spawned.error && !exited)
+      assert.fail(`the server on port ${port} was not listening after 60 s${tail}`);
     last = spawned.error
       ? `port ${port}: could not start: ${spawned.error.message}${tail}`
       : `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}${tail}`;
