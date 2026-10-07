@@ -1167,11 +1167,18 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         const open = msg.open === true;
         const was = watches.sharing(sessionId);
         // A share names one crew for the session: the one picked, else the first, kept from then on.
-        // A database that cannot say changes nothing: the share is dropped, the player's own seat stands.
-        const crews = await currentCrews(sessionId).catch((error: unknown) => {
-          console.error("[swiff] watch share failed:", error instanceof Error ? error.name : typeof error);
-          return null;
-        });
+        // Closing needs no crew and always goes through. For an open or a pick, a database that
+        // cannot say changes nothing: it is dropped, the player's own seat stands.
+        const crews =
+          !open && msg.crew === undefined
+            ? []
+            : await currentCrews(sessionId).catch((error: unknown) => {
+                console.error(
+                  "[swiff] watch share failed:",
+                  error instanceof Error ? error.name : typeof error,
+                );
+                return null;
+              });
         if (crews === null || (open && !crews.length)) return;
         const crew = msg.crew ?? (open && watches.crew(sessionId) === null ? crews[0]!.id : undefined);
         const picked = crew !== undefined && crew !== watches.crew(sessionId);

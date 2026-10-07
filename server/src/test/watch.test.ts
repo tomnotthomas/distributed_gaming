@@ -1073,6 +1073,19 @@ describe("watching through the signaling server", () => {
     send(player, { type: "watch-share", open: true });
     await handled(player);
     assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
+    assert.equal((await heard(player, isWatchers, "watchers")).sharing, true);
+    // Closing reads nothing: with the table away again, the player's no still stops the share.
+    await database.exec("ALTER TABLE crew_machines RENAME TO crew_machines_away");
+    try {
+      player.received.length = 0;
+      send(player, { type: "watch-share", open: false });
+      await handled(player);
+    } finally {
+      await database.exec("ALTER TABLE crew_machines_away RENAME TO crew_machines");
+    }
+    const closed = (m: SignalMessage): m is Extract<SignalMessage, { type: "watchers" }> =>
+      isWatchers(m) && !m.sharing;
+    assert.equal((await heard(player, closed, "the share closed")).sharing, false);
   });
 
   it("hands each viewer a relay credential minted for their own watch, never the player's or the relay's secret", async () => {
