@@ -11,6 +11,7 @@
   var T = window.SITE_T || {};
   var TXT = {};
 
+  /* Keep each data-t element's text as the page shipped it, for SiteLang.t. */
   function snapshot() {
     document.querySelectorAll("[data-t]").forEach(function (el) {
       if (!(el.dataset.t in TXT)) TXT[el.dataset.t] = el.innerHTML;
@@ -93,7 +94,7 @@
       var params = new URLSearchParams(location.search);
       var body = {
         email: v,
-        kind: form.hasAttribute("data-reminders") ? "reminders" : form.hasAttribute("data-host") ? "host" : "player",
+        kind: form.hasAttribute("data-host") ? "host" : "player",
         lang: current,
         page: location.pathname,
         invite: params.get("i") || inviteFromPath(),
@@ -159,6 +160,7 @@
     });
   }
 
+  /* Wire the page once it is parsed: language buttons, nav, reveals and copy buttons. */
   function init() {
     if (!root.classList.contains("reveal")) {
       document.querySelectorAll("img[loading=lazy]").forEach(function (i) { i.loading = "eager"; });

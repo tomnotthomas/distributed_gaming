@@ -82,10 +82,8 @@ also get a link preview naming them (`server/src/invite-preview.ts`), and a crew
 Zockrunde's date. Gift seats and Zockrunde links of their own (`/gift/`, `/night/`) do not exist
 yet, so their pages name nobody. The set's wording for a crew's
 time together ("Crew-Abend", "crew night") is put the app's way at import ("Zockrunde", "gaming
-session"), never an evening or a night. The server keeps optional reminders by email, with double
-opt-in, where the confirm and unsubscribe links in the mails open a page whose button does it, so a
-mail scanner opening a link changes nothing; no app page asks for an address any more. See
-`server/src/marketing.ts` and `server/src/signups.ts`.
+session"), never an evening or a night. The product asks for no email address and sends no mail. See
+`server/src/marketing.ts`.
 
 Settings (server environment):
 
@@ -100,17 +98,14 @@ Settings (server environment):
   crew, and the game wall is reached from a crew at `/play`. See `server/src/features.ts`.
 - `IMPRESSUM_EMAIL`: the contact address on the Impressum and legal notice. Unset, they show
   `tom.schwabe123@gmail.com`.
-- `MARKETING_PAGES=on` turns the pages and the reminders on. The Impressum and legal notice carry
+- `MARKETING_PAGES=on` turns the pages on. The Impressum and legal notice carry
   the founder's name and address, and `IMPRESSUM_EMAIL` as their contact.
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
   requests for its host, and it is the origin in the pages' canonical and Open Graph links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.
 - `PUBLIC_ORIGIN`, the app's own origin (Steam sign-in needs it too): every link on the pages into the
-  app, such as "Crew gründen" and "Prüf deine Bibliothek", goes there, and the reminders and their
-  mail links are served there. Without it the pages stay off as well.
-
-The server has no mail sender yet: every reminder mail is rendered into the `marketing_outbox`
-table and stays there until one exists.
+  app, such as "Crew gründen" and "Prüf deine Bibliothek", goes there. Without it the pages stay off
+  as well.
 
 ## Host side (gaming PC app)
 
