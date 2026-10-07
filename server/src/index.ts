@@ -514,9 +514,20 @@ async function checkWatches(): Promise<void> {
     endViewer(watch, reason);
     void tellPlayer(watch.room, watch.sessionId);
   }
-  const all = watches.all();
-  if (!all.length) return;
   try {
+    // A crew picked for a session that the PC no longer plays for, or the player left, is dropped.
+    for (const sessionId of watches.pinned()) {
+      const pin = watches.crew(sessionId);
+      if ((await platform.watchCrews(sessionId)).some((c) => c.id === pin)) continue;
+      if (watches.crew(sessionId) !== pin) continue;
+      const ended = watches.unpin(sessionId);
+      for (const watch of ended) endViewer(watch, "not-crew");
+      const room = [...rooms].find(([, r]) => r.client?.watchSession === sessionId)?.[0] ?? ended[0]?.room;
+      if (room) void tellPlayer(room, sessionId);
+      renterEvents.crewChanged();
+    }
+    const all = watches.all();
+    if (!all.length) return;
     const stopped = await platform.watchesStopped(
       all.map((watch) => ({
         sessionId: watch.sessionId,

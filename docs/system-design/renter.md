@@ -907,7 +907,7 @@ A session's crew is one crew the PC being played plays for (`crew_machines`) tha
 player is in: the first of those they joined, unless they pick another on their page
 (`watch-share` with `crew`). Nobody in the player's other crews sees the session on the
 wall, asks or watches; picking another crew stops anyone watching from the one before.
-A PC that plays for no crew of the player's has no crew to watch it. Sharing fixes the crew for the rest of the session, so a share never passes to another crew the PC comes to play for.
+A PC that plays for no crew of the player's has no crew to watch it. Sharing fixes the crew for the rest of the session, so a share never passes to another crew the PC comes to play for. Once the PC no longer plays for that crew, or the player leaves it, it is dropped: everyone watching through it stops, sharing closes, and the session's crew is the first of those left until the player shares again.
 
 ```
 GET  /crew-live

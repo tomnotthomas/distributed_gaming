@@ -1098,6 +1098,50 @@ describe("watching through the signaling server", () => {
     assert.equal(told.sharing, true);
   });
 
+  it("drops the crew a share was made for once the PC no longer plays for it, and falls back to the one left", async () => {
+    const first = await crew();
+    const other = await call("POST", "/api/crews", MARA, { name: "Left Over" });
+    const otherId = other.body.crew.id as string;
+    for (const member of [STRANGER, OWNER]) {
+      assert.equal((await call("POST", `/api/invites/${other.body.crew.token}/join`, member)).status, 200);
+    }
+    // The room plays for both; the session's crew is the first, which Lea is in.
+    const { player, viewer, room, sessionId } = await scene({ crews: [first, otherId] });
+    send(player, { type: "watch-share", open: true });
+    await handled(player);
+    assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
+
+    // The PC stops playing for the first crew.
+    const gone = closed(viewer);
+    assert.equal(
+      (
+        await call(
+          "PUT",
+          `/api/machines/${room}/availability`,
+          undefined,
+          { available: true, ...REPORT, crews: [otherId] },
+          MACHINE_KEY,
+        )
+      ).status,
+      200,
+    );
+    await gone;
+    assert.equal(denial(viewer), "not-crew");
+    const told = await heard(
+      player,
+      (m): m is Extract<SignalMessage, { type: "watchers" }> =>
+        m.type === "watchers" && m.crew?.id === otherId,
+      "watchers for the crew left",
+    );
+    assert.equal(told.sharing, false);
+    assert.deepEqual(told.watchers, []);
+    // Anyone in the crew left may ask, and waits for a yes: the share closed with the crew it was for.
+    const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER);
+    assert.equal(asked.status, 200);
+    assert.equal(asked.body.state, "asking");
+    assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
+  });
+
   it("opens watching to the crew the player picks, and stops anyone of the one before", async () => {
     const { player, viewer, sessionId } = await accepted();
     const first = await crew();

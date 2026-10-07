@@ -165,16 +165,17 @@ describe("the player's crew overlay", () => {
     expect(hub.share).toHaveBeenCalledWith(false);
   });
 
-  it("offers sharing with the crews still left when the crew the player chose can watch no more", () => {
+  it("names the crew left to watch once the one the player chose can watch no more", () => {
     const hub = hubDouble();
     const night = { id: "night", name: "Night Owls", admin: "Mara" };
-    render(<CrewOverlay hub={hub} crew={{ ...state([], true, [night]), crew: null }} />);
+    // What the server says once it dropped the chosen crew: sharing closed, the remaining crew in its place.
+    render(<CrewOverlay hub={hub} crew={state([], false, [night])} />);
     expect(
       screen.getByText("Friends in Night Owls can ask to watch. Or share and let them in."),
     ).toBeTruthy();
     expect(screen.queryByText(/Nobody can watch/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Share with my crew" }));
-    expect(hub.share).toHaveBeenCalledWith(true, "night");
+    expect(hub.share).toHaveBeenCalledWith(true);
   });
 
   it("offers no share, and says nobody can watch, on a PC that plays for none of the player's crews", () => {

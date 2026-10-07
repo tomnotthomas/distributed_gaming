@@ -169,6 +169,27 @@ export class Watches {
     this.#session(sessionId).crew = crewId;
   }
 
+  /** Every session a crew was picked for. */
+  pinned(): string[] {
+    return [...this.#sessions].filter(([, session]) => session.crew !== null).map(([id]) => id);
+  }
+
+  /**
+   * The crew picked for `sessionId` may watch it no more: it is dropped, so
+   * the session's crew is the default again, sharing closes, and every watch
+   * on it ends as `not-crew`. Returns them.
+   */
+  unpin(sessionId: string): Watch[] {
+    const ended = this.list(sessionId).map((watch) => this.end(watch.id, "not-crew")!);
+    const session = this.#sessions.get(sessionId);
+    if (session) {
+      session.crew = null;
+      session.sharing = false;
+      this.#forget(sessionId);
+    }
+    return ended;
+  }
+
   /**
    * The player opens their screen to their crew, or closes it. Opening lets
    * everyone asking watch at once; closing stops nobody already watching.
