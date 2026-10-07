@@ -595,4 +595,25 @@ describe("watching a crewmate play, against the real signaling server", () => {
     expect((await viewer.waitFor("denied")).reason).toBe("watch-declined");
     expect(viewer.received.some((m) => m.type === "offer")).toBe(false);
   });
+
+  it("holds a friend the player said no to off for a while, until the player shares with the crew", async () => {
+    const { player, sessionId } = await playing();
+    const first = await asks(sessionId);
+    await first.viewer.waitFor("watching");
+    await until(() => last(player.received, "watchers")?.watchers.length === 1, "the player hearing the ask");
+    player.send({ type: "watch-answer", watchId: first.watchId, accept: false });
+    await first.viewer.waitFor("denied");
+
+    // Asking again at once is the cooldown.
+    const again = await call("POST", `/api/crew-live/${sessionId}/watch`, undefined, undefined, FRIEND_COOKIE);
+    expect(again.status).toBe(429);
+    expect(again.body.code).toBe("cooldown");
+
+    // The player's own share is a fresh yes: the friend asks and watches at once.
+    player.send({ type: "watch-share", open: true });
+    await until(() => last(player.received, "watchers")?.sharing === true, "the player told they share");
+    const { viewer, watchId } = await asks(sessionId);
+    await until(() => last(viewer.received, "watching")?.state === "watching", "the friend let in");
+    expect(last(viewer.received, "watching")?.watchId).toBe(watchId);
+  });
 });
