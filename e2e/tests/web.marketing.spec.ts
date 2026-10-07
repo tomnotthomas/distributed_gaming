@@ -74,6 +74,12 @@ test.describe("marketing site", () => {
     await expect(page.getByText("Almost ready.")).toBeVisible();
 
     const reminders = page.getByTestId("reminders");
+    // On a phone the address field and its button share one row, the button whole in the window.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const field = (await reminders.getByLabel("Email address").boundingBox())!;
+    const button = (await reminders.getByRole("button", { name: "Remind me" }).boundingBox())!;
+    expect(button.y).toBeLessThan(field.y + field.height);
+    expect(button.x + button.width).toBeLessThanOrEqual(390);
     await reminders.getByLabel("Email address").fill("crew@example.com");
     const [sent] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith("/api/signups/reminders") && r.method() === "POST"),

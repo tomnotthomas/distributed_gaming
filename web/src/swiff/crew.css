@@ -1382,6 +1382,7 @@
 .crew-lobby .rem-row {
   flex-wrap: nowrap;
   align-items: stretch;
+  min-width: 0;
 }
 .crew-lobby .rem-row .name-in {
   flex: 1 1 auto;
