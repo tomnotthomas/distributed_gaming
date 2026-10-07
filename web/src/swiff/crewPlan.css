@@ -166,6 +166,8 @@
 /* Who is coming, in groups */
 .gc .gp-who h2 {
   margin-bottom: 16px;
+  font: 500 clamp(24px, 2.8vw, 32px) / 1.12 var(--f);
+  letter-spacing: -0.01em;
 }
 .gc .gp-c2 {
   display: grid;
@@ -213,6 +215,8 @@
   border-color: var(--on-paper);
 }
 .gc .gp-grp.yes li .av {
+  background: var(--on-paper);
+  color: var(--paper);
   box-shadow: 0 0 0 2px var(--lime);
 }
 .gc .gp-grp.no li {
