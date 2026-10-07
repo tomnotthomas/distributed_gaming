@@ -11,8 +11,8 @@ stage by stage.
 | `vm/`       | The VM test: builds the image and boots it under Secure Boot with a TPM              |
 | `streamer/` | `swiff-streamer`: gamescope's picture and sound to the renter, their input back in   |
 | `hostd/`    | `swiff-hostd`: connects the PC to the platform and runs one renter session at a time |
+|             | and `swiff-attest`, its attestation client: this boot's TPM quote to the server      |
 | `steam/`    | `swiff-steam-login`: Steam's QR sign-in on Swiff's page, then the game               |
-| later       | attestation client                                                                   |
 
 ## Server: hosting requires attestation
 
@@ -556,15 +556,22 @@ checks the session's wiring, not a running game; the session test (below) plays 
 
 `vm/session-test.sh` plays a renter's session on the image end to end. It builds the
 `sessiontest` profile, the shipped image plus `vm/sessiontest/`, and runs `vm/session-harness.mjs`
-in a network namespace of its own, where the real server (with the `insecure-dev` attestation
+in a network namespace of its own, where the real server (with its production `tpm` attestation
 verifier) and a TURN relay (coturn) have addresses that look public to the VM (TEST-NET-2), so
 the image's firewall treats them as the internet. The VM boots under OVMF with Secure Boot and
-swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL:
+swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL. `swtpm_setup`
+manufactures the TPM with an EK certificate from a throwaway local CA, the server's only trusted
+TPM vendor. The server's boot policy is this build, signed with a throwaway key: PCR 11 as
+systemd-measure predicts it for the built UKI, PCRs 12 and 13 empty, and the boot applications
+and Secure Boot authorities the VM's first boot measured (its event log, read off the serial
+console before the server starts).
 
-1. The owner offers the PC with the machine key, as their app does before the PC restarts into
-   rental mode. A fixture disk gives `swiff-hostd` its config and key, as the owner's app will.
-2. `swiff-hostd` attests, formats its persistent state (a disk of its own here) with U XOR V, and
-   offers the PC on its machine-key socket in rental mode.
+1. The owner offers the PC with the machine key and registers its TPM's EK certificate
+   (`PUT /api/machines/:id/ek`), as their app does before the PC restarts into rental mode. A
+   fixture disk gives `swiff-hostd` its config and key, as the owner's app will.
+2. `swiff-hostd` attests with `swiff-attest`, formats its persistent state (a disk of its own
+   here) with U XOR V, V released only to that attested boot, and offers the PC on its
+   machine-key socket in rental mode.
 3. A renter on the hosted site (headless Chromium, signed in) sees the PC on the wall and holds
    Launch; Ignition waits on the PC. `swiff-hostd` hears the claim, starts the host session and
    the streamer, as `swiff-stream` with no capabilities, no other group and only its three
@@ -578,6 +585,9 @@ swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL:
 6. The streamer stops; `swiff-hostd` takes the PC off offer and restarts it clean. In the next
    boot it attests again, opens the same state with U unsealed from the TPM, and offers the PC
    again.
+7. The PC is powered off and booted with a kernel command line from outside its signed UKI (an
+   SMBIOS string systemd-stub takes and measures into PCR 12). The server refuses its
+   attestation (`unknown-boot-extras`), so the PC gets no state key and is never offered.
 
 Two things stand in for what a VM cannot have. gamescope needs a GPU, so a test picture under
 gamescope's PipeWire node name and a tone stand in for it. The tone plays through `pw-cat`, not
@@ -587,9 +597,9 @@ not). Steam needs an account and a phone, so
 `sessiontest/bin` stands in for Steam and for the X tools the agent reads it through: a
 `steam` that signs in 20 s after the agent first read its code, and an `xwd` that hands out
 X window dumps of two sign-in codes, which the image's own `zbarimg` decodes. The agent, the
-streamer, `swiff-hostd`, the firewall and everything else are the shipped image's. Two pieces
-of the test are not in the image yet: the attestation client (`sessiontest-attest` attests to
-the `insecure-dev` verifier with the machine key) and the persistent state and key disks.
+streamer, `swiff-hostd`, its attestation client and everything else are the shipped image's
+(`sessiontest-attest` only runs `swiff-attest` and counts the certificates it earns). The
+persistent state and key disks are not in the image yet.
 `swiff-hostd` takes plain `ws://` only from a server on its own machine, so a forwarder on the
 VM's loopback carries its signaling to the test's server; the streamer's media does not.
 
@@ -849,9 +859,22 @@ mode; a socket on an attested host certificate is rental mode either way.
   back to Windows at the PC throughout, even while a try is under way. The combined key reaches `cryptsetup` only on its stdin and is never
   written anywhere; it and both shares are zeroed once the state is open. The config's
   `state` names the partition (`device`, `mountpoint`), U's credential (`localShare`) and
-  `attestCommand`, the attestation client that prints a fresh host certificate as JSON,
-  until attesting is part of the agent. A machine whose config has no `state` has no such
+  `attestCommand`, the attestation client that prints a fresh host certificate as JSON
+  (`/usr/libexec/swiff/swiff-attest`, below). A machine whose config has no `state` has no such
   partition, and skips this.
+- **Attests with the TPM** (`swiff-attest`, `hostd/src/attest.ts`; the server's verifier is
+  `server/src/tpm-verifier.ts`). It talks to `/dev/tpmrm0` with raw TPM 2.0 commands
+  (`hostd/src/tpm.ts`, no tpm2-tools), as `server/scripts/tpm-fixtures.mjs` records the
+  verifier's fixtures. The EK is the TCG default template's (RSA 2048, persisted at
+  `0x81010001` or made afresh, else ECC P-256): the key whose certificate the owner's Windows
+  registered. A fresh ECC P-256 AK is made under it. The server's challenge, then
+  `attest-activation` wraps a credential to the EK for that AK, which `TPM2_ActivateCredential`
+  recovers. `TPM2_Quote` by the AK over SHA-256 of the challenge covers SHA-256 PCRs 0-7 and
+  11-13; the PCRs are read right after and quoted again if one moved in between. `attest` gets
+  the quote, the PCR values and the firmware's event log
+  (`/sys/kernel/security/tpm0/binary_bios_measurements`). It prints the host certificate it
+  earns, or a refusal naming the verifier's reason on stderr. Its tests run it on swtpm against
+  the real server's `tpm` verifier (`npm test -w @swiff/hostd`, skipped without swtpm).
 
 Two open decisions are each one setting in `hostd/src/config.ts`, with provisional
 defaults:
@@ -944,10 +967,9 @@ root. Without a project the file is empty and the session reports nothing.
   agent's `stateDir` belongs on it: on the tmpfs `/var` the agent would forget, across its
   own restart, that it took the PC off offer itself, and go back to Windows. The session
   test has both on disks of their own.
-- The attestation client (`state.attestCommand`; the session test stands one in for the
-  `insecure-dev` verifier), attesting, and hosting on the host certificate it earns in place
-  of the machine key (the server side is merged; `HOSTING_ATTESTATION=optional` serves the
-  machine key at the `unattested` tier meanwhile), then re-attesting before each session.
+- Hosting on the host certificate `swiff-attest` earns in place of the machine key (the
+  server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at the
+  `unattested` tier meanwhile), then re-attesting before each session.
 - Holding the PC back until its games are verified.
 
 ## Steam sign-in, straight into the game (`steam/`)

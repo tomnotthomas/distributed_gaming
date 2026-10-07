@@ -2,15 +2,27 @@
 // network namespace of its own). It plays the platform, the owner and a renter
 // around a VM running the session test build of the image:
 //
-//   1. the platform: the real server, built (`npm run build`), with the
-//      insecure-dev attestation verifier, and a TURN relay (coturn). Both have
-//      addresses that look public to the VM (198.51.100.10 and .20, TEST-NET-2),
-//      so the image's firewall lets the VM reach them as it would the internet.
-//   2. the owner: offers the PC with the machine key, as their app does before
-//      the PC restarts into rental mode, and hands the VM swiff-hostd's config on
-//      a fixture disk, as their app will.
-//   3. the VM: OVMF with Secure Boot and a software TPM. swiff-hostd attests,
-//      opens its persistent state (a disk of its own here) and offers the PC.
+//   1. the platform: the real server, built (`npm run build`), with its
+//      production TPM attestation verifier (ATTESTATION_VERIFIER=tpm), and a
+//      TURN relay (coturn). Both have addresses that look public to the VM
+//      (198.51.100.10 and .20, TEST-NET-2), so the image's firewall lets the VM
+//      reach them as it would the internet. The TPM's vendor is a throwaway
+//      local CA (swtpm_setup), and the boot policy is this build's, signed with
+//      a throwaway key: PCR 11 as systemd-measure predicts it for the built UKI
+//      (session-test.sh), PCRs 12 and 13 empty, and the boot applications and
+//      Secure Boot authorities of the VM's first boot (its event log, read off
+//      the serial console before the server starts), as the release step lists
+//      a release's own.
+//   2. the owner: offers the PC with the machine key and registers its TPM's
+//      EK certificate, as their app does before the PC restarts into rental
+//      mode, and hands the VM swiff-hostd's config on a fixture disk, as their
+//      app will.
+//   3. the VM: OVMF with Secure Boot and a software TPM manufactured with an EK
+//      certificate. swiff-hostd attests with the image's attestation client
+//      (swiff-attest: EK, AK, credential activation, a quote of PCRs 0-7 and
+//      11-13 with the event log), opens its persistent state (a disk of its own
+//      here) with the key share the server releases to that attested boot, and
+//      offers the PC.
 //   4. a renter: headless Chromium on the hosted site, signed in, who holds
 //      Launch on the PC, sees Steam's sign-in code on Ignition, gets the game
 //      once Steam signs in, plays it on the path ICE picks (both seats hold a
@@ -18,20 +30,25 @@
 //      reloads and reconnects, and ends the session.
 //   5. the restart: swiff-hostd restarts the PC clean, and in the next boot
 //      attests again, opens the same state and offers the PC again.
+//   6. a tampered boot: the PC is powered off and booted with a kernel command
+//      line from outside the signed UKI (an SMBIOS string systemd-stub takes
+//      and measures into PCR 12). The server refuses its attestation, so it
+//      gets no state key and is never offered.
 //
 // Every step is one line, PASS or FAIL, with what the VM reported on its serial
 // console (sessiontest-monitor, swiff-hostd's and the streamer's logs). The run
 // passes only when every expected step passed. A stand-in Steam (no account,
-// no network) and a test picture in gamescope's place (no GPU) are the only
-// parts not as on a real PC; see sessiontest/.
+// no network), a test picture in gamescope's place (no GPU) and a software TPM
+// are the only parts not as on a real PC; see sessiontest/.
 //
 //   node session-harness.mjs --run <dir> --image <swiffos-sessiontest.raw>
 //
-// Needs TURNSERVER (coturn's turnserver) and Playwright's Chromium
-// (PLAYWRIGHT_BROWSERS_PATH), both as session-test.sh checks.
+// Needs TURNSERVER (coturn's turnserver), Playwright's Chromium
+// (PLAYWRIGHT_BROWSERS_PATH), swtpm_setup and swtpm_localca, as session-test.sh
+// checks, and SWIFF_SESSION_PCR11, the PCR 11 it predicts for the image's UKI.
 
 import { spawn, execFileSync } from "node:child_process";
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomInt } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -78,11 +95,19 @@ const STATE_KEY_SECRET = randomBytes(32).toString("base64url");
 /** The two sign-in links the stand-in Steam shows, one after the other. */
 const CODES = [1, 2].map(() => `https://s.team/q/1/${randomInt(1e9, 1e10)}${randomInt(1e8, 1e9)}`);
 
+/** PCR 11 once the image's UKI has booted to `ready`, as systemd-measure predicts it (session-test.sh). */
+const PCR11 = process.env.SWIFF_SESSION_PCR11 ?? "";
+/** What the tampered boot takes from outside its signed UKI: a kernel command line, by SMBIOS. */
+const TAMPER = "io.systemd.stub.kernel-cmdline-extra=lanterel.tampered=1";
+const ZERO = "0".repeat(64);
+
 const OVMF_CODE = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd";
 const OVMF_VARS = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 
 // Every step the run must pass: the VM's, per boot, and the harness's own.
 const EXPECTED = [
+  "the release's boot policy, signed",
+  "the owner registers the PC's EK certificate",
   "boot1/secure-boot",
   "boot1/root-is-verity",
   "boot1/node-22",
@@ -119,6 +144,8 @@ const EXPECTED = [
   "boot2/state-open",
   "boot2/hostd-offered",
   "the PC is offered again after the restart",
+  "a tampered boot is refused attestation",
+  "the tampered boot gets no state key and is not offered",
 ];
 
 const results = new Map();
@@ -225,6 +252,7 @@ function prepare() {
   mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true, mode: 0o700 });
   chmodSync(RUN, 0o700);
   mkdirSync(join(RUN, "tpm"));
+  manufactureTpm();
   const fixtures = join(RUN, "fixtures");
   // swiff-hostd's config, as the owner's app would leave it: the image's
   // streamer (hostd/hostd.example.json) at 720p30 for a VM without a GPU, and
@@ -273,6 +301,82 @@ function prepare() {
   execFileSync("truncate", ["-s", "64M", join(RUN, "state.img")]);
   execFileSync("cp", ["--sparse=always", IMAGE, join(RUN, "disk.raw")]);
   copyFileSync(OVMF_VARS, join(RUN, "vars.fd"));
+}
+
+/**
+ * Manufactures the VM's TPM as its maker would: swtpm_setup makes its EK
+ * (RSA 2048, TCG template L-1) and has a throwaway local CA, the server's only
+ * trusted TPM vendor, certify it. The CA's certificates go to roots/firmware.
+ */
+function manufactureTpm() {
+  const ca = join(RUN, "tpm-ca");
+  mkdirSync(ca);
+  writeFileSync(
+    join(ca, "swtpm-localca.conf"),
+    `statedir = ${ca}\nsigningkey = ${ca}/signkey.pem\nissuercert = ${ca}/issuercert.pem\ncertserial = ${ca}/certserial\n`,
+  );
+  writeFileSync(
+    join(ca, "swtpm-localca.options"),
+    "--platform-manufacturer Lanterel\n--platform-version 2.1\n--platform-model session-vm\n",
+  );
+  const localca = execFileSync("sh", ["-c", "command -v swtpm_localca"]).toString().trim();
+  writeFileSync(
+    join(ca, "swtpm_setup.conf"),
+    `create_certs_tool = ${localca}\ncreate_certs_tool_config = ${ca}/swtpm-localca.conf\ncreate_certs_tool_options = ${ca}/swtpm-localca.options\n`,
+  );
+  mkdirSync(join(RUN, "ek"));
+  execFileSync(
+    "swtpm_setup",
+    [
+      ...[
+        "--tpm2",
+        "--tpmstate",
+        join(RUN, "tpm"),
+        "--create-ek-cert",
+        "--config",
+        join(ca, "swtpm_setup.conf"),
+      ],
+      ...["--pcr-banks", "sha256", "--write-ek-cert-files", join(RUN, "ek")],
+    ],
+    { stdio: "ignore" },
+  );
+  mkdirSync(join(RUN, "roots", "firmware"), { recursive: true });
+  copyFileSync(join(ca, "swtpm-localca-rootca-cert.pem"), join(RUN, "roots", "firmware", "root.pem"));
+  copyFileSync(join(ca, "issuercert.pem"), join(RUN, "roots", "firmware", "issuer.pem"));
+}
+
+/**
+ * The boot policy the server trusts: this build as one release, signed with a
+ * throwaway key. PCR 11 is systemd-measure's prediction for the UKI; PCRs 12 and
+ * 13 are empty, as a release takes nothing from outside its UKI; the boot
+ * applications and Secure Boot authorities are those `eventLog`, the VM's first
+ * boot, measured, read by the verifier's own event log reader.
+ */
+async function writeBootPolicy(eventLog) {
+  const { bootFacts, parseEventLog } = await import(join(REPO, "server/dist/eventlog.js"));
+  const { signBootPolicy } = await import(join(REPO, "server/dist/boot-policy.js"));
+  if (!/^[0-9a-f]{64}$/.test(PCR11)) throw new Error("SWIFF_SESSION_PCR11 is not a predicted PCR 11");
+  const facts = bootFacts(parseEventLog(eventLog));
+  const apps = facts.bootApplications.map((app) => app.toString("hex"));
+  const authorities = facts.secureBootAuthorities.map((a) => a.toString("hex"));
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const release = {
+    name: "lanterel-os sessiontest",
+    pcr11: [PCR11],
+    pcr12: [ZERO],
+    pcr13: [ZERO],
+    bootApplications: apps,
+    uki: apps.slice(-1),
+    secureBootAuthorities: authorities,
+    iommu: true,
+  };
+  writeFileSync(join(RUN, "policy.json"), signBootPolicy({ version: 1, releases: [release] }, privateKey));
+  writeFileSync(join(RUN, "policy-key.pem"), publicKey.export({ format: "pem", type: "spki" }));
+  record(
+    "the release's boot policy, signed",
+    apps.length > 0,
+    `PCR 11 ${PCR11.slice(0, 12)}…, ${apps.length} boot application(s), ${authorities.length} Secure Boot authority(ies)`,
+  );
 }
 
 // --- The platform: TURN relay and server ----------------------------------------------
@@ -338,8 +442,12 @@ async function startServer() {
       SWIFF_PLAYABILITY: "off",
       TURN_URLS: `turn:${TURN_IP}:3478`,
       TURN_SECRET,
-      // Believes the facts of whoever holds the machine key: sessiontest-attest.
-      ATTESTATION_VERIFIER: "insecure-dev",
+      // The production verifier: a TPM quote of a signed release's boot.
+      ATTESTATION_VERIFIER: "tpm",
+      ATTESTATION_TPM_ROOTS: join(RUN, "roots"),
+      ATTESTATION_POLICY: join(RUN, "policy.json"),
+      ATTESTATION_POLICY_KEY: join(RUN, "policy-key.pem"),
+      // The machine key still hosts: the agent hosts on its host certificate in a later stage.
       HOSTING_ATTESTATION: "optional",
       // Seals the state partitions' key shares (server/src/state-key.ts).
       STATE_KEY_SECRET,
@@ -383,11 +491,25 @@ async function ownerGoesLive() {
   if (res.status !== 200) throw new Error(`the owner's offer answered ${res.status}`);
 }
 
+/** The owner's app registers the TPM's EK certificate, as Windows reads it, with the machine key. */
+async function ownerRegistersEk() {
+  const certificate = readFileSync(join(RUN, "ek", "ek-rsa2048.crt")).toString("base64");
+  const res = await fetch(`${ORIGIN}/api/machines/${MACHINE}/ek`, {
+    method: "PUT",
+    headers: ownerHeaders,
+    body: JSON.stringify({ certificate }),
+  });
+  record("the owner registers the PC's EK certificate", res.status === 204, `answered ${res.status}`);
+}
+
 // --- The VM --------------------------------------------------------------------------
 
 const serial = join(RUN, "serial.log");
 let boot = 0;
 const vmLines = [];
+/** The firmware's event log of each boot, as the VM reported it, and the parts of the one being reported. */
+const eventLogs = new Map();
+const eventLogParts = [];
 /** Reads the serial console as it grows: the monitor's results by boot, and the agents' logs. */
 function watchSerial() {
   let offset = 0;
@@ -412,6 +534,10 @@ function watchSerial() {
       if (m[1] === "INFO" && m[2] === "boot") {
         boot++;
         console.log(`----  boot ${boot} of the VM  [${elapsed()}]`);
+      } else if (m[1] === "INFO" && m[2] === "eventlog-part") {
+        eventLogParts.push(m[3]);
+      } else if (m[1] === "INFO" && m[2] === "eventlog-end") {
+        eventLogs.set(boot, Buffer.from(eventLogParts.splice(0).join(""), "base64"));
       } else if (m[1] === "INFO") {
         console.log(`info  boot${boot}/${m[2]} ${redact(m[3])}`);
       } else {
@@ -427,12 +553,17 @@ const seen = (pattern, inBoot) =>
 const waitVm = (name, ms) =>
   until(() => results.get(name), name, ms).catch(() => record(name, false, "never reported"));
 
-/** Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. */
-function startVm() {
+/** The running VM's swtpm and QEMU. */
+let vm = [];
+/** Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. `extra`: more QEMU arguments. */
+function startVm(extra = []) {
   const tpm = join(RUN, "tpm");
-  child("swtpm", ["socket", "--tpm2", "--tpmstate", `dir=${tpm}`, "--ctrl", `type=unixio,path=${tpm}/sock`]);
-  return until(() => existsSync(`${tpm}/sock`), "swtpm", 10_000).then(() =>
-    child(
+  rmSync(`${tpm}/sock`, { force: true });
+  const swtpm = child("swtpm", [
+    ...["socket", "--tpm2", "--tpmstate", `dir=${tpm}`, "--ctrl", `type=unixio,path=${tpm}/sock`],
+  ]);
+  return until(() => existsSync(`${tpm}/sock`), "swtpm", 10_000).then(() => {
+    const qemu = child(
       "qemu-system-x86_64",
       [
         ...[
@@ -461,10 +592,23 @@ function startVm() {
         ...["-device", "virtio-blk-pci,drive=state,serial=swiffstate"],
         ...["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"],
         ...["-display", "none", "-vga", "none", "-monitor", "none", "-serial", `file:${serial}`],
+        ...extra,
       ],
-      { stdio: ["ignore", "ignore", openSync(join(RUN, "qemu.log"), "w")] },
-    ),
-  );
+      { stdio: ["ignore", "ignore", openSync(join(RUN, "qemu.log"), "a")] },
+    );
+    vm = [qemu, swtpm];
+    return qemu;
+  });
+}
+
+/** Cuts the VM's power: QEMU and its TPM stop at once, as at the wall. */
+async function powerOff() {
+  for (const proc of vm) {
+    if (proc.exitCode !== null || proc.signalCode !== null) continue;
+    const exited = new Promise((r) => proc.once("exit", r));
+    proc.kill("SIGKILL");
+    await exited;
+  }
 }
 
 // --- The renter --------------------------------------------------------------------------
@@ -797,6 +941,42 @@ async function renter() {
   }
 }
 
+/**
+ * The PC powered off and booted with a kernel command line from outside its
+ * signed UKI: systemd-stub measures it into PCR 12, which no release has.
+ * Its attestation is refused, so the server keeps its state key back and the
+ * PC is never offered.
+ */
+async function tamperedBoot() {
+  await powerOff();
+  const before = boot;
+  await startVm(["-smbios", `type=11,value=${TAMPER}`]);
+  console.log(`----  the VM is booting with ${TAMPER}  [${elapsed()}]`);
+  const tampered = before + 1;
+  const refusal = await until(
+    () =>
+      boot >= tampered && seen(/\[swiff-hostd\] not offered: the persistent state did not open/, tampered),
+    "the tampered boot's attestation",
+    600_000,
+  ).catch(() => null);
+  // The client's refusal, as swiff-hostd logs it: the verifier's reason comes last.
+  const reason = seen(/attest answered \d+ .*unknown-boot-extras/, tampered);
+  record(
+    "a tampered boot is refused attestation",
+    Boolean(refusal && reason),
+    reason?.line.replace(/^.*swiff-attest: /, "") ?? refusal?.line ?? "no attestation reported",
+  );
+  // Long enough for the agent's next tries, which the server refuses the same way.
+  await sleep(45_000);
+  const offered = results.get(`boot${tampered}/hostd-offered`);
+  const state = seen(/the persistent state is open/, tampered);
+  record(
+    "the tampered boot gets no state key and is not offered",
+    Boolean(refusal) && !offered?.ok && !state && !seen(/hostd-phase offered/, tampered),
+    `offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
+  );
+}
+
 // --- The run ------------------------------------------------------------------------------
 
 /** Stops every process the harness started and deletes the fixture disk, which holds the machine key. */
@@ -810,12 +990,18 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exi
 try {
   prepare();
   startRelay();
-  await startServer();
-  console.log(`----  the platform: server ${SERVER_IP}:${PORT}, TURN relay ${TURN_IP}:3478  [${elapsed()}]`);
-  await ownerGoesLive();
   watchSerial();
   await startVm();
   console.log(`----  the VM is starting; its console is in ${serial}`);
+  // The release's policy names what the VM's boot measured: the server starts
+  // once the VM reported it. swiff-hostd tries to attest meanwhile, and again
+  // after 5, 15, 30 s ...
+  await until(() => eventLogs.get(1), "the VM's event log", 600_000);
+  await writeBootPolicy(eventLogs.get(1));
+  await startServer();
+  console.log(`----  the platform: server ${SERVER_IP}:${PORT}, TURN relay ${TURN_IP}:3478  [${elapsed()}]`);
+  await ownerGoesLive();
+  await ownerRegistersEk();
 
   await waitVm("boot1/hostd-offered", 600_000);
   if (results.get("boot1/hostd-offered")?.ok) {
@@ -850,6 +1036,7 @@ try {
         view?.status === "available",
         `status ${view?.status ?? res.status}`,
       );
+      await tamperedBoot();
     }
   }
 } catch (e) {

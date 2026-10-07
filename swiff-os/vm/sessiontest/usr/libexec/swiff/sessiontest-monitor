@@ -26,6 +26,11 @@ wait_for() { # seconds command...
 }
 
 say INFO boot "$(cat /proc/sys/kernel/random/boot_id)"
+# The firmware's event log, which the harness makes the VM's boot policy from:
+# in lines short enough that the journal never splits one.
+base64 -w 2000 /sys/kernel/security/tpm0/binary_bios_measurements 2> /dev/null |
+	while read -r part; do say INFO eventlog-part "$part"; done
+say INFO eventlog-end
 
 # --- The image ---------------------------------------------------------------------
 sb=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2> /dev/null | awk '{ print $NF }')
