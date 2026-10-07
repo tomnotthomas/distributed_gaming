@@ -136,6 +136,18 @@ describe("parseStack", () => {
       },
     ]);
   });
+
+  it("keeps the 'async' marker of an unnamed async frame out of its filename", () => {
+    const stack = ["Error: boom", "    at async file:///usr/lib/swiff/hostd/src/main.ts:40:16"].join("\n");
+    expect(parseStack(stack, "node:javascript")).toEqual([
+      expect.objectContaining({
+        function: "<anonymous>",
+        filename: "file:///usr/lib/swiff/hostd/src/main.ts",
+        lineno: 40,
+        colno: 16,
+      }),
+    ]);
+  });
 });
 
 describe("exceptionList", () => {

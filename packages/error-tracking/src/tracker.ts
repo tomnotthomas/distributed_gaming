@@ -98,8 +98,8 @@ export type ExceptionEntry = {
   stacktrace?: { type: "raw"; frames: Frame[] };
 };
 
-/** A V8 stack line: `at fn (file:line:col)`, `at file:line:col`, `at async fn (...)`. */
-const STACK_LINE = /^\s*at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?\s*$/;
+/** A V8 stack line: `at fn (file:line:col)`, `at file:line:col`, `at async fn (...)`, `at async file:line:col`. */
+const STACK_LINE = /^\s*at (?:async )?(?:(.+?) \()?(.+?):(\d+):(\d+)\)?\s*$/;
 
 /** The frames of a V8 stack, outermost call first, as PostHog wants them. */
 export function parseStack(stack: string, platform: Frame["platform"]): Frame[] {
@@ -111,7 +111,7 @@ export function parseStack(stack: string, platform: Frame["platform"]): Frame[] 
     frames.push({
       platform,
       filename,
-      function: fn?.replace(/^async /, "") || "<anonymous>",
+      function: fn || "<anonymous>",
       lineno: Number(lineno),
       colno: Number(colno),
       in_app: !/node_modules|^node:|^internal\/|^electron\/|\(native\)/.test(filename),
