@@ -19,7 +19,6 @@ import {
   renderInvite,
   setText,
   siteFromEnv,
-  type InviteResolver,
 } from "../marketing.js";
 import { migrate } from "../schema.js";
 import {
@@ -153,9 +152,6 @@ describe("marketing site", () => {
   let signups: Signups;
   let server: Server;
   let origin: string;
-  let names: Map<string, string>;
-  /** Whether the invite lookup fails, as a database error would make it. */
-  let failLookup = false;
 
   /** The mails in the outbox, oldest first. */
   const outbox = async () =>
@@ -192,14 +188,10 @@ describe("marketing site", () => {
   before(async () => {
     const files = marketingFiles(DIR, SITE);
     const routes = await pageRoutes(DIR);
-    const invites: InviteResolver = async (type, code) => {
-      if (failLookup) throw new Error("the database is down");
-      return { inviter: names.get(`${type}:${code}`) ?? null };
-    };
     server = createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (await signups.serve(req, res, url)) return;
-      const serve = createMarketing({ site: SITE, files, routes, invites, isShareCode: signups.isShareCode });
+      const serve = createMarketing({ site: SITE, files, routes, isShareCode: signups.isShareCode });
       if (await serve(req, res, url)) return;
       res.writeHead(418).end("the app");
     });
@@ -214,7 +206,6 @@ describe("marketing site", () => {
     db = await testDatabase();
     await migrate(db);
     now = 1_800_000_000_000;
-    names = new Map();
     signups = createSignups({ database: db, site: SITE, files: marketingFiles(DIR, SITE), now: () => now });
   });
 
@@ -381,48 +372,12 @@ describe("marketing site", () => {
     assert.equal((await ask(origin, "/crew/a.b")).body, "the app");
   });
 
-  it("names a crew invite's inviter, escaped, where the product knows them", async () => {
-    names.set("crew:AB12", "Ana");
-    names.set("crew:EVIL", '<img src=x onerror="alert(1)">{{brand}}');
-    const de = (await ask(origin, "/crew/AB12")).body;
-    assert.match(de, /<title>Ana möchte bei dir zocken \| Lanterel<\/title>/);
-    assert.match(de, /<h1 data-t="crew.h1" id="h1">Ana möchte <b>bei dir zocken.<\/b><\/h1>/);
-    assert.match(de, /<meta property="og:title" content="Ana möchte bei dir zocken">/);
-    assert.match(de, /<span class="av m">A<\/span>/);
-    assert.match((await ask(origin, "/en/crew/AB12")).body, /<h1 data-t="crew.h1" id="h1">Ana wants to/);
-    const evil = (await ask(origin, "/crew/EVIL")).body;
-    assert.doesNotMatch(evil, /<img src=x/);
-    assert.doesNotMatch(evil, /onerror="/);
-    assert.match(evil, /&#60;img src=x onerror=&#34;alert\(1\)&#34;&#62;&#123;&#123;brand&#125;&#125;/);
-  });
-
   it("renders an invite from the template marketing built, whatever the code", () => {
     const template = '<a href="/host/#bewerben">x</a><a href="/en/#beta">y</a><a href="#zusage">z</a>';
     assert.equal(
-      renderInvite(template, "gift", "en", "C0de", { inviter: null }),
+      renderInvite(template, "gift", "en", "C0de"),
       '<a href="/host/?i=gift:C0de#bewerben">x</a><a href="/en/?i=gift:C0de#beta">y</a><a href="#zusage">z</a>',
     );
-  });
-
-  it("still renders the invite page, naming nobody, when the invite lookup fails", async () => {
-    names.set("crew:BOOM", "unused");
-    failLookup = true;
-    try {
-      const page = await ask(origin, "/crew/BOOM");
-      assert.equal(page.status, 200);
-      assert.doesNotMatch(page.body, EXAMPLES);
-      assert.match(page.body, /<title>[^<]+ \| Lanterel<\/title>/);
-    } finally {
-      failLookup = false;
-    }
-  });
-
-  it("names an inviter with $ patterns in it as they are", async () => {
-    names.set("crew:CASH", "Ca$$h $& $' $`");
-    const page = (await ask(origin, "/crew/CASH")).body;
-    assert.match(page, /<title>Ca\$\$h \$&#38; \$&#39; \$` möchte bei dir zocken \| Lanterel<\/title>/);
-    assert.match(page, /<b>Ca\$\$h \$&#38; \$&#39; \$`<\/b>/);
-    assert.doesNotMatch(page, /<b>Max<\/b>|<title>[^<]*<b>/);
   });
 
   it("takes a waitlist sign-up with double opt-in, then hands out the player's crew link", async () => {

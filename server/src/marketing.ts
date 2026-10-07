@@ -22,7 +22,7 @@ import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { BRAND, WORDMARK } from "./brand.js";
-import { inviteCopy, UNKNOWN_INVITE, type InviteType, type InviteView, type Lang } from "./invite-copy.js";
+import { inviteCopy, type InviteType, type Lang } from "./invite-copy.js";
 
 export const INVITE_TYPES: readonly InviteType[] = ["crew", "seat", "gift", "night"];
 
@@ -131,12 +131,6 @@ export function inviteRoute(path: string): { type: InviteType; lang: Lang; code:
   return { type: match[2] as InviteType, lang: match[1] ? "en" : "de", code };
 }
 
-/** What the product knows about an invite, by its code. */
-export type InviteResolver = (type: InviteType, code: string) => Promise<InviteView>;
-
-/** Nothing: every invite page says it without names. */
-export const knownInvites: InviteResolver = async () => UNKNOWN_INVITE;
-
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -177,14 +171,8 @@ const setMeta = (html: string, attr: string, name: string, value: string) =>
  * An invite template rendered for one invite: its copy (invite-copy.ts), and
  * its buttons to the sign-up forms carrying `type:code` on as ?i=.
  */
-export function renderInvite(
-  template: string,
-  type: InviteType,
-  lang: Lang,
-  code: string | null,
-  view: InviteView,
-): string {
-  const copy = inviteCopy(type, lang, view);
+export function renderInvite(template: string, type: InviteType, lang: Lang, code: string | null): string {
+  const copy = inviteCopy(type, lang);
   let html = template.replace(/<title>[^<]*<\/title>/, () => `<title>${copy.title} | {{brand}}</title>`);
   html = setMeta(html, "name", "description", copy.description);
   html = setMeta(html, "property", "og:title", copy.ogTitle);
@@ -244,20 +232,12 @@ export type MarketingOptions = {
   files: MarketingFiles;
   /** Page routes by path (pageRoutes). */
   routes: Map<string, string>;
-  /** What the product knows about an invite. Defaults to nothing. */
-  invites?: InviteResolver;
   /** Whether `code` is a confirmed sign-up's crew link code (signups.ts). */
   isShareCode: (code: string) => Promise<boolean>;
 };
 
 /** Serve a marketing page or file on the site's host; false for anything else. */
-export function createMarketing({
-  site,
-  files,
-  routes,
-  invites = knownInvites,
-  isShareCode,
-}: MarketingOptions) {
+export function createMarketing({ site, files, routes, isShareCode }: MarketingOptions) {
   /** Answer 200 with `body` as `type` (by extension), and no body to a HEAD. */
   function send(
     res: ServerResponse,
@@ -304,17 +284,7 @@ export function createMarketing({
     if (invite) {
       const template = await files.text(`${invite.lang === "en" ? "en/" : ""}${invite.type}/index.html`);
       if (template === null) return false;
-      // A lookup that fails (the database, say) still gets the page, naming nobody.
-      const view = invite.code
-        ? await invites(invite.type, invite.code).catch((error: unknown) => {
-            console.error(
-              "[swiff] invite lookup failed:",
-              error instanceof Error ? error.name : typeof error,
-            );
-            return UNKNOWN_INVITE;
-          })
-        : UNKNOWN_INVITE;
-      const html = renderInvite(template, invite.type, invite.lang, invite.code, view);
+      const html = renderInvite(template, invite.type, invite.lang, invite.code);
       // The copy brings its own {{brand}} tokens.
       send(res, req, ".html", fillTokens(html, site), {
         "cache-control": "private, no-store",

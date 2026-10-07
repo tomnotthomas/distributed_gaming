@@ -5,30 +5,14 @@
 // The product knows little about an invite yet: the marketing server names
 // nobody (its crew page moves into the web app), and seats at a rig, gifted
 // seats and crew Nights do not exist at all. So every page says it without
-// anyone's name or facts it does not have; a resolver that does know a crew
-// invite's inviter gets them named in its headlines.
-// Nothing here makes up a person.
+// anyone's name or facts it does not have. Nothing here makes up a person.
 //
 // Each page's copy replaces the text of the elements marked with its data-t
 // key, its title and its link-preview tags, and a few literal bits of the
-// mock-ups that carry an example name. The names come from people, so they are
-// escaped; the copy is the pages' own HTML. A first name is never assumed to
-// say whether to write "he" or "she": the copy is written without either.
+// mock-ups that carry an example name. The copy is the pages' own HTML.
 
 export type InviteType = "crew" | "seat" | "gift" | "night";
 export type Lang = "de" | "en";
-
-/**
- * What the product knows about one invite. Only a crew invite's inviter, for
- * now. TODO: the rig, its graphics card and seat, the dates and the crew
- * members, once seats, gifts and Nights exist; each page below says where.
- */
-export type InviteView = {
-  /** The inviter's name as the product shows them (a Steam persona); null when unknown. */
-  inviter: string | null;
-};
-
-export const UNKNOWN_INVITE: InviteView = { inviter: null };
 
 /** One page's copy for one invite. HTML except `title` and the meta tags, which are text. */
 export type InviteCopy = {
@@ -41,21 +25,12 @@ export type InviteCopy = {
   literal: [string, string][];
 };
 
-/** `s` safe as HTML text, with braces escaped too so a name never turns into a {{token}}. */
-const escapeHtml = (s: string) => s.replace(/[&<>"'{}]/g, (c) => `&#${c.charCodeAt(0)};`);
-
-/** A name as it may be shown: trimmed, at most 40 characters; null when nothing is left. */
-export function shownName(name: string | null): string | null {
-  const trimmed = name?.replace(/\s+/g, " ").trim().slice(0, 40);
-  return trimmed ? trimmed : null;
-}
-
 /** The copy for an invite of `type` in `lang`. */
-export function inviteCopy(type: InviteType, lang: Lang, view: InviteView): InviteCopy {
-  const name = shownName(view.inviter);
+export function inviteCopy(type: InviteType, lang: Lang): InviteCopy {
   switch (type) {
+    // TODO: name the inviter once the crew page moves into the web app.
     case "crew":
-      return name ? namedCrew(lang, escapeHtml(name)) : crew(lang);
+      return crew(lang);
     // TODO: name the host, their rig, graphics card and town, the seat and its
     // last day (rig.f1v to rig.f5v) once a seat at a friend's rig exists.
     case "seat":
@@ -137,45 +112,6 @@ function crew(lang: Lang): InviteCopy {
         "Your friend is on your PC right now? Ask if you can watch. They share their screen with the crew, but only if they say yes.",
     },
     literal: crewMockup("Your friend", "F"),
-  };
-}
-
-/** The neutral crew copy with the inviter, `n` (escaped), named in its headlines. */
-function namedCrew(lang: Lang, n: string): InviteCopy {
-  const base = crew(lang);
-  const initial = [...n.replace(/&#\d+;/g, "")][0]?.toUpperCase() ?? "?";
-  if (lang === "de")
-    return {
-      title: `${n} möchte bei dir zocken`,
-      ogTitle: `${n} möchte bei dir zocken`,
-      description: `${n} hat jetzt einen Mac und würde gern auf deinem Gaming-PC zocken, wenn du nicht dran sitzt. Mit dem eigenen Steam-Konto, nur für eure Crew.`,
-      text: {
-        ...base.text,
-        "crew.h1": `${n} möchte <b>bei dir zocken.</b>`,
-        "crew.lead": `${n} hat einen Mac, du den Gaming-PC. Mit {{brand}} zockt ${n} mit dem eigenen Steam-Konto auf deinem Rechner, immer dann, wenn du nicht dran sitzt. Erst mal nur eure Crew, keine Fremden.`,
-        "crew.no": `Nee, lieber nicht. Wir sagen ${n} Bescheid.`,
-        "crew.acb": `PC für ${n} freigeben`,
-        "crew.sh": `Was ${n} auf deinem PC sieht. Und was nicht.`,
-        "crew.fh": `Drei Schritte, dann zockt ${n} bei dir`,
-        "crew.f3h": `Für ${n} freigeben`,
-      },
-      literal: crewMockup(n, initial),
-    };
-  return {
-    title: `${n} wants to borrow your rig`,
-    ogTitle: `${n} wants to borrow your rig`,
-    description: `${n} has a Mac now and would love to play on your gaming PC when you're not using it. On their own Steam account, crew only.`,
-    text: {
-      ...base.text,
-      "crew.h1": `${n} wants to <b>borrow your rig.</b>`,
-      "crew.lead": `${n} has a Mac, you've got the gaming PC. With {{brand}}, ${n} can play on your machine whenever you're not using it, with their own Steam account. Just your crew to start with, no strangers.`,
-      "crew.no": `Not for me. We'll let ${n} know.`,
-      "crew.acb": `Let ${n} on`,
-      "crew.sh": `What ${n} gets on your PC, and what's off-limits.`,
-      "crew.fh": `Three steps and ${n} is in`,
-      "crew.f3h": `Free it up for ${n}`,
-    },
-    literal: crewMockup(n, initial),
   };
 }
 
