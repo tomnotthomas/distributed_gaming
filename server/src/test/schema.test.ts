@@ -58,6 +58,8 @@ describe("migrations", () => {
         "machine_state_keys",
         "machine_uptime",
         "machines",
+        "marketing_outbox",
+        "marketing_signups",
         "reservations",
         "schema_migrations",
         "seats",

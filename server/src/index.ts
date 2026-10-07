@@ -78,6 +78,8 @@ import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
+import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
+import { createSignups } from "./signups.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -204,6 +206,27 @@ const serveApi = createApi({
   onRenterStarted: pushLaunch,
   heldUntil: (machineId) => grace.until(machineId),
 });
+
+// The public marketing site (marketing.ts) and its sign-ups (signups.ts), only
+// with MARKETING_PAGES=on and SITE_ORIGIN and PUBLIC_ORIGIN set; the pages only on that origin's
+// host, so the app keeps its own routes everywhere else. Off, nothing changes.
+const site = siteFromEnv(process.env, publicOrigin);
+const MARKETING_DIR = fileURLToPath(new URL("../../web/marketing/", import.meta.url));
+const marketing = site ? marketingFiles(MARKETING_DIR, site) : null;
+// Render's proxy appends each client's address to X-Forwarded-For, and sets RENDER=true.
+const signups =
+  site && marketing
+    ? createSignups({ database, site, files: marketing, trustProxy: process.env.RENDER === "true" })
+    : null;
+const serveMarketing =
+  site && marketing && signups
+    ? createMarketing({
+        site,
+        files: marketing,
+        routes: await pageRoutes(MARKETING_DIR),
+        isShareCode: signups.isShareCode,
+      })
+    : null;
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -673,7 +696,7 @@ async function serveCatalog(res: ServerResponse, urlPath: string, query: URLSear
 }
 
 /**
- * Dispatch session, Steam sign-in and catalog requests, then serve the built web app.
+ * Dispatch the marketing site (when on), session, Steam sign-in and catalog requests, then serve the built web app.
  * Extensionless paths use index.html; file read failures return 500 for that page
  * and 404 for assets. URL parsing and delegated handler errors propagate as rejections.
  */
@@ -681,6 +704,8 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;
 
+  if (signups && (await signups.serve(req, res, url))) return;
+  if (serveMarketing && (await serveMarketing(req, res, url))) return;
   if (await serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;

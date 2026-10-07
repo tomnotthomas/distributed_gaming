@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Play Steam Games on Your Mac or MacBook | {{brand}}</title>
+<meta name="description" content="Play your Steam games on a MacBook or Mac mini, Windows-only ones too: right in Chrome, nothing to install. Join the free beta." data-t-content="seo.desc">
+<meta name="theme-color" content="#121212">
+<link rel="stylesheet" href="/assets/css/fonts.css">
+<link rel="stylesheet" href="/assets/css/base.css">
+<link rel="stylesheet" href="/assets/css/player.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Can I play Windows games on my Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, with {{brand}}, including Steam games that only exist for Windows. The game runs on a gaming PC in Germany and streams to your browser, so your Mac doesn't do the heavy lifting."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need to install anything?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. All you need is Chrome and a steady internet connection. We're still testing Safari."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which Mac do I need?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Any Mac that runs a current version of Chrome, from a MacBook Air or MacBook Neo to a Mac mini. A steady connection matters more: use a cable, or sit close to the router."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which Steam games can I play on my Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "With {{brand}}, most of your library, including Windows-only games. Rule of thumb: if it runs on the Steam Deck, it usually runs on {{brand}}. Games with kernel-level anti-cheat, like PUBG, Apex Legends or Call of Duty, don't."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is my Steam account safe?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You sign in by scanning a QR code with the Steam app, so you never type your password anywhere. During your session the gaming PC runs a locked-down system, and it restarts when you're done. Your login is never stored on it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What does {{brand}} cost?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Free during the beta. After that, at most €2 an hour, no subscription required."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Whose PC am I playing on?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC in the evening. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I have to scan the QR code every time?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, once per session, with the Steam app on your phone. That's on purpose: your login never stays on someone else's PC, it's wiped when the session ends."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do my saves carry over?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes, through Steam Cloud, just like on any other PC. Saves that don't use Steam Cloud, and mods, don't carry over, because every guest gets a fresh machine."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What if no PC is free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs in the evening."
+      }
+    }
+  ]
+}
+</script>
+<style>
+  /* B · Drafted promise: the art fills the screen and the promise itself is drafted on it like the
+     app's game titles (width dimension, cap line, baseline, lime mark). The sign-up sits in a paper
+     cell at the lower right, the way the account cell sits in the app's bar. */
+  .hero {
+    position: relative;
+    min-height: 100dvh;
+    display: grid;
+    overflow: hidden;
+    background: #0d0d0d;
+  }
+  .slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 1.4s var(--ease);
+  }
+  .slide.on {
+    opacity: 1;
+  }
+  .slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: var(--pos, 60% 40%);
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      linear-gradient(to bottom, rgb(10 10 10 / 0.72), transparent 22%),
+      linear-gradient(to top, rgb(10 10 10 / 0.86) 0%, rgb(10 10 10 / 0.35) 46%, transparent 70%),
+      radial-gradient(90% 80% at 0% 100%, rgb(10 10 10 / 0.6), transparent 60%);
+  }
+  .hero-inner {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+    align-items: end;
+    gap: clamp(24px, 3vw, 48px);
+    padding: calc(var(--nav) + 40px) var(--gut) clamp(28px, 5vh, 56px);
+  }
+  .promise {
+    position: relative;
+    min-width: 0;
+    padding-top: 26px;
+  }
+  .promise .dim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--w, 60%);
+    height: 9px;
+    border-left: 1px solid rgb(239 239 237 / 0.7);
+    border-right: 1px solid rgb(239 239 237 / 0.7);
+  }
+  .promise .dim::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 4px;
+    border-top: 1px solid rgb(239 239 237 / 0.7);
+  }
+  .promise h1 {
+    margin: 0;
+    font: 400 var(--fs, clamp(34px, 5.6vw, 96px)) / 1 var(--wide);
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    color: #f4f4f2;
+    width: max-content;
+    max-width: 100%;
+  }
+  .promise h1 span {
+    display: block;
+    white-space: nowrap;
+    position: relative;
+    padding: 0.08em 0 0.04em;
+  }
+  .promise h1 span::after {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--gut));
+    right: -100vw;
+    bottom: 0.02em;
+    border-top: 1px dashed rgb(239 239 237 / 0.4);
+  }
+  .promise h1 span:first-child::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--gut));
+    right: -100vw;
+    top: 0.1em;
+    border-top: 1px dashed rgb(239 239 237 / 0.4);
+  }
+  .promise .mark {
+    position: absolute;
+    left: 0;
+    top: var(--base, 100%);
+  }
+  .ingame {
+    margin-top: 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font: 400 12px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(239 239 237 / 0.72);
+  }
+  .ingame button {
+    border: 0;
+    background: none;
+    padding: 8px 0;
+    color: rgb(239 239 237 / 0.62);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    position: relative;
+  }
+  .ingame button[aria-selected="true"] {
+    color: #f4f4f2;
+  }
+  .ingame button[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 18px;
+    height: 3px;
+    background: var(--lime);
+  }
+  .ingame .pause {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgb(239 239 237 / 0.45);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #f4f4f2;
+  }
+  .cell {
+    position: relative;
+    z-index: 1;
+    background: var(--paper);
+    color: var(--on-paper);
+    padding: clamp(22px, 2.4vw, 32px);
+    min-width: 0;
+  }
+  .cell .sub {
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--on-paper-2);
+    margin-bottom: 22px;
+  }
+  .cell .wl-row {
+    flex-direction: column;
+  }
+  .cell .wl-row .lpill {
+    width: 100%;
+  }
+  @media (max-width: 900px) {
+    .hero-inner {
+      grid-template-columns: 1fr;
+      padding-top: calc(var(--nav) + 120px);
+    }
+  }
+  @media (max-width: 680px) {
+    .promise h1 {
+      font-size: max(34px, var(--fs, 34px));
+      width: auto;
+    }
+    .promise h1 span {
+      white-space: normal;
+    }
+    .promise h1 span::after,
+    .promise h1 span:first-child::before {
+      display: none;
+    }
+    .slide img {
+      object-position: var(--mpos, 80% 30%);
+    }
+    .hero::before {
+      background:
+        linear-gradient(to bottom, rgb(10 10 10 / 0.72), rgb(10 10 10 / 0.42) 40%, rgb(10 10 10 / 0.42) 60%, rgb(10 10 10 / 0.86));
+    }
+  }
+</style>
+<meta property="og:type" content="website">
+<meta property="og:title" content="Play Steam Games on Your Mac or MacBook">
+<meta property="og:description" content="Play your Steam games on a MacBook or Mac mini, Windows-only ones too: right in Chrome, nothing to install. Join the free beta.">
+<meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="{{site}}/en/">
+<link rel="alternate" hreflang="de" href="{{site}}/">
+<link rel="alternate" hreflang="en" href="{{site}}/en/">
+<link rel="alternate" hreflang="x-default" href="{{site}}/">
+<meta property="og:url" content="{{site}}/en/">
+<meta name="form-endpoint" content="/api/signups">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>window.SITE_T = {"form.fail": "That didn't work. Please try again in a moment.", "copy.done": "Copied", "hero.play": "Resume the slideshow", "hero.pause": "Pause the slideshow"};</script>
+</head>
+<body id="top">
+<header class="nav" data-nav>
+  <a class="wordmark" href="#top" aria-label="{{brand}}, back to top" data-t-aria-label="nav.home">{{wordmark}}</a>
+  <nav class="nav-links" aria-label="Sections" data-t-aria-label="nav.aria">
+    <a href="#so-gehts" data-t="nav.how">How it works</a>
+    <a href="#fragen" data-t="nav.faq">FAQ</a>
+  </nav>
+  <div class="lang" role="group" aria-label="Language" data-t-aria-label="lang.aria">
+    <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
+    <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+  </div>
+  <a class="lpill lpill-sm solid nav-cta" href="#beta"><span class="long" data-t="cta.beta">Join the beta</span><span class="short" data-t="cta.betaShort">Join</span></a>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="h1">
+    <span data-nav-sentinel style="position:absolute;top:0;height:1px;width:1px"></span>
+    <div class="slide on" data-slide style="--pos: 64% 30%"><img src="/assets/img/wide-730.jpg" alt="Counter-Strike 2 key art" data-t-alt="hero.alt0" fetchpriority="high"></div>
+    <div class="slide" data-slide style="--pos: 50% 38%; --mpos: 48% 30%"><img src="/assets/img/wide-1422450.jpg" alt="Deadlock key art" data-t-alt="hero.alt1" loading="lazy"></div>
+
+    <div class="hero-inner">
+      <div class="promise" data-fit-box>
+        <span class="dim" aria-hidden="true"></span>
+        <h1 id="h1" data-fit="0.94" data-fit-max="104"><span data-t="b.h1a">Your Steam games.</span><span data-t="b.h1b">On your Mac.</span></h1>
+        <span class="mark" aria-hidden="true" data-mark></span>
+        <div class="ingame" role="tablist" aria-label="Example game" data-t-aria-label="hero.picker">
+          <button type="button" role="tab" aria-selected="true" data-go="0">Counter-Strike 2</button>
+          <button type="button" role="tab" aria-selected="false" data-go="1">Deadlock</button>
+          <button type="button" class="pause" data-pause aria-label="Diashow anhalten"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg></button>
+        </div>
+      </div>
+      <div class="cell on-paper">
+        <p class="sub" data-t="hero.sub">Play your Steam library right in Chrome. No Windows, nothing to install, no gaming PC of your own.</p>
+        <form class="wl" data-waitlist novalidate>
+  <div class="wl-state">
+    <label class="wl-label" for="wl-email-hero" data-t="wl.label">Email address</label>
+    <div class="wl-row">
+      <input id="wl-email-hero" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com" data-t-placeholder="wl.ph" aria-describedby="wl-help-hero" aria-errormessage="wl-err-hero">
+      <button class="lpill solid" type="submit"><span data-t="cta.beta">Join the beta</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
+    </div>
+    <p class="wl-err" id="wl-err-hero" role="alert" hidden data-t="wl.err">That doesn't look like an email address.</p>
+    <p class="wl-help" id="wl-help-hero" data-t="wl.help">Free during the beta, then at most €2 an hour. Invites go out in waves, Germany first.</p>
+  </div>
+  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
+    <p class="wl-done-h" data-t="wl.done.h">Almost there.</p>
+    <p data-t="wl.done.p">We've sent an email to <b>{email}</b>. Confirm your address and you're on the list.</p>
+    <p data-t="wl.done.crew">It's quicker with a friend who has a gaming PC: the email has a link you can send them.</p>
+  </div>
+</form>
+        <p class="crew-cue"><a href="#crew" data-t="crew.cue">Know someone with a gaming PC? Then it's quicker.</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="library" aria-labelledby="lib-h">
+  <div class="lib-copy">
+    <h2 id="lib-h" class="rv" data-t="lib.h">The games you already own</h2>
+    <p class="rv" data-t="lib.p">New Mac, old Steam library? It doesn't have to gather dust. Most of it runs on {{brand}}, plus plenty of free-to-play games.</p>
+    <p class="lib-check rv"><a href="{{app}}/" data-t="lib.check">Check your library</a> <span data-t="lib.checkp">Sign in with Steam and {{brand}} shows you which of your games run.</span></p>
+  </div>
+  <div class="lib-tiles">
+    <figure class="rv"><img src="/assets/img/hero-730.jpg" alt="" loading="lazy" style="object-position:70% 35%"><figcaption>Counter-Strike 2</figcaption></figure>
+    <figure class="rv" style="--i:1"><img src="/assets/img/hero-1422450.jpg" alt="" loading="lazy" style="object-position:48% 40%"><figcaption>Deadlock</figcaption></figure>
+    <figure class="rv" style="--i:2"><img src="/assets/img/hero-440.jpg" alt="" loading="lazy" style="object-position:40% 40%"><figcaption>Team Fortress 2</figcaption></figure>
+  </div>
+</section>
+  <section class="crewband" id="crew" aria-labelledby="crew-h">
+  <div>
+    <h2 id="crew-h" class="rv" data-t="crew.h">Know someone with a gaming PC?</h2>
+    <p class="rv" data-t="crew.p">Then you don't have to wait for the next wave of invites. Your friend runs {{brand}} OS next to Windows, and you play on their PC when they're not using it, on your own Steam account. Just for your crew at first.</p>
+  </div>
+  <ol class="crew-steps">
+    <li class="rv"><b data-t="crew.s1h">Sign up</b><span data-t="crew.s1p">You get your own link.</span></li>
+    <li class="rv" style="--i:1"><b data-t="crew.s2h">Send the link</b><span data-t="crew.s2p">By WhatsApp, Discord or Steam, to your friend with a gaming PC.</span></li>
+    <li class="rv" style="--i:2"><b data-t="crew.s3h">Play together</b><span data-t="crew.s3p">As soon as their PC is ready, you play on it, on your Mac.</span></li>
+  </ol>
+</section>
+  <section class="proof" aria-labelledby="proof-h">
+  <div class="proof-clip rv">
+    <img src="/assets/img/hero-1422450.jpg" alt="" loading="lazy">
+    <span class="proof-play" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 6.5v11l8.5-5.5z"/></svg></span>
+    <span class="proof-slot" data-t="proof.slot">Placeholder: 20 to 30 seconds of real footage</span>
+  </div>
+  <div class="proof-copy">
+    <h2 id="proof-h" class="rv" data-t="proof.h">How it feels</h2>
+    <p class="rv" data-t="proof.p">A real, uncut recording: Deadlock in a Chrome tab on a MacBook Air, streamed from a gaming PC in Germany.</p>
+    <dl class="proof-stats rv">
+      <div><dt data-t="proof.res">Resolution</dt><dd data-t="proof.tbd">Measured value to come</dd></div>
+      <div><dt data-t="proof.fps">Frame rate</dt><dd data-t="proof.tbd">Measured value to come</dd></div>
+      <div><dt data-t="proof.lat">Delay</dt><dd data-t="proof.tbd">Measured value to come</dd></div>
+    </dl>
+  </div>
+</section>
+  <section class="steps" id="so-gehts" aria-labelledby="steps-h">
+  <h2 id="steps-h" class="rv" data-t="steps.h">How to play Steam games on your Mac</h2>
+  <ol class="step-row">
+    <li class="rv"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 1 0 14 0 7 7 0 0 0-14 0M9.5 12.5l2 2 3.5-4"/></svg></span><h3 data-t="s1.h">Sign in with Steam</h3><p data-t="s1.p">You'll see your Steam library.</p></li>
+    <li class="rv" style="--i:1"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"><path d="M9 6.5v11l8.5-5.5z"/></svg></span><h3 data-t="s2.h">Hit Play</h3><p data-t="s2.p">A friend's gaming PC, or a Founding Host's, takes over. Scan one QR code with the Steam app and the game starts.</p></li>
+    <li class="rv" style="--i:2"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9h10a3 3 0 0 1 3 3v2a3 3 0 0 1-5.4 1.8L13.5 14h-3l-1.1 1.8A3 3 0 0 1 4 14v-2a3 3 0 0 1 3-3zM8.5 11v3M7 12.5h3M15.5 12h.01M17 13.5h.01"/></svg></span><h3 data-t="s3.h">Start playing</h3><p data-t="s3.p">The game runs in a Chrome tab, with keyboard and mouse or a controller.</p></li>
+  </ol>
+</section>
+  <section class="faqsec" id="fragen" aria-labelledby="faq-h">
+  <h2 id="faq-h" class="rv" data-t="faq.h">Questions about Steam on a Mac</h2>
+  <div class="faq rv">
+    <details><summary><span data-t="q1">Can I play Windows games on my Mac?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a1">Yes, with {{brand}}, including Steam games that only exist for Windows. The game runs on a gaming PC in Germany and streams to your browser, so your Mac doesn't do the heavy lifting.</p></details>
+    <details><summary><span data-t="q2">Do I need to install anything?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a2">No. All you need is Chrome and a steady internet connection. We're still testing Safari.</p></details>
+    <details><summary><span data-t="q3">Which Mac do I need?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a3">Any Mac that runs a current version of Chrome, from a MacBook Air or MacBook Neo to a Mac mini. A steady connection matters more: use a cable, or sit close to the router.</p></details>
+    <details><summary><span data-t="q4">Which Steam games can I play on my Mac?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">With {{brand}}, most of your library, including Windows-only games. Rule of thumb: if it runs on the Steam Deck, it usually runs on {{brand}}. Games with kernel-level anti-cheat, like PUBG, Apex Legends or Call of Duty, don't.</p></details>
+    <details><summary><span data-t="q5">Is my Steam account safe?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">You sign in by scanning a QR code with the Steam app, so you never type your password anywhere. During your session the gaming PC runs a locked-down system, and it restarts when you're done. Your login is never stored on it.</p></details>
+    <details><summary><span data-t="q6">What does {{brand}} cost?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Free during the beta. After that, at most €2 an hour, no subscription required.</p></details>
+    <details><summary><span data-t="q7">Whose PC am I playing on?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">At first on the gaming PC of a friend who invites you, or of a Founding Host in Germany: someone who shares their PC in the evening. For your session it runs {{brand}} OS, a separate system, and restarts when you're done. Your Steam login is never stored on it.</p></details>
+    <details><summary><span data-t="q8">Do I have to scan the QR code every time?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a8">Yes, once per session, with the Steam app on your phone. That's on purpose: your login never stays on someone else's PC, it's wiped when the session ends.</p></details>
+    <details><summary><span data-t="q9">Do my saves carry over?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a9">Yes, through Steam Cloud, just like on any other PC. Saves that don't use Steam Cloud, and mods, don't carry over, because every guest gets a fresh machine.</p></details>
+    <details><summary><span data-t="q10">What if no PC is free?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a10">You join the queue and get connected as soon as one frees up; just keep the page open. During the beta we only invite as many people as there are PCs in the evening.</p></details>
+  </div>
+</section>
+  <section class="close" id="beta" aria-labelledby="close-h">
+  <div><h2 id="close-h" class="rv" data-t="close.h">Bring your Steam library <b>to your Mac.</b></h2></div>
+  <div><form class="wl" data-waitlist novalidate>
+  <div class="wl-state">
+    <label class="wl-label" for="wl-email-close" data-t="wl.label">Email address</label>
+    <div class="wl-row">
+      <input id="wl-email-close" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com" data-t-placeholder="wl.ph" aria-describedby="wl-help-close" aria-errormessage="wl-err-close">
+      <button class="lpill solid" type="submit"><span data-t="cta.beta">Join the beta</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
+    </div>
+    <p class="wl-err" id="wl-err-close" role="alert" hidden data-t="wl.err">That doesn't look like an email address.</p>
+    <p class="wl-help" id="wl-help-close" data-t="wl.help">Free during the beta, then at most €2 an hour. Invites go out in waves, Germany first.</p>
+  </div>
+  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
+    <p class="wl-done-h" data-t="wl.done.h">Almost there.</p>
+    <p data-t="wl.done.p">We've sent an email to <b>{email}</b>. Confirm your address and you're on the list.</p>
+    <p data-t="wl.done.crew">It's quicker with a friend who has a gaming PC: the email has a link you can send them.</p>
+  </div>
+</form></div>
+</section>
+</main>
+
+<footer class="foot pfoot">
+  <span class="wordmark">{{wordmark}}</span>
+  <div>
+    <p class="host-link"><span data-t="foot.host">Got a gaming PC that sits idle?</span> <a href="/en/host/" data-t="foot.hostLink">Become a Founding Host</a></p>
+    <p class="foot-legal" data-t="foot.legal">{{brand}} is run by [name, town: to come with the legal notice]. {{brand}} is an independent project from Germany and isn't affiliated with Valve or Apple. Steam is a trademark of Valve Corporation. Mac, MacBook and Mac mini are trademarks of Apple Inc.</p>
+  </div>
+  <nav aria-label="Legal" data-t-aria-label="foot.aria"><a href="/en/legal-notice/" data-t="foot.imprint">Legal notice</a><a href="/en/privacy/" data-t="foot.privacy">Privacy</a></nav>
+</footer>
+
+<script src="/assets/js/site.js"></script>
+<script src="/assets/js/player.js"></script>
+<script>
+  /* The width dimension above the promise follows its longest line. */
+  (function () {
+    var h = document.getElementById("h1"), dim = document.querySelector(".promise .dim");
+    function size() {
+      var w = 0;
+      h.querySelectorAll("span").forEach(function (s) {
+        var r = document.createRange(); r.selectNodeContents(s);
+        w = Math.max(w, r.getBoundingClientRect().width);
+      });
+      dim.style.setProperty("--w", w + "px");
+      var mark = document.querySelector("[data-mark]");
+      mark.style.setProperty("--base", (h.offsetTop + h.offsetHeight - 2) + "px");
+    }
+    size();
+    addEventListener("resize", function () { requestAnimationFrame(size); });
+    document.addEventListener("swiff:lang", function () { requestAnimationFrame(size); });
+    if (document.fonts) document.fonts.ready.then(function () { requestAnimationFrame(function () { requestAnimationFrame(size); }); });
+  })();
+</script>
+</body>
+</html>

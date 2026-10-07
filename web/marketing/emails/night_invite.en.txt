@@ -1,0 +1,13 @@
+Subject: Max invited you to Crew Night: Friday, 9 pm
+
+Friday is game night
+
+Max set up a Crew Night for Friday, 9 October, 9 pm to midnight. Two gaming PCs are confirmed and one of them is yours: Tom's rig.
+
+You'll need your Mac with Chrome, your Steam account and the Steam app on your phone. We'll send the Discord link on the night.
+
+I'm in: {rsvp_url}
+
+--
+You're getting this email because Max invited you to his crew on {{brand}}. If you can't make it, your seat goes to the next person in the crew.
+{{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}

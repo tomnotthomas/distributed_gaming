@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /emails/
+Disallow: /content/
+
+Sitemap: {{site}}/sitemap.xml

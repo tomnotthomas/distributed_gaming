@@ -1369,7 +1369,10 @@ describe("host sessions", () => {
       const room = nextRoom();
       const { bookingId, ticket, host, renter } = await playing(room);
       renter.close();
-      await wait(GRACE_MS + 500);
+      // The grace starts once the server handles the close and ends with database
+      // writes, both slower on a loaded machine, so wait for the end, not a fixed time.
+      const deadline = Date.now() + GRACE_MS + 10_000;
+      while (!ended(host) && Date.now() < deadline) await wait(20);
       assert.ok(ended(host), "the streamer was put out");
 
       const booking = await call("GET", `/api/bookings/${bookingId}`);

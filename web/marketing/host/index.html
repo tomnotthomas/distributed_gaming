@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gaming-PC teilen statt verkaufen: Werde Founding Host | {{brand}}</title>
+<meta name="description" content="Dein Gaming-PC steht oft rum? Teil ihn abends mit Mac-Spielern, statt ihn zu verkaufen. {{brand}} OS läuft per Dual Boot neben Windows. In der Beta unbezahlt." data-t-content="seo.desc">
+<meta name="theme-color" content="#121212">
+<link rel="stylesheet" href="/assets/css/fonts.css">
+<link rel="stylesheet" href="/assets/css/base.css">
+<link rel="stylesheet" href="/assets/css/player.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "de",
+  "mainEntity": [
+    {"@type": "Question", "name": "Kann ich mit meinem Gaming-PC Geld verdienen?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. In der Beta hostest du unbezahlt, und auch die Spieler zahlen nichts. Dafür bekommst du das Founding-Host-Abzeichen, eine eigene Rig-Seite und reservierte Plätze für deine Freunde."}},
+    {"@type": "Question", "name": "Kommen Gäste an meine Dateien?", "acceptedAnswer": {"@type": "Answer", "text": "Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu."}},
+    {"@type": "Question", "name": "Was passiert mit meinem Windows?", "acceptedAnswer": {"@type": "Answer", "text": "Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows."}},
+    {"@type": "Question", "name": "Wer spielt auf meinem PC?", "acceptedAnswer": {"@type": "Answer", "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du."}},
+    {"@type": "Question", "name": "Wie viel Strom kostet das?", "acceptedAnswer": {"@type": "Answer", "text": "So viel wie ein Abend, an dem du selbst zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat."}},
+    {"@type": "Question", "name": "Kann ich meinen PC jederzeit zurückholen?", "acceptedAnswer": {"@type": "Answer", "text": "Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist."}},
+    {"@type": "Question", "name": "Ich habe nur Linux auf dem PC. Geht das?", "acceptedAnswer": {"@type": "Answer", "text": "Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert."}},
+    {"@type": "Question", "name": "Ist das wie Steam Remote Play?", "acceptedAnswer": {"@type": "Answer", "text": "Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows."}},
+    {"@type": "Question", "name": "Ist {{brand}} OS ein Dual Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Ja. {{brand}} OS bekommt eigene 24 GB neben Windows. Zum Teilen startet dein PC in {{brand}} OS, danach wieder in Windows."}},
+    {"@type": "Question", "name": "Wie aktiviere ich Secure Boot?", "acceptedAnswer": {"@type": "Answer", "text": "Im BIOS deines Mainboards, meist unter „Boot“ oder „Security“. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel. Unser Check zeigt dir, ob Secure Boot schon an ist, und führt dich Schritt für Schritt durch, mit Anleitungen für MSI, ASUS, Gigabyte und ASRock."}}
+  ]
+}
+</script>
+<style>
+  /* Host page: the same Wall. Key art with "Founding Host" drafted on it like a game title, the
+     grey strip with the promise and the application, then three short sections. */
+  .art {
+    position: relative;
+    height: clamp(360px, 58vh, 600px);
+    overflow: hidden;
+    background: #0d0d0d;
+  }
+  .art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 38%;
+  }
+  .art::before,
+  .art::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .art::before {
+    background: linear-gradient(to bottom, rgb(10 10 10 / 0.7), transparent 24%);
+  }
+  .art::after {
+    background:
+      radial-gradient(110% 90% at 0% 100%, rgb(10 10 10 / 0.8), transparent 56%),
+      linear-gradient(to top, rgb(10 10 10 / 0.5), transparent 42%);
+  }
+  .drafted {
+    position: absolute;
+    z-index: 2;
+    left: var(--gut);
+    right: 0;
+    bottom: clamp(28px, 5vh, 56px);
+  }
+  .t-wrap {
+    position: relative;
+    display: inline-block;
+    padding-top: 22px;
+  }
+  .t-dim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 9px;
+    border-left: 1px solid rgb(239 239 237 / 0.7);
+    border-right: 1px solid rgb(239 239 237 / 0.7);
+  }
+  .t-dim::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 4px;
+    border-top: 1px solid rgb(239 239 237 / 0.7);
+  }
+  .title {
+    display: block;
+    font: 400 var(--fs, clamp(36px, 6vw, 104px)) / 0.9 var(--wide);
+    color: #f4f4f2;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 0.06em 0 0.02em;
+  }
+  .rules {
+    position: absolute;
+    left: calc(-1 * var(--gut));
+    right: -100vw;
+    top: 22px;
+    bottom: 0;
+  }
+  .rules::before,
+  .rules::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px dashed rgb(239 239 237 / 0.42);
+  }
+  .rules::before {
+    top: 0.12em;
+  }
+  .rules::after {
+    bottom: 0.02em;
+  }
+  .t-mark {
+    position: absolute;
+    left: 0;
+    bottom: -2px;
+    width: 18px;
+    height: 3px;
+    background: var(--lime);
+  }
+  .strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+  .strip > div {
+    padding: clamp(28px, 3.6vw, 48px) var(--gut);
+    min-width: 0;
+  }
+  .strip > div + div {
+    border-left: 1px solid var(--pline);
+    padding-left: clamp(24px, 2.6vw, 40px);
+  }
+  .strip h1 {
+    font: 300 clamp(30px, 3vw, 46px) / 1.08 var(--f);
+    letter-spacing: -0.02em;
+  }
+  .strip h1 b {
+    display: block;
+    font-weight: 600;
+  }
+  .strip .sub {
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--on-paper-2);
+    max-width: 34ch;
+  }
+  .strip .wl-row {
+    flex-direction: column;
+  }
+  .strip .wl-row .lpill {
+    width: 100%;
+  }
+  @media (max-width: 1080px) {
+    .strip {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .strip > div:nth-child(3) {
+      grid-column: 1 / -1;
+      border-left: 0;
+      border-top: 1px solid var(--pline);
+      padding-left: var(--gut);
+    }
+  }
+  @media (max-width: 680px) {
+    .strip {
+      grid-template-columns: 1fr;
+    }
+    .strip > div + div {
+      border-left: 0;
+      border-top: 1px solid var(--pline);
+      padding-left: var(--gut);
+    }
+    .art {
+      height: clamp(280px, 42vh, 380px);
+    }
+  }
+
+  /* Perks: black, three short statements beside the requirements plate */
+  .perks {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: clamp(32px, 5vw, 88px);
+    padding: clamp(64px, 8vw, 120px) var(--gut);
+  }
+  .perks h2,
+  .req h2 {
+    font: 300 clamp(30px, 3.2vw, 46px) / 1.08 var(--f);
+    letter-spacing: -0.02em;
+    max-width: 18ch;
+    margin-bottom: clamp(24px, 3vw, 40px);
+  }
+  .perk-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line-2);
+  }
+  .perk-list li {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+    gap: 20px;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .perk-list h3 {
+    font: 400 15px/1.3 var(--wide);
+    text-transform: uppercase;
+    position: relative;
+    padding-top: 12px;
+  }
+  .perk-list h3::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 18px;
+    height: 3px;
+    background: var(--lime);
+  }
+  .perk-list p {
+    color: var(--ink-2);
+    font-size: 17px;
+    max-width: 44ch;
+  }
+  .req {
+    align-self: start;
+    background: var(--paper);
+    color: var(--on-paper);
+    padding: clamp(24px, 3vw, 40px);
+  }
+  .osinfo {
+    background: var(--paper);
+    color: var(--on-paper);
+    padding: clamp(56px, 7vw, 104px) var(--gut) clamp(56px, 7vw, 96px);
+  }
+  .osinfo h2 {
+    font: 300 clamp(32px, 3.6vw, 52px) / 1.06 var(--f);
+    letter-spacing: -0.02em;
+    max-width: 20ch;
+  }
+  .os-lead {
+    margin-top: 16px;
+    font-size: 18px;
+    color: var(--on-paper-2);
+    max-width: 52ch;
+  }
+  .os-grid {
+    list-style: none;
+    margin: clamp(32px, 4vw, 48px) 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid rgb(19 19 19 / 0.16);
+  }
+  .os-grid li {
+    padding: 22px 24px 26px 0;
+    border-bottom: 1px solid rgb(19 19 19 / 0.16);
+    min-width: 0;
+  }
+  .os-grid li + li {
+    padding-left: 0;
+  }
+  .os-grid h3 {
+    font: 500 19px/1.25 var(--f);
+    margin-bottom: 8px;
+  }
+  .os-grid p {
+    font-size: 15.5px;
+    line-height: 1.55;
+    color: var(--on-paper-2);
+    max-width: 40ch;
+  }
+  @media (max-width: 960px) {
+    .os-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 600px) {
+    .os-grid { grid-template-columns: 1fr; }
+  }
+  .req-check {
+    margin-top: 18px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--on-paper-2);
+  }
+  .req dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(110px, 0.4fr) minmax(0, 1fr);
+    border-top: 1px solid var(--on-paper);
+  }
+  .req dt,
+  .req dd {
+    margin: 0;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--pline);
+  }
+  .req dt {
+    font: 400 11.5px/1.6 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--on-paper-2);
+  }
+  .req dd {
+    font-size: 16px;
+  }
+  @media (max-width: 900px) {
+    .perks {
+      grid-template-columns: 1fr;
+    }
+    .perk-list li {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+  }
+  .steps {
+    background: var(--paper);
+  }
+  .close .wl {
+    max-width: 440px;
+  }
+  .close .wl-row {
+    flex-direction: column;
+  }
+  .close .wl-row .lpill {
+    width: 100%;
+    max-width: 420px;
+  }
+  .pfoot .host-link a {
+    color: var(--ink);
+  }
+</style>
+<meta property="og:type" content="website">
+<meta property="og:title" content="Gaming-PC teilen statt verkaufen: Werde Founding Host">
+<meta property="og:description" content="Dein Gaming-PC steht oft rum? Teil ihn abends mit Mac-Spielern, statt ihn zu verkaufen. {{brand}} OS läuft per Dual Boot neben Windows. In der Beta unbezahlt.">
+<meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:locale" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="{{site}}/host/">
+<link rel="alternate" hreflang="de" href="{{site}}/host/">
+<link rel="alternate" hreflang="en" href="{{site}}/en/host/">
+<link rel="alternate" hreflang="x-default" href="{{site}}/host/">
+<meta property="og:url" content="{{site}}/host/">
+<meta name="form-endpoint" content="/api/signups">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<script>window.SITE_T = {"form.fail": "Das hat nicht geklappt. Versuch es gleich noch einmal.", "copy.done": "Kopiert"};</script>
+</head>
+<body id="top">
+<header class="nav" data-nav>
+  <a class="wordmark" href="#top" aria-label="{{brand}}, zum Seitenanfang" data-t-aria-label="nav.home">{{wordmark}}</a>
+  <nav class="nav-links" aria-label="Abschnitte" data-t-aria-label="nav.aria">
+    <a href="#so-gehts" data-t="nav.how">So geht's</a>
+    <a href="#fragen" data-t="nav.faq">Fragen</a>
+  </nav>
+  <div class="lang" role="group" aria-label="Sprache" data-t-aria-label="lang.aria">
+    <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
+    <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+  </div>
+  <a class="lpill lpill-sm solid nav-cta" href="#bewerben"><span class="long" data-t="cta.apply">Als Founding Host bewerben</span><span class="short" data-t="cta.applyShort">Bewerben</span></a>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="h1">
+    <div class="art" data-nav-sentinel data-fit-box>
+      <img src="/assets/img/wide-1422450.jpg" alt="Key Art von Deadlock" data-t-alt="hero.alt" fetchpriority="high">
+      <div class="drafted" aria-hidden="true">
+        <div class="t-wrap"><span class="t-dim"></span><span class="rules"></span><span class="title" data-fit="0.6">Founding Host</span><span class="t-mark"></span></div>
+      </div>
+    </div>
+    <div class="strip on-grey">
+      <div><h1 id="h1" data-t="hero.h1">Teil deinen Gaming-PC, <b>wenn du nicht zockst.</b></h1></div>
+      <div><p class="sub" data-t="hero.sub">Zum Start teilst du ihn nur mit Freunden: Du bekommst Plätze an deiner Rig, die du verschenken kannst. Geld gibt es in der Beta nicht.</p></div>
+      <div id="bewerben-hero"><form class="wl" data-host novalidate>
+  <div class="wl-state">
+    <label class="wl-label" for="hf-email-hero" data-t="hf.label">E-Mail-Adresse</label>
+    <div class="wl-row">
+      <input id="hf-email-hero" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="du@beispiel.de" data-t-placeholder="wl.ph" aria-describedby="hf-help-hero" aria-errormessage="hf-err-hero">
+      <button class="lpill solid" type="submit"><span data-t="cta.apply">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
+    </div>
+    <p class="wl-err" id="hf-err-hero" role="alert" hidden data-t="wl.err">Das sieht nicht nach einer E-Mail-Adresse aus.</p>
+    <p class="wl-help" id="hf-help-hero" data-t="hf.help">Wir melden uns für einen kurzen Videocall. Erst danach installierst du etwas.</p>
+  </div>
+  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
+    <p class="wl-done-h" data-t="hf.done.h">Danke für deine Bewerbung.</p>
+    <p data-t="hf.done.p">Bestätige kurz die Mail an <b>{email}</b>. Danach schlagen wir dir einen Termin für den Videocall vor.</p>
+  </div>
+</form></div>
+    </div>
+  </section>
+
+  <section class="steps" id="so-gehts" aria-labelledby="steps-h">
+    <h2 id="steps-h" class="rv" data-t="steps.h">So wirst du Founding Host</h2>
+    <ol class="step-row">
+      <li class="rv"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16v11H4zM4 7l8 6 8-6"/></svg></span><h3 data-t="s1.h">Bewerben</h3><p data-t="s1.p">Trag dich ein. Wir lernen uns in einem kurzen Videocall kennen.</p></li>
+      <li class="rv" style="--i:1"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v10M7.5 10.5 12 15l4.5-4.5M6 19h12"/></svg></span><h3 data-t="s2.h">{{brand}} OS installieren</h3><p data-t="s2.p">{{brand}} OS braucht 24 GB neben deinem Windows. Dein Windows und deine Dateien bleiben, wie sie sind.</p></li>
+      <li class="rv" style="--i:2"><span class="step-n" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 7.5V12l3 2"/></svg></span><h3 data-t="s3.h">Freunde einladen</h3><p data-t="s3.p">Du bekommst Plätze für zwei bis vier Freunde. Sie spielen auf deinem PC, wenn du ihn nicht brauchst. Andere kommen erst dazu, wenn du willst.</p></li>
+    </ol>
+  </section>
+
+  <section class="osinfo" id="os" aria-labelledby="os-h">
+    <h2 id="os-h" class="rv" data-t="os.h">{{brand}} OS: Dual Boot neben deinem Windows</h2>
+    <p class="os-lead rv" data-t="os.lead">Gäste spielen nie in deinem Windows, sondern in einem eigenen System, das nur dafür gebaut ist. <a href="/lanterel-os/" data-t="os.more">Alles im Detail</a></p>
+    <ul class="os-grid">
+      <li class="rv" style="--i:0"><h3 data-t="os1.h">Sicher starten</h3><p data-t="os1.p">{{brand}} OS basiert auf Ubuntu LTS und startet nur signiert. Secure Boot prüft den Start, das System selbst ist schreibgeschützt und wird bei jedem Start überprüft. Über den TPM-Chip kann dein PC nachweisen, dass genau dieses System läuft. Dafür brauchen wir Secure Boot und TPM 2.0.</p></li>
+      <li class="rv" style="--i:1"><h3 data-t="os2.h">Raus aus deinem Heimnetz</h3><p data-t="os2.p">Gäste kommen ins Internet, aber nicht in dein Heimnetz: Geräte in deinem Netzwerk und die Oberfläche deines Routers sind gesperrt. Spiel und Stream laufen über deinen Anschluss, so wie wenn du selbst online spielst.</p></li>
+      <li class="rv" style="--i:2"><h3 data-t="os3.h">Deine Laufwerke</h3><p data-t="os3.p">{{brand}} OS schreibt nie auf deine Windows-Laufwerke. Dein Steam-Laufwerk wird nur gelesen, damit Gäste deine installierten Spiele nutzen können, ohne sie neu zu laden. Andere Laufwerke bindet es gar nicht ein, USB-Sticks sind gesperrt.</p></li>
+      <li class="rv" style="--i:0"><h3 data-t="os4.h">Nach jedem Gast frisch</h3><p data-t="os4.p">Nach jeder Sitzung startet der PC neu und löscht alles, was der Gast hinterlassen hat, auch seinen Steam-Login.</p></li>
+      <li class="rv" style="--i:1"><h3 data-t="os5.h">Platz und BitLocker</h3><p data-t="os5.p">{{brand}} OS braucht feste 24 GB. Dein Steam-Laufwerk darf nicht mit BitLocker verschlüsselt sein, sonst kann {{brand}} OS es nicht lesen. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel: Windows fragt manchmal danach, wenn du Secure Boot einschaltest.</p></li>
+      <li class="rv" style="--i:2"><h3 data-t="os6.h">Wieder entfernen</h3><p data-t="os6.p">Eine Deinstallation, die {{brand}} OS samt Boot-Eintrag vollständig entfernt, kommt vor dem Start der Beta.</p></li>
+    </ul>
+  </section>
+
+  <section class="perks" aria-labelledby="perks-h">
+    <div>
+      <h2 id="perks-h" class="rv" data-t="perks.h">Was du als Founding Host bekommst</h2>
+      <ul class="perk-list">
+        <li class="rv"><h3 data-t="p1.h">Plätze für deine Freunde</h3><p data-t="p1.p">Über deinen Link spielen deine Freunde auf deiner Rig. Ihr Platz ist reserviert, auch wenn die Beta voll ist.</p></li>
+        <li class="rv" style="--i:1"><h3 data-t="p2.h">Deine Rig, öffentlich</h3><p data-t="p2.p">Founding-Host-Abzeichen und eine eigene Rig-Seite: deine Specs, gehostete Stunden und wie vielen Spielern du geholfen hast. Mit Pseudonym, ohne Adresse.</p></li>
+        <li class="rv" style="--i:2"><h3 data-t="p3.h">Dein PC hat wieder was zu tun</h3><p data-t="p3.p">Statt rumzustehen, lässt er jemanden ohne Gaming-PC die eigene Steam-Bibliothek spielen. Und du redest von Anfang an mit, wohin sich {{brand}} entwickelt.</p></li>
+      </ul>
+    </div>
+    <div class="req rv" style="--i:1">
+      <h2 data-t="req.h">Was dein PC mitbringen sollte</h2>
+      <dl>
+        <dt data-t="req.gpu">Grafik</dt><dd data-t="req.gpuv">AMD Radeon RX 6800 oder besser. NVIDIA-Karten folgen mit einem späteren Update.</dd>
+        <dt data-t="req.sec">Sicherheit</dt><dd data-t="req.secv">TPM 2.0 und Secure Boot</dd>
+        <dt data-t="req.net">Internet</dt><dd data-t="req.netv">mindestens 25 Mbit/s Upload</dd>
+        <dt data-t="req.time">Zeit</dt><dd data-t="req.timev">ein paar Abende im Monat, wann es dir passt</dd>
+      </dl>
+      <p class="req-check" data-t="req.check">Secure Boot aus oder unsicher, ob dein PC passt? Unser Check zeigt es dir in einer Minute, mit einer Anleitung zum Secure-Boot-Aktivieren für MSI, ASUS, Gigabyte und ASRock.</p>
+    </div>
+  </section>
+
+  <section class="faqsec" id="fragen" aria-labelledby="faq-h">
+    <h2 id="faq-h" class="rv" data-t="faq.h">Hosting bei {{brand}}: Fragen und Antworten</h2>
+    <div class="faq rv">
+      <details><summary><span data-t="q1">Kann ich mit meinem Gaming-PC Geld verdienen?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a1">Nein. In der Beta hostest du unbezahlt, und auch die Spieler zahlen nichts. Dafür bekommst du das Founding-Host-Abzeichen, eine eigene Rig-Seite und reservierte Plätze für deine Freunde.</p></details>
+      <details><summary><span data-t="q2">Kommen Gäste an meine Dateien?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a2">Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu. <a href="#os">So funktioniert {{brand}} OS</a></p></details>
+      <details><summary><span data-t="q3">Was passiert mit meinem Windows?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a3">Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows.</p></details>
+      <details><summary><span data-t="q4">Wer spielt auf meinem PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.</p></details>
+      <details><summary><span data-t="q5">Wie viel Strom kostet das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">So viel wie ein Abend, an dem du selbst zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testabende à drei Stunden kosten dich also rund einen Euro im Monat.</p></details>
+      <details><summary><span data-t="q6">Kann ich meinen PC jederzeit zurückholen?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist.</p></details>
+    <details><summary><span data-t="q7">Ich habe nur Linux auf dem PC. Geht das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.</p></details>
+      <details><summary><span data-t="q8">Ist das wie Steam Remote Play?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a8">Ähnlich. Bei Remote Play streamst du deinen PC auf dein eigenes Handy oder deinen Laptop. Bei {{brand}} streamt dein PC zu einem Mac-Spieler, der mit seinem eigenen Steam-Konto seine eigenen Spiele spielt, und zwar in {{brand}} OS, nicht in deinem Windows.</p></details>
+      <details><summary><span data-t="q9">Ist {{brand}} OS ein Dual Boot?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a9">Ja. {{brand}} OS bekommt eigene 24 GB neben Windows. Zum Teilen startet dein PC in {{brand}} OS, danach wieder in Windows.</p></details>
+      <details><summary><span data-t="q10">Wie aktiviere ich Secure Boot?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a10">Im BIOS deines Mainboards, meist unter „Boot“ oder „Security“. Notier dir vorher deinen BitLocker-Wiederherstellungsschlüssel. Unser Check zeigt dir, ob Secure Boot schon an ist, und führt dich Schritt für Schritt durch, mit Anleitungen für MSI, ASUS, Gigabyte und ASRock.</p></details>
+    </div>
+  </section>
+
+  <section class="close" id="bewerben" aria-labelledby="close-h">
+    <div><h2 id="close-h" class="rv" data-t="close.h">Lust, <b>Founding Host zu werden?</b></h2></div>
+    <div><form class="wl" data-host novalidate>
+  <div class="wl-state">
+    <label class="wl-label" for="hf-email-close" data-t="hf.label">E-Mail-Adresse</label>
+    <div class="wl-row">
+      <input id="hf-email-close" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" placeholder="du@beispiel.de" data-t-placeholder="wl.ph" aria-describedby="hf-help-close" aria-errormessage="hf-err-close">
+      <button class="lpill solid" type="submit"><span data-t="cta.apply">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></button>
+    </div>
+    <p class="wl-err" id="hf-err-close" role="alert" hidden data-t="wl.err">Das sieht nicht nach einer E-Mail-Adresse aus.</p>
+    <p class="wl-help" id="hf-help-close" data-t="hf.help">Wir melden uns für einen kurzen Videocall. Erst danach installierst du etwas.</p>
+  </div>
+  <div class="wl-done" hidden tabindex="-1" aria-live="polite">
+    <p class="wl-done-h" data-t="hf.done.h">Danke für deine Bewerbung.</p>
+    <p data-t="hf.done.p">Bestätige kurz die Mail an <b>{email}</b>. Danach schlagen wir dir einen Termin für den Videocall vor.</p>
+  </div>
+</form></div>
+  </section>
+</main>
+
+<footer class="foot pfoot">
+  <span class="wordmark">{{wordmark}}</span>
+  <div>
+    <p class="host-link"><span data-t="foot.player">Du willst lieber auf dem Mac zocken?</span> <a href="/" data-t="foot.playerLink">Zur Beta für Spieler</a></p>
+    <p class="foot-legal" data-t="foot.legal">{{brand}} ist ein unabhängiges Projekt aus Deutschland und nicht mit Valve, NVIDIA, AMD oder Microsoft verbunden. Steam ist eine Marke der Valve Corporation.</p>
+  </div>
+  <nav aria-label="Rechtliches" data-t-aria-label="foot.aria"><a href="/impressum/" data-t="foot.imprint">Impressum</a><a href="/datenschutz/" data-t="foot.privacy">Datenschutz</a></nav>
+</footer>
+
+<script src="/assets/js/site.js"></script>
+<script src="/assets/js/player.js"></script>
+</body>
+</html>

@@ -344,6 +344,45 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // One seat per friend per PC.
     `CREATE UNIQUE INDEX seats_taken ON seats (machine_id, user_id) WHERE revoked_at IS NULL AND user_id IS NOT NULL`,
   ],
+  [
+    // Sign-ups from the marketing site (signups.ts): the waitlist (player) and
+    // Founding Host applications (host), one per address and kind. The confirm
+    // token is kept here only as its SHA-256 hash (hex), though the outbox
+    // mails carry the confirm link itself until sent; the unsubscribe token,
+    // which can do nothing but unsubscribe, as it is, since every mail carries
+    // the same one. referral is the sign-up's own crew link code, shown once it
+    // is confirmed. The invite it came with, if any, is invite_type and invite_code
+    // (never a crew invite's: it may be the app's crew join token).
+    `CREATE TABLE marketing_signups (
+      id               TEXT PRIMARY KEY,
+      email            TEXT NOT NULL,
+      kind             TEXT NOT NULL CHECK (kind IN ('player', 'host')),
+      lang             TEXT NOT NULL CHECK (lang IN ('de', 'en')),
+      page             TEXT,
+      invite_type      TEXT,
+      invite_code      TEXT,
+      referral         TEXT NOT NULL UNIQUE,
+      confirm_hash     TEXT NOT NULL UNIQUE,
+      unsubscribe      TEXT NOT NULL UNIQUE,
+      created_at       BIGINT NOT NULL,
+      confirm_sent_at  BIGINT NOT NULL,
+      confirmed_at     BIGINT,
+      unsubscribed_at  BIGINT,
+      UNIQUE (email, kind)
+    )`,
+    // The mails the marketing site has to send, rendered, until a mail
+    // transport sends them (sent_at). None does yet.
+    `CREATE TABLE marketing_outbox (
+      id         TEXT PRIMARY KEY,
+      to_address TEXT NOT NULL,
+      template   TEXT NOT NULL,
+      subject    TEXT NOT NULL,
+      html       TEXT NOT NULL,
+      text       TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      sent_at    BIGINT
+    )`,
+  ],
 ];
 
 /**

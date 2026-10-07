@@ -59,6 +59,33 @@ their own games there. See [Friend seats](docs/system-design/renter.md#friend-se
 
 Code: `web/`, `server/`, `packages/`.
 
+## Marketing site
+
+The public launch pages, under the product's new name Lanterel (`server/src/brand.ts`, the one place
+it is set), live in `web/marketing/`, imported from marketing's built set with
+`node server/scripts/import-launch-pages.mjs <built set>`; the server reads them when it starts, so
+an import takes effect on its next start (every deploy). The same server serves them, off unless
+`MARKETING_PAGES=on`, and then only on the host `SITE_ORIGIN` names, so the app keeps its own `/`,
+`/share` and `/host`. The invite pages (`/crew/<code>`, `/seat/`, `/gift/`, `/night/`) show only
+what the product knows about an invite; the waitlist and Founding Host forms post to
+`POST /api/signups`, with double opt-in: the confirm and unsubscribe links in the mails open a page
+whose button does it, so a mail scanner opening a link changes nothing. See
+`server/src/marketing.ts` and `server/src/signups.ts`.
+
+Settings (server environment):
+
+- `MARKETING_PAGES=on` turns the pages and the sign-ups on. Leave it off until the bracketed
+  placeholders in the Impressum and legal notice (the founder's name, address and contact, e.g.
+  `[VOR- UND NACHNAME]`) are filled in.
+- `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages and sign-ups are served only to
+  requests for its host, and it is the origin in the pages' canonical, Open Graph and mail links.
+  Without it the pages stay off even with `MARKETING_PAGES=on`.
+- `PUBLIC_ORIGIN`, the app's own origin (Steam sign-in needs it too): every link on the pages into the
+  app, such as "Prüf deine Bibliothek", goes there. Without it the pages stay off as well.
+
+The server has no mail sender yet: every sign-up mail is rendered into the `marketing_outbox`
+table and stays there until one exists.
+
 ## Host side (gaming PC app)
 
 ```bash

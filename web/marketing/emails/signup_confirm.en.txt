@@ -1,0 +1,13 @@
+Subject: Please confirm your email
+
+One more click
+
+Thanks for signing up for {{brand}}. Confirm your email address and you're on the list.
+
+It's faster if you know someone with a gaming PC: once you confirm, you'll get your own link to send them.
+
+Confirm email: {confirm_url}
+
+--
+You're getting this email because someone signed up for {{brand}} with this address. If that wasn't you, just ignore it.
+{{brand}} · [FIRST AND LAST NAME] · [ADDRESS] · Unsubscribe: {unsubscribe_url}

@@ -1,0 +1,49 @@
+/* Invite landings and the {{brand}} OS trust page: same Wall tokens; one big promise, one card, one button. */
+.inv-hero { position: relative; min-height: 46vh; display: grid; align-items: end; overflow: hidden; background: #0d0d0d; }
+.inv-hero > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: var(--pos, 50% 35%); }
+.inv-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(to bottom, rgb(10 10 10 / 0.72), transparent 30%), linear-gradient(to top, rgb(10 10 10 / 0.9), rgb(10 10 10 / 0.25) 60%, transparent 80%); }
+.inv-hero-in { position: relative; z-index: 2; padding: calc(var(--nav) + 32px) var(--gut) clamp(24px, 4vh, 44px); }
+.inv-kicker { font: 400 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: rgb(239 239 237 / 0.78); }
+.inv-kicker b { color: var(--lime); font-weight: 400; }
+.inv-hero h1 { margin-top: 14px; font: 300 clamp(34px, 5vw, 76px) / 1.04 var(--f); letter-spacing: -0.02em; color: #f4f4f2; max-width: 18ch; }
+.inv-hero h1 b { font-weight: 600; }
+.inv-strip { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); background: var(--grey); color: var(--on-paper); }
+.inv-strip > div { padding: clamp(24px, 3vw, 44px) var(--gut); min-width: 0; }
+.inv-strip > div + div { border-left: 1px solid rgb(19 19 19 / 0.16); padding-left: clamp(24px, 2.6vw, 40px); }
+.inv-strip .lead { font-size: 19px; line-height: 1.55; color: var(--on-paper); max-width: 46ch; }
+.inv-strip .lead + .lead { margin-top: 12px; color: var(--on-paper-2); font-size: 17px; }
+.seat { background: var(--paper); border: 1px solid rgb(19 19 19 / 0.14); padding: 20px 22px; }
+.seat-h { font: 400 11.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--on-paper-2); }
+.seat-name { margin-top: 8px; font: 500 22px/1.25 var(--f); }
+.seat dl { margin: 14px 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 16px; }
+.seat dt, .seat dd { margin: 0; padding: 8px 0; border-top: 1px solid rgb(19 19 19 / 0.12); font-size: 15px; }
+.seat dt { font: 400 11px/2 var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--on-paper-2); }
+.btn-row { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.btn-row .lpill { width: 100%; }
+.btn-ghost { display: inline-block; font: 500 15px/1.3 var(--f); color: var(--on-paper-2); text-decoration: underline; text-underline-offset: 4px; }
+.small { font-size: 14px; line-height: 1.5; color: var(--on-paper-2); }
+.who { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.who span { border: 1px solid rgb(19 19 19 / 0.25); border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+.who span.open { border-style: dashed; color: var(--on-paper-2); }
+.step3 { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.step3 li { padding: 22px 24px 26px 0; min-width: 0; }
+.step3 li + li { border-left: 1px solid var(--line); padding-left: 24px; }
+.step3 h3 { font: 500 19px/1.3 var(--f); margin-bottom: 8px; }
+.step3 p { font-size: 15.5px; line-height: 1.55; color: var(--ink-2); max-width: 36ch; }
+.sec-pad { padding: clamp(48px, 6vw, 88px) var(--gut); }
+.sec-pad h2 { font: 300 clamp(28px, 3vw, 44px) / 1.08 var(--f); letter-spacing: -0.02em; margin-bottom: 24px; max-width: 24ch; }
+.sec-pad.paper { background: var(--paper); color: var(--on-paper); --ink: #131313; --ink-2: #3f4040; --line: rgb(19 19 19 / 0.16); }
+.see-cannot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.see-cannot > div { padding: 22px 24px 8px 0; min-width: 0; }
+.see-cannot > div + div { border-left: 1px solid var(--line); padding-left: 24px; }
+.see-cannot h3 { font: 500 19px/1.3 var(--f); margin-bottom: 10px; }
+.see-cannot ul { margin: 0; padding-left: 18px; font-size: 16px; line-height: 1.6; color: var(--ink-2); }
+.tech { margin-top: 18px; font: 400 13px/1.7 var(--mono); color: var(--ink-2); }
+.check { margin-top: 18px; padding: 18px 20px; border: 1px dashed var(--lime); }
+.check code { font: 400 14px/1.5 var(--mono); }
+@media (max-width: 900px) {
+  .inv-strip { grid-template-columns: 1fr; }
+  .inv-strip > div + div { border-left: 0; border-top: 1px solid rgb(19 19 19 / 0.16); padding-left: var(--gut); }
+  .step3, .see-cannot { grid-template-columns: 1fr; }
+  .step3 li + li, .see-cannot > div + div { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; }
+}

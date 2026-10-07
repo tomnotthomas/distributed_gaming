@@ -1,0 +1,15 @@
+Subject: Heute 21 Uhr: Crew-Abend mit Max und Lena
+
+Heute Abend geht's los
+
+Um 21 Uhr startet euer Crew-Abend. Dein Platz an Toms Rig ist reserviert.
+
+So bist du schnell drin: {{brand}} in Chrome öffnen, mit Steam anmelden, Spiel starten und einmal den QR-Code mit der Steam-App scannen. Am besten per LAN-Kabel oder nah am Router.
+
+Hier ist der Discord-Link für heute: {discord}
+
+{{brand}} öffnen: {app_url}
+
+--
+Doch keine Zeit? Sag über den Link ab, dann geht dein Platz an den Nächsten in der Crew.
+{{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}
