@@ -408,13 +408,16 @@ describe("the install plan", () => {
       ).not.toContain("esp-file");
   });
 
-  it.each(PROJECT_CASES)("takes the same projects for LANTEREL.ENV as @swiff/error-tracking's projectOf: $what", ({ key, host, origin }) => {
-    const shared = projectOf({ key, host });
-    expect(shared).toEqual(origin === null ? null : { key, host: origin });
-    expect(errorReportsFile({ key, host })).toBe(
-      shared && `LANTEREL_POSTHOG_KEY=${shared.key}\nLANTEREL_POSTHOG_HOST=${shared.host}\n`,
-    );
-  });
+  it.each(PROJECT_CASES)(
+    "takes the same projects for LANTEREL.ENV as @swiff/error-tracking's projectOf: $what",
+    ({ key, host, origin }) => {
+      const shared = projectOf({ key, host });
+      expect(shared).toEqual(origin === null ? null : { key, host: origin });
+      expect(errorReportsFile({ key, host })).toBe(
+        shared && `LANTEREL_POSTHOG_KEY=${shared.key}\nLANTEREL_POSTHOG_HOST=${shared.host}\n`,
+      );
+    },
+  );
 
   it("goes on in the partitions a stopped install already made: no shrink, no new partitions, the same offsets", () => {
     const first = installPlan(pc());

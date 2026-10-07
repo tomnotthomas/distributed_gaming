@@ -28,7 +28,10 @@ describe("errorTrackingFromEnv", () => {
 
   it("takes the same projects as @swiff/error-tracking's projectOf, on its table of cases", () => {
     const cases = JSON.parse(
-      readFileSync(new URL("../../../packages/error-tracking/src/project-cases.json", import.meta.url), "utf8"),
+      readFileSync(
+        new URL("../../../packages/error-tracking/src/project-cases.json", import.meta.url),
+        "utf8",
+      ),
     ) as { what: string; key: string; host: string; origin: string | null }[];
     for (const { what, key, host, origin } of cases)
       assert.deepEqual(
