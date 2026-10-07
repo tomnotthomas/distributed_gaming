@@ -187,7 +187,7 @@ export function CrewPlay({
                 >
                   {t("pl.leave")}
                 </button>
-              ) : (
+              ) : pc.mine ? null : (
                 <button
                   type="button"
                   className="gc-ghost"
@@ -207,7 +207,7 @@ export function CrewPlay({
             {playing.player ? t("pl.queueFine", { name: playing.player }) : t("pl.queueFineAnon")}
           </p>
         ) : null}
-        {me.next ? (
+        {me.next && !pc.mine ? (
           <>
             <p className="pl-k">{t("pl.pick")}</p>
             {tiles((g) => {

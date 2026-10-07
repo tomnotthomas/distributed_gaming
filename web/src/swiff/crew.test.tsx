@@ -796,7 +796,11 @@ describe("CrewPage: the guided crew page", () => {
 
   it("tells the owner their free PC is for the crew, without a start they cannot make", async () => {
     const [max] = readyCrew().machines;
-    const crew = readyCrew({ session: dated, shared: true, machines: [{ ...max!, owner: "Lena", mine: true }] });
+    const crew = readyCrew({
+      session: dated,
+      shared: true,
+      machines: [{ ...max!, owner: "Lena", mine: true }],
+    });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
     const swiff = atCrew("c1", library);
     render(<CrewPage swiff={swiff} />);
@@ -805,6 +809,33 @@ describe("CrewPage: the guided crew page", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Your PC is free; your crew can start on it.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Start / })).toBeNull();
+  });
+
+  it("lets the owner watch their own PC but not get in line for it", async () => {
+    const playing = {
+      sessionId: "s1",
+      player: "Max",
+      you: false,
+      gameId: ER.appid,
+      startedAt: 1,
+      starting: false,
+    };
+    const [max] = readyCrew().machines;
+    const own = { ...max!, owner: "Lena", mine: true, state: "busy" as const, playing };
+    const entry = { sessionId: "s1", starting: false, player: "Max", gameId: ER.appid, watching: 0 };
+    let crew = readyCrew({ session: dated, shared: true, machines: [own] });
+    fetchFrom({ "GET /api/crews/c1": () => [200, { crew }] });
+    const swiff = atCrew("c1", { ...library, crewLive: [entry] });
+    const { rerender } = render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByRole("heading", { name: `Max is playing ${ER.title}` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Watch/ }));
+    expect(swiff.watch).toHaveBeenCalledWith(entry);
+    expect(screen.queryByRole("button", { name: /I want to go next/ })).toBeNull();
+
+    crew = { ...crew, members: [{ ...LENA, next: { gameId: CS.appid, at: 5 } }, MAX] };
+    rerender(<CrewPage swiff={{ ...swiff, crewChanges: 1 }} />);
+    expect(await screen.findByRole("button", { name: "Leave the line" })).toBeInTheDocument();
+    expect(screen.queryByText("What do you want to play?")).toBeNull();
   });
 
   it("offers the owner another free PC before their own", async () => {
