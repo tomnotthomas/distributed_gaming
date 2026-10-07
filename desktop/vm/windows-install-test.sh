@@ -57,7 +57,7 @@
 # `electron` package as Windows' npm installs it): the console and its worker
 # run on Electron's own Node, as in Swiff Host, whose Node differs from a
 # console's (it took \\.\PhysicalDrive0 for a share root).
-# The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB), 4 vCPUs ($SWIFF_WIN_VM_CPUS) and up to
+# The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB), 2 vCPUs ($SWIFF_WIN_VM_CPUS) and up to
 # ~60 GB of disk under $SWIFF_WIN_VM_DIR. Every test starts from the prepared base through a
 # copy-on-write overlay. QEMU starts through swiff-os/vm/vm-run.py: it waits for room among this
 # PC's test VMs, and runs with its memory never swapped (a guest the host swaps out stalls until
@@ -128,7 +128,7 @@ vm_start() { # disk vars tpm-dir [qemu args...]
 	for _ in $(seq 50); do [ -S "$run/tpm.sock" ] && break; sleep 0.1; done
 	"$here/../../swiff-os/vm/vm-run.py" --name windows -- "${qemu[@]}" -name swiff-win \
 		-machine q35,smm=on,accel=kvm -cpu host,-svm,-vmx,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time \
-		-smp "${SWIFF_WIN_VM_CPUS:-4}" -m "$mem" \
+		-smp "${SWIFF_WIN_VM_CPUS:-2}" -m "$mem" \
 		-global driver=cfi.pflash01,property=secure,value=on -global ICH9-LPC.disable_s3=1 \
 		-drive if=pflash,format=raw,unit=0,readonly=on,file="$ovmf_code" \
 		-drive if=pflash,format=raw,unit=1,file="$vars" \
