@@ -197,6 +197,8 @@ describe("crew live sessions", () => {
   let crewLeft = 0;
   /** Whether a TURN relay is configured: watching is relay-only. */
   let relay = true;
+  /** How many watches were on while each viewer credential was minted, and for which seat. */
+  let mints: { seat: string; watches: number }[] = [];
   let availabilityChanged = 0;
   const owners = parseMachineOwners(MACHINE_KEYS);
   const access: Access = {
@@ -218,10 +220,12 @@ describe("crew live sessions", () => {
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
         watches,
-        watchRelay: async (seat) =>
-          relay
+        watchRelay: async (seat) => {
+          mints.push({ seat: seat.id, watches: watches.all().length });
+          return relay
             ? [{ urls: "turn:turn.test:3478", username: `${seat.id}-${seat.side}`, credential: "c" }]
-            : [],
+            : [];
+        },
         onCrewLeft: () => crewLeft++,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -237,6 +241,7 @@ describe("crew live sessions", () => {
     now = Date.now();
     crewLeft = 0;
     relay = true;
+    mints = [];
     watches = new Watches({ now: () => now });
     availabilityChanged = 0;
     platform = await Platform.open({
@@ -490,7 +495,23 @@ describe("crew live sessions", () => {
     const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, LEA);
     assert.equal(asked.status, 503);
     assert.equal(asked.body.code, "no-relay");
+    // Minted before any watch was made, so the player never had one to hear of.
+    assert.equal(mints.length, 1);
+    assert.equal(mints[0]!.watches, 0);
     assert.deepEqual(watches.all(), []);
+    assert.deepEqual(watches.list(sessionId), []);
+
+    // With the relay back, the credential is minted for the very watch made after it, once.
+    relay = true;
+    const again = await call("POST", `/api/crew-live/${sessionId}/watch`, LEA);
+    assert.equal(again.status, 200);
+    assert.equal(mints[1]!.seat, again.body.watchId);
+    assert.equal(watches.get(again.body.watchId)?.relay[0]?.username, `${again.body.watchId}-viewer`);
+    assert.equal(
+      (await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).body.watchId,
+      again.body.watchId,
+    );
+    assert.equal(mints.length, 2);
   });
 
   it("says when the session is full, and when a viewer turned down must wait", async () => {

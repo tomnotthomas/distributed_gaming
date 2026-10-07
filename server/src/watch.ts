@@ -52,16 +52,20 @@ export type Watch = {
   exp: number;
   /**
    * The viewer's own TURN credential, minted for this watch when they asked
-   * (api.ts) and good until its ticket expires: what their relay-only
-   * connection uses once they are let in. Empty until minted.
+   * (api.ts) before the watch was made, and good until its ticket expires:
+   * what their relay-only connection uses once they are let in.
    */
   relay: RTCIceServer[];
 };
 
-export type AskResult =
-  | { ok: true; watch: Watch }
-  | { ok: false; reason: "full" }
-  | { ok: false; reason: "cooldown"; retryAfterMs: number };
+/** Why `viewerId` may not ask a session now: it is full, or they wait out a cooldown. */
+export type AskRefusal =
+  { ok: false; reason: "full" } | { ok: false; reason: "cooldown"; retryAfterMs: number };
+
+export type AskResult = { ok: true; watch: Watch } | AskRefusal;
+
+/** A fresh watch id, for minting the watch's credential before it is made. */
+export const newWatchId = () => randomBytes(12).toString("base64url");
 
 export type WatchesOptions = {
   now?: () => number;
@@ -112,18 +116,17 @@ export class Watches {
       exp,
     }: { sessionId: string; room: string; playerName: string | null; exp: number },
     viewer: { id: string; name: string | null },
+    made: { id: string; relay: RTCIceServer[] } = { id: newWatchId(), relay: [] },
   ): AskResult {
     const viewerId = viewer.id;
     const now = this.#now();
+    const known = this.mine(sessionId, viewerId);
+    if (known) return { ok: true, watch: known };
+    const refused = this.refusal(sessionId, viewerId);
+    if (refused) return refused;
     const session = this.#session(sessionId);
-    for (const watch of session.watches.values()) {
-      if (watch.viewerId === viewerId) return { ok: true, watch };
-    }
-    const until = this.#cooldown.get(`${sessionId}:${viewerId}`) ?? 0;
-    if (until > now) return { ok: false, reason: "cooldown", retryAfterMs: until - now };
-    if (session.watches.size >= this.#max) return { ok: false, reason: "full" };
     const watch: Watch = {
-      id: randomBytes(12).toString("base64url"),
+      id: made.id,
       sessionId,
       room,
       viewerId,
@@ -134,11 +137,25 @@ export class Watches {
       // Not here until the viewer's page takes its seat with the ticket.
       awaySince: now,
       exp,
-      relay: [],
+      relay: made.relay,
     };
     session.watches.set(watch.id, watch);
     this.#byId.set(watch.id, watch);
     return { ok: true, watch };
+  }
+
+  /** `viewerId`'s watch on `sessionId` while it is on, else null. */
+  mine(sessionId: string, viewerId: string): Watch | null {
+    return this.list(sessionId).find((watch) => watch.viewerId === viewerId) ?? null;
+  }
+
+  /** Why `viewerId` may not ask `sessionId` now, else null. */
+  refusal(sessionId: string, viewerId: string): AskRefusal | null {
+    const now = this.#now();
+    const until = this.#cooldown.get(`${sessionId}:${viewerId}`) ?? 0;
+    if (until > now) return { ok: false, reason: "cooldown", retryAfterMs: until - now };
+    if (this.list(sessionId).length >= this.#max) return { ok: false, reason: "full" };
+    return null;
   }
 
   /** The watch with this id while it is on; null once it is over, or never was. */

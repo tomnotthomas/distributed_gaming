@@ -127,7 +127,7 @@ import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
-import type { Watches } from "./watch.js";
+import { newWatchId, type AskRefusal, type Watches } from "./watch.js";
 import type { RelaySeat } from "./ice.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
@@ -864,39 +864,45 @@ export function createApi({
       const read = await profile(steamId).catch(() => null);
       // Rounded up: a ticket must not lapse before the session it is for.
       const exp = Math.ceil(live.expiresAt / 1000);
-      const asked = watches.ask(
-        { sessionId: live.sessionId, room: live.room, playerName: live.playerName, exp },
-        { id: steamId, name: read?.persona || null },
-      );
-      if (!asked.ok && asked.reason === "full") {
-        reply(res, 409, { error: "as many crewmates as can are watching already", code: "full" });
+      const refuse = (no: AskRefusal) => {
+        if (no.reason === "full") {
+          reply(res, 409, { error: "as many crewmates as can are watching already", code: "full" });
+        } else {
+          const seconds = Math.ceil(no.retryAfterMs / 1000);
+          reply(
+            res,
+            429,
+            { error: "ask again in a moment", code: "cooldown" },
+            { "retry-after": String(seconds) },
+          );
+        }
         return true;
-      }
-      if (!asked.ok) {
-        const seconds = Math.ceil(asked.retryAfterMs / 1000);
-        reply(
-          res,
-          429,
-          { error: "ask again in a moment", code: "cooldown" },
-          { "retry-after": String(seconds) },
+      };
+      let watch = watches.mine(live.sessionId, steamId);
+      if (!watch) {
+        const refused = watches.refusal(live.sessionId, steamId);
+        if (refused) return refuse(refused);
+        // Relay-only, so neither side learns the other's address: no relay, no
+        // watching. The viewer's credential is this watch's alone, minted
+        // before the watch is made and good until its ticket expires.
+        const id = newWatchId();
+        const relay = (await watchRelay?.({ id, side: "viewer", expiresAt: exp })) ?? [];
+        if (!relay.length) {
+          reply(res, 503, {
+            error: "watching needs Swiff's relay, which is not set up here",
+            code: "no-relay",
+          });
+          return true;
+        }
+        if (!watches.onScreen(live.sessionId))
+          throw new HttpError(404, "no crewmate of yours is playing that session");
+        const asked = watches.ask(
+          { sessionId: live.sessionId, room: live.room, playerName: live.playerName, exp },
+          { id: steamId, name: read?.persona || null },
+          { id, relay },
         );
-        return true;
-      }
-      const { watch } = asked;
-      // Relay-only, so neither side learns the other's address: no relay, no
-      // watching. The viewer's credential is this watch's alone, minted once
-      // (asked again, the watch keeps it) and good until its ticket expires.
-      if (!watch.relay.length) {
-        const minted = (await watchRelay?.({ id: watch.id, side: "viewer", expiresAt: exp })) ?? [];
-        if (!watch.relay.length) watch.relay = minted;
-      }
-      if (!watch.relay.length) {
-        watches.end(watch.id, "watch-left");
-        reply(res, 503, {
-          error: "watching needs Swiff's relay, which is not set up here",
-          code: "no-relay",
-        });
-        return true;
+        if (!asked.ok) return refuse(asked);
+        watch = asked.watch;
       }
       reply(res, 200, {
         watchId: watch.id,
