@@ -3,7 +3,7 @@
 //
 //   npm run boot-policy -- payload --name <name> --shim <shimx64.efi>
 //     --boot-loader <grubx64.efi> --uki <uki.efi> --mok <secure-boot.cer>
-//     --db-cert <cert> [--db-cert <cert> ...] [--iommu] [--previous <payload.json>]
+//     --db-cert <cert> [--db-cert <cert> ...] [--previous <payload.json>]
 //
 // swiff-os/boot-policy.sh runs it on a release's image set, then has a person
 // sign the payload with the release key. What each field is computed from:
@@ -33,8 +33,8 @@
 //               the host app enrolls it). The SbatLevel shim measures there too
 //               is no authority, and the verifier takes it whatever it holds
 //               (eventlog.ts).
-//   iommu       --iommu only for a release that will not reach `ready` without
-//               DMA remapping on; a release that does not say so is false.
+//   iommu       false: the image does not yet refuse to reach `ready` without
+//               DMA remapping on.
 
 import { createHash } from "node:crypto";
 import type { Release } from "./boot-policy.js";
@@ -299,8 +299,6 @@ export type ReleaseFiles = {
   mok: Buffer;
   /** The db certificates (DER) the firmware may verify shim with. */
   dbCerts: Buffer[];
-  /** The release will not reach `ready` without DMA remapping. */
-  iommu: boolean;
 };
 
 const unique = (values: string[]) => [...new Set(values)];
@@ -340,7 +338,7 @@ export function releaseEntry(files: ReleaseFiles): Release {
       ),
       variableAuthority(SHIM_LOCK_GUID, "MokListRT", signatureData(SHIM_LOCK_GUID, files.mok)),
     ]),
-    iommu: files.iommu,
+    iommu: false,
   };
 }
 

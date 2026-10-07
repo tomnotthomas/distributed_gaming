@@ -349,8 +349,8 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
   checked against the digest its own signature signs; which of them is the UKI; the PCR 7
   authorities, each the SHA-256 of a UEFI_VARIABLE_DATA: Microsoft's UEFI CAs 2011 and 2023 and
   Option ROM CA 2023 in `db` (`swiff-os/secure-boot/`), and the release's Secure Boot
-  certificate in shim's `MokListRT`; and `iommu`, false unless `--iommu` says the release will
-  not reach `ready` without DMA remapping. With `--previous`, an earlier payload's releases
+  certificate in shim's `MokListRT`; and `iommu`, false until the image refuses to reach
+  `ready` without DMA remapping. With `--previous`, an earlier payload's releases
   stay listed. A payload is also signed on its own with
   `npm run boot-policy -- <payload.json> <private-key.pem>` (`$SWIFF_OS_KEY_PASSPHRASE`
   unlocks an encrypted key).

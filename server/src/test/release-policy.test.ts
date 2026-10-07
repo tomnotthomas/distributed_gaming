@@ -264,10 +264,9 @@ describe("a release's payload", () => {
     ukis: [signed(withPcrsig(ukiSections("swiff-os-1")))],
     mok,
     dbCerts: [db],
-    iommu: false,
   };
 
-  it("lists the release's PCRs, boot chain and authorities, and claims no IOMMU unless told", () => {
+  it("lists the release's PCRs, boot chain and authorities, and claims no IOMMU", () => {
     const release = releaseEntry(files);
     const app = (image: Buffer) => authenticodeSha256(image).toString("hex");
     assert.deepEqual(release, {
@@ -287,7 +286,6 @@ describe("a release's payload", () => {
       ],
       iommu: false,
     });
-    assert.equal(releaseEntry({ ...files, iommu: true }).iommu, true);
   });
 
   it("refuses an unsigned binary, one signed over other bytes, and a UKI its .pcrsig does not sign or without one", () => {

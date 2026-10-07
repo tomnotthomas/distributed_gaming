@@ -211,9 +211,9 @@ installed), computes PCR 11, the boot chain's Authenticode digests and the PCR 7
 the set's own files, checks each against what the build signed, shows the payload and asks
 before signing; run it from a terminal, since without one it signs nothing. The server takes `boot-policy.json` as `ATTESTATION_POLICY` and `boot-policy.pub.pem`
 as `ATTESTATION_POLICY_KEY`; keep `boot-policy.payload.json` for the next release's
-`--previous`, so hosts still on this one keep attesting. `--iommu` is for a release that will
-not reach `ready` without DMA remapping; this image does not refuse that yet (`hwcheck` only
-records it), so its entry says `iommu: false`.
+`--previous`, so hosts still on this one keep attesting. A release's entry says `iommu: false`:
+this image does not yet refuse to reach `ready` without DMA remapping (`hwcheck` only records
+it).
 
 To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
 any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>

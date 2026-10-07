@@ -3,7 +3,7 @@
 # server's TPM verifier accepts (server/src/boot-policy.ts). A person runs it on
 # the machine that signs releases (the GEEKOM), after image-set.sh made the set:
 #
-#   swiff-os/boot-policy.sh <set-dir> <out-dir> [--iommu] [--previous <payload.json>]
+#   swiff-os/boot-policy.sh <set-dir> <out-dir> [--previous <payload.json>]
 #
 # It checks the set as a release build would (signed by a release key in
 # desktop/image-trust.json, with its certificate), takes shim, the boot loader
@@ -26,8 +26,7 @@
 #   boot-policy.json          the signed policy: the server's ATTESTATION_POLICY
 #   boot-policy.pub.pem       the key's public half: ATTESTATION_POLICY_KEY
 #
-# and reads the policy back as the server will. --iommu is only for a release
-# that will not reach systemd's `ready` phase without DMA remapping on.
+# and reads the policy back as the server will.
 #
 # It reads the release key only by path, and its passphrase file only into
 # $SWIFF_OS_KEY_PASSPHRASE for the signing step; it never prints, copies or logs
@@ -49,7 +48,7 @@ die() {
 	exit 1
 }
 usage() {
-	echo "usage: boot-policy.sh <set-dir> <out-dir> [--iommu] [--previous <payload.json>]" >&2
+	echo "usage: boot-policy.sh <set-dir> <out-dir> [--previous <payload.json>]" >&2
 	exit 2
 }
 [ $# -ge 2 ] || usage
@@ -58,7 +57,6 @@ shift 2
 extra=()
 while [ $# -gt 0 ]; do
 	case $1 in
-	--iommu) extra+=(--iommu) ;;
 	--previous)
 		[ $# -ge 2 ] || usage
 		[ -f "$2" ] || die "$2 does not exist"

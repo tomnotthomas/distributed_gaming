@@ -12,7 +12,7 @@
 //       minutes. With an origin (the tunnel URL), prints the whole link.
 //
 //   npm run boot-policy -- payload --name <release> --shim <efi> --boot-loader <efi>
-//       --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...] [--iommu]
+//       --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...]
 //       [--previous <payload.json>]
 //       A release's boot policy payload, computed from its files
 //       (release-policy.ts), with every release of the previous payload but one
@@ -78,7 +78,7 @@ if (command === "machine-key") {
   console.log(origin ? `${origin}${path}` : path);
 } else if (command === "boot-policy" && id === "payload") {
   const usage =
-    "usage: npm run boot-policy -- payload --name <release> --shim <efi> --boot-loader <efi> --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...] [--iommu] [--previous <payload.json>]";
+    "usage: npm run boot-policy -- payload --name <release> --shim <efi> --boot-loader <efi> --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...] [--previous <payload.json>]";
   let values;
   try {
     ({ values } = parseArgs({
@@ -90,7 +90,6 @@ if (command === "machine-key") {
         uki: { type: "string", multiple: true },
         mok: { type: "string" },
         "db-cert": { type: "string", multiple: true },
-        iommu: { type: "boolean", default: false },
         previous: { type: "string" },
       },
       strict: true,
@@ -109,7 +108,6 @@ if (command === "machine-key") {
       ukis: values.uki.map((file) => readFileSync(file)),
       mok: readCertificate(readFileSync(mok)),
       dbCerts: values["db-cert"].map((file) => readCertificate(readFileSync(file))),
-      iommu: values.iommu,
     });
     const payload = policyPayload(release, previous ? JSON.parse(readFileSync(previous, "utf8")) : undefined);
     process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
