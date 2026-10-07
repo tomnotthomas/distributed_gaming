@@ -280,20 +280,20 @@ server keeps no state between the calls), recovers it with TPM2_ActivateCredenti
 The evidence (`TpmEvidence` in `protocol.ts`) is judged in order, and the first failure is the
 refusal's `detail`:
 
-| Check                                                                                                                                                                                                                                                                                                                                       | `detail` when it fails                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| An EK is registered, its certificate still chains to a vendor root (the root's directory says firmware or discrete TPM), and its key is an RSA 2048 or ECC P-256 EK                                                                                                                                                                         | `unknown-ek`, `ek-untrusted`, `ek-unsupported` |
-| The AK is a restricted signing key that never leaves its TPM                                                                                                                                                                                                                                                                                | `ak-unsuitable`                                |
-| The AK signed the quote, over SHA-256 of this nonce                                                                                                                                                                                                                                                                                         | `bad-signature`, `wrong-nonce`                 |
-| The AK was activated by the registered EK's TPM, and is a child of the EK (so the quote's counters are not obfuscated)                                                                                                                                                                                                                      | `ak-not-activated`, `ak-not-under-ek`          |
-| The quote covers SHA-256 PCRs 0-7 and 11-13, and the PCR values sent are the quoted ones                                                                                                                                                                                                                                                    | `pcrs-not-quoted`, `pcr-digest-mismatch`       |
-| The firmware event log replays to PCRs 0-7                                                                                                                                                                                                                                                                                                  | `event-log-mismatch`                           |
-| PCR 11 is a released Swiff OS's, from the signed boot policy                                                                                                                                                                                                                                                                                | `unknown-boot-image`                           |
-| PCRs 12 and 13 are that release's: systemd-stub took no command line, credential or extension from outside the UKI that the release does not expect                                                                                                                                                                                         | `unknown-boot-extras`                          |
-| PCR 4 measured at least one application, everything in it is that release's boot chain, and the last one is the release's UKI                                                                                                                                                                                                               | `unknown-boot-application`                     |
-| PCR 7 measured SecureBoot, PK, KEK, db and dbx, each once before its separator, with a platform key enrolled (not setup mode) whose whole variable record its digest binds, and every other extend of it, whatever type the log claims, is a known action or a Secure Boot authority the release lists. Never cooled down: refused outright | `secure-boot-untrusted`                        |
-| PCRs 0-3 (firmware) are the ones the machine first attested with; a change, or any firmware after the EK was registered again, is refused until seen for 24 hours with Secure Boot on; a boot with Secure Boot off never sets, starts or accepts firmware                                                                                   | `firmware-changed`                             |
-| The TPM's resetCount, restartCount and clock only go forward from the last accepted quote                                                                                                                                                                                                                                                   | `counter-rollback`, `replayed-quote`           |
+| Check                                                                                                                                                                                                                                                                                                                                                         | `detail` when it fails                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| An EK is registered, its certificate still chains to a vendor root (the root's directory says firmware or discrete TPM), and its key is an RSA 2048 or ECC P-256 EK                                                                                                                                                                                           | `unknown-ek`, `ek-untrusted`, `ek-unsupported` |
+| The AK is a restricted signing key that never leaves its TPM                                                                                                                                                                                                                                                                                                  | `ak-unsuitable`                                |
+| The AK signed the quote, over SHA-256 of this nonce                                                                                                                                                                                                                                                                                                           | `bad-signature`, `wrong-nonce`                 |
+| The AK was activated by the registered EK's TPM, and is a child of the EK (so the quote's counters are not obfuscated)                                                                                                                                                                                                                                        | `ak-not-activated`, `ak-not-under-ek`          |
+| The quote covers SHA-256 PCRs 0-7 and 11-13, and the PCR values sent are the quoted ones                                                                                                                                                                                                                                                                      | `pcrs-not-quoted`, `pcr-digest-mismatch`       |
+| The firmware event log replays to PCRs 0-7                                                                                                                                                                                                                                                                                                                    | `event-log-mismatch`                           |
+| PCR 11 is a released Swiff OS's, from the signed boot policy                                                                                                                                                                                                                                                                                                  | `unknown-boot-image`                           |
+| PCRs 12 and 13 are that release's: systemd-stub took no command line, credential or extension from outside the UKI that the release does not expect                                                                                                                                                                                                           | `unknown-boot-extras`                          |
+| PCR 4 measured at least one application, everything in it is that release's boot chain, and the last one is the release's UKI                                                                                                                                                                                                                                 | `unknown-boot-application`                     |
+| PCR 7 measured SecureBoot, PK, KEK, db and dbx, each once before its separator, with a platform key enrolled (not setup mode) whose whole variable record its digest binds, and every other extend of it, whatever type the log claims, is a known action, shim's SbatLevel or a Secure Boot authority the release lists. Never cooled down: refused outright | `secure-boot-untrusted`                        |
+| PCRs 0-3 (firmware) are the ones the machine first attested with; a change, or any firmware after the EK was registered again, is refused until seen for 24 hours with Secure Boot on; a boot with Secure Boot off never sets, starts or accepts firmware                                                                                                     | `firmware-changed`                             |
+| The TPM's resetCount, restartCount and clock only go forward from the last accepted quote                                                                                                                                                                                                                                                                     | `counter-rollback`, `replayed-quote`           |
 
 What passes gives the platform facts: UEFI, Secure Boot and pre-boot DMA protection from the
 replayed log, IOMMU from the release (a release declares it will not finish booting without
@@ -308,7 +308,9 @@ and holds the firmware, even unchanged, for the 24-hour cooldown.
 An event's type is not extended into its PCR, so the verifier never takes the type a log claims
 on trust: every extend of PCRs 4 and 7 must be a separator, a known action or Secure Boot
 variable whose data its digest binds, or else counts as a boot application (PCR 4) or an
-authority (PCR 7) that the release must list.
+authority (PCR 7) that the release must list. shim's SbatLevel in PCR 7 (its data bound, under
+shim's GUID, and an SBAT revocation level) is no authority: it lists what may not run, and which
+level a PC holds depends on the newest shim or Windows update it met.
 
 The 24-hour cooldown only ever trusts changed firmware whose PCR 7 matches the policy and says
 Secure Boot was on, so a key
@@ -322,24 +324,34 @@ not list), every `firmware-changed` refusal (the baseline, the presented PCRs 0-
 
 It needs `ROOM_SECRET` (it keys the activation credentials) and:
 
-- `ATTESTATION_TPM_ROOTS`: a directory of TPM vendor certificates, roots and intermediates, as
-  PEM or DER, in `firmware/` (Intel PTT, AMD fTPM, Microsoft Pluton…) and `discrete/`
-  (Infineon, STMicro, Nuvoton…), which host at the lower tier. Microsoft's TrustedTpm.cab is one
-  source of them. For example `/etc/swiff/tpm-roots`.
+- `ATTESTATION_TPM_ROOTS` (optional): a directory of TPM vendor certificates, roots and
+  intermediates, as PEM or DER, in `firmware/` (Intel PTT, AMD fTPM, Microsoft Pluton…) and
+  `discrete/` (Infineon, STMicro, Nuvoton…), which host at the lower tier. Unset, the server
+  takes `server/tpm-roots`: AMD, Intel, Infineon, STMicro, Nuvoton, NationZ and Atmel, from
+  Microsoft's TrustedTpm.cab and AMD's fTPM roots, without the CAs that issue Windows' AIK
+  certificates. Its README lists the sources and how `server/scripts/tpm-roots.mjs` refreshes
+  it, and `manifest.json` every certificate's fingerprint.
 - `ATTESTATION_POLICY` and `ATTESTATION_POLICY_KEY`: the signed boot policy file (which Swiff OS
   releases may host: their golden PCRs 11-13, boot applications, UKI and Secure Boot
   authorities; see `boot-policy.ts`)
   and the PEM public key that signs it (Ed25519, RSA or ECDSA), for example
   `/etc/swiff/boot-policy.json` and `/etc/swiff/boot-policy.pub.pem`. A policy without
-  `pcr12`, `pcr13`, `uki` or `secureBootAuthorities` is refused. The release pipeline writes the payload (each release's PCR 11 from
-  `systemd-measure calculate` at the `ready` phase, its PCRs 12 and 13, all zero unless it takes
-  add-ons, credentials or extensions from the ESP, the Authenticode digests of shim, boot
-  loader and UKI (every PCR 4 extend but the separator and the known actions), which of them is
-  the UKI, every PCR 7 extend but the separator, the known actions and the first SecureBoot, PK,
-  KEK, db and dbx before the separator (chiefly the Secure Boot authorities that verify the boot
-  chain: Microsoft's UEFI CA 2023 or 2011, shim's vendor certificate or MOK; also, say, dbt where
-  the firmware measures it), and whether it enforces an IOMMU) and signs it with
-  `npm run boot-policy -- <payload.json> <private-key.pem>`.
+  `pcr12`, `pcr13`, `uki` or `secureBootAuthorities` is refused. `swiff-os/boot-policy.sh`
+  makes a release's, on the machine that signs releases: it checks the image set as a release
+  build would, computes the payload from the set's own files (`npm run boot-policy -- payload`,
+  `server/src/release-policy.ts`), and signs it with the release image signing key, whose
+  public half `desktop/image-trust.json` lists. The payload holds the release's PCR 11 at the
+  `ready` phase, computed as `systemd-measure calculate` does and checked against the UKI's own
+  signed `.pcrsig`; its PCRs 12 and 13, all zero (it takes no add-ons, credentials or
+  extensions from the ESP); the Authenticode digests of shim, systemd-boot and the UKI, each
+  checked against the digest its own signature signs; which of them is the UKI; the PCR 7
+  authorities, each the SHA-256 of a UEFI_VARIABLE_DATA: Microsoft's UEFI CAs 2011 and 2023 and
+  Option ROM CA 2023 in `db` (`swiff-os/secure-boot/`), and the release's Secure Boot
+  certificate in shim's `MokListRT`; and `iommu`, false unless `--iommu` says the release will
+  not reach `ready` without DMA remapping. With `--previous`, an earlier payload's releases
+  stay listed. A payload is also signed on its own with
+  `npm run boot-policy -- <payload.json> <private-key.pem>` (`$SWIFF_OS_KEY_PASSPHRASE`
+  unlocks an encrypted key).
 
 Anything missing or wrong leaves no verifier, with a startup warning naming it. The tests
 replay quotes a software TPM made: `server/scripts/tpm-fixtures.mjs` records them with swtpm.

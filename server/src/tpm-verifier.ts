@@ -48,8 +48,8 @@
 //                                  each once before its separator, with a platform
 //                                  key enrolled (not setup mode), and every other
 //                                  extend of it, whatever type the log claims, is
-//                                  a known action or an authority the release
-//                                  lists. Refused outright: no cooldown ever
+//                                  a known action, shim's SbatLevel or an
+//                                  authority the release lists. Refused outright: no cooldown ever
 //                                  trusts another authority
 //  14. firmware-changed            PCRs 0-3 (firmware and its settings) are the
 //                                  ones this machine first attested with. A

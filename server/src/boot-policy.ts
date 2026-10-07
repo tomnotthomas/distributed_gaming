@@ -50,9 +50,10 @@
 //   secureBootAuthorities
 //                     Every other PCR 7 extend the release's boot may make,
 //                     whatever event type the log claims: all of them but the
-//                     separator, the "DMA Protection Disabled" action, and the
-//                     first SecureBoot, PK, KEK, db and dbx measured before the
-//                     separator. Chiefly the authorities the firmware (or shim)
+//                     separator, the "DMA Protection Disabled" action, shim's
+//                     SbatLevel (a revocation list, which differs between PCs),
+//                     and the first SecureBoot, PK, KEK, db and dbx measured
+//                     before the separator. Chiefly the authorities the firmware (or shim)
 //                     extends for each certificate it verified an image with,
 //                     such as Microsoft's UEFI CA 2023 or 2011 in db and the
 //                     release's shim vendor certificate or MOK, but also any
@@ -63,6 +64,9 @@
 //   iommu             The release refuses to finish booting (reach `ready`)
 //                     without DMA remapping on, so a machine that reached its
 //                     PCR 11 has an IOMMU.
+//
+// release-policy.ts computes a release's entry from its files, and
+// swiff-os/boot-policy.sh has a person sign the payload with the release key.
 
 import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 

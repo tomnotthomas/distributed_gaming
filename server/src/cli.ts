@@ -11,10 +11,18 @@
 //       A join link for one renter. Needs ROOM_SECRET from .env. Default 60
 //       minutes. With an origin (the tunnel URL), prints the whole link.
 //
+//   npm run boot-policy -- payload --name <release> --shim <efi> --boot-loader <efi>
+//       --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...] [--iommu]
+//       [--previous <payload.json>]
+//       A release's boot policy payload, computed from its files
+//       (release-policy.ts), with every release of the previous payload but one
+//       of the same name. Printed.
+//
 //   npm run boot-policy -- <payload.json> <private-key.pem>
 //       The signed boot policy for ATTESTATION_POLICY (boot-policy.ts says what
 //       the payload holds), signed with the release key whose public half is
-//       ATTESTATION_POLICY_KEY. Printed; the payload is checked first.
+//       ATTESTATION_POLICY_KEY. Printed; the payload is checked first. An
+//       encrypted key is unlocked with $SWIFF_OS_KEY_PASSPHRASE.
 //
 //   npm run state-key -- revoke <machine-id>
 //   npm run state-key -- reinstate <machine-id>
@@ -23,14 +31,23 @@
 //       never opens again, and it gets no new one. Reinstating lets it ask for
 //       a new one, on a freshly formatted partition.
 
+import { createPrivateKey } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { parseArgs } from "node:util";
 import { accessFromEnv, MIN_SECRET_LENGTH, mintTicket, newMachineKey, STEAM_ID } from "./access.js";
 import { signBootPolicy } from "./boot-policy.js";
+import { policyPayload, releaseEntry } from "./release-policy.js";
 import { openDatabase } from "./db.js";
 import { migrate } from "./schema.js";
 import { createStateKeys, databaseStateKeyStore } from "./state-key.js";
 
 const [command, id, ...rest] = process.argv.slice(2);
+
+/** The DER of a certificate file, PEM or DER. */
+function readCertificate(data: Buffer): Buffer {
+  const pem = data.toString("latin1").match(/-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/);
+  return pem ? Buffer.from(pem[1]!.replace(/\s+/g, ""), "base64") : data;
+}
 
 /** Print the message and exit with an error. */
 function fail(message: string): never {
@@ -59,11 +76,56 @@ if (command === "machine-key") {
   // proxy or a Referer header.
   const path = `/rtc#ticket=${mintTicket(secret, id, Math.round(minutes * 60))}`;
   console.log(origin ? `${origin}${path}` : path);
+} else if (command === "boot-policy" && id === "payload") {
+  const usage =
+    "usage: npm run boot-policy -- payload --name <release> --shim <efi> --boot-loader <efi> --uki <efi> --mok <cert> --db-cert <cert> [--db-cert <cert> ...] [--iommu] [--previous <payload.json>]";
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: rest,
+      options: {
+        name: { type: "string" },
+        shim: { type: "string" },
+        "boot-loader": { type: "string" },
+        uki: { type: "string", multiple: true },
+        mok: { type: "string" },
+        "db-cert": { type: "string", multiple: true },
+        iommu: { type: "boolean", default: false },
+        previous: { type: "string" },
+      },
+      strict: true,
+    }));
+  } catch (error) {
+    fail(`${error instanceof Error ? error.message : String(error)}\n${usage}`);
+  }
+  const { name, shim, mok, previous } = values;
+  const bootLoader = values["boot-loader"];
+  if (!name || !shim || !bootLoader || !values.uki?.length || !mok || !values["db-cert"]?.length) fail(usage);
+  try {
+    const release = releaseEntry({
+      name,
+      shim: readFileSync(shim),
+      bootLoader: readFileSync(bootLoader),
+      ukis: values.uki.map((file) => readFileSync(file)),
+      mok: readCertificate(readFileSync(mok)),
+      dbCerts: values["db-cert"].map((file) => readCertificate(readFileSync(file))),
+      iommu: values.iommu,
+    });
+    const payload = policyPayload(release, previous ? JSON.parse(readFileSync(previous, "utf8")) : undefined);
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+  } catch (error) {
+    fail(`no payload: ${error instanceof Error ? error.message : String(error)}`);
+  }
 } else if (command === "boot-policy") {
   const keyFile = rest[0];
   if (!id || !keyFile) fail("usage: npm run boot-policy -- <payload.json> <private-key.pem>");
   try {
-    process.stdout.write(signBootPolicy(JSON.parse(readFileSync(id, "utf8")), readFileSync(keyFile, "utf8")));
+    const passphrase = process.env.SWIFF_OS_KEY_PASSPHRASE;
+    const key = createPrivateKey({
+      key: readFileSync(keyFile, "utf8"),
+      ...(passphrase ? { passphrase } : {}),
+    });
+    process.stdout.write(signBootPolicy(JSON.parse(readFileSync(id, "utf8")), key));
   } catch (error) {
     fail(`the policy was not signed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -82,6 +144,6 @@ if (command === "machine-key") {
   console.log(id === "revoke" ? `Revoked the state key of ${machine}.` : `Reinstated ${machine}.`);
 } else {
   fail(
-    "usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]  |  npm run boot-policy -- <payload.json> <private-key.pem>  |  npm run state-key -- revoke|reinstate <id>",
+    "usage: npm run machine-key -- <id> [owner-steam-id]  |  npm run ticket -- <id> [minutes] [origin]  |  npm run boot-policy -- payload ...  |  npm run boot-policy -- <payload.json> <private-key.pem>  |  npm run state-key -- revoke|reinstate <id>",
   );
 }

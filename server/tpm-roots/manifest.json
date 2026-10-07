@@ -1,0 +1,2641 @@
+{
+  "source": "https://go.microsoft.com/fwlink/?linkid=2097925",
+  "cabSha256": "debd6a7037d6bb09fbe6789743d923fd3f0e3fdc49094a68b44b43ebe8b7d351",
+  "cabVersion": "10-Aug-2026",
+  "generated": "2026-10-07T14:07:53.604Z",
+  "vendors": [
+    {
+      "vendor": "AMD",
+      "kind": "firmware",
+      "file": "firmware/amd.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices\\, Inc, OU=IT, CN=AMD Root CA R4",
+          "notAfter": "2031-12-01T21:14:03.000Z",
+          "sha256": "853d5c5abe1fe97bddb62db0aecb4888a52c83353645cf70b12289d62257e78d",
+          "from": "AMD/RootCA/AMD-Root-CA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=US, O=Microsoft Corporation, CN=Microsoft Pluton Root CA 2021",
+          "notAfter": "2046-10-14T19:29:48.000Z",
+          "sha256": "32ab5fe7cb4396659fcb621ca14c6fb8fc2420f64050637d77e45a86c5d3916e",
+          "from": "AMD/RootCA/Microsoft Pluton Root CA 2021.cer"
+        },
+        {
+          "role": "root",
+          "subject": "OU=Engineering, C=US, L=Sunnyvale, ST=CA, O=Advanced Micro Devices, CN=AMDTPM",
+          "notAfter": "2041-01-01T05:00:00.000Z",
+          "sha256": "14aac9fd58471a612afd75d8c0955daf99f091b1863702f9e0d4113faf234f9d",
+          "from": "https://ftpm.amd.com/pki/aia/23452201D41C5AB064032BD23F158FEF"
+        },
+        {
+          "role": "root",
+          "subject": "OU=Engineering, C=US, L=Sunnyvale, ST=CA, O=Advanced Micro Devices, CN=AMDTPM",
+          "notAfter": "2039-10-23T14:34:32.000Z",
+          "sha256": "67bd2472a546751caca5f358a78f80727531671338960a9bcfdfbe6a34d0c6a1",
+          "from": "https://ftpm.amd.com/pki/aia/264D39A23CEB5D5B49D610044EEBD121"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory FIPS EK ICA DFID00B20F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "9a7a58696e69eecd3f07285e3edea5efeaaddfbf4adcfc2913938c5da643fdb2",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory FIPS-EKICA DFID00B20F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory FIPS EK ICA DFID00B20F40",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "f2091977334d430d9020c13ce2705b5b3d5de48e1c147655e12e494a921fea5c",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory FIPS-EKICA DFID00B20F40.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory FIPS EK ICA DFID00B60F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "c601421a0829d9fb5dcfc7d82e5e6d45ffdaff5787f8122495f90c2e98f19774",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory FIPS-EKICA DFID00B60F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory FIPS EK ICA DFID00B60F80",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "c3e0be01e77f38a83814c0e628d220c96ea078ef4214410e85583a003f9f5315",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory FIPS-EKICA DFID00B60F80.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory FIPS EK ICA DFID00B70F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "2dc3a391ca39be4a0dc012832b012267050be789eb6f90e674b3e50f116359f9",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory FIPS-EKICA DFID00B70F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory NON-FIPS EK ICA DFID00B20F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "1aa792f211d3499a9280bc6dba4db144559d7b24fad5cf4a7e32363e8a9048b6",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory NON-FIPS-EKICA DFID00B20F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory NON-FIPS EK ICA DFID00B20F40",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "afd3a62cce9ce1c4a3cd05c634bd8bdac7def7bde312f1ce91cc1987b498ce69",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory NON-FIPS-EKICA DFID00B20F40.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory NON-FIPS EK ICA DFID00B60F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "ba7242021e579c33384edd582405a1f85bf97021df9347a17208314c8c92949b",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory NON-FIPS-EKICA DFID00B60F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory NON-FIPS EK ICA DFID00B60F80",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "bd8acba897d41d470362ade0c88b367c37f0549d12bd841e15c15b45e7b9cc6c",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory NON-FIPS-EKICA DFID00B60F80.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Per-Product Factory NON-FIPS EK ICA DFID00B70F00",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "08dd2c92fa16bce65cfd1984b6a5391ae81ce266625dafd71b6655bcee001686",
+          "from": "AMD/IntermediateCA/AMD Pluton Per-Product Factory NON-FIPS-EKICA DFID00B70F00.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-AER",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "eca3acf3a08007ca17df083855759b569080f22b6415cc5ce685aac93d72f81e",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-AERFamily-6A668AE95CA8508559C3E1D872F2417D.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-CRD",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "a40c443318e0d74966d4506f9c9f147bc65922c65e5565c3c042ba8433cb4c2d",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-CRDFamily-5B401A1127EA54E3685B06D275FE8399.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-GN",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "f0504b98dd85ce02f217f7583655ee6c77af2720dd3d5e8ebf87c696fae39c9b",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-GNFamily-403113170A425ABD6B04CE6BF21FD467.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-GNR",
+          "notAfter": "2048-01-01T05:00:00.000Z",
+          "sha256": "763dfface6f0af0af17d1fd8e05a52412e0749f61477fd3af3d5b8635650f3ee",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-GNRFamily-842A9A2652E452CC63DBD8FA9C218ED4.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-HPT",
+          "notAfter": "2048-01-01T05:00:00.000Z",
+          "sha256": "86e2c88d733a106fc57fcf06339b6d99e8cc75863fb2ade2b977a7c41ee04a42",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-HPTFamily-F21A726D76AF588151CA619A0596D812.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-KRK",
+          "notAfter": "2048-01-01T06:00:00.000Z",
+          "sha256": "6fa19a20498c335f37793ff8a51f95f92c3267061fab48b3ea45adcdd2c2c727",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-KRKFamily-ACEB8D2B409157C74EB2EE08CED9B645.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-MDN",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "1cdef08e7b0b5a4d11c180968225c6a948c8a17b70c9d3cfd735e924377e0081",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-MDNFamily-87A9580E58935BBD40616CCF1820BEEF.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-PHX2",
+          "notAfter": "2047-08-15T04:00:00.000Z",
+          "sha256": "3868713440bb7157e6b2df831be54ede2024d11cc64ac5633dd430e331a9e104",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-PHX2Family-3887D9A52A04517246E45296FF1E2F8E.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-PHX",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "5d5305998f995292f6e535f3be25143e0cb1cf1a448ab400b48e01e9dde1f80f",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-PHXFamily-3411EF15082F59EC465D7DEC188BB0A1.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RMB",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "bfd3b8b60fdac567d4a456aa130d6b9f30dbf94a4e52660fe43f1e6aa25ddac4",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-RMBFamily-D30EE6F7557055BA66AD1A1DD1157D2C.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RPL",
+          "notAfter": "2047-03-22T04:00:00.000Z",
+          "sha256": "abdafcf07625035d1a27c68d2eb5c83822b3be0427e750c37e0f36ccd654c907",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-RPLFamily-5B8502F0A93A5B6E50D659FED374CF19.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-SHP",
+          "notAfter": "2049-10-01T05:00:00.000Z",
+          "sha256": "d997b33db667a5ef19acd7dcceda0fad8d4aaf6a9ce58707548c101874eed86b",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-SHPFamily-EB7F6EC0482058DC50691212B414464A.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STP",
+          "notAfter": "2047-08-15T04:00:00.000Z",
+          "sha256": "a557b00de1243c6f81ba42cdff181219e39af3475993b6526fc7c70e23306104",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-STPFamily-DE88506F89845CC24D912DBA442CADCD.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STX",
+          "notAfter": "2048-01-01T06:00:00.000Z",
+          "sha256": "5d45a81a448b4150e341e9d0d0fee0e7f75a6d43b7da10e889a5e177979e1b04",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-STXFamily-7C4760BD7AC95E2F5336A9D6028B1E10.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STX-H",
+          "notAfter": "2048-01-01T06:00:00.000Z",
+          "sha256": "4a85ee02e70e62a26071581579c033916f7fe0bd49caafd2976aad832b151c66",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-ICA-STXHFamily-841ED9E18F875F705AFACAD1CEFAFE37.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RN",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "c8f099d0531fe3c8077aec27acde23c9d325e9498dcd2fad060aad03f5cf5098",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-RNFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RV",
+          "notAfter": "2042-01-01T05:00:00.000Z",
+          "sha256": "3f1a18d7945266973958b6c49e32cc171b8e019e589cff9c07837e5975930b9e",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-RVFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-SSP",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "a209175b59a59a05128d404b74e54f0f9fc4ab363c084adb2b3f0f30c9e5ef2d",
+          "from": "AMD/IntermediateCA/AMD-fTPM-ECC-SSPFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-AER",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "db0815a4fc027725584b34e427cf8689c915e3d12eabbe03af8eede70ea4a85c",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-AERFamily-CCB96594EB1D57D7560EFB6022F67275.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-CRD",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "6bae0625555da82dba25c1911d63da4bc59ba9d0a9a774ab76219fc866c20cb4",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-CRDFamily-B7F5D6F2A3165E235FD1FFBE69F2BFA9.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-GN",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "a140f2af7b5aa8d4f14319fb938af7530efdc36a7c0c198672832adcdea17b0a",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-GNFamily-639A786220D457236F8C816E1555F565.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-GNR",
+          "notAfter": "2048-01-01T05:00:00.000Z",
+          "sha256": "6121f6ebd7bc2297abd7e8c1d8120ad4933ae83a50bfd3f48e1a92b34e2e1676",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-GNRFamily-FE5429C191BE55C2613A0F7DC3360E89.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-HPT",
+          "notAfter": "2048-01-01T05:00:00.000Z",
+          "sha256": "1745706c9e0163b128166cfa3875c9b675423e7097d8eecd73a88d1b22950cd9",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-HPTFamily-0B7F833A00D15BEB46BA18CCE36E0244.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-KRK",
+          "notAfter": "2049-10-04T05:00:00.000Z",
+          "sha256": "4c6605e8153be66ae17838ed294c9593a4578b70c9966176904d2d1cc6c7dfe9",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-KRKFamily-C1C1ED276EC755E277AD88C79AAE8EE7.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-MDN",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "f1933720e49d8d49691ffce214a03a62aa22cf67b80b38afe72693e414c28f0c",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-MDNFamily-D053AFB18A3059D86723CD7D018489D2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-PHX2",
+          "notAfter": "2047-08-15T04:00:00.000Z",
+          "sha256": "4101b456738469d8ad55b2aeff2768bab0c0a46c4138fe1364e9492f63f9c4d9",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-PHX2Family-D63C16CBD4705E5B5C91095FD728772B.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-PHX",
+          "notAfter": "2046-03-11T05:00:00.000Z",
+          "sha256": "181c7729a8e1b0db68fcefcacc09564230ee2ca8e27985ba4e750538761f20fe",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-PHXFamily-A993351137005452447E60D15764141E.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RMB",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "9a560dac185c53badd777660fb3c84191e563d2a16b0cfb0b06788d5585a1c8c",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-RMBFamily-51ADE34A2F8253525E2321AD63F7B197.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RPL",
+          "notAfter": "2047-03-22T04:00:00.000Z",
+          "sha256": "42a432f740e2db2c4c6c91d48fdd62f11aa01308a7e1a6326ea31ac212ddff8a",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-RPLFamily-1E34E7EF9C15FA479A9F398BC865D60.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-SHP",
+          "notAfter": "2049-10-01T05:00:00.000Z",
+          "sha256": "c46c5461c1044ab11d429c618372f57ea210a3263991269ec5af5743793de460",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-SHPFamily-56994D25E17B5ED968FDD36ABD64804E.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STP",
+          "notAfter": "2047-08-15T04:00:00.000Z",
+          "sha256": "d28f284a4255b8186f3e4e7e18949e14694a3019cdc9433aea3f664b7e85e594",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-STPFamily-E66DF8C15E99581D7EEFA04D9ECE369A.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STX",
+          "notAfter": "2048-01-01T06:00:00.000Z",
+          "sha256": "d7d94e65889e6d8eaf2a0667e711bb48d3f01956d15a1d6a2d640534fe4076cb",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-STXFamily-AC721D42534F54F84DBA160B17E1C920.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-STX-H",
+          "notAfter": "2048-01-01T06:00:00.000Z",
+          "sha256": "8d38a509814dd5f5a0b8f4b401b68d5a24801fb7c2111324b173e221c9cca644",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-ICA-STXHFamily-f9afd54db71d51bc482ed80e4a118f62.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RN",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "efb8b72446a46c5076e7fa6bc7129dbc8a507423d8dca1a0a2b51ad4cffd8167",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-RNFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-RV",
+          "notAfter": "2042-01-01T05:00:00.000Z",
+          "sha256": "89113431f62c153137dcc19c9e02ed3de447a4cde76e68e5523e61532785b2dc",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-RVFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=Engineering, C=US, L=Santa Clara, ST=CA, O=Advanced Micro Devices, CN=PRG-SSP",
+          "notAfter": "2044-01-01T05:00:00.000Z",
+          "sha256": "00a194b814e34f621823261894920f8d34afe318580964c4ef1ba16a7e58d6d2",
+          "from": "AMD/IntermediateCA/AMD-fTPM-RSA-SSPFamily.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, O=Microsoft Corporation, CN=Microsoft Pluton Policy CA A",
+          "notAfter": "2041-10-14T19:39:24.000Z",
+          "sha256": "ef3a5645e85c87823443194f5205ac590ea9d6b9b9ce06587491f95635f0ee59",
+          "from": "AMD/IntermediateCA/Microsoft Pluton Policy CA A.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory DEVICE EK ICA DFID0001",
+          "notAfter": "2039-12-31T18:38:05.000Z",
+          "sha256": "fb05677845426c8a2bc6350433693d3f60fdf23ee974b1c15fa267c36e9b00fc",
+          "from": "AMD/IntermediateCA/Pluton-Factory-DEVICE-EK-ICA-DFID0001.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory DEVICE EK ICA DFID008A0F00",
+          "notAfter": "2039-12-31T20:50:20.000Z",
+          "sha256": "dd9fe93ba283bd573106801a08d87457e7fe0cf6f1e0dd66ece8748c36ff8d8a",
+          "from": "AMD/IntermediateCA/Pluton-Factory-DEVICE-EK-ICA-DFID008A0F00.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory DEVICE EK ICA DFID00A60F11",
+          "notAfter": "2039-12-31T20:50:22.000Z",
+          "sha256": "623a50d989350007fb429c5e1dbc1520bf2695c3d9da258fd7377283703ed7ca",
+          "from": "AMD/IntermediateCA/Pluton-Factory-DEVICE-EK-ICA-DFID00A60F11.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory DEVICE EK ICA DFID00A70F00",
+          "notAfter": "2039-12-31T18:11:06.000Z",
+          "sha256": "7fbade150ba80d32c77e373b38f6e05040c233fee5f83e86fc3f53a547660c83",
+          "from": "AMD/IntermediateCA/Pluton-Factory-DEVICE-EK-ICA-DFID00A70F00.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory FIPS EK ICA DFID0001",
+          "notAfter": "2039-12-31T18:38:06.000Z",
+          "sha256": "6c15bab36424d6507e0ebcee9d9cc7ddbb4d08109033ca8fab1afbee00a8221a",
+          "from": "AMD/IntermediateCA/Pluton-Factory-FIPS-EK-ICA-DFID0001.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory FIPS EK ICA DFID008A0F00",
+          "notAfter": "2039-12-31T20:50:21.000Z",
+          "sha256": "d79ccc81fbdd3a935040ab68bacf6a58ef1bebbd1ed0d2cdd8819f1c3a95e9a7",
+          "from": "AMD/IntermediateCA/Pluton-Factory-FIPS-EK-ICA-DFID008A0F00.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory FIPS EK ICA DFID00A60F11",
+          "notAfter": "2039-12-31T20:50:22.000Z",
+          "sha256": "1c74e7d628fbf46ac978a5c7c5e4f1cecd5f5989e86d544611a6145e2c64b4e3",
+          "from": "AMD/IntermediateCA/Pluton-Factory-FIPS-EK-ICA-DFID00A60F11.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., CN=Pluton Factory FIPS EK ICA DFID00A70F00",
+          "notAfter": "2039-12-31T18:11:07.000Z",
+          "sha256": "8b2368c4c0985539200cb42d4d1b240b61d0b36f4f9882e812bd8606036f975e",
+          "from": "AMD/IntermediateCA/Pluton-Factory-FIPS-EK-ICA-DFID00A70F00.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=California, L=Santa Clara, O=Advanced Micro Devices Inc., OU=IT, CN=AMD Pluton Global Factory ICA",
+          "notAfter": "2039-12-15T23:59:59.000Z",
+          "sha256": "593a1794f9e17476c7ad427d2908a97c451451c9e0939fdc80d5d662c232d401",
+          "from": "AMD/RootCA/AMD-Pluton-Global-Factory-ICA.crt"
+        }
+      ]
+    },
+    {
+      "vendor": "Intel",
+      "kind": "firmware",
+      "file": "firmware/intel.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK root cert signing, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",
+          "from": "Intel/RootCA/EKRootPublicKey.cer"
+        },
+        {
+          "role": "root",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=OnDie CA Root Cert Signing, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "beb40bb7507b33967226aa80e084749fbb6593893c642e818d682e9a8d07fc24",
+          "from": "Intel/RootCA/OnDie_CA_RootCA_Certificate.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_ADL 00002226 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "8c1b4d34dfc2df3386a0f0ec7747fde7bac6b6c9eb1ee1f7966b9c8d663c26b3",
+          "from": "Intel/IntermediateCA/ADL_PROD_00002226_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_ADL 00002341 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "1efffabdb13a45f1968b5110b65049d9ea282925ef43ab826f5b884049c6968c",
+          "from": "Intel/IntermediateCA/ADL_PROD_00002341_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_ADL 00002701 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "71838fb00163f14399b6469f64790f7aceec82df08b0268213e2c1e2bd0599ab",
+          "from": "Intel/IntermediateCA/ADL_PROD_00002701_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_ADL 00002820 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "4d59bed8ae473d1160ddd3d19cd545cec11b9373516cc91c44ed826fd883b42c",
+          "from": "Intel/IntermediateCA/ADL_PROD_00002820_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_ADL 00002983 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "406a58dab4ffceb943af59ddc69748adf09933abb12abfb93c9625e1cafa434e",
+          "from": "Intel/IntermediateCA/ADL_PROD_00002983_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for BXT_EPID_A0_PROD_RK_0, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "12d6f35a9da4b4dabcea5245f9f4a7a5b3f5ca66906671e9f5dac27ad077b650",
+          "from": "Intel/IntermediateCA/BXT_EPID_A0_PROD_RK_0.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for BXT_EPID_A0_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "6792a128fa4158f1f0b0e890937b51aaaef66f52b290d05c01dbfe40fc3b0438",
+          "from": "Intel/IntermediateCA/BXTEPIDA0PROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for BXT_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "b21306ade859849346c34f4e7723115bb5c94fc9398a6eadf5879c1a84f09a1d",
+          "from": "Intel/IntermediateCA/BXTEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CHV_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "aaafc2f7587de23726d545dde11b61693be1e5abd65c8d752f579861183f8c98",
+          "from": "Intel/IntermediateCA/CHVEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for Cloverview_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "97b3dc3464a6ccd150993c488ddefb30d3adcab31d6e3fc8bcd6182a0765a25c",
+          "from": "Intel/IntermediateCA/CloverviewEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CLP_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "276d2c7184747882e3ac4d3f7aa57a3ab94414e2050294f078a1294c5c176baf",
+          "from": "Intel/IntermediateCA/CLPEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CML_EPID_PROD pid:13, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "1307204b0d97e56ae4bebde84994b2e2b7e81905a5ef8414af4dbab04215c7e6",
+          "from": "Intel/IntermediateCA/CMLEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CMP_V_EPID_PROD pid:14, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "6f5442ee696cab9acd0a30f7e52ad99c3c07f02aeb7524eab84a280886bc2a8e",
+          "from": "Intel/IntermediateCA/CMPVEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CNL_EPID_LP_B1_PROD pid:6, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "fbc0ad8a22dbb223f4cddbb700211bd100315b2ef85ee1b869ef287774a230dd",
+          "from": "Intel/IntermediateCA/CNLEPIDLPB1PROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CNL_EPID_POST_B1LP_PROD pid:6, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "c5941d1c17f3675149a575d6bbed6a50ba2f74f994c8db77cf44fa0765a81613",
+          "from": "Intel/IntermediateCA/CNLEPIDPOSTB1LPPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CNL_EPID_POST_B1LP_PROD_2 pid:9, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "8e18ab76d12f9729bf642a67743a1e9a9cf82cea25307279aeea5c747ee06bb3",
+          "from": "Intel/IntermediateCA/CNLEPIDPOSTB1LPPROD2_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for CNL_EPID_PROD  pid:32774, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "0c8c7e268b35bba67efb3e890e89d3ab4cce0bf17bba0b9a2c3a47056ef76164",
+          "from": "Intel/IntermediateCA/CNLEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for DNV_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "60ffa41eb3a6c0ed988e3d2c8e72b0b34ef411138cbb31536158bda12fed4142",
+          "from": "Intel/IntermediateCA/DNVEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=On Die CSME P_EBG 00002001 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "342faf1d78d3473e0813617cf62e0353fccaef85ffff0e5e64d2dbf3053a4545",
+          "from": "Intel/IntermediateCA/EBG_PROD_00002001_OnDie_CA.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=On Die CSME P_EBG 00002483 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "87936fb845244dba3647662d5670861eb672d5339cb24d696daf4a0a5a0f852c",
+          "from": "Intel/IntermediateCA/EBG_PROD_00002483_OnDie_CA.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=On Die CSME P_EBG 00002600 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "c08bdeab62f7e66b06f0d5933ca6e8092b67440bca91e77ec36bba199ab3b972",
+          "from": "Intel/IntermediateCA/EBG_PROD_00002600_OnDie_CA.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for GLK_B0_EPID_PROD pid:7, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "1b1b496575270fb0fdbafe64d7f1f4c76ec29821b0bdb9d9e04b1444e9f3d9df",
+          "from": "Intel/IntermediateCA/GLKB0EPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for GLK_EPID_PROD  pid:7, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "291f8cd7a8afef28d3e6691e00f215084dc4b0c7a1aad460886860949d296205",
+          "from": "Intel/IntermediateCA/GLKEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for ICL_EPID_A0-1_PROD pid:32776, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "61e12ac9fa595433fb31af11c34d79ba2897663310992bd995d3e54455c68b7c",
+          "from": "Intel/IntermediateCA/ICLEPIDA01PROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for ICL_EPID_A0_PROD pid:32776, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "899fb789b8d36ef16cd941183fb2066071489b4a46bb744897f35e193ce96f6b",
+          "from": "Intel/IntermediateCA/ICLEPIDA0PROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for ICL_EPID_PROD_PRQ pid:8, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "f92bb645ffaf28f0d3bd9e7041a614148e50af8af223d3a161ef6bcf8e841865",
+          "from": "Intel/IntermediateCA/ICLEPIDPRODPRQ_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for ICL_N_EPID_PRE_PROD pid:8, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "a519036b1a80059074dbdaf0ccd77a611595039ccdd499ce4846b62010d3539a",
+          "from": "Intel/IntermediateCA/ICLNEPIDPREPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for ICL_N_EPID_PROD pid:8, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "5b8847053030b671425f3761a8912934f5f512da8f41ea3545d3e4b10729f3f8",
+          "from": "Intel/IntermediateCA/ICLNEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for JSL_EPID_PROD pid:19, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "29cd6f5968b2d1a713e5fd15b64cdff900a71d2bb01d65aaf489f57256232419",
+          "from": "Intel/IntermediateCA/JSLEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for LBG_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "b119e768afafc9dcf6b6866669a9cd9435360da7a62d1a008be5cfa18ad02d20",
+          "from": "Intel/IntermediateCA/LBGEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for LKF_EPID_B0_PROD pid:10, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "24c7b752449bcc3a84714577ec12bed59c65f663a80a2565865b2eff893729b5",
+          "from": "Intel/IntermediateCA/LKFEPIDB0PROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for LKF_EPID_PROD pid:10, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "bd405081de1b9d72fde7dc307bbbc0266c875211bfce3fb79b59a6bc89595c1a",
+          "from": "Intel/IntermediateCA/LKFEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 OSSE P_LNL SOC 00003642 NZ Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "605d67b7f18b92f20a9e7fcc616ab8945a2a059d2efda1219f052778453984b3",
+          "from": "Intel/IntermediateCA/LNL_00003642_NZ_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 OSSE P_LNL SOC 00003642 ZE Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "61dd1d10d2fcdd7efb88895f95c3b79bcdf07a516eff98ebaf54fed5fb3a402b",
+          "from": "Intel/IntermediateCA/LNL_00003642_ZE_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_LNL SOC 00003648 NZ Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "69f440a8d0b09bcf932c677e23243714057e96bc36c00082cb9480b4428c13da",
+          "from": "Intel/IntermediateCA/LNL_00003648_NZ_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_LNL SOC 00003648 ZE Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "007cb23926947844db5067b9d36ea6b1f5f45321834b7554f2392174d430203a",
+          "from": "Intel/IntermediateCA/LNL_00003648_ZE_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for LPT-EPID-LP, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "29742bbc68963c864d4f198568c8691a37b07ffb55173ed9842542781f4dfe7f",
+          "from": "Intel/IntermediateCA/LPTEPIDLP_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=On Die CSME P_MCC 00001881 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "d4a82dde06a12689ae22a50870003de03ac04205e921410c60eb0216fb15baff",
+          "from": "Intel/IntermediateCA/MCC_PROD_00001881_OnDie_CA.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME T_MTL SOC 00003042 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "79c665d69c7307c4989373050df1a39e321df1e2154f8296a7f4216ce15c7578",
+          "from": "Intel/IntermediateCA/MTL_00003042_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_MTL SOC 00003043 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "87c66354080a9b7e5b249ba5316629f859bec3d9ada9d13136be2d9c94bcd021",
+          "from": "Intel/IntermediateCA/MTL_00003043_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME E_MTL SOC 00003044 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "b3e60f8fc0bfd0abf486ba8ef7c4af4ee4b4425c21ceb2f28a95249e48058bfa",
+          "from": "Intel/IntermediateCA/MTL_00003044_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_MTP PCH 00003145 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "28556f26645b156f41aa1e38905a0dd52ce9c70653f3c271eeb23bcab6570634",
+          "from": "Intel/IntermediateCA/MTP_00003145_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=OnDie CA CSME Intermediate CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "5e3eee5748ac13e0b3d1227fcdc4751aa1402dde8031d21f63cb4ecf43f02440",
+          "from": "Intel/IntermediateCA/OnDie_CA_CSME_Intermediate.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_PTL SOC 00004042 NZ Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "25ac81365cc41d3f3e3123415fa54dd8d8a2ed4ef4929263881162d5eb713fbc",
+          "from": "Intel/IntermediateCA/PTL_00004042_NZ_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_PTL SOC 00004042 ZE Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "8f40bd544943d4846ebf9eb17f2f69a4de2bd4ffa77325f11e9e7087d1d8b9db",
+          "from": "Intel/IntermediateCA/PTL_00004042_ZE_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 OSSE P_PTL SOC 00004048 NZ Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "9adedba0d8b9b21147a373772baf2c3ba61f2ad2903dda26b59362015f7d5284",
+          "from": "Intel/IntermediateCA/PTL_00004048_NZ_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 OSSE P_PTL SOC 00004048 ZE Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "ca110873fcab03702e1d7afcdf5cc28a49551c020e64d9cc4c00dfc68d8317f5",
+          "from": "Intel/IntermediateCA/PTL_00004048_ZE_ODCA_CA2.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_PTL SOC 00004506 NZ Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "8717f2345361cf3ac8263ce903629663aa577ab8313c6a22bc3f195bd7d17fb0",
+          "from": "Intel/IntermediateCA/PTL_00004506_NZ_ODCA_CA2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA 2 CSME P_PTL SOC 00004506 ZE Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "15a0a0b061c01e7bdac89c32d4e1cf824cb0f565a136749c68d5e94e926c0517",
+          "from": "Intel/IntermediateCA/PTL_00004506_ZE_ODCA_CA2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for SPT-H-LP_EPID_Prod_RK_0, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "83bc58fb0e5763128d391b45ab27576131c87e5435a55a4a398dccf6d15973b3",
+          "from": "Intel/IntermediateCA/SPT-H-LP_EPID_Prod_RK_0.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for SPT_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "e972f4c2e99f63bb88d8eed42353b28ee8fb1fc6762f1ee48bc757a49c8e381b",
+          "from": "Intel/IntermediateCA/SPTEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for SPTH_EPID_PROD_RK_0, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "85e611fd15aa1ff1ac0c58b59f1b1d8ba965477642b18d9eac0a7da2849a6bab",
+          "from": "Intel/IntermediateCA/SPTH_EPID_PROD_RK_0.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for SPTH_EPID_PROD, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "e365738ed9d49110756b9fc3a72aae91e473db0f8c0aa4f3691f035c381480d7",
+          "from": "Intel/IntermediateCA/SPTHEPIDPROD_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for SPT-H-LP_EPID_Prod, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "f76bea9d68920516efa031d3968dce6472a055540daef9e24d87fdc5aecb3d7a",
+          "from": "Intel/IntermediateCA/SPTHLPEPIDProd_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=On Die CSME P_TGL 00002004 Issuing CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "d57e560fbc4bc5708f7204e2c1761e33b488590ee0fc11e1cb63593c4b645ac2",
+          "from": "Intel/IntermediateCA/TGL_PROD_00002004_OnDie_CA.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=CA, L=Santa Clara, O=Intel Corporation, OU=TPM EK intermediate for WPT_LP_EPID_Prod, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "16ae142e9740350819d38e3c1b1993424b5d16f3675883f24a167c7c237a647d",
+          "from": "Intel/IntermediateCA/WPTLPEPIDProd_EK_Platform_Public_Key.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA CA2 CSME Intermediate CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "c001df02b31a60a2b37130365956400a2afcfd147e8552fd7ea3f17f2ab0d457",
+          "from": "Intel/RootCA/ODCA_CA2_CSME_Intermediate.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "OU=ODCA CA2 OSSE Intermediate CA, CN=www.intel.com",
+          "notAfter": "2049-12-31T23:59:59.000Z",
+          "sha256": "98f575d37fcce1139ba4ddfba811d862a8262a207cb46f4c8bd0d9891e406475",
+          "from": "Intel/RootCA/ODCA_CA2_OSSE_Intermediate.cer"
+        }
+      ]
+    },
+    {
+      "vendor": "Infineon",
+      "kind": "discrete",
+      "file": "discrete/infineon.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "C=US, O=VeriSign\\, Inc., OU=VeriSign Trusted Computing Certification Authority, CN=VeriSign Trusted Platform Module Root CA",
+          "notAfter": "2045-10-24T23:59:59.000Z",
+          "sha256": "967bb3d4544ea2740fce338077e1f5a9ea3085667246e6b968294aa045a57549",
+          "from": "Infineon/RootCA/IFX-RootCA.cer"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) ECC Root CA",
+          "notAfter": "2043-07-25T23:59:59.000Z",
+          "sha256": "cfeb02fecd55ad7a73c6e1d11985d4c47dee248ab63dcb66091a2489660443c3",
+          "from": "Infineon/RootCA/Infineon OPTIGA(TM) ECC Root CA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) RSA Root CA",
+          "notAfter": "2043-07-25T23:59:59.000Z",
+          "sha256": "899e35474c9807eb4c7f2f7a12da0028fb250cd02154d0009fca7d9c66574f3b",
+          "from": "Infineon/RootCA/Infineon OPTIGA(TM) RSA Root CA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) ECC Root CA 2",
+          "notAfter": "2054-11-22T23:59:59.000Z",
+          "sha256": "ee0c827555c4e9012037df4257bb8aaa26084a17b13ede41cd7895c8d6c11190",
+          "from": "Infineon/RootCA/Infineon_OPTIGA(TM)_ECC_Root_CA_2.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) RSA Root CA 2",
+          "notAfter": "2054-11-22T23:59:59.000Z",
+          "sha256": "b413c71580af3ec5efe83fad31db2d4af4612355e3b01e50903b10763d738894",
+          "from": "Infineon/RootCA/Infineon_OPTIGA(TM)_RSA_Root_CA_2.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) ECC Root CA 3",
+          "notAfter": "2099-12-31T23:59:59.000Z",
+          "sha256": "5a84cc3476221cce5be81af8d755d175fea03d208b3412a231710c56774542fd",
+          "from": "Infineon/RootCA/OptigaEccRootCA3.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) Devices, CN=Infineon OPTIGA(TM) RSA Root CA 3",
+          "notAfter": "2099-12-31T23:59:59.000Z",
+          "sha256": "976b0579c016741b0003bf8055e920ab08f72abc819547b3480b0c141e956b70",
+          "from": "Infineon/RootCA/OptigaRsaRootCA3.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 16",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "462f02c540310b608883c0601248d202219aac0cff5d91ca7917c582536f7c11",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_16.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 17",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "cb1a77acd98db771d35b1977eb82485f0e0f64f6deb0577a97330b5b532eb7ed",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_17.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 21",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "014df370f125f4bc18c9fc4b41c17ec2311e8514fc9b622f5a633c10287c1ebd",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_21.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 22",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "d98eb3ae80509cb1fc0268899a0313fe39806e6ec7eec4df8675d89a7e82c0d0",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_22.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 23",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "8d6c6ba687cc56ee7e4ffe9b28b7cab6bb8b4e76adfccf555536bc6224efcb11",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_23.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 25",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "cbbc0439c1c48e4e1bee1904799be78cc321b41be4af6d961b26d191f948a0b7",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_25.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 26",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "5b0bcb05856cd0ad0fb731b943be33e1038ccd30e58d70dc12b9379c7aadd8b6",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_26.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 27",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "1e365f07b4259f65d5d88df37e76aa8570adcee46d3f11b1ccbdcc4dd7c559e4",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_27.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 28",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "8946af884ee7f508a4667c815ba44a8f94b68786999745bda3c40f4361e2aae5",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_28.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 29",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "fd9f74383f7a915755b5a656e6acde5a3c2e39bd2632ff03e4e8384f417e37cc",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_29.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 31",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "b0e1f7c8e4b1f66df38838f0f4e781941dfa3bf2bbad555526a553ccc96fd2e3",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_31.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 32",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "e557b5f5da2c194cf319290a59fc3991851fc03dab5204ecb12fd2de3bc0aea2",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_32.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 33",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "8bc4dc0a99b3660ed4895eb1b86e998926aa4946d7c3d6115e2e4d68ac2b7369",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_33.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 37",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "7e735db8b1ef56af29341b6451ff5a4aa9dc295970b65ace2f0d857cc4a6fa69",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_37.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 39",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "c86f46a81a2c48e98d34d6f03242d6bca107b1ec4e27ebd3d2a12f8f86318209",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_39.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 53",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "dae8b3c1bd0781786ffbe17355c0e35a4beec4eb08b3c9df091f4fe18429ee2e",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_53.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 55",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "3124c4d490e28dadd85ca91b638b9feef1e9588e3572a5cc1c9e3092c12b4818",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_55.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 63",
+          "notAfter": "2030-10-18T23:59:59.000Z",
+          "sha256": "db453a8f49a5d26f7f83d2f6c6f78b19f94d8f94abd8bfba35b17c90acfe1ee8",
+          "from": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_63.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 029",
+          "notAfter": "2037-08-21T13:00:53.000Z",
+          "sha256": "26203ada09d6b70ac18ab180c30dcda8c1292d89a435eaa56e1d822b1f598764",
+          "from": "Infineon/IntermediateCA/Infineon OPTIGA(TM) RSA Manufacturing CA 029_Issued_by_RootCA.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 030",
+          "notAfter": "2037-08-21T13:01:20.000Z",
+          "sha256": "9e7d97e7de353cd65b5d3b8387d368e9c4d90f98132ac0fabc2a9cc983fd80de",
+          "from": "Infineon/IntermediateCA/Infineon OPTIGA(TM) RSA Manufacturing CA 030_Issued_by_RootCA.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 033",
+          "notAfter": "2037-08-21T13:01:49.000Z",
+          "sha256": "571eb95375cb62b929340f691d7450b2f2447416b838b1a6e8bf2893ab8d503b",
+          "from": "Infineon/IntermediateCA/Infineon OPTIGA(TM) RSA Manufacturing CA 033_Issued_by_RootCA.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 034",
+          "notAfter": "2037-08-21T13:02:18.000Z",
+          "sha256": "f251134a62f1862992855707c4b3fe5155d47691228fc2a3477014cc30c0d888",
+          "from": "Infineon/IntermediateCA/Infineon OPTIGA(TM) RSA Manufacturing CA 034_Issued_by_RootCA.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 035",
+          "notAfter": "2037-08-21T13:02:43.000Z",
+          "sha256": "6b8b6216038ba483316f61581140d4620994db933cea157108eb73301f547673",
+          "from": "Infineon/IntermediateCA/Infineon OPTIGA(TM) RSA Manufacturing CA 035_Issued_by_RootCA.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 000",
+          "notAfter": "2033-07-26T13:56:26.000Z",
+          "sha256": "284bb4914b65e93a4b421f776686e3277aeac763473def1ac9576a17e2a741e8",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_000.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 001",
+          "notAfter": "2033-07-29T08:16:26.000Z",
+          "sha256": "d96d40d527e1114c2440be8e13bf93a31764f3e1d1b15d39c91891828ebd2485",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 002",
+          "notAfter": "2033-10-07T08:07:41.000Z",
+          "sha256": "9106b4ccdb613ecb0425a264ce2d2ee81eabf262a710f9b03a10cb554fe70c8d",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 003",
+          "notAfter": "2034-11-24T15:49:47.000Z",
+          "sha256": "64e7b27b3e4de9bc9b6ebfb23bf4f29aa71380de337229025a11ced4ae4d798b",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 004",
+          "notAfter": "2034-11-24T15:50:15.000Z",
+          "sha256": "f60ed46d31b4280e1b6a159d46b3f241bbc2f3303e146b11250ad2f0c162b491",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 005",
+          "notAfter": "2034-11-24T15:50:40.000Z",
+          "sha256": "2feed29d18c2f571134f87464bd53fc835da8132f94ede396c86062ddcd5be64",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_005.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 006",
+          "notAfter": "2034-11-24T15:51:06.000Z",
+          "sha256": "8dd5ec1f0aa56e8f3cc607ac895138cc1aa27220320a7037aa4ac330a1cccc19",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_006.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 007",
+          "notAfter": "2035-04-20T15:31:43.000Z",
+          "sha256": "82b5355eed457a3b3a9a2057cc587834d06db33ca04fa9f36c6203af58ed0087",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_007.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 008",
+          "notAfter": "2035-04-20T15:34:47.000Z",
+          "sha256": "dd7c06f88df1aff7d526246bbf7cfee6960e4eac566e2511a790c46543aad93c",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_008.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 009",
+          "notAfter": "2035-08-27T12:31:46.000Z",
+          "sha256": "18fb3a6b88cacf32eb70cc072de3c45150ebb8ff6deac646bac926081865aa1f",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_009.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 010",
+          "notAfter": "2035-08-27T12:32:13.000Z",
+          "sha256": "aa6a2b54bfbf090b6a2a7abbe494a2b6b47520e1c2ed7807ba54efc99cbdb5c9",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_010.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 011",
+          "notAfter": "2035-08-27T12:32:39.000Z",
+          "sha256": "b559a84e6332a7b4e32b4d3739e372e3c517ba5a4ccffee1daaf80bc641628ee",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_011.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 012",
+          "notAfter": "2036-05-11T13:57:02.000Z",
+          "sha256": "d3ca5e98cb269e7ca7685e0d102e62ed758f27c50083eb3df9c93328d63ac4e2",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_012.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 013",
+          "notAfter": "2036-05-11T13:57:59.000Z",
+          "sha256": "2a5ece0599257598965f038585e4f6b8f6b3937371867bc97b5a407d0f0fc35d",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_013.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 016",
+          "notAfter": "2036-08-02T13:54:53.000Z",
+          "sha256": "93deddc3f9163cc5b5d96efdbb02c345cea4cb162063fbdb477f17bc18f6a0d7",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_016.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 017",
+          "notAfter": "2036-08-02T13:55:17.000Z",
+          "sha256": "37152e2ff0b47fc344cba69c87e5ee49482c97df302978d65609045ac1171580",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_017.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 018",
+          "notAfter": "2036-08-02T13:55:37.000Z",
+          "sha256": "fca2419f7db6d18b49d839131921b38f71e9034bb53b5583d08b3a6a4d4cab2a",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_018.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 019",
+          "notAfter": "2036-08-02T13:56:06.000Z",
+          "sha256": "783a277bc48e787c74fe8bd39e5c266ebb583468785f79fd89173193390bfa21",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_019.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 020",
+          "notAfter": "2037-03-21T13:38:02.000Z",
+          "sha256": "c0069f27413dc90854ef8fc3cda6066273572a9a2ba980dbf7021121fecd9beb",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_020.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 022",
+          "notAfter": "2037-03-21T13:39:07.000Z",
+          "sha256": "e16bddf5b812138bee2c29643445a7f6e03ca11b6b25b1a23f9b6edf5563d1e4",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_022.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 023",
+          "notAfter": "2037-03-21T13:39:41.000Z",
+          "sha256": "2e65e20ce1ec1e887b852151c06cf3b5fd59021e6b1e2576e911e00bb11aad52",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_023.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 024",
+          "notAfter": "2037-03-21T13:40:10.000Z",
+          "sha256": "a4335ac8ebcbad85cdbafd8051058c84410518e0965448bc1a82952341bd5cb4",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_024.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 025",
+          "notAfter": "2037-03-21T13:40:45.000Z",
+          "sha256": "4563cef6ebdc352615f18a7533caa1cff4e408b6ef871eeab7cd532465465c46",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_025.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 026",
+          "notAfter": "2037-03-21T13:41:11.000Z",
+          "sha256": "0b62db90ed653d2937509aca08e02637ba2fb2753007a4ecd2eb9ed73b460682",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_026.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 029",
+          "notAfter": "2037-08-21T12:49:21.000Z",
+          "sha256": "de999c113baaed11133feb7731898c1f43dedbd5a75bb65d1662df46d5568acf",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_029.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 030",
+          "notAfter": "2037-08-21T12:54:05.000Z",
+          "sha256": "0821fccbe2e3208fe0f131244d3466ef7f15c30bc6787d245339289fab32c6e1",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_030.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 033",
+          "notAfter": "2037-08-21T12:54:44.000Z",
+          "sha256": "8f3efb8a75acb5ba5133aad98bd108859ccafe95852c476a324f70df31b88836",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_033.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 034",
+          "notAfter": "2037-08-21T12:55:11.000Z",
+          "sha256": "504ff6a327a67e1025b1efdf1bce71ec5f38a4be68256def40bbdec2cce052f1",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_034.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 035",
+          "notAfter": "2037-08-21T12:55:37.000Z",
+          "sha256": "6604c0c04e34d5e1b402abdba2cdfc1ebf126bee8aaf2daa7e6cced7065a0f20",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_ECC_Manufacturing_CA_035.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 000",
+          "notAfter": "2033-07-29T08:11:40.000Z",
+          "sha256": "7b1a67175117a45c7de1f41b6abceae97b69fd73bf322a84a7c43cae8efb6664",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_000.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 001",
+          "notAfter": "2033-07-29T08:13:36.000Z",
+          "sha256": "a51843c113fa210bc0a847a26b37af109a88c0de39e53ee1fe955788d4dc63e0",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 002",
+          "notAfter": "2033-10-07T08:04:07.000Z",
+          "sha256": "64d2093bdd13dcc3cd32ffd89aee0bb8b0d6622e692bfb19f5a83e4444977e46",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 003",
+          "notAfter": "2034-11-24T15:37:16.000Z",
+          "sha256": "5bd8f015e92dd368384efd0352cf5b3bb8a0f42db3a017392dee45926b9d0750",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 004",
+          "notAfter": "2034-11-24T15:39:16.000Z",
+          "sha256": "a9cc693b93caac5161281e44fc7ef7e0bfb6efe0e78b9fe62b3120a751bc97d3",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 005",
+          "notAfter": "2034-11-24T15:39:52.000Z",
+          "sha256": "6763e330ee51a10d6804baec81e021e05a912e68afed782d8b17848e09fa802f",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_005.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 006",
+          "notAfter": "2034-11-24T15:40:25.000Z",
+          "sha256": "a57a114386d219cca5e33acb965447f2bb9b75d8efd223ea06aef746c4684a24",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_006.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 007",
+          "notAfter": "2035-04-20T15:23:36.000Z",
+          "sha256": "cfc15fe7d8cd7ae960db3fc148a97f396f791447404c53931fe97a38a50b7576",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_007.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 008",
+          "notAfter": "2035-04-20T15:27:52.000Z",
+          "sha256": "96633eff18aaece15a646aa3178759ce8b6086d341c6fd1b2a3f1798cba2290b",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_008.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 009",
+          "notAfter": "2035-08-27T12:27:38.000Z",
+          "sha256": "9aac4a6ddc6ba1fe1a99322f8b6ae72f83ab9f17c7caf664d03d02619788e300",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_009.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 010",
+          "notAfter": "2035-08-27T12:28:22.000Z",
+          "sha256": "0fef986eb5e34a2df81420707c2452abdfe386a3038f23d7568fbcc3cf54bac6",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_010.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 011",
+          "notAfter": "2035-08-27T12:28:57.000Z",
+          "sha256": "a83379f92a341beb61b67f03506644940feb4b85ea504a9d2213bca52c889f89",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_011.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 012",
+          "notAfter": "2036-05-11T13:48:00.000Z",
+          "sha256": "45fb733d50fd88b6b499a9772784ad2d8f073eb49799c7186709aae662f97348",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_012.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 013",
+          "notAfter": "2036-05-11T13:54:34.000Z",
+          "sha256": "88a45b6d493d8864b83792011aa053b81e343ec4e26b6db3fc2f0df4f3982dd9",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_013.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 016",
+          "notAfter": "2036-08-02T13:50:24.000Z",
+          "sha256": "658ac01a984672bc9573cd7cf0a8a1a49b61b46ca98603ef424a88ae758cee37",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_016.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 017",
+          "notAfter": "2036-08-02T13:51:03.000Z",
+          "sha256": "6935eaa62262613b08906e8cd3586bdbcd3b6b084e09f3e92b3d636a9616c8bf",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_017.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 018",
+          "notAfter": "2036-08-02T13:51:24.000Z",
+          "sha256": "622c3dee97942ba7fdaa7392de6c591965bd3285f6e40a4584ca7ca308576652",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_018.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 019",
+          "notAfter": "2036-08-02T13:52:04.000Z",
+          "sha256": "584d50711f86655c004be98e79e9472cfff2141c22c0e37604dc8b1f0ba2d9c8",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_019.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 020",
+          "notAfter": "2037-03-21T13:21:07.000Z",
+          "sha256": "c2329f6fc23b8e189360a587c35a6ffacef97614f16aba83676155762aaf0665",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_020.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 021",
+          "notAfter": "2037-03-21T13:22:13.000Z",
+          "sha256": "be3d60cdcb594b28097cb643f5e7ccacb4af36ffa0c1863fa292389681aad067",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_021.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 022",
+          "notAfter": "2037-03-21T13:28:06.000Z",
+          "sha256": "d3c4ec52ed9289842c4f4e1e31fb23c4b03cc91163f9f3748b8a706d81113bed",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_022.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 023",
+          "notAfter": "2037-03-21T13:29:42.000Z",
+          "sha256": "7dc49708bd14d3b3d499ee0420d74f63e22a4850005491ff2bfca3ea25ed6bb8",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_023.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 024",
+          "notAfter": "2037-03-21T13:30:36.000Z",
+          "sha256": "38b33b2a6b5f3345a2ab4c049edc19999315bf88427cbf30e9565db3619b6ee6",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_024.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 025",
+          "notAfter": "2037-03-21T13:31:08.000Z",
+          "sha256": "63db76f0ed66a509feced7c19fe00ef67ad7d519a9771fd4a645b41cc8b63956",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_025.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 026",
+          "notAfter": "2037-03-21T13:31:56.000Z",
+          "sha256": "1aa71d9c988743e5540e35dae17a8a50702e2a3db0f033a56e50dd1eeb682e49",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_RSA_Manufacturing_CA_026.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 039",
+          "notAfter": "2038-03-23T12:00:42.000Z",
+          "sha256": "22b16aa545f02ef55af8868f8af30214a22ee5b5542f9ae9dec2a24110ee8e57",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_039.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 040",
+          "notAfter": "2038-08-20T13:12:27.000Z",
+          "sha256": "ce0f7129f5dafa559814687923a95c09de795b9acea35f446d5271bcc1efabf5",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_040.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 041",
+          "notAfter": "2038-08-20T13:13:06.000Z",
+          "sha256": "6071951bed6f38f991a941788d2990ce4dd7a1eda55a5a8b4671518006597aa0",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_041.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 042",
+          "notAfter": "2038-08-20T13:13:46.000Z",
+          "sha256": "b0756a2cd3d1fda524409d7de5c064405b3c3e8792f8358435292ab2e7248543",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_042.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 054",
+          "notAfter": "2041-03-18T11:49:40.000Z",
+          "sha256": "e3bc479138cf7285ee0da6ee38579210049707d7f4c6829a17eb84704d788420",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_054.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 056",
+          "notAfter": "2041-06-17T11:38:10.000Z",
+          "sha256": "600f0f05414e4cd0e7427fa820cc9229bcf15e20767645d76be349b6a15a4c35",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_ECC_CA_056.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 039",
+          "notAfter": "2038-03-23T11:50:36.000Z",
+          "sha256": "03cf886dddad78805f9bd567435b253f7ce14fd06c8fbedc95c3da3cb18c06b1",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_039.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 040",
+          "notAfter": "2038-08-20T12:36:24.000Z",
+          "sha256": "1fbe9d46e9dc098e54bcbbfb79f0c8b0022768566630dd91717d044325b71352",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_040.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 041",
+          "notAfter": "2038-08-20T12:38:44.000Z",
+          "sha256": "ecf9c2a461b15618fab57b50be876a04e64b1b46f07f7752638560ff1c9a9229",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_041.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 042",
+          "notAfter": "2038-08-20T12:40:01.000Z",
+          "sha256": "b51df89142eac690cc57555da0e534a16378b302e0bad3edf0631a328b14ae98",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_042.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 054",
+          "notAfter": "2041-03-18T11:52:42.000Z",
+          "sha256": "70c83e5b3a4c92fa9bb4aa49d501fe969a466d935b2ec41a7b4de5ac7c013913",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_054.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 056",
+          "notAfter": "2041-06-17T11:42:12.000Z",
+          "sha256": "f7fe3ceff0dde3709b1cc6d76bea1d48bdcace5bd66061a94751fe69329b174e",
+          "from": "Infineon/IntermediateCA/Infineon_OPTIGA(TM)_TPM_2.0_RSA_CA_056.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 036",
+          "notAfter": "2038-03-23T11:55:47.000Z",
+          "sha256": "2cbf6d6c3994470aecd2b1f87f5d211108d1e0a4a81ed9cba26bd298965de01c",
+          "from": "Infineon/IntermediateCA/Infineon-OPTIGA-ECC-Manufacturing-CA_036-Issued_by_RootCA.crt-C-v01_00-EN.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 036",
+          "notAfter": "2038-03-23T11:36:34.000Z",
+          "sha256": "216c47d277fc40ce90f0868321cb5ef591fc1dd8d0e4fda1a2c83c17be01b07e",
+          "from": "Infineon/IntermediateCA/Infineon-OPTIGA-RSA-Manufacturing-CA 036_Issued_by_RootCA.crt-C-v01_00-EN.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 029",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "766507db64abf98e14d1c3c754d09d480b981c0f782a2f397e58811808b9d759",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA029.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 030",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "9ec09c91c46097d754cad744342d8b634b278dc58095f04839214fd90a7d499a",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA030.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 033",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "bef3b640928098b59e8114d4382a51e64ce85f1dbec09ecd23e9deead020c1f4",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA033.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 034",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "9dc686a5e4afa415001c209c1aedd27622a53b09574e63d42296fdd617e5da97",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA034.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 035",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "1f61aed7c9d57bae64f2ec756c6b7dbdeaa1e33b6754e1911ea42c59cdec14d4",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA035.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) ECC Manufacturing CA 036",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "6d2e7e19a2fba84bf85266cc23276b78e33fdf505cba6d7790c52cf74f011f4a",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA036.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 039",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "a0d7fb8fe2a734357bda977aac363171a2422d30d07090b1f1077918042d8b78",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA039.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 042",
+          "notAfter": "2043-02-08T15:39:27.000Z",
+          "sha256": "d137d82c85cfc0285f707a8da2966d543e8133c54495c5a6cfc34ed2b94fcf44",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA042.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 052",
+          "notAfter": "2041-06-17T11:35:47.000Z",
+          "sha256": "e34d823f3ebe4e22af65db89cc3689215e5b690f3a2ecd4936ae426cf5f1e856",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA052.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 053",
+          "notAfter": "2099-06-05T11:14:05.000Z",
+          "sha256": "af0743da8deb96a01bd8f24aeefbb6f3ca20557a85712b1906ca2bb2292d45f4",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA053.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 055",
+          "notAfter": "2041-04-13T11:36:52.000Z",
+          "sha256": "d751fcbd0b8c8b799f2e6d95a0d6ff2e5d4084a04d5541c4fc91559d19fc95fd",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA055.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 061",
+          "notAfter": "2042-03-29T08:26:36.000Z",
+          "sha256": "2a87abc0e2a2f2871b734077e5ea15f4fa0b357eee29f8fa835c8457877f092f",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA061.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 062",
+          "notAfter": "2042-03-29T08:27:40.000Z",
+          "sha256": "ecb83698a1168441bc6772154bc46aa6f7e157fec14700c00418376a0a7bd992",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA062.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 064",
+          "notAfter": "2043-07-03T12:19:55.000Z",
+          "sha256": "f3b7006e2f8d11c4baa57d4e68476169d0c1ee8ca9b9f4a2b3ef0130e5d72515",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA064.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 065",
+          "notAfter": "2043-07-03T12:31:17.000Z",
+          "sha256": "8313d066a95e14e63c5ac712edf453068d1c2f5bef6da33a5d72578c8eb24aa1",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA065.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 067",
+          "notAfter": "2099-07-03T12:47:20.000Z",
+          "sha256": "f0459437c38f9210be06d3c5194e4e06b5153595861bfeec7b35845bcb915f66",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA067.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 069",
+          "notAfter": "2044-10-22T08:53:24.000Z",
+          "sha256": "08f02c0cf5e8ae833001517cdaee51816b8eda3d198d6c05ab93c863a5b79483",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA069.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 070",
+          "notAfter": "2044-10-22T08:54:22.000Z",
+          "sha256": "936e535cd6a027e14b9d536c0b4f968430bae34396e16d1fe31c85a632647900",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA070.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 072",
+          "notAfter": "2099-12-22T08:46:01.000Z",
+          "sha256": "8a68b3bb89e04d6ba25e85f68d9582c01d021fe2d1380094258331265f62d76e",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA072.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 079",
+          "notAfter": "2046-01-16T10:42:49.000Z",
+          "sha256": "f16f4aa303aa3fd16ed8c801f963494284e9e2b76c35f2910855f9f3eb540c08",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA079.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 080",
+          "notAfter": "2046-01-16T10:43:15.000Z",
+          "sha256": "b86f35ed594350cd24b137f0b36e36e71c6cedcf8b969533330dbfdd38fcb4b4",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA080.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 ECC CA 082",
+          "notAfter": "2099-12-16T11:08:14.000Z",
+          "sha256": "ff611314cd8497c55356b89bd401d976ae8fb1df5259809c27ea10da8cf27638",
+          "from": "Infineon/IntermediateCA/OptigaEccMfrCA082.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 029",
+          "notAfter": "2043-02-08T15:22:48.000Z",
+          "sha256": "fc7160eaa18a03722b534aeaa4167fee44555a9f1d8e4d725d1b69cafd280946",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA029.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 030",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "98b11c0eed7c51bfbfa7a4f131cb84a8230c395c5d2f81b1e171977e6ede73ac",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA030.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 033",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "351f8c7122385e2b1532ee55b6f2e8c7d203ca73820df8f7bb7bad1cd088b460",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA033.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 034",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "aa425299e6fae242cc7d5abf3d3b9bb456d8df985366bfdc920352bf261def05",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA034.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 035",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "9efd7b3c07f9f71757facec5472b9e8a808ba15e6dda7ae945aaf3ce5e79be52",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA035.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM) TPM2.0, CN=Infineon OPTIGA(TM) RSA Manufacturing CA 036",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "cacee4bb37b35ea86060818aac5037d26ebf41af42e9b8448da2565ad3396bb9",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA036.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 039",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "94c2f74fbac0536cd78f6403508e4f1cd12a125d6be573000c45bc9ac4db3e6b",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA039.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 042",
+          "notAfter": "2043-02-08T15:28:15.000Z",
+          "sha256": "753dc25c0edc22915e988db5c4810a3867793a009eb7e49b81d0443f6bca4a75",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA042.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 052",
+          "notAfter": "2041-06-17T11:41:02.000Z",
+          "sha256": "0a09f21218965091f7db189ad174eb2472dce50aad99d142f5a2c2da68f2d6c6",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA052.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 053",
+          "notAfter": "2099-06-05T11:16:45.000Z",
+          "sha256": "708d96768e51e11b82c2c41a11b502cfcb8e4a656b12e26c9418b1c747f05c66",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA053.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 055",
+          "notAfter": "2041-04-13T11:41:09.000Z",
+          "sha256": "f5334ebd117df16116ed8a0cbf96c9be9fa0a3d95e2fc7f929701b4ee7475048",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA055.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 061",
+          "notAfter": "2042-03-29T08:30:47.000Z",
+          "sha256": "6fa464e78493ecccb2b0c3284f5fc628403be2b37c6b6af7923c151041d48b26",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA061.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 062",
+          "notAfter": "2042-03-29T08:31:31.000Z",
+          "sha256": "919d3d0d2f07f749c6755b0488dd46599741532c8a71f05fe6c603b0d5cacd54",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA062.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 064",
+          "notAfter": "2043-07-03T12:29:01.000Z",
+          "sha256": "0ac8ba7a0cfc281e373d7ad728dce530a68437677805adb431a06516429c8162",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA064.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 065",
+          "notAfter": "2043-07-03T12:29:21.000Z",
+          "sha256": "aa68b599330f05537eaa29ec754edc51e37d860ab3bef88bd6993ec25a3ec22e",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA065.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 067",
+          "notAfter": "2099-07-03T12:44:38.000Z",
+          "sha256": "462b4a78754dc60177ae062d46ae72cdaf7b541729a2f610af71e6496f7fb32c",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA067.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 069",
+          "notAfter": "2044-10-22T08:50:11.000Z",
+          "sha256": "276117bab51b1368b07b6c2b42a7f7c5aa182dcfc975c4066fa6d441e8f8ed27",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA069.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 070",
+          "notAfter": "2044-10-22T08:51:02.000Z",
+          "sha256": "51b8a0de45e6126fe2beeeb0e011ccc93f6714cbb3d4620af07c172af710dc89",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA070.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 072",
+          "notAfter": "2099-12-22T08:43:50.000Z",
+          "sha256": "61558799fc0e70010a3331d1b5b7d040b7c1f57d79055c61b0664c98d1bad7ee",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA072.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 079",
+          "notAfter": "2046-01-16T10:40:48.000Z",
+          "sha256": "632a0d85b225d33677f72e813092bdf629da48b43ee7883cf2e9af108532f144",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA079.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 080",
+          "notAfter": "2046-01-16T10:41:13.000Z",
+          "sha256": "d6961a8b1c892201e6b1b7a05f061761e6697d4011270413c0bb781def210f6c",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA080.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, O=Infineon Technologies AG, OU=OPTIGA(TM), CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 082",
+          "notAfter": "2099-12-16T11:06:56.000Z",
+          "sha256": "89e806250f7f7deda194a738a5be50dde610efa754ff4345e4b158f0fd90636f",
+          "from": "Infineon/IntermediateCA/OptigaRsaMfrCA082.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=DE, ST=Bavaria, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Root CA",
+          "notAfter": "2030-10-24T23:59:59.000Z",
+          "sha256": "7df2c3751c03ce003e99174d9cb2559f57a1b05b1920dd30bb6f8dfcf17f5e62",
+          "from": "Infineon/RootCA/IFX TPM EK Root CA.cer"
+        }
+      ]
+    },
+    {
+      "vendor": "STMicro",
+      "kind": "discrete",
+      "file": "discrete/stmicro.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "OU=GlobalSign Trusted Computing Certificate Authority, O=GlobalSign, CN=GlobalSign Trusted Platform Module Root CA",
+          "notAfter": "2049-03-18T10:00:00.000Z",
+          "sha256": "f27bf02c6e00c73d915eeb6a6a2f5fbf0c31ae0393149e6b5c31e41b113841c3",
+          "from": "STMicro/RootCA/GlobalSign Trusted Computing CA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "OU=GlobalSign Trusted Computing Certificate Authority, O=GlobalSign, CN=GlobalSign Trusted Platform Module ECC Root CA",
+          "notAfter": "2038-01-19T03:14:07.000Z",
+          "sha256": "5a8c7b5eb888cfce9322068e80e82b28b554ffeb7fdc9638dcb3763077401d26",
+          "from": "STMicro/RootCA/GlobalSign Trusted Platform Module ECC Root CA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE ECC Root CA 02",
+          "notAfter": "9999-12-31T00:00:00.000Z",
+          "sha256": "fd1e7b68accd825636b27b3177c67402d463a7f04c97b6c47ab705fcdc1a04f6",
+          "from": "STMicro/RootCA/STSAFE ECC Root CA 02.cer"
+        },
+        {
+          "role": "root",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE RSA Root CA 02",
+          "notAfter": "9999-12-31T00:00:00.000Z",
+          "sha256": "c8f179943356e13d9d84b100201cefabbf408880241e5329e60d950ce1dea623",
+          "from": "STMicro/RootCA/STSAFE RSA Root CA 02.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC Intermediate CA 01",
+          "notAfter": "2035-12-31T23:59:59.000Z",
+          "sha256": "015bcfc3943540d18691bf95c939b0e560b293a835b1c32ff1dced975376ac42",
+          "from": "STMicro/IntermediateCA/STM TPM ECC Intermediate CA 01_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC Intermediate CA 02",
+          "notAfter": "2038-11-22T00:00:00.000Z",
+          "sha256": "695ad0f0236f047c2ccc9abacaf4d07a3e91251912cf4ac65aa49c8fff352bc5",
+          "from": "STMicro/IntermediateCA/STM TPM ECC Intermediate CA 02.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC Intermediate CA 03",
+          "notAfter": "2038-11-22T00:00:00.000Z",
+          "sha256": "a4b4895991223ea2b957152e0ff0b126e8ba8ee1a563d93bc600dc86dff41095",
+          "from": "STMicro/IntermediateCA/STM TPM ECC Intermediate CA 03.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC384 Intermediate CA 01",
+          "notAfter": "2038-11-22T00:00:00.000Z",
+          "sha256": "4a13dd436b11d705ecfbea7d7027b7a45dee1afcb53a0ed8640e13578c64bc69",
+          "from": "STMicro/IntermediateCA/STM TPM ECC384 Intermediate CA 01.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC384 Intermediate CA 02",
+          "notAfter": "2038-11-22T00:00:00.000Z",
+          "sha256": "97a13b81a111ad41658664263bc1ca450a9245cb0bfb15717f230eacad02c0bd",
+          "from": "STMicro/IntermediateCA/STM TPM ECC384 Intermediate CA 02.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 01",
+          "notAfter": "2029-12-31T00:00:00.000Z",
+          "sha256": "6c3ba9f3ce8f095179e42b015fa1e81cf6e260e140fc5ffcb0dd418da5acafd7",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 01_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 02",
+          "notAfter": "2029-12-31T00:00:00.000Z",
+          "sha256": "dc62a3b996414573df20bcaf013f0aae47b102e599f63b23c9bf0b6448a60b53",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 02_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 03",
+          "notAfter": "2029-12-31T00:00:00.000Z",
+          "sha256": "6b26c20162a9de2d0f69dbc8c04b95c127f5ca5b153d7a01a7a6cf9ab88ad834",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 03_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 04",
+          "notAfter": "2039-12-31T00:00:00.000Z",
+          "sha256": "25e87e5f9d8215e78b1a916d5d529b5ad9b3bfb52dbbf2d8c3ab211f6124caca",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 04_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 05",
+          "notAfter": "2035-12-31T00:00:00.000Z",
+          "sha256": "870fc181411d24c81e84ec45cd9bcc87b41253342ed688eee6d9139b31b44002",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 05_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 06",
+          "notAfter": "2038-01-01T00:00:00.000Z",
+          "sha256": "9343d2d7f3c8708526e6f224563bebda23f534c518f2a1a421ebcce01557247c",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 06.CER"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Intermediate CA 07",
+          "notAfter": "2038-01-01T00:00:00.000Z",
+          "sha256": "19bbcef93fc0877ae66eba97ade4e15c3d77054f39cd1183486f12b8fa5c42b2",
+          "from": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 07.CER"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE TPM ECC Intermediate CA 10",
+          "notAfter": "2042-01-01T00:00:00.000Z",
+          "sha256": "af644ce30a372fc59d0185bcc515779fea77e7d662281b39b36c32bb36b2f3a9",
+          "from": "STMicro/IntermediateCA/STSAFE TPM ECC384 Intermediate CA 10.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE TPM ECC Intermediate CA 11",
+          "notAfter": "2042-01-01T00:00:00.000Z",
+          "sha256": "7954a80c48f59d1bbcbc5de39da42de963bf9d6fce2e7b0614fec0abed7d0c61",
+          "from": "STMicro/IntermediateCA/STSAFE TPM ECC384 Intermediate CA 11.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE TPM RSA Intermediate CA 10",
+          "notAfter": "2042-01-01T00:00:00.000Z",
+          "sha256": "60f5d4cb0974202e78a9d3d2a6e0b13d1390d944a23db5aaf867ff8f8a710b74",
+          "from": "STMicro/IntermediateCA/STSAFE TPM EK Intermediate CA 10.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STSAFE TPM RSA Intermediate CA 11",
+          "notAfter": "2042-01-01T00:00:00.000Z",
+          "sha256": "77a174e9e1c47cb788e31ac8f39a65d07c0cd35f850da8addf427c14810af88b",
+          "from": "STMicro/IntermediateCA/stsafetpmrsaint11.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM EK Root CA",
+          "notAfter": "2039-12-31T23:59:59.000Z",
+          "sha256": "f8e37a86b689a20a6cc0c40cc3f81fb130fa9f44ce7ffa60d62590aaf87273a9",
+          "from": "STMicro/RootCA/ST TPM Root Certificate.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CH, O=STMicroelectronics NV, CN=STM TPM ECC Root CA 01",
+          "notAfter": "2038-01-19T03:14:07.000Z",
+          "sha256": "c541d7e5b9e3f935621acbd403896225ec641036c9ae3b5f7ac793a606ff9b79",
+          "from": "STMicro/RootCA/STM TPM ECC Root CA 01.crt"
+        }
+      ]
+    },
+    {
+      "vendor": "Nuvoton",
+      "kind": "discrete",
+      "file": "discrete/nuvoton.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "CN=NPCTxxx ECC521 RootCA, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2053-04-27T16:36:58.000Z",
+          "sha256": "083e7bd13e8fe0bb9b0c64db9e0c8356681df65714d2d5c4925eb98ae1369d40",
+          "from": "Nuvoton/RootCA/NPCTxxxECC521RootCA.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NTC TPM EK Root CA 01 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2032-07-11T16:29:30.000Z",
+          "sha256": "56b67007f448bd5c5746299fcdea9323971bbdaaefd8e3b9b84773abc888c90e",
+          "from": "Nuvoton/RootCA/NTC TPM EK Root CA 01.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NTC TPM EK Root CA 02 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2032-07-11T16:33:24.000Z",
+          "sha256": "8fac94b462b37acb84431bdc71395585caf518c17f656051ff9c4347a4726ed9",
+          "from": "Nuvoton/RootCA/NTC TPM EK Root CA 02.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NTC TPM EK Root CA ARSUF 01 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2034-03-28T18:34:38.000Z",
+          "sha256": "9e0434093fd0d4f8b927af1f4f6cffbd75f0584af4ade939bbd6851227fa4263",
+          "from": "Nuvoton/RootCA/NTC TPM EK Root CA ARSUF 01.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 1013 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2035-05-07T08:43:25.000Z",
+          "sha256": "38f8c5012d1b1321e833376611612b5b1cde466574cabc67fd2262e3b8da2f6d",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 1013.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 1014 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2037-08-17T11:03:36.000Z",
+          "sha256": "ad392726a92f62e5b7b112460c4e89f9fcbd523d08f39dcb928210ce8d4f676f",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 1014.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 1110 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2035-05-07T08:43:33.000Z",
+          "sha256": "2782e51a95e86d9557fe4204316cf805bd6f5898f81f9732e944d742bcdc5f54",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 1110.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 1111 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2037-08-17T03:32:53.000Z",
+          "sha256": "e38c280f7c0e0b49f31efc7531032bb6a86c3fba4eb89beb1d510eaa4510ae4a",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 1111.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NuvotonTPMRootCA1210, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2051-07-27T02:52:15.000Z",
+          "sha256": "ba70a6ea7b77c7fee8947a07b1e70e0b26d39ce5e6307f63d5e4b9507f19a157",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 1210.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2010 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2035-04-19T06:59:19.000Z",
+          "sha256": "970b1cb098896f0d31be45dd299ed31f1640689f7c1618d7370cd71b6eb97560",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2010.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2011 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2037-09-07T07:10:12.000Z",
+          "sha256": "ab6005053c48534c46f54d2afbbd300a99f7b0e3ab1786034cb0785ca081a7ba",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2011.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2012 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2041-03-19T07:58:02.000Z",
+          "sha256": "dc79aaba3d09f42a9da4ecd91db0289214e56c16e4201be6ae67433ad273c6dc",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2012.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2110 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2035-10-15T04:32:00.000Z",
+          "sha256": "4aebe77a51ed29959a7f9f5e07a24a558dee8167f3985d724995a541c258dfda",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2110.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2111 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2037-09-07T07:09:49.000Z",
+          "sha256": "cd8185ff8995ed09811970090a8c36fafab34ef87f47fa51fdb9ecf95c9c2e04",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2111.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=Nuvoton TPM Root CA 2112 + O=Nuvoton Technology Corporation + C=TW",
+          "notAfter": "2041-03-19T07:58:06.000Z",
+          "sha256": "66e3a1013d4f697700f731e7d68c69b58351f90ec9580d85862d020ab4abf1af",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2112.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NuvotonTPMRootCA2210, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2052-03-07T05:50:33.000Z",
+          "sha256": "fc61abbc18100f460205ebe09d8c3e6995ac2be2234344a7facb62e15f9a7584",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2210.cer"
+        },
+        {
+          "role": "root",
+          "subject": "CN=NuvotonTPMRootCA2211, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2052-03-07T07:06:25.000Z",
+          "sha256": "2bbc5db224b8f28a6d2cf336d4da7ab21c8c490e3d60ef497801dc0b6ac00227",
+          "from": "Nuvoton/RootCA/Nuvoton TPM Root CA 2211.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "CN=NPCTxxx ECC384 LeafCA 012110, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2053-05-02T08:21:41.000Z",
+          "sha256": "bf4cd3d1224b5d3f954991992ef30f91a34f7a880fabae75ad10184594ddf42b",
+          "from": "Nuvoton/IntermediateCA/NPCTxxxECC384LeafCA012110.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "CN=NPCTxxx ECC384 LeafCA 012111, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2053-05-02T08:30:06.000Z",
+          "sha256": "30dd089c936d158c4515fb5cf00e0ee3f8f5ea4bc7d4844d4dec6ef23d040fc8",
+          "from": "Nuvoton/IntermediateCA/NPCTxxxECC384LeafCA012111.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "CN=NPCTxxx ECC384 LeafCA 022110, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2053-05-04T08:16:59.000Z",
+          "sha256": "99517a0395f95ea8422abe75997f4be1107c0249749407f4fe1de3c1e5a43dcc",
+          "from": "Nuvoton/IntermediateCA/NPCTxxxECC384LeafCA022110.cer"
+        },
+        {
+          "role": "intermediate",
+          "subject": "CN=NPCTxxx ECC384 LeafCA 022111, O=Nuvoton Technology Corporation, C=TW",
+          "notAfter": "2053-05-04T08:23:33.000Z",
+          "sha256": "aa9a1682088775b6c2558c89a891591713ee0f23adada04e17d001a7fbbd55d0",
+          "from": "Nuvoton/IntermediateCA/NPCTxxxECC384LeafCA022111.cer"
+        }
+      ]
+    },
+    {
+      "vendor": "NationZ",
+      "kind": "discrete",
+      "file": "discrete/nationz.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Root CA",
+          "notAfter": "2047-05-13T00:00:00.000Z",
+          "sha256": "1293d71d6f61c86b98102fd3d4085ff12538f108e925489c0d545059e5f89c36",
+          "from": "NationZ/RootCA/EkRootCA.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC ROOT CA 001",
+          "notAfter": "2059-03-27T00:00:00.000Z",
+          "sha256": "6ccf8a8a803d07a002a15d4889ffa0b125e4a82a1fe4211db3c6e8592919f9dc",
+          "from": "NationZ/RootCA/NSEccRootCA001.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA ROOT CA 001",
+          "notAfter": "2059-03-27T00:00:00.000Z",
+          "sha256": "72ca00612395af027cd84c5514219f110e964dfa0bfc1efbb3ac147e3b173971",
+          "from": "NationZ/RootCA/NSRsaRootCA001.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC ROOT CA 001",
+          "notAfter": "2059-03-28T00:00:00.000Z",
+          "sha256": "31e7a6de95991cfcca3e7c1680be3ba96de8b2c4bca72da1072ee699da23b2d2",
+          "from": "NationZ/RootCA/NSTPMEccRootCA001.crt"
+        },
+        {
+          "role": "root",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA ROOT CA 001",
+          "notAfter": "2059-03-28T00:00:00.000Z",
+          "sha256": "00608b414f9c522c5d30366c4b751681c3fd10b7ea0027e0f3877742c477c5a7",
+          "from": "NationZ/RootCA/NSTPMRsaRootCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 001",
+          "notAfter": "2042-05-13T00:00:00.000Z",
+          "sha256": "44afc4b65d4f617143cf3085637e88e6ecc7710f9594b37f65a3dea82d300ba3",
+          "from": "NationZ/IntermediateCA/EkMfrCA001_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 001",
+          "notAfter": "2037-05-13T00:00:00.000Z",
+          "sha256": "01f984f69499d6ab3594af13ad960004a08dbca69915328a1c81c652aa24b15a",
+          "from": "NationZ/IntermediateCA/EkMfrCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 002",
+          "notAfter": "2042-05-14T00:00:00.000Z",
+          "sha256": "2356510258c192463212e84855c51d051898e96dae7788bb06cd3912aa032417",
+          "from": "NationZ/IntermediateCA/EkMfrCA002_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 002",
+          "notAfter": "2037-05-14T00:00:00.000Z",
+          "sha256": "14b7dffe799dcdc5c20f8cc6ebc7e08b4cf5d0f269e5c7b12c962c0d011e67ea",
+          "from": "NationZ/IntermediateCA/EkMfrCA002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 003",
+          "notAfter": "2042-05-15T00:00:00.000Z",
+          "sha256": "49272ac2c71a895e7a6456c2b41d7b20fd74d0718db08d29a20c47e80bd2120e",
+          "from": "NationZ/IntermediateCA/EkMfrCA003_2.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nationz Technologies Inc, OU=Nationz TPM Device, CN=Nationz TPM Manufacturing CA 003",
+          "notAfter": "2037-05-15T00:00:00.000Z",
+          "sha256": "97ae153ea198388362fc814199a2fd6d3ebab27ecd26b24b5a4f960c1bcf3df6",
+          "from": "NationZ/IntermediateCA/EkMfrCA003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC EK CA 001",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "c34a984122f0922fa0ba067a125d68bf1f2a2607ad9401cd03e565550f328a8e",
+          "from": "NationZ/IntermediateCA/NSEccEkCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC EK CA 002",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "2ad714fe3fc7fc00905d7e8d0b6e7381faa4e3e8e009acbea7915665f3cd58ad",
+          "from": "NationZ/IntermediateCA/NSEccEkCA002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC EK CA 003",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "253be961f9b4ff7c8af7672caaa15ddad95acdd3e10297c8bc36d1279caf6d93",
+          "from": "NationZ/IntermediateCA/NSEccEkCA003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC EK CA 004",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "fb5e2b649e9ed0798531fc6d852e0f45e0d76082b96528c104029f0a75bb821b",
+          "from": "NationZ/IntermediateCA/NSEccEkCA004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM ECC EK CA 005",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "925234ea37b6b24c0a3664570c9a07bbe8ab5445dd56c604dbd952e3c0ec01bf",
+          "from": "NationZ/IntermediateCA/NSEccEkCA005.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA EK CA 001",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "0a46616fdcd342f785d33a9fda5007573d5ac0c996579b6e25dbfc15b082ad1f",
+          "from": "NationZ/IntermediateCA/NSRsaEkCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA EK CA 002",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "79a4c21809be1c7b9bcb0bc7647293c5f314cd195a29bd0227fa74c6fdd95545",
+          "from": "NationZ/IntermediateCA/NSRsaEkCA002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA EK CA 003",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "ac21e655a5d7095b53d9e5a12bf3ca423206dba16343af57a81054c8012073b1",
+          "from": "NationZ/IntermediateCA/NSRsaEkCA003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA EK CA 004",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "05d6f660498ddd6a89f78863035913a99f22f31abf76e15653f92a82b5d74bd2",
+          "from": "NationZ/IntermediateCA/NSRsaEkCA004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=SG, O=NSING Technologies Pte. Ltd., OU=TPM Devices, CN=NSING TPM RSA EK CA 005",
+          "notAfter": "2044-03-28T00:00:00.000Z",
+          "sha256": "f42ce7148b56383290f144a57700db05d3cfbb6a317e7c882e836950de273279",
+          "from": "NationZ/IntermediateCA/NSRsaEkCA005.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC EK CA 001",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "31dd08e2fbf76ade46f82099d08c5d60f0cd025d7d3821dd28396eb41a62b9b6",
+          "from": "NationZ/IntermediateCA/NSTPMEccEkCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC EK CA 002",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "5fd834276651aee9bc3202139dc3f3a180dac1f737278b0918e76cddef921eeb",
+          "from": "NationZ/IntermediateCA/NSTPMEccEkCA002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC EK CA 003",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "8a335606021f441de578e4a7deceb5456c8958004240c816db415cd372b81f89",
+          "from": "NationZ/IntermediateCA/NSTPMEccEkCA003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC EK CA 004",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "6b2e242c04ba9375d879078d4c9f2470245b790a3b8f1dae673b3abbe1dc2278",
+          "from": "NationZ/IntermediateCA/NSTPMEccEkCA004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM ECC EK CA 005",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "64300821d628e03f222a0d2de69608d73e16a1dd43b2d8a22cdd59564b4ad393",
+          "from": "NationZ/IntermediateCA/NSTPMEccEkCA005.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA EK CA 001",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "3dc1e609f8203c1c27026500071dfa2cee3e5cb268032aa8f06698c1675293b1",
+          "from": "NationZ/IntermediateCA/NSTPMRsaEkCA001.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA EK CA 002",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "797d7c66a27e0b91d4598efff2f5f51494c507f528934416914060e651b2636b",
+          "from": "NationZ/IntermediateCA/NSTPMRsaEkCA002.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA EK CA 003",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "0d21aba09033b053a673c642a4dc4377385dc8d12af434cc784c128b34a45a32",
+          "from": "NationZ/IntermediateCA/NSTPMRsaEkCA003.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA EK CA 004",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "beba61a482cdf95d605d15e35f3b806327cf4307afbefe19ff271d8ef61cc157",
+          "from": "NationZ/IntermediateCA/NSTPMRsaEkCA004.crt"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=CN, O=Nations Technologies Inc., OU=Nations, CN=Nations TPM RSA EK CA 005",
+          "notAfter": "2044-03-29T00:00:00.000Z",
+          "sha256": "23d12c543bd818292649bcd87e395f2bed6f986a638ba14f3a1cbb2b66236928",
+          "from": "NationZ/IntermediateCA/NSTPMRsaEkCA005.crt"
+        }
+      ]
+    },
+    {
+      "vendor": "Atmel",
+      "kind": "discrete",
+      "file": "discrete/atmel.pem",
+      "certificates": [
+        {
+          "role": "root",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel TPM Root Signing Module",
+          "notAfter": "2040-12-31T00:00:00.000Z",
+          "sha256": "3784884ec83a8d7edbfb928ac878dc75c11451381c6a0cb27aaffb3171e0d33f",
+          "from": "Atmel/RootCA/Atmel TPM Root Signing Module.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 01",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "5478f77e696a8ab669d8b65c7c78b023683a14c7026da2aa367077dda96faf32",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 01.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 02",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "72b2a25e6da5e4d007814c2f5656b33e343f2c14b3fe83bdfc8d95b0d39435aa",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 02.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 03",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "33c6a572911f68c3d8413060afae43a3931af3cc4a479c5a768008145b42e1ff",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 03.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 04",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "de35b4345f63757460570df650bd182ca26b3638d417e292779662f55d8fc6e7",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 04.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 05",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "c210d94227d60f36df942cd7ebeaec07138248f838b3e5b7f93f0ac6304c5bff",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 05.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 11",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "d34033414e75b5be694cc8d9dc9a7b59d7e149e100909ab0f1d0b262cd90efbb",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 11.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 20",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "0d74890dc6507ac4f8777b58ee4ed1a85dc8f1d673aa2bc789b4e3ecac81ed87",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 20.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 21",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "0e9fdddf8e590a861194bd6d0634ebc3f05b82080c0d8c5e3875e2975c0758e6",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 21.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 22",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "83d8696b80b981021847e1b37988fb1f5bd2f962ba76e0f0620bb7fb1fc2f9d7",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 22.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 23",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "d357ea445c035757e99bd29f0e765fe00d59ceedb63248fd7d34cb29ce34fc8c",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 23.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 24",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "0d78e4e2ee695c99baef29aca0416a6d9d5082dd4a5c098c45b006173a046a2f",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 24.der"
+        },
+        {
+          "role": "intermediate",
+          "subject": "C=US, ST=Colorado, L=Colorado Springs, O=Atmel, CN=Atmel Signing Module 25",
+          "notAfter": "2031-01-01T00:00:00.000Z",
+          "sha256": "4b58e7fe5ebc6b5d92e3a54de6340624d77c3daa1a8e63a135a0ef81ef8a4e7b",
+          "from": "Atmel/IntermediateCA/Atmel Signing Module 25.der"
+        }
+      ]
+    }
+  ],
+  "left": [
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_01.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 01",
+      "sha256": "10ef22859b0a98121129aa0c4647a91fd412a5a79f1c628db3bfea4278d49abf",
+      "why": "not valid now (Oct 20 13:47:43 2005 GMT to Oct 20 13:47:43 2025 GMT)"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_02.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 02",
+      "sha256": "b33027e90f3f47bb5c0c54b18451121af0211a568eca51b68927280707b42f0e",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_03.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 03",
+      "sha256": "2b2ab3993b854e496569fd1f187a383617eec1574bef0fa8c34bc013da40935f",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_04.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 04",
+      "sha256": "c2b50c0544fbfae3f8257410818bd2228759c04150989982c1b42c397abf00a8",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_05.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 05",
+      "sha256": "ed80849cf19acd6df5895ab47c6ec91555a3081b4696b900f8e346e777177aed",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_06.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 06",
+      "sha256": "a7006d265241bb3821a807b3a2474514c1d437e396394bbcfce37b1f74f5800a",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_07.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 07",
+      "sha256": "f5ee7dcec9ff49c08f6f30e153b1195e4a49a41214c58b55e6e0e8fb4a5d88af",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_08.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 08",
+      "sha256": "608dd48ff87759f404917c7471ec8cbe7ad972c1699d810f0e1a70fb2b02573f",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_10.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 10",
+      "sha256": "d290dc388de06a3c65009555944f07cf625c27ee7368ec98d15fbaf0cbf066ee",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_11.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 11",
+      "sha256": "989ea30656b72626aca17481b45f7a56836fa5176d4341010f43f875e77377c7",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_12.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 12",
+      "sha256": "02259ca25d2d816c14bb62a2e5b646e9286d982a792c652929dc3d68a12d570b",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_13.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 13",
+      "sha256": "02519486609f8918cd380d70942bb97a18fb751134edc1041db7277c1831527d",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_14.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 14",
+      "sha256": "a92b721a453409136c4ffca84e65e9df646789e28d269961e9b67f52861284e5",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_15.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 15",
+      "sha256": "8a3e7db4445c4a795fb9e524db3ed2edf96f8423723f16ff5f71ca6b84a3e88c",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_18.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 18",
+      "sha256": "9cd83ef4897819d545d3cccccf33ba7947e34439a93c5d45a3f136303e1c248e",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_19.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 19",
+      "sha256": "24fa065d574c6862400f81113bcc008af4b211de37285663bf684abe28ffb447",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/IntermediateCA/IFX_TPM_EK_Intermediate_CA_20.crt",
+      "subject": "C=DE, ST=Saxony, O=Infineon Technologies AG, OU=AIM, CN=IFX TPM EK Intermediate CA 20",
+      "sha256": "73a42ded6eab007af264a51c5a3956092cdbf5a6d209303a4e0d57416d762067",
+      "why": "does not chain to a root kept here"
+    },
+    {
+      "file": "Infineon/RootCA/IFX_TPM_RootCert_008.crt",
+      "subject": "C=DE, ST=Saxony, L=Dresden, O=Infineon Technologies AG, OU=Infineon SMS, CN=Infineon TPM CA 008",
+      "sha256": "2f93344342aba756229c5b854b4e234ca3d4cb0fd14a50bbff43bec9f0d507b5",
+      "why": "not valid now (Nov 20 00:00:00 2003 GMT to Nov 20 23:59:59 2018 GMT)"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM ECC Intermediate CA 01.crt",
+      "why": "not a certificate OpenSSL parses"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 01.crt",
+      "why": "not a certificate OpenSSL parses"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 02.crt",
+      "why": "not a certificate OpenSSL parses"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 03.crt",
+      "why": "not a certificate OpenSSL parses"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 04.crt",
+      "why": "not a certificate OpenSSL parses"
+    },
+    {
+      "file": "STMicro/IntermediateCA/STM TPM EK Intermediate CA 05.crt",
+      "why": "not a certificate OpenSSL parses"
+    }
+  ]
+}

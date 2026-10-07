@@ -197,6 +197,22 @@ The app reads nothing from the release unless a key in `image-trust.json` signed
 file is gzip-compressed and cut into parts under 1.9 GiB (a release takes at most 2 GiB a file): the
 8 GiB root, mostly empty, packs to about 1.3 GB, the whole set to about 1.4 GB.
 
+The server's TPM verifier accepts a boot only of a release its signed boot policy lists
+(`server/src/boot-policy.ts`). The release's entry is made from the set, on the same machine,
+and signed with the same image signing key:
+
+```sh
+swiff-os/boot-policy.sh <set-dir> <policy-dir> --previous <last-policy-dir>/boot-policy.payload.json
+```
+
+It computes PCR 11, the boot chain's Authenticode digests and the PCR 7 authorities from the
+set's own files, checks each against what the build signed, shows the payload and asks before
+signing. The server takes `boot-policy.json` as `ATTESTATION_POLICY` and `boot-policy.pub.pem`
+as `ATTESTATION_POLICY_KEY`; keep `boot-policy.payload.json` for the next release's
+`--previous`, so hosts still on this one keep attesting. `--iommu` is for a release that will
+not reach `ready` without DMA remapping; this image does not refuse that yet (`hwcheck` only
+records it), so its entry says `iommu: false`.
+
 To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
 any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>
 <backup-file>`), `add-trust` its `public.txt` beside the old entry, and ship an app release that

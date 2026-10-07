@@ -43,6 +43,8 @@ const SECURE_BOOT_VARIABLES = new Map([
   ["db", EFI_IMAGE_SECURITY_DATABASE],
   ["dbx", EFI_IMAGE_SECURITY_DATABASE],
 ]);
+/** SHIM_LOCK_GUID, laid out the same way: shim's variables. */
+const SHIM_LOCK = Buffer.from("50ab5d6046e00043abb63dd810dd8b23", "hex");
 const SPEC_ID = Buffer.from("Spec ID Event03\0", "latin1");
 const STARTUP_LOCALITY = Buffer.from("StartupLocality\0", "latin1");
 
@@ -137,8 +139,9 @@ export type BootFacts = {
    */
   secureBootConfigured: boolean;
   /**
-   * The SHA-256 digest of every other PCR 7 extend but its separator and the
-   * known actions, whatever type the log claims: the Secure Boot authorities.
+   * The SHA-256 digest of every other PCR 7 extend but its separator, the
+   * known actions and shim's SbatLevel, whatever type the log claims: the
+   * Secure Boot authorities.
    */
   secureBootAuthorities: Buffer[];
   /** The firmware logged that it booted with pre-boot DMA protection off. */
@@ -196,6 +199,12 @@ export function bootFacts(log: EventLog): BootFacts {
       if (variable.name === "PK") platformKey = bound && variable.value.length > 0;
       continue;
     }
+    // shim measures the SBAT revocation level it holds (SbatLevel, written by
+    // whichever shim or Windows update came last, so it differs between PCs).
+    // It lists what may not run; it never verified anything.
+    const extended = bound ? readVariable(event.data) : null;
+    if (extended?.name === "SbatLevel" && extended.guid.equals(SHIM_LOCK) && isSbatLevel(extended.value))
+      continue;
     secureBootAuthorities.push(event.sha256);
   }
   return {
@@ -206,6 +215,12 @@ export function bootFacts(log: EventLog): BootFacts {
     dmaProtectionDisabled,
     bootApplications,
   };
+}
+
+/** Whether `value` is an SbatLevel: "sbat,1,<date>" and then "<component>,<generation>" lines. */
+function isSbatLevel(value: Buffer): boolean {
+  const lines = value.toString("latin1").replace(/\n$/, "").split("\n");
+  return /^sbat,1,\d+$/.test(lines[0]!) && lines.slice(1).every((line) => /^[a-z0-9._-]+,\d+$/i.test(line));
 }
 
 /** A UEFI_VARIABLE_DATA: vendor GUID, name and value, or null when it is not one. */
