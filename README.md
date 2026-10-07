@@ -85,6 +85,7 @@ the app then finishes on its own (Windows may ask once more for permission).
 ```bash
 npm test
 npm run test:e2e
+npm run test:e2e:relay   # the stream through TURN alone; needs coturn (e2e/relay/run.sh)
 npm run typecheck
 npm run format    # Prettier; CI runs format:check
 npm run ci        # everything CI runs

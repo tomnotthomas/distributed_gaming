@@ -106,9 +106,33 @@ option. That input price was wrong by 8×.
 
 Cloudflare Realtime TURN is $0.05/GB with the first 1,000 GB each month free. At the current
 `maxBitrate` of 10 Mbit/s a relayed hour costs roughly 4.5 GB, so the free tier covers about
-220 relayed hours a month and an hour beyond it is ~$0.23. Managed TURN is what runs today:
-`server/src/ice.ts` mints short-lived credentials from a provider key and re-mints before
-they expire.
+220 relayed hours a month and an hour beyond it is ~$0.23. `server/src/ice.ts` mints a
+credential per renter's seat, for the renter and for the PC, that expires with the seat's
+ticket and cannot be revoked if the session ends early: from a self-run coturn's shared
+secret, or from a provider's credential endpoint such as Cloudflare's.
+
+**Decision: Cloudflare Realtime TURN's free tier is the launch provider.** Its free tier is
+1,000 GB a month, shared with its SFU, then about $0.05/GB of egress: about 220 relayed hours
+a month free at 10 Mbit/s. Nothing has been bought and no account has been created yet. At
+launch the server is given either `TURN_KEY_ID` + `TURN_KEY_API_TOKEN` (the Cloudflare TURN
+key), or equivalently `TURN_CREDENTIAL_URL`
+(`https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers`) +
+`TURN_CREDENTIAL_TOKEN`; `TURN_URLS` is optional. The endpoint path is unit-tested against
+Cloudflare's documented answer but has not yet run against the real provider.
+
+Later scaling path: a self-hosted coturn relay on Hetzner, tracked in issue #95, configured
+with `TURN_SECRET` + `TURN_URLS` (the path the relay scenario in `e2e/relay` proves).
+
+The TURN variables (`server/src/ice.ts`). Leave all of them blank on one LAN, and set the
+URLs and exactly one way to mint:
+
+| Variable                                               | Meaning                                                                                                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TURN_URLS`                                            | The relay's URLs, comma-separated, e.g. `turn:relay.example:3478,turns:relay.example:443?transport=tcp`. Optional with an endpoint, whose own URLs are used.                                                 |
+| `TURN_SECRET`                                          | Self-run coturn: its `static-auth-secret` (`use-auth-secret`), 32 characters or more. The server mints each credential itself.                                                                               |
+| `TURN_CREDENTIAL_URL` + `TURN_CREDENTIAL_TOKEN`        | A provider endpoint POSTed `{"ttl": <seconds>}` with the token as a bearer header, e.g. `https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers`. https only.                |
+| `TURN_KEY_ID` + `TURN_KEY_API_TOKEN`                   | An existing Cloudflare setup still works: with none of the above set, the endpoint is derived from the key id, the API token is the bearer token, and the URLs it answers are used (`TURN_URLS` is ignored). |
+| `TURN_USERNAME`, `TURN_CREDENTIAL`, `TURN_TTL_SECONDS` | No longer used: ignored, with one warning at start.                                                                                                                                                          |
 
 The original conclusion still holds at scale — a VPS with included egress wins once relayed
 hours are routine — but coturn is now a cost threshold to watch rather than a step to finish

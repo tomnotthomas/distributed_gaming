@@ -12,7 +12,7 @@
 // streamer out.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -34,6 +34,9 @@ const SERVER_URL = `ws://127.0.0.1:${PORT}`;
 const HTTP_URL = `http://127.0.0.1:${PORT}`;
 const SECRET = "streamer-integration-room-secret-long-enough";
 const SESSION_SECRET = "streamer-integration-session-secret-long-enough";
+/** A relay the server mints for and nobody dials: what reaches the streamer is checked, not used. */
+const TURN_URLS = "turn:relay.invalid:3478";
+const TURN_SECRET = "streamer-integration-turn-secret-long-enough";
 const RENTER = {
   cookie: `${SESSION_COOKIE}=${mintRenterSession(SESSION_SECRET, "76561198000000001", 3600)}`,
 };
@@ -64,6 +67,8 @@ beforeAll(async () => {
       SESSION_SECRET,
       MACHINE_KEYS: `${MACHINE}:${createHash("sha256").update(MACHINE_KEY).digest("hex")}`,
       DATABASE_URL: "",
+      TURN_URLS,
+      TURN_SECRET,
       // Every game playable, so nothing here waits on or calls Steam (server/src/playable.ts).
       SWIFF_PLAYABILITY: "off",
     },
@@ -212,14 +217,18 @@ describe("swiff-streamer against the server", () => {
 
       const { calls, sink } = recordingSink();
       const logs: string[] = [];
+      const offeredIce: RTCIceServer[][] = [];
       let keyframes = 0;
       const streamer = startStreamer({
         config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
         grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
         input: sink,
         onKeyframeNeeded: () => keyframes++,
-        // Loopback needs no STUN, and a test should not depend on reaching Google.
-        makePeer: (options) => createPeer({ ...options, iceServers: [] }),
+        // Loopback needs no STUN or TURN, and a test should not depend on reaching Google.
+        makePeer: (options) => {
+          offeredIce.push(options.iceServers);
+          return createPeer({ ...options, iceServers: [] });
+        },
         log: (line) => logs.push(line),
       });
 
@@ -228,6 +237,16 @@ describe("swiff-streamer against the server", () => {
       const feed = setInterval(() => streamer.send("video", videoPacket(++seq)), 20);
       try {
         await until(() => renter.payloads.length > 0, "video at the renter");
+        // The PC was offered the relay with a credential of its own for this
+        // session, expiring when the session's 30 minutes do.
+        const relay = offeredIce[0]!.find((server) => server.username);
+        expect(relay).toMatchObject({ urls: [TURN_URLS] });
+        const [expiry, who] = relay!.username!.split(":");
+        expect(who).toBe(`${sessionId}-host`);
+        expect(Math.abs(Number(expiry) - (Date.now() / 1000 + 30 * 60))).toBeLessThan(120);
+        expect(relay!.credential).toBe(
+          createHmac("sha1", TURN_SECRET).update(relay!.username!).digest("base64"),
+        );
         // A keyframe was asked for the moment the connection came up.
         await until(() => keyframes >= 1, "the keyframe request when the connection came up");
         expect(renter.payloads[0]!.toString("latin1")).toMatch(/^\x65frame-\d+$/);

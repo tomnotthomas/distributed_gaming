@@ -77,7 +77,7 @@ Provider choice is roughly a 30× cost swing:
 | Cloudflare Realtime TURN    | ~$0.05/GB               | Cheapest managed option                                                           |
 | Twilio / Xirsys             | ~$0.40/GB               | ~$1.80/hour per relayed session — does not survive contact with a gaming workload |
 
-Worth deciding before pricing the product.
+Decided in [the phase 1 plan](phase-1/plan.md): Cloudflare's free tier at launch, self-hosted coturn as the scaling path.
 
 ### How they're configured
 
@@ -266,5 +266,5 @@ The app then auto-launches at Windows boot and registers itself as available. No
 
 ## Deferred
 
-- **TURN credentials.** Adding them is a one-line config change. Until then roughly 1 in 5 real users won't connect, and the mobile-hotspot test may itself fail — CGNAT is exactly what TURN exists for. If it fails, that's the finding, not a bug.
+- **TURN credentials.** No longer deferred: the server mints a credential per renter's seat and hands it to both peers (`server/src/ice.ts`; variables in [the phase 1 plan](phase-1/plan.md)).
 - **Input control.** Needs the native host above, plus a DataChannel carrying mouse/keyboard events. Out of scope until viewing works end to end.

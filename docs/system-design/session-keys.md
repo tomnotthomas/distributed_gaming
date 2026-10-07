@@ -193,10 +193,10 @@ The machine key opens the room for good, and in Swiff OS rental mode it stays in
 Windows, which does not run during a rental. So the server splits a machine's rights between
 two credentials (`server/src/attestation.ts`):
 
-| Credential                     | Held by                                      | Rights                                                                                                                                                                                                                                           |
-| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Machine key** (control)      | the owner's host app                         | set availability, price and share-until; heartbeat; end a session (`DELETE .../session`, `POST /api/sessions/:id/end`), the owner's confirmed end-early                                                                                          |
-| **Host certificate** (hosting) | `swiff-hostd` in Swiff OS, after attestation | `register` the PC service's socket, which hears `session-claimed` and gets TURN credentials in `registered`; start a host session, which mints the session keys; report the renter in (`POST /api/sessions/:id/start`); heartbeat; end a session |
+| Credential                     | Held by                                      | Rights                                                                                                                                                                                                 |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Machine key** (control)      | the owner's host app                         | set availability, price and share-until; heartbeat; end a session (`DELETE .../session`, `POST /api/sessions/:id/end`), the owner's confirmed end-early                                                |
+| **Host certificate** (hosting) | `swiff-hostd` in Swiff OS, after attestation | `register` the PC service's socket, which hears `session-claimed`; start a host session, which mints the session keys; report the renter in (`POST /api/sessions/:id/start`); heartbeat; end a session |
 
 `HOSTING_ATTESTATION` picks the policy per environment:
 

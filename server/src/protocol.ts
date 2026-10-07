@@ -49,10 +49,12 @@ export type SdpMessage = { type: "offer" | "answer"; sdp: RTCSessionDescriptionI
 export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit };
 
 /**
- * Server acknowledgements and room events. `iceServers` carries the TURN relay
- * when the server has one configured; clients add it to their default STUN.
+ * Server acknowledgements and room events. `iceServers` in `joined` and
+ * `peer-joined` carries the TURN relay when the server has one configured,
+ * with a credential for that side of the renter's seat that expires with it
+ * (ice.ts); clients add it to their default STUN.
  */
-export type RegisteredMessage = { type: "registered"; hostId: string; iceServers?: RTCIceServer[] };
+export type RegisteredMessage = { type: "registered"; hostId: string };
 export type JoinedMessage = {
   type: "joined";
   hostId: string;
@@ -140,7 +142,7 @@ export type SteamLoginMessage =
  * machine; nothing is ended or booked again.
  */
 export type SteamLoginRetryMessage = { type: "steam-login"; state: "retry" };
-export type PeerJoinedMessage = { type: "peer-joined" };
+export type PeerJoinedMessage = { type: "peer-joined"; iceServers?: RTCIceServer[] };
 /**
  * The other side left the room. To the host, `grace` (seconds) says the renter
  * dropped mid-session and has that long to come back with the same seat before

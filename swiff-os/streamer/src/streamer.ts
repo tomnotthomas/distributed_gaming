@@ -71,8 +71,6 @@ export function startStreamer({
   let peer: Peer | null = null;
   let receiver: InputReceiver | null = null;
   let inbox: ReturnType<typeof createIceInbox> | null = null;
-  // TURN from the server's `registered`, which always comes before `peer-joined`.
-  let serverIce: RTCIceServer[] = [];
   let stopped = false;
   let end!: (reason: DeniedReason) => void;
   const ended = new Promise<DeniedReason>((resolve) => (end = resolve));
@@ -101,7 +99,8 @@ export function startStreamer({
     void gone?.pc.close().catch(() => {});
   };
 
-  const offerTo = async (send: (m: SignalMessage) => void) => {
+  /** Offer the renter a fresh peer connection; `serverIce` is the TURN their `peer-joined` brought. */
+  const offerTo = async (send: (m: SignalMessage) => void, serverIce: RTCIceServer[]) => {
     teardown();
     const current = makePeer({
       iceServers: [...DEFAULT_ICE_SERVERS, ...serverIce],
@@ -155,7 +154,6 @@ export function startStreamer({
   const onMessage = (msg: SignalMessage, send: (m: SignalMessage) => void) => {
     switch (msg.type) {
       case "registered":
-        serverIce = msg.iceServers ?? [];
         log("[swiff-streamer] registered; waiting for the renter");
         break;
       case "denied":
@@ -168,7 +166,7 @@ export function startStreamer({
       case "peer-joined":
         log("[swiff-streamer] the renter joined");
         steamLogin?.renterJoined(send);
-        offerTo(send).catch((cause: unknown) => {
+        offerTo(send, msg.iceServers ?? []).catch((cause: unknown) => {
           log(`[swiff-streamer] could not make the offer: ${cause instanceof Error ? cause.message : cause}`);
         });
         break;
