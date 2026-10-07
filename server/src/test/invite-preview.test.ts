@@ -12,6 +12,7 @@ import {
   previewPath,
   readPreviews,
 } from "../invite-preview.js";
+import { sessionPreview, sessionWhen } from "../invite-copy.js";
 
 const MARKETING = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
 
@@ -91,5 +92,21 @@ describe("invite link previews", () => {
       }
     }
     assert.equal(await readPreviews("/nonexistent"), null);
+  });
+});
+
+describe("a crew link's Zockrunde", () => {
+  it("says when it starts in German time, on the hour or with its minutes", () => {
+    // Friday 9 October 2026, 21:00 in Berlin (19:00 UTC).
+    const at = Date.UTC(2026, 9, 9, 19);
+    assert.equal(sessionWhen("de", at), "Freitag, 9. Oktober, 21 Uhr");
+    assert.equal(sessionWhen("en", at), "Friday 9 October, 9 pm");
+    assert.equal(sessionWhen("de", at + 30 * 60_000), "Freitag, 9. Oktober, 21:30 Uhr");
+    assert.equal(sessionWhen("en", Date.UTC(2026, 9, 10, 9, 15)), "Saturday 10 October, 11:15 am");
+    assert.equal(
+      sessionPreview("de", at),
+      "Zockrunde am Freitag, 9. Oktober, 21 Uhr. Tipp drauf und sag zu oder ab.",
+    );
+    assert.equal(sessionPreview("en", at), "Session on Friday 9 October, 9 pm. Tap to say yes or no.");
   });
 });

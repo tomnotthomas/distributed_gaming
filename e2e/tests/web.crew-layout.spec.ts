@@ -61,7 +61,9 @@ test("the crew page, its invite and a seat's page fit every width from phone to 
   await expect(founder).toHaveURL(/\/crews\/[\w-]{22}$/);
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
   const { crew } = await (await founder.request.get(`/api/crews/${crewId}`)).json();
-  await fitsEveryWidth(founder, () => expect(founder.locator(".lb-link code")).toContainText("/invite/"));
+  await fitsEveryWidth(founder, () =>
+    expect(founder.getByRole("heading", { name: "When are you playing?" })).toBeVisible(),
+  );
 
   const friendContext = await browser.newContext();
   await signIn(friendContext, baseURL!, E2E_CREW_PC_OWNER);

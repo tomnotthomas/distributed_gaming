@@ -408,6 +408,16 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       PRIMARY KEY (steam_id, email_hash)
     )`,
   ],
+  [
+    // A crew's next Zockrunde (platform.ts, setCrewSession): session_at is when
+    // it starts (Unix ms), null until its admin sets one; shared_at when someone
+    // in it last shared the invite since then, the crew page's "get your
+    // people" step. Each member's answer to it is rsvp: 'yes', 'no', or null
+    // while open. Moving the date asks everyone again.
+    `ALTER TABLE crews ADD COLUMN session_at BIGINT`,
+    `ALTER TABLE crews ADD COLUMN shared_at BIGINT`,
+    `ALTER TABLE crew_members ADD COLUMN rsvp TEXT CHECK (rsvp IN ('yes', 'no'))`,
+  ],
 ];
 
 /**

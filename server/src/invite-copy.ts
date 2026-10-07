@@ -8,6 +8,8 @@
 //
 // Each page's copy replaces the text of the elements marked with its data-t
 // key, its title and its link-preview tags. The copy is the pages' own HTML.
+// A crew link's preview says its crew's Zockrunde, when it has one
+// (sessionPreview).
 
 export type InviteType = "crew" | "seat" | "gift" | "night";
 /** The invites the site renders itself; the rest are the app's. */
@@ -119,4 +121,41 @@ function night(lang: Lang): InviteCopy {
     },
     literal: [],
   };
+}
+
+// --- a crew link's Zockrunde -----------------------------------------------------
+
+/** Where the crews are: a Zockrunde's time is said in German time, the launch's. */
+const SESSION_ZONE = "Europe/Berlin";
+
+/**
+ * When a Zockrunde starts (`at`, Unix ms), as a crew's invite says it:
+ * "Freitag, 9. Oktober, 21 Uhr" or "Friday 9 October, 9 pm", a time off the
+ * hour with its minutes ("21:30 Uhr", "9:30 pm").
+ */
+export function sessionWhen(lang: Lang, at: number): string {
+  const day = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: SESSION_ZONE,
+  }).format(at);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+    timeZone: SESSION_ZONE,
+  }).formatToParts(at);
+  const hour = Number(parts.find((p) => p.type === "hour")!.value);
+  const minute = parts.find((p) => p.type === "minute")!.value;
+  if (lang === "de") return `${day}, ${minute === "00" ? hour : `${hour}:${minute}`} Uhr`;
+  const twelve = hour % 12 || 12;
+  return `${day}, ${minute === "00" ? twelve : `${twelve}:${minute}`} ${hour < 12 ? "am" : "pm"}`;
+}
+
+/** What a crew link's preview says while its crew has a Zockrunde: when, and that the reader answers. */
+export function sessionPreview(lang: Lang, at: number): string {
+  return lang === "de"
+    ? `Zockrunde am ${sessionWhen(lang, at)}. Tipp drauf und sag zu oder ab.`
+    : `Session on ${sessionWhen(lang, at)}. Tap to say yes or no.`;
 }

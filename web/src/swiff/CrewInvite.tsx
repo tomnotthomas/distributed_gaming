@@ -6,7 +6,7 @@
 // shown the PC card first.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { crewTitle } from "./crews";
+import { crewTitle, sessionWhen } from "./crews";
 import { Avatar, LobbyArt, LobbyTitle, PcIcon, ProgressStops, useCrewText } from "./crewUi";
 import { Glyph } from "./Glyph";
 import {
@@ -156,6 +156,12 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
             <LobbyTitle prose>
               {name ? t("jn.wants", { name }) : t("jn.invited")} <b>{crewName}</b>.
             </LobbyTitle>
+            {crew.session ? (
+              <p className="lb-state jn-when">
+                <b>{t("jn.when", { when: sessionWhen(lang, crew.session.at) })}</b>{" "}
+                {t("jn.going", { n: crew.session.yes })}
+              </p>
+            ) : null}
             <p className="lb-state">
               {crew.state === "ready"
                 ? crew.pcs > 1

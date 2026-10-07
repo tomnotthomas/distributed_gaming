@@ -21,7 +21,14 @@ export type CrewView = {
   size: number;
   state: CrewState;
   pcs: number;
+  session: CrewSession | null;
 };
+
+/** A crew's next Zockrunde: when it starts (Unix ms), and how many said they are in or cannot. */
+export type CrewSession = { at: number; yes: number; no: number };
+
+/** An answer to a crew's Zockrunde. */
+export type Rsvp = "yes" | "no";
 
 /** A crew the player is in: `id` names the crew, `memberId` their membership in it. */
 export type MyCrew = CrewView & { id: string; memberId: string };
@@ -37,6 +44,7 @@ export type CrewMember = {
   admin: boolean;
   pc: "yes" | "later" | null;
   pcs: number;
+  rsvp: Rsvp | null;
 };
 
 /** A PC playing for a crew. */
@@ -47,8 +55,16 @@ export type CrewPc = {
   state: "ready" | "busy" | "offline";
 };
 
-/** A crew in full, as its page shows it: `token` is its link's, null when it has none. */
-export type CrewDetail = MyCrew & { token: string | null; members: CrewMember[]; machines: CrewPc[] };
+/**
+ * A crew in full, as its page shows it: `token` is its link's, null when it
+ * has none; `shared` whether someone shared the invite since its Zockrunde was set.
+ */
+export type CrewDetail = MyCrew & {
+  token: string | null;
+  members: CrewMember[];
+  machines: CrewPc[];
+  shared: boolean;
+};
 
 /** Where crew pages live: /crews (your crews), /crews/<id>. */
 export const CREWS_PATH = "/crews";
@@ -79,13 +95,135 @@ export function pcTitle(lang: Lang, pc: Pick<CrewPc, "name" | "owner">): string 
   return pc.name || crewText(lang)("pc.anon");
 }
 
-/** The message a member shares the crew with: it invites, and while no PC is in it asks who has one. */
-export function inviteMessage(lang: Lang, crew: CrewDetail, origin: string = location.origin): string {
+/**
+ * The message a member shares the crew with: it says the Zockrunde's date
+ * first when there is one that is not over at `now` and who invites, asks everyone to say yes or no,
+ * and while no PC is in it asks who has one.
+ */
+export function inviteMessage(
+  lang: Lang,
+  crew: CrewDetail,
+  origin: string = location.origin,
+  now: number = Date.now(),
+): string {
   const t = crewText(lang);
   const link = crew.token ? inviteLink(crew.token, origin) : origin;
+  const session = activeSession(crew, now);
+  if (session) {
+    const me = crew.members.find((m) => m.you);
+    const lines = [
+      t("msg.date", { when: sessionWhen(lang, session.at) }),
+      me?.name ? t("msg.dateFrom", { name: me.name }) : t("msg.dateAnon"),
+      link,
+    ];
+    if (crew.state === "no-pc") lines.push(t("msg.datePc"));
+    return lines.join("\n");
+  }
   const key: CopyKey =
     crew.state !== "no-pc" ? "msg.inviteReady" : crew.own ? "msg.invite" : "msg.inviteMember";
   return t(key, { crew: crewTitle(lang, crew), link });
+}
+
+/**
+ * Where a Zockrunde's day and time are said: Germany's, wherever the browser
+ * is, as the server's link preview says them (server/src/invite-copy.ts), so
+ * one message never shows two times.
+ */
+export const SESSION_ZONE = "Europe/Berlin";
+
+/** A moment's calendar day and time in SESSION_ZONE: `month` from 0, `weekday` from 0 for Sunday. */
+export type ZonedTime = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  weekday: number;
+};
+
+const ZONED = new Intl.DateTimeFormat("en-US", {
+  timeZone: SESSION_ZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  weekday: "short",
+});
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** `at` (Unix ms) as SESSION_ZONE's calendar and clock show it. */
+export function zoned(at: number): ZonedTime {
+  const parts = ZONED.formatToParts(at);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    year: Number(part("year")),
+    month: Number(part("month")) - 1,
+    day: Number(part("day")),
+    hour: Number(part("hour")),
+    minute: Number(part("minute")),
+    weekday: WEEKDAYS.indexOf(part("weekday")),
+  };
+}
+
+/** The moment (Unix ms) SESSION_ZONE's clock shows `hour`:`minute` on that calendar day (`month` from 0). */
+export function zonedAt(year: number, month: number, day: number, hour: number, minute = 0): number {
+  const wall = Date.UTC(year, month, day, hour, minute);
+  let at = wall;
+  // The zone's offset at the moment itself: twice, so a day that changes the clock settles too.
+  for (let i = 0; i < 2; i++) {
+    const shown = zoned(at);
+    at += wall - Date.UTC(shown.year, shown.month, shown.day, shown.hour, shown.minute);
+  }
+  return at;
+}
+
+/** A date format in SESSION_ZONE, in the language's words. */
+const sessionFormat = (lang: Lang, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { ...options, timeZone: SESSION_ZONE });
+
+/** The date of a Zockrunde (`at`, Unix ms) as a message says it: "Freitag, 9. Oktober, 21 Uhr", "Friday 9 October, 9 pm". */
+export function sessionWhen(lang: Lang, at: number): string {
+  const day = sessionFormat(lang, { weekday: "long", day: "numeric", month: "long" }).format(at);
+  return `${day}, ${sessionTime(lang, at)}`;
+}
+
+/** The time of a Zockrunde as it is said: "21 Uhr", "21:30 Uhr", "9 pm", "9:30 pm". */
+export function sessionTime(lang: Lang, at: number): string {
+  const { hour, minute } = zoned(at);
+  const mm = String(minute).padStart(2, "0");
+  if (lang === "de") return `${minute ? `${hour}:${mm}` : hour} Uhr`;
+  const twelve = hour % 12 || 12;
+  return `${minute ? `${twelve}:${mm}` : twelve} ${hour < 12 ? "am" : "pm"}`;
+}
+
+/** The short day of a Zockrunde, as its ticket says it: "Fr 9. Okt", "Fri 9 Oct". */
+export function sessionDay(lang: Lang, at: number): string {
+  const parts = sessionFormat(lang, { weekday: "short", day: "numeric", month: "short" }).formatToParts(at);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value.replace(".", "") ?? "";
+  return lang === "de"
+    ? `${part("weekday")} ${part("day")}. ${part("month")}`
+    : `${part("weekday")} ${part("day")} ${part("month")}`;
+}
+
+/** The weekday of a Zockrunde: short ("Fr", "Fri") or in full ("Freitag", "Friday"). */
+export function sessionWeekday(lang: Lang, at: number, width: "short" | "long" = "short"): string {
+  return sessionFormat(lang, { weekday: width }).format(at).replace(".", "");
+}
+
+/** A Zockrunde's start on the 24-hour clock, as its ticket and the time choices show it: "21:00". */
+export function sessionClock(at: number): string {
+  const { hour, minute } = zoned(at);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** How long after it starts a Zockrunde counts as over, and the next one is to be set: 6 hours. */
+const SESSION_OVER_MS = 6 * 3600 * 1000;
+
+/** The crew's Zockrunde while it is ahead or under way at `now`; null once it is over, or while it has none. */
+export function activeSession(crew: Pick<CrewView, "session">, now: number): CrewSession | null {
+  return crew.session && crew.session.at + SESSION_OVER_MS > now ? crew.session : null;
 }
 
 /** A JSON call to the crew API: the answer's body, or the status it was refused with, or null for no answer. */
@@ -165,7 +303,7 @@ export async function fetchCrew(id: string, get: typeof fetch = fetch): Promise<
 /** What a member changes on the crew's page: the crew as it then is, or null when it did not work. */
 async function change(
   id: string,
-  action: "name" | "link" | "pc",
+  action: "name" | "link" | "pc" | "session" | "rsvp" | "shared",
   body: object | null,
   get: typeof fetch,
 ): Promise<CrewDetail | null> {
@@ -188,6 +326,17 @@ export const renewCrewLink = (id: string, get: typeof fetch = fetch) => change(i
 export const bringPc = (id: string, pc: "yes" | "off", get: typeof fetch = fetch) =>
   change(id, "pc", { pc }, get);
 
+/** Set or move the crew's Zockrunde to start at `at` (Unix ms), as its admin. */
+export const setCrewSession = (id: string, at: number, get: typeof fetch = fetch) =>
+  change(id, "session", { at }, get);
+
+/** Answer the crew's Zockrunde: in ("yes") or cannot ("no"). */
+export const answerCrewSession = (id: string, rsvp: Rsvp, get: typeof fetch = fetch) =>
+  change(id, "rsvp", { rsvp }, get);
+
+/** Note that the signed-in member shared the crew's invite. */
+export const sharedCrew = (id: string, get: typeof fetch = fetch) => change(id, "shared", null, get);
+
 /** End a crew membership: leave a crew, or remove someone from one you are the admin of. One already gone counts as done. */
 export async function removeCrewMember(id: string, get: typeof fetch = fetch): Promise<boolean> {
   const answer = await call<unknown>(
@@ -196,32 +345,6 @@ export async function removeCrewMember(id: string, get: typeof fetch = fetch): P
     get,
   );
   return answer.ok || answer.status === 404;
-}
-
-/**
- * The signed-in player's reminders by email: the address they go to, whether
- * it confirmed, and, when its confirm mail was held back, when to ask again.
- */
-export type Reminders = { email: string | null; confirmed: boolean; retryAt?: number };
-
-/** The player's reminders; null when the server takes none (the marketing site is off) or gave no answer. */
-export async function fetchReminders(get: typeof fetch = fetch): Promise<Reminders | null> {
-  const answer = await call<Reminders>("/api/signups/reminders", {}, get);
-  return answer.ok ? answer.body : null;
-}
-
-/** Send the reminders to `email` once it confirms (`email` null: stop them); the reminders after, or null when that failed. */
-export async function saveReminders(
-  email: string | null,
-  lang: Lang,
-  get: typeof fetch = fetch,
-): Promise<Reminders | null> {
-  const answer = await call<Reminders>(
-    email === null ? "/api/signups/reminders/off" : "/api/signups/reminders",
-    { method: "POST", body: JSON.stringify(email === null ? {} : { email, lang }) },
-    get,
-  );
-  return answer.ok ? answer.body : null;
 }
 
 /** Where this tab keeps that the player came from the host side, to see the PC card first. */

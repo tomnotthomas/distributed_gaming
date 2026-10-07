@@ -185,8 +185,11 @@ export function useShare(onShared?: (channel: Channel) => void) {
   };
 
   /** Copy the link itself. */
-  const copyLink = async (link: string) =>
-    say(t((await copyText(link)) ? "toast.copied" : "toast.copyFailed"));
+  const copyLink = async (link: string) => {
+    const copied = await copyText(link);
+    say(t(copied ? "toast.copied" : "toast.copyFailed"));
+    return copied;
+  };
 
   return { note, say, share, copyLink, canShare };
 }

@@ -1,17 +1,19 @@
 // The crew pages (/crews): the crews a player is in, founding one in a tap
-// right there, and one crew's lobby (/crews/<id>), in the approved
-// "Sofort-Crew" design. Nobody is asked about hardware to found or join: the
-// lobby has an open PC slot while no PC is in, reads "Almost ready" until one
-// is, and leads with one next step per state. Everyone in the crew sees the
-// same page; the admin only has more to manage. Whoever has a gaming PC opens
-// the PC card, which says what the crew sees on it and what it does not, and
-// whose one button downloads the Lanterel app for the PC. The lobby reads its
-// crew again whenever the event stream says something changed, so a PC
-// arriving shows at once.
+// right there, and one crew's page (/crews/<id>), in the approved
+// guided "ticket" design: the crew's next Zockrunde is a ticket with one
+// coupon per step, and only the step to do now is open, with one main button.
+// Done steps shrink to a line with a tick and "change"; later ones are only
+// names; renaming, the crew link and leaving sit folded at the bottom. The
+// founder sets the date, sends it out, gets a gaming PC in and plays; someone
+// who joined says yes or no, gets a gaming PC in and plays. Every step is read
+// from the crew itself, and the page reads it again whenever the event stream
+// says something changed, so an answer or a PC arriving shows at once.
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { STEAM_LOGIN_URL } from "./steam";
 import {
+  activeSession,
+  answerCrewSession,
   bringPc,
   createCrew,
   crewTitle,
@@ -20,32 +22,28 @@ import {
   inviteMessage,
   pcTitle,
   removeCrewMember,
-  fetchReminders,
   renameCrew,
   renewCrewLink,
-  saveReminders,
+  sessionClock,
+  sessionDay,
+  sessionTime,
+  sessionWeekday,
+  setCrewSession,
+  sharedCrew,
   takeLanding,
   takePcFirst,
   FOUND_PATH,
   type CrewDetail,
   type CrewMember,
+  type CrewSession,
   type MyCrew,
-  type Reminders,
+  zoned,
+  zonedAt,
 } from "./crews";
-import type { CopyKey } from "./crewCopy";
-import {
-  Avatar,
-  LobbyArt,
-  LobbyArtImage,
-  LobbyTitle,
-  PcIcon,
-  ProgressStops,
-  Tick,
-  useCrewText,
-  useShare,
-} from "./crewUi";
+import { crewText, type CopyKey, type Lang } from "./crewCopy";
+import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare } from "./crewUi";
 import { Glyph } from "./Glyph";
-import { inviteLink, type Channel } from "./invite";
+import { inviteLink } from "./invite";
 import { HOST_DOWNLOAD_URL } from "./SharePC";
 import type { Swiff } from "./useSwiff";
 
@@ -208,61 +206,114 @@ function CrewList({ swiff }: { swiff: Swiff }) {
   );
 }
 
-/** The next step a crew's page leads with, by its state and who is looking. */
-type Next = "found" | "setup" | "ready" | "offline";
+/** A step on the way to the Zockrunde, as the crew page's ticket shows it. */
+type StepId = "date" | "people" | "answer" | "pc" | "play";
+type Step = { id: StepId; label: CopyKey; done: boolean; value?: string; change?: boolean };
 
-function nextStep(crew: CrewDetail, me: CrewMember): Next {
-  if (crew.state === "ready") return "ready";
-  if (crew.state === "offline") return "offline";
-  if (me.pc === "yes") return "setup";
-  return "found";
+/**
+ * The steps to the crew's Zockrunde for whoever looks, from the crew as it is:
+ * its admin sets the date, sends it out, gets a gaming PC in and plays;
+ * someone who joined says yes or no, gets a gaming PC in and plays. A step
+ * that cannot be done yet (answering before there is a date) is never the
+ * current one.
+ */
+export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: Lang): Step[] {
+  const t = crewText(lang);
+  const session = activeSession(crew, now);
+  const pc: Step = {
+    id: "pc",
+    label: "g.stepPc",
+    done: crew.pcs > 0,
+    value: crew.machines[0] ? pcTitle(lang, crew.machines[0]) : undefined,
+  };
+  const play: Step = { id: "play", label: "g.stepPlay", done: false };
+  if (crew.own) {
+    return [
+      {
+        id: "date",
+        label: "g.stepDate",
+        done: session !== null,
+        value: session ? `${sessionDay(lang, session.at)}, ${sessionTime(lang, session.at)}` : undefined,
+        change: true,
+      },
+      {
+        id: "people",
+        label: "g.stepPeople",
+        done: session !== null && crew.shared,
+        value: t("g.inCrew", { n: crew.size }),
+        change: true,
+      },
+      pc,
+      play,
+    ];
+  }
+  return [
+    {
+      id: "answer",
+      label: "g.stepAnswer",
+      done: session !== null && me.rsvp !== null,
+      value: me.rsvp ? t(me.rsvp === "yes" ? "g.ansYes" : "g.ansNo") : undefined,
+      change: true,
+    },
+    pc,
+    play,
+  ];
 }
 
-/** The day choices for a session: today, tomorrow, and the next three days by name. */
-function sessionDays(lang: "de" | "en", now: Date, t: (key: CopyKey) => string): string[] {
-  const weekday = new Intl.DateTimeFormat(lang, { weekday: "long" });
-  return [0, 1, 2, 3, 4].map((offset) => {
-    if (offset === 0) return t("night.today");
-    if (offset === 1) return t("night.tomorrow");
-    return weekday.format(new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset));
-  });
+/** The step to do now: the first one not done that can be done. */
+function currentStep(steps: Step[], crew: CrewDetail, now: number): StepId {
+  const session = activeSession(crew, now);
+  const step = steps.find((s) => !s.done && (s.id !== "answer" || session) && (s.id !== "people" || session));
+  return step?.id ?? "play";
 }
 
-/** The time choices for a session, as the language writes them. */
-function sessionTimes(lang: "de" | "en"): string[] {
-  const format = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: lang === "en",
-  });
-  return [15, 18, 20, 21].map((hour) => format.format(new Date(2026, 0, 1, hour)));
+/** The hours a Zockrunde may start at. */
+const SESSION_HOURS = [17, 18, 19, 20, 21, 22];
+
+/** The furthest day ahead a Zockrunde may be set on: inside the server's 90 days (SESSION_AHEAD_MS). */
+const FURTHEST_DAY = 89;
+
+/**
+ * A calendar day in SESSION_ZONE, as the day choices hold it: its midnight in
+ * UTC (Unix ms), so the same day reads the same wherever the browser is.
+ */
+type CalendarDay = number;
+
+/** The calendar day `offset` days after the one `at` falls on in SESSION_ZONE. */
+function dayOf(at: number, offset = 0): CalendarDay {
+  const { year, month, day } = zoned(at);
+  return Date.UTC(year, month, day + offset);
 }
 
-/** Whether the browser can show a notification, and may already. */
-const notifications = () => (typeof Notification === "undefined" ? null : Notification.permission);
+/** The moment `hour` o'clock begins on calendar day `day`, in SESSION_ZONE. */
+function startOf(day: CalendarDay, hour: number): number {
+  const d = new Date(day);
+  return zonedAt(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour);
+}
 
-/** One crew's lobby. */
+/** A calendar day as `<input type="date">` writes it. */
+const isoDay = (day: CalendarDay) => new Date(day).toISOString().slice(0, 10);
+
+/** A calendar day's weekday, in full or short. */
+const dayWeekday = (lang: Lang, day: CalendarDay, width: "short" | "long") =>
+  new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: width, timeZone: "UTC" })
+    .format(day)
+    .replace(".", "");
+
+/** One crew's page: the next Zockrunde as a ticket, with the one step to do now open on it. */
 function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const { lang, t } = useCrewText();
   const [crew, setCrew] = useState<CrewDetail | "gone" | "failed" | null>(null);
-  // From the host side of the marketing site, the PC card comes first.
-  const [card, setCard] = useState<boolean | null>(() => (takePcFirst() ? true : null));
-  const [night, setNight] = useState(false);
-  const [day, setDay] = useState(0);
-  const [time, setTime] = useState(3);
+  // A done step opened again ("change"); from the host side of the marketing site, the PC step.
+  const [open, setOpen] = useState<StepId | null>(() => (takePcFirst() ? "pc" : null));
   const [renaming, setRenaming] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [permission, setPermission] = useState(notifications);
-  const { note, say, share, copyLink, canShare } = useShare(swiff.inviteShared);
+  // Asked the group for a gaming PC: the PC step waits for one.
+  const [asked, setAsked] = useState(false);
+  const { note, say, share, copyLink } = useShare(swiff.inviteShared);
   const { crewChanges, crewReady, dismissCrewReady, openCrew, goHome } = swiff;
-  // Asked for, the PC card is scrolled to: it sits below the crew's slots.
-  const cardRef = useRef<HTMLElement>(null);
-  const nextRef = useRef<HTMLDivElement>(null);
-  const openCard = () => setCard(true);
-  useEffect(() => {
-    if (card) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-  }, [card]);
+  const ticketRef = useRef<HTMLElement>(null);
 
   const load = useCallback(
     (quiet = false) => {
@@ -275,7 +326,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     [id],
   );
   useEffect(() => load(), [load]);
-  // Something changed somewhere (a PC came, went or got busy, someone joined): read the crew again.
+  // Something changed somewhere (a PC came, went or got busy, someone joined or answered): read the crew again.
   const firstChange = useRef(crewChanges);
   useEffect(() => {
     if (crewChanges !== firstChange.current) load(true);
@@ -309,50 +360,56 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   }
 
   const me = crew.members.find((m) => m.you)!;
+  const admin = crew.members.find((m) => m.admin);
   const title = crewTitle(lang, crew);
   const link = crew.token ? inviteLink(crew.token) : "";
-  const message = inviteMessage(lang, crew);
-  const myPcs = crew.machines.filter((m) => m.mine);
+  const now = Date.now();
+  const message = inviteMessage(lang, crew, location.origin, now);
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
   const pcName = firstPc ? pcTitle(lang, firstPc) : "";
-  const next = nextStep(crew, me);
-  // The PC card opens when someone asks for it (or came from the host side).
-  const cardOpen = card ?? false;
-  // Anyone without a PC in a crew that has none yet may bring theirs.
-  const canBring = crew.state === "no-pc" && me.pc !== "yes" && !myPcs.length;
+  const session = activeSession(crew, now);
+  const steps = crewSteps(crew, me, now, lang);
+  const current = open && steps.some((s) => s.id === open) ? open : currentStep(steps, crew, now);
+  const answers = crew.members.filter((m) => m.rsvp === "yes");
+  const unanswered = crew.size - (session ? session.yes + session.no : 0);
 
-  const apply = async (work: Promise<CrewDetail | null>, done?: CopyKey) => {
+  const apply = async (work: Promise<CrewDetail | null>) => {
     setBusy(true);
     const next = await work;
     setBusy(false);
     if (next) {
       setCrew(next);
-      if (done) say(t(done));
+      setOpen(null);
+      ticketRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     } else say(t("toast.failed"));
     return next;
   };
 
-  const shareInvite = (channel: Channel) =>
-    void share(channel, message, link, crew.state === "no-pc" ? "toast.asked" : "toast.sent");
-
-  // One click: the Lanterel app downloads (once a release is published), their
-  // PC plays for the crew from now on, once it runs the app, and the next step
-  // says how to set it up.
-  const loadApp = async () => {
-    if (HOST_DOWNLOAD_URL) startDownload(HOST_DOWNLOAD_URL);
-    if (!(await apply(bringPc(id, "yes")))) return;
-    setCard(false);
-    nextRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  // The invite goes out with the date: the "get your people" step is done.
+  const sendInvite = async () => {
+    if (await share("whatsapp", message, link, "toast.sent")) await apply(sharedCrew(id));
+  };
+  const copyInvite = async () => {
+    if (await copyLink(link)) await apply(sharedCrew(id));
   };
 
-  const askNotify = async () => {
-    if (typeof Notification === "undefined") return;
-    setPermission(await Notification.requestPermission());
+  // One click: the Lanterel app downloads (once a release is published), and
+  // their PC plays for the crew from now on, once it runs the app.
+  const bringMine = async () => {
+    if (HOST_DOWNLOAD_URL) startDownload(HOST_DOWNLOAD_URL);
+    await apply(bringPc(id, "yes"));
+  };
+  const askGroup = async () => {
+    await share("whatsapp", message, link, "toast.asked");
+    setAsked(true);
   };
 
   const saveName = async () => {
     if (renaming === null) return;
-    if (await apply(renameCrew(id, renaming), "toast.renamed")) setRenaming(null);
+    if (await apply(renameCrew(id, renaming))) {
+      setRenaming(null);
+      say(t("toast.renamed"));
+    }
   };
 
   const leave = async () => {
@@ -363,23 +420,13 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     else say(t("toast.failed"));
   };
 
-  const remove = async (member: CrewMember) => {
-    setBusy(true);
-    const done = await removeCrewMember(member.id);
-    setBusy(false);
-    if (done) load(true);
-    else say(t("toast.failed"));
-  };
-
-  const days = sessionDays(lang, new Date(), t);
-  const times = sessionTimes(lang);
-  const nightMessage = t("msg.night", { day: days[day]!, time: times[time]!, crew: title, link });
-
   const memberMeta = (m: CrewMember) =>
     m.admin ? t("cp.founder") : m.pcs > 0 ? t("cp.brings") : m.pc === "yes" ? t("cp.settingUp") : "";
 
+  const sorted = [...crew.members].sort((a, b) => Number(b.you) - Number(a.you));
+
   return (
-    <main className="crew-lobby" data-testid="crew" data-state={crew.state}>
+    <main className="crew-lobby gc" data-testid="crew" data-state={crew.state} data-step={current}>
       {ready ? (
         <div className="crew-ready" role="status">
           <span className="crew-rays" aria-hidden="true" />
@@ -392,28 +439,303 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
 
       <section className="lb-lobby" aria-labelledby="lb-h1">
         <LobbyArt />
-        <div className="lb-wrap lb-in">
-          <div>
-            <p className="lb-tag">
-              <span className="fa-emoji" aria-hidden="true">
-                🎮
-              </span>
-              <span>{t("cp.tag")}</span>
-            </p>
-            <LobbyTitle>
-              <span className="crew-name">{title}</span>
-            </LobbyTitle>
-            {crew.own ? (
-              <div className="crew-name-row">
-                {renaming === null ? (
-                  <button
-                    type="button"
-                    className="name-edit"
-                    onClick={() => setRenaming(crew.crewName ?? "")}
+        <div className="gc-wrap">
+          <div className="gc-crew">
+            <h1 id="lb-h1" className="gc-name crew-name">
+              {title}
+            </h1>
+            <span className="gc-whose">
+              {crew.own
+                ? t("g.founded")
+                : admin?.name
+                  ? t("g.invitedBy", { name: admin.name })
+                  : t("g.invited")}
+            </span>
+          </div>
+
+          <section className="gc-tk" aria-labelledby="gc-date" ref={ticketRef}>
+            <div className="gc-head">
+              <h2 className={session ? "gc-date" : "gc-date none"} id="gc-date">
+                <span className="gc-pre">{t("g.session")}</span>
+                {session ? (
+                  <>
+                    <span>{sessionDay(lang, session.at)}</span>{" "}
+                    <span className="gc-time">{sessionClock(session.at)}</span>
+                  </>
+                ) : (
+                  <span>{t("g.noDate")}</span>
+                )}
+              </h2>
+              {session ? (
+                <div className="gc-going">
+                  <span className="gc-stack" aria-hidden="true">
+                    {answers.slice(0, 4).map((m) => (
+                      <Avatar key={m.id} name={m.name ?? t("cp.anon")} index={0} />
+                    ))}
+                  </span>
+                  <p>
+                    {crew.size === 1 ? (
+                      <b>{t("g.onlyYou")}</b>
+                    ) : (
+                      <>
+                        <b>{t("g.in", { n: session.yes })}</b>
+                        <span>
+                          {[
+                            session.no ? t("g.cant", { n: session.no }) : null,
+                            unanswered ? t("g.open", { n: unanswered }) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <ol className="gc-stubs" aria-label={t("g.steps")}>
+              {steps.map((s) => {
+                const state = s.id === current ? "now" : s.done ? "done" : "later";
+                return (
+                  <li
+                    key={s.id}
+                    className={`gc-stub ${state}`}
+                    aria-current={state === "now" ? "step" : undefined}
                   >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M4 20h4L19 9l-4-4L4 16z" />
-                    </svg>
+                    <span className="gc-mark" aria-hidden="true">
+                      <Tick />
+                    </span>
+                    <span className="gc-t">{t(s.label)}</span>
+                    {state === "done" && s.value ? <span className="gc-v">{s.value}</span> : null}
+                    {state === "done" && s.change ? (
+                      <button
+                        type="button"
+                        className="gc-change"
+                        aria-label={t("g.changeLabel", { step: t(s.label) })}
+                        onClick={() => setOpen(s.id)}
+                      >
+                        {t("g.change")}
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+
+            <div className="gc-cp" key={current}>
+              {current === "date" ? (
+                <DateStep
+                  crewId={id}
+                  session={crew.session}
+                  over={crew.session !== null && session === null}
+                  busy={busy}
+                  apply={apply}
+                />
+              ) : current === "people" ? (
+                <>
+                  <h2>{t("g.peopleH")}</h2>
+                  <p className="gc-p">{t("g.peopleP")}</p>
+                  <div className="gc-split">
+                    <div className="gc-acts gc-col">
+                      <WhatsAppButton label={t("g.whatsapp")} onClick={() => void sendInvite()} />
+                      <button
+                        type="button"
+                        className="gc-ghost"
+                        disabled={!link}
+                        onClick={() => void copyInvite()}
+                      >
+                        <LinkIcon />
+                        {t("g.copy")}
+                      </button>
+                    </div>
+                    <figure className="gc-msg">
+                      <figcaption>{t("g.preview")}</figcaption>
+                      <p className="gc-bubble">{message}</p>
+                    </figure>
+                  </div>
+                </>
+              ) : current === "answer" && session ? (
+                <>
+                  <h2>
+                    {t("g.answerH", {
+                      when: t("g.on", {
+                        day: sessionWeekday(lang, session.at, "long"),
+                        time: sessionTime(lang, session.at),
+                      }),
+                    })}
+                  </h2>
+                  <p className="gc-p">
+                    {admin?.name ? t("g.answerP", { name: admin.name }) : t("g.answerPAnon")}
+                  </p>
+                  <div className="gc-acts">
+                    <button
+                      type="button"
+                      className="lpill solid"
+                      disabled={busy}
+                      aria-pressed={me.rsvp === "yes"}
+                      onClick={() => void apply(answerCrewSession(id, "yes"))}
+                    >
+                      {t("g.yes")}
+                      <span className="lpill-c">
+                        <Tick />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="gc-ghost"
+                      disabled={busy}
+                      aria-pressed={me.rsvp === "no"}
+                      onClick={() => void apply(answerCrewSession(id, "no"))}
+                    >
+                      {t("g.no")}
+                    </button>
+                  </div>
+                  <p className="gc-fine">{t("g.answerFine")}</p>
+                </>
+              ) : current === "pc" ? (
+                me.pc === "yes" && crew.pcs === 0 ? (
+                  <>
+                    <h2>{t("cp.nextSetup")}</h2>
+                    <p className="gc-p">{t("cp.nextSetupLine", { crew: title })}</p>
+                    {HOST_DOWNLOAD_URL ? (
+                      <div className="gc-acts">
+                        <a className="lpill solid" href={HOST_DOWNLOAD_URL}>
+                          {t("pcc.download")}
+                          <span className="lpill-c">
+                            <Glyph name="download" size={18} />
+                          </span>
+                        </a>
+                      </div>
+                    ) : (
+                      <p className="gc-fine">{t("pcc.soon", { crew: title })}</p>
+                    )}
+                  </>
+                ) : asked && crew.pcs === 0 ? (
+                  <>
+                    <h2>{t("g.pcWaitH")}</h2>
+                    <p className="gc-p">{t("g.pcWaitP")}</p>
+                    <div className="gc-acts">
+                      <WhatsAppButton label={t("g.pcAsk")} onClick={() => void askGroup()} />
+                      <button
+                        type="button"
+                        className="gc-ghost"
+                        disabled={busy}
+                        onClick={() => void bringMine()}
+                      >
+                        <PcIcon />
+                        {t("g.pcHaveOne")}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h2>{t("g.pcH")}</h2>
+                    <p className="gc-p">{t("g.pcP")}</p>
+                    <div className="gc-acts">
+                      <button
+                        type="button"
+                        className="lpill solid"
+                        disabled={busy}
+                        onClick={() => void bringMine()}
+                      >
+                        {t("g.pcYes")}
+                        <span className="lpill-c">
+                          <Glyph name="download" size={18} />
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="gc-ghost"
+                        disabled={busy}
+                        onClick={() => void askGroup()}
+                      >
+                        <WhatsAppGlyph />
+                        {t("g.pcNo")}
+                      </button>
+                    </div>
+                    {session ? <p className="gc-fine">{t("g.pcFine")}</p> : null}
+                  </>
+                )
+              ) : crew.state === "ready" ? (
+                <>
+                  <h2>{t("cp.nextReady")}</h2>
+                  <p className="gc-p">
+                    {crew.pcs > 1
+                      ? t("cp.nextReadyMany", { n: crew.pcs })
+                      : t("cp.nextReadyLine", { pc: pcName })}
+                  </p>
+                  <div className="gc-acts">
+                    <button type="button" className="lpill solid" onClick={goHome}>
+                      {t("cp.play")}
+                      <span className="lpill-c">
+                        <Glyph name="arrow" size={18} />
+                      </span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2>{t("cp.nextOffline")}</h2>
+                  <p className="gc-p">
+                    {crew.pcs > 1 ? t("cp.nextOfflineMany") : t("cp.nextOfflineLine", { pc: pcName })}
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
+          <p className="cp-toast" role="status" aria-live="polite" hidden={!note}>
+            {note}
+          </p>
+
+          {session && crew.size > 1 ? (
+            <section className="gc-who" aria-labelledby="gc-who-h">
+              <h2 id="gc-who-h">{t("g.who")}</h2>
+              <ul>
+                {sorted.map((m, i) => (
+                  <li key={m.id} className={m.you ? "me" : undefined}>
+                    <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
+                    <span className="gc-nm">
+                      <span>
+                        {m.you
+                          ? m.name
+                            ? t("g.you", { name: m.name })
+                            : t("cp.you")
+                          : (m.name ?? t("cp.anon"))}
+                      </span>
+                      {memberMeta(m) ? <small>{memberMeta(m)}</small> : null}
+                    </span>
+                    <span className={`gc-ans ${m.rsvp ?? ""}`}>
+                      <span className="d" aria-hidden="true">
+                        {m.rsvp === "yes" ? <Tick /> : null}
+                      </span>
+                      {t(
+                        m.rsvp === "yes"
+                          ? "g.ansYes"
+                          : m.rsvp === "no"
+                            ? "g.ansNo"
+                            : m.you
+                              ? "g.ansYou"
+                              : "g.ansOpen",
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <details className="gc-more">
+            <summary>
+              {t("g.more")}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </summary>
+            <div className="gc-more-b">
+              {crew.own ? (
+                renaming === null ? (
+                  <button type="button" className="gc-ghost" onClick={() => setRenaming(crew.crewName ?? "")}>
                     {t("cp.rename")}
                   </button>
                 ) : (
@@ -441,404 +763,204 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                       {t("cp.cancel")}
                     </button>
                   </form>
-                )}
-              </div>
-            ) : null}
-
-            <div className="fa-check" role="status">
-              <b className="fa-st">
-                {t(
-                  crew.state === "ready" ? "cp.ready" : crew.state === "offline" ? "cp.offline" : "cp.almost",
-                )}
-              </b>
-              <span className="fa-item ok">
-                <span className="fa-tick">
-                  <Tick />
-                </span>
-                <span>{t("cp.people")}</span>
-                <span className="fa-v">{t("cp.peopleIn", { n: crew.size })}</span>
-              </span>
-              <span className={crew.pcs ? "fa-item ok" : "fa-item"}>
-                <span className="fa-tick">
-                  <Tick />
-                </span>
-                <span>{t("cp.pc")}</span>
-                <span className="fa-v">
-                  {crew.pcs === 0
-                    ? t("cp.pcMissing")
-                    : crew.state === "offline"
-                      ? t("cp.pcOff")
-                      : crew.pcs === 1
-                        ? t("cp.pcIn", { pc: pcName })
-                        : t("cp.pcsIn", { n: crew.pcs })}
-                </span>
-              </span>
-            </div>
-
-            <div className="nx" aria-labelledby="nx-h" ref={nextRef}>
-              <span className="nx-k">{t("cp.next")}</span>
-              {next === "found" ? (
-                <>
-                  <h2 id="nx-h">{t("cp.nextFound")}</h2>
-                  <p>{t("cp.nextFoundLine")}</p>
-                  <WhatsAppButton label={t("cp.whatsapp")} onClick={() => shareInvite("whatsapp")} />
-                </>
-              ) : next === "setup" ? (
-                <>
-                  <h2 id="nx-h">{t("cp.nextSetup")}</h2>
-                  <p>{t("cp.nextSetupLine", { crew: title })}</p>
-                  {HOST_DOWNLOAD_URL ? (
-                    <a className="lpill solid" href={HOST_DOWNLOAD_URL}>
-                      {t("pcc.download")}
-                      <span className="lpill-c">
-                        <Glyph name="download" size={18} />
-                      </span>
-                    </a>
-                  ) : (
-                    <p className="crew-soon">{t("pcc.soon", { crew: title })}</p>
-                  )}
-                </>
-              ) : next === "ready" ? (
-                <>
-                  <h2 id="nx-h">{t("cp.nextReady")}</h2>
-                  <p>
-                    {crew.pcs > 1
-                      ? t("cp.nextReadyMany", { n: crew.pcs })
-                      : t("cp.nextReadyLine", { pc: pcName })}
-                  </p>
-                  <button type="button" className="lpill solid" onClick={goHome}>
-                    {t("cp.play")}
-                    <span className="lpill-c">
-                      <Glyph name="arrow" size={18} />
-                    </span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <h2 id="nx-h">{t("cp.nextOffline")}</h2>
-                  <p>{crew.pcs > 1 ? t("cp.nextOfflineMany") : t("cp.nextOfflineLine", { pc: pcName })}</p>
-                </>
-              )}
-            </div>
-
-            <div className="sec-acts" aria-label={t("cp.actions")}>
-              <button type="button" className="sa" aria-expanded={night} onClick={() => setNight(!night)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="4" y="5" width="16" height="15" rx="2" />
-                  <path d="M4 10h16M9 3v4M15 3v4" />
-                </svg>
-                {t("cp.planSession")}
-              </button>
-              {canBring ? (
-                <button type="button" className="sa" onClick={openCard}>
-                  <PcIcon />
-                  {t("cp.havePc")}
-                </button>
+                )
               ) : null}
-              {next !== "found" ? (
-                <button type="button" className="sa" onClick={() => shareInvite("whatsapp")}>
-                  <LinkIcon />
-                  {t("cp.whatsapp")}
-                </button>
-              ) : null}
-              <button type="button" className="sa" onClick={() => void copyLink(link)} disabled={!link}>
+              <button type="button" className="gc-ghost" disabled={!link} onClick={() => void copyLink(link)}>
                 <LinkIcon />
-                {t("cp.copy")}
+                {t("g.copy")}
               </button>
-              {crew.state === "no-pc" && permission !== null && permission !== "denied" ? (
+              {crew.own ? (
                 <button
                   type="button"
-                  className="sa"
-                  disabled={permission === "granted"}
-                  onClick={() => void askNotify()}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5h4" />
-                  </svg>
-                  {t(permission === "granted" ? "cp.notifyOn" : "cp.notify")}
-                </button>
-              ) : null}
-            </div>
-            <p className="cp-toast" role="status" aria-live="polite" hidden={!note}>
-              {note}
-            </p>
-          </div>
-
-          <ol className="lb-slots" aria-label={t("cp.slots")}>
-            {crew.members.map((m, i) => (
-              <li key={m.id} className="lb-slot">
-                <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
-                <span className="lb-who">
-                  <span className="lb-name">{m.name ?? (m.you ? t("cp.you") : t("cp.anon"))}</span>
-                  <span className="lb-meta">{memberMeta(m)}</span>
-                </span>
-                <span className="crew-slot-foot">
-                  <span className="lchip go">{t("cp.readyChip")}</span>
-                  {crew.own && !m.you ? (
-                    <button
-                      type="button"
-                      className="crew-remove"
-                      disabled={busy}
-                      aria-label={t("cp.removeLabel", { name: m.name ?? t("cp.anon") })}
-                      onClick={() => void remove(m)}
-                    >
-                      {t("cp.remove")}
-                    </button>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-            {crew.machines.map((pc, i) => (
-              <li key={`pc-${i}`} className="lb-slot pc-in">
-                <span className="av pc" aria-hidden="true">
-                  <PcIcon />
-                </span>
-                <span className="lb-who">
-                  <span className="lb-name">{pcTitle(lang, pc)}</span>
-                  <span className="lb-meta">{pc.mine ? t("cp.yourPc") : ""}</span>
-                </span>
-                <span
-                  className={
-                    pc.state === "ready" ? "lchip go" : pc.state === "busy" ? "lchip wait" : "lchip free"
+                  className="gc-ghost"
+                  disabled={busy}
+                  title={t("share.renewHint")}
+                  onClick={() =>
+                    void apply(renewCrewLink(id)).then((done) => done && say(t("toast.renewed")))
                   }
                 >
-                  {t(pc.state === "ready" ? "cp.pcFree" : pc.state === "busy" ? "cp.pcBusy" : "cp.pcAway")}
-                </span>
-              </li>
-            ))}
-            {crew.state === "no-pc" ? (
-              <li>
-                <button type="button" className="lb-slot act pcadd" onClick={openCard}>
-                  <span className="av" aria-hidden="true">
-                    <PcIcon />
-                  </span>
-                  <span className="lb-who">
-                    <span className="lb-name">{t("cp.addPc")}</span>
-                    <span className="lb-meta">{t("cp.addPcLine")}</span>
-                  </span>
-                  <span className="lchip wait">{t("cp.missing")}</span>
+                  {t("share.renew")}
                 </button>
-              </li>
-            ) : null}
-            <li>
-              <button type="button" className="lb-slot act" onClick={() => shareInvite("whatsapp")}>
-                <span className="av" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </span>
-                <span className="lb-who">
-                  <span className="lb-name">{t("cp.invite")}</span>
-                  <span className="lb-meta">{t("cp.inviteLine")}</span>
-                </span>
-                <span className="lchip free">{t("cp.inviteChip")}</span>
-              </button>
-            </li>
-          </ol>
-          <p className="slots-note">{t("cp.slotsNote")}</p>
-          <ProgressStops crew={crew} label={t("cp.progress")} />
+              ) : null}
+              {leaving ? (
+                <div className="crew-leave-ask" role="group" aria-labelledby="leave-h">
+                  <h3 id="leave-h">{t("leave.title", { crew: title })}</h3>
+                  <p>{t(me.pcs ? "leave.linePc" : "leave.line")}</p>
+                  <div className="fa-acts">
+                    <button
+                      type="button"
+                      className="lpill solid"
+                      disabled={busy}
+                      onClick={() => void leave()}
+                    >
+                      {t("leave.yes")}
+                    </button>
+                    <button type="button" className="lpill" onClick={() => setLeaving(false)}>
+                      {t("leave.no")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="gc-ghost" onClick={() => setLeaving(true)}>
+                  {t("leave.open")}
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       </section>
-
-      <div className="lb-wrap">
-        {cardOpen || myPcs.length ? (
-          <section className="lb-pcown fa-pcc" aria-labelledby="pcc-h" data-testid="pc-card" ref={cardRef}>
-            <figure aria-hidden="true">
-              <LobbyArtImage />
-            </figure>
-            {myPcs.length ? (
-              <div>
-                <h2 id="pcc-h">{t("pcc.inTitle", { crew: title })}</h2>
-                <p className="sub">{t("pcc.inLine")}</p>
-                <div className="fa-acts">
-                  <button
-                    type="button"
-                    className="lpill"
-                    disabled={busy}
-                    onClick={() => void apply(bringPc(id, "off"))}
-                  >
-                    {t("pcc.out")}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <h2 id="pcc-h">{t("pcc.title")}</h2>
-                <div className="fa-sees">
-                  <div>
-                    <span className="lb-k">{t("pcc.sees")}</span>
-                    <p>{t("pcc.seesLine")}</p>
-                  </div>
-                  <div>
-                    <span className="lb-k">{t("pcc.not")}</span>
-                    <p>{t("pcc.notLine")}</p>
-                  </div>
-                </div>
-                <p className="sub">{t("pcc.note")}</p>
-                <div className="fa-acts">
-                  <button
-                    type="button"
-                    className="lpill solid"
-                    disabled={busy}
-                    onClick={() => void loadApp()}
-                  >
-                    {t("pcc.load")}
-                    <span className="lpill-c">
-                      <Glyph name="download" size={18} />
-                    </span>
-                  </button>
-                </div>
-                {HOST_DOWNLOAD_URL ? null : <p className="crew-soon">{t("pcc.soonShort")}</p>}
-              </div>
-            )}
-          </section>
-        ) : null}
-
-        {night ? (
-          <section className="fa-night" aria-labelledby="night-h">
-            <h3 id="night-h">{t("night.title")}</h3>
-            <div className="fa-row" role="group" aria-label={t("night.day")}>
-              <span className="lb-k">{t("night.day")}</span>
-              <span className="fa-days">
-                {days.map((d, i) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className="fa-chip"
-                    aria-pressed={i === day}
-                    onClick={() => setDay(i)}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </span>
-            </div>
-            <div className="fa-row" role="group" aria-label={t("night.time")}>
-              <span className="lb-k">{t("night.time")}</span>
-              <span className="fa-times">
-                {times.map((tm, i) => (
-                  <button
-                    key={tm}
-                    type="button"
-                    className="fa-chip"
-                    aria-pressed={i === time}
-                    onClick={() => setTime(i)}
-                  >
-                    {tm}
-                  </button>
-                ))}
-              </span>
-            </div>
-            <div className="fa-check">
-              <span className="fa-item ok">
-                <span className="fa-tick">
-                  <Tick />
-                </span>
-                <span>{t("cp.people")}</span>
-                <span className="fa-v">{t("cp.peopleIn", { n: crew.size })}</span>
-              </span>
-              <span className={crew.pcs ? "fa-item ok" : "fa-item"}>
-                <span className="fa-tick">
-                  <Tick />
-                </span>
-                <span>{t("cp.pc")}</span>
-                <span className="fa-v">{crew.pcs ? t("cp.pcIn", { pc: pcName }) : t("night.byThen")}</span>
-              </span>
-            </div>
-            <WhatsAppButton
-              small
-              label={t("night.post")}
-              onClick={() => void share("whatsapp", nightMessage, link, "toast.night")}
-            />
-          </section>
-        ) : null}
-
-        <section className="lb-path more-sec" aria-labelledby="more-h">
-          <div>
-            <h2 id="more-h">{t("share.title")}</h2>
-            <div className="lb-share">
-              <span className="lb-k" id="cp-lbl">
-                {t("share.label")}
-              </span>
-              <div className="lb-link">
-                <code aria-labelledby="cp-lbl">{link.replace(/^https?:\/\//, "")}</code>
-                <button type="button" onClick={() => void copyLink(link)} disabled={!link}>
-                  {t("cp.copy")}
-                </button>
-              </div>
-              <WhatsAppButton label={t("cp.whatsapp")} onClick={() => shareInvite("whatsapp")} />
-              <div className="lb-others">
-                <span>{t("share.or")}</span>
-                <button type="button" onClick={() => shareInvite("telegram")}>
-                  Telegram
-                </button>
-                <button type="button" onClick={() => shareInvite("discord")}>
-                  Discord
-                </button>
-                <button type="button" onClick={() => shareInvite("signal")}>
-                  Signal
-                </button>
-                {canShare ? (
-                  <button type="button" onClick={() => shareInvite("share")}>
-                    {t("share.more")}
-                  </button>
-                ) : null}
-              </div>
-              {crew.own ? (
-                <p className="crew-renew">
-                  <button
-                    type="button"
-                    className="lb-switch"
-                    disabled={busy}
-                    aria-describedby="crew-renew-hint"
-                    onClick={() => void apply(renewCrewLink(id), "toast.renewed")}
-                  >
-                    {t("share.renew")}
-                  </button>{" "}
-                  <span id="crew-renew-hint">{t("share.renewHint")}</span>
-                </p>
-              ) : null}
-            </div>
-          </div>
-          <aside className="lb-phone" aria-labelledby="cp-msgh">
-            <p className="lb-k" id="cp-msgh">
-              {t("share.preview")}
-            </p>
-            <div className="lb-bubble">
-              <span className="lb-card" aria-hidden="true">
-                <LobbyArtImage />
-                <span className="t">{t("share.cardTitle")}</span>
-                <span className="d">{location.host}</span>
-              </span>
-              <p>{message}</p>
-            </div>
-          </aside>
-        </section>
-
-        <CrewReminders />
-
-        <section className="crew-leave">
-          {leaving ? (
-            <div className="crew-leave-ask" role="group" aria-labelledby="leave-h">
-              <h3 id="leave-h">{t("leave.title", { crew: title })}</h3>
-              <p>{t(myPcs.length ? "leave.linePc" : "leave.line")}</p>
-              <div className="fa-acts">
-                <button type="button" className="lpill solid" disabled={busy} onClick={() => void leave()}>
-                  {t("leave.yes")}
-                </button>
-                <button type="button" className="lpill" onClick={() => setLeaving(false)}>
-                  {t("leave.no")}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" className="lb-switch" onClick={() => setLeaving(true)}>
-              {t("leave.open")}
-            </button>
-          )}
-        </section>
-      </div>
     </main>
+  );
+}
+
+/** Setting the crew's Zockrunde, or moving it: a day, a time, and one button that says both. */
+function DateStep({
+  crewId,
+  session,
+  over,
+  busy,
+  apply,
+}: {
+  crewId: string;
+  session: CrewSession | null;
+  over: boolean;
+  busy: boolean;
+  apply: (work: Promise<CrewDetail | null>) => Promise<CrewDetail | null>;
+}) {
+  const { lang, t } = useCrewText();
+  // Read again on every pick and before setting, so a page left open never sets a time already gone.
+  const [now, setNow] = useState(() => Date.now());
+  const days = [0, 1, 2, 3, 4].map((offset) => dayOf(now, offset));
+  const moving = session !== null && !over;
+  // Friday when it is among the days, else tomorrow; a session being moved starts from its own day.
+  const [day, setDay] = useState<CalendarDay>(() =>
+    moving ? dayOf(session.at) : (days.find((d) => new Date(d).getUTCDay() === 5) ?? days[1]!),
+  );
+  const [hour, setHour] = useState(() => (moving ? zoned(session.at).hour : 21));
+  const [other, setOther] = useState(() => !days.includes(day));
+  const at = startOf(day, hour);
+  const past = at < now;
+  const pick = (next: () => void) => {
+    setNow(Date.now());
+    next();
+  };
+  const short = (d: CalendarDay) =>
+    `${dayWeekday(lang, d, "short")} ${new Date(d).getUTCDate()}${lang === "de" ? "." : ""}`;
+  const dayName = (d: CalendarDay, i: number) =>
+    i === 0 ? t("g.today") : i === 1 ? t("g.tomorrow") : dayWeekday(lang, d, "long");
+  const whenDay = days.indexOf(day);
+  const when = `${
+    whenDay >= 0 && !other
+      ? dayName(day, whenDay)
+      : `${dayWeekday(lang, day, "long")} ${new Date(day).getUTCDate()}${lang === "de" ? "." : ""}`
+  }, ${sessionTime(lang, at)}`;
+
+  const set = () => {
+    const current = Date.now();
+    setNow(current);
+    if (at >= current) void apply(setCrewSession(crewId, at));
+  };
+
+  return (
+    <>
+      <h2>{t(moving ? "g.moveH" : over ? "g.nextH" : "g.dateH")}</h2>
+      <p className="gc-p">{t(moving ? "g.moveP" : "g.dateP")}</p>
+      <div className="gc-pick">
+        <fieldset>
+          <legend>{t("g.day")}</legend>
+          <div className="gc-chips">
+            {days.map((d, i) => (
+              <button
+                key={d}
+                type="button"
+                className="gc-chip"
+                aria-pressed={!other && d === day}
+                onClick={() =>
+                  pick(() => {
+                    setOther(false);
+                    setDay(d);
+                  })
+                }
+              >
+                <span>{dayName(d, i)}</span>
+                <small>{short(d)}</small>
+              </button>
+            ))}
+            {other ? (
+              <input
+                className="gc-chip gc-other"
+                type="date"
+                aria-label={t("g.otherDay")}
+                min={isoDay(days[0]!)}
+                max={isoDay(dayOf(now, FURTHEST_DAY))}
+                value={isoDay(day)}
+                onChange={(event) => {
+                  const [y, m, d] = event.target.value.split("-").map(Number);
+                  if (!y || !m || !d) return;
+                  const picked = Date.UTC(y, m - 1, d);
+                  if (picked >= days[0]! && picked <= dayOf(now, FURTHEST_DAY)) pick(() => setDay(picked));
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="gc-chip gc-other"
+                aria-pressed={false}
+                onClick={() => pick(() => setOther(true))}
+              >
+                <span>{t("g.otherDay")}</span>
+              </button>
+            )}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>{t("g.time")}</legend>
+          <div className="gc-chips">
+            {SESSION_HOURS.map((h) => (
+              <button
+                key={h}
+                type="button"
+                className="gc-chip t"
+                aria-pressed={h === hour}
+                onClick={() => pick(() => setHour(h))}
+              >
+                {`${String(h).padStart(2, "0")}:00`}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+      <div className="gc-go">
+        <button type="button" className="lpill solid" disabled={busy || past} onClick={set}>
+          {t(moving ? "g.move" : "g.set", { when })}
+          <span className="lpill-c">
+            <Glyph name="arrow" size={18} />
+          </span>
+        </button>
+        <p className="gc-fine">{t("g.setFine")}</p>
+      </div>
+    </>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
+    </svg>
+  );
+}
+
+/** WhatsApp's mark. */
+function WhatsAppGlyph() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12.04 2.5a9.45 9.45 0 0 0-8.1 14.33L2.5 21.5l4.8-1.4a9.46 9.46 0 1 0 4.74-17.6zm0 17.3a7.84 7.84 0 0 1-4.02-1.1l-.29-.17-2.85.83.84-2.77-.19-.3a7.85 7.85 0 1 1 6.51 3.51zm4.3-5.88c-.24-.12-1.4-.69-1.61-.77-.22-.08-.37-.12-.53.12-.16.23-.61.77-.75.93-.14.16-.28.18-.51.06a6.4 6.4 0 0 1-3.2-2.8c-.24-.41.24-.38.69-1.27.08-.16.04-.29-.02-.41-.06-.12-.53-1.28-.73-1.75-.19-.46-.39-.4-.53-.4h-.45a.87.87 0 0 0-.63.29 2.64 2.64 0 0 0-.82 1.96 4.6 4.6 0 0 0 .96 2.43 10.5 10.5 0 0 0 4.03 3.56c1.5.65 2.08.7 2.83.59.46-.07 1.4-.57 1.6-1.13.2-.55.2-1.03.14-1.13-.06-.1-.21-.16-.45-.28z"
+      />
+    </svg>
   );
 }
 
@@ -853,121 +975,11 @@ function startDownload(url: string) {
   link.remove();
 }
 
-/** The address the reminders confirm form checks, as the server does (signups.ts). */
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-/**
- * Optional reminders by email, double opt-in (server/src/signups.ts): an
- * address, then "check your inbox", then the address they go to with a way to
- * stop them. Not there at all while the server takes none.
- */
-function CrewReminders() {
-  const { lang, t } = useCrewText();
-  const [reminders, setReminders] = useState<Reminders | null>(null);
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ key: CopyKey; alert?: boolean; time?: string } | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void fetchReminders().then((answer) => {
-      if (live) setReminders(answer);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  if (!reminders) return null;
-
-  const save = async (next: string | null) => {
-    setBusy(true);
-    setNote(null);
-    const answer = await saveReminders(next, lang);
-    setBusy(false);
-    if (!answer) {
-      setNote({ key: "rem.failed", alert: true });
-      return;
-    }
-    setReminders(answer);
-    if (next !== null && answer.retryAt !== undefined) {
-      const time = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: lang === "en",
-      }).format(answer.retryAt);
-      setNote({ key: "rem.held", time });
-    } else if (next !== null && !answer.confirmed) setNote({ key: "rem.sent" });
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const value = email.trim();
-    if (!EMAIL.test(value)) setNote({ key: "rem.invalid", alert: true });
-    else void save(value);
-  };
-
-  return (
-    <section className="lb-remind" aria-labelledby="rem-h" data-testid="reminders">
-      <div>
-        <h2 id="rem-h">{t("rem.title")}</h2>
-        <p className="sub">{t("rem.line")}</p>
-      </div>
-      {reminders.email && reminders.confirmed ? (
-        <div className="fa-acts">
-          <p>{t("rem.on", { email: reminders.email })}</p>
-          <button type="button" className="lpill" disabled={busy} onClick={() => void save(null)}>
-            {t("rem.stop")}
-          </button>
-        </div>
-      ) : (
-        <form className="rem-form" onSubmit={submit} noValidate>
-          <label className="lb-k" htmlFor="rem-email">
-            {t("rem.label")}
-          </label>
-          <div className="rem-row">
-            <input
-              id="rem-email"
-              className="name-in"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              spellCheck={false}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <button type="submit" className="lpill solid" disabled={busy}>
-              {busy ? t("rem.saving") : t("rem.save")}
-            </button>
-          </div>
-        </form>
-      )}
-      <p className="cp-toast" role={note?.alert ? "alert" : "status"} hidden={!note}>
-        {note ? t(note.key, { email: reminders.email ?? email.trim(), time: note.time ?? "" }) : null}
-      </p>
-    </section>
-  );
-}
-
-function LinkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
-      <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
-    </svg>
-  );
-}
-
 /** The green WhatsApp button the design leads with. */
-function WhatsAppButton({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) {
+function WhatsAppButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button type="button" className={small ? "lb-wa fa-wa-sm" : "lb-wa"} onClick={onClick}>
-      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M12.04 2.5a9.45 9.45 0 0 0-8.1 14.33L2.5 21.5l4.8-1.4a9.46 9.46 0 1 0 4.74-17.6zm0 17.3a7.84 7.84 0 0 1-4.02-1.1l-.29-.17-2.85.83.84-2.77-.19-.3a7.85 7.85 0 1 1 6.51 3.51zm4.3-5.88c-.24-.12-1.4-.69-1.61-.77-.22-.08-.37-.12-.53.12-.16.23-.61.77-.75.93-.14.16-.28.18-.51.06a6.4 6.4 0 0 1-3.2-2.8c-.24-.41.24-.38.69-1.27.08-.16.04-.29-.02-.41-.06-.12-.53-1.28-.73-1.75-.19-.46-.39-.4-.53-.4h-.45a.87.87 0 0 0-.63.29 2.64 2.64 0 0 0-.82 1.96 4.6 4.6 0 0 0 .96 2.43 10.5 10.5 0 0 0 4.03 3.56c1.5.65 2.08.7 2.83.59.46-.07 1.4-.57 1.6-1.13.2-.55.2-1.03.14-1.13-.06-.1-.21-.16-.45-.28z"
-        />
-      </svg>
+    <button type="button" className="lb-wa" onClick={onClick}>
+      <WhatsAppGlyph />
       <span>{label}</span>
     </button>
   );

@@ -1,10 +1,9 @@
 // The marketing site (server/src/marketing.ts) on a host of its own, and how
 // it hands people into the app: "Crew gründen" through Steam sign-in on the
 // app's origin to the crew pages, a crew link the site is given straight to
-// the app's own invite page, the app's crew link previewing who asks, and the
-// crew page's optional reminder address (server/src/signups.ts). Then a gift,
-// the Zockrunde page, the Lanterel OS page and the legal pages. Steam itself
-// is never called: the sign-in request is caught before it leaves.
+// the app's own invite page, and the app's crew link previewing who asks.
+// Then a gift, the Zockrunde page, the Lanterel OS page and the legal pages.
+// Steam itself is never called: the sign-in request is caught before it leaves.
 
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./credentials";
@@ -63,32 +62,11 @@ test.describe("marketing site", () => {
     expect(returnTo.searchParams.get("to")).toBe("/crews?found=1");
   });
 
-  test("back from sign-in: a player with no crew gets one at once, and can ask for reminders", async ({
-    page,
-    context,
-    baseURL,
-  }) => {
+  test("back from sign-in: a player with no crew gets one at once", async ({ page, context, baseURL }) => {
     await signIn(context, app(baseURL), "76561198000000031");
     await page.goto(`${app(baseURL)}/crews?found=1`);
     await expect(page).toHaveURL(/\/crews\/[\w-]+$/);
-    await expect(page.getByText("Almost ready.")).toBeVisible();
-
-    const reminders = page.getByTestId("reminders");
-    // On a phone the address field and its button share one row, the button whole in the window.
-    await page.setViewportSize({ width: 390, height: 844 });
-    const field = (await reminders.getByLabel("Email address").boundingBox())!;
-    const button = (await reminders.getByRole("button", { name: "Remind me" }).boundingBox())!;
-    expect(button.y).toBeLessThan(field.y + field.height);
-    expect(button.x + button.width).toBeLessThanOrEqual(390);
-    await reminders.getByLabel("Email address").fill("crew@example.com");
-    const [sent] = await Promise.all([
-      page.waitForRequest((r) => r.url().endsWith("/api/signups/reminders") && r.method() === "POST"),
-      reminders.getByRole("button", { name: "Remind me" }).click(),
-    ]);
-    expect(sent.postDataJSON()).toEqual({ email: "crew@example.com", lang: "en" });
-    await expect(
-      reminders.getByText("Almost there: click the link in the email to crew@example.com."),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "When are you playing?" })).toBeVisible();
   });
 
   test("a crew link the site is given opens the app's own invite page, which previews who asks", async ({

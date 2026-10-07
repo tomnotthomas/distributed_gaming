@@ -173,6 +173,13 @@ export const MAX_MINUTES = 12 * 60;
 export const QOS_GRACE_MS = 60_000;
 /** A host's end this close to the session's expiry is time_up, to absorb clock skew between host and server. */
 export const TIME_UP_GRACE_MS = 10_000;
+/** How far ahead a crew's Zockrunde may be set: 90 days. */
+export const SESSION_AHEAD_MS = 90 * 24 * 3600 * 1000;
+/** How long before now a Zockrunde may still be set, for a clock a little behind: 1 hour. */
+export const SESSION_PAST_MS = 3600 * 1000;
+/** How long after it starts a Zockrunde counts as over: it is no longer shown in invites or answered. 6 hours. */
+export const SESSION_OVER_MS = 6 * 3600 * 1000;
+
 /** How long a crew's first PC is news to a member who was away when it came. */
 export const PC_ARRIVED_MS = 7 * 24 * 60 * 60_000;
 export type MachineStatus = "idle" | "available" | "reserved" | "in_session" | "offline";
@@ -242,7 +249,15 @@ export type CrewView = {
   size: number;
   state: CrewState;
   pcs: number;
+  session: CrewSession | null;
 };
+
+/**
+ * A crew's next Zockrunde, which its admin sets and moves: when it starts
+ * (Unix ms), and how many in the crew said they are in (`yes`) or cannot
+ * (`no`). The rest have not answered yet.
+ */
+export type CrewSession = { at: number; yes: number; no: number };
 
 /** A crew someone is in: `id` names the crew, `memberId` their membership in it, which leaving names. */
 export type MyCrew = CrewView & { id: string; memberId: string };
@@ -251,7 +266,8 @@ export type MyCrew = CrewView & { id: string; memberId: string };
  * Someone in a crew, by their Steam persona when known: `id` names the
  * membership, never them. `you` is the one looking, `admin` the crew's admin;
  * `pc` whether they bring a gaming PC ('yes'), put it off ('later'), or were
- * not asked (null); `pcs` how many of their PCs play for it.
+ * not asked (null); `pcs` how many of their PCs play for it; `rsvp` their
+ * answer to the crew's next Zockrunde, null while open or when it has none.
  */
 export type CrewMember = {
   id: string;
@@ -260,7 +276,11 @@ export type CrewMember = {
   admin: boolean;
   pc: "yes" | "later" | null;
   pcs: number;
+  rsvp: Rsvp | null;
 };
+
+/** An answer to a crew's Zockrunde: in, or cannot. */
+export type Rsvp = "yes" | "no";
 
 /** How a PC playing for a crew is now: free to play, being played on, or away. */
 export type CrewPcState = "ready" | "busy" | "offline";
@@ -268,8 +288,17 @@ export type CrewPcState = "ready" | "busy" | "offline";
 /** A PC playing for a crew: its name as its host reported it, its owner's persona, and whether it is the viewer's. */
 export type CrewPc = { name: string | null; owner: string | null; mine: boolean; state: CrewPcState };
 
-/** A crew as one of its members sees it in full: who is in it, its PCs, and its live link's invite. */
-export type CrewDetail = MyCrew & { inviteId: string | null; members: CrewMember[]; machines: CrewPc[] };
+/**
+ * A crew as one of its members sees it in full: who is in it, its PCs, its
+ * live link's invite, and whether someone in it shared the invite since its
+ * Zockrunde was set (`shared`).
+ */
+export type CrewDetail = MyCrew & {
+  inviteId: string | null;
+  members: CrewMember[];
+  machines: CrewPc[];
+  shared: boolean;
+};
 
 /**
  * A session a crewmate is playing now, as their crew sees it: who plays which
@@ -694,15 +723,21 @@ type CrewRow = {
   size: number;
   pcs: number;
   online: number;
+  session_at: number | null;
+  shared: boolean;
+  going: number;
+  not_going: number;
 };
 
 /**
  * What every crew read selects from `crews c`: the row, how many are in it,
- * and its PCs, all and on offer. A free one counts as on offer only while its
+ * its Zockrunde and the answers to it, and its PCs, all and on offer. A free one counts as on offer only while its
  * PC holds a socket, when $ONLY says so: then it is one of $PRESENT.
  */
-const CREW_COLUMNS = `c.id, c.owner_id, c.owner_name, c.name,
+const CREW_COLUMNS = `c.id, c.owner_id, c.owner_name, c.name, c.session_at, c.shared_at IS NOT NULL AS shared,
   (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id)::int AS size,
+  (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id AND x.rsvp = 'yes')::int AS going,
+  (SELECT count(*) FROM crew_members x WHERE x.crew_id = c.id AND x.rsvp = 'no')::int AS not_going,
   (SELECT count(*) FROM crew_machines p WHERE p.crew_id = c.id)::int AS pcs,
   (SELECT count(*) FROM crew_machines p JOIN machines q ON q.id = p.machine_id
      WHERE p.crew_id = c.id AND (q.status IN ('reserved', 'in_session')
@@ -716,7 +751,12 @@ const crewView = (crew: CrewRow, userId: string | null): CrewView => ({
   size: crew.size,
   state: crew.pcs === 0 ? "no-pc" : crew.online > 0 ? "ready" : "offline",
   pcs: crew.pcs,
+  session: crew.session_at === null ? null : { at: crew.session_at, yes: crew.going, no: crew.not_going },
 });
+
+/** A crew's Zockrunde while it is ahead or under way at `now`; null once it is over, or for none. */
+const liveSession = (session: CrewSession | null, now: number): CrewSession | null =>
+  session && session.at + SESSION_OVER_MS > now ? session : null;
 
 /** How a PC playing for a crew is, by its status. */
 const pcState = (status: MachineStatus): CrewPcState =>
@@ -1503,9 +1543,76 @@ export class Platform {
   }
 
   /**
+   * Set the crew's next Zockrunde to start at `at` (Unix ms), or move it, as
+   * its admin: everyone is asked again, the admin counts as in, and the invite
+   * is to be shared again with the new date. Null unless `userId` is in it;
+   * "forbidden" for a member who is not its admin; "invalid" for anything but
+   * a time from SESSION_PAST_MS ago to SESSION_AHEAD_MS ahead.
+   */
+  setCrewSession(
+    crewId: string,
+    userId: string,
+    at: unknown,
+  ): Promise<CrewDetail | null | "forbidden" | "invalid"> {
+    return this.#transaction(async () => {
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!detail.own) return "forbidden";
+      const now = this.#now();
+      if (
+        !Number.isSafeInteger(at) ||
+        (at as number) < now - SESSION_PAST_MS ||
+        (at as number) > now + SESSION_AHEAD_MS
+      )
+        return "invalid";
+      await this.#run("UPDATE crews SET session_at = $1, shared_at = NULL WHERE id = $2", at, crewId);
+      await this.#run(
+        "UPDATE crew_members SET rsvp = CASE WHEN user_id = $2 THEN 'yes' END WHERE crew_id = $1",
+        crewId,
+        userId,
+      );
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
+   * `userId` answers the crew's Zockrunde: in ("yes") or cannot ("no"). Null
+   * unless they are in it; "no-session" while it has none, or once it is over.
+   */
+  answerCrewSession(crewId: string, userId: string, rsvp: Rsvp): Promise<CrewDetail | null | "no-session"> {
+    return this.#transaction(async () => {
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!liveSession(detail.session, this.#now())) return "no-session";
+      await this.#run(
+        "UPDATE crew_members SET rsvp = $1 WHERE crew_id = $2 AND user_id = $3",
+        rsvp,
+        crewId,
+        userId,
+      );
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
+   * Note that `userId` shared the crew's invite with its Zockrunde. Null unless
+   * they are in it; "no-session" while it has none ahead or under way, since
+   * the invite then carries no date to answer.
+   */
+  sharedCrew(crewId: string, userId: string): Promise<CrewDetail | null | "no-session"> {
+    return this.#transaction(async () => {
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!liveSession(detail.session, this.#now())) return "no-session";
+      await this.#run("UPDATE crews SET shared_at = $1 WHERE id = $2", this.#now(), crewId);
+      return (await this.#crewDetail(crewId, userId))!;
+    });
+  }
+
+  /**
    * The crew a live invite joins, as `userId` opening the link sees it (null:
-   * signed out), with whether they are in it already; null for a revoked or
-   * unknown invite.
+   * signed out), with whether they are in it already and its Zockrunde only
+   * while that is not over; null for a revoked or unknown invite.
    */
   invite(inviteId: string, userId: string | null = null): Promise<(CrewView & { member: boolean }) | null> {
     return this.#read(async () => {
@@ -1518,7 +1625,8 @@ export class Platform {
           crew.id,
           userId,
         )) !== undefined;
-      return { ...crewView(crew, userId), member };
+      const view = crewView(crew, userId);
+      return { ...view, session: liveSession(view.session, this.#now()), member };
     });
   }
 
@@ -2095,8 +2203,9 @@ export class Platform {
       user_id: string;
       name: string | null;
       pc: CrewMember["pc"];
+      rsvp: Rsvp | null;
     }>(
-      `SELECT m.id, m.user_id, m.name, m.pc FROM crew_members m JOIN crews c ON c.id = m.crew_id
+      `SELECT m.id, m.user_id, m.name, m.pc, m.rsvp FROM crew_members m JOIN crews c ON c.id = m.crew_id
          WHERE m.crew_id = $1 ORDER BY m.user_id = c.owner_id DESC, m.joined_at, m.id`,
       crewId,
     );
@@ -2123,6 +2232,7 @@ export class Platform {
       memberId: me.id,
       ...crewView(crew, userId),
       inviteId: invite?.id ?? null,
+      shared: crew.shared,
       members: members.map((m) => ({
         id: m.id,
         name: m.name,
@@ -2130,6 +2240,7 @@ export class Platform {
         admin: m.user_id === crew.owner_id,
         pc: m.pc,
         pcs: machines.filter((q) => ownerOf(q) === m.user_id).length,
+        rsvp: m.rsvp,
       })),
       machines: machines.map((q) => {
         const owner = ownerOf(q);

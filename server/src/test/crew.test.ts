@@ -25,6 +25,7 @@ import {
   MAX_CREWS,
   PC_ARRIVED_MS,
   Platform,
+  SESSION_OVER_MS,
   type MachineSpec,
 } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
@@ -126,11 +127,13 @@ describe("crews", () => {
           size: 1,
           state: "no-pc",
           pcs: 0,
+          session: null,
+          shared: false,
           machines: [],
         },
       );
       assert.deepEqual(crew.members, [
-        { id: crew.memberId, name: "Alex", you: true, admin: true, pc: null, pcs: 0 },
+        { id: crew.memberId, name: "Alex", you: true, admin: true, pc: null, pcs: 0, rsvp: null },
       ]);
       assert.deepEqual(await platform.crews(ALEX), [
         {
@@ -142,6 +145,7 @@ describe("crews", () => {
           size: 1,
           state: "no-pc",
           pcs: 0,
+          session: null,
           pcArrived: false,
         },
       ]);
@@ -205,7 +209,7 @@ describe("crews", () => {
         ok: true,
         id: crewId,
         joined: true,
-        crew: { name: "Alex", crewName: null, own: false, size: 3, state: "no-pc", pcs: 0 },
+        crew: { name: "Alex", crewName: null, own: false, size: 3, state: "no-pc", pcs: 0, session: null },
       });
       const again = await platform.joinCrew(inviteId, JO, "Jo");
       assert.equal(again.ok && again.joined, false);
@@ -217,6 +221,7 @@ describe("crews", () => {
         size: 3,
         state: "no-pc",
         pcs: 0,
+        session: null,
         member: true,
       });
       assert.equal((await platform.invite(inviteId, STRANGER))?.member, false);
@@ -675,6 +680,79 @@ describe("crew API", () => {
     assert.equal((await call("GET", `/api/crews/${crew.id}`)).status, 401);
   });
 
+  it("sets and moves the crew's Zockrunde as its admin, asks everyone again, and takes each answer", async () => {
+    const crew = await joinByLink();
+    const at = now + 3 * 24 * 3600 * 1000;
+    assert.equal((await call("POST", `/api/crews/${crew.id}/session`, HOST, { at })).status, 403);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/session`, STRANGER, { at })).status, 404);
+    for (const bad of [undefined, "friday", now - 2 * 3600 * 1000, now + 91 * 24 * 3600 * 1000, at + 0.5])
+      assert.equal((await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at: bad })).status, 400);
+    const early = await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "yes" });
+    assert.equal(early.status, 409);
+    assert.equal(early.body.code, "no-session");
+    const unshared = await call("POST", `/api/crews/${crew.id}/shared`, HOST);
+    assert.equal(unshared.status, 409, "an invite with no date to answer does not count as sent");
+    assert.equal(unshared.body.code, "no-session");
+
+    const set = await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at });
+    assert.equal(set.status, 200);
+    assert.deepEqual(set.body.crew.session, { at, yes: 1, no: 0 }, "the admin who sets it is in");
+    assert.equal(set.body.crew.shared, false);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "maybe" })).status, 400);
+    const answered = await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "no" });
+    assert.deepEqual(answered.body.crew.session, { at, yes: 1, no: 1 });
+    assert.deepEqual(
+      answered.body.crew.members.map((m: { name: string; rsvp: string | null }) => [m.name, m.rsvp]),
+      [
+        ["Alex", "yes"],
+        ["Sam", "no"],
+      ],
+    );
+    const shared = await call("POST", `/api/crews/${crew.id}/shared`, HOST);
+    assert.equal(shared.body.crew.shared, true);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/shared`, STRANGER)).status, 404);
+    // Whoever opens the link sees the date and who is in.
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, {
+      at,
+      yes: 1,
+      no: 1,
+    });
+
+    // Moved, everyone is asked again and the invite is to go out again with the new date.
+    const moved = await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at: at + 3600 * 1000 });
+    assert.deepEqual(moved.body.crew.session, { at: at + 3600 * 1000, yes: 1, no: 0 });
+    assert.equal(moved.body.crew.shared, false);
+    assert.deepEqual(
+      moved.body.crew.members.map((m: { rsvp: string | null }) => m.rsvp),
+      ["yes", null],
+    );
+  });
+
+  it("stops showing and answering a Zockrunde once it is over, 6 hours after it starts", async () => {
+    const crew = await joinByLink();
+    const at = now + 3600 * 1000;
+    await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at });
+    now = at + SESSION_OVER_MS - 1;
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, {
+      at,
+      yes: 1,
+      no: 0,
+    });
+    assert.equal((await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "yes" })).status, 200);
+
+    now += 1;
+    assert.equal((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, null);
+    const late = await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "no" });
+    assert.equal(late.status, 409);
+    assert.equal(late.body.code, "no-session");
+    // The crew itself still knows its last one, so its page can ask for the next.
+    assert.deepEqual((await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.session, {
+      at,
+      yes: 2,
+      no: 0,
+    });
+  });
+
   it("renames and replaces the link for its admin alone", async () => {
     const crew = await joinByLink();
     const renamed = await call("POST", `/api/crews/${crew.id}/name`, ALEX, { name: "Couch-Koop" });
@@ -702,6 +780,7 @@ describe("crew API", () => {
         size: 1,
         state: "no-pc",
         pcs: 0,
+        session: null,
         member: false,
       },
     });
@@ -718,7 +797,7 @@ describe("crew API", () => {
     const joined = await call("POST", `/api/invites/${body.crew.token}/join`, HOST);
     assert.deepEqual(joined.body, {
       id: body.crew.id,
-      crew: { name: "Alex", crewName: null, own: false, size: 2, state: "no-pc", pcs: 0 },
+      crew: { name: "Alex", crewName: null, own: false, size: 2, state: "no-pc", pcs: 0, session: null },
       joined: true,
     });
     const own = await call("POST", `/api/invites/${body.crew.token}/join`, ALEX);
@@ -788,6 +867,7 @@ describe("crew API", () => {
           size: 2,
           state: "no-pc",
           pcs: 0,
+          session: null,
           plays: false,
         },
       ],

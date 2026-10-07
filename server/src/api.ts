@@ -14,6 +14,9 @@
 //   POST /api/crews/:id/name
 //   POST /api/crews/:id/link
 //   POST /api/crews/:id/pc
+//   POST /api/crews/:id/session
+//   POST /api/crews/:id/rsvp
+//   POST /api/crews/:id/shared
 //   GET  /api/invites/:token (signed out)
 //   POST /api/invites/:token/join
 //   POST /api/crew-members/:id/remove
@@ -755,6 +758,49 @@ export function createApi({
       }
       const crew = await platform.bringPc(id, steamId, body.pc);
       if (!crew) throw new HttpError(404, "no such crew");
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // The crew's next Zockrunde, set or moved by its admin: everyone is asked again.
+    if (resource === "crews" && id && action === "session" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      const crew = await platform.setCrewSession(id, steamId, body.at);
+      if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "forbidden") throw new HttpError(403, "only the crew's admin may do that");
+      if (crew === "invalid") throw new HttpError(400, "at must be a time (Unix ms) within the next 90 days");
+      events?.crewChanged();
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // The signed-in member's answer to the crew's Zockrunde.
+    if (resource === "crews" && id && action === "rsvp" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (body.rsvp !== "yes" && body.rsvp !== "no") throw new HttpError(400, "rsvp must be yes or no");
+      const crew = await platform.answerCrewSession(id, steamId, body.rsvp);
+      if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "no-session") {
+        reply(res, 409, { error: "the crew has no Zockrunde to answer", code: "no-session" });
+        return true;
+      }
+      events?.crewChanged();
+      reply(res, 200, { crew: crewReply(crew) });
+      return true;
+    }
+
+    // A member shared the crew's invite: its page's "get your people" step is done.
+    if (resource === "crews" && id && action === "shared" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const crew = await platform.sharedCrew(id, steamId);
+      if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "no-session") {
+        reply(res, 409, { error: "the crew has no Zockrunde to share", code: "no-session" });
+        return true;
+      }
+      events?.crewChanged();
       reply(res, 200, { crew: crewReply(crew) });
       return true;
     }
