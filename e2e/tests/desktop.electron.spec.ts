@@ -146,7 +146,8 @@ test.describe("Lanterel Host desktop app", () => {
     // the key), open Windows' BitLocker page, note that the removal's ending
     // was seen, report the run and hear its events, read how long
     // since its keyboard was used, send the tray glance its snapshot and
-    // hear the glance's actions. No other door into main.
+    // hear the glance's actions, report its own uncaught errors and pass on
+    // the server's error-reports project. No other door into main.
     const bridge = await window.evaluate(() => {
       const api = (globalThis as { swiffHost?: Record<string, unknown> }).swiffHost ?? {};
       return Object.fromEntries(Object.entries(api).map(([k, v]) => [k, typeof v]));
@@ -172,10 +173,12 @@ test.describe("Lanterel Host desktop app", () => {
       secondsSinceInput: "function",
       setGlance: "function",
       onTrayAction: "function",
+      reportError: "function",
+      setErrorProject: "function",
     });
   });
 
-  test("gives the tray glance only its two calls, and no screen", async () => {
+  test("gives the tray glance only its three calls, and no screen", async () => {
     // A window on the tray glance's preload, as main opens it from the tray
     // icon (an OS tray cannot be clicked from here).
     const opened = app.waitForEvent("window");
@@ -197,7 +200,10 @@ test.describe("Lanterel Host desktop app", () => {
         host: typeof g.swiffHost,
       };
     });
-    expect(exposed).toEqual({ tray: { onGlance: "function", trayAction: "function" }, host: "undefined" });
+    expect(exposed).toEqual({
+      tray: { onGlance: "function", trayAction: "function", reportError: "function" },
+      host: "undefined",
+    });
 
     // Only the app window may share the screen.
     const capture = await glance.evaluate(async () => {
