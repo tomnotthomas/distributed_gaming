@@ -542,8 +542,8 @@ describe("CrewPage: the guided crew page", () => {
         {
           crew: readyCrew({
             busy: [
-              { at: saturday, owner: "Max" },
-              { at: later, owner: "Max" },
+              { at: saturday, owner: "Max", mine: false },
+              { at: later, owner: "Max", mine: false },
             ],
           }),
         },
@@ -559,6 +559,33 @@ describe("CrewPage: the guided crew page", () => {
     expect(
       screen.getByText(
         "Sat 10 and Sat 17: Max's PC already plays for another crew from 8 pm. On those days, pick an earlier time or ask Max.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says when the busy gaming PC is the viewer's own, and never asks them to ask themselves", async () => {
+    const saturday = Date.UTC(2026, 9, 10, 18); // 20:00 in Berlin
+    fetchFrom({
+      "GET /api/crews/c1": [
+        200,
+        { crew: readyCrew({ busy: [{ at: saturday, owner: "Lena", mine: true }] }) },
+      ],
+    });
+    const { unmount } = render(<CrewPage swiff={atCrew("c1")} />);
+    expect(
+      await screen.findByText(
+        "Sat 10: Your PC already plays for another crew from 8 pm. On that day, pick an earlier time.",
+      ),
+    ).toBeInTheDocument();
+    unmount();
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1")} />
+      </ScreenLang.Provider>,
+    );
+    expect(
+      await screen.findByText(
+        "Sa 10.: Dein PC spielt da schon ab 20 Uhr für eine andere Crew. An dem Tag such dir eine frühere Uhrzeit aus.",
       ),
     ).toBeInTheDocument();
   });

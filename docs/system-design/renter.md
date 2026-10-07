@@ -590,7 +590,7 @@ POST /crews { name? }
 
 GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
-                  shared, busy: [{ at, owner }], picks, offered,
+                  shared, busy: [{ at, owner, mine }], picks, offered,
                   members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
                   machines: [{ id, name, owner, mine, state, games, playing }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
@@ -603,7 +603,8 @@ GET  /crews/:id
   it; its `playing` is who in the crew plays on it now,
   `{ sessionId, player, you, gameId, startedAt, starting }`, else null. `busy` lists other
   crews' Zockrunden, ahead or under way, that one of this crew's PCs plays for too (when
-  they start, and the PC owner's persona, never which crew), which the date calendar
+  they start, the PC owner's persona, and `mine` when the PC is the viewer's own, never
+  which crew), which the date calendar
   marks; `picks` how many games still on one of its PCs the viewer marked to play;
   `offered` how many games its PCs have installed, so the games step counts as done when
   there are none to pick. → 404 for anyone else, or none. → 401 signed out.

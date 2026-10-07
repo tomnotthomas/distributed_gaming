@@ -341,9 +341,10 @@ export type CrewDetail = MyCrew & {
 
 /**
  * A Zockrunde of another crew that one of this crew's PCs plays for too: when
- * it starts (Unix ms) and the PC owner's persona. Which crew is never said.
+ * it starts (Unix ms), the PC owner's persona, and whether the PC is the
+ * viewer's own. Which crew is never said.
  */
-export type CrewBusy = { at: number; owner: string | null };
+export type CrewBusy = { at: number; owner: string | null; mine: boolean };
 
 /**
  * A crew's games as the crew API reads them: who is in it (`userId` stays on
@@ -2470,7 +2471,11 @@ export class Platform {
       busy: elsewhere.map(({ machine_id, at }) => {
         const machine = machines.find((q) => q.id === machine_id);
         const owner = machine ? ownerOf(machine) : null;
-        return { at: Number(at), owner: owner === null ? null : (persona.get(owner) ?? null) };
+        return {
+          at: Number(at),
+          owner: owner === null ? null : (persona.get(owner) ?? null),
+          mine: owner === userId,
+        };
       }),
       picks: picks?.n ?? 0,
       offered: offered?.n ?? 0,

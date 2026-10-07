@@ -160,17 +160,22 @@ export function DateStep({
   };
 
   // The busy days in the month shown, one line per PC and starting time.
-  const notes = new Map<string, { owner: string | null; time: string; days: CalendarDay[] }>();
+  const notes = new Map<string, { owner: string | null; mine: boolean; time: string; days: CalendarDay[] }>();
   for (const [day, list] of [...busyDays].sort(([a], [b]) => a - b)) {
     if (day < first || day > days[days.length - 1]! || day < today) continue;
     for (const b of list) {
-      const key = `${b.owner ?? ""}|${sessionClock(b.at)}`;
-      const note = notes.get(key) ?? { owner: b.owner, time: sessionTime(lang, b.at), days: [] };
+      const key = `${b.mine ? "" : (b.owner ?? "")}|${b.mine}|${sessionClock(b.at)}`;
+      const note = notes.get(key) ?? {
+        owner: b.owner,
+        mine: b.mine,
+        time: sessionTime(lang, b.at),
+        days: [],
+      };
       if (!note.days.includes(day)) note.days.push(day);
       notes.set(key, note);
     }
   }
-  const owners = [...new Set([...notes.values()].flatMap((n) => (n.owner ? [n.owner] : [])))];
+  const owners = [...new Set([...notes.values()].map((n) => (n.mine ? null : n.owner)))];
   const noteDays = new Set([...notes.values()].flatMap((n) => n.days)).size;
   const anyBusy = [...busyDays.keys()].some((d) => d >= today);
 
@@ -267,7 +272,7 @@ export function DateStep({
               <span>
                 {[...notes.values()]
                   .map((n) =>
-                    t("cal.warn", {
+                    t(n.mine ? "cal.warnMine" : "cal.warn", {
                       days: listNames(
                         lang,
                         n.days.map((d) => calendarDate(lang, d)),
@@ -277,7 +282,7 @@ export function DateStep({
                     }),
                   )
                   .join(" ")}{" "}
-                {owners.length === 1
+                {owners.length === 1 && owners[0]
                   ? t(noteDays > 1 ? "cal.warnAsk" : "cal.warnAskOne", { name: owners[0]! })
                   : t(noteDays > 1 ? "cal.warnEarlier" : "cal.warnEarlierOne")}
               </span>

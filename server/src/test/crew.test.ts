@@ -908,7 +908,12 @@ describe("crew API", () => {
     const at = now + 24 * 3600 * 1000;
     assert.equal((await call("POST", `/api/crews/${other.id}/session`, JO, { at })).status, 200);
     const busy = (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy;
-    assert.deepEqual(busy, [{ at, owner: "Sam" }], "whose PC, never which crew");
+    assert.deepEqual(busy, [{ at, owner: "Sam", mine: false }], "whose PC, never which crew");
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.busy,
+      [{ at, owner: "Sam", mine: true }],
+      "Sam's own PC is his",
+    );
     assert.doesNotMatch(JSON.stringify(busy), /Couch-Koop|Jo/);
     assert.deepEqual(
       (await call("GET", `/api/crews/${other.id}`, JO)).body.crew.busy,

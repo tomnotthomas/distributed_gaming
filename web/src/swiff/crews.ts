@@ -90,8 +90,8 @@ export type CrewDetail = MyCrew & {
   offered: number;
 };
 
-/** When (Unix ms) another crew's Zockrunde already has one of the crew's PCs, and whose PC that is. */
-export type CrewBusy = { at: number; owner: string | null };
+/** When (Unix ms) another crew's Zockrunde already has one of the crew's PCs, whose PC that is, and whether it is the viewer's. */
+export type CrewBusy = { at: number; owner: string | null; mine: boolean };
 
 /**
  * A game on the crew's PCs, as picking shows it: how many in the crew own it,
