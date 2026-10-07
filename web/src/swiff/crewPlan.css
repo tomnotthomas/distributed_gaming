@@ -1,0 +1,490 @@
+/* Planning a Zockrunde on the guided crew page (CrewPlan.tsx), in the approved
+   ticket design (data/lanterel-design-round mockups c-calendar and d-games,
+   impeccable): the month calendar with the days the gaming PC is already
+   booked, who is coming, and picking games. Scoped to .gc, the guided page. */
+
+.gc {
+  --busy: #c2410c;
+}
+
+/* The month calendar */
+.gc .gp-cal {
+  display: grid;
+  gap: 22px;
+  margin-top: 6px;
+}
+.gc .gp-month {
+  padding: 14px;
+  border: 1px solid var(--pline-2);
+  border-radius: 14px;
+  background: #fff;
+}
+.gc .gp-mh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.gc .gp-mh b {
+  font: 500 17px/1 var(--f);
+}
+.gc .gp-mh button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--pline-2);
+  border-radius: 50%;
+  background: none;
+  color: var(--on-paper);
+  cursor: pointer;
+}
+.gc .gp-mh button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.gc .gp-mh svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.gc .gp-wd,
+.gc .gp-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  text-align: center;
+}
+.gc .gp-wd span {
+  padding: 6px 0;
+  font: 500 11.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-paper-2);
+}
+.gc .gp-days button {
+  position: relative;
+  aspect-ratio: 1 / 0.86;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font: 500 15px/1 var(--f);
+  font-variant-numeric: tabular-nums;
+  color: var(--on-paper);
+  cursor: pointer;
+}
+.gc .gp-days button:hover:not(:disabled) {
+  background: var(--card);
+}
+.gc .gp-days button:disabled {
+  color: var(--on-paper-3, #6a6b6b);
+  opacity: 0.55;
+  cursor: default;
+}
+.gc .gp-days .today {
+  box-shadow: inset 0 0 0 1px var(--on-paper);
+}
+.gc .gp-days [aria-pressed="true"],
+.gc .gp-days [aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--on-paper);
+  color: var(--paper);
+}
+.gc .gp-bz {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 18px;
+  height: 3px;
+  margin-left: -9px;
+  border-radius: 2px;
+  background: var(--busy);
+}
+.gc .gp-days [aria-pressed="true"] .gp-bz {
+  background: var(--lime);
+}
+.gc .gp-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--on-paper-2);
+}
+.gc .gp-key i {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  margin-right: 6px;
+  border-radius: 2px;
+  background: var(--busy);
+  vertical-align: middle;
+}
+.gc .gp-key u {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--on-paper);
+  vertical-align: -2px;
+}
+.gc .gp-side {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+.gc .gp-side .gc-go {
+  margin-top: 0;
+}
+.gc .gp-warn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff4ec;
+  color: #5c1d05;
+  font-size: 14.5px;
+}
+.gc .gp-warn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--busy);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Who is coming, in groups */
+.gc .gp-who h2 {
+  margin-bottom: 16px;
+}
+.gc .gp-c2 {
+  display: grid;
+  gap: 24px;
+}
+.gc .gp-groups {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+.gc .gp-grp h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font: 500 16px/1.2 var(--f);
+}
+.gc .gp-grp h3 .n {
+  font: 500 13px/1 var(--mono);
+  color: var(--on-paper-2);
+}
+.gc .gp-who ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gc .gp-who li {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 4px;
+  border: 1px solid var(--pline-2);
+  border-radius: 999px;
+  background: #fff;
+  font: 500 15px/1 var(--f);
+}
+.gc .gp-who li .av {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+.gc .gp-grp.yes li {
+  border-color: var(--on-paper);
+}
+.gc .gp-grp.yes li .av {
+  box-shadow: 0 0 0 2px var(--lime);
+}
+.gc .gp-grp.no li {
+  color: var(--on-paper-2);
+}
+.gc .gp-grp.no li .av,
+.gc .gp-grp.open li .av {
+  background: var(--card);
+  border: 1px solid var(--pline-2);
+}
+.gc .gp-grp.open li {
+  border-style: dashed;
+}
+.gc .gp-who .lb-wa {
+  width: auto;
+  min-height: 56px;
+  padding: 0 28px;
+}
+.gc .gp-txt {
+  justify-self: start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: 500 15px/1.3 var(--f);
+  color: var(--on-paper);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--pline-2);
+  cursor: pointer;
+}
+.gc .gp-txt:hover {
+  text-decoration-color: currentColor;
+}
+.gc .gp-seen {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--card);
+}
+.gc .gp-seen > p,
+.gc .gp-remind {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--on-paper-2);
+}
+.gc .gp-mini {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--on-paper);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.gc .gp-mini b {
+  font: 500 16px/1.25 var(--f);
+}
+.gc .gp-mini > span {
+  font-size: 14px;
+  color: var(--on-paper-2);
+}
+.gc .gp-row2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gc .gp-row2 span {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--pline-2);
+  border-radius: 999px;
+  background: #fff;
+  font: 500 14px/1 var(--f);
+}
+.gc .gp-row2 span:first-child {
+  border-color: var(--on-paper);
+  background: var(--on-paper);
+  color: var(--paper);
+}
+
+/* Picking games */
+.gc .gp-head {
+  display: grid;
+  gap: 14px;
+}
+.gc .gp-intro {
+  display: grid;
+  gap: 10px;
+}
+.gc .gp-fav {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--on-paper);
+  color: var(--paper);
+}
+.gc .gp-fav img,
+.gc .gp-fav .gp-noart {
+  width: 120px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.gc .gp-fav p {
+  display: grid;
+  margin: 0;
+}
+.gc .gp-fav b {
+  font: 500 17px/1.25 var(--f);
+  overflow-wrap: anywhere;
+}
+.gc .gp-fav p > span:last-child {
+  font-size: 14px;
+  color: rgb(232 233 232 / 0.75);
+}
+.gc .gp-fav .k {
+  display: block;
+  margin-bottom: 6px;
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+.gc .gp-gh {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 10px 0 2px;
+  font: 500 17px/1.2 var(--f);
+}
+.gc .gp-gh small {
+  font: 400 14px/1.3 var(--f);
+  color: var(--on-paper-2);
+}
+.gc .gp-games {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(170px, 44%), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gc .gp-game {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--pline-2);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--on-paper);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+.gc .gp-game img,
+.gc .gp-game .gp-noart {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+.gc .gp-noart {
+  background: var(--card);
+}
+.gc .gp-gt {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 10px 12px 12px;
+}
+.gc .gp-gt b {
+  font: 500 15.5px/1.2 var(--f);
+  overflow-wrap: anywhere;
+}
+.gc .gp-gt small {
+  font: 400 13px/1.3 var(--f);
+  color: var(--on-paper-2);
+}
+.gc .gp-game:hover {
+  border-color: var(--on-paper);
+}
+.gc .gp-game[aria-pressed="true"] {
+  border: 2px solid var(--on-paper);
+  box-shadow: 0 10px 20px -16px rgb(19 19 19 / 0.5);
+}
+.gc .gp-sel {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--pline-2);
+  border-radius: 50%;
+  background: rgb(244 244 242 / 0.92);
+}
+.gc .gp-sel svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+}
+.gc .gp-game[aria-pressed="true"] .gp-sel {
+  border-color: var(--lime-edge);
+  background: var(--lime);
+}
+.gc .gp-game[aria-pressed="true"] .gp-sel svg {
+  opacity: 1;
+}
+.gc .gp-wants {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.gc .gp-mavs {
+  display: flex;
+}
+.gc .gp-mav .av {
+  width: 22px;
+  height: 22px;
+  background: var(--on-paper);
+  color: var(--paper);
+  font: 500 11px/22px var(--f);
+  box-shadow: 0 0 0 2px #fff;
+}
+.gc .gp-mav + .gp-mav {
+  margin-left: -6px;
+}
+.gc .gp-mav.me .av {
+  background: var(--lime);
+  color: var(--on-paper);
+}
+.gc .gp-wn {
+  font: 500 12.5px/1 var(--mono);
+  color: var(--on-paper-2);
+}
+
+@media (max-width: 699px) {
+  .gc .gp-gh {
+    display: grid;
+    gap: 2px;
+  }
+  .gc .gp-who .lb-wa {
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (min-width: 900px) {
+  .gc .gp-cal {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .gc .gp-c2 {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .gc .gp-head {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+    align-items: start;
+  }
+}

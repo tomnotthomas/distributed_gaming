@@ -62,7 +62,7 @@ test("the crew page, its invite and a seat's page fit every width from phone to 
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
   const { crew } = await (await founder.request.get(`/api/crews/${crewId}`)).json();
   await fitsEveryWidth(founder, () =>
-    expect(founder.getByRole("heading", { name: "When are you playing?" })).toBeVisible(),
+    expect(founder.getByRole("heading", { name: "Pick a day in the calendar" })).toBeVisible(),
   );
 
   const friendContext = await browser.newContext();

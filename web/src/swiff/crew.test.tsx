@@ -12,7 +12,9 @@ import {
   crewRouteAt,
   crewTitle,
   inviteMessage,
+  nudgeMessage,
   pcTitle,
+  sessionCalendar,
   sessionClock,
   sessionDay,
   sessionWhen,
@@ -111,6 +113,8 @@ function crewOf(over: Partial<CrewDetail> = {}): CrewDetail {
     members: [LENA],
     machines: [],
     shared: false,
+    busy: [],
+    picks: 0,
     ...over,
   };
 }
@@ -474,47 +478,95 @@ describe("CrewPage: the guided crew page", () => {
       "POST /api/crews/c1/session": [200, { crew: crewOf({ session: dated }) }],
     });
     render(<CrewPage swiff={atCrew("c1")} />);
-    expect(await screen.findByRole("heading", { name: "When are you playing?" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Pick a day in the calendar" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Lena's crew");
     expect(screen.getByText("no date yet")).toBeInTheDocument();
-    expect(stubs()).toEqual(["Date:now", "Get your people:later", "Gaming PC:later", "Play:later"]);
+    expect(stubs()).toEqual([
+      "Date:now",
+      "Get your people:later",
+      "Gaming PC:later",
+      "Pick games:later",
+      "Play:later",
+    ]);
     // Nothing else competes: no PC card, no share block, no "later".
     expect(screen.queryByRole("button", { name: /WhatsApp/ })).toBeNull();
     expect(screen.queryByText(/later/i, { selector: "button" })).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Friday Fri 9" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Saturday Sat 10" }));
+    expect(screen.getByText("October 2026")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fri 9 Oct" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("group", { name: "Time on Fri 9 Oct" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sat 10 Oct" }));
     fireEvent.click(screen.getByRole("button", { name: "20:00" }));
-    expect(screen.getByRole("button", { name: /Set Saturday, 8 pm/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Friday Fri 9" }));
+    expect(screen.getByRole("button", { name: /Set Sat 10 Oct, 8 pm/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Fri 9 Oct" }));
     fireEvent.click(screen.getByRole("button", { name: "21:00" }));
-    fireEvent.click(screen.getByRole("button", { name: /Set Friday, 9 pm/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Set Fri 9 Oct, 9 pm/ }));
     expect(await screen.findByRole("heading", { name: "Now get your people in" })).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/session", JSON.stringify({ at: FRIDAY_9PM })]);
-    expect(stubs()).toEqual(["Date:done", "Get your people:now", "Gaming PC:later", "Play:later"]);
+    expect(stubs()).toEqual([
+      "Date:done",
+      "Get your people:now",
+      "Gaming PC:later",
+      "Pick games:later",
+      "Play:later",
+    ]);
     expect(screen.getByText("Fri 9 Oct, 9 pm")).toBeInTheDocument();
     expect(screen.getByText("Only you so far")).toBeInTheDocument();
   });
 
-  it("offers another day up to the server's 90 days ahead, and no further", async () => {
+  it("turns the months up to the server's 90 days ahead, never back past today", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Other day" }));
-    const other = screen.getByLabelText("Other day");
-    expect(other).toHaveAttribute("min", "2026-10-07");
-    expect(other).toHaveAttribute("max", "2027-01-04");
-    fireEvent.change(other, { target: { value: "2027-02-01" } });
-    expect(screen.getByRole("button", { name: /^Set Friday 9, 9 pm/ })).toBeInTheDocument();
-    fireEvent.change(other, { target: { value: "2026-12-24" } });
-    expect(screen.getByRole("button", { name: /^Set Thursday 24, 9 pm/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Previous month" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Tue 6 Oct" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Wed 7 Oct" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+    fireEvent.click(screen.getByRole("button", { name: "Thu 24 Dec" }));
+    expect(screen.getByRole("button", { name: /^Set Thu 24 Dec, 9 pm/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+    expect(screen.getByText("January 2027")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mon 4 Jan" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Tue 5 Jan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next month" })).toBeDisabled();
+  });
+
+  it("marks the days the gaming PC already plays for another crew, and says whose it is", async () => {
+    const saturday = Date.UTC(2026, 9, 10, 18); // 20:00 in Berlin
+    const later = Date.UTC(2026, 9, 17, 18);
+    fetchFrom({
+      "GET /api/crews/c1": [
+        200,
+        {
+          crew: readyCrew({
+            busy: [
+              { at: saturday, owner: "Max" },
+              { at: later, owner: "Max" },
+            ],
+          }),
+        },
+      ],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(
+      await screen.findByRole("button", { name: "Sat 10 Oct, gaming PC already booked" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sat 17 Oct, gaming PC already booked" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fri 9 Oct" })).toBeInTheDocument();
+    expect(screen.getByText(/the gaming PC is already booked for another session/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Sat 10 and Sat 17: Max's PC already plays for another crew from 8 pm. On those days, pick an earlier time or ask Max.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("never sets a time that has gone by while the page stood open", async () => {
     const calls = fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 7, 18, 30))); // 20:30 in Berlin
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Today Wed 7" }));
-    const set = screen.getByRole("button", { name: /^Set Today, 9 pm/ });
+    fireEvent.click(await screen.findByRole("button", { name: "Wed 7 Oct" }));
+    const set = screen.getByRole("button", { name: /^Set Wed 7 Oct, 9 pm/ });
     expect(set).toBeEnabled();
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 7, 19, 5))); // 21:05: the hour has begun
     fireEvent.click(set);
@@ -530,12 +582,16 @@ describe("CrewPage: the guided crew page", () => {
         <CrewPage swiff={atCrew("c1")} />
       </ScreenLang.Provider>,
     );
-    expect(await screen.findByRole("heading", { name: "Wann zockt ihr?" })).toBeInTheDocument();
-    // Today is Friday: it is picked, and 21:00 has gone.
-    expect(screen.getByRole("button", { name: "Heute Fr 9." })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /Heute, 21 Uhr festlegen/ })).toBeDisabled();
+    expect(
+      await screen.findByRole("heading", { name: "Such dir einen Tag im Kalender aus" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Oktober 2026")).toBeInTheDocument();
+    // Friday 9 pm has gone: tomorrow is picked, and today keeps only a later hour.
+    expect(screen.getByRole("button", { name: "Sa 10. Okt" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Fr 9. Okt" }));
+    expect(screen.getByRole("button", { name: /Fr 9\. Okt, 21 Uhr festlegen/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "22:00" }));
-    expect(screen.getByRole("button", { name: /Heute, 22 Uhr festlegen/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Fr 9\. Okt, 22 Uhr festlegen/ })).toBeEnabled();
   });
 
   it("sends the date on WhatsApp with who asks and who has a gaming PC, and marks the step done", async () => {
@@ -557,7 +613,13 @@ describe("CrewPage: the guided crew page", () => {
       "Who's got a gaming PC? One is enough for all of us.",
     ]);
     expect(calls).toContainEqual(["POST", "/api/crews/c1/shared"]);
-    expect(stubs()).toEqual(["Date:done", "Get your people:done", "Gaming PC:now", "Play:later"]);
+    expect(stubs()).toEqual([
+      "Date:done",
+      "Get your people:done",
+      "Gaming PC:now",
+      "Pick games:later",
+      "Play:later",
+    ]);
   });
 
   it("leaves the step open when the crew link could not be copied", async () => {
@@ -572,7 +634,13 @@ describe("CrewPage: the guided crew page", () => {
       await screen.findByText("Couldn't copy. Select the link and copy it yourself."),
     ).toBeInTheDocument();
     expect(calls).not.toContainEqual(["POST", "/api/crews/c1/shared"]);
-    expect(stubs()).toEqual(["Date:done", "Get your people:now", "Gaming PC:later", "Play:later"]);
+    expect(stubs()).toEqual([
+      "Date:done",
+      "Get your people:now",
+      "Gaming PC:later",
+      "Pick games:later",
+      "Play:later",
+    ]);
   });
 
   it("brings the founder's PC with one button, or asks the group", async () => {
@@ -602,7 +670,7 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByRole("heading", { name: "Move the date" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "21:00" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "22:00" }));
-    fireEvent.click(screen.getByRole("button", { name: /Move to Friday, 10 pm/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Move to Fri 9 Oct, 10 pm/ }));
     expect(await screen.findByRole("heading", { name: "Now get your people in" })).toBeInTheDocument();
     expect(calls).toContainEqual([
       "POST",
@@ -639,9 +707,12 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByRole("heading", { name: "Are you in on Friday at 9 pm?" })).toBeInTheDocument();
     expect(screen.getByText("Lena invited you")).toBeInTheDocument();
     expect(screen.getByText("Lena set the date. Tell the crew whether you're coming.")).toBeInTheDocument();
-    expect(stubs()).toEqual(["Say yes or no:now", "Gaming PC:later", "Play:later"]);
-    expect(screen.getByText("Sam (you)")).toBeInTheDocument();
-    expect(screen.getByText("Your turn to answer")).toBeInTheDocument();
+    expect(stubs()).toEqual(["Say yes or no:now", "Gaming PC:later", "Pick games:later", "Play:later"]);
+    expect(screen.getByRole("heading", { name: "Who's coming on Friday" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No answer yet 1" }).parentElement).toHaveTextContent(
+      "Sam (you)",
+    );
+    expect(screen.getByRole("heading", { name: "In 1" }).parentElement).toHaveTextContent("Lena");
     expect(screen.getByText("1 in")).toBeInTheDocument();
     expect(screen.getByText("1 haven't answered")).toBeInTheDocument();
 
@@ -649,14 +720,14 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByRole("heading", { name: "Who brings the gaming PC?" })).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/rsvp", '{"rsvp":"yes"}']);
     expect(screen.getByText("2 in")).toBeInTheDocument();
-    expect(stubs()).toEqual(["Say yes or no:done", "Gaming PC:now", "Play:later"]);
+    expect(stubs()).toEqual(["Say yes or no:done", "Gaming PC:now", "Pick games:later", "Play:later"]);
   });
 
   it("goes past answering while there is no date, and gives no rename or new link to a member", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: joinedCrew() }] });
     render(<CrewPage swiff={atCrew("c1")} />);
     expect(await screen.findByRole("heading", { name: "Who brings the gaming PC?" })).toBeInTheDocument();
-    expect(stubs()).toEqual(["Say yes or no:later", "Gaming PC:now", "Play:later"]);
+    expect(stubs()).toEqual(["Say yes or no:later", "Gaming PC:now", "Pick games:later", "Play:later"]);
     expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Make a new link" })).toBeNull();
   });
@@ -684,13 +755,20 @@ describe("CrewPage: the guided crew page", () => {
   const library = { games: [ER, CS, GAMES[2]!] };
 
   it("starts the game the player picks on the crew's free PC: first come, first play", async () => {
-    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 2 }) }] });
     const swiff = atCrew("c1", library);
     render(<CrewPage swiff={swiff} />);
     expect(
       await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
     ).toBeInTheDocument();
-    expect(stubs()).toEqual(["Date:done", "Get your people:done", "Gaming PC:done", "Play:now"]);
+    expect(stubs()).toEqual([
+      "Date:done",
+      "Get your people:done",
+      "Gaming PC:done",
+      "Pick games:done",
+      "Play:now",
+    ]);
+    expect(screen.getByText("2 games")).toBeInTheDocument();
     expect(screen.getByText("Your games that run on Max's PC")).toBeInTheDocument();
     // Only games installed on the PC are offered, the most played first, and it is picked.
     const tiles = screen
@@ -708,7 +786,7 @@ describe("CrewPage: the guided crew page", () => {
   });
 
   it("says when someone was quicker to start", async () => {
-    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 1 }) }] });
     const swiff = atCrew("c1", library);
     const { rerender } = render(<CrewPage swiff={swiff} />);
     fireEvent.click(await screen.findByRole("button", { name: `Start ${CS.title}` }));
@@ -728,6 +806,7 @@ describe("CrewPage: the guided crew page", () => {
     const busy = readyCrew({
       session: dated,
       shared: true,
+      picks: 1,
       machines: [{ ...readyCrew().machines[0]!, state: "busy", playing }],
     });
     const queued = {
@@ -769,6 +848,7 @@ describe("CrewPage: the guided crew page", () => {
     const crew = readyCrew({
       session: dated,
       shared: true,
+      picks: 1,
       pcs: 2,
       machines: [
         { ...max!, state: "busy", playing },
@@ -799,6 +879,7 @@ describe("CrewPage: the guided crew page", () => {
     const crew = readyCrew({
       session: dated,
       shared: true,
+      picks: 1,
       machines: [{ ...max!, owner: "Lena", mine: true }],
     });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
@@ -823,7 +904,7 @@ describe("CrewPage: the guided crew page", () => {
     const [max] = readyCrew().machines;
     const own = { ...max!, owner: "Lena", mine: true, state: "busy" as const, playing };
     const entry = { sessionId: "s1", starting: false, player: "Max", gameId: ER.appid, watching: 0 };
-    let crew = readyCrew({ session: dated, shared: true, machines: [own] });
+    let crew = readyCrew({ session: dated, shared: true, picks: 1, machines: [own] });
     fetchFrom({ "GET /api/crews/c1": () => [200, { crew }] });
     const swiff = atCrew("c1", { ...library, crewLive: [entry] });
     const { rerender } = render(<CrewPage swiff={swiff} />);
@@ -843,6 +924,7 @@ describe("CrewPage: the guided crew page", () => {
     const crew = readyCrew({
       session: dated,
       shared: true,
+      picks: 1,
       pcs: 2,
       machines: [
         { ...max!, id: "q-lena", owner: "Lena", mine: true },
@@ -859,7 +941,7 @@ describe("CrewPage: the guided crew page", () => {
 
   it("does not call a PC free while someone's start on it is still on its way", async () => {
     const [max] = readyCrew().machines;
-    const crew = readyCrew({ session: dated, shared: true, machines: [{ ...max!, state: "busy" }] });
+    const crew = readyCrew({ session: dated, shared: true, picks: 1, machines: [{ ...max!, state: "busy" }] });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
     render(<CrewPage swiff={atCrew("c1", library)} />);
     expect(
@@ -872,6 +954,7 @@ describe("CrewPage: the guided crew page", () => {
     const two = readyCrew({
       session: dated,
       shared: true,
+      picks: 1,
       pcs: 2,
       machines: [
         { id: "q-max", name: null, owner: "Max", mine: false, state: "ready", games: [], playing: null },
@@ -937,9 +1020,9 @@ describe("CrewPage: the guided crew page", () => {
   it("says so when a step did not work", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }], "POST /api/crews/c1/session": [500, {}] });
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Set Friday, 9 pm/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Set Fri 9 Oct, 9 pm/ }));
     expect(await screen.findByText("That didn't work. Try again.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "When are you playing?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pick a day in the calendar" })).toBeInTheDocument();
   });
 
   it("reads the crew again when the event stream says something changed", async () => {
@@ -973,6 +1056,150 @@ describe("CrewPage: the guided crew page", () => {
     expect(swiff.openCrew).toHaveBeenCalledWith();
   });
 
+  it("groups who is coming, nudges whoever has not answered on WhatsApp, and moves the date", async () => {
+    const TOM: CrewMember = { ...SAM, id: "m-tom", name: "Tom" };
+    const crew = readyCrew({
+      session: { at: FRIDAY_9PM, yes: 2, no: 1 },
+      shared: true,
+      picks: 1,
+      size: 4,
+      members: [{ ...LENA, rsvp: "yes" }, { ...MAX, rsvp: "yes" }, { ...TOM, rsvp: "no" }, SAM],
+    });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByRole("heading", { name: "Who's coming on Friday" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "In 2" }).parentElement).toHaveTextContent(
+      /Lena \(you\).*Max/,
+    );
+    expect(screen.getByRole("heading", { name: "Can't 1" }).parentElement).toHaveTextContent("Tom");
+    expect(screen.getByRole("heading", { name: "No answer yet 1" }).parentElement).toHaveTextContent("Sam");
+    expect(screen.getByText("This is what Sam sees in the invite:")).toBeInTheDocument();
+    expect(screen.getByText("Session on Friday 9 October, 9 pm. Are you in?")).toBeInTheDocument();
+    expect(screen.getByText("Lena and Max are in.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nudge Sam" }));
+    const url = new URL(String(open.mock.calls[0]![0]));
+    expect(url.origin).toBe("https://wa.me");
+    expect(url.searchParams.get("text")!.split("\n")).toEqual([
+      "Sam, are you in on Friday 9 October, 9 pm? Tap to say yes or no:",
+      `${location.origin}/crews/c1`,
+    ]);
+    expect(await screen.findByText("Reminder shared.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Move the date/ }));
+    expect(screen.getByRole("heading", { name: "Move the date" })).toBeInTheDocument();
+  });
+
+  it("puts the Zockrunde in the viewer's own calendar, with an alert an hour before", async () => {
+    const crew = joinedCrew({ rsvp: "yes" }, { session: { ...dated, yes: 2 } });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const files: Blob[] = [];
+    const create = vi.fn((blob: Blob) => {
+      files.push(blob);
+      return "blob:zockrunde";
+    });
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add to my calendar" }));
+    expect(click).toHaveBeenCalled();
+    expect(files[0]!.type).toBe("text/calendar");
+    // A member is never offered to move the date, but may nudge whoever has not answered.
+    expect(screen.queryByRole("button", { name: /Move the date/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Nudge Lena" })).toBeInTheDocument();
+  });
+
+  it("writes the calendar file any calendar app opens: start, three hours, the crew page", () => {
+    const ics = sessionCalendar(
+      "de",
+      { id: "c1", name: "Lena", crewName: "Couch, Koop; 1", own: true },
+      FRIDAY_9PM,
+      "https://lanterel.com",
+      NOON.getTime(),
+    ).split("\r\n");
+    expect(ics).toContain("DTSTART:20261009T190000Z");
+    expect(ics).toContain("DTEND:20261009T220000Z");
+    expect(ics).toContain("DTSTAMP:20261007T100000Z");
+    expect(ics).toContain("SUMMARY:Zockrunde: Couch\\, Koop\\; 1");
+    expect(ics).toContain("URL:https://lanterel.com/crews/c1");
+    expect(ics).toContain("TRIGGER:-PT1H");
+    expect(ics.at(-1)).toBe("");
+    expect(nudgeMessage("de", { id: "c1" }, ["Sami", "Tom"], FRIDAY_9PM, "https://lanterel.com")).toBe(
+      "Sami und Tom, bist du am Freitag, 9. Oktober, 21 Uhr dabei? Sag kurz zu oder ab:\nhttps://lanterel.com/crews/c1",
+    );
+  });
+
+  it("picks games once a PC is in: everyone's apart from some's, marked with a tap, the favourite on top", async () => {
+    const CS = {
+      id: 730,
+      name: "Counter-Strike 2",
+      image: "https://cdn.example/730.jpg",
+      free: true,
+      owners: 2,
+      everyone: true,
+      wants: ["m-max"],
+      mine: false,
+    };
+    const PORTAL = { ...CS, id: 620, name: "Portal 2", free: false, owners: 1, everyone: false, wants: [] };
+    const crew = readyCrew({ session: dated, shared: true });
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew }],
+      "GET /api/crews/c1/games": [200, { games: [CS, PORTAL], size: 2 }],
+      "POST /api/crews/c1/games": [
+        200,
+        { games: [{ ...CS, wants: ["m-max", "m-lena"], mine: true }, PORTAL], size: 2 },
+      ],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(
+      await screen.findByRole("heading", { name: "What do you want to play on Friday?" }),
+    ).toBeInTheDocument();
+    expect(stubs()).toEqual([
+      "Date:done",
+      "Get your people:done",
+      "Gaming PC:done",
+      "Pick games:now",
+      "Play:later",
+    ]);
+    expect(await screen.findByText("Everyone can play these")).toBeInTheDocument();
+    expect(screen.getByText("Only some of you have these")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 have it")).toBeInTheDocument();
+    expect(screen.getByText("Crew favourite").parentElement).toHaveTextContent(
+      "Counter-Strike 21 of 2 want it",
+    );
+
+    const tile = screen.getByRole("button", { name: /Counter-Strike 2.*Free, anyone can play/ });
+    expect(tile).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(tile);
+    expect(tile).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText("2 of 2 want it")).toBeInTheDocument());
+    expect(calls).toContainEqual(["POST", "/api/crews/c1/games", JSON.stringify({ appid: 730, want: true })]);
+    // Still picking: the step stays open until they say they are done.
+    expect(screen.getByRole("heading", { name: "What do you want to play on Friday?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Done: 1 game marked/ }));
+    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+  });
+
+  it("says so when there are no games on the PC yet, and lets the player go on", async () => {
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }],
+      "GET /api/crews/c1/games": [200, { games: [], size: 2 }],
+    });
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1")} />
+      </ScreenLang.Provider>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Was willst du am Freitag zocken?" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/Auf dem Gaming-PC der Crew sind noch keine Spiele/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Fertig" }));
+    expect(await screen.findByRole("heading", { name: "Ihr seid spielbereit!" })).toBeInTheDocument();
+  });
+
   it("offers to try again when the crew could not be read", async () => {
     let answer: [number, unknown] = [503, {}];
     fetchFrom({ "GET /api/crews/c1": () => answer });
@@ -980,7 +1207,7 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByRole("heading", { name: "Your crew couldn't be loaded." })).toBeInTheDocument();
     answer = [200, { crew: crewOf() }];
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "When are you playing?" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Pick a day in the calendar" })).toBeInTheDocument();
   });
 });
 

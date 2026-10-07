@@ -66,7 +66,7 @@ test.describe("marketing site", () => {
     await signIn(context, app(baseURL), "76561198000000031");
     await page.goto(`${app(baseURL)}/crews?found=1`);
     await expect(page).toHaveURL(/\/crews\/[\w-]+$/);
-    await expect(page.getByRole("heading", { name: "When are you playing?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Pick a day in the calendar" })).toBeVisible();
   });
 
   test("a crew link the site is given opens the app's own invite page, which previews who asks", async ({

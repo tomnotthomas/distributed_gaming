@@ -5,6 +5,7 @@ import { Host } from "./Host";
 import { Swiff } from "./swiff/Swiff";
 import "./swiff/swiff.css";
 import "./swiff/crew.css";
+import "./swiff/crewPlan.css";
 import "./swiff/seat.css";
 import "./posthog";
 
