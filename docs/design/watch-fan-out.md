@@ -59,10 +59,7 @@ connection lines blanked. So every viewer-hour goes through TURN: 1.125 GB, abou
 past the free tier, and the free tier lasts about 889 viewer-hours a month. The voice lines
 add a few MB.
 
-Without a TURN server there is no watching: asking answers 503 `no-relay`, and the wall
-says plainly that watching is not available yet. It never falls back to direct candidates.
-
-The TURN relay (`fm/swiff-turn-relay`) is not merged. Until it is, the server hands out
-whatever `server/src/ice.ts` is configured with (TURN_KEY_ID and TURN_KEY_API_TOKEN, or
-TURN_URLS). When the relay lands with credentials minted per seat and bound to the session,
-viewer seats need theirs minted the same way, bound to the watch.
+Without a TURN relay that mints credentials there is no watching: asking answers 503
+`no-relay`, and the wall says plainly that watching is not available yet. It never falls
+back to direct candidates. Each viewer's TURN credential is minted for their own watch
+(`server/src/ice.ts`; see docs/system-design/renter.md).
