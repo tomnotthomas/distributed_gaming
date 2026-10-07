@@ -457,6 +457,8 @@ export function GamesStep({
   const [read, setRead] = useState<CrewGames | "failed" | null>(null);
   // Marks still on their way: a read that lands meanwhile must not undo them.
   const pending = useRef(0);
+  // The games whose mark is on its way.
+  const marking = useRef(new Set<number>());
 
   const load = (quiet: boolean) => {
     if (!quiet) setRead(null);
@@ -498,6 +500,9 @@ export function GamesStep({
   const some = read.games.filter((g) => !g.everyone);
 
   const toggle = async (game: CrewGame) => {
+    // One mark per game at a time: a second tap waits for the first to land.
+    if (marking.current.has(game.id)) return;
+    marking.current.add(game.id);
     const want = !game.mine;
     onPick();
     // Shown at once; the answer replaces it.
@@ -517,6 +522,7 @@ export function GamesStep({
     pending.current++;
     const answer = await wantCrewGame(crewId, game.id, want);
     pending.current--;
+    marking.current.delete(game.id);
     if (answer) {
       if (!pending.current) setRead(answer);
     } else {

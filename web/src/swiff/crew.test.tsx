@@ -1288,6 +1288,43 @@ describe("CrewPage: the guided crew page", () => {
     expect(cs).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("waits for a game's mark to land before taking a second tap on it", async () => {
+    const CS = {
+      id: 730,
+      name: "Counter-Strike 2",
+      image: null,
+      free: true,
+      owners: 2,
+      everyone: true,
+      wants: [] as string[],
+      mine: false,
+    };
+    const crew = readyCrew({ session: dated, shared: true });
+    const answers: ((ok: boolean) => void)[] = [];
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+        if (url === "/api/crews/c1") return json({ crew });
+        if (url === "/api/crews/c1/games" && !init?.method) return json({ games: [CS], size: 2 });
+        posts.push(String(init?.body));
+        const ok = await new Promise<boolean>((resolve) => answers.push(resolve));
+        return ok ? json({ games: [CS], size: 2 }) : json({ error: "no" }, 500);
+      }),
+    );
+    render(<CrewPage swiff={atCrew("c1")} />);
+    const cs = await screen.findByRole("button", { name: /^Counter-Strike 2/ });
+    fireEvent.click(cs);
+    fireEvent.click(cs);
+    await waitFor(() => expect(answers).toHaveLength(1));
+    expect(posts).toEqual([JSON.stringify({ appid: 730, want: true })]);
+    await act(async () => answers[0]!(false));
+    expect(await screen.findByText("That didn't work. Try again.")).toBeInTheDocument();
+    expect(cs).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("says so when there are no games on the PC yet, and lets the player go on", async () => {
     fetchFrom({
       "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }],
