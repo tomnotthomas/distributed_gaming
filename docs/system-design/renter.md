@@ -624,8 +624,9 @@ POST /crew-members/:id/remove
 
 The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the
 decided "Sofort-Crew" flow in the launch set's lobby look: `/crews` lists the player's crews
-and founds one in a tap right there (and at once, for a player with none, from
-`/crews?found=1`), then becomes its page; `/crews/<id>` is one crew. The crew page
+and founds one in a tap right there (at once from `/crews?found=1` for a player with none,
+the marketing site's buttons, and from `/crews?found=new` whatever they have, the app's own
+"Start a new crew"), then becomes its page; `/crews/<id>` is one crew. The crew page
 reads "Almost ready." until a PC is in, leads with one next step per state (bring your
 people, with one WhatsApp message that invites and asks who has a gaming PC, through the
 phone's share sheet where there is one and `wa.me` otherwise; set up your gaming PC; play
